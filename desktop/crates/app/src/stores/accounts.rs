@@ -29,6 +29,12 @@ use super::rpc::Rpc;
 pub enum AccountChange {
     /// Sign in to a new account on `server`.
     Add(Box<ServerDraft>),
+    /// Sign in to another account on the saved server `server_id`, through
+    /// its first address (Add Account on This Server); `server` names it.
+    AddOnServer {
+        server_id: String,
+        server: Box<ServerDraft>,
+    },
     /// Leave an addition whose sign-in has not finished.
     CancelAdd,
     Switch {
@@ -189,8 +195,12 @@ pub fn describe(
         (_, O::Unknown) => AccountNotice::UnknownOutcome,
         (_, O::AlreadyActive) => AccountNotice::AlreadyActive { name },
         // The first account needs no notice: the window shows its sign-in.
-        (AccountChange::Add(_), _) if !after.adding_account => return Some(AccountNotice::Added),
-        (AccountChange::Add(_), _) => AccountNotice::AddedNeedsSignIn,
+        (AccountChange::Add(_) | AccountChange::AddOnServer { .. }, _) if !after.adding_account => {
+            return Some(AccountNotice::Added);
+        }
+        (AccountChange::Add(_) | AccountChange::AddOnServer { .. }, _) => {
+            AccountNotice::AddedNeedsSignIn
+        }
         (AccountChange::CancelAdd, O::Unchanged) => AccountNotice::NothingToCancel,
         (AccountChange::CancelAdd, _) => AccountNotice::AddCancelled { name: next },
         (AccountChange::Switch { .. }, O::NeedsSignIn) => {
@@ -429,8 +439,16 @@ impl AccountsStore {
         match change {
             AccountChange::Add(server) => Box::pin(rpc.call::<methods::AccountsAdd>(&AddAccount {
                 server: (**server).clone(),
+                server_id: None,
                 force,
             })),
+            AccountChange::AddOnServer { server_id, server } => {
+                Box::pin(rpc.call::<methods::AccountsAdd>(&AddAccount {
+                    server: (**server).clone(),
+                    server_id: Some(server_id.clone()),
+                    force,
+                }))
+            }
             AccountChange::CancelAdd => Box::pin(rpc.call::<methods::AccountsCancelAdd>(&NoParams)),
             AccountChange::Switch { account_id } => {
                 Box::pin(rpc.call::<methods::AccountsSwitch>(&AccountRef {

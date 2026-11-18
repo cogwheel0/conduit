@@ -823,7 +823,11 @@ final class NotesService {
         debugMessage: 'recordings need the daemon\'s storage',
       );
     }
+    _requireOpen();
     final note = await _storedNote(noteId);
+    // Shutdown may have begun while the note was read: no recorder is made
+    // or handed out that it would not wait for.
+    _requireOpen();
     final existing = _recorders[noteId];
     if (existing != null) {
       existing.note = note ?? existing.note;
@@ -912,6 +916,34 @@ final class NotesService {
       recorder.controller.dispose();
     }
     _recorders.clear();
+  }
+
+  /// Set once [close] begins: from then on no recorder is made or handed
+  /// out, so the recorders it waits for are all there are.
+  bool _closing = false;
+
+  void _requireOpen() {
+    if (_closing) {
+      throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the daemon is stopping',
+      );
+    }
+  }
+
+  /// [dispose], and waits until no recorder writes any more: what a
+  /// recording's upload was writing is written, and nothing comes after.
+  /// Recorders are admitted no more first, so none starts after the
+  /// snapshot below.
+  Future<void> close() async {
+    _closing = true;
+    final controllers = [
+      for (final recorder in _recorders.values) recorder.controller,
+    ];
+    _recorders.clear();
+    await Future.wait([
+      for (final controller in controllers) controller.close(),
+    ]);
   }
 
   /// `notes.changed` whenever the list does: an edit here, a sync, another

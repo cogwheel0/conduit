@@ -2,7 +2,10 @@
 //! sends codes, never prose) and account-change notices.
 
 use conduit_daemon::RpcError;
-use conduit_protocol::{ErrorCode, NoticeLevel, ServerReachability, ServerStatus};
+use conduit_protocol::{
+    ErrorCode, NoticeLevel, ServerAddressCheckResult, ServerAddressProblemCode, ServerReachability,
+    ServerStatus,
+};
 
 use crate::l10n::L10n;
 use crate::stores::accounts::AccountNotice;
@@ -115,6 +118,62 @@ pub fn account_notice(notice: &AccountNotice, l10n: &L10n) -> Option<(NoticeLeve
     })
 }
 
+/// What the window says for an address `problem` of a saved server (the
+/// core's `ServerAddressProblem`): the phone's words for each
+/// (`server_address_wording.dart`). `header` is the header a reserved or
+/// repeated name is about.
+pub fn server_address_problem(
+    problem: ServerAddressProblemCode,
+    header: Option<&str>,
+    l10n: &L10n,
+) -> String {
+    use ServerAddressProblemCode as P;
+    let header = header.unwrap_or_default();
+    match problem {
+        P::AddressEmpty => l10n.server_url_empty(),
+        P::InvalidAddress => l10n.invalid_url_format(),
+        P::UnsupportedScheme => l10n.only_http_https(),
+        P::MissingHost => l10n.server_address_required(),
+        P::PortOutOfRange => l10n.port_range(),
+        P::InvalidIpAddress => l10n.invalid_ip_format(),
+        P::HeaderFieldMissing => l10n.auth_field_required(),
+        P::HeaderNameTooLong => l10n.header_name_too_long(),
+        P::HeaderNameInvalidCharacters => l10n.header_name_invalid_chars(),
+        P::HeaderNameReserved => l10n.header_name_reserved(header),
+        P::HeaderValueTooLong => l10n.header_value_too_long(),
+        P::HeaderValueInvalidCharacters => l10n.header_value_invalid_chars(),
+        P::HeaderValueUnsafe => l10n.header_value_unsafe(),
+        P::HeaderAlreadyAdded => l10n.header_already_exists(header),
+        P::TooManyHeaders => l10n.max_headers_reached_detail(),
+        P::MutualTlsIncomplete => l10n.mutual_tls_missing_credential_pair(),
+        P::CertificatePemRequired => l10n.mutual_tls_certificate_pem_required(),
+        P::PrivateKeyPemRequired => l10n.mutual_tls_private_key_pem_required(),
+        P::PemFileUnreadable => l10n.mutual_tls_file_read_failed(),
+        P::MutualTlsRefused => l10n.mutual_tls_handshake_failed(),
+        P::MutualTlsConnectionClosed => l10n.mutual_tls_connection_closed(),
+        P::Unreachable => l10n.could_not_connect_generic(),
+        P::NotOpenWebUi => l10n.server_not_open_web_ui(),
+        P::ServerUnavailable => l10n.server_error_unavailable(),
+        P::ServerError => l10n.server_error_generic(),
+        P::CertificateRejected => l10n.security_certificate_error(),
+        P::DifferentServer => l10n.accounts_address_different_server(),
+        P::NeedsSignIn => l10n.accounts_address_needs_sign_in(),
+        P::ProxySessionRevoked => l10n.proxy_auth_failed(),
+        P::ProxyVerificationFailed => l10n.proxy_server_verification_failed(),
+        P::ServerMissing | P::Unknown => l10n.error_message(),
+    }
+}
+
+/// What the window says for a refused address check: its problem's words,
+/// else the error's own (sanitized) text.
+pub fn server_address_refusal(found: &ServerAddressCheckResult, l10n: &L10n) -> String {
+    match (&found.problem, &found.error_text) {
+        (Some(problem), _) => server_address_problem(*problem, found.header_name.as_deref(), l10n),
+        (None, Some(text)) => text.clone(),
+        (None, None) => l10n.error_message(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,6 +223,67 @@ mod tests {
         )
         .unwrap();
         assert!(t.contains("Avery") && t.contains("Blake"), "{t}");
+    }
+
+    #[test]
+    fn every_address_problem_is_worded_as_on_the_phone() {
+        use ServerAddressProblemCode as P;
+        let l10n = L10n::new("en");
+        let all = [
+            P::AddressEmpty,
+            P::InvalidAddress,
+            P::UnsupportedScheme,
+            P::MissingHost,
+            P::PortOutOfRange,
+            P::InvalidIpAddress,
+            P::HeaderFieldMissing,
+            P::HeaderNameTooLong,
+            P::HeaderNameInvalidCharacters,
+            P::HeaderNameReserved,
+            P::HeaderValueTooLong,
+            P::HeaderValueInvalidCharacters,
+            P::HeaderValueUnsafe,
+            P::HeaderAlreadyAdded,
+            P::TooManyHeaders,
+            P::MutualTlsIncomplete,
+            P::CertificatePemRequired,
+            P::PrivateKeyPemRequired,
+            P::PemFileUnreadable,
+            P::MutualTlsRefused,
+            P::MutualTlsConnectionClosed,
+            P::Unreachable,
+            P::NotOpenWebUi,
+            P::ServerUnavailable,
+            P::ServerError,
+            P::CertificateRejected,
+            P::ServerMissing,
+            P::DifferentServer,
+            P::NeedsSignIn,
+            P::ProxySessionRevoked,
+            P::ProxyVerificationFailed,
+        ];
+        for p in all {
+            let text = server_address_problem(p, Some("X-Lab"), &l10n);
+            assert!(!text.is_empty() && !text.contains('{'), "{p:?}: {text}");
+        }
+        assert!(
+            server_address_problem(P::HeaderNameReserved, Some("Authorization"), &l10n)
+                .contains("Authorization")
+        );
+        assert_eq!(
+            server_address_problem(P::DifferentServer, None, &l10n),
+            "This address reaches a different server, or a different account on it."
+        );
+        // An error the server put in words keeps them.
+        let found = ServerAddressCheckResult {
+            outcome: conduit_protocol::ServerAddressCheckOutcome::Unusable,
+            check_id: None,
+            url: None,
+            problem: None,
+            error_text: Some("TLS alert 42".into()),
+            header_name: None,
+        };
+        assert_eq!(server_address_refusal(&found, &l10n), "TLS alert 42");
     }
 
     #[test]

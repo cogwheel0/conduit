@@ -29,8 +29,9 @@ use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
 use crate::stores::accounts::AccountChange;
 use crate::views::forms::{
-    self, HeaderError, HeaderRow, PemError, PemFile, PemLabels, field, form_buttons, form_error,
-    form_group, header_rows, headers_from_rows, normalize_url, pem_picker, pick_pem,
+    self, HeaderError, HeaderRow, PemError, PemFile, PemLabels, field, field_locked, form_buttons,
+    form_error, form_group, header_rows_locked, headers_from_rows, normalize_url,
+    pem_picker_locked, pick_pem,
 };
 
 fn labels(l10n: &L10n) -> PemLabels {
@@ -48,25 +49,302 @@ pub enum ServerFormEvent {
     Connected,
     /// Back (onboarding) or Cancel (adding an account).
     Back,
+    /// Add Account › Hermes Agent: the Hermes connection editor is next.
+    AddHermes,
+    /// Add Account › Model Provider: the provider editor is next.
+    AddDirect,
 }
+
+/// The Advanced settings of a server's address: an unverified certificate
+/// trusted or not, a client certificate with its key and the key's
+/// password, and custom headers. The server form shows them, and so does
+/// the editor of a saved server's address ([`crate::views::settings::server_sheet`]).
+pub struct AdvancedFields {
+    pub self_signed: bool,
+    pub certificate: Option<PemFile>,
+    pub private_key: Option<PemFile>,
+    pub key_password: Entity<InputState>,
+    pub headers: Vec<HeaderRow>,
+    pub header_error: Option<String>,
+    /// The custom header row `header_error` is about.
+    pub header_error_row: Option<usize>,
+}
+
+impl AdvancedFields {
+    pub fn new<V: 'static>(window: &mut Window, cx: &mut Context<V>) -> Self {
+        let l10n = cx.l10n().clone();
+        Self {
+            self_signed: false,
+            certificate: None,
+            private_key: None,
+            key_password: forms::input(l10n.desktop_optional(), true, window, cx),
+            headers: vec![],
+            header_error: None,
+            header_error_row: None,
+        }
+    }
+
+    /// Back to nothing set.
+    pub fn clear(&mut self, window: &mut Window, cx: &mut App) {
+        self.key_password
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        self.headers.clear();
+        self.certificate = None;
+        self.private_key = None;
+        self.self_signed = false;
+        self.header_error = None;
+        self.header_error_row = None;
+    }
+
+    /// Adds an empty header row.
+    pub fn add_header<V: 'static>(&mut self, window: &mut Window, cx: &mut Context<V>) {
+        // The fields are labelled; no placeholders restating the labels.
+        let name = forms::input("", false, window, cx);
+        let value = forms::input("", true, window, cx);
+        self.headers.push(HeaderRow { name, value });
+        self.header_error = None;
+        self.header_error_row = None;
+    }
+}
+
+/// A view showing [`AdvancedFields`].
+pub trait HasAdvanced: Sized + 'static {
+    fn advanced(&self) -> &AdvancedFields;
+    fn advanced_mut(&mut self) -> &mut AdvancedFields;
+
+    /// Why a picked certificate or key cannot be used, or None once one
+    /// is taken.
+    fn file_problem(&mut self, problem: Option<String>);
+
+    /// The certificate (or with `key`, the key) was cleared.
+    fn file_cleared(&mut self, key: bool) {
+        let fields = self.advanced_mut();
+        if key {
+            fields.private_key = None;
+        } else {
+            fields.certificate = None;
+        }
+    }
+
+    /// Anything in the Advanced settings changed.
+    fn advanced_changed(&mut self) {}
+
+    /// Whether the Advanced settings take no input now: a save of the form
+    /// is out, so what it answers is the form as it stands.
+    fn locked(&self) -> bool {
+        false
+    }
+}
+
+/// Picks a certificate (or with `key`, a private key) with the open panel.
+pub fn choose_pem<V: HasAdvanced>(key: bool, window: &mut Window, cx: &mut Context<V>) {
+    let marker = if key { "PRIVATE KEY" } else { "CERTIFICATE" };
+    let pick = pick_pem(marker, cx);
+    cx.spawn_in(
+        window,
+        async move |this: WeakEntity<V>, cx: &mut AsyncWindowContext| {
+            let picked = pick.await;
+            let _ = this.update(cx, |s, cx| {
+                let l10n = cx.l10n().clone();
+                match picked {
+                    Ok(Some(file)) => {
+                        if key {
+                            s.advanced_mut().private_key = Some(file);
+                        } else {
+                            s.advanced_mut().certificate = Some(file);
+                        }
+                        s.file_problem(None);
+                        s.advanced_changed();
+                    }
+                    Ok(None) => {}
+                    Err(PemError::NotPem) => s.file_problem(Some(if key {
+                        l10n.mutual_tls_private_key_pem_required()
+                    } else {
+                        l10n.mutual_tls_certificate_pem_required()
+                    })),
+                    Err(PemError::Unreadable(e)) => s.file_problem(Some(e)),
+                }
+                cx.notify();
+            });
+        },
+    )
+    .detach();
+}
+
+/// The Advanced settings' rows, in a group.
+pub fn advanced_section<V: HasAdvanced>(
+    view: &V,
+    window: &mut Window,
+    cx: &mut Context<V>,
+) -> AnyElement {
+    let l10n = cx.l10n().clone();
+    let fields = view.advanced();
+    let locked = view.locked();
+    let this = cx.entity().downgrade();
+    let toggle = {
+        let this = this.clone();
+        Rc::new(
+            move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |s, cx| {
+                    let fields = s.advanced_mut();
+                    fields.self_signed = !fields.self_signed;
+                    s.advanced_changed();
+                    cx.notify();
+                });
+            },
+        )
+    };
+    let pem = |key: bool| -> conduit_components::views::kit::ClickHandler {
+        let this = this.clone();
+        Rc::new(move |_, window, cx| {
+            let _ = this.update(cx, |_, cx| choose_pem::<V>(key, window, cx));
+        })
+    };
+    let clear = |key: bool| -> conduit_components::views::kit::ClickHandler {
+        let this = this.clone();
+        Rc::new(move |_, _, cx| {
+            let _ = this.update(cx, |s, cx| {
+                s.file_cleared(key);
+                s.advanced_changed();
+                cx.notify();
+            });
+        })
+    };
+    let remove_header = {
+        let this = this.clone();
+        Rc::new(move |i: usize, _: &mut Window, cx: &mut App| {
+            let _ = this.update(cx, |s, cx| {
+                let fields = s.advanced_mut();
+                if i < fields.headers.len() {
+                    fields.headers.remove(i);
+                }
+                fields.header_error = None;
+                fields.header_error_row = None;
+                s.advanced_changed();
+                cx.notify();
+            });
+        })
+    };
+    let add_header = {
+        let this = this.clone();
+        Rc::new(
+            move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
+                let _ = this.update(cx, |s, cx| {
+                    s.advanced_mut().add_header(window, cx);
+                    s.advanced_changed();
+                    cx.notify();
+                });
+            },
+        )
+    };
+    let mut rows: Vec<AnyElement> = vec![
+        setting_row(
+            l10n.desktop_allow_unverified_certificate(),
+            Some(l10n.desktop_self_signed_help().into()),
+            Switch::new(
+                "self-signed",
+                l10n.desktop_allow_unverified_certificate(),
+                fields.self_signed,
+            )
+            .disabled(locked)
+            .on_click(toggle),
+            cx,
+        )
+        .into_any_element(),
+        setting_row(
+            l10n.mutual_tls_select_certificate(),
+            Some(l10n.desktop_client_certificate_help().into()),
+            pem_picker_locked(
+                "mtls-certificate",
+                fields.certificate.as_ref(),
+                labels(&l10n),
+                pem(false),
+                clear(false),
+                locked,
+                cx,
+            ),
+            cx,
+        )
+        .into_any_element(),
+        setting_row(
+            l10n.desktop_private_key(),
+            None,
+            pem_picker_locked(
+                "mtls-private-key",
+                fields.private_key.as_ref(),
+                labels(&l10n),
+                pem(true),
+                clear(true),
+                locked,
+                cx,
+            ),
+            cx,
+        )
+        .into_any_element(),
+    ];
+    if fields.private_key.is_some() {
+        rows.push(
+            field_locked(
+                l10n.desktop_private_key_password(),
+                &fields.key_password,
+                None,
+                None,
+                locked,
+                window,
+                cx,
+            )
+            .into_any_element(),
+        );
+    }
+    rows.push(
+        div()
+            .px(px(12.))
+            .py(px(8.))
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .child(
+                setting_row(
+                    l10n.desktop_custom_headers(),
+                    Some(l10n.desktop_custom_headers_help().into()),
+                    Button::new("add-header", l10n.desktop_add_header())
+                        .icon(IconName::Plus)
+                        .disabled(locked || fields.headers.len() >= MAX_HEADERS)
+                        .on_click(add_header),
+                    cx,
+                )
+                .px_0(),
+            )
+            .child(header_rows_locked(
+                &fields.headers,
+                l10n.desktop_header_name().into(),
+                l10n.desktop_header_value().into(),
+                l10n.desktop_remove_header().into(),
+                remove_header,
+                locked,
+                cx,
+            ))
+            .when_some(fields.header_error.clone(), |d, e| {
+                d.child(form_error("header-error", e, cx))
+            })
+            .into_any_element(),
+    );
+    grouped(rows, cx).into_any_element()
+}
+
+/// The most custom headers an address carries (the core's limit).
+pub const MAX_HEADERS: usize = 10;
 
 pub struct ServerForm {
     stores: Stores,
     pub url: Entity<InputState>,
     pub name: Entity<InputState>,
-    pub self_signed: bool,
+    pub adv: AdvancedFields,
     pub advanced: bool,
-    pub certificate: Option<PemFile>,
-    pub private_key: Option<PemFile>,
-    pub key_password: Entity<InputState>,
-    pub headers: Vec<HeaderRow>,
     /// Connecting and checking the server.
     pub busy: bool,
     pub error: Option<String>,
     pub url_error: Option<String>,
-    pub header_error: Option<String>,
-    /// The custom header row `header_error` is about.
-    header_error_row: Option<usize>,
     /// Started from Accounts while another account is in use: Back reads
     /// "Cancel".
     pub adding: bool,
@@ -84,7 +362,7 @@ impl ServerForm {
         let url = forms::input(l10n.server_url_hint(), false, window, cx);
         // An example name, not the label again.
         let name = forms::input(l10n.desktop_server_name_placeholder(), false, window, cx);
-        let key_password = forms::input(l10n.desktop_optional(), true, window, cx);
+        let adv = AdvancedFields::new(window, cx);
         let submit_on_enter = |this: &mut Self,
                                _: &Entity<InputState>,
                                e: &InputEvent,
@@ -110,17 +388,11 @@ impl ServerForm {
             stores,
             url,
             name,
-            self_signed: false,
+            adv,
             advanced: false,
-            certificate: None,
-            private_key: None,
-            key_password,
-            headers: vec![],
             busy: false,
             error: None,
             url_error: None,
-            header_error: None,
-            header_error_row: None,
             adding: false,
             sheet: false,
             _subscriptions: subscriptions,
@@ -134,18 +406,14 @@ impl ServerForm {
 
     /// Clears the form for another use (onboarding again, or an addition).
     pub fn reset(&mut self, adding: bool, window: &mut Window, cx: &mut Context<Self>) {
-        for input in [&self.url, &self.name, &self.key_password] {
+        for input in [&self.url, &self.name] {
             input.update(cx, |i, cx| i.set_value("", window, cx));
         }
-        self.headers.clear();
-        self.certificate = None;
-        self.private_key = None;
-        self.self_signed = false;
+        self.adv.clear(window, cx);
         self.advanced = false;
         self.busy = false;
         self.error = None;
         self.url_error = None;
-        self.header_error = None;
         self.adding = adding;
         cx.notify();
     }
@@ -167,6 +435,7 @@ impl ServerForm {
             }
         };
         let rows: Vec<(String, String)> = self
+            .adv
             .headers
             .iter()
             .map(|r| (forms::text(&r.name, cx), forms::text(&r.value, cx)))
@@ -174,13 +443,13 @@ impl ServerForm {
         let headers = match headers_from_rows(&rows) {
             Ok(h) => Some(h),
             Err(e) => {
-                self.header_error_row = match &e {
+                self.adv.header_error_row = match &e {
                     HeaderError::MissingName(i) | HeaderError::InvalidName(i) => Some(*i),
                     HeaderError::Duplicate(name) => rows
                         .iter()
                         .rposition(|(n, _)| n.trim().eq_ignore_ascii_case(name)),
                 };
-                self.header_error = Some(match e {
+                self.adv.header_error = Some(match e {
                     HeaderError::MissingName(_) | HeaderError::InvalidName(_) => {
                         l10n.header_name_invalid_chars()
                     }
@@ -193,7 +462,8 @@ impl ServerForm {
         cx.notify();
         let (url, headers) = (url?, headers?);
         let name = forms::text(&self.name, cx);
-        let password = forms::raw(&self.key_password, cx);
+        let password = forms::raw(&self.adv.key_password, cx);
+        let adv = &self.adv;
         Some(ServerDraft {
             id: None,
             name: if name.is_empty() {
@@ -202,11 +472,11 @@ impl ServerForm {
                 name
             },
             url,
-            allow_self_signed_certificates: self.self_signed,
-            mtls_certificate_chain_pem: self.certificate.as_ref().map(|f| f.pem.clone()),
-            mtls_certificate_label: self.certificate.as_ref().map(|f| f.label.clone()),
-            mtls_private_key_pem: self.private_key.as_ref().map(|f| f.pem.clone()),
-            mtls_private_key_label: self.private_key.as_ref().map(|f| f.label.clone()),
+            allow_self_signed_certificates: adv.self_signed,
+            mtls_certificate_chain_pem: adv.certificate.as_ref().map(|f| f.pem.clone()),
+            mtls_certificate_label: adv.certificate.as_ref().map(|f| f.label.clone()),
+            mtls_private_key_pem: adv.private_key.as_ref().map(|f| f.pem.clone()),
+            mtls_private_key_label: adv.private_key.as_ref().map(|f| f.label.clone()),
             mtls_private_key_password: (!password.is_empty()).then_some(password),
             clear_mutual_tls: false,
             custom_headers: (!headers.is_empty()).then_some(headers),
@@ -220,7 +490,7 @@ impl ServerForm {
         }
         self.error = None;
         self.url_error = None;
-        self.header_error = None;
+        self.adv.header_error = None;
         let Some(draft) = self.draft(cx) else {
             self.focus_invalid(window, cx);
             return;
@@ -351,199 +621,29 @@ impl ServerForm {
     /// it did not answer as Open WebUI at).
     fn focus_invalid(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let header = self
+            .adv
             .header_error
             .as_ref()
             .filter(|_| self.url_error.is_none())
-            .and(self.header_error_row)
-            .and_then(|i| self.headers.get(i))
+            .and(self.adv.header_error_row)
+            .and_then(|i| self.adv.headers.get(i))
             .map(|row| row.name.clone());
         let field = header.unwrap_or_else(|| self.url.clone());
         forms::focus_invalid(&field, window, cx);
     }
+}
 
-    fn choose_pem(&mut self, key: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let marker = if key { "PRIVATE KEY" } else { "CERTIFICATE" };
-        let pick = pick_pem(marker, cx);
-        cx.spawn_in(
-            window,
-            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let picked = pick.await;
-                let _ = this.update(cx, |s, cx| {
-                    let l10n = cx.l10n().clone();
-                    match picked {
-                        Ok(Some(file)) => {
-                            if key {
-                                s.private_key = Some(file);
-                            } else {
-                                s.certificate = Some(file);
-                            }
-                            s.error = None;
-                        }
-                        Ok(None) => {}
-                        Err(PemError::NotPem) => {
-                            s.error = Some(if key {
-                                l10n.mutual_tls_private_key_pem_required()
-                            } else {
-                                l10n.mutual_tls_certificate_pem_required()
-                            })
-                        }
-                        Err(PemError::Unreadable(e)) => s.error = Some(e),
-                    }
-                    cx.notify();
-                });
-            },
-        )
-        .detach();
+impl HasAdvanced for ServerForm {
+    fn advanced(&self) -> &AdvancedFields {
+        &self.adv
     }
 
-    fn add_header(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // The fields are labelled; no placeholders restating the labels.
-        let name = forms::input("", false, window, cx);
-        let value = forms::input("", true, window, cx);
-        self.headers.push(HeaderRow { name, value });
-        self.header_error = None;
-        cx.notify();
+    fn advanced_mut(&mut self) -> &mut AdvancedFields {
+        &mut self.adv
     }
 
-    fn advanced_section(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let l10n = cx.l10n().clone();
-        let this = cx.entity().downgrade();
-        let toggle = {
-            let this = this.clone();
-            Rc::new(
-                move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-                    let _ = this.update(cx, |s, cx| {
-                        s.self_signed = !s.self_signed;
-                        cx.notify();
-                    });
-                },
-            )
-        };
-        let pem = |key: bool| -> conduit_components::views::kit::ClickHandler {
-            let this = this.clone();
-            Rc::new(move |_, window, cx| {
-                let _ = this.update(cx, |s, cx| s.choose_pem(key, window, cx));
-            })
-        };
-        let clear = |key: bool| -> conduit_components::views::kit::ClickHandler {
-            let this = this.clone();
-            Rc::new(move |_, _, cx| {
-                let _ = this.update(cx, |s, cx| {
-                    if key {
-                        s.private_key = None;
-                    } else {
-                        s.certificate = None;
-                    }
-                    cx.notify();
-                });
-            })
-        };
-        let remove_header = {
-            let this = this.clone();
-            Rc::new(move |i: usize, _: &mut Window, cx: &mut App| {
-                let _ = this.update(cx, |s, cx| {
-                    if i < s.headers.len() {
-                        s.headers.remove(i);
-                    }
-                    cx.notify();
-                });
-            })
-        };
-        let add_header = {
-            let this = this.clone();
-            Rc::new(
-                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut App| {
-                    let _ = this.update(cx, |s, cx| s.add_header(window, cx));
-                },
-            )
-        };
-        let mut rows: Vec<AnyElement> = vec![
-            setting_row(
-                l10n.desktop_allow_unverified_certificate(),
-                Some(l10n.desktop_self_signed_help().into()),
-                Switch::new(
-                    "self-signed",
-                    l10n.desktop_allow_unverified_certificate(),
-                    self.self_signed,
-                )
-                .on_click(toggle),
-                cx,
-            )
-            .into_any_element(),
-            setting_row(
-                l10n.mutual_tls_select_certificate(),
-                Some(l10n.desktop_client_certificate_help().into()),
-                pem_picker(
-                    "mtls-certificate",
-                    self.certificate.as_ref(),
-                    labels(&l10n),
-                    pem(false),
-                    clear(false),
-                    cx,
-                ),
-                cx,
-            )
-            .into_any_element(),
-            setting_row(
-                l10n.desktop_private_key(),
-                None,
-                pem_picker(
-                    "mtls-private-key",
-                    self.private_key.as_ref(),
-                    labels(&l10n),
-                    pem(true),
-                    clear(true),
-                    cx,
-                ),
-                cx,
-            )
-            .into_any_element(),
-        ];
-        if self.private_key.is_some() {
-            rows.push(
-                field(
-                    l10n.desktop_private_key_password(),
-                    &self.key_password,
-                    None,
-                    None,
-                    window,
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-        rows.push(
-            div()
-                .px(px(12.))
-                .py(px(8.))
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(
-                    setting_row(
-                        l10n.desktop_custom_headers(),
-                        Some(l10n.desktop_custom_headers_help().into()),
-                        Button::new("add-header", l10n.desktop_add_header())
-                            .icon(IconName::Plus)
-                            .on_click(add_header),
-                        cx,
-                    )
-                    .px_0(),
-                )
-                .child(header_rows(
-                    &self.headers,
-                    l10n.desktop_header_name().into(),
-                    l10n.desktop_header_value().into(),
-                    l10n.desktop_remove_header().into(),
-                    remove_header,
-                    cx,
-                ))
-                .when_some(self.header_error.clone(), |d, e| {
-                    d.child(form_error("header-error", e, cx))
-                })
-                .into_any_element(),
-        );
-        grouped(rows, cx).into_any_element()
+    fn file_problem(&mut self, problem: Option<String>) {
+        self.error = problem;
     }
 }
 
@@ -591,7 +691,7 @@ impl Render for ServerForm {
         } else {
             l10n.desktop_connect_to_server()
         };
-        let advanced = self.advanced.then(|| self.advanced_section(window, cx));
+        let advanced = self.advanced.then(|| advanced_section(&*self, window, cx));
         div()
             .id("server-form")
             .role(Role::Form)

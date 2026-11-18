@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.69.0";
+pub const PROTOCOL_VERSION: &str = "1.70.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -358,6 +358,11 @@ pub struct AddAccount {
     /// account is always a new entry, and one on a saved server's address
     /// joins that server.
     pub server: ServerDraft,
+    /// Add Account on This Server: the new account joins this saved server,
+    /// through its first address with that address's settings, and
+    /// `server` only names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
     /// Adding makes the new account active, which leaves the account in use
     /// and stops any answer still being written there. Without this the
     /// change is refused while one is, with `blockedByActiveReply`.
@@ -971,10 +976,11 @@ pub struct ExternalAuthCompletion {
     /// cookie session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
-    /// For `auth.renewProxy`, where it is required: the account whose
-    /// sign-in window this was (its id, as `accounts.list` names it).
-    /// Refused with `auth.sessionExpired` once another account is in charge,
-    /// or when the captured session is another user's.
+    /// The account whose sign-in window this was (its id, as `accounts.list`
+    /// names it): required for `auth.renewProxy`, and checked by
+    /// `auth.completeExternal` when given. Refused with `auth.sessionExpired`
+    /// once another account is in charge, or (renewal) when the captured
+    /// session is another user's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }
@@ -11292,6 +11298,343 @@ fn default_server_status_is_version_supported() -> bool {
     true
 }
 
+/// Why an address of a saved server cannot be used, or why it was not
+/// saved: the core's `ServerAddressProblem`, which each app words itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServerAddressProblemCode {
+    #[serde(rename = "addressEmpty")]
+    AddressEmpty,
+    #[serde(rename = "invalidAddress")]
+    InvalidAddress,
+    #[serde(rename = "unsupportedScheme")]
+    UnsupportedScheme,
+    #[serde(rename = "missingHost")]
+    MissingHost,
+    #[serde(rename = "portOutOfRange")]
+    PortOutOfRange,
+    #[serde(rename = "invalidIpAddress")]
+    InvalidIpAddress,
+    #[serde(rename = "headerFieldMissing")]
+    HeaderFieldMissing,
+    #[serde(rename = "headerNameTooLong")]
+    HeaderNameTooLong,
+    #[serde(rename = "headerNameInvalidCharacters")]
+    HeaderNameInvalidCharacters,
+    /// The header is one the app sets itself; `ServerAddressCheckResult.headerName`
+    /// names it.
+    #[serde(rename = "headerNameReserved")]
+    HeaderNameReserved,
+    #[serde(rename = "headerValueTooLong")]
+    HeaderValueTooLong,
+    #[serde(rename = "headerValueInvalidCharacters")]
+    HeaderValueInvalidCharacters,
+    #[serde(rename = "headerValueUnsafe")]
+    HeaderValueUnsafe,
+    /// Two headers of one name; `ServerAddressCheckResult.headerName` names it.
+    #[serde(rename = "headerAlreadyAdded")]
+    HeaderAlreadyAdded,
+    #[serde(rename = "tooManyHeaders")]
+    TooManyHeaders,
+    #[serde(rename = "mutualTlsIncomplete")]
+    MutualTlsIncomplete,
+    #[serde(rename = "certificatePemRequired")]
+    CertificatePemRequired,
+    #[serde(rename = "privateKeyPemRequired")]
+    PrivateKeyPemRequired,
+    #[serde(rename = "pemFileUnreadable")]
+    PemFileUnreadable,
+    #[serde(rename = "mutualTlsRefused")]
+    MutualTlsRefused,
+    #[serde(rename = "mutualTlsConnectionClosed")]
+    MutualTlsConnectionClosed,
+    #[serde(rename = "unreachable")]
+    Unreachable,
+    #[serde(rename = "notOpenWebUi")]
+    NotOpenWebUi,
+    #[serde(rename = "serverUnavailable")]
+    ServerUnavailable,
+    #[serde(rename = "serverError")]
+    ServerError,
+    #[serde(rename = "certificateRejected")]
+    CertificateRejected,
+    #[serde(rename = "serverMissing")]
+    ServerMissing,
+    #[serde(rename = "differentServer")]
+    DifferentServer,
+    #[serde(rename = "needsSignIn")]
+    NeedsSignIn,
+    #[serde(rename = "proxySessionRevoked")]
+    ProxySessionRevoked,
+    /// Signed in through the proxy, the address still did not answer as an
+    /// Open WebUI server. The desktop's own: the phone's connection page says
+    /// it in its own words.
+    #[serde(rename = "proxyVerificationFailed")]
+    ProxyVerificationFailed,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// One address a saved Open WebUI server is reached at, in the order they
+/// are tried. As `ServerSummary`, no secret: header names, not values;
+/// whether a client certificate and its key are saved, not the key.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressDto {
+    pub id: String,
+    pub url: String,
+    /// What the user called it ("Home network"), or null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The address the active account reaches the server through now.
+    #[serde(default)]
+    pub in_use: bool,
+    #[serde(default)]
+    pub allow_self_signed_certificates: bool,
+    /// The custom headers sent to it, by name; their values stay with the
+    /// daemon. The proxy cookie an account keeps here is not one of them.
+    #[serde(default)]
+    pub custom_header_names: Vec<String>,
+    #[serde(default)]
+    pub has_mutual_tls_credentials: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_certificate_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_private_key_label: Option<String>,
+    #[serde(default)]
+    pub has_private_key_password: bool,
+}
+
+/// Reply to `servers.addresses.list`: a saved server's addresses.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddresses {
+    pub server_id: String,
+    /// The server's name, as its page is titled.
+    pub name: String,
+    #[serde(default)]
+    pub addresses: Vec<ServerAddressDto>,
+    /// Whether an address can be removed: one is always left.
+    #[serde(default)]
+    pub removable: bool,
+}
+
+/// Params naming a saved Open WebUI server (not an account).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerRef {
+    pub server_id: String,
+}
+
+/// A custom header in an address's form. A null `value` keeps the value
+/// saved under that name, which the window was never given.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressHeader {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
+/// What an address's editor holds. Editing a saved address, a null
+/// certificate, key or key password keeps the saved one, and
+/// `clearMutualTls` removes them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressForm {
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub allow_self_signed_certificates: bool,
+    #[serde(default)]
+    pub headers: Vec<ServerAddressHeader>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_certificate_chain_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_certificate_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_private_key_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_private_key_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtls_private_key_password: Option<String>,
+    #[serde(default)]
+    pub clear_mutual_tls: bool,
+}
+
+/// Params for `servers.addresses.check`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressCheckRequest {
+    pub server_id: String,
+    /// The address being edited; null adds one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint_id: Option<String>,
+    pub form: ServerAddressForm,
+}
+
+/// What checking an address found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServerAddressCheckOutcome {
+    /// It answered as an Open WebUI server: `servers.addresses.save` next.
+    #[serde(rename = "answered")]
+    Answered,
+    /// A sign-in proxy in front of it wants its own sign-in first, in a
+    /// window at `ServerAddressCheckResult.url`; then
+    /// `servers.addresses.save` with what that window captured.
+    #[serde(rename = "behindProxy")]
+    BehindProxy,
+    /// It cannot be used: `ServerAddressCheckResult.problem` or
+    /// `ServerAddressCheckResult.errorText` says why.
+    #[serde(rename = "unusable")]
+    Unusable,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `servers.addresses.check`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressCheckResult {
+    pub outcome: ServerAddressCheckOutcome,
+    /// What `servers.addresses.save` takes, once answered or behind a proxy.
+    /// The daemon keeps the checked address under it for a while.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_id: Option<String>,
+    /// The address as it will be saved (a scheme added, a redirect to https
+    /// followed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<ServerAddressProblemCode>,
+    /// The error's own words, its secrets taken out, when no `problem`
+    /// says it better.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_text: Option<String>,
+    /// The header a header problem is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_name: Option<String>,
+}
+
+/// What saving an address asks the user first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServerAddressConfirmation {
+    /// An account's session goes to a host it has not reached before, to
+    /// prove the address is this server (`ServerAddressSaveResult.host`).
+    #[serde(rename = "sendSession")]
+    SendSession,
+    /// A reply arrives through the address in use, and changing or removing
+    /// it stops the reply.
+    #[serde(rename = "replyInProgress")]
+    ReplyInProgress,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `servers.addresses.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressSaveRequest {
+    pub check_id: String,
+    /// The user agreed to send a session to the new host.
+    #[serde(default)]
+    pub send_session_confirmed: bool,
+    /// The user agreed to stop the reply arriving through the address in
+    /// use.
+    #[serde(default)]
+    pub stop_replies: bool,
+    /// What the proxy's sign-in window captured, for an address that was
+    /// behind a proxy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ExternalAuthCompletion>,
+}
+
+/// What an address change came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ServerAddressChangeOutcome {
+    #[serde(rename = "done")]
+    Done,
+    /// Nothing changed: `ServerAddressSaveResult.problem` says why, or with
+    /// none, the user chose not to go on.
+    #[serde(rename = "notSaved")]
+    NotSaved,
+    /// Ask `ServerAddressSaveResult.confirmation` first, then call again
+    /// with the user's answer.
+    #[serde(rename = "needsConfirmation")]
+    NeedsConfirmation,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Reply to `servers.addresses.save`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressSaveResult {
+    pub outcome: ServerAddressChangeOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<ServerAddressConfirmation>,
+    /// The host `ServerAddressConfirmation.sendSession` names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<ServerAddressProblemCode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_text: Option<String>,
+    /// The server's addresses after the change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub addresses: Option<ServerAddresses>,
+}
+
+/// Params for `servers.addresses.remove`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressRemoveRequest {
+    pub server_id: String,
+    pub endpoint_id: String,
+    /// The user agreed to stop the reply arriving through it.
+    #[serde(default)]
+    pub stop_replies: bool,
+}
+
+/// Params for `servers.addresses.reorder`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressReorderRequest {
+    pub server_id: String,
+    /// Address ids in the order to try them. Any not named keep their place
+    /// after these; an id no longer there is passed over.
+    #[serde(default)]
+    pub order: Vec<String>,
+}
+
+/// Reply to `servers.addresses.remove` and `servers.addresses.reorder`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerAddressEditResult {
+    pub outcome: ServerAddressChangeOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<ServerAddressConfirmation>,
+    pub addresses: ServerAddresses,
+}
+
+/// Payload of `servers.changed`: a saved server's name or addresses
+/// changed, or which of them is in use. Fetch `servers.addresses.list`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServersChanged {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_id: Option<String>,
+}
+
 /// Light, dark, or whatever the OS says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AppThemeMode {
@@ -14809,7 +15152,9 @@ pub mod methods {
 
     /// Edits the server an account is on: name, address, TLS and headers.
     /// Secret fields left null keep their value. Every account on that server
-    /// keeps its session.
+    /// keeps its session. The id may also be a saved server's (its
+    /// `AccountSummary.serverId`), which renames it. An address change goes
+    /// through `servers.addresses.*`, which check it first.
     ///
     /// `servers.update`: ServerDraft -> ServerSummary.
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -14819,6 +15164,71 @@ pub mod methods {
         const NAME: &'static str = "servers.update";
         type Params = super::ServerDraft;
         type Result = super::ServerSummary;
+    }
+
+    /// A saved server's addresses, in the order they are tried, and which one
+    /// is in use.
+    ///
+    /// `servers.addresses.list`: ServerRef -> ServerAddresses.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ServersAddressesList;
+
+    impl RpcMethod for ServersAddressesList {
+        const NAME: &'static str = "servers.addresses.list";
+        type Params = super::ServerRef;
+        type Result = super::ServerAddresses;
+    }
+
+    /// Checks an address being added to a saved server, or edited, for an
+    /// Open WebUI server that answers. Nothing is saved.
+    ///
+    /// `servers.addresses.check`: ServerAddressCheckRequest -> ServerAddressCheckResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ServersAddressesCheck;
+
+    impl RpcMethod for ServersAddressesCheck {
+        const NAME: &'static str = "servers.addresses.check";
+        type Params = super::ServerAddressCheckRequest;
+        type Result = super::ServerAddressCheckResult;
+    }
+
+    /// Saves a checked address, once it is shown to know the server's
+    /// accounts. Asks first (`ServerAddressConfirmation`) before an account's
+    /// session goes to a new host, and before the address in use changes
+    /// while a reply arrives through it.
+    ///
+    /// `servers.addresses.save`: ServerAddressSaveRequest -> ServerAddressSaveResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ServersAddressesSave;
+
+    impl RpcMethod for ServersAddressesSave {
+        const NAME: &'static str = "servers.addresses.save";
+        type Params = super::ServerAddressSaveRequest;
+        type Result = super::ServerAddressSaveResult;
+    }
+
+    /// Removes an address; one is always left.
+    ///
+    /// `servers.addresses.remove`: ServerAddressRemoveRequest -> ServerAddressEditResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ServersAddressesRemove;
+
+    impl RpcMethod for ServersAddressesRemove {
+        const NAME: &'static str = "servers.addresses.remove";
+        type Params = super::ServerAddressRemoveRequest;
+        type Result = super::ServerAddressEditResult;
+    }
+
+    /// Puts a server's addresses in a new order.
+    ///
+    /// `servers.addresses.reorder`: ServerAddressReorderRequest -> ServerAddressEditResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ServersAddressesReorder;
+
+    impl RpcMethod for ServersAddressesReorder {
+        const NAME: &'static str = "servers.addresses.reorder";
+        type Params = super::ServerAddressReorderRequest;
+        type Result = super::ServerAddressEditResult;
     }
 
     /// Live state of the active server: capabilities, version, reachability.
@@ -19617,6 +20027,31 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("ServerSummary"),
     },
     MethodSpec {
+        name: "servers.addresses.list",
+        params: Some("ServerRef"),
+        result: Some("ServerAddresses"),
+    },
+    MethodSpec {
+        name: "servers.addresses.check",
+        params: Some("ServerAddressCheckRequest"),
+        result: Some("ServerAddressCheckResult"),
+    },
+    MethodSpec {
+        name: "servers.addresses.save",
+        params: Some("ServerAddressSaveRequest"),
+        result: Some("ServerAddressSaveResult"),
+    },
+    MethodSpec {
+        name: "servers.addresses.remove",
+        params: Some("ServerAddressRemoveRequest"),
+        result: Some("ServerAddressEditResult"),
+    },
+    MethodSpec {
+        name: "servers.addresses.reorder",
+        params: Some("ServerAddressReorderRequest"),
+        result: Some("ServerAddressEditResult"),
+    },
+    MethodSpec {
         name: "servers.status",
         params: None,
         result: Some("ServerStatus"),
@@ -21606,6 +22041,9 @@ pub mod events {
     /// added, switched to, signed in to or removed, from any window. Payload
     /// `AccountsChanged`.
     pub const ACCOUNTS_CHANGED: &str = "accounts.changed";
+    /// A saved server's name or addresses changed, or which address is in
+    /// use. Payload `ServersChanged`.
+    pub const SERVERS_CHANGED: &str = "servers.changed";
     pub const NOTES_CHANGED: &str = "notes.changed";
     pub const CHANNELS_MESSAGE: &str = "channels.message";
     /// Who is typing in a channel changed. Payload
@@ -21781,6 +22219,11 @@ pub const EVENTS: &[EventSpec] = &[
     EventSpec {
         name: "accounts.changed",
         payload: Some("AccountsChanged"),
+        scoped: false,
+    },
+    EventSpec {
+        name: "servers.changed",
+        payload: Some("ServersChanged"),
         scoped: false,
     },
     EventSpec {
@@ -22028,6 +22471,11 @@ pub enum Event {
     ///
     /// `accounts.changed`.
     AccountsChanged(AccountsChanged),
+    /// A saved server's name or addresses changed, or which address is in
+    /// use. Payload `ServersChanged`.
+    ///
+    /// `servers.changed`.
+    ServersChanged(ServersChanged),
     /// `notes.changed`.
     NotesChanged(NotesChanged),
     /// `channels.message`, scoped.
@@ -22265,6 +22713,7 @@ impl Event {
             events::TURN_FINISHED => Self::TurnFinished(serde_json::from_value(payload)?),
             events::CHATS_CHANGED => Self::ChatsChanged(serde_json::from_value(payload)?),
             events::ACCOUNTS_CHANGED => Self::AccountsChanged(serde_json::from_value(payload)?),
+            events::SERVERS_CHANGED => Self::ServersChanged(serde_json::from_value(payload)?),
             events::NOTES_CHANGED => Self::NotesChanged(serde_json::from_value(payload)?),
             events::CHANNELS_MESSAGE => Self::ChannelsMessage(serde_json::from_value(payload)?),
             events::CHANNELS_TYPING => Self::ChannelsTyping(serde_json::from_value(payload)?),
@@ -22339,6 +22788,7 @@ impl Event {
             Self::TurnFinished(_) => events::TURN_FINISHED,
             Self::ChatsChanged(_) => events::CHATS_CHANGED,
             Self::AccountsChanged(_) => events::ACCOUNTS_CHANGED,
+            Self::ServersChanged(_) => events::SERVERS_CHANGED,
             Self::NotesChanged(_) => events::NOTES_CHANGED,
             Self::ChannelsMessage(_) => events::CHANNELS_MESSAGE,
             Self::ChannelsTyping(_) => events::CHANNELS_TYPING,
@@ -22396,6 +22846,7 @@ impl Event {
             Self::TurnFinished(payload) => serde_json::to_value(payload),
             Self::ChatsChanged(payload) => serde_json::to_value(payload),
             Self::AccountsChanged(payload) => serde_json::to_value(payload),
+            Self::ServersChanged(payload) => serde_json::to_value(payload),
             Self::NotesChanged(payload) => serde_json::to_value(payload),
             Self::ChannelsMessage(payload) => serde_json::to_value(payload),
             Self::ChannelsTyping(payload) => serde_json::to_value(payload),
@@ -22948,11 +23399,24 @@ pub mod conformance {
         "SelectModel",
         "SendTurn",
         "SendTurnAccepted",
+        "ServerAddressCheckRequest",
+        "ServerAddressCheckResult",
+        "ServerAddressDto",
+        "ServerAddressEditResult",
+        "ServerAddressForm",
+        "ServerAddressHeader",
+        "ServerAddressRemoveRequest",
+        "ServerAddressReorderRequest",
+        "ServerAddressSaveRequest",
+        "ServerAddressSaveResult",
+        "ServerAddresses",
         "ServerDraft",
         "ServerFile",
         "ServerFileList",
+        "ServerRef",
         "ServerStatus",
         "ServerSummary",
+        "ServersChanged",
         "SetChatFlag",
         "SetFastTier",
         "SetModelPinned",
@@ -23600,11 +24064,24 @@ pub mod conformance {
             "SelectModel" => roundtrip::<super::SelectModel>(json),
             "SendTurn" => roundtrip::<super::SendTurn>(json),
             "SendTurnAccepted" => roundtrip::<super::SendTurnAccepted>(json),
+            "ServerAddressCheckRequest" => roundtrip::<super::ServerAddressCheckRequest>(json),
+            "ServerAddressCheckResult" => roundtrip::<super::ServerAddressCheckResult>(json),
+            "ServerAddressDto" => roundtrip::<super::ServerAddressDto>(json),
+            "ServerAddressEditResult" => roundtrip::<super::ServerAddressEditResult>(json),
+            "ServerAddressForm" => roundtrip::<super::ServerAddressForm>(json),
+            "ServerAddressHeader" => roundtrip::<super::ServerAddressHeader>(json),
+            "ServerAddressRemoveRequest" => roundtrip::<super::ServerAddressRemoveRequest>(json),
+            "ServerAddressReorderRequest" => roundtrip::<super::ServerAddressReorderRequest>(json),
+            "ServerAddressSaveRequest" => roundtrip::<super::ServerAddressSaveRequest>(json),
+            "ServerAddressSaveResult" => roundtrip::<super::ServerAddressSaveResult>(json),
+            "ServerAddresses" => roundtrip::<super::ServerAddresses>(json),
             "ServerDraft" => roundtrip::<super::ServerDraft>(json),
             "ServerFile" => roundtrip::<super::ServerFile>(json),
             "ServerFileList" => roundtrip::<super::ServerFileList>(json),
+            "ServerRef" => roundtrip::<super::ServerRef>(json),
             "ServerStatus" => roundtrip::<super::ServerStatus>(json),
             "ServerSummary" => roundtrip::<super::ServerSummary>(json),
+            "ServersChanged" => roundtrip::<super::ServersChanged>(json),
             "SetChatFlag" => roundtrip::<super::SetChatFlag>(json),
             "SetFastTier" => roundtrip::<super::SetFastTier>(json),
             "SetModelPinned" => roundtrip::<super::SetModelPinned>(json),

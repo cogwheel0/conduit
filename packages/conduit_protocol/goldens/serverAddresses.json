@@ -1,0 +1,26 @@
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "name": "Home",
+  "addresses": [
+    {
+      "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+      "url": "https://chat.example.com",
+      "inUse": true,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    },
+    {
+      "id": "0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f",
+      "url": "http://chat.home.example.net:8080",
+      "label": "Tailnet",
+      "inUse": false,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    }
+  ],
+  "removable": true
+}

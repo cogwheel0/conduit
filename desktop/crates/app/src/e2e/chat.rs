@@ -75,7 +75,7 @@ pub(super) async fn wait_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
     .await
 }
 
-async fn wait_streaming(cx: &mut AsyncApp, timeout: Duration) -> bool {
+pub(super) async fn wait_streaming(cx: &mut AsyncApp, timeout: Duration) -> bool {
     wait_until(cx, timeout, |cx| {
         chat_store(cx).is_some_and(|s| {
             let s = s.read(cx);

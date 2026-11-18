@@ -474,6 +474,26 @@ class RpcSession {
 
   void _registerServers() {
     _on(ConduitMethodSpecs.serversUpdate, (d) => _requireServers().update(d));
+    _on(
+      ConduitMethodSpecs.serversAddressesList,
+      (r) => _requireServers().addresses(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesCheck,
+      (r) => _requireServers().check(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesSave,
+      (r) => _requireServers().save(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesRemove,
+      (r) => _requireServers().remove(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesReorder,
+      (r) => _requireServers().reorder(r),
+    );
     _on(ConduitMethodSpecs.serversStatus, (_) => _requireServers().status());
   }
 

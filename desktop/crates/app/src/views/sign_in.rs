@@ -343,8 +343,9 @@ impl SignInView {
                         origin,
                         cookies,
                         token,
-                        // A new sign-in (auth.completeExternal), not a renewal.
-                        account: None,
+                        // The account this form is for: the daemon refuses
+                        // the capture once another one is in charge.
+                        account: scope.0.clone(),
                     },
                     other => {
                         let _ = this.update(cx, |s, cx| {

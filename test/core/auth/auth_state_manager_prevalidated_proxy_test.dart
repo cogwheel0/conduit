@@ -92,6 +92,8 @@ void main() {
         publish: any(named: 'publish'),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
       ),
     ).thenAnswer((invocation) async {
       final config = invocation.positionalArguments.single as ServerConfig;
@@ -104,6 +106,8 @@ void main() {
         await releaseFirst.future;
       }
       if (!canCommit()) return false;
+      // As storage does: its first write is announced before publication.
+      (invocation.namedArguments[#onWriting] as void Function()?)?.call();
       await publish();
       publishedServerIds.add(config.id);
       return true;

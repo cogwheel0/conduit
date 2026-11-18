@@ -729,8 +729,13 @@ void main() {
         publish: any(named: 'publish'),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
       ),
     ).thenAnswer((invocation) async {
+      // Written, then published, then put back: storage says so as its first
+      // write begins.
+      (invocation.namedArguments[#onWriting] as void Function()?)?.call();
       final publish =
           invocation.namedArguments[#publish] as FutureOr<void> Function();
       await publish();
@@ -763,6 +768,151 @@ void main() {
     check(after.token).equals(_tokenA);
     check(after.isAuthenticated).isTrue();
   });
+
+  // An account added on a saved server is refused before storage writes
+  // (the server lost the address it was made from) while the account in
+  // charge is still settling: that account settles as it would have.
+  test('a server selection refused before it writes leaves the account in '
+      'charge to settle', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    final tokenRead = Completer<String?>();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) => tokenRead.future);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.selectUnauthenticatedServerConfig(
+        any(),
+        publish: any(named: 'publish'),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
+      ),
+    ).thenAnswer((_) async => false);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    // The account in charge is still reading its session.
+    container.read(authStateManagerProvider);
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .selectUnauthenticatedServerConfig(
+          const ServerConfig(
+            id: 'account-new',
+            name: 'New',
+            url: 'https://new.example',
+          ),
+          joins: (_) => false,
+        );
+    tokenRead.complete(_tokenA);
+
+    final after = await _settledAuth(container);
+    check(after.isLoading).isFalse();
+    check(after.token).equals(_tokenA);
+    check(after.isAuthenticated).isTrue();
+  });
+
+  // A selection that began while the account in charge was still starting
+  // up begins to write only after that account signed in. Put back, it
+  // shows that account signed in, not the state from before it settled.
+  for (final (name, cancelled) in [('fails', false), ('is cancelled', true)]) {
+    test('a server selection that $name after the account in charge settled '
+        'puts that account back signed in', () async {
+      final storage = _Storage();
+      final isolation = _RecordingIsolation();
+      final tokenRead = Completer<String?>();
+      final writeGate = Completer<void>();
+      when(
+        () => storage.getAuthTokenStrict(),
+      ).thenAnswer((_) => tokenRead.future);
+      when(() => storage.getLocalUserWithAvatar())
+          .thenAnswer((_) async => _userA);
+      when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+      when(
+        () => storage.saveLocalUserWithAvatar(
+          any(),
+          avatarUrl: any(named: 'avatarUrl'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => storage.getActiveServerId())
+          .thenAnswer((_) async => 'account-a');
+      when(
+        () => storage.selectUnauthenticatedServerConfig(
+          any(),
+          publish: any(named: 'publish'),
+          canCommit: any(named: 'canCommit'),
+          onRollbackUncertain: any(named: 'onRollbackUncertain'),
+          joins: any(named: 'joins'),
+          onWriting: any(named: 'onWriting'),
+        ),
+      ).thenAnswer((invocation) async {
+        // Waits for storage's lock while the account in charge settles.
+        await writeGate.future;
+        (invocation.namedArguments[#onWriting] as void Function())();
+        if (!cancelled) throw StateError('the write failed');
+        final publish =
+            invocation.namedArguments[#publish] as FutureOr<void> Function();
+        await publish();
+        // The addition ended as it was published: put back.
+        return false;
+      });
+
+      final container = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          apiServiceProvider.overrideWithValue(null),
+          activeServerProvider.overrideWith((ref) async => null),
+          openWebUiAccountStorageIsolationProvider.overrideWith(
+            () => isolation,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(openWebUiAccountStorageIsolationProvider);
+      // The account in charge is still reading its session.
+      container.read(authStateManagerProvider);
+
+      final selecting = container
+          .read(authStateManagerProvider.notifier)
+          .selectUnauthenticatedServerConfig(
+            const ServerConfig(
+              id: 'account-new',
+              name: 'New',
+              url: 'https://new.example',
+            ),
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      tokenRead.complete(_tokenA);
+      final settled = await _settledAuth(container);
+      check(settled.isAuthenticated).isTrue();
+
+      writeGate.complete();
+      await selecting;
+
+      final after = container.read(authStateManagerProvider).requireValue;
+      check(after.token).equals(_tokenA);
+      check(after.isAuthenticated).isTrue();
+    });
+  }
 
   test('a merge storage declines deletes nothing', () async {
     final storage = _Storage();
@@ -1357,14 +1507,26 @@ void main() {
 /// The auth state once its first restore has finished. The provider's
 /// future resolves on the first published value, which is the restore's own
 /// loading state.
+/// The auth state once it is no longer loading: awaited as it is
+/// published, never polled.
 Future<AuthState> _settledAuth(ProviderContainer container) async {
   await container.read(authStateManagerProvider.future);
-  for (var i = 0; i < 100; i++) {
-    final auth = container.read(authStateManagerProvider).requireValue;
-    if (!auth.isLoading) return auth;
-    await Future<void>.delayed(const Duration(milliseconds: 5));
+  final settled = Completer<AuthState>();
+  final subscription = container.listen<AsyncValue<AuthState>>(
+    authStateManagerProvider,
+    (_, next) {
+      final auth = next.value;
+      if (auth != null && !auth.isLoading && !settled.isCompleted) {
+        settled.complete(auth);
+      }
+    },
+    fireImmediately: true,
+  );
+  try {
+    return await settled.future;
+  } finally {
+    subscription.close();
   }
-  return container.read(authStateManagerProvider).requireValue;
 }
 
 final class _Storage extends Mock implements OptimizedStorageService {}

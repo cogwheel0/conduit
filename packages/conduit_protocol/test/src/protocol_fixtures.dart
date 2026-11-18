@@ -163,6 +163,108 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     allowSelfSignedCertificates: true,
     customHeaders: <String, String>{'X-Conduit-Tenant': 'acme'},
   ),
+  // servers.addresses.*: a synthetic server reached two ways.
+  'serverAddressDto': const ServerAddressDto(
+    id: 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f',
+    url: 'https://chat.example.com',
+    label: 'Home network',
+    inUse: true,
+    allowSelfSignedCertificates: true,
+    customHeaderNames: <String>['X-Conduit-Tenant'],
+    hasMutualTlsCredentials: true,
+    mtlsCertificateLabel: 'home-client.pem',
+    mtlsPrivateKeyLabel: 'home-client-key.pem',
+    hasPrivateKeyPassword: true,
+  ),
+  'serverAddresses': const ServerAddresses(
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+    name: 'Home',
+    addresses: <ServerAddressDto>[
+      ServerAddressDto(
+        id: 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f',
+        url: 'https://chat.example.com',
+        inUse: true,
+      ),
+      ServerAddressDto(
+        id: '0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f',
+        url: 'http://chat.home.example.net:8080',
+        label: 'Tailnet',
+      ),
+    ],
+    removable: true,
+  ),
+  'serverRef': const ServerRef(serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d'),
+  'serverAddressHeader': const ServerAddressHeader(
+    name: 'X-Conduit-Tenant',
+    value: 'acme',
+  ),
+  'serverAddressForm': const ServerAddressForm(
+    url: 'chat.home.example.net:8080',
+    label: 'Tailnet',
+    allowSelfSignedCertificates: true,
+    headers: <ServerAddressHeader>[
+      ServerAddressHeader(name: 'X-Conduit-Tenant'),
+      ServerAddressHeader(name: 'X-Region', value: 'north'),
+    ],
+    mtlsCertificateLabel: 'home-client.pem',
+    clearMutualTls: true,
+  ),
+  'serverAddressCheckRequest': const ServerAddressCheckRequest(
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+    endpointId: 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f',
+    form: ServerAddressForm(url: 'https://chat.example.com'),
+  ),
+  'serverAddressCheckAnswered': const ServerAddressCheckResult(
+    outcome: ServerAddressCheckOutcome.answered,
+    checkId: '5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070',
+    url: 'http://chat.home.example.net:8080',
+  ),
+  'serverAddressCheckUnusable': const ServerAddressCheckResult(
+    outcome: ServerAddressCheckOutcome.unusable,
+    problem: ServerAddressProblemCode.headerNameReserved,
+    headerName: 'Authorization',
+  ),
+  'serverAddressSaveRequest': const ServerAddressSaveRequest(
+    checkId: '5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070',
+    sendSessionConfirmed: true,
+    stopReplies: true,
+    proxy: ExternalAuthCompletion(
+      origin: 'https://chat.example.com',
+      cookies: <String, String>{'_oauth2_proxy': 'synthetic-cookie'},
+    ),
+  ),
+  'serverAddressSaveAsks': const ServerAddressSaveResult(
+    outcome: ServerAddressChangeOutcome.needsConfirmation,
+    confirmation: ServerAddressConfirmation.sendSession,
+    host: 'chat.home.example.net:8080',
+  ),
+  'serverAddressSaveRefused': const ServerAddressSaveResult(
+    outcome: ServerAddressChangeOutcome.notSaved,
+    problem: ServerAddressProblemCode.differentServer,
+  ),
+  'serverAddressRemoveRequest': const ServerAddressRemoveRequest(
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+    endpointId: 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f',
+    stopReplies: true,
+  ),
+  'serverAddressReorderRequest': const ServerAddressReorderRequest(
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+    order: <String>[
+      '0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f',
+      'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f',
+    ],
+  ),
+  'serverAddressEditResult': const ServerAddressEditResult(
+    outcome: ServerAddressChangeOutcome.needsConfirmation,
+    confirmation: ServerAddressConfirmation.replyInProgress,
+    addresses: ServerAddresses(
+      serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+      name: 'Home',
+    ),
+  ),
+  'serversChanged': const ServersChanged(
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
+  ),
   // accounts.*: synthetic people on synthetic servers.
   'accountUser': const AccountUser(
     name: 'Ada Lovelace',
@@ -218,6 +320,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
       url: 'https://openwebui.corp.example.com',
     ),
     force: true,
+  ),
+  'addAccountOnServer': const AddAccount(
+    server: ServerDraft(name: 'Home', url: 'https://chat.example.com'),
+    serverId: 'b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d',
   ),
   'accountRef': const AccountRef(
     accountId: '7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d',
@@ -4645,10 +4751,26 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'serverSummaryMinimal': ServerSummary.fromJson,
       'serverSummaryFull': ServerSummary.fromJson,
       'serverDraft': ServerDraft.fromJson,
+      'serverAddressDto': ServerAddressDto.fromJson,
+      'serverAddresses': ServerAddresses.fromJson,
+      'serverRef': ServerRef.fromJson,
+      'serverAddressHeader': ServerAddressHeader.fromJson,
+      'serverAddressForm': ServerAddressForm.fromJson,
+      'serverAddressCheckRequest': ServerAddressCheckRequest.fromJson,
+      'serverAddressCheckAnswered': ServerAddressCheckResult.fromJson,
+      'serverAddressCheckUnusable': ServerAddressCheckResult.fromJson,
+      'serverAddressSaveRequest': ServerAddressSaveRequest.fromJson,
+      'serverAddressSaveAsks': ServerAddressSaveResult.fromJson,
+      'serverAddressSaveRefused': ServerAddressSaveResult.fromJson,
+      'serverAddressRemoveRequest': ServerAddressRemoveRequest.fromJson,
+      'serverAddressReorderRequest': ServerAddressReorderRequest.fromJson,
+      'serverAddressEditResult': ServerAddressEditResult.fromJson,
+      'serversChanged': ServersChanged.fromJson,
       'accountUser': AccountUser.fromJson,
       'accountSummary': AccountSummary.fromJson,
       'accountList': AccountList.fromJson,
       'addAccount': AddAccount.fromJson,
+      'addAccountOnServer': AddAccount.fromJson,
       'accountRef': AccountRef.fromJson,
       'accountRefAskedOver': AccountRef.fromJson,
       'accountSignOut': AccountSignOut.fromJson,

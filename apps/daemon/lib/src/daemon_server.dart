@@ -237,7 +237,7 @@ class DaemonServer {
     _core = core;
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);
-    _servers = ServersService(core.container);
+    _servers = ServersService(core.container, events: events);
     _auth = AuthService(core.container, events: events);
     _settings = SettingsService(core.container);
     final temporary = TemporaryChats();
@@ -281,6 +281,8 @@ class DaemonServer {
     );
     // The list's unread dots and a chat's abilities read the turns.
     _chats!.turns = _turns;
+    // Changing the address in use asks first while one of them answers.
+    _servers!.replies = _turns;
     // A Hermes chat's agent cards: its work, its context, its questions.
     _hermesCards = HermesCardsService(
       core.container,
@@ -1238,6 +1240,7 @@ class DaemonServer {
     // chat that lingers after its answer, both read its container.
     _accounts?.dispose();
     _accounts = null;
+    _servers?.dispose();
     _auth?.dispose();
     _notifications?.dispose();
     await _turns?.dispose();
@@ -1259,7 +1262,9 @@ class DaemonServer {
     _automations = null;
     _capabilities?.dispose();
     _capabilities = null;
-    _notes?.dispose();
+    // Waits for the recordings' writers: nothing writes once the database
+    // below is closed.
+    await _notes?.close();
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can

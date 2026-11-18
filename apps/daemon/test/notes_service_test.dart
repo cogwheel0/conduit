@@ -427,6 +427,38 @@ void main() {
       expect(kept?.data, isNot(contains('then rain')));
     });
 
+    test('a recordings request still reading its note when shutdown begins '
+        'gets no recorder', () async {
+      final gate = _ReadGate();
+      final gated = AppDatabase(NativeDatabase.memory().interceptWith(gate));
+      addTearDown(gated.close);
+      active = gated;
+      container.invalidate(appDatabaseProvider);
+      final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+      addTearDown(() => dir.delete(recursive: true));
+      final notes = NotesService(
+        container,
+        paths: DaemonDirectories.create(dir.path),
+      );
+      addTearDown(notes.close);
+      final release = gate.hold();
+      final listing = notes.recordings('kiln-log');
+      await gate.asked;
+      // Shutdown takes its snapshot of the recorders while the note is read.
+      await notes.close();
+      release.complete();
+      await expectLater(
+        listing,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.daemonUnavailable,
+          ),
+        ),
+      );
+    });
+
     test(
       'lists no recording for a request begun under the last account',
       () async {
@@ -444,7 +476,7 @@ void main() {
           container,
           paths: DaemonDirectories.create(dir.path),
         );
-        addTearDown(notes.dispose);
+        addTearDown(notes.close);
         final release = gate.hold();
         final listing = notes.recordings('kiln-log');
         await gate.asked;
@@ -516,7 +548,7 @@ void main() {
       events: events,
       paths: DaemonDirectories.create(dir.path),
     );
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('glaze-tests'))?.summary.title, 'Glaze tests');
     // The editor's recordings are asked for: the note's recorder is made.
     await notes.removeRecording(
@@ -591,7 +623,7 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final paths = _HeldPaths(DaemonDirectories.create(dir.path));
     final notes = NotesService(container, paths: paths);
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
     // The note's recorder is made under A, and settles.
     await notes.removeRecording(

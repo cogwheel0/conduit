@@ -5,10 +5,15 @@ import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/auth/proxy_renewal.dart';
 import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/auth/sign_in_failure.dart';
+import 'package:conduit_core/models/openwebui_registry.dart'
+    show isCapturedSessionHeader;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountAdditionOriginProvider;
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -484,6 +489,28 @@ final class AuthService {
   /// authenticated call before anything is persisted. A window closed halfway
   /// through therefore cannot leave a half-authenticated state.
   Future<AuthSnapshot> completeExternal(ExternalAuthCompletion params) async {
+    // First, before anything is awaited: what the capture is for. The
+    // account in charge (its session, and the addition it finishes, if one
+    // is in progress), the revocations so far, and the saved servers as they
+    // are now. If any of them moved by the time it would be kept, nothing of
+    // it is kept, and the window signs in again: an edit made meanwhile is
+    // never merged into it, nor overwritten by it.
+    final storage = _container.read(optimizedStorageServiceProvider);
+    final account = AccountScope.capture(_container);
+    final revocations = storage.sessionRevocationRevision;
+    final configs = storage.serverConfigRevision;
+    final stillAdding = _container.read(accountAdditionOriginProvider) == null
+        ? null
+        : _container
+              .read(accountAdditionOriginProvider.notifier)
+              .stillInProgress();
+    bool accountUnchanged() =>
+        account.isCurrent &&
+        storage.sessionRevocationRevision == revocations &&
+        (stillAdding?.call() ?? true);
+    bool unchanged() =>
+        accountUnchanged() && storage.serverConfigRevision == configs;
+
     final active = await readSettled(_container, activeServerProvider.future);
     if (active == null) {
       throw const RpcError(
@@ -502,11 +529,27 @@ final class AuthService {
       );
     }
 
+    // The capture is the account's whose window it was: once another account
+    // is in charge (on the same origin, say), it is never filed on that one.
+    final opened = params.account;
+    if (opened != null && opened != active.id) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the sign-in window was opened for another account',
+      );
+    }
+
     final outcome = await prevalidateProxySession(
       serverConfig: active,
       capture: ProxyAuthCapture(cookies: params.cookies, token: params.token),
       workerManager: _container.read(workerManagerProvider),
     );
+    if (outcome is! ProxySessionRejected &&
+        (await storage.getEffectiveActiveServerId() != active.id ||
+            !unchanged())) {
+      throw _signInAgain();
+    }
 
     switch (outcome) {
       case ProxySessionAuthenticated(
@@ -514,15 +557,25 @@ final class AuthService {
         :final token,
         :final user,
       ):
-        await _manager.commitPrevalidatedProxySession(
+        final committed = await _manager.commitPrevalidatedProxySession(
           serverConfig: serverConfig,
           token: token,
           user: user,
+          // Asked once, right before the commit's first write; the saved
+          // servers are checked again inside storage's section as the
+          // candidate is staged ([configs]). The commit itself moves the
+          // session, so only the addition is asked from then on.
+          mayBegin: unchanged,
+          configRevision: configs,
+          canCommit: stillAdding,
         );
-      case ProxySessionNeedsSignIn():
+        if (!committed) throw _signInAgain();
+      case ProxySessionNeedsSignIn(:final serverConfig):
         // The proxy let us through but Open WebUI still wants credentials.
-        // Not an error: the UI shows its sign-in form next.
-        break;
+        // Not an error: the UI shows its sign-in form next, whose requests
+        // pass the proxy too -- so the cookie the window captured stays on
+        // the account, as the phone's sign-in page carries it on.
+        await _keepProxyCookie(serverConfig, unchanged);
       case ProxySessionRejected(:final failure):
         throw RpcError(
           code: switch (failure) {
@@ -539,6 +592,47 @@ final class AuthService {
         );
     }
     return _snapshot();
+  }
+
+  /// A capture that can no longer be kept as it was made: the window signs
+  /// in again.
+  static RpcError _signInAgain() => const RpcError(
+    code: ConduitErrorCodes.sessionExpired,
+    args: <String, String>{'reason': 'changed'},
+    debugMessage: 'the account or its saved servers changed during sign-in',
+  );
+
+  /// Keeps the cookie a proxy sign-in captured in [config] -- the active
+  /// account's connection with it -- on that account, not the shared
+  /// address (`isCapturedSessionHeader`). Storage asks [unchanged] inside
+  /// its own write, right before it writes; declined, the window signs in
+  /// again. A reload of the account that then fails leaves its state
+  /// unknown: never reported as kept, the window signs in again too.
+  Future<void> _keepProxyCookie(
+    ServerConfig config,
+    bool Function() unchanged,
+  ) async {
+    if (!config.customHeaders.keys.any(isCapturedSessionHeader)) return;
+    final storage = _container.read(optimizedStorageServiceProvider);
+    final kept = await storage.saveCapturedSessionHeaders(
+      config,
+      canCommit: unchanged,
+    );
+    if (!kept) throw _signInAgain();
+    _container
+      ..invalidate(serverConfigsProvider)
+      ..invalidate(activeServerProvider);
+    try {
+      await readSettled(_container, activeServerProvider.future);
+    } on Object catch (error, stackTrace) {
+      DebugLogger.error(
+        'proxy-cookie-reload-failed',
+        scope: 'daemon/auth',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      throw _signInAgain();
+    }
   }
 
   /// Scheme, host and port, ignoring path and trailing slash.

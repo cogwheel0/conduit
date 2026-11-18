@@ -88,8 +88,30 @@ abstract final class ConduitMethods {
 
   /// Edits the server an account is on: name, address, TLS and headers.
   /// Secret fields left null keep their value. Every account on that server
-  /// keeps its session.
+  /// keeps its session. The id may also be a saved server's (its
+  /// `AccountSummary.serverId`), which renames it. An address change goes
+  /// through `servers.addresses.*`, which check it first.
   static const String serversUpdate = 'servers.update';
+
+  /// A saved server's addresses, in the order they are tried, and which one
+  /// is in use.
+  static const String serversAddressesList = 'servers.addresses.list';
+
+  /// Checks an address being added to a saved server, or edited, for an
+  /// Open WebUI server that answers. Nothing is saved.
+  static const String serversAddressesCheck = 'servers.addresses.check';
+
+  /// Saves a checked address, once it is shown to know the server's
+  /// accounts. Asks first (`ServerAddressConfirmation`) before an account's
+  /// session goes to a new host, and before the address in use changes
+  /// while a reply arrives through it.
+  static const String serversAddressesSave = 'servers.addresses.save';
+
+  /// Removes an address; one is always left.
+  static const String serversAddressesRemove = 'servers.addresses.remove';
+
+  /// Puts a server's addresses in a new order.
+  static const String serversAddressesReorder = 'servers.addresses.reorder';
 
   /// Live state of the active server: capabilities, version, reachability.
   ///

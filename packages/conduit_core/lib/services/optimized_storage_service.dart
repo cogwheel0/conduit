@@ -73,6 +73,9 @@ typedef _StagedServerConfigCandidate = ({
   ServerConfig candidate,
   List<ServerConfig> baselineConfigs,
   String? baselineActiveServerId,
+  // The serverConfigRevision a caller asked to hold, as staged; null when
+  // none was asked.
+  int? heldRevision,
 });
 
 final class _StagedAuthAttemptSuperseded implements Exception {
@@ -1449,11 +1452,23 @@ class OptimizedStorageService {
   /// headers remain available for this sign-in attempt; logout later revokes
   /// captured proxy Cookie headers while preserving user-configured
   /// connection headers.
+  ///
+  /// [joins] is asked about the saved servers as they are stored when the
+  /// selection is written, right before it writes: false declines it, as a
+  /// failed [canCommit] does. An account added on a saved server passes
+  /// whether that server still has the address [config] was made from, so
+  /// it never becomes a server of its own.
+  ///
+  /// [onWriting] is told when the first write begins. False without it
+  /// means nothing was written or published: the previous account's session
+  /// is as it was.
   Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     required FutureOr<void> Function() publish,
     bool Function()? canCommit,
+    bool Function(OpenWebUiRegistry stored)? joins,
     void Function()? onRollbackUncertain,
+    void Function()? onWriting,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
@@ -1486,6 +1501,7 @@ class OptimizedStorageService {
         final registry = await _registryForWriteUnlocked();
         final vaulted = await _secureCredentialStorage.vaultedServerIds();
         if (!ownsAttempt()) return false;
+        if (!(joins?.call(registry) ?? true)) return false;
         final previousHasLiveSession =
             (previousToken != null && previousToken.isNotEmpty) ||
             (previousCredentialsPayload != null &&
@@ -1512,6 +1528,7 @@ class OptimizedStorageService {
         final vaultUndo = _VaultUndo();
         try {
           persistenceStarted = true;
+          onWriting?.call();
           // Even when re-selecting the active account: the saved sign-in
           // can be another account's, from before accounts existed. The
           // account's own session is not filed; it is signed in to afresh.
@@ -2075,11 +2092,21 @@ class OptimizedStorageService {
   /// read failure into an empty list. Crucially, it does not overwrite the
   /// durable config payload: an app termination before commit therefore leaves
   /// the previous servers and session intact.
+  ///
+  /// [unchangedSince], a [serverConfigRevision] the caller read, refuses the
+  /// stage ([ServerConfigsChangedException]) once anything was saved after
+  /// it: the candidate was made from what was saved then. Checked inside the
+  /// locks, before anything is staged.
   Future<ServerConfigCandidateSnapshot> stageServerConfigCandidate(
-    ServerConfig candidate,
-  ) {
+    ServerConfig candidate, {
+    int? unchangedSince,
+  }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
+        if (unchangedSince != null &&
+            unchangedSince != _serverOwnershipRevision) {
+          throw const ServerConfigsChangedException();
+        }
         final currentConfigs = List<ServerConfig>.unmodifiable(
           await _getServerConfigsStrictUnlocked(),
         );
@@ -2099,6 +2126,9 @@ class OptimizedStorageService {
           candidate: candidate,
           baselineConfigs: baselineConfigs,
           baselineActiveServerId: baselineActiveServerId,
+          heldRevision: unchangedSince == null
+              ? null
+              : _serverOwnershipRevision,
         );
         _stagedServerConfigCandidate = stage;
         return (
@@ -2152,6 +2182,9 @@ class OptimizedStorageService {
               candidate: candidate,
               transactionId: transactionId,
             ) ||
+            // Anything saved since a held stage was made declines it.
+            (staged!.heldRevision != null &&
+                staged.heldRevision != _serverOwnershipRevision) ||
             !canCommit()) {
           return false;
         }
@@ -2161,7 +2194,7 @@ class OptimizedStorageService {
           isActive: true,
         );
         final committedConfigs = <ServerConfig>[
-          for (final config in staged!.baselineConfigs)
+          for (final config in staged.baselineConfigs)
             if (config.id != candidate.id) config.copyWith(isActive: false),
           committedCandidate,
         ];
@@ -2663,6 +2696,28 @@ class OptimizedStorageService {
     }
   }
 
+  /// Renames [serverId] in the registry as it is stored when the write
+  /// runs: its routes, and the cookies its accounts keep on them, stay as
+  /// they are. False when the server is no longer saved.
+  Future<bool> renameServer(String serverId, String name) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final stored = (await _registryForWriteUnlocked()).server(serverId);
+        if (stored == null) return false;
+        if (stored.name != name) {
+          await _saveServerUnlocked(
+            OpenWebUiServer(
+              id: stored.id,
+              name: name,
+              endpoints: stored.endpoints,
+            ),
+          );
+        }
+        return true;
+      }),
+    );
+  }
+
   /// Saves [server]'s name and routes: added, removed, reordered or edited.
   ///
   /// Accounts keep their sessions. Adding a route is the user saying this
@@ -2749,10 +2804,13 @@ class OptimizedStorageService {
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
     _RouteSession? session,
   }) async {
-    final stored = (await _registryForWriteUnlocked()).server(serverId);
+    final registry = await _registryForWriteUnlocked();
+    final stored = registry.server(serverId);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
     }
+    // [edit] runs right before the write, nothing awaited between: a check
+    // it makes (and throws on) holds for what is written.
     final endpoints = edit(stored.endpoints);
     if (endpoints.isEmpty) {
       throw ArgumentError('A server needs at least one route.');
@@ -2760,6 +2818,7 @@ class OptimizedStorageService {
     await _saveServerUnlocked(
       OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
       session: session,
+      registry: registry,
     );
   }
 
@@ -2767,8 +2826,9 @@ class OptimizedStorageService {
   Future<void> _saveServerUnlocked(
     OpenWebUiServer server, {
     _RouteSession? session,
+    OpenWebUiRegistry? registry,
   }) async {
-    final registry = await _registryForWriteUnlocked();
+    registry ??= await _registryForWriteUnlocked();
     final stored = registry.server(server.id);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
@@ -2841,6 +2901,11 @@ class OptimizedStorageService {
   /// while one is still running sees it move too.
   int get sessionRevocationRevision => _sessionRevocationRevision;
 
+  /// Moves with every write of the saved servers and accounts (not the
+  /// binding of an account's user), as the write is made: a caller that
+  /// read it before some work can tell whether anything was saved since.
+  int get serverConfigRevision => _serverOwnershipRevision;
+
   /// Keeps the session headers a proxy sign-in captured for [accountId] on
   /// [route], one of its server's routes as just saved. Returns whether it
   /// kept them.
@@ -2889,6 +2954,64 @@ class OptimizedStorageService {
                 ...account.capturedHeaders,
                 route.id: captured,
               },
+            ),
+          ),
+        );
+        return true;
+      }),
+    );
+  }
+
+  /// Keeps the session headers a proxy sign-in captured in [config] -- the
+  /// connection of the account [config] names, with the cookie -- for that
+  /// account on the route [config] reaches its server through.
+  ///
+  /// Only those headers are written, into the registry as it is stored when
+  /// the write runs: nothing else of [config], a snapshot taken before the
+  /// sign-in was proved, goes back over what was saved since. Returns
+  /// whether they were kept: not once [canCommit] fails -- asked with the
+  /// storage locks held, after every read and right before the write, so a
+  /// sign-out or a cancellation queued ahead of it has finished and is seen
+  /// -- nor when the account is gone, is not the active one any more, or
+  /// its route no longer carries [config]'s connection (another save moved
+  /// it).
+  Future<bool> saveCapturedSessionHeaders(
+    ServerConfig config, {
+    required bool Function() canCommit,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        if (!canCommit()) return false;
+        final registry = await _registryForWriteUnlocked();
+        final account = registry.account(config.id);
+        final server = account == null
+            ? null
+            : registry.server(account.serverId);
+        if (account == null || server == null) return false;
+        final route = server.routeForConnection(
+          config,
+          selectedEndpointId: _endpointSelection()[server.id],
+        );
+        if (!route.carries(config)) return false;
+        final captured = {
+          for (final entry in config.customHeaders.entries)
+            if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+        };
+        if (captured.isEmpty) return false;
+        // Only while the account it was captured for is the one in charge:
+        // a switch since, even between two signed-out accounts, keeps it.
+        final activeId = _effectiveActiveServerId(
+          configs: await _getServerConfigsStrictUnlocked(),
+          rawActiveServerId: _rawStoredActiveServerId(),
+        );
+        if (activeId != config.id) return false;
+        // Nothing awaited since the reads: what is checked is what the write
+        // goes over.
+        if (!canCommit()) return false;
+        await _saveRegistryUnlocked(
+          registry.withAccount(
+            account.copyWith(
+              capturedHeaders: {...account.capturedHeaders, route.id: captured},
             ),
           ),
         );
@@ -4811,4 +4934,13 @@ List<Map<String, dynamic>> _decodeStoredJsonListWorker(
   }
 
   return <Map<String, dynamic>>[];
+}
+
+/// The saved servers or accounts changed after a caller read them: what it
+/// was about to stage was made from what was saved before.
+final class ServerConfigsChangedException implements Exception {
+  const ServerConfigsChangedException();
+
+  @override
+  String toString() => 'The saved servers changed meanwhile.';
 }

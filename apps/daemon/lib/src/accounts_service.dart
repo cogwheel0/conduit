@@ -14,10 +14,11 @@ import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show persistOpenWebUiBackendPreference;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/openwebui_registry.dart'
+    show OpenWebUiRegistry, isCapturedSessionHeader;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/providers/backend_mode_providers.dart'
-    as backend;
+import 'package:conduit_core/providers/backend_mode_providers.dart' as backend;
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountRef, primaryAccountProvider;
@@ -381,19 +382,16 @@ final class AccountsService {
           stillFrom: scope == null ? null : () => scope.isCurrent,
           stillCurrent: stillCurrent,
         );
-    return _result(
-      switch (result) {
-        PrimarySwitchResult.done => await _libreChatSettled(),
-        PrimarySwitchResult.blockedByActiveReply =>
-          AccountChangeOutcome.blockedByActiveReply,
-        PrimarySwitchResult.unknownAccount => throw RpcError(
-          code: ConduitErrorCodes.notFound,
-          args: <String, String>{'accountId': accountId},
-          debugMessage: 'no saved LibreChat account with that id',
-        ),
-      },
-      announce: true,
-    );
+    return _result(switch (result) {
+      PrimarySwitchResult.done => await _libreChatSettled(),
+      PrimarySwitchResult.blockedByActiveReply =>
+        AccountChangeOutcome.blockedByActiveReply,
+      PrimarySwitchResult.unknownAccount => throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'accountId': accountId},
+        debugMessage: 'no saved LibreChat account with that id',
+      ),
+    }, announce: true);
   }
 
   /// Whether the LibreChat account now in charge is signed in, once its
@@ -437,8 +435,12 @@ final class AccountsService {
   /// it was added from keeps its session, for [cancelAdd] to go back to.
   Future<AccountChangeResult> add(AddAccount request) async {
     final draft = request.server;
-    final url = ServersService.validateUrl(draft.url);
-    final name = ServersService.validateName(draft.name);
+    // Add Account on This Server: its first address, as it is saved.
+    final onServer = request.serverId == null
+        ? null
+        : await _firstAddressOf(request.serverId!);
+    final url = onServer?.url ?? ServersService.validateUrl(draft.url);
+    final name = onServer?.name ?? ServersService.validateName(draft.name);
     final activeId = _container.read(settledActiveAccountIdProvider);
     // Added while a LibreChat account owns the chats: its sign-in shows
     // (the window routes on the addition), and Cancel goes back to it.
@@ -449,20 +451,43 @@ final class AccountsService {
         !await _mayLeave(force: request.force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
+    // The server's first address as saved now, after the wait above; and,
+    // when the selection is written, that address must still be the
+    // server's first, or the account would join through another one, or
+    // become a server of its own (another window moved or removed it).
+    final joined = request.serverId == null
+        ? null
+        : await _firstAddressOf(request.serverId!);
+    // Only once that lookup held: Cancel goes back to LibreChat.
     if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
-    final config = ServerConfig(
-      id: _uuid.v4(),
-      name: name,
-      url: url,
-      customHeaders: draft.customHeaders ?? const <String, String>{},
-      isActive: true,
-      allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
-      mtlsCertificateChainPem: draft.mtlsCertificateChainPem,
-      mtlsCertificateLabel: draft.mtlsCertificateLabel,
-      mtlsPrivateKeyPem: draft.mtlsPrivateKeyPem,
-      mtlsPrivateKeyLabel: draft.mtlsPrivateKeyLabel,
-      mtlsPrivateKeyPassword: draft.mtlsPrivateKeyPassword,
-    );
+    var moved = false;
+    bool joins(OpenWebUiRegistry stored) {
+      final still =
+          stored
+              .server(request.serverId!)
+              ?.endpoints
+              .firstOrNull
+              ?.carries(joined!) ??
+          false;
+      if (!still) moved = true;
+      return still;
+    }
+
+    final config =
+        joined ??
+        ServerConfig(
+          id: _uuid.v4(),
+          name: name,
+          url: url,
+          customHeaders: draft.customHeaders ?? const <String, String>{},
+          isActive: true,
+          allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
+          mtlsCertificateChainPem: draft.mtlsCertificateChainPem,
+          mtlsCertificateLabel: draft.mtlsCertificateLabel,
+          mtlsPrivateKeyPem: draft.mtlsPrivateKeyPem,
+          mtlsPrivateKeyLabel: draft.mtlsPrivateKeyLabel,
+          mtlsPrivateKeyPassword: draft.mtlsPrivateKeyPassword,
+        );
     // With an account in use this is an addition, which the core tracks so a
     // sign-in screen can go back to that account; the very first account is
     // simply the account.
@@ -475,7 +500,11 @@ final class AccountsService {
     try {
       await _container
           .read(authStateManagerProvider.notifier)
-          .selectUnauthenticatedServerConfig(config, canCommit: stillAdding);
+          .selectUnauthenticatedServerConfig(
+            config,
+            canCommit: stillAdding,
+            joins: joined == null ? null : joins,
+          );
     } on Object catch (error) {
       if (activeId != null) addition.end(activeId);
       _libreChatAdditionFrom = null;
@@ -485,8 +514,54 @@ final class AccountsService {
         debugMessage: 'could not add the account: $error',
       );
     }
+    if (moved) {
+      if (activeId != null) addition.end(activeId);
+      _libreChatAdditionFrom = null;
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'serverId': request.serverId!},
+        debugMessage:
+            "the server's first address changed while the account was "
+            'added: add it again',
+      );
+    }
     _container.invalidate(openWebUiAccountsProvider);
     return _result(AccountChangeOutcome.needsSignIn, announce: true);
+  }
+
+  /// A new account's connection on the saved server [serverId]: its first
+  /// address with that address's headers and certificates, as the phone's
+  /// Add Account on This Server fills its form. Not the proxy cookie an
+  /// account keeps there: that is the account's own.
+  Future<ServerConfig> _firstAddressOf(String serverId) async {
+    final registry = await _container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    final server = registry.server(serverId);
+    if (server == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'serverId': serverId},
+        debugMessage: 'no saved server with that id',
+      );
+    }
+    final endpoint = server.endpoints.first;
+    return ServerConfig(
+      id: _uuid.v4(),
+      name: server.name,
+      url: endpoint.url,
+      customHeaders: <String, String>{
+        for (final header in endpoint.customHeaders.entries)
+          if (!isCapturedSessionHeader(header.key)) header.key: header.value,
+      },
+      isActive: true,
+      allowSelfSignedCertificates: endpoint.allowSelfSignedCertificates,
+      mtlsCertificateChainPem: endpoint.mtlsCertificateChainPem,
+      mtlsCertificateLabel: endpoint.mtlsCertificateLabel,
+      mtlsPrivateKeyPem: endpoint.mtlsPrivateKeyPem,
+      mtlsPrivateKeyLabel: endpoint.mtlsPrivateKeyLabel,
+      mtlsPrivateKeyPassword: endpoint.mtlsPrivateKeyPassword,
+    );
   }
 
   /// Leaves an addition whose sign-in has not finished: the new account is
@@ -550,7 +625,9 @@ final class AccountsService {
       if (bound != null && !bound.isCurrent) throw refused;
     }
 
-    final bool Function()? stillFrom = bound == null ? null : () => bound.isCurrent;
+    final bool Function()? stillFrom = bound == null
+        ? null
+        : () => bound.isCurrent;
     if (bound != null && bound.primary?.id != askedOver) throw refused;
     try {
       if (LibreChatAccount.isLibreChatAccountId(request.accountId)) {

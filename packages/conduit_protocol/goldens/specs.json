@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.69.0",
+  "protocolVersion": "1.70.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -95,6 +95,31 @@
       "name": "servers.update",
       "params": "ServerDraft",
       "result": "ServerSummary"
+    },
+    {
+      "name": "servers.addresses.list",
+      "params": "ServerRef",
+      "result": "ServerAddresses"
+    },
+    {
+      "name": "servers.addresses.check",
+      "params": "ServerAddressCheckRequest",
+      "result": "ServerAddressCheckResult"
+    },
+    {
+      "name": "servers.addresses.save",
+      "params": "ServerAddressSaveRequest",
+      "result": "ServerAddressSaveResult"
+    },
+    {
+      "name": "servers.addresses.remove",
+      "params": "ServerAddressRemoveRequest",
+      "result": "ServerAddressEditResult"
+    },
+    {
+      "name": "servers.addresses.reorder",
+      "params": "ServerAddressReorderRequest",
+      "result": "ServerAddressEditResult"
     },
     {
       "name": "servers.status",
@@ -2106,6 +2131,11 @@
     {
       "name": "accounts.changed",
       "payload": "AccountsChanged",
+      "scoped": false
+    },
+    {
+      "name": "servers.changed",
+      "payload": "ServersChanged",
       "scoped": false
     },
     {
