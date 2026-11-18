@@ -92,6 +92,8 @@ void main() {
         publish: any(named: 'publish'),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
       ),
     ).thenAnswer((invocation) async {
       final config = invocation.positionalArguments.single as ServerConfig;

@@ -729,8 +729,13 @@ void main() {
         publish: any(named: 'publish'),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
       ),
     ).thenAnswer((invocation) async {
+      // Written, then published, then put back: storage says so as its first
+      // write begins.
+      (invocation.namedArguments[#onWriting] as void Function()?)?.call();
       final publish =
           invocation.namedArguments[#publish] as FutureOr<void> Function();
       await publish();
