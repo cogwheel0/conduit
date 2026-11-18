@@ -54,6 +54,8 @@ class _NoDrainSyncEngine extends SyncEngine {
 class _OnlineConnectivity extends ConnectivityStatusNotifier {
   @override
   ConnectivityStatus build() => ConnectivityStatus.online;
+
+  void goOffline() => state = ConnectivityStatus.offline;
 }
 
 class _UploadApi extends ApiService {
@@ -74,6 +76,9 @@ class _UploadApi extends ApiService {
 
   /// While set, an upload is answered only once this completes.
   Completer<void>? holdUpload;
+
+  /// Completed, and cleared, when an upload arrives.
+  Completer<void>? uploadEntered;
   List<FileInfo> existingFiles = const <FileInfo>[];
 
   @override
@@ -85,6 +90,9 @@ class _UploadApi extends ApiService {
     CancelToken? cancelToken,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    final entered = uploadEntered;
+    uploadEntered = null;
+    entered?.complete();
     await holdUpload?.future;
     final error = uploadError;
     if (error != null) throw error;
@@ -311,6 +319,40 @@ void main() {
   });
 
   group('NoteAttachmentsController', () {
+    test('close waits for a retry a caller started, until it stops '
+        'writing', () async {
+      await store.stage(
+        source: await recording('kiln.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      check(controller.pending).length.equals(1);
+
+      // A retry asked for from outside (the daemon's Retry), held at its
+      // upload.
+      final release = api.holdUpload = Completer<void>();
+      final entered = api.uploadEntered = Completer<void>();
+      final retrying = controller.retry(showFeedback: true);
+      await entered.future;
+
+      var closed = false;
+      final closing = controller.close().then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      release.complete();
+      await retrying;
+      await closing;
+      check(closed).isTrue();
+    });
+
     test('stages, uploads and attaches a WAV recording', () async {
       final file = await recording('note_recording_1.wav');
       check(await controller.stage(file)).isTrue();
