@@ -1813,12 +1813,18 @@ class AuthStateManager extends _$AuthStateManager {
   /// while it worked stops here, and nothing is written. Once begun, a
   /// newer sign-in or another account stops the commit by its own
   /// revision.
+  ///
+  /// [configRevision], a `serverConfigRevision` the caller read before it
+  /// validated the session, declines the commit once anything was saved
+  /// since (checked inside storage's section as the candidate is staged;
+  /// a save after that clears the stage, which declines it too).
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
     bool Function()? canCommit,
     bool Function()? mayBegin,
+    int? configRevision,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1875,7 +1881,20 @@ class AuthStateManager extends _$AuthStateManager {
         settleStopped();
         return false;
       }
-      final snapshot = await storage.stageServerConfigCandidate(serverConfig);
+      final ServerConfigCandidateSnapshot snapshot;
+      try {
+        snapshot = configRevision == null
+            ? await storage.stageServerConfigCandidate(serverConfig)
+            : await storage.stageServerConfigCandidate(
+                serverConfig,
+                unchangedSince: configRevision,
+              );
+      } on ServerConfigsChangedException {
+        // Saved over since the caller read it: nothing is staged, and the
+        // caller signs in again.
+        settleStopped();
+        return false;
+      }
       candidateSnapshot = snapshot;
       if (superseded()) {
         await _restorePrevalidatedProxyConfig(

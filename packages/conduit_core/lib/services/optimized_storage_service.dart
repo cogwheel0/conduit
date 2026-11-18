@@ -73,6 +73,9 @@ typedef _StagedServerConfigCandidate = ({
   ServerConfig candidate,
   List<ServerConfig> baselineConfigs,
   String? baselineActiveServerId,
+  // The serverConfigRevision a caller asked to hold, as staged; null when
+  // none was asked.
+  int? heldRevision,
 });
 
 final class _StagedAuthAttemptSuperseded implements Exception {
@@ -2089,11 +2092,21 @@ class OptimizedStorageService {
   /// read failure into an empty list. Crucially, it does not overwrite the
   /// durable config payload: an app termination before commit therefore leaves
   /// the previous servers and session intact.
+  ///
+  /// [unchangedSince], a [serverConfigRevision] the caller read, refuses the
+  /// stage ([ServerConfigsChangedException]) once anything was saved after
+  /// it: the candidate was made from what was saved then. Checked inside the
+  /// locks, before anything is staged.
   Future<ServerConfigCandidateSnapshot> stageServerConfigCandidate(
-    ServerConfig candidate,
-  ) {
+    ServerConfig candidate, {
+    int? unchangedSince,
+  }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
+        if (unchangedSince != null &&
+            unchangedSince != _serverOwnershipRevision) {
+          throw const ServerConfigsChangedException();
+        }
         final currentConfigs = List<ServerConfig>.unmodifiable(
           await _getServerConfigsStrictUnlocked(),
         );
@@ -2113,6 +2126,9 @@ class OptimizedStorageService {
           candidate: candidate,
           baselineConfigs: baselineConfigs,
           baselineActiveServerId: baselineActiveServerId,
+          heldRevision: unchangedSince == null
+              ? null
+              : _serverOwnershipRevision,
         );
         _stagedServerConfigCandidate = stage;
         return (
@@ -2166,6 +2182,9 @@ class OptimizedStorageService {
               candidate: candidate,
               transactionId: transactionId,
             ) ||
+            // Anything saved since a held stage was made declines it.
+            (staged!.heldRevision != null &&
+                staged.heldRevision != _serverOwnershipRevision) ||
             !canCommit()) {
           return false;
         }
@@ -2175,7 +2194,7 @@ class OptimizedStorageService {
           isActive: true,
         );
         final committedConfigs = <ServerConfig>[
-          for (final config in staged!.baselineConfigs)
+          for (final config in staged.baselineConfigs)
             if (config.id != candidate.id) config.copyWith(isActive: false),
           committedCandidate,
         ];
@@ -2881,6 +2900,11 @@ class OptimizedStorageService {
   /// before a sign-out finished. It moves when the sign-out ends, so a read
   /// while one is still running sees it move too.
   int get sessionRevocationRevision => _sessionRevocationRevision;
+
+  /// Moves with every write of the saved servers and accounts (not the
+  /// binding of an account's user), as the write is made: a caller that
+  /// read it before some work can tell whether anything was saved since.
+  int get serverConfigRevision => _serverOwnershipRevision;
 
   /// Keeps the session headers a proxy sign-in captured for [accountId] on
   /// [route], one of its server's routes as just saved. Returns whether it
@@ -4910,4 +4934,13 @@ List<Map<String, dynamic>> _decodeStoredJsonListWorker(
   }
 
   return <Map<String, dynamic>>[];
+}
+
+/// The saved servers or accounts changed after a caller read them: what it
+/// was about to stage was made from what was saved before.
+final class ServerConfigsChangedException implements Exception {
+  const ServerConfigsChangedException();
+
+  @override
+  String toString() => 'The saved servers changed meanwhile.';
 }

@@ -858,8 +858,8 @@ void main() {
     expect(signedIn.isAuthenticated, isTrue, reason: 'through the proxy');
     expect(signedIn.user?.email, 'grace@example.com');
   });
-  test('the cookie a sign-in window keeps puts nothing else of what it read '
-      'back', () async {
+  test('a server saved over while a sign-in window is proved keeps its edit, '
+      'and the window signs in again', () async {
     final proxyOnly = await FakeOwuiAuthServer.start(
       users: const {
         'ivy@example.com': (id: 'user-ivy', name: 'Ivy', password: 'pw-ivy'),
@@ -900,8 +900,16 @@ void main() {
     );
     proxyOnly.hold = null;
     release.complete();
-    final through = await finishing;
-    expect(through.isAuthenticated, isFalse);
+    await expectLater(
+      finishing,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
     final listed = await accounts.list();
     final row = listed.accounts.singleWhere((a) => a.id == pending);
     expect(row.serverId, gate);
@@ -910,10 +918,128 @@ void main() {
       'Gate Two',
       reason: 'the rename made while the sign-in was proved stays',
     );
-    final signedIn = await auth.loginWithPassword(
-      const PasswordLogin(username: 'ivy@example.com', password: 'pw-ivy'),
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      registry.account(pending!)!.capturedHeaders,
+      isEmpty,
+      reason: 'nothing of the capture is kept',
     );
-    expect(signedIn.isAuthenticated, isTrue, reason: 'the cookie was kept');
+  });
+
+  test('a header edited while a signed-in window is proved is kept, and the '
+      'window signs in again', () async {
+    final proxyOnly = await FakeOwuiAuthServer.start(
+      users: const {
+        'jo@example.com': (id: 'user-jo', name: 'Jo', password: 'pw-jo'),
+      },
+      proxyCookie: '_gate=open',
+    );
+    addTearDown(proxyOnly.close);
+    final adding = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Gate', url: proxyOnly.url),
+        force: true,
+      ),
+    );
+    final pending = adding.accounts.activeAccountId!;
+    final gate = adding.accounts.accounts
+        .singleWhere((a) => a.id == pending)
+        .serverId;
+    final release = Completer<void>();
+    final held = proxyOnly.onHeld = Completer<void>();
+    proxyOnly.hold = release.future;
+    final finishing = auth.completeExternal(
+      ExternalAuthCompletion(
+        origin: proxyOnly.url,
+        cookies: const {'_gate': 'open'},
+        token: proxyOnly.sessionFor('jo@example.com'),
+      ),
+    );
+    addTearDown(() async {
+      proxyOnly.hold = null;
+      if (!release.isCompleted) release.complete();
+      await finishing.then<void>((_) {}, onError: (Object _) {});
+    });
+    await held.future;
+    // Another window gives the address a header the proxy now wants.
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.editServerEndpoints(
+      gate,
+      (endpoints) => [
+        for (final endpoint in endpoints)
+          OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: endpoint.url,
+            label: endpoint.label,
+            customHeaders: const {'X-Gate': 'two'},
+          ),
+      ],
+    );
+    proxyOnly.hold = null;
+    release.complete();
+    await expectLater(
+      finishing,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    expect(
+      registry.server(gate)!.endpoints.single.customHeaders['X-Gate'],
+      'two',
+      reason: 'the edit made while the session was proved stays',
+    );
+    expect((await auth.status()).user?.email, isNot('jo@example.com'));
+  });
+
+  test('a sign-out queued while the active server is read revokes the '
+      'capture', () async {
+    final proxyOnly = await FakeOwuiAuthServer.start(
+      users: const {
+        'kit@example.com': (id: 'user-kit', name: 'Kit', password: 'pw-kit'),
+      },
+      proxyCookie: '_gate=open',
+    );
+    addTearDown(proxyOnly.close);
+    final adding = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Gate', url: proxyOnly.url),
+        force: true,
+      ),
+    );
+    final pending = adding.accounts.activeAccountId!;
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    // The sign-out takes storage first; the active server is read again
+    // behind it, while the window's capture is being handled.
+    final signingOut = storage.clearActiveAccountAuthDataIf(
+      canClear: () => true,
+    );
+    runtime.container.invalidate(activeServerProvider);
+    final finishing = auth.completeExternal(
+      ExternalAuthCompletion(
+        origin: proxyOnly.url,
+        cookies: const {'_gate': 'open'},
+      ),
+    );
+    await signingOut;
+    await expectLater(
+      finishing,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    expect(registry.account(pending)!.capturedHeaders, isEmpty);
   });
 
   test('a sign-in window finished after its addition was cancelled '
@@ -956,8 +1082,16 @@ void main() {
     await accounts.cancelAdd();
     proxyOnly.hold = null;
     release.complete();
-    final snapshot = await finishing;
-    expect(snapshot.user?.email, isNot('hal@example.com'));
+    await expectLater(
+      finishing,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
     final after = await accounts.list();
     expect(after.activeAccountId, before.activeAccountId);
     expect(after.accounts.map((a) => a.id), isNot(contains(pending)));
