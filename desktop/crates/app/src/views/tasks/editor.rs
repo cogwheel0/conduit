@@ -93,9 +93,6 @@ pub struct TaskEditor {
     cwd: Entity<InputState>,
     /// The folder the field shows next, once a terminal change dropped it.
     cwd_pending: Option<String>,
-    /// Another terminal was chosen: the daemon's answer drops the old one's
-    /// folder and agent, and the fields take it.
-    terminal_moved: bool,
     /// `automations.terminals` is asking the terminal for its agents.
     pub agents_loading: bool,
     terminals_call: Option<Task<()>>,
@@ -190,7 +187,6 @@ impl TaskEditor {
             rrule,
             cwd,
             cwd_pending: None,
-            terminal_moved: false,
             agents_loading: false,
             terminals_call: None,
             typing_rule: false,
@@ -359,16 +355,10 @@ impl TaskEditor {
         let Some(fields) = self.fields.as_mut() else {
             return;
         };
-        // Another terminal: its own folder, and no agent of the old one.
-        if std::mem::take(&mut self.terminal_moved)
-            && fields.terminal_id == state.fields.terminal_id
-        {
-            fields.model_id = state.fields.model_id.clone();
-            if fields.working_directory != state.fields.working_directory {
-                fields.working_directory = state.fields.working_directory.clone();
-                self.cwd_pending = Some(fields.working_directory.clone().unwrap_or_default());
-            }
-        }
+        // The folder and the model stay as the fields have them: a terminal
+        // change dropped the old terminal's in the edit itself
+        // ([`moved_to_terminal`]), so an answer (to that edit or a later one)
+        // never puts them back or takes a folder typed since.
         let typed = std::mem::replace(&mut fields.schedule, state.fields.schedule);
         if self.typing_rule {
             // What the user typed stays as typed.
@@ -389,8 +379,8 @@ impl TaskEditor {
                 if self.fields.as_ref().map(|f| &f.terminal_id) == Some(&id) {
                     return;
                 }
-                self.terminal_moved = true;
-                self.edit(|f| f.terminal_id = id, cx);
+                self.edit(|f| moved_to_terminal(f, id), cx);
+                self.cwd_pending = Some(String::new());
                 self.refresh_terminals(None, cx);
             }
             "task-channel" => self.edit(|f| f.channel_id = Some(value), cx),
@@ -1158,6 +1148,36 @@ impl TaskEditor {
     }
 }
 
+/// `fields` on terminal `id` (None: no terminal), as the core's
+/// `AutomationDraft.withTerminal` moves a draft: another terminal starts from
+/// its own folder (none typed) and keeps no coding agent of another terminal.
+/// Done in the edit that changes the terminal, so every request after it
+/// (the check, the terminals' list, a Save) carries the moved draft, whether
+/// or not an answer to an earlier one reached the editor.
+fn moved_to_terminal(fields: &mut AutomationFields, id: Option<String>) {
+    if fields.terminal_id == id {
+        return;
+    }
+    if agent_terminal(&fields.model_id).is_some_and(|on| Some(&on) != id.as_ref()) {
+        fields.model_id = String::new();
+    }
+    fields.working_directory = None;
+    fields.terminal_id = id;
+}
+
+/// The terminal a coding agent's model id names
+/// (`agent:<terminal>:<agent>:<model>`, the terminal URL-encoded), or None
+/// for another model.
+fn agent_terminal(model_id: &str) -> Option<String> {
+    let rest = model_id.trim().strip_prefix("agent:")?;
+    let (terminal, after) = rest.split_once(':')?;
+    let (agent, model) = after.split_once(':')?;
+    if terminal.is_empty() || agent.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some(crate::stores::media::percent_decode(terminal))
+}
+
 /// Whether `model_id` names one of the terminal's coding agents the editor
 /// offers (or the task's own, while the terminal is not asked).
 fn is_agent(editor: &AutomationEditor, model_id: &str) -> bool {
@@ -1549,6 +1569,95 @@ mod tests {
                 Some(typed),
                 "the rule kept is not the one typed"
             );
+        });
+    }
+
+    /// Another terminal is chosen and another field edited before the
+    /// daemon answers the change: every request from the change on carries
+    /// the moved draft (no folder of the old terminal, none of its agents),
+    /// so a Save never puts the old terminal's folder on the new one.
+    #[gpui_kit::test]
+    fn a_terminal_change_moves_every_request_after_it(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Nightly lint",
+                    "prompt": "Run the linter and summarise",
+                    "modelId": "agent:term%2Dnorth:codex:gpt-test",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 2, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=2;BYMINUTE=0"
+                    },
+                    "target": "chat",
+                    "terminalId": "term-north",
+                    "workingDirectory": "/srv/north-repo"
+                },
+                "terminal": true
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::AutomationsTerminals>(|_| {
+            Ok(serde_json::json!({"terminals": [], "models": [], "agentsUnknown": false}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        // The change's check is still unanswered when the name is edited:
+        // its answer never reaches the editor.
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.on_choice(
+                    &SettingsChoice {
+                        menu: "task-terminal".into(),
+                        value: "term-south".into(),
+                    },
+                    cx,
+                );
+                e.edit(|f| f.name = "Nightly lint (south)".into(), cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let lists = daemon.calls::<methods::AutomationsTerminals>();
+        let sent: Vec<&serde_json::Value> = checks[before..]
+            .iter()
+            .chain(lists.iter())
+            .map(|p| &p["fields"])
+            .collect();
+        assert!(
+            sent.len() >= 3,
+            "the change, the edit and the terminals' list went out"
+        );
+        for fields in sent {
+            assert_eq!(fields["terminalId"], "term-south");
+            assert!(
+                fields.get("workingDirectory").is_none_or(|v| v.is_null()),
+                "a request after the change carried the old terminal's folder: {fields}"
+            );
+            assert_eq!(
+                fields["modelId"], "",
+                "a request after the change kept the old terminal's agent"
+            );
+        }
+        vcx.update(|_, cx| {
+            let f = task.read(cx).fields.clone().expect("the fields");
+            assert_eq!(f.working_directory, None);
+            assert_eq!(f.model_id, "");
         });
     }
 
