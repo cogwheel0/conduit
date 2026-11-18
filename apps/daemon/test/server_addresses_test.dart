@@ -249,6 +249,51 @@ void main() {
     expect((await auth.status()).isAuthenticated, isTrue);
   });
 
+  test('a rename while another window switches accounts rebuilds no client '
+      'after the switch', () async {
+    final lab = (await accounts.list()).activeAccountId!;
+    // A second signed-in account, on another server.
+    final shed = await FakeOwuiAuthServer.start(users: users);
+    addTearDown(shed.close);
+    final added = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Shed', url: shed.url),
+        force: true,
+      ),
+    );
+    final other = added.accounts.activeAccountId!;
+    await auth.loginWithPassword(
+      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+    );
+    await userKnown(other);
+    await accounts.switchTo(AccountRef(accountId: lab));
+    await runtime.container.read(activeServerProvider.future);
+
+    final clients = <Object?>[];
+    final watch = runtime.container.listen<Object?>(
+      apiServiceProvider,
+      (_, next) => clients.add(next),
+    );
+    addTearDown(watch.close);
+    int? afterSwitch;
+    final renaming = servers.update(
+      ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
+    );
+    final switching = accounts
+        .switchTo(AccountRef(accountId: other))
+        .then((_) async {
+          await runtime.container.read(activeServerProvider.future);
+          afterSwitch = clients.length;
+        });
+    await Future.wait([renaming, switching]);
+    await runtime.container.read(activeServerProvider.future);
+    expect(
+      clients.length,
+      afterSwitch,
+      reason: 'a client built after the switch ends the reply it carries',
+    );
+  });
+
   group('check refuses with the core problem', () {
     test('no address', () async {
       final found = await check(const ServerAddressForm());

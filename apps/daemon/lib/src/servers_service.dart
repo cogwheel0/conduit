@@ -164,11 +164,12 @@ final class ServersService {
   /// Renames the saved server [serverId] in storage as it is stored then:
   /// its addresses, and the cookies its accounts keep there, as they are.
   /// The name is not a connection, so the live client -- and every reply it
-  /// carries -- stays ([_publishSaved]).
+  /// carries -- stays: only the accounts list, which shows the name, is
+  /// read again, whichever account is active by then (another window may
+  /// have switched meanwhile; its client is not this rename's to rebuild).
   Future<ServerSummary> _rename(String serverId, String name) async {
-    final activeBefore = await _activeConfig();
     if (!await _storage.renameServer(serverId, name)) throw _notFound(serverId);
-    await _publishSaved(activeBefore);
+    _container.invalidate(openWebUiAccountsProvider);
     final registry = await _storage.getOpenWebUiRegistryStrict();
     final accounts = {
       for (final account in registry.accountsOn(serverId)) account.id,
