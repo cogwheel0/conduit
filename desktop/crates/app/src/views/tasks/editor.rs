@@ -98,6 +98,10 @@ pub struct TaskEditor {
     terminals_call: Option<Task<()>>,
     /// The rule field is being typed in: its text is the user's.
     typing_rule: bool,
+    /// A schedule kind chosen (Once, Daily, Weekly) whose check has not
+    /// answered yet: every check until then carries it, so a check started
+    /// for something else (the terminal's agents) never drops the choice.
+    pending_kind: Option<String>,
     /// The rule the field shows next, once the controls changed it.
     rrule_pending: Option<String>,
     check: Option<Task<()>>,
@@ -190,6 +194,7 @@ impl TaskEditor {
             agents_loading: false,
             terminals_call: None,
             typing_rule: false,
+            pending_kind: None,
             rrule_pending: None,
             check: None,
             _subscriptions: subscriptions,
@@ -328,6 +333,8 @@ impl TaskEditor {
         let (Some(editor), Some(fields)) = (self.editor.as_ref(), self.fields.clone()) else {
             return;
         };
+        let choose_kind = choose_kind.or_else(|| self.pending_kind.clone());
+        self.pending_kind = choose_kind.clone();
         let call = self
             .rpc(cx)
             .call::<methods::AutomationsCheckDraft>(&AutomationDraftEdit {
@@ -340,7 +347,11 @@ impl TaskEditor {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
                     match result {
-                        Ok(state) => s.take_state(state, cx),
+                        Ok(state) => {
+                            // The choice is in the schedule now.
+                            s.pending_kind = None;
+                            s.take_state(state, cx)
+                        }
                         Err(e) => log::warn!("automations.checkDraft: {e}"),
                     }
                     cx.notify();
@@ -1659,6 +1670,70 @@ mod tests {
             assert_eq!(f.working_directory, None);
             assert_eq!(f.model_id, "");
         });
+    }
+
+    /// Weekly is chosen while the terminal's agents are still being asked
+    /// for: the check that follows their answer carries the choice, so the
+    /// schedule the editor keeps (and saves) is the one chosen.
+    #[gpui_kit::test]
+    fn a_terminal_answer_never_drops_a_schedule_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat",
+                    "terminalId": "term-north"
+                },
+                "terminal": true
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::AutomationsTerminals>(|_| {
+            Ok(serde_json::json!({"terminals": [], "models": [], "agentsUnknown": false}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        // Weekly's check has not answered when the terminal's agents do.
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                e.refresh_terminals(None, cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let after: Vec<_> = checks[before..].iter().collect();
+        assert!(
+            after.len() >= 2,
+            "the choice and the terminals' recheck went out"
+        );
+        assert_eq!(
+            after.last().expect("a check")["chooseKind"],
+            "weekly",
+            "the check after the terminal's answer dropped the schedule choice"
+        );
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
