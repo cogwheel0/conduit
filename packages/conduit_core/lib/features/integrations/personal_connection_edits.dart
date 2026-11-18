@@ -7,6 +7,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:conduit_core/features/integrations/personal_connection_drafts.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -193,14 +194,27 @@ String _documentLocation(Map<String, dynamic> entry) {
   return path.contains('://') ? path : url;
 }
 
-/// A hash of [entry] as stored: every field, its key included, in one
-/// canonical form (map keys sorted), so the same entry always gives the
-/// same text. Only the hash leaves, never the key. An editor keeps the
-/// fingerprint of the entry it opened; [PatchPersonalConnection] refuses
-/// its edit once the stored entry has another.
-String personalConnectionFingerprint(Map<String, dynamic> entry) => sha256
-    .convert(utf8.encode(jsonEncode(_canonical(normalizeJsonLikeMap(entry)))))
-    .toString();
+/// A fingerprint of [entry] as stored: every field, its key included, in
+/// one canonical form (map keys sorted), so the same entry always gives the
+/// same text. It is an HMAC-SHA256 keyed with a secret drawn once per
+/// process ([Random.secure], never stored or sent), so it says whether an
+/// entry changed and nothing else: it cannot check a guessed key offline.
+/// Fingerprints compare only within one process: after a restart an editor
+/// still open is refused once as stale, and fills again. An editor keeps
+/// the fingerprint of the entry it opened; [PatchPersonalConnection]
+/// refuses its edit once the stored entry has another.
+String personalConnectionFingerprint(Map<String, dynamic> entry) =>
+    Hmac(sha256, _fingerprintSecret)
+        .convert(
+          utf8.encode(jsonEncode(_canonical(normalizeJsonLikeMap(entry)))),
+        )
+        .toString();
+
+/// This process's fingerprint key.
+final List<int> _fingerprintSecret = () {
+  final random = Random.secure();
+  return List<int>.generate(32, (_) => random.nextInt(256));
+}();
 
 Object? _canonical(Object? value) => switch (value) {
   final Map<dynamic, dynamic> map => {

@@ -8,6 +8,7 @@ import 'package:conduit_core/features/integrations/personal_connection_settings.
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
 
@@ -561,6 +562,15 @@ void main() {
           Map<String, dynamic>.fromEntries(opened.entries.toList().reversed),
         ),
       ).equals(personalConnectionFingerprint(opened));
+      // Keyed: not the plain hash of the entry, which would check a
+      // guessed key offline.
+      check(personalConnectionFingerprint(opened)).not(
+        (it) => it.equals(
+          sha256
+              .convert(utf8.encode(jsonEncode(_sortedKeys(opened))))
+              .toString(),
+        ),
+      );
       // Its key counts.
       check(personalConnectionFingerprint({...opened, 'key': 'other'}))
           .not((it) => it.equals(personalConnectionFingerprint(opened)));
@@ -752,3 +762,13 @@ ApiService _api(FakeUserSettingsServer server, {String token = 'account-a'}) {
   api.dio.httpClientAdapter = server;
   return api;
 }
+
+/// [value] with every map's keys sorted, as a fingerprint's text is.
+Object? _sortedKeys(Object? value) => switch (value) {
+  final Map<dynamic, dynamic> map => {
+    for (final key in map.keys.map((k) => k.toString()).toList()..sort())
+      key: _sortedKeys(map[key]),
+  },
+  final List<dynamic> list => [for (final item in list) _sortedKeys(item)],
+  _ => value,
+};
