@@ -451,28 +451,34 @@ final class AutomationsService {
 
   Future<AutomationDraftState> checkDraft(AutomationDraftEdit edit) async {
     final editor = _editor(edit.token);
-    var draft = editor.apply(edit.fields);
-    final kind = switch (edit.chooseKind) {
+    final draft = _withKind(editor.apply(edit.fields), edit.chooseKind);
+    return editor.stateOf(draft, _fieldsOf(draft));
+  }
+
+  /// [draft] with the schedule kind [chooseKind] names (Once, Daily,
+  /// Weekly) applied, as a check and a Save both take it: a Save sent before
+  /// its kind's check answered saves that kind, never the schedule from
+  /// before it.
+  static AutomationDraft _withKind(AutomationDraft draft, String? chooseKind) {
+    final kind = switch (chooseKind) {
       'once' => AutomationScheduleKind.once,
       'daily' => AutomationScheduleKind.daily,
       'weekly' => AutomationScheduleKind.weekly,
       _ => null,
     };
-    if (kind != null) {
-      draft = draft.copyWith(
-        schedule: automationScheduleOfKind(
-          kind,
-          current: draft.schedule,
-          now: DateTime.now(),
-        ),
-      );
-    }
-    return editor.stateOf(draft, _fieldsOf(draft));
+    if (kind == null) return draft;
+    return draft.copyWith(
+      schedule: automationScheduleOfKind(
+        kind,
+        current: draft.schedule,
+        now: DateTime.now(),
+      ),
+    );
   }
 
   Future<AutomationDraftState> save(AutomationDraftEdit edit) async {
     final editor = _editor(edit.token);
-    final draft = editor.apply(edit.fields);
+    final draft = _withKind(editor.apply(edit.fields), edit.chooseKind);
     var state = editor.stateOf(draft, _fieldsOf(draft));
     if (state.issues.isNotEmpty) return state;
     final channel = draft.target.channelId;

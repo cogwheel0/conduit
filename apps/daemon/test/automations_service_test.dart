@@ -300,6 +300,28 @@ void main() {
     }
   });
 
+  test('a Save that carries a schedule kind saves that kind', () async {
+    final c = container();
+    await c.read(activeServerProvider.future);
+    final service = AutomationsService(c);
+    addTearDown(service.dispose);
+    final open = await service.editor(const AutomationEditorOpen(id: 't1'));
+    expect(open.fields.schedule.kind, 'daily');
+    // Weekly was chosen; its check had not answered when Save went.
+    final saved = await service.save(
+      AutomationDraftEdit(
+        token: open.token,
+        fields: open.fields,
+        chooseKind: 'weekly',
+      ),
+    );
+    expect(saved.saved, isTrue, reason: '${saved.issues} ${saved.failure}');
+    expect(
+      api.updatedForms.single.data['rrule'],
+      startsWith('RRULE:FREQ=WEEKLY'),
+    );
+  });
+
   test(
     "a saved task's editor saves later edits to it, not as another task",
     () async {
@@ -415,6 +437,7 @@ final class _Api extends ApiService {
 
   final created = <AutomationForm>[];
   final updated = <String>[];
+  final updatedForms = <AutomationForm>[];
 
   @override
   Future<Automation> createAutomation(
@@ -432,6 +455,7 @@ final class _Api extends ApiService {
     required ApiAuthSnapshot authSnapshot,
   }) async {
     updated.add(id);
+    updatedForms.add(form);
     return _task;
   }
 
