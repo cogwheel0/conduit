@@ -185,6 +185,15 @@ macho_uuid() {
   xcrun dwarfdump --uuid "$1" 2>/dev/null | awk '/arm64/ {print $2; exit}'
 }
 
+# Whether two Mach-O files or dSYMs have the same UUID: both read, neither
+# empty (a dwarfdump that failed on both is never a match).
+same_uuid() {
+  local a b
+  a="$(macho_uuid "$1")"
+  b="$(macho_uuid "$2")"
+  [ -n "$a" ] && [ "$a" = "$b" ]
+}
+
 # The Rust toolchain's rust-objcopy, printed only when it runs. It needs the
 # toolchain's llvm-tools component (lib/libLLVM.dylib), which
 # rust-toolchain.toml leaves out so that not every checkout downloads it;
@@ -208,12 +217,30 @@ rust_objcopy() {
   return 0
 }
 
+# An openssl that does Ed25519 (the one macOS ships, LibreSSL, does not):
+# $OPENSSL when set, else the first of `openssl` on PATH and Homebrew's
+# openssl@3 that can make an Ed25519 key. Stops, saying so, when none can,
+# so a missing tool is never reported as a bad key.
+ed25519_openssl() {
+  local c
+  for c in ${OPENSSL:+"$OPENSSL"} openssl /opt/homebrew/opt/openssl@3/bin/openssl \
+    /usr/local/opt/openssl@3/bin/openssl; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" genpkey -algorithm ed25519 >/dev/null 2>&1; then
+      command -v "$c"
+      return
+    fi
+  done
+  die "no OpenSSL with Ed25519 here (macOS's LibreSSL has none): brew install openssl@3, or set OPENSSL"
+}
+
 # The public half (base64, as SUPublicEDKey) of a private Sparkle EdDSA key
 # given on stdin: base64 of the 32-byte seed `generate_keys -x` exports, or
 # of the 96-byte form older keys were kept in (seed or private key, then
 # the public key). Prints nothing for anything else. The key never reaches
-# argv or a file.
+# argv or a file. Stops when no openssl here does Ed25519.
 sparkle_public_key() {
+  local openssl
+  openssl="$(ed25519_openssl)" || exit 1
   python3 -I -c '
 import base64, subprocess, sys
 try:
@@ -224,11 +251,54 @@ if len(raw) == 96:
     print(base64.b64encode(raw[64:]).decode())
 elif len(raw) == 32:
     der = bytes.fromhex("302e020100300506032b657004220420") + raw
-    out = subprocess.run(["openssl", "pkey", "-inform", "DER", "-pubout", "-outform", "DER"],
+    out = subprocess.run([sys.argv[1], "pkey", "-inform", "DER", "-pubout", "-outform", "DER"],
                          input=der, capture_output=True)
     if out.returncode == 0 and len(out.stdout) >= 32:
         print(base64.b64encode(out.stdout[-32:]).decode())
-'
+' "$openssl"
+}
+
+# Whether the appcast XML's item for sparkle:version BUILD describes FILE:
+# its enclosure's length is FILE's size, and its sparkle:edSignature (an
+# Ed25519 signature over the whole file, as Sparkle checks it) verifies with
+# PUBLIC, the public key (base64, as SUPublicEDKey) installed copies have.
+#
+#   verify_enclosure XML BUILD FILE PUBLIC
+verify_enclosure() {
+  local xml="$1" build="$2" file="$3" public="$4" openssl dir rc=0
+  [ -n "$public" ] || { warn "no public key to check the enclosure with"; return 1; }
+  openssl="$(ed25519_openssl)" || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/conduit-enclosure.XXXXXX")"
+  python3 -I - "$xml" "$build" "$file" "$public" "$dir" <<'PY' || rc=$?
+import base64, binascii, os, sys, xml.etree.ElementTree as ET
+xml, build, path, public, out = sys.argv[1:]
+S = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+items = [i for i in ET.parse(xml).getroot().iter("item")
+         if (i.findtext(f"{{{S}}}version") or "").strip() == build]
+if len(items) != 1:
+    sys.exit(f"enclosure: expected one item with sparkle:version {build}, found {len(items)}")
+enc = items[0].find("enclosure")
+if enc is None:
+    sys.exit("enclosure: the item has none")
+if enc.get("length") != str(os.path.getsize(path)):
+    sys.exit(f"enclosure: length {enc.get('length')}, the file is {os.path.getsize(path)} bytes")
+try:
+    sig = base64.b64decode(enc.get(f"{{{S}}}edSignature") or "", validate=True)
+    key = base64.b64decode(public, validate=True)
+except binascii.Error:
+    sys.exit("enclosure: the signature or the key is not base64")
+if len(sig) != 64 or len(key) != 32:
+    sys.exit("enclosure: not an Ed25519 signature and public key")
+with open(os.path.join(out, "signature"), "wb") as f:
+    f.write(sig)
+with open(os.path.join(out, "public.der"), "wb") as f:
+    f.write(bytes.fromhex("302a300506032b6570032100") + key)
+PY
+  if [ "$rc" = 0 ]; then
+    "$openssl" pkeyutl -verify -pubin -keyform DER -inkey "$dir/public.der" -rawin \
+      -in "$file" -sigfile "$dir/signature" >/dev/null || rc=$?
+  fi
+  return "$rc"
 }
 
 set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }

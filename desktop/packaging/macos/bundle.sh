@@ -149,6 +149,7 @@ if [ "$release" = 1 ]; then
   [ "$rehearsal" = 0 ] || die "--release and --rehearsal: pick one"
   [ "$bundle_id" = "$BUNDLE_ID_DEFAULT" ] || die "--bundle-id is for local tests only"
   [ ${#test_env[@]} -eq 0 ] || die "--test-env is for local tests only"
+  refuse_beta_release "$version"
   [ "$SIGN_KIND" != development ] ||
     die "--release needs a Developer ID Application identity, not an Apple Development one"
 fi
@@ -443,7 +444,7 @@ strip_built() {
     name="$(basename "$file")"
     dsym="$dsyms/$name.dSYM"
     if [ "$name" = Conduit ] && [ -d "$rustc_dsym" ] &&
-      [ "$(macho_uuid "$rustc_dsym")" = "$(macho_uuid "$file")" ]; then
+      same_uuid "$rustc_dsym" "$file"; then
       # rustc's dSYM, with the line tables (the objects it was made from
       # are gone, so dsymutil could not make it again). Cargo links it in
       # from deps/, named for the crate and its hash: copy the real folder
@@ -462,7 +463,7 @@ strip_built() {
         die "dsymutil $rel failed"
       }
     fi
-    [ "$(macho_uuid "$dsym")" = "$(macho_uuid "$file")" ] || die "$name.dSYM does not match $rel"
+    same_uuid "$dsym" "$file" || die "$name.dSYM does not match $rel"
     before="$(du -k "$file" | cut -f1)"
     if [ -n "$objcopy" ]; then
       # As rustc strips: all symbols from executables, the local ones from
@@ -491,8 +492,25 @@ do_build() {
 
 # --- sign ------------------------------------------------------------------
 
+# With --release, the bundle in --out must be a release build: the release
+# bundle id, no test environment (LSEnvironment), and this version. A
+# rehearsal's bundle is never signed or verified as a release.
+release_bundle() {
+  [ "$release" = 1 ] || return 0
+  local plist="$app/Contents/Info.plist" v
+  v="$(plutil -extract CFBundleIdentifier raw -o - "$plist" 2>/dev/null || true)"
+  [ "$v" = "$BUNDLE_ID_DEFAULT" ] ||
+    die "--release: $app is bundle id '$v', not $BUNDLE_ID_DEFAULT (a test build?)"
+  if plutil -extract LSEnvironment raw -o - "$plist" >/dev/null 2>&1; then
+    die "--release: $app carries a test environment (LSEnvironment)"
+  fi
+  v="$(plutil -extract CFBundleShortVersionString raw -o - "$plist" 2>/dev/null || true)"
+  [ "$v" = "$version" ] || die "--release: $app is version '$v', not $version"
+}
+
 do_sign() {
   [ -d "$app" ] || die "no $app (run build first)"
+  release_bundle
   local adhoc=0 ts=(--timestamp)
   if [ "$identity" = "-" ]; then
     adhoc=1
@@ -652,6 +670,7 @@ do_notarize_dmg() {
 
 do_verify() {
   [ -d "$app" ] || die "no $app"
+  release_bundle
   local plist="$app/Contents/Info.plist" failed=0
   fail() {
     printf '\033[31mFAIL\033[0m %s\n' "$*"
@@ -778,7 +797,7 @@ do_verify() {
       bad_strip=1
     fi
     dsym="$out/dSYMs/$(basename "$f").dSYM"
-    if [ ! -d "$dsym" ] || [ "$(macho_uuid "$dsym")" != "$(macho_uuid "$f")" ]; then
+    if [ ! -d "$dsym" ] || ! same_uuid "$dsym" "$f"; then
       if [ "$strict" = 1 ]; then fail "no dSYM matching $rel in $out/dSYMs"; else
         printf 'warn no dSYM matching %s\n' "$rel"
       fi

@@ -10,8 +10,13 @@
 #   accepts a correct feed and a patch release.
 # * release_exists / feed_exists answer yes or no, and stop on any other
 #   answer (a failed lookup is never "none yet").
-# * publish-appcast.sh keeps the live appcast.xml when the new upload fails,
-#   and keeps the last one as appcast.previous.xml when it succeeds.
+# * publish-appcast.sh keeps the live appcast.xml when the new upload fails
+#   or the new file cannot take its name, keeps the last one as
+#   appcast.previous.xml when it succeeds, and stops on a feed release whose
+#   appcast.xml is missing beside an appcast.previous.xml.
+# * verify_enclosure accepts the DMG an item's signed enclosure describes
+#   and refuses another file, another length or another key (with a
+#   throwaway key made here; skipped without an Ed25519 openssl).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/conduit-release-test.XXXXXX")"
@@ -98,6 +103,7 @@ if [ "$1" = api ] && [ "$2" != "-X" ]; then
     500) echo "gh: Server Error (HTTP 500)" >&2; exit 1 ;;
   esac
   case "$*" in
+    *'select(.name == "appcast.next.xml")'*) ls "$STUB_ASSETS" | awk '$2 == "appcast.next.xml" {print $1}' ;;
     *".assets[]"*) ls "$STUB_ASSETS" ;;
     *) echo 42 ;;
   esac
@@ -109,7 +115,12 @@ if [ "$1" = api ] && [ "$2" = "-X" ]; then
   [ -n "$file" ] || exit 1
   case "$3" in
     DELETE) rm "$STUB_ASSETS/$file" ;;
-    PATCH) name="${6#name=}"; mv "$STUB_ASSETS/$file" "$STUB_ASSETS/$id $name" ;;
+    PATCH)
+      name="${6#name=}"
+      # STUB_RENAME_FAIL=<name>: renaming the file now called <name> fails.
+      [ "${STUB_RENAME_FAIL:-}" = "${file#* }" ] && { echo "rename failed" >&2; exit 1; }
+      mv "$STUB_ASSETS/$file" "$STUB_ASSETS/$id $name"
+      ;;
   esac
   exit 0
 fi
@@ -175,6 +186,54 @@ else
 fi
 expect 1 "a feed release that cannot be read stops publishing" env STUB_LOOKUP=500 \
   APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good.xml" --push
+# The new file uploaded, but it cannot take the live name: the live one is
+# put back.
+mkdir -p "$tmp/moved" && mv "$STUB_ASSETS" "$tmp/moved/assets-1" && mkdir -p "$STUB_ASSETS"
+cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+expect 1 "a new appcast that cannot take the live name stops" env STUB_RENAME_FAIL=appcast.next.xml \
+  APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good.xml" --push
+if ls "$STUB_ASSETS" | grep -qx '7 appcast.xml'; then
+  pass "the live appcast.xml is put back when the new one cannot take its name"
+else
+  fail "after a failed rename the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+# A publication that stopped half way: never published over.
+mv "$STUB_ASSETS" "$tmp/moved/assets-2" && mkdir -p "$STUB_ASSETS"
+cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.previous.xml"
+expect 1 "appcast.previous.xml without appcast.xml stops publishing" env \
+  APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good.xml" --push
+if [ "$(ls "$STUB_ASSETS")" = "7 appcast.previous.xml" ]; then
+  pass "a half-stopped publication is left for a person to put back"
+else
+  fail "after a half-stopped publication the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+
+# ── verify_enclosure ────────────────────────────────────────────────────────
+if openssl_path="$(bash -c ". '$here/lib.sh'; ed25519_openssl" 2>/dev/null)"; then
+  "$openssl_path" genpkey -algorithm ed25519 -outform DER -out "$tmp/throwaway.der" 2>/dev/null
+  "$openssl_path" genpkey -algorithm ed25519 -outform DER -out "$tmp/other.der" 2>/dev/null
+  public_of() { "$openssl_path" pkey -inform DER -in "$1" -pubout -outform DER | tail -c 32 | base64; }
+  key="$(public_of "$tmp/throwaway.der")"
+  other_key="$(public_of "$tmp/other.der")"
+  "$openssl_path" pkeyutl -sign -inkey "$tmp/throwaway.der" -keyform DER -rawin -in "$dmg" \
+    -out "$tmp/dmg.sig"
+  signed="$(base64 <"$tmp/dmg.sig" | tr -d '\n')"
+  feed "$tmp/signed.xml" "$(item 1030099 1.3.0 "$url" "$size" "$signed" "")" "$old_item"
+  enclosure() { bash -c ". '$here/lib.sh'; verify_enclosure \"\$@\"" _ "$@"; }
+  expect 0 "the DMG its signed enclosure describes is accepted" \
+    enclosure "$tmp/signed.xml" 1030099 "$dmg" "$key"
+  printf 'swapped dmg bytes!!' >"$tmp/swapped.dmg"
+  expect 1 "another DMG of the same length is refused" \
+    enclosure "$tmp/signed.xml" 1030099 "$tmp/swapped.dmg" "$key"
+  printf 'synthetic dmg bytes, longer' >"$tmp/longer.dmg"
+  expect 1 "a DMG of another length is refused" \
+    enclosure "$tmp/signed.xml" 1030099 "$tmp/longer.dmg" "$key"
+  expect 1 "a signature made with another key is refused" \
+    enclosure "$tmp/signed.xml" 1030099 "$dmg" "$other_key"
+  expect 1 "no public key refuses" enclosure "$tmp/signed.xml" 1030099 "$dmg" ""
+else
+  echo "skip  verify_enclosure (no openssl with Ed25519 here)"
+fi
 
 echo
 if [ "$failures" = 0 ]; then

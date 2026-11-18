@@ -65,31 +65,49 @@ commit_to_branch() {
 }
 
 # Replaces appcast.xml on the feed release without ever losing the live
-# one: the current file is first renamed appcast.previous.xml (replacing an
-# older copy), the new one uploaded, and on a failed upload the previous one
-# is renamed back. Every lookup that fails stops.
+# one, and with the fixed URL empty for as short a time as can be: the new
+# file is uploaded first under another name (appcast.next.xml), then the
+# live one is renamed appcast.previous.xml (replacing an older copy) and the
+# new one renamed appcast.xml, two quick renames. A rename that fails puts
+# the live one back. Every lookup that fails stops, and so does a feed
+# release whose appcast.xml is missing while appcast.previous.xml is there
+# (a publication that stopped half way: docs/RELEASING-DESKTOP.md).
 replace_feed_asset() {
-  local new="$1" staged assets current previous
+  local new="$1" staged assets current previous next uploaded
   staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
-  cp "$new" "$staged/appcast.xml"
+  cp "$new" "$staged/appcast.next.xml"
   assets="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
     --jq '.assets[] | "\(.id) \(.name)"')" || die "could not list the feed release's files"
   current="$(printf '%s\n' "$assets" | awk '$2 == "appcast.xml" {print $1}')"
   previous="$(printf '%s\n' "$assets" | awk '$2 == "appcast.previous.xml" {print $1}')"
+  next="$(printf '%s\n' "$assets" | awk '$2 == "appcast.next.xml" {print $1}')"
+  if [ -z "$current" ] && [ -n "$previous" ]; then
+    die "the feed release has appcast.previous.xml but no appcast.xml: a publication stopped half way; rename appcast.previous.xml to appcast.xml first (docs/RELEASING-DESKTOP.md)"
+  fi
+  if [ -n "$next" ]; then
+    gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$next" >/dev/null ||
+      die "could not remove a stale appcast.next.xml; nothing was changed"
+  fi
+  gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.next.xml" -R "$RELEASE_REPO" ||
+    die "the new appcast did not upload; the live one is unchanged"
+  uploaded="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
+    --jq '.assets[] | select(.name == "appcast.next.xml") | .id')" ||
+    die "could not find the uploaded appcast.next.xml; the live one is unchanged"
+  [ -n "$uploaded" ] || die "the uploaded appcast.next.xml is not listed; the live one is unchanged"
   if [ -n "$current" ]; then
     if [ -n "$previous" ]; then
       gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$previous" >/dev/null ||
-        die "could not remove the older appcast.previous.xml"
+        die "could not remove the older appcast.previous.xml; the live one is unchanged"
     fi
     gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.previous.xml >/dev/null ||
-      die "could not keep the live appcast.xml aside; nothing was changed"
+      die "could not keep the live appcast.xml aside; the live one is unchanged"
   fi
-  if ! gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.xml" -R "$RELEASE_REPO"; then
+  if ! gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$uploaded" -f name=appcast.xml >/dev/null; then
     if [ -n "$current" ]; then
       gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.xml >/dev/null ||
-        die "the upload failed and appcast.previous.xml could not be renamed back: rename it to appcast.xml"
+        die "the new appcast could not take the live name and appcast.previous.xml could not be renamed back: rename it to appcast.xml"
     fi
-    die "the new appcast did not upload; the live one is unchanged"
+    die "the new appcast could not take the live name; the live one is unchanged"
   fi
   log "appcast.xml replaced (the last one is kept as appcast.previous.xml)"
 }
@@ -98,7 +116,7 @@ case "$APPCAST_HOSTING" in
   release-asset)
     if [ "$push" = 0 ]; then
       printf 'would create the prerelease %s on %s if it does not exist\n' "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
-      printf 'would keep the current appcast.xml as appcast.previous.xml, then upload %s\n' "$xml"
+      printf 'would upload %s as appcast.next.xml, keep the current appcast.xml as appcast.previous.xml, then rename the new one appcast.xml\n' "$xml"
     else
       state="$(release_exists "$APPCAST_RELEASE_TAG")"
       if [ "$state" = no ]; then

@@ -28,11 +28,12 @@ on:
     types: [published]
   workflow_dispatch:
 
-# One at a time: a release and its feed update read and write the same
-# appcast.
-concurrency:
-  group: release-desktop
-  cancel-in-progress: false
+# No workflow-wide concurrency group: GitHub keeps one pending run per
+# group and a newer one cancels it, so every event (mobile releases, dry
+# runs) would share one queue with the feed. Each job has its own group,
+# entered only when the job runs: a tag's build, the dry runs, and the feed
+# publications, one at a time (a newer publication queued behind a running
+# one replaces an older one still pending; it carries every live item).
 
 permissions:
   contents: read
@@ -46,6 +47,9 @@ jobs:
     # variable DESKTOP_MACOS_RUNNER overrides the image.
     runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 150
+    concurrency:
+      group: release-desktop-build-${{ github.event_name == 'workflow_dispatch' && 'dry-run' || github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
@@ -178,9 +182,11 @@ jobs:
         if: env.DRY_RUN == 'true'
         shell: bash
         run: |
+          . desktop/packaging/macos/lib.sh
+          openssl="$(ed25519_openssl)"
           umask 077
-          openssl genpkey -algorithm ed25519 -outform DER -out "$RUNNER_TEMP/sparkle.der"
-          echo "SPARKLE_PUBLIC_ED_KEY=$(openssl pkey -inform DER -in "$RUNNER_TEMP/sparkle.der" -pubout -outform DER | tail -c 32 | base64)" >> "$GITHUB_ENV"
+          "$openssl" genpkey -algorithm ed25519 -outform DER -out "$RUNNER_TEMP/sparkle.der"
+          echo "SPARKLE_PUBLIC_ED_KEY=$("$openssl" pkey -inform DER -in "$RUNNER_TEMP/sparkle.der" -pubout -outform DER | tail -c 32 | base64)" >> "$GITHUB_ENV"
           echo "DRY_RUN_SPARKLE_KEY=$RUNNER_TEMP/sparkle.der" >> "$GITHUB_ENV"
 
       - name: Build Conduit.app (stripped; dSYMs kept)
@@ -236,6 +242,8 @@ jobs:
           profile=conduit-desktop-notary
           if [ -n "$NOTARY_KEY" ] && [ -n "$NOTARY_KEY_ID" ] && [ -n "$NOTARY_ISSUER" ]; then
             umask 077
+            # Gone on every exit, the failed store-credentials included.
+            trap 'rm -f "$RUNNER_TEMP/notary-key.p8"' EXIT
             printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary-key.p8"
             xcrun notarytool store-credentials "$profile" --keychain "$SIGNING_KEYCHAIN" \
               --key "$RUNNER_TEMP/notary-key.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
@@ -312,9 +320,13 @@ jobs:
             desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
             --version "$VERSION" --fresh --download-url-prefix "https://example.invalid/dry-run/"
 
+      # bash -eo pipefail: a file that cannot be read fails the step, never
+      # leaving a partial SHA256SUMS.txt.
       - name: Checksums
         working-directory: ${{ env.OUT }}
+        shell: bash
         run: |
+          set -euo pipefail
           shasum -a 256 "Conduit-$VERSION.dmg" "Conduit-$VERSION-dSYMs.zip" appcast/appcast.xml |
             sed 's#appcast/appcast.xml#appcast.xml#' > SHA256SUMS.txt
           cat SHA256SUMS.txt
@@ -324,7 +336,11 @@ jobs:
       # Never "Latest", which stays the mobile app's.
       # Run again after a failure: the draft this tag made before takes this
       # build's assets (nothing of a draft is live). A published release is
-      # never changed here: its DMG is the one its feed describes.
+      # never changed here: its DMG is the one its feed describes. The draft
+      # is looked up again right before each file replaces its old copy, so
+      # one published meanwhile keeps the rest (turn on immutable releases
+      # for the repository to close the gap that remains: see
+      # docs/RELEASING-DESKTOP.md).
       - name: Create the draft GitHub release
         if: env.DRY_RUN != 'true'
         shell: bash
@@ -336,12 +352,23 @@ jobs:
           Release assets: the notarized DMG; Conduit-$VERSION-dSYMs.zip, the debug symbols for crash reports; appcast.xml, the signed Sparkle feed that goes live when this release is published; SHA256SUMS.txt."
           assets=("$OUT/Conduit-$VERSION.dmg" "$OUT/Conduit-$VERSION-dSYMs.zip"
             "$OUT/appcast/appcast.xml" "$OUT/SHA256SUMS.txt")
+          still_draft() {
+            local draft
+            draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" &&
+              [ "$draft" = true ]
+          }
           if draft="$(gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>&1)"; then
             if [ "$draft" != true ]; then
               echo "::error::$GITHUB_REF_NAME is already published: its DMG and appcast stay as they are"
               exit 1
             fi
-            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+            for asset in "${assets[@]}"; do
+              if ! still_draft; then
+                echo "::error::$GITHUB_REF_NAME was published (or could not be looked up) during this run: its remaining assets stay as they are"
+                exit 1
+              fi
+              gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "$asset"
+            done
             echo "Replaced the assets of the existing draft $GITHUB_REF_NAME"
           else
             case "$draft" in
@@ -383,16 +410,23 @@ jobs:
       startsWith(github.event.release.tag_name, 'desktop-v') &&
       !github.event.release.prerelease
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    # Its own group: no other event's run can replace a pending publication.
+    concurrency:
+      group: release-desktop-feed
+      cancel-in-progress: false
     permissions:
       contents: write
     env:
       TAG: ${{ github.event.release.tag_name }}
       GH_TOKEN: ${{ github.token }}
+      SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
     steps:
+      # The release event's own commit (GITHUB_SHA), never a ref name a
+      # branch could share with the tag.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Fetch the release's appcast
         shell: bash
@@ -409,12 +443,29 @@ jobs:
           code="$(curl -sSL -o "$dir/live.xml" -w '%{http_code}' "$(appcast_url)" || true)"
           case "$code" in
             200) ;;
-            404) echo "no live feed yet: this is the first release"; printf '<rss/>' > "$dir/live.xml" ;;
+            404)
+              # A first release only when no feed was ever published: a feed
+              # host that exists but has no appcast.xml (a publication that
+              # stopped half way) is never read as an empty history.
+              if [ "$(feed_exists)" != no ]; then
+                echo "::error::the feed host exists but $(appcast_url) answers 404: a publication stopped half way? See docs/RELEASING-DESKTOP.md, \"A stale or missing appcast\""
+                exit 1
+              fi
+              echo "no feed was ever published: this is the first release"
+              printf '<rss/>' > "$dir/live.xml"
+              ;;
             *) echo "::error::could not fetch the live feed (HTTP $code)"; exit 1 ;;
           esac
           dmg_url="https://github.com/$RELEASE_REPO/releases/download/$TAG/Conduit-$version.dmg"
-          # One byte, by GET: the asset redirects to a URL signed for GET only.
-          curl -fsSL -r 0-0 -o /dev/null "$dmg_url" || { echo "::error::$dmg_url does not download (is the release public?)"; exit 1; }
+          # The DMG as installed copies will download it, checked against the
+          # build's checksum and against the signed enclosure (its length and
+          # EdDSA signature, with the public key every installed copy has):
+          # a DMG swapped on the draft never goes live.
+          curl -fsSL -o "$dir/Conduit-$version.dmg" "$dmg_url" || { echo "::error::$dmg_url does not download (is the release public?)"; exit 1; }
+          (cd "$dir" && grep " Conduit-$version.dmg\$" SHA256SUMS.txt | shasum -a 256 -c -) ||
+            { echo "::error::$dmg_url is not the DMG the build recorded in SHA256SUMS.txt"; exit 1; }
+          verify_enclosure "$dir/appcast.xml" "$(build_number "$version")" "$dir/Conduit-$version.dmg" "$SPARKLE_PUBLIC_ED_KEY" ||
+            { echo "::error::$dmg_url does not match the appcast's signed enclosure"; exit 1; }
           python3 -I - "$dir/appcast.xml" "$dir/live.xml" "$(build_number "$version")" "$dmg_url" <<'EOF'
           import sys, xml.etree.ElementTree as ET
           new, live, build, url = sys.argv[1:]

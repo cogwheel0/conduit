@@ -86,8 +86,10 @@ log "notarytool signs in with profile '$profile'"
 if [ -z "${SPARKLE_PUBLIC_ED_KEY:-}" ]; then
   keydir="$out.sparkle-throwaway"
   mkdir -p "$keydir"
-  (umask 077 && openssl genpkey -algorithm ed25519 -outform DER -out "$keydir/key.der")
-  SPARKLE_PUBLIC_ED_KEY="$(openssl pkey -inform DER -in "$keydir/key.der" -pubout -outform DER | tail -c 32 | base64)"
+  # macOS's own openssl (LibreSSL) makes no Ed25519 key: one that does.
+  openssl="$(ed25519_openssl)"
+  (umask 077 && "$openssl" genpkey -algorithm ed25519 -outform DER -out "$keydir/key.der")
+  SPARKLE_PUBLIC_ED_KEY="$("$openssl" pkey -inform DER -in "$keydir/key.der" -pubout -outform DER | tail -c 32 | base64)"
   log "a throwaway Sparkle key for this build: $keydir"
 fi
 export SPARKLE_PUBLIC_ED_KEY
