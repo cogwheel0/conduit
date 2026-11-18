@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -136,9 +137,9 @@ void main() {
     expect(summary.hasStoredSession, isTrue);
     final listed = await accounts.list();
     expect(
-      listed.accounts.where((a) => a.serverId == serverId).map(
-        (a) => a.connection.name,
-      ),
+      listed.accounts
+          .where((a) => a.serverId == serverId)
+          .map((a) => a.connection.name),
       everyElement('Bench'),
     );
   });
@@ -273,6 +274,80 @@ void main() {
       registry.server(serverId)!.endpoint(second.id)!.customHeaders['X-Lab'],
       'one',
     );
+  });
+
+  test('an address moved to another origin is sent no saved header value, '
+      'and asks for it again', () async {
+    final second = (await list()).addresses.last;
+    final asked = other.requests.length;
+    final found = await check(
+      ServerAddressForm(
+        url: other.url,
+        headers: const [ServerAddressHeader(name: 'X-Lab')],
+      ),
+      endpointId: second.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.unusable);
+    expect(found.problem, ServerAddressProblemCode.headerFieldMissing);
+    expect(found.headerName, 'X-Lab');
+    expect(other.requests, hasLength(asked), reason: 'nothing went there');
+  });
+
+  test('a user and password typed before a host without a scheme are '
+      'refused', () async {
+    final port = Uri.parse(owui.url).port;
+    final found = await check(
+      ServerAddressForm(url: 'ada:secret@127.0.0.1:$port'),
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.unusable);
+    expect(found.problem, ServerAddressProblemCode.invalidAddress);
+  });
+
+  test('a saved header value is kept as saved, never checked as typed '
+      'input', () async {
+    final second = (await list()).addresses.last;
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    // Longer than a typed value may be: saved before that limit, say.
+    final long = 'v' * 2048;
+    await storage.editServerEndpoints(
+      serverId,
+      (endpoints) => [
+        for (final endpoint in endpoints)
+          endpoint.id == second.id
+              ? OpenWebUiEndpoint(
+                  id: endpoint.id,
+                  url: endpoint.url,
+                  label: endpoint.label,
+                  customHeaders: {'X-Lab': long},
+                )
+              : endpoint,
+      ],
+    );
+    addTearDown(
+      () => storage.editServerEndpoints(
+        serverId,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            endpoint.id == second.id
+                ? OpenWebUiEndpoint(
+                    id: endpoint.id,
+                    url: endpoint.url,
+                    label: endpoint.label,
+                    customHeaders: const {'X-Lab': 'one'},
+                  )
+                : endpoint,
+        ],
+      ),
+    );
+    final found = await check(
+      ServerAddressForm(
+        url: second.url,
+        label: 'Long header',
+        headers: const [ServerAddressHeader(name: 'X-Lab')],
+      ),
+      endpointId: second.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
   });
 
   test('another server does not know the session: sign in first', () async {
@@ -533,9 +608,9 @@ void main() {
     expect(through.isAuthenticated, isFalse);
     final listed = await accounts.list();
     expect(
-      listed.accounts.where((a) => a.serverId == gate).map(
-        (a) => a.connection.name,
-      ),
+      listed.accounts
+          .where((a) => a.serverId == gate)
+          .map((a) => a.connection.name),
       everyElement('Gate Two'),
       reason: 'the rename made while the sign-in was proved stays',
     );

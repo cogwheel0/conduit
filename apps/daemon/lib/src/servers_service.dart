@@ -310,11 +310,27 @@ final class ServersService {
       return _unusable(core.ServerAddressProblem.serverMissing);
     }
     final form = request.form;
+    String? formatted;
+    try {
+      formatted = core.formatServerAddressInput(form.url);
+    } on Object {
+      formatted = null; // The core's check names what is wrong with it.
+    }
     // As [validateUrl]: a server's credentials go in the sign-in, never in
-    // its address, which is stored and shown.
-    if (Uri.tryParse(form.url.trim())?.userInfo.isNotEmpty ?? false) {
+    // its address, which is stored and shown. Read as typed and as it is
+    // completed: `user:pass@host:8080` gains its scheme only then.
+    bool carriesUser(String? url) =>
+        url != null && (Uri.tryParse(url)?.userInfo.isNotEmpty ?? false);
+    if (carriesUser(form.url.trim()) || carriesUser(formatted)) {
       return _unusable(core.ServerAddressProblem.invalidAddress);
     }
+    // A saved header's value goes only where it went: an address moved to
+    // another origin is sent none of them, and asks for each again.
+    final sameOrigin =
+        saved != null &&
+        formatted != null &&
+        openWebUiServerIdentityUrl(formatted) ==
+            openWebUiServerIdentityUrl(saved.url);
     final draft = saved == null
         ? core.ServerAddressDraft()
         : core.ServerAddressDraft.of(saved);
@@ -328,12 +344,18 @@ final class ServersService {
     final headers = <String, String>{};
     for (final header in form.headers) {
       final name = header.name.trim();
-      final value = (header.value ?? kept[name] ?? '').trim();
-      final problem = core.validateServerAddressHeader(
-        headers,
-        name: name,
-        value: value,
-      );
+      final keptValue = header.value == null && sameOrigin ? kept[name] : null;
+      final value = (header.value ?? keptValue ?? '').trim();
+      // A value kept as saved is not typed input: only its name and place
+      // are checked, so a label edit is never refused over it.
+      final problem = keptValue != null
+          ? core.validateServerAddressHeaderName(name) ??
+                (headers.containsKey(name)
+                    ? core.ServerAddressProblem.headerAlreadyAdded
+                    : headers.length >= core.maxServerAddressHeaders
+                    ? core.ServerAddressProblem.tooManyHeaders
+                    : null)
+          : core.validateServerAddressHeader(headers, name: name, value: value);
       if (problem != null) return _unusable(problem, headerName: name);
       headers[name] = value;
     }
