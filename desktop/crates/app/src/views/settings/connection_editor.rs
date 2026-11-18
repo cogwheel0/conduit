@@ -1510,6 +1510,7 @@ mod tests {
         sheet.update(vcx, |s, cx| s.press_test(cx));
         vcx.run_until_parked();
         type_into(&sheet, |s| s.description.clone(), "Typed here", vcx);
+        type_into(&sheet, |s| s.key.clone(), "typed-secret", vcx);
         sheet.update(vcx, |s, cx| s.save(cx));
         settle(vcx);
         assert_eq!(
@@ -1531,6 +1532,10 @@ mod tests {
             );
             assert_eq!(super::forms::raw(&s.name, cx), "Seed renamed");
             assert_eq!(super::forms::raw(&s.description, cx), now.description);
+            // The typed key goes too, and the saved one is kept: nothing
+            // shown is left out of the next save.
+            assert_eq!(super::forms::raw(&s.key, cx), "");
+            assert_eq!(s.key_mode, conduit_protocol::PersonalKeyMode::Keep);
             assert!(!s.unsaved(cx), "the reloaded form counts as edited");
         });
         daemon.returns::<methods::IntegrationsSave>(listed(now));

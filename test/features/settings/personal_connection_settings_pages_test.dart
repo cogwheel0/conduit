@@ -614,6 +614,8 @@ void main() {
       ];
 
       await rig.change(_row('name'), 'Alpha renamed');
+      await rig.change(_row('url'), 'https://typed.example');
+      await rig.change(_row('key'), 'typed-secret');
       final writes = rig.writes.length;
       await rig.change(_row('save'));
 
@@ -627,6 +629,13 @@ void main() {
       expect(rig.titles(_alpha), contains(_l10n.personalConnectionsNotFound));
       expect(rig.row(_alpha, _row('url'))!.value, 'https://moved.example');
       expect(rig.row(_alpha, _row('name'))!.value, 'Alpha tools');
+      // Every typed field is back to the entry, the key too: nothing shown
+      // is left out of the next save.
+      expect(rig.row(_alpha, _row('key'))!.value, '');
+      expect(
+        rig.row(_alpha, _row('key'))!.placeholder,
+        _l10n.personalConnectionsKeyKept,
+      );
     });
 
     testWidgets('once another account is signed in, the form keeps what was '

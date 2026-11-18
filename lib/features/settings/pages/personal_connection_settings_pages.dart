@@ -423,7 +423,11 @@ final class _ConnectionEditor {
     if (entry == null) return;
     initialized = true;
     opened = entry.raw;
+    // Every field comes from the entry, the key text too: a form filled
+    // again (after a save refused because the entry changed) shows nothing
+    // typed that the next save would leave out.
     keyMode = PersonalConnectionSecretMode.keep;
+    keyText = '';
     if (isTool) {
       final draft = PersonalToolServerDraft.fromEntry(entry.raw);
       name = draft.name;
