@@ -340,9 +340,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
       );
     }
 
+    // Running: admitted and not finished. A turn stops counting the moment
+    // it finishes (its send is kept until the sync after it); a send whose
+    // turn has not started yet counts.
     bool sending(_ChatSession session) {
       final turn = session.turn;
-      return session.pending != null || (turn != null && !turn.finished);
+      if (turn != null && !turn.finished) return true;
+      final pending = session.pending;
+      return pending != null &&
+          !(turn != null && identical(turn.pending, pending));
     }
 
     final live = <_ChatSession>[

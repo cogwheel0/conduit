@@ -12,6 +12,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         chatMessagesProvider,
         composerTextInsertionProvider;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart'
+    show HermesHeldModelSwitch;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesCapabilitiesProvider, hermesConfigProvider;
 import 'package:conduit_core/models/chat_message.dart';
@@ -25,6 +27,7 @@ import 'package:conduit_core/providers/app_providers.dart'
         serverConfigsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/ports/ui_requests.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
@@ -152,6 +155,8 @@ void main() {
     final completed = <TurnCompleted>[];
     final failed = <TurnFailed>[];
     final asked = <UiRequest>[];
+    final askedTwice = Completer<void>();
+    final askedThrice = Completer<void>();
     events.attach('window', (envelope) {
       switch (envelope.event) {
         case ConduitEvents.turnCompleted:
@@ -160,6 +165,8 @@ void main() {
           failed.add(TurnFailed.fromJson(envelope.payload));
         case ConduitEvents.uiRequest:
           asked.add(UiRequest.fromJson(envelope.payload));
+          if (asked.length == 2) askedTwice.complete();
+          if (asked.length == 3) askedThrice.complete();
       }
     });
 
@@ -254,6 +261,8 @@ void main() {
     // A second send running in that other chat too: two running sends
     // hold the session, so a question about it is nobody's (refused, not
     // asked in either chat).
+    // The window follows both chats, so each send's answer reaches it.
+    subscribeWindow(events, turns, 'window', <String>[first.chatId, otherChat]);
     await turns.send(
       SendTurn(
         text: 'Please approve the seed swap',
@@ -261,12 +270,19 @@ void main() {
         chatId: otherChat,
       ),
     );
-    final both = DateTime.now().add(const Duration(seconds: 10));
-    while (asked.length < 2 && DateTime.now().isBefore(both)) {
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-    }
-    expect(asked, hasLength(2), reason: 'the second send never waited');
+    await askedTwice.future;
+    expect(asked, hasLength(2));
     expect(turns.hermesChatOf(sessionId), isNull);
+    // The core's real question, through the port: refused, asked nowhere.
+    final port = DaemonUiRequestPort()
+      ..attach(uiRequests)
+      ..hermesChatOf = turns.hermesChatOf;
+    final held = HermesHeldModelSwitch(
+      model: 'demo-model-large',
+      sessionId: sessionId,
+    );
+    expect(await port.confirmHermesModelSwitch(held), isNull);
+    expect(asked, hasLength(2), reason: 'a switch was asked with two sends');
     for (final request in asked) {
       uiRequests.respond(
         UiResponse(requestId: request.requestId, choice: 'once'),
@@ -275,8 +291,47 @@ void main() {
     await answered(4);
     expect(completed.last.text.trim(), 'Approved and done.');
     expect(turns.hermesChatOf(sessionId), isNull);
+
+    // A send that finished stops counting at once, though the sync after it
+    // still runs: asked the instant the other chat's answer finishes (its
+    // send not yet settled), a switch for this chat's running send is asked
+    // here.
+    Future<bool?>? switching;
+    final stopWatching = events.tap((event, scope, _) {
+      if (event == ConduitEvents.turnCompleted &&
+          scope == otherChat &&
+          switching == null) {
+        switching = port.confirmHermesModelSwitch(held);
+      }
+    });
+    await turns.send(
+      SendTurn(
+        text: 'Please approve the trellis',
+        model: agent.id,
+        chatId: first.chatId,
+      ),
+    );
+    await askedThrice.future;
+    await turns.send(
+      SendTurn(text: 'Seed swap notes', model: agent.id, chatId: otherChat),
+    );
+    await answered(5);
+    stopWatching();
+    expect(switching, isNotNull, reason: 'the other chat never finished');
+    final question = asked.last;
+    expect(question.kind, UiRequestKind.hermesModelSwitch);
+    expect(question.detail['chatId'], first.chatId);
+    uiRequests.respond(
+      UiResponse(requestId: question.requestId, choice: 'deny'),
+    );
+    expect(await switching, isFalse);
+    uiRequests.respond(
+      UiResponse(requestId: asked[2].requestId, choice: 'once'),
+    );
+    await answered(6);
     await hermes.delete(other);
     expect(hermesServer.approvals.map((a) => a['choice']), <String>[
+      'once',
       'once',
       'once',
     ]);
@@ -285,7 +340,7 @@ void main() {
     final detail = await chats.get(first.chatId);
     expect(detail, isNotNull);
     expect(detail!.messages.map((m) => m.content).first, 'Hello Hermes');
-    expect(detail.messages, hasLength(6));
+    expect(detail.messages, hasLength(8));
     // Read Aloud reads its answers from the same record.
     final answer = detail.messages.lastWhere((m) => m.role == 'assistant');
     expect(
