@@ -329,7 +329,9 @@ void main() {
     await check(jobs.current('job-1')).throws<HermesJobNotFoundException>();
 
     adapter.routes['GET /api/cron/jobs'] = (500, {'detail': 'busy'});
-    await check(jobs.current('job-1')).throws<Object>();
+    await check(jobs.current('job-1')).throws<DioException>(
+      (e) => e.has((e) => e.response?.statusCode, 'status').equals(500),
+    );
     check(adapter.requests.where((r) => r.method != 'GET')).isEmpty();
   });
 

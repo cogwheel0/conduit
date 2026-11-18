@@ -48,4 +48,29 @@ void main() {
       container.read(appSettingsProvider).hermesShowScheduledSessions,
     ).isFalse();
   });
+
+  test('a write the store does not keep leaves the shown value', () async {
+    final store = _Unkept();
+    PreferencesStore.debugOverride(store);
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final settings = container.read(appSettingsProvider.notifier);
+
+    store.unkept = true;
+    await check(
+      settings.setHermesShowScheduledSessions(false),
+    ).throws<StateError>();
+    check(
+      container.read(appSettingsProvider).hermesShowScheduledSessions,
+    ).isTrue();
+  });
+}
+
+/// Preferences whose writes report they were not kept while [unkept].
+final class _Unkept extends InMemoryKeyValueStore {
+  bool unkept = false;
+
+  @override
+  Future<bool> setBool(String key, bool value) async =>
+      !unkept && await super.setBool(key, value);
 }
