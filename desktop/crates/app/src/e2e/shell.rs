@@ -836,19 +836,25 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
 /// when `<file>.quit` appears. Each line a driver appends to `<file>.cmd`
 /// runs once ([`probe_command`]).
 pub fn probe(path: PathBuf, cx: &mut App) {
+    let Some((quit, commands, panels)) = probe_files(&path) else {
+        log::error!(
+            "--probe {}: its .quit or .cmd file would be itself",
+            path.display()
+        );
+        return;
+    };
     cx.spawn(async move |cx: &mut AsyncApp| {
-        let quit = path.with_extension("quit");
-        let commands = path.with_extension("cmd");
         // `press` lines and the AppKit windows: on a run loop timer that
         // also runs inside Sparkle's modal alerts (super::panels).
         #[cfg(target_os = "macos")]
-        super::panels::watch(commands.clone(), path.with_extension("panels.json"));
+        super::panels::watch(commands.clone(), panels);
+        #[cfg(not(target_os = "macos"))]
+        let _ = panels;
         let mut done = 0;
         loop {
             settle(cx, 300).await;
-            let lines: Vec<String> = std::fs::read_to_string(&commands)
-                .map(|s| s.lines().map(str::to_owned).collect())
-                .unwrap_or_default();
+            let text = std::fs::read_to_string(&commands).unwrap_or_default();
+            let lines = complete_lines(&text);
             for line in lines.iter().skip(done) {
                 probe_command(line.trim(), cx);
             }
@@ -896,7 +902,10 @@ pub fn probe(path: PathBuf, cx: &mut App) {
                     },
                 })
             });
-            std::fs::write(&path, serde_json::to_vec_pretty(&state).unwrap_or_default()).ok();
+            write_whole(
+                &path,
+                &serde_json::to_vec_pretty(&state).unwrap_or_default(),
+            );
             if quit.exists() {
                 cx.update(|cx| cx.quit());
                 break;
@@ -904,6 +913,40 @@ pub fn probe(path: PathBuf, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// The files beside a probe's `<file>`: `<file>.quit`, `<file>.cmd` and
+/// `<file>.panels.json` (its extension replaced: `/tmp/state.json` reads
+/// `/tmp/state.cmd`). None when one of them would be `<file>` itself
+/// (`--probe /tmp/state.cmd`), whose state writes would then overwrite the
+/// commands a driver appends.
+pub fn probe_files(path: &Path) -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let quit = path.with_extension("quit");
+    let commands = path.with_extension("cmd");
+    let panels = path.with_extension("panels.json");
+    (quit != path && commands != path && panels != path).then_some((quit, commands, panels))
+}
+
+/// The lines of a file a driver appends to that it has finished writing:
+/// a last line without its newline is still being written, and is read on
+/// a later pass, once.
+pub(super) fn complete_lines(text: &str) -> Vec<&str> {
+    text.split_inclusive('\n')
+        .filter(|line| line.ends_with('\n'))
+        .map(|line| line.trim_end_matches(['\n', '\r']))
+        .collect()
+}
+
+/// Writes `bytes` to `path` whole: to a file beside it, renamed over it, so
+/// a driver reading it meanwhile reads the last complete version, never a
+/// half-written one (and a failed write leaves that one in place).
+pub(super) fn write_whole(path: &Path, bytes: &[u8]) {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".writing");
+    let staged = path.with_file_name(name);
+    if std::fs::write(&staged, bytes).is_ok() {
+        std::fs::rename(&staged, path).ok();
+    }
 }
 
 /// One line of `<file>.cmd`:
@@ -918,5 +961,44 @@ fn probe_command(line: &str, cx: &mut AsyncApp) {
         cx.update(|cx| cx.dispatch_action(&crate::actions::CheckForUpdates));
     } else if !line.is_empty() && !line.starts_with("press ") {
         log::warn!("probe: unknown command '{line}'");
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn a_driver_line_runs_once_it_ends() {
+        assert_eq!(
+            complete_lines("check-for-updates\npress Install "),
+            vec!["check-for-updates"]
+        );
+        assert_eq!(
+            complete_lines("check-for-updates\npress Install Update\n"),
+            vec!["check-for-updates", "press Install Update"]
+        );
+        assert!(complete_lines("").is_empty());
+    }
+
+    #[test]
+    fn a_probe_file_never_is_its_own_commands_or_quit_file() {
+        let (quit, commands, panels) = probe_files(Path::new("/tmp/state.json")).unwrap();
+        assert_eq!(quit, Path::new("/tmp/state.quit"));
+        assert_eq!(commands, Path::new("/tmp/state.cmd"));
+        assert_eq!(panels, Path::new("/tmp/state.panels.json"));
+        assert!(probe_files(Path::new("/tmp/state.cmd")).is_none());
+        assert!(probe_files(Path::new("/tmp/state.quit")).is_none());
+    }
+
+    #[test]
+    fn a_whole_write_replaces_the_file() {
+        let dir = std::env::temp_dir().join(format!("conduit-probe-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.panels.json");
+        write_whole(&path, b"[1]");
+        write_whole(&path, b"[1, 2]");
+        assert_eq!(std::fs::read(&path).unwrap(), b"[1, 2]");
+        assert!(!dir.join("state.panels.json.writing").exists());
     }
 }

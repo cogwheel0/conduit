@@ -61,9 +61,8 @@ extern "C" fn tick(_timer: *mut c_void, info: *mut c_void) {
     // SAFETY: `info` is the watcher `watch` leaked; only this callback, on
     // the main thread, touches it.
     let watcher = unsafe { &mut *info.cast::<Watcher>() };
-    let lines: Vec<String> = std::fs::read_to_string(&watcher.commands)
-        .map(|s| s.lines().map(str::to_owned).collect())
-        .unwrap_or_default();
+    let text = std::fs::read_to_string(&watcher.commands).unwrap_or_default();
+    let lines = super::shell::complete_lines(&text);
     for line in lines.iter().skip(watcher.done) {
         if let Some(title) = line.trim().strip_prefix("press ") {
             log::info!("probe: press {title}");
@@ -74,7 +73,7 @@ extern "C" fn tick(_timer: *mut c_void, info: *mut c_void) {
     }
     watcher.done = watcher.done.max(lines.len());
     let listed = serde_json::to_vec_pretty(&list()).unwrap_or_default();
-    std::fs::write(&watcher.panels, listed).ok();
+    super::shell::write_whole(&watcher.panels, &listed);
 }
 
 /// The visible windows that have buttons (GPUI's have none): their

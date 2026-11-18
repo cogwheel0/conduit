@@ -106,6 +106,12 @@ if [ ! -f "$meta" ] || [ ! -f "$app/Contents/Resources/Metadata.appintents/extra
   bash packaging/macos/intents.sh bundle "$app" >/dev/null
   touch "$meta"
 fi
+# The app's profile a run before embedded stays only if this run embeds it
+# again (sign-dev.sh with both profiles): moved aside, never kept stale.
+if [ -e "$app/Contents/embedded.provisionprofile" ]; then
+  mkdir -p "$widget_dir"
+  mv "$app/Contents/embedded.provisionprofile" "$widget_dir/unused-$(date +%s)-embedded.provisionprofile"
+fi
 # An ad-hoc signature over the whole bundle (Info.plist included), so the
 # system treats it as an app for notifications and the login item. Dev
 # secrets go through /usr/bin/security, so the signature changing on each

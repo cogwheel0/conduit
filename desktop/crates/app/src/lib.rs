@@ -285,6 +285,16 @@ pub fn run() {
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if let Some(path) = &probe
+        && e2e::shell::probe_files(path).is_none()
+    {
+        eprintln!(
+            "conduit-desktop: --probe {}: name a file whose .cmd and .quit files are others (say, state.json)",
+            path.display()
+        );
+        std::process::exit(64);
+    }
     #[cfg(target_os = "macos")]
     let smoke_options = smoke::SmokeOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
