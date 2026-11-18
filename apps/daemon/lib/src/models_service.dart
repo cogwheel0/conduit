@@ -6,6 +6,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         captureOpenWebUiReasoningPickTargetFor,
         modelControlChoicesProvider,
         modelControlStates,
+        resolveTerminalAgentModel,
         selectReasoningEffortForModel,
         terminalAgentModelsIn,
         terminalAgentScopeFor,
@@ -169,10 +170,32 @@ final class ModelsService {
     }
   }
 
-  /// The chat a list last reopened its coding agent for: a chat started
-  /// with one reopens with it once, as on mobile, and the user may pick
-  /// another model there afterwards.
-  String? _reopenedFor;
+  /// The chats whose model is settled for the account and session in
+  /// [_reopenSession] / [_reopenAccount]: a chat started with a coding agent
+  /// reopened with it, or one that needed nothing, or one the user picked a
+  /// model in. Each chat reopens its agent once, as on mobile, and the user
+  /// may pick another model there afterwards; a chat whose agent could not
+  /// be found yet (its conversation or terminal not read) is not in it, and
+  /// the next list tries again.
+  Set<String> _reopened = <String>{};
+  Object? _reopenSession;
+  String? _reopenAccount;
+
+  /// [_reopened] for the account and session in charge now: started afresh
+  /// when either changed.
+  Set<String> _reopenedNow() {
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final account = currentPreferenceAccountId();
+    if (!identical(session, _reopenSession) || account != _reopenAccount) {
+      _reopenSession = session;
+      _reopenAccount = account;
+      _reopened = <String>{};
+    }
+    return _reopened;
+  }
+
+  /// How long reopening waits for the agent's terminal to answer.
+  static const Duration _reopenWait = Duration(seconds: 3);
 
   /// One account's list: started again once if the account (or its
   /// signed-in user) changes while it is put together, and refused if it
@@ -206,11 +229,10 @@ final class ModelsService {
     await _accountSettings(wait: _listSettingsWait);
     final chatId = query.chatId;
     final conversation = chatId == null ? null : await _conversation(chatId);
+    // Before the agents are listed: reopening selects the agent's own
+    // terminal, whose agents the list then offers.
+    if (chatId != null) await _reopenAgent(chatId, conversation);
     final agents = await _agents(conversation, temporary: query.temporary);
-    if (chatId != null && chatId != _reopenedFor) {
-      _reopenedFor = chatId;
-      await _reopenAgent(conversation, agents);
-    }
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
     // actually use is worse than showing none.
@@ -516,6 +538,9 @@ final class ModelsService {
   }
 
   Future<ModelList> select(String id, {String? chatId}) async {
+    // The user's pick settles the chat: a reopen still on its way, or a
+    // later list, never selects the chat's agent over it.
+    if (chatId != null) _reopenedNow().add(chatId);
     if (isTerminalAgentModelId(id)) {
       final conversation = chatId == null ? null : await _conversation(chatId);
       final agent = (await _agents(conversation))
@@ -580,16 +605,44 @@ final class ModelsService {
   }
 
   /// A chat started with a coding agent reopens with it, as on mobile, once
-  /// its terminal offers it again; until then the selection stays.
-  Future<void> _reopenAgent(
-    Conversation? conversation,
-    List<core.Model> agents,
-  ) async {
-    final id = conversation?.model;
-    if (!isTerminalAgentModelId(id)) return;
-    if (_container.read(selectedModelProvider)?.id == id) return;
-    final agent = agents.where((candidate) => candidate.id == id).firstOrNull;
-    if (agent != null) _selectAgent(agent);
+  /// its terminal offers it again; until then the selection stays. The
+  /// terminal asked is the one the agent's id names (selected with it), not
+  /// the one selected now. Recorded in [_reopenedNow] only once settled, so
+  /// a conversation or terminal that could not be read is tried again by
+  /// the next list for [chatId].
+  Future<void> _reopenAgent(String chatId, Conversation? conversation) async {
+    final settled = _reopenedNow();
+    if (settled.contains(chatId) || conversation == null) return;
+    final id = conversation.model;
+    if (id == null ||
+        !isTerminalAgentModelId(id) ||
+        _container.read(selectedModelProvider)?.id == id) {
+      settled.add(chatId);
+      return;
+    }
+    core.Model? agent;
+    try {
+      agent = await resolveTerminalAgentModel(
+        _container,
+        id,
+        chatId: chatId,
+        timeout: _reopenWait,
+      );
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'agent-reopen-failed',
+        scope: 'daemon/models',
+        data: <String, Object?>{'error': error.runtimeType.toString()},
+      );
+    }
+    // Another account or session took over, or the user picked a model in
+    // the chat meanwhile: nothing is selected.
+    final now = _reopenedNow();
+    if (agent == null || !identical(now, settled) || now.contains(chatId)) {
+      return;
+    }
+    now.add(chatId);
+    _selectAgent(agent);
   }
 
   /// The coding agents [conversation]'s replies came from, named as the

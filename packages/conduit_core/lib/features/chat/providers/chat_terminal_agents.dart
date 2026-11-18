@@ -182,28 +182,39 @@ Future<List<Model>> readTerminalAgentModelsForPicker(
 /// longer offers that agent.
 ///
 /// A chat started with an agent reopens with it, as on Open WebUI: its
-/// terminal is selected again and asked for the agent.
+/// terminal is selected again and asked for the agent. The terminal is the
+/// one [modelId] names, whichever terminal is selected now. [ref] is a `Ref`
+/// or a host's `ProviderContainer`; [timeout], when given, bounds each read
+/// (a slow terminal throws a [TimeoutException], as a failed read throws).
 Future<Model?> resolveTerminalAgentModel(
-  Ref ref,
+  dynamic ref,
   String modelId, {
   String? chatId,
+  Duration? timeout,
 }) async {
+  Future<T> bounded<T>(Future<T> future) =>
+      timeout == null ? future : future.timeout(timeout);
   final agent = parseTerminalAgentModelId(modelId);
   if (agent == null) return null;
-  if (!ref.read(terminalAgentsSupportedProvider)) return null;
-  final api = ref.read(apiServiceProvider);
+  if (ref.read(terminalAgentsSupportedProvider) != true) return null;
+  final api = ref.read(apiServiceProvider) as ApiService?;
   if (api == null) return null;
-  final servers = await ref.read(terminalAvailableServersProvider.future);
+  final servers = await bounded(
+    ref.read(terminalAvailableServersProvider.future)
+        as Future<List<TerminalServerInfo>>,
+  );
   final server = servers
       .where(
         (server) => server.isSystem && server.selectionId == agent.terminalId,
       )
       .firstOrNull;
   if (server == null) return null;
-  final agents = await api.getTerminalAgentModels(
-    terminalId: agent.terminalId,
-    chatId: chatId,
-    terminalName: server.displayName,
+  final agents = await bounded(
+    api.getTerminalAgentModels(
+      terminalId: agent.terminalId,
+      chatId: chatId,
+      terminalName: server.displayName,
+    ),
   );
   return agents.where((model) => model.id == modelId).firstOrNull;
 }

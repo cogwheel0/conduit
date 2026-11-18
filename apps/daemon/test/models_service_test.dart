@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show openWebUiChatSettingsAccessProvider;
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
@@ -13,6 +14,12 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
+    show terminalAvailableServersProvider;
+import 'package:conduit_core/features/tools/providers/tools_providers.dart'
+    show selectedTerminalIdProvider;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -20,7 +27,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
-import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:conduit_protocol/conduit_protocol.dart' hide ReviewerMode;
 import 'package:conduitd/conduitd.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -130,7 +137,147 @@ final class _Failing extends Models {
       throw const SocketException('No route to host');
 }
 
+const _northAgent = 'agent:north:codex:gpt-test';
+
+/// The server's own terminals, north and south.
+final _terminals = <TerminalServerInfo>[
+  TerminalServerInfo(
+    kind: TerminalServerKind.system,
+    selectionId: 'north',
+    systemServerId: 'north',
+    name: 'North bench',
+    baseUrl: Uri.parse('http://127.0.0.1:9/north'),
+  ),
+  TerminalServerInfo(
+    kind: TerminalServerKind.system,
+    selectionId: 'south',
+    systemServerId: 'south',
+    name: 'South bench',
+    baseUrl: Uri.parse('http://127.0.0.1:9/south'),
+  ),
+];
+
+/// A server whose terminal north offers one coding agent, and south none;
+/// asking fails while [failing] holds.
+final class _AgentsApi extends ApiService {
+  _AgentsApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'https://home.invalid',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  bool failing = false;
+  final asked = <String>[];
+
+  @override
+  Future<List<core.Model>> getTerminalAgentModels({
+    required String terminalId,
+    String? chatId,
+    String? cwd,
+    String? terminalName,
+    bool forAutomation = false,
+    String? automationId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    asked.add(terminalId);
+    if (failing) throw const SocketException('No route to host');
+    return terminalId == 'north'
+        ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
+        : const <core.Model>[];
+  }
+}
+
+final class _ReviewerOff extends ReviewerMode {
+  @override
+  bool build() => false;
+}
+
+/// Chats `agent-chat` (started with north's agent) and `plain-chat`.
+Conversation _conversation(String id) => Conversation(
+  id: id,
+  title: 'Bench chat',
+  createdAt: DateTime.utc(2026, 3, 1),
+  updatedAt: DateTime.utc(2026, 3, 1),
+  model: id == 'agent-chat' ? _northAgent : 'first-model',
+);
+
+/// A container for the agent tests: [api]'s terminals, with south selected.
+ProviderContainer _agentContainer(_AgentsApi api) {
+  final container = ProviderContainer(
+    overrides: [
+      modelsProvider.overrideWith(_Listed.new),
+      apiServiceProvider.overrideWithValue(api),
+      reviewerModeProvider.overrideWith(_ReviewerOff.new),
+      openWebUiAccountAvailableProvider.overrideWithValue(true),
+      terminalAgentsSupportedProvider.overrideWithValue(true),
+      terminalAvailableServersProvider.overrideWith((ref) async => _terminals),
+      loadConversationProvider.overrideWith(
+        (ref, id) async => _conversation(id),
+      ),
+    ],
+    retry: (_, _) => null,
+  );
+  addTearDown(container.dispose);
+  container.read(selectedTerminalIdProvider.notifier).set('south');
+  container.read(selectedModelProvider.notifier).set(
+    const core.Model(id: 'first-model', name: 'First model'),
+  );
+  return container;
+}
+
 void main() {
+  group('a chat started with a coding agent', () {
+    test('reopens on its own terminal, whichever terminal is selected',
+        () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      final list = await ModelsService(container).list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(list.selectedId, _northAgent);
+      expect(container.read(selectedTerminalIdProvider), 'north');
+      expect(list.agents.map((m) => m.id), <String>[_northAgent]);
+    });
+
+    test('whose terminal could not be asked reopens on a later list',
+        () async {
+      final api = _AgentsApi()..failing = true;
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      final first = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(first.selectedId, 'first-model');
+      api.failing = false;
+      final second = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(second.selectedId, _northAgent);
+    });
+
+    test('keeps a model picked there when another chat lists in between',
+        () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      final opened = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(opened.selectedId, _northAgent);
+      await models.select('first-model', chatId: 'agent-chat');
+      await models.list(const ModelListQuery(chatId: 'plain-chat'));
+      final again = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(again.selectedId, 'first-model');
+    });
+  });
+
   test('an unreachable server leaves the cached models on offer', () async {
     final container = ProviderContainer(
       overrides: [modelsProvider.overrideWith(_Unreachable.new)],
