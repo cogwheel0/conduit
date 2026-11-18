@@ -35,6 +35,8 @@ pub enum KeyRow {
     HermesArchived,
     /// Hermes's connection switcher.
     HermesConnection,
+    /// "N scheduled runs hidden": Return shows them, as its Show does.
+    HermesScheduledHidden,
 }
 
 impl KeyRow {
@@ -50,11 +52,11 @@ impl KeyRow {
             SidebarItem::ShowAll { area, .. } => Some(Self::ShowAll(*area)),
             SidebarItem::HermesArchived { .. } => Some(Self::HermesArchived),
             SidebarItem::HermesConnection { .. } => Some(Self::HermesConnection),
+            SidebarItem::HermesScheduledHidden { .. } => Some(Self::HermesScheduledHidden),
             SidebarItem::Header(_)
             | SidebarItem::HermesGroup { .. }
             | SidebarItem::Hint(_)
             | SidebarItem::AreaHint { .. }
-            | SidebarItem::HermesScheduledHidden { .. }
             | SidebarItem::NewFolder { .. } => None,
         }
     }
@@ -88,6 +90,7 @@ impl KeyRow {
             (Self::ShowAll(a), SidebarItem::ShowAll { area, .. }) => a == area,
             (Self::HermesArchived, SidebarItem::HermesArchived { .. }) => true,
             (Self::HermesConnection, SidebarItem::HermesConnection { .. }) => true,
+            (Self::HermesScheduledHidden, SidebarItem::HermesScheduledHidden { .. }) => true,
             _ => false,
         }
     }
@@ -450,6 +453,22 @@ mod tests {
         assert_eq!(navigate(&r, Some(1), ListKey::Up), ListMove::Stay);
         assert_eq!(navigate(&r, Some(5), ListKey::Home), ListMove::Cursor(1));
         assert_eq!(navigate(&r, Some(5), ListKey::End), ListMove::Cursor(8));
+    }
+
+    /// The hidden-runs row is a stop for the arrows (Return shows the
+    /// runs), so its Show is reached without Full Keyboard Access.
+    #[test]
+    fn the_arrows_stop_on_the_hidden_scheduled_runs_row() {
+        let r = vec![
+            SidebarItem::HermesScheduledHidden { count: 2 },
+            SidebarItem::HermesArchived {
+                count: 1,
+                visible: false,
+            },
+        ];
+        assert_eq!(navigate(&r, None, ListKey::Down), ListMove::Cursor(0));
+        assert_eq!(navigate(&r, Some(1), ListKey::Up), ListMove::Cursor(0));
+        assert_eq!(KeyRow::of(&r[0]), Some(KeyRow::HermesScheduledHidden));
     }
 
     #[test]

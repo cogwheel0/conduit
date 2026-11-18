@@ -1164,10 +1164,17 @@ impl SidebarView {
             SidebarItem::HermesScheduledHidden { count } => {
                 let text = l.hermes_scheduled_runs_hidden(*count as i64);
                 let stores = self.stores.clone();
+                // A stop for the arrows (Return shows the runs), drawn
+                // selected as the other footer rows are.
+                let selected = self.is_selection(&KeyRow::HermesScheduledHidden);
+                let fill = selection_fill(t, self.list_focused);
                 div()
                     .id("hermes-scheduled-hidden")
                     .role(Role::Status)
                     .aria_label(SharedString::from(text.clone()))
+                    .aria_selected(selected)
+                    .when(selected, |d| d.aria_active_descendant().bg(fill))
+                    .rounded(t.row_radius())
                     .h(px(t.metrics.row_height))
                     .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
                     .pr(px(ROW_CONTENT_INSET))
@@ -2748,6 +2755,9 @@ impl SidebarView {
                 crate::views::hermes_rooms::open_bot(&self.stores, &name, cx);
             }
             Some(KeyRow::HermesConnection) => self.hermes_connection_menu(window, cx),
+            Some(KeyRow::HermesScheduledHidden) => {
+                crate::views::settings::hermes::set_show_scheduled_runs(&self.stores, true, cx);
+            }
             // Already shown in its pane.
             Some(KeyRow::Item(_)) => {}
             Some(KeyRow::Chat(_)) | None => {
