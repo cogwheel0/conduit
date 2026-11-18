@@ -62,15 +62,22 @@ const CONTAINER_STOPS: &[&str] = &[
 /// when focus landed on something with no accessible node.
 type Stop = Option<Node>;
 
-/// Presses Tab (GPUI's `focus_next`, as the key does) up to `max` times
-/// from the window's start, and reads the focused node after each.
+/// Presses Tab (the key itself, through the window's key dispatch, so a
+/// view that eats Tab or a missing binding shows) up to `max` times from
+/// the window's start, and reads the focused node after each. In a
+/// terminal's console, where Tab is the shell's, the walk leaves as a
+/// keyboard user does: Go › Move Focus to Next Area.
 async fn tab_walk(handle: AnyWindowHandle, max: usize, cx: &mut AsyncApp) -> Vec<Stop> {
     drive::activate(handle, cx);
     let _ = cx.update(|cx| handle.update(cx, |_, window, cx| window.blur(cx)));
     settle(cx, 200).await;
     let mut stops: Vec<Stop> = vec![];
     for _ in 0..max {
-        let _ = cx.update(|cx| handle.update(cx, |_, window, cx| window.focus_next(cx)));
+        let in_console = stops
+            .last()
+            .and_then(Option::as_ref)
+            .is_some_and(|n| n.role == "Terminal");
+        super::press(handle, if in_console { "alt-cmd-`" } else { "tab" }, cx);
         settle(cx, 150).await;
         let nodes = drive::nodes(handle, cx).await;
         let stop = nodes
@@ -139,8 +146,14 @@ async fn screen(
     dir: &Path,
     cx: &mut AsyncApp,
 ) -> bool {
+    let unlabelled = unlabelled_seen();
     let controls = ax(handle, name, dir, cx).await;
     let mut pass = !controls.is_empty();
+    // An unlabelled control fails the screen, Tab stop or not.
+    pass &= ok(
+        &format!("{name}: every control has a label"),
+        unlabelled_seen() == unlabelled,
+    );
     for (role, label) in expect {
         pass &= ok(
             &format!("{name}: a {role} named “{label}”"),
@@ -322,6 +335,7 @@ async fn keyboard_rows(dir: &Path, cx: &mut AsyncApp) -> bool {
         (l.desktop_menu_next_area(), l.desktop_menu_previous_area())
     });
     let mut pass = true;
+    let mut reached_terminal = false;
     // The Go group, then the Terminal group and its footer, in view.
     let at = cx.update(|cx| {
         handle
@@ -379,11 +393,18 @@ async fn keyboard_rows(dir: &Path, cx: &mut AsyncApp) -> bool {
                 settle(cx, 200).await;
                 crate::smoke::shoot_both_modes(handle, dir, "a11y-settings-keyboard-terminal", cx)
                     .await;
+                reached_terminal = true;
                 break;
             }
         }
         pass &= ok("Settings › Keyboard's Go group shot in view", shot_go);
+    } else {
+        pass &= ok("Settings › Keyboard: a point to scroll at", false);
     }
+    pass &= ok(
+        "Settings › Keyboard's Terminal group and its footer shot in view",
+        reached_terminal,
+    );
     pass
 }
 
