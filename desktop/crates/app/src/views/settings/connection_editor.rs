@@ -111,6 +111,9 @@ pub struct ConnectionEditorSheet {
     pub key_mode: PersonalKeyMode,
     pub enabled: bool,
     pub saving: bool,
+    /// A conflict reload's list read is out: the form is locked until it
+    /// settles.
+    pub reloading: bool,
     pub testing: bool,
     pub deleting: bool,
     pub issues: Issues,
@@ -245,6 +248,7 @@ impl ConnectionEditorSheet {
             key_mode,
             enabled,
             saving: false,
+            reloading: false,
             testing: false,
             deleting: false,
             issues: Issues::default(),
@@ -280,7 +284,7 @@ impl ConnectionEditorSheet {
     }
 
     pub fn in_flight(&self) -> bool {
-        self.saving || self.testing || self.deleting
+        self.saving || self.reloading || self.testing || self.deleting
     }
 
     /// Test Connection, as its button presses it.
@@ -528,7 +532,11 @@ impl ConnectionEditorSheet {
     /// The daemon refused a save or test because the entry changed since this
     /// editor opened it (reason `changed`): the list is read again and the
     /// form fills from the entry as it is now, its typed changes gone (the
-    /// refusal says so); an entry that went stays as it was.
+    /// refusal says so); an entry that went stays as it was. The read is in
+    /// flight like a save: the form is locked until it settles, either way.
+    /// Only a list this account's read gave in full replaces the pane's and
+    /// fills the form; a failed one leaves both (the form keeps its
+    /// fingerprint, so its next Save is refused and reloads again).
     fn reload_if_changed(&mut self, e: &RpcError, cx: &mut Context<Self>) {
         if e.args.get("reason").map(String::as_str) != Some("changed") {
             return;
@@ -539,25 +547,37 @@ impl ConnectionEditorSheet {
         let call = self.rpc(cx).call::<methods::IntegrationsList>(&NoParams);
         let on_change = self.on_change.clone();
         let handle = self.window;
+        self.reloading = true;
+        cx.notify();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let Ok(list) = call.await else {
-                return;
-            };
-            let _ = handle.update(cx, |_, window, cx| {
+            let result = call.await;
+            let settled = handle.update(cx, |_, window, cx| {
                 let _ = this.update(cx, |s, cx| {
-                    let fresh = list
-                        .tool_servers
-                        .iter()
-                        .chain(&list.terminals)
-                        .find(|e| e.kind == s.kind && e.identity == identity)
-                        .cloned();
-                    on_change(list, cx);
-                    if let Some(entry) = fresh {
-                        s.fill(entry, window, cx);
+                    s.reloading = false;
+                    if let Ok(list) = result
+                        && !list.failed
+                        && list.owner == s.owner
+                    {
+                        let fresh = list
+                            .tool_servers
+                            .iter()
+                            .chain(&list.terminals)
+                            .find(|e| e.kind == s.kind && e.identity == identity)
+                            .cloned();
+                        on_change(list, cx);
+                        if let Some(entry) = fresh {
+                            s.fill(entry, window, cx);
+                        }
                     }
                     cx.notify();
                 });
             });
+            if settled.is_err() {
+                let _ = this.update(cx, |s, cx| {
+                    s.reloading = false;
+                    cx.notify();
+                });
+            }
         })
         .detach();
     }
@@ -1250,6 +1270,15 @@ mod tests {
         entry: Option<PersonalConnectionDto>,
         vcx: &mut VisualTestContext,
     ) -> Entity<ConnectionEditorSheet> {
+        open_with(stores, entry, Rc::new(|_, _: &mut App| {}), vcx)
+    }
+
+    fn open_with(
+        stores: &Stores,
+        entry: Option<PersonalConnectionDto>,
+        on_change: super::OnChange,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<ConnectionEditorSheet> {
         let stores = stores.clone();
         let sheet = vcx
             .update(|window, cx| {
@@ -1258,7 +1287,7 @@ mod tests {
                     "p1".into(),
                     PersonalKind::ToolServer,
                     entry,
-                    Rc::new(|_, _: &mut App| {}),
+                    on_change,
                     window,
                     cx,
                 )
@@ -1546,6 +1575,90 @@ mod tests {
             daemon.calls::<methods::IntegrationsSave>()[1]["fingerprint"],
             "fp-2"
         );
+    }
+
+    /// A Save refused as `changed`.
+    fn changed() -> conduit_daemon::RpcError {
+        let mut e = conduit_daemon::RpcError::new(conduit_protocol::ErrorCode::Conflict);
+        e.args.insert("reason".into(), "changed".into());
+        e
+    }
+
+    /// Nothing can be typed while a conflict reload reads the list, so its
+    /// refill never erases words typed meanwhile; the form unlocks once the
+    /// read settles.
+    #[gpui_kit::test]
+    fn nothing_is_typed_while_a_conflict_reload_reads_the_list(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(changed()));
+        let mut now = entry(true, true);
+        now.name = "Seed renamed".into();
+        now.fingerprint = "fp-2".into();
+        daemon.returns::<methods::IntegrationsList>(listed(now));
+        let held = daemon.hold_one::<methods::IntegrationsList>(0);
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        assert!(
+            sheet.read_with(vcx, |s, _| s.in_flight()),
+            "the reload left the form open"
+        );
+        draw_sheet(vcx);
+        let window = vcx
+            .update(|_, cx| sheet::current_window(cx))
+            .expect("the sheet's window");
+        let mut sheet_cx = VisualTestContext::from_window(window, &app);
+        // The name field has the caret; this is typed while the list is read.
+        sheet_cx.simulate_input(" club");
+        vcx.run_until_parked();
+        let typed = sheet.read_with(vcx, |s, cx| super::forms::raw(&s.name, cx));
+        assert_eq!(
+            typed, "Seed catalogue",
+            "a word went in while the reload was out"
+        );
+        drop(held);
+        vcx.run_until_parked();
+        sheet.read_with(vcx, |s, cx| {
+            assert!(!s.in_flight());
+            assert_eq!(super::forms::raw(&s.name, cx), "Seed renamed");
+        });
+    }
+
+    /// A reload whose list could not be read keeps the pane's last list and
+    /// the form as it is, its fingerprint too (the next Save is refused and
+    /// reloads again), and unlocks it.
+    #[gpui_kit::test]
+    fn a_failed_conflict_reload_leaves_the_list_and_the_form(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(changed()));
+        daemon.returns::<methods::IntegrationsList>(PersonalConnections {
+            owner: "p1".into(),
+            failed: true,
+            ..Default::default()
+        });
+        let lists = Rc::new(Cell::new(0));
+        let counted = lists.clone();
+        let mut opened = entry(true, true);
+        opened.fingerprint = "fp-1".into();
+        let sheet = open_with(
+            &stores,
+            Some(opened),
+            Rc::new(move |_, _: &mut App| counted.set(counted.get() + 1)),
+            vcx,
+        );
+        type_into(&sheet, |s| s.description.clone(), "Typed here", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        settle(vcx);
+        assert_eq!(lists.get(), 0, "a failed list replaced the pane's");
+        sheet.read_with(vcx, |s, cx| {
+            assert!(!s.in_flight());
+            assert_eq!(
+                s.entry.as_ref().map(|e| e.fingerprint.as_str()),
+                Some("fp-1")
+            );
+            assert_eq!(super::forms::raw(&s.description, cx), "Typed here");
+        });
     }
 
     /// Quit while a save is out queues nothing: a beep, no question (the
