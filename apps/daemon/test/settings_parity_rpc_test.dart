@@ -707,6 +707,7 @@ void _withAnAccount() {
     late _Api api;
     late Object epoch;
     late User? user;
+    late ServerConfig server;
     late bool previousWarning;
 
     setUpAll(() {
@@ -722,6 +723,7 @@ void _withAnAccount() {
       api = _Api();
       epoch = Object();
       user = _ava;
+      server = _server;
     });
     tearDown(() async {
       api.dispose();
@@ -919,10 +921,13 @@ void _withAnAccount() {
             appSettingsProvider.overrideWith(() => settings),
             openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
             currentUserProvider2.overrideWith((ref) => user),
+            activeServerProvider.overrideWith((ref) async => server),
             apiServiceProvider.overrideWith((ref) => api),
           ],
         );
         addTearDown(container.dispose);
+        container.listen(activeServerProvider, (_, _) {});
+        async.flushMicrotasks();
         final notifications = NotificationsService(container);
         final first = api;
         // The first change's mirror is slow to reach the server.
@@ -941,9 +946,18 @@ void _withAnAccount() {
         // Answered at once; its mirror waits for the account's earlier one.
         expect(answered, isTrue);
         expect(second.mirrored, isEmpty);
-        // The same account's token is renewed (a new session) meanwhile.
+        // The same account's token is renewed (a new session) meanwhile, and
+        // its address is read back spelled another way.
         epoch = Object();
-        container.invalidate(openWebUiAuthSessionEpochProvider);
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'HTTPS://Home.invalid/',
+        );
+        container
+          ..invalidate(openWebUiAuthSessionEpochProvider)
+          ..invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
         held.complete();
         async.flushMicrotasks();
         expect(first.reached, <bool?>[false, true]);
@@ -976,6 +990,43 @@ void _withAnAccount() {
         container
           ..invalidate(currentUserProvider2)
           ..invalidate(openWebUiAuthSessionEpochProvider);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    test("a notification mirror queued for one server never goes once the "
+        "account's address moves to another", () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            activeServerProvider.overrideWith((ref) async => server),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(activeServerProvider, (_, _) {});
+        async.flushMicrotasks();
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        // The saved server keeps its id and user but now reaches another
+        // server, whose account has the same user id.
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'https://away.invalid',
+        );
+        container.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
         held.complete();
         async.flushMicrotasks();
         expect(api.reached, <bool?>[false]);
