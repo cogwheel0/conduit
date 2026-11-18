@@ -15,7 +15,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
     show persistOpenWebUiBackendPreference;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart'
-    show isCapturedSessionHeader;
+    show OpenWebUiRegistry, isCapturedSessionHeader;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart' as backend;
@@ -452,8 +452,26 @@ final class AccountsService {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
     if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
+    // The server's first address as saved now, after the wait above; and,
+    // when the selection is written, that server must still have it, or the
+    // account would become a server of its own (another window removed it).
+    final joined = request.serverId == null
+        ? null
+        : await _firstAddressOf(request.serverId!);
+    var moved = false;
+    bool joins(OpenWebUiRegistry stored) {
+      final still =
+          stored
+              .server(request.serverId!)
+              ?.endpoints
+              .any((endpoint) => endpoint.carries(joined!)) ??
+          false;
+      if (!still) moved = true;
+      return still;
+    }
+
     final config =
-        onServer ??
+        joined ??
         ServerConfig(
           id: _uuid.v4(),
           name: name,
@@ -479,7 +497,11 @@ final class AccountsService {
     try {
       await _container
           .read(authStateManagerProvider.notifier)
-          .selectUnauthenticatedServerConfig(config, canCommit: stillAdding);
+          .selectUnauthenticatedServerConfig(
+            config,
+            canCommit: stillAdding,
+            joins: joined == null ? null : joins,
+          );
     } on Object catch (error) {
       if (activeId != null) addition.end(activeId);
       _libreChatAdditionFrom = null;
@@ -487,6 +509,17 @@ final class AccountsService {
         code: ConduitErrorCodes.serverError,
         args: <String, String>{'detail': '$error'},
         debugMessage: 'could not add the account: $error',
+      );
+    }
+    if (moved) {
+      if (activeId != null) addition.end(activeId);
+      _libreChatAdditionFrom = null;
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'serverId': request.serverId!},
+        debugMessage:
+            "the server's first address changed while the account was "
+            'added: add it again',
       );
     }
     _container.invalidate(openWebUiAccountsProvider);

@@ -8,6 +8,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 // Types are used through app_providers.dart
 import 'package:conduit_core/providers/app_providers.dart';
 
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 
@@ -1636,10 +1637,13 @@ class AuthStateManager extends _$AuthStateManager {
   ///
   /// [canCommit] lets the caller withdraw the selection while it is saved:
   /// once it says no, the account active before stays active, as it does
-  /// when a newer auth attempt begins.
+  /// when a newer auth attempt begins. So it does when [joins] says no
+  /// about the saved servers as they are written over (see
+  /// `OptimizedStorageService.selectUnauthenticatedServerConfig`).
   Future<void> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     bool Function()? canCommit,
+    bool Function(OpenWebUiRegistry stored)? joins,
   }) async {
     final currentState = _current;
     final previousState =
@@ -1655,6 +1659,7 @@ class AuthStateManager extends _$AuthStateManager {
       final selected = await storage.selectUnauthenticatedServerConfig(
         config,
         canCommit: () => !superseded(),
+        joins: joins,
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);

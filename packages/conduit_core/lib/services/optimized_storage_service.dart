@@ -1449,10 +1449,17 @@ class OptimizedStorageService {
   /// headers remain available for this sign-in attempt; logout later revokes
   /// captured proxy Cookie headers while preserving user-configured
   /// connection headers.
+  ///
+  /// [joins] is asked about the saved servers as they are stored when the
+  /// selection is written, right before it writes: false declines it, as a
+  /// failed [canCommit] does. An account added on a saved server passes
+  /// whether that server still has the address [config] was made from, so
+  /// it never becomes a server of its own.
   Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     required FutureOr<void> Function() publish,
     bool Function()? canCommit,
+    bool Function(OpenWebUiRegistry stored)? joins,
     void Function()? onRollbackUncertain,
   }) {
     return _authStateLock.synchronized(
@@ -1486,6 +1493,7 @@ class OptimizedStorageService {
         final registry = await _registryForWriteUnlocked();
         final vaulted = await _secureCredentialStorage.vaultedServerIds();
         if (!ownsAttempt()) return false;
+        if (!(joins?.call(registry) ?? true)) return false;
         final previousHasLiveSession =
             (previousToken != null && previousToken.isNotEmpty) ||
             (previousCredentialsPayload != null &&
