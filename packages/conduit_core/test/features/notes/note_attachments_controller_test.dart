@@ -319,6 +319,76 @@ void main() {
   });
 
   group('NoteAttachmentsController', () {
+    test('close waits for a recording being moved to a recovered note',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('three.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_3.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      check(controller.pending).length.equals(1);
+      // The note recovered as a new one, which its recording moves to.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:recovered',
+              'user_id': 'user-1',
+              'title': 'Three',
+              'data': {
+                'content': {'md': 'three', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      held.holdRebind = Completer<void>();
+      final original = openNote;
+      final recovered = await readNote('local:recovered');
+      openNote = recovered;
+      // Started by the recovery, not awaited by it.
+      final moving = controller.rebindTo(original, recovered);
+      await held.rebindEntered.future;
+
+      var closed = false;
+      final closing = controller.close().then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      held.holdRebind!.complete();
+      await moving;
+      await closing;
+      check(closed).isTrue();
+    });
+
     test('close waits for a retry a caller started, until it stops '
         'writing', () async {
       await store.stage(
