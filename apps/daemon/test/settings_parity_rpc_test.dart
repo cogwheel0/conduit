@@ -972,6 +972,44 @@ void _withAnAccount() {
       expect(again.items.map((w) => w.id), <String>['pager']);
     });
 
+    test('a webhook list read again while the API client is replaced is '
+        'answered, and the next one reads the list', () async {
+      user = _avaAdmin;
+      var failing = true;
+      Completer<void>? held;
+      final asked = Completer<void>();
+      Future<List<NotificationTarget>> targets() async {
+        if (failing) throw StateError('the server did not answer');
+        final wait = held;
+        held = null;
+        if (wait != null) {
+          asked.complete();
+          await wait.future;
+        }
+        return const <NotificationTarget>[_pager];
+      }
+
+      api.targets = targets;
+      final container = containerWith(extra: _webhooksOn);
+      final webhooks = WebhooksService(container);
+      expect((await webhooks.list()).failed, isTrue);
+      failing = false;
+      final release = held = Completer<void>();
+      var settled = false;
+      final again = webhooks.list().whenComplete(() => settled = true);
+      await asked.future;
+      // The same account's API client is replaced while the list is read.
+      api = _Api()..targets = targets;
+      container.invalidate(apiServiceProvider);
+      release.complete();
+      await pumpEventQueue();
+      expect(settled, isTrue, reason: 'the list waits on a load never settled');
+      await again;
+      final next = await webhooks.list();
+      expect(next.failed, isFalse);
+      expect(next.items.map((w) => w.id), <String>['pager']);
+    });
+
     test("an open editor's owner outlasts other windows' list reads", () async {
       user = _avaAdmin;
       api.targets = () async => const <NotificationTarget>[_pager];

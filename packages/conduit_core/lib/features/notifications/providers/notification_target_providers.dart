@@ -147,6 +147,9 @@ class NotificationTargets extends _$NotificationTargets {
 
   @override
   Future<NotificationTargetsData> build() async {
+    // A build settles the state itself: a reload begun before it is
+    // superseded.
+    _loadGeneration++;
     ref.watch(activeServerProvider.select((s) => s.asData?.value?.id));
     // A same-server account switch keeps the same ApiService, so the auth
     // session is what retires one account's destinations for the next.
@@ -345,16 +348,32 @@ class NotificationTargets extends _$NotificationTargets {
     return NotificationTargetsData(targets: targets, events: await catalog);
   }
 
-  /// Replaces the list with the server's, unless a newer load started or the
-  /// account changed. A failure keeps the list that was showing, marked stale.
+  /// Replaces the list with the server's, unless a newer load (or a build)
+  /// started or the account changed. A failure keeps the list that was
+  /// showing, marked stale. A load that is not superseded always settles
+  /// the state: one whose owner is no longer current while nothing is
+  /// shown ends as [NotificationTargetsOwnerChangedException], never left
+  /// loading for every later read to wait on.
   Future<void> _reload(NotificationTargetsOwner owner) async {
     final generation = ++_loadGeneration;
+    void settleStale() {
+      if (generation != _loadGeneration || !ref.mounted || state.hasValue) {
+        return;
+      }
+      state = AsyncError<NotificationTargetsData>(
+        NotificationTargetsOwnerChangedException(),
+        StackTrace.current,
+      );
+    }
+
     try {
       final data = await _load(owner);
-      if (generation != _loadGeneration || !_isCurrent(owner)) return;
+      if (generation != _loadGeneration) return;
+      if (!_isCurrent(owner)) return settleStale();
       state = AsyncData(data);
     } catch (error, stackTrace) {
-      if (generation != _loadGeneration || !_isCurrent(owner)) return;
+      if (generation != _loadGeneration) return;
+      if (!_isCurrent(owner)) return settleStale();
       final shown = state.asData?.value;
       state = shown == null
           ? AsyncError<NotificationTargetsData>(error, stackTrace)
