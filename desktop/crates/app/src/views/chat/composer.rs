@@ -409,13 +409,6 @@ impl ChatComposer {
                             this.set_text(text, window, cx);
                         }
                     }
-                    // Read again after it was unknown: the draft joined with
-                    // what the field holds.
-                    ComposerEvent::DraftRestored { key, text }
-                        if store.read(cx).draft_key() == Some(key) =>
-                    {
-                        this.set_text(text, window, cx);
-                    }
                     _ => {}
                 },
             ),
@@ -5051,6 +5044,41 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// Shared text that starts a fresh composition while the chat's draft is
+    /// still being read stands alone: the draft read then is the last
+    /// composition's, so it lands nowhere, and nothing is written over the
+    /// stored draft nobody saw.
+    #[gpui_kit::test]
+    fn shared_text_started_fresh_during_a_draft_read_stands_alone(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words"})).unwrap(),
+        );
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        let probe = daemon.clone();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| c.start_fresh("Shared text", window, cx));
+        read.release();
+        for _ in 0..2 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(500));
+            cx.run_until_parked();
+        }
+        assert_eq!(value(&view, cx), "Shared text");
+        assert!(
+            probe.calls::<DraftsSave>().is_empty(),
+            "a draft nobody saw was written over"
+        );
     }
 
     /// A fresh composition while dictation runs and a send is still out:

@@ -502,8 +502,7 @@ impl ChatPane {
                     // The composer shows its drafts itself.
                     ComposerEvent::DraftSwitched
                     | ComposerEvent::DraftLoaded { .. }
-                    | ComposerEvent::DraftReadEnded
-                    | ComposerEvent::DraftRestored { .. } => return,
+                    | ComposerEvent::DraftReadEnded => return,
                 };
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
@@ -4284,123 +4283,144 @@ mod tests {
             conduit_daemon::protocol::error("rpc.timeout", "no draft")
         }
 
-        /// A draft read that fails is no draft: a prefill given then never
-        /// replaces the stored draft, and with the stored draft still
-        /// unreadable nothing is saved (the words stay in the composer).
+        /// A daemon whose first read of chat c1's draft fails, and that
+        /// answers every later read with what each chat keeps.
+        fn first_read_fails(daemon: &FakeDaemon) {
+            daemon.once::<methods::DraftsGet>(Err(no_draft()));
+            daemon.on::<methods::DraftsGet>(|p| {
+                let text = if p["chatId"] == "c1" {
+                    "Pea trellis plan"
+                } else {
+                    ""
+                };
+                Ok(serde_json::json!({"text": text, "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+        }
+
+        fn saves(daemon: &FakeDaemon) -> Vec<String> {
+            daemon
+                .calls::<methods::DraftsSave>()
+                .iter()
+                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+
+        fn text_of(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> String {
+            pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+        }
+
+        fn wait_past_saves(vcx: &mut VisualTestContext) {
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
+        }
+
+        /// A draft read that fails is no draft: the prefill still shows,
+        /// and nothing is ever saved over the stored draft by this
+        /// composer.
         #[gpui_kit::test]
         fn a_failed_draft_read_never_lets_a_prefill_replace_the_stored_draft(
             cx: &mut TestAppContext,
         ) {
             let (daemon, stores, pane, vcx) = bench(cx);
-            daemon.once::<methods::DraftsGet>(Err(no_draft()));
-            daemon.once::<methods::DraftsGet>(Err(no_draft()));
-            daemon
-                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            first_read_fails(&daemon);
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
                 let ticket = p.composer_store.read(cx).ticket();
                 p.take_given_text(ticket, "/plan ", window, cx);
             });
-            vcx.executor()
-                .advance_clock(std::time::Duration::from_millis(500));
-            vcx.run_until_parked();
-            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
-            assert_eq!(text, "/plan ");
+            wait_past_saves(vcx);
+            assert_eq!(text_of(&pane, vcx), "/plan ");
             assert!(
-                daemon.calls::<methods::DraftsSave>().is_empty(),
-                "a draft nobody read was written over: {:?}",
-                daemon.calls::<methods::DraftsSave>()
+                saves(&daemon).is_empty(),
+                "a draft nobody read was written over"
             );
         }
 
-        /// Typing after a failed draft read saves nothing over the stored
-        /// draft: the user has not seen it. It is read again first and
-        /// joined with what was typed; while that read fails too, nothing
-        /// is saved.
+        /// After a failed draft read, typing and then leaving the chat
+        /// write no draft at all: the stored draft stays as it was.
         #[gpui_kit::test]
-        fn typing_after_a_failed_draft_read_waits_to_be_joined_with_the_stored_draft(
-            cx: &mut TestAppContext,
-        ) {
+        fn typing_after_a_failed_draft_read_and_leaving_writes_no_draft(cx: &mut TestAppContext) {
             let (daemon, stores, pane, vcx) = bench(cx);
-            daemon.once::<methods::DraftsGet>(Err(no_draft()));
-            daemon.once::<methods::DraftsGet>(Err(no_draft()));
-            daemon.on::<methods::DraftsGet>(|_| {
-                Ok(serde_json::json!({"text": "Pea trellis plan ", "stored": true}))
-            });
-            daemon
-                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            first_read_fails(&daemon);
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
-            let saves = |daemon: &FakeDaemon| -> Vec<String> {
-                daemon
-                    .calls::<methods::DraftsSave>()
-                    .iter()
-                    .map(|c| c["text"].as_str().unwrap_or_default().to_string())
-                    .collect()
-            };
             pane.update_in(vcx, |p, window, cx| {
                 p.composer
                     .update(cx, |c, cx| c.set_text("the beds", window, cx));
             });
-            vcx.executor()
-                .advance_clock(std::time::Duration::from_millis(500));
-            vcx.run_until_parked();
+            wait_past_saves(vcx);
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            wait_past_saves(vcx);
             assert!(
                 saves(&daemon).is_empty(),
-                "typing replaced a draft nobody read"
+                "drafts were written: {:?}",
+                saves(&daemon)
             );
-            pane.update_in(vcx, |p, window, cx| {
-                p.composer
-                    .update(cx, |c, cx| c.set_text("the beds today", window, cx));
-            });
-            for _ in 0..2 {
-                vcx.executor()
-                    .advance_clock(std::time::Duration::from_millis(500));
-                vcx.run_until_parked();
-            }
-            let joined = "Pea trellis plan the beds today";
-            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
-            assert_eq!(text, joined);
-            assert_eq!(saves(&daemon), vec![joined.to_string()]);
         }
 
-        /// Read again once it can be, the stored draft is joined with the
-        /// prefill and what was typed, then kept.
+        /// Back in the chat after a failed read, typed and left: the draft
+        /// is read afresh, and only what is edited now is kept (nothing
+        /// from the visit before lands later).
         #[gpui_kit::test]
-        fn a_draft_read_again_joins_the_stored_draft_with_what_came_since(cx: &mut TestAppContext) {
+        fn a_chat_opened_again_after_a_failed_read_keeps_only_the_new_edit(
+            cx: &mut TestAppContext,
+        ) {
             let (daemon, stores, pane, vcx) = bench(cx);
-            daemon.once::<methods::DraftsGet>(Err(no_draft()));
-            daemon.on::<methods::DraftsGet>(|_| {
-                Ok(serde_json::json!({"text": "Pea trellis plan ", "stored": true}))
-            });
-            daemon
-                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            first_read_fails(&daemon);
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
-                let ticket = p.composer_store.read(cx).ticket();
-                p.take_given_text(ticket, "/plan ", window, cx);
                 p.composer
-                    .update(cx, |c, cx| c.set_text("/plan the beds", window, cx));
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
             });
-            for _ in 0..2 {
-                vcx.executor()
-                    .advance_clock(std::time::Duration::from_millis(500));
-                vcx.run_until_parked();
-            }
-            let joined = "Pea trellis plan /plan the beds";
-            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
-            assert_eq!(text, joined);
-            let saved: Vec<String> = daemon
-                .calls::<methods::DraftsSave>()
-                .iter()
-                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
-                .collect();
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "Pea trellis plan");
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.set_text("Pea trellis plan, north side", window, cx)
+                });
+            });
+            wait_past_saves(vcx);
             assert_eq!(
-                saved,
-                vec![joined.to_string()],
-                "saved without the stored draft"
+                saves(&daemon),
+                vec!["Pea trellis plan, north side".to_string()]
+            );
+        }
+
+        /// Back in the chat after a failed read, typed and left, then sent:
+        /// the send clears the draft and nothing from before restores it.
+        #[gpui_kit::test]
+        fn a_chat_opened_again_after_a_failed_read_and_sent_stays_cleared(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            first_read_fails(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            // What a send does with the draft it sent.
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.clear_draft(cx))
+            });
+            wait_past_saves(vcx);
+            assert_eq!(
+                saves(&daemon),
+                vec![String::new()],
+                "a sent draft came back"
             );
         }
 
