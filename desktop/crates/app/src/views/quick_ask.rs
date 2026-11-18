@@ -208,7 +208,8 @@ impl QuickAskView {
                     // Quick Ask keeps no drafts.
                     ComposerEvent::DraftSwitched
                     | ComposerEvent::DraftLoaded { .. }
-                    | ComposerEvent::DraftReadEnded => return,
+                    | ComposerEvent::DraftReadEnded
+                    | ComposerEvent::DraftRestored { .. } => return,
                 });
                 cx.notify();
             }),

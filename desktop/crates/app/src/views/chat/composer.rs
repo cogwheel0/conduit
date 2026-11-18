@@ -409,6 +409,13 @@ impl ChatComposer {
                             this.set_text(text, window, cx);
                         }
                     }
+                    // Read again after it was unknown: the draft joined with
+                    // what the field holds.
+                    ComposerEvent::DraftRestored { key, text }
+                        if store.read(cx).draft_key() == Some(key) =>
+                    {
+                        this.set_text(text, window, cx);
+                    }
                     _ => {}
                 },
             ),
