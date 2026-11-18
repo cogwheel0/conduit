@@ -785,6 +785,9 @@ String serverNameFromUrl(String url) {
 
 const _reservedHeaderNames = {
   'authorization',
+  // A session cookie is captured through the proxy's sign-in and kept for
+  // the account that proved it; one typed in an address never becomes it.
+  'cookie',
   'content-type',
   'content-length',
   'host',

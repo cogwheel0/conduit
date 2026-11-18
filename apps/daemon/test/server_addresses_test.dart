@@ -565,6 +565,18 @@ void main() {
     expect(found.outcome, ServerAddressCheckOutcome.unusable);
   });
 
+  test('a cookie typed in an address, in any case, is refused', () async {
+    final found = await check(
+      ServerAddressForm(
+        url: localhost(),
+        headers: const [ServerAddressHeader(name: 'cookie', value: 'sid=x')],
+      ),
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.unusable);
+    expect(found.problem, ServerAddressProblemCode.headerNameReserved);
+    expect(found.headerName, 'cookie');
+  });
+
   test('another server does not know the session: sign in first', () async {
     final found = await check(ServerAddressForm(url: other.url));
     expect(found.outcome, ServerAddressCheckOutcome.answered);
