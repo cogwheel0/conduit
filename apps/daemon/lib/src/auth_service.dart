@@ -504,6 +504,17 @@ final class AuthService {
       );
     }
 
+    // The capture is the account's whose window it was: once another account
+    // is in charge (on the same origin, say), it is never filed on that one.
+    final opened = params.account;
+    if (opened != null && opened != active.id) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the sign-in window was opened for another account',
+      );
+    }
+
     // Before anything is awaited: a sign-out from here on revokes whatever
     // cookie the window captured.
     final storage = _container.read(optimizedStorageServiceProvider);

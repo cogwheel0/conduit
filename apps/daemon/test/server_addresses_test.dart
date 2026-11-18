@@ -144,6 +144,27 @@ void main() {
     );
   });
 
+  test('a sign-in window opened for another account files nothing on the '
+      'one in charge', () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    await expectLater(
+      auth.completeExternal(
+        ExternalAuthCompletion(
+          origin: inUse.url,
+          cookies: const {'_lab_proxy': 'someone-elses'},
+          account: 'an-account-no-longer-in-charge',
+        ),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+  });
+
   group('check refuses with the core problem', () {
     test('no address', () async {
       final found = await check(const ServerAddressForm());
