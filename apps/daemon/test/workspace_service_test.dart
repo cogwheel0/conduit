@@ -45,10 +45,11 @@ void main() {
     epoch = Object();
     // These tests answer from memory: any connection opened fails them.
     network = _NoNetwork();
+    final previous = HttpOverrides.current;
+    addTearDown(() => HttpOverrides.global = previous);
     HttpOverrides.global = network;
   });
   tearDown(() {
-    HttpOverrides.global = null;
     api.dispose();
     expect(network.opened, 0, reason: 'a test reached the network');
   });
@@ -151,6 +152,43 @@ void main() {
       reason: 'the next account was asked about the skill',
     );
     expect(api.createdSkills, isEmpty);
+  });
+
+  test('a copy made before another account signed in is never announced or '
+      'read for the next one', () async {
+    final c = container();
+    await c.read(activeServerProvider.future);
+    api.skillReads = [_skill];
+    final copying = WorkspaceService(c).duplicate(
+      const WorkspaceDuplicate(
+        kind: WorkspaceKind.skills,
+        id: 's1',
+        suffix: '(copy)',
+      ),
+    );
+    // The copy is made (the clone answered 404, the skill is still there);
+    // another account signs in while the list is read again after it.
+    final refreshed = api.holdList = Completer<void>();
+    await api.listAsked.future;
+    epoch = Object();
+    c.invalidate(openWebUiAuthSessionEpochProvider);
+    refreshed.complete();
+    await expectLater(
+      copying,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    expect(api.createdSkills, hasLength(1));
+    expect(
+      api.skillReadCount,
+      2,
+      reason: "the copy was read for the next account",
+    );
   });
 
   for (final (label, stale) in <(String, BackendConfig)>[
@@ -266,7 +304,17 @@ final class _Api extends ApiService {
     String? query,
     String? viewOption,
     int page = 1,
-  }) async => const WorkspacePagedResponse(items: [], total: 0);
+  }) async {
+    if (createdSkills.isNotEmpty && !listAsked.isCompleted) {
+      listAsked.complete();
+    }
+    if (createdSkills.isNotEmpty) await holdList?.future;
+    return const WorkspacePagedResponse(items: [], total: 0);
+  }
+
+  /// The list was read again after a copy was made; [holdList] keeps it.
+  final listAsked = Completer<void>();
+  Completer<void>? holdList;
 
   @override
   Future<WorkspaceSkillDetail?> getWorkspaceSkill(String id) async {

@@ -1039,8 +1039,13 @@ final class WorkspaceService {
         case WorkspaceKind.knowledge:
           throw _invalid('knowledge is not duplicated');
       }
+      // Made under the account it was read for: announced and read only
+      // while that account is still the one signed in.
+      sameAccount();
       _announce(request.kind, copyId);
-      return _detail(request.kind, copyId);
+      final detail = await _detail(request.kind, copyId);
+      sameAccount();
+      return detail;
     },
   );
 
