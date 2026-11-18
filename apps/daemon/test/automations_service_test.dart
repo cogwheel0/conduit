@@ -6,6 +6,8 @@ import 'dart:async';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/features/automations/models/automation.dart';
+import 'package:conduit_core/features/automations/providers/automation_terminal_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
@@ -42,11 +44,13 @@ void main() {
   late _Api api;
   late Object epoch;
   late Completer<void> modelsListed;
+  late Completer<void> agentsListed;
 
   setUp(() {
     api = _Api();
     epoch = Object();
     modelsListed = Completer<void>()..complete();
+    agentsListed = Completer<void>()..complete();
   });
   tearDown(() => api.dispose());
 
@@ -66,6 +70,16 @@ void main() {
         modelsProvider.overrideWith(() => _Models(() => modelsListed.future)),
         channelsListProvider.overrideWith(_Channels.new),
         foldersProvider.overrideWith(_Folders.new),
+        automationTerminalsProvider.overrideWith((ref) async => _benches),
+        automationAgentModelsProvider.overrideWith((ref, query) async {
+          await agentsListed.future;
+          return <core.Model>[
+            core.Model(
+              id: 'agent:${query.terminalId}:codex:gpt-test',
+              name: 'Codex · gpt-test',
+            ),
+          ];
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -76,6 +90,70 @@ void main() {
     epoch = Object();
     c.invalidate(openWebUiAuthSessionEpochProvider);
   }
+
+  group("a task editor's answer after the terminal's agents load", () {
+    test('is refused once another account signed in', () async {
+      final c = container();
+      await c.read(activeServerProvider.future);
+      final service = AutomationsService(c);
+      addTearDown(service.dispose);
+      api.withTerminal = true;
+      // Opening: the task's terminal is slow to list its agents.
+      agentsListed = Completer<void>();
+      final opening = service.editor(const AutomationEditorOpen(id: 't1'));
+      await api.asked.future;
+      await pumpEventQueue();
+      signInAnother(c);
+      agentsListed.complete();
+      await expectLater(opening, _accountChanged);
+
+      // The terminals' list of an editor open before the switch.
+      final c2 = container();
+      await c2.read(activeServerProvider.future);
+      final second = AutomationsService(c2);
+      addTearDown(second.dispose);
+      final open = await second.editor(const AutomationEditorOpen(id: 't1'));
+      agentsListed = Completer<void>();
+      final listing = second.terminals(
+        AutomationDraftEdit(
+          token: open.token,
+          fields: open.fields.copyWith(workingDirectory: '/srv/other'),
+        ),
+      );
+      await pumpEventQueue();
+      signInAnother(c2);
+      agentsListed.complete();
+      await expectLater(listing, _accountChanged);
+    });
+
+    test('is refused, not an error, once newer editors closed it', () async {
+      final c = container();
+      await c.read(activeServerProvider.future);
+      final service = AutomationsService(c);
+      addTearDown(service.dispose);
+      api.withTerminal = true;
+      agentsListed = Completer<void>();
+      final opening = service.editor(const AutomationEditorOpen(id: 't1'));
+      await api.asked.future;
+      await pumpEventQueue(times: 50);
+      // Eight more editors open (new tasks: no terminal to wait for), and
+      // the first is the oldest.
+      for (var i = 0; i < 8; i++) {
+        await service.editor(const AutomationEditorOpen());
+      }
+      agentsListed.complete();
+      await expectLater(
+        opening,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.args['reason'],
+            'reason',
+            'editorClosed',
+          ),
+        ),
+      );
+    });
+  });
 
   test("a Run Now result stays with the account that ran it", () async {
     final c = container();
@@ -189,12 +267,48 @@ void main() {
   );
 }
 
+/// The server's own terminals for tasks.
+final _benches = <TerminalServerInfo>[
+  for (final id in const ['north', 'south'])
+    TerminalServerInfo(
+      kind: TerminalServerKind.system,
+      selectionId: id,
+      systemServerId: id,
+      name: 'Bench $id',
+      baseUrl: Uri.parse('http://127.0.0.1:9/$id'),
+    ),
+];
+
+final _accountChanged = throwsA(
+  isA<RpcError>().having((e) => e.args['reason'], 'reason', 'accountChanged'),
+);
+
 /// The account's server, answered from memory.
 final class _Api extends ApiService {
   _Api() : super(serverConfig: _server, workerManager: WorkerManager());
 
   List<AutomationRun> runsNow = const <AutomationRun>[];
   Completer<void> asked = Completer<void>();
+
+  /// The task runs north's coding agent on terminal north, in a folder.
+  bool withTerminal = false;
+
+  static const _onTerminal = Automation(
+    id: 't1',
+    userId: 'user-1',
+    name: 'Nightly lint',
+    data: <String, dynamic>{
+      'prompt': 'Run the linter and summarise',
+      'model_id': 'agent:north:codex:gpt-test',
+      'rrule': 'RRULE:FREQ=DAILY;BYHOUR=2;BYMINUTE=0',
+      'target': <String, dynamic>{'type': 'chat'},
+      'terminal': <String, dynamic>{
+        'server_id': 'north',
+        'cwd': '/srv/north-repo',
+      },
+    },
+    isActive: true,
+  );
 
   static const _task = Automation(
     id: 't1',
@@ -224,7 +338,7 @@ final class _Api extends ApiService {
     required ApiAuthSnapshot authSnapshot,
   }) async {
     if (!asked.isCompleted) asked.complete();
-    return _task;
+    return withTerminal ? _onTerminal : _task;
   }
 
   @override

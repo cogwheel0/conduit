@@ -339,6 +339,10 @@ final class AutomationsService {
       _editors.remove(_editors.keys.first)?.close();
     }
     await editor.agentsSoon(draft);
+    // The wait for the terminal's agents is a wait like the others: the
+    // editor answers only while it is still open for the account that
+    // opened it, with that account's lists.
+    _heldAfterWait(token, editor);
     final now = editor.optionsFor(draft);
     return AutomationEditor(
       token: token,
@@ -371,7 +375,7 @@ final class AutomationsService {
     final editor = _editor(edit.token);
     final draft = editor.apply(edit.fields);
     await editor.agentsSoon(draft);
-    final now = editor.optionsFor(draft);
+    final now = _heldAfterWait(edit.token, editor).optionsFor(draft);
     return AutomationTerminals(
       terminals: _terminalOptions(now.terminals),
       models: _modelOptions(now.models),
@@ -509,6 +513,20 @@ final class AutomationsService {
       // A failed read leaves the rule at its answer, which is no.
     }
     return _container.read(automationsAvailableProvider);
+  }
+
+  /// The editor open under [token] after a wait that began with [editor]:
+  /// refused once it was closed (or pushed out by newer ones) meanwhile, or
+  /// once another account is in charge than the one that opened it (then
+  /// it is closed too). A save meanwhile replaces it with the editor of the
+  /// saved task, which is the one answered for.
+  _TaskEditor _heldAfterWait(String token, _TaskEditor editor) {
+    final now = _editor(token);
+    if (!_notifier.isCurrentOwner(now.owner)) {
+      if (identical(_editors[token], now)) _editors.remove(token)?.close();
+      _stillCurrent(now.owner);
+    }
+    return now;
   }
 
   _TaskEditor _editor(String token) =>
