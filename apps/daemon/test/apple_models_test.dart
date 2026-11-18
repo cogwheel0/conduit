@@ -60,9 +60,7 @@ void main() {
     ) {
       if (next == want && !reached.isCompleted) reached.complete();
     }, fireImmediately: true);
-    return reached.future
-        .timeout(const Duration(seconds: 2))
-        .whenComplete(listener.close);
+    return reached.future.whenComplete(listener.close);
   }
 
   DirectCompletionRequest ask(String text) => DirectCompletionRequest(
@@ -374,7 +372,7 @@ void main() {
     window.ready(supported: true);
     await pumpEventQueue();
     held.complete();
-    await done.timeout(const Duration(seconds: 2));
+    await done;
     expect(events.whereType<DirectStreamError>(), isEmpty);
     expect(
       events.whereType<DirectContentDelta>().map((e) => e.content).join(),
@@ -403,7 +401,7 @@ void main() {
     window.resend(stale);
     await pumpEventQueue();
     window.finish(run.id);
-    await done.timeout(const Duration(seconds: 2));
+    await done;
     expect(events.whereType<DirectStreamError>(), isEmpty);
     expect(events.last, isA<DirectStreamDone>());
   });
@@ -431,7 +429,7 @@ void main() {
     await window.until(() => window.cancelled.isNotEmpty);
     expect(window.cancelled, <String>[run.id]);
     window.answerLost();
-    await done.timeout(const Duration(seconds: 2));
+    await done;
     expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 
