@@ -46,7 +46,11 @@ void main() {
   };
 
   setUpAll(() async {
+    // Each resource is put back by its own teardown, registered as soon as
+    // it is acquired (they run last first), so a later step that throws
+    // leaves nothing behind.
     temporary = Directory.systemTemp.createTempSync('server-addresses-test');
+    addTearDown(() => temporary.deleteSync(recursive: true));
     runtime = await CoreRuntime.start(
       config: BootstrapConfig(
         sessionToken: 'a' * 43,
@@ -56,11 +60,14 @@ void main() {
       directories: DaemonDirectories.create(temporary.path),
       log: DaemonLog(level: 'error', sink: NullSink()),
     );
+    addTearDown(runtime.dispose);
     other = await FakeOwuiAuthServer.start(users: users);
+    addTearDown(other.close);
     proxied = await FakeOwuiAuthServer.start(
       users: users,
       proxyCookie: '_lab_proxy=let-in',
     );
+    addTearDown(proxied.close);
     events = EventBus();
     events.tap((event, _, payload) {
       if (event == ConduitEvents.serversChanged) {
@@ -68,21 +75,14 @@ void main() {
       }
     });
     accounts = AccountsService(runtime.container, events: events);
+    addTearDown(accounts.dispose);
     auth = AuthService(runtime.container);
+    addTearDown(auth.dispose);
     servers = ServersService(runtime.container, events: events);
+    addTearDown(servers.dispose);
     replies = _Replies();
     servers.replies = replies;
     await accounts.list();
-  });
-
-  tearDownAll(() async {
-    servers.dispose();
-    accounts.dispose();
-    auth.dispose();
-    await other.close();
-    await proxied.close();
-    await runtime.dispose();
-    temporary.deleteSync(recursive: true);
   });
 
   /// Once [accountId]'s user is known to storage: the core binds it after
@@ -103,6 +103,11 @@ void main() {
         final registry = await storage.getOpenWebUiRegistryStrict();
         if (registry.account(accountId)?.userId != null) return;
         await certified.future;
+        // The bind begins as the certification is announced and holds
+        // storage's lock before this read: unbound now, it failed.
+        final bound = await storage.getOpenWebUiRegistryStrict();
+        if (bound.account(accountId)?.userId != null) return;
+        fail('the account user of $accountId was not bound');
       } finally {
         watch.close();
       }
@@ -112,6 +117,16 @@ void main() {
   setUp(() async {
     replies.reset();
     changed.clear();
+    // Every account a test adds goes with it, and with its last account
+    // its saved server and addresses: a fake started later on a port freed
+    // here never joins a server an earlier test saved.
+    final kept = {for (final a in (await accounts.list()).accounts) a.id};
+    addTearDown(() async {
+      for (final account in (await accounts.list()).accounts) {
+        if (kept.contains(account.id)) continue;
+        await accounts.remove(AccountRef(accountId: account.id));
+      }
+    });
     owui = await FakeOwuiAuthServer.start(users: users);
     addTearDown(owui.close);
     final added = await accounts.add(
@@ -279,12 +294,12 @@ void main() {
     final renaming = servers.update(
       ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
     );
-    final switching = accounts
-        .switchTo(AccountRef(accountId: other))
-        .then((_) async {
-          await runtime.container.read(activeServerProvider.future);
-          afterSwitch = clients.length;
-        });
+    final switching = accounts.switchTo(AccountRef(accountId: other)).then((
+      _,
+    ) async {
+      await runtime.container.read(activeServerProvider.future);
+      afterSwitch = clients.length;
+    });
     await Future.wait([renaming, switching]);
     await runtime.container.read(activeServerProvider.future);
     expect(
@@ -520,14 +535,17 @@ void main() {
     // Saved: this server's https address, with a gate header.
     await runtime.container
         .read(optimizedStorageServiceProvider)
-        .editServerEndpoints(serverId, (endpoints) => [
-          ...endpoints,
-          OpenWebUiEndpoint(
-            id: 'route-secure',
-            url: 'https://127.0.0.1:$port',
-            customHeaders: const {'X-Gate': 'kept-value'},
-          ),
-        ]);
+        .editServerEndpoints(
+          serverId,
+          (endpoints) => [
+            ...endpoints,
+            OpenWebUiEndpoint(
+              id: 'route-secure',
+              url: 'https://127.0.0.1:$port',
+              customHeaders: const {'X-Gate': 'kept-value'},
+            ),
+          ],
+        );
     // The first plain /health is sent to https; any later one is not.
     owui.redirectHealthToHttpsOnce = true;
     final before = owui.headersSeen.length;
