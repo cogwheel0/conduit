@@ -4749,7 +4749,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     agent: 'claude-code',
     model: 'sonnet',
   ),
-  'modelListQuery': const ModelListQuery(chatId: 'chat-1', temporary: true),
+  'modelListQuery': const ModelListQuery(
+    chatId: 'chat-1',
+    temporary: true,
+    opening: true,
+  ),
   'selectModelInChat': const SelectModel(
     id: 'agent:buildbox:codex:gpt-5.1',
     chatId: 'chat-1',
@@ -4787,7 +4791,10 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     key: 'reasoning_effort',
     value: 'high',
   ),
-  'composerOptionsQuery': const ComposerOptionsQuery(chatId: 'chat-1'),
+  'composerOptionsQuery': const ComposerOptionsQuery(
+    chatId: 'chat-1',
+    modelId: 'fake-model',
+  ),
   'composerOptionsAgent': const ComposerOptions(
     agentChat: true,
     ownEffortControl: true,

@@ -118,6 +118,11 @@ abstract class ModelListQuery with _$ModelListQuery {
 
     /// The new chat is a temporary one, where no coding agent answers.
     @Default(false) bool temporary,
+
+    /// The window has just opened [chatId]: a chat started with a coding
+    /// agent reopens with it, once per opening, unless a model is picked
+    /// there first.
+    @Default(false) bool opening,
   }) = _ModelListQuery;
 
   factory ModelListQuery.fromJson(Map<String, dynamic> json) =>

@@ -5097,6 +5097,10 @@ pub struct ComposerOptionsQuery {
     /// The open chat; null for a new one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_id: Option<String>,
+    /// The model the composer shows, which the next turn goes to; null for
+    /// the account's selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
 }
 
 /// A knowledge base, as the `#` menu lists it.
@@ -10071,6 +10075,11 @@ pub struct ModelListQuery {
     /// The new chat is a temporary one, where no coding agent answers.
     #[serde(default)]
     pub temporary: bool,
+    /// The window has just opened `chatId`: a chat started with a coding
+    /// agent reopens with it, once per opening, unless a model is picked
+    /// there first.
+    #[serde(default)]
+    pub opening: bool,
 }
 
 /// Params for `models.select`.

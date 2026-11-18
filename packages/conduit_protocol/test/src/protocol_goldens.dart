@@ -9493,7 +9493,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'modelListQuery': r'''
 {
   "chatId": "chat-1",
-  "temporary": true
+  "temporary": true,
+  "opening": true
 }''',
 
   'selectModelInChat': r'''
@@ -9559,7 +9560,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'composerOptionsQuery': r'''
 {
-  "chatId": "chat-1"
+  "chatId": "chat-1",
+  "modelId": "fake-model"
 }''',
 
   'composerOptionsAgent': r'''

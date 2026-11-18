@@ -1,4 +1,5 @@
 {
   "chatId": "chat-1",
-  "temporary": true
+  "temporary": true,
+  "opening": true
 }

@@ -123,6 +123,10 @@ abstract class ComposerOptionsQuery with _$ComposerOptionsQuery {
   const factory ComposerOptionsQuery({
     /// The open chat; null for a new one.
     String? chatId,
+
+    /// The model the composer shows, which the next turn goes to; null for
+    /// the account's selection.
+    String? modelId,
   }) = _ComposerOptionsQuery;
 
   factory ComposerOptionsQuery.fromJson(Map<String, dynamic> json) =>
