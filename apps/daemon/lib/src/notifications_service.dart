@@ -8,7 +8,6 @@ import 'package:conduit_core/features/notifications/services/notification_event_
 import 'package:conduit_core/features/notifications/services/notification_policy.dart';
 import 'package:conduit_core/features/notifications/services/notification_prefs_sync.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -99,10 +98,12 @@ final class NotificationsService {
   /// the one before it.
   Future<void> _changes = Future<void>.value();
 
-  /// Per account (its API), the tail of the server mirrors: each one goes
-  /// after the one before it, in the order their changes were written, and
-  /// none ever holds a local change.
-  final Map<ApiService, Future<void>> _mirrors = {};
+  /// Per account (its primary account and settings owner, whatever client
+  /// serves it), the tail of the server mirrors: each one goes after the
+  /// one before it, in the order their changes were written, and none ever
+  /// holds a local change. A client rebuilt for the same account (a renewed
+  /// token) continues the same queue.
+  final Map<Object, Future<void>> _mirrors = {};
 
   /// Writes [patch] for the account it was asked under: each setter, the
   /// server mirror and the answer go through that account's
@@ -110,8 +111,8 @@ final class NotificationsService {
   /// the rest (and the mirror) instead of writing them for the next account.
   ///
   /// Local changes run one at a time and are answered once their settings
-  /// are written. Each then queues its server mirror, with the API of the
-  /// account it was written for, behind that account's earlier mirrors: the
+  /// are written. Each then queues its server mirror behind that account's
+  /// earlier ones (one queue per account, whichever client serves it): the
   /// server gets the changes in the order this Mac wrote them, so it ends up
   /// with the last one, and a slow server never holds the next change.
   Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) {
@@ -136,10 +137,9 @@ final class NotificationsService {
         await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
         // Local persistence went through; the server only mirrors three of
         // them, with the API of the account they were written for.
-        account.require('the notification settings are mirrored');
-        final api = _container.read(apiServiceProvider);
+        account.require('the notification settings are answered');
         written.complete(get());
-        _mirror(api, patch);
+        _mirror(account, patch);
       } on Object catch (error, stack) {
         written.completeError(error, stack);
       }
@@ -148,27 +148,31 @@ final class NotificationsService {
     return written.future;
   }
 
-  /// Queues [patch]'s server mirror on [api]'s account, behind its earlier
-  /// ones. Never throws: a failed mirror only loses the parity.
-  void _mirror(ApiService? api, NotificationSettingsPatch patch) {
-    if (api == null) return;
+  /// Queues [patch]'s server mirror on [account]'s queue, behind its
+  /// earlier ones. When its turn comes it goes only while [account] is
+  /// still in charge, with the API client serving it then (read under that
+  /// check). Never throws: a failed mirror only loses the parity.
+  void _mirror(AccountScope account, NotificationSettingsPatch patch) {
     if (patch.enabled == null &&
         patch.sound == null &&
         patch.soundAlways == null) {
       return;
     }
-    final tail = (_mirrors[api] ?? Future<void>.value()).then(
-      (_) => syncNotificationPrefsToServer(
+    final key = (account.primary, account.preferenceAccount);
+    final tail = (_mirrors[key] ?? Future<void>.value()).then((_) async {
+      if (!account.isCurrent) return;
+      final api = _container.read(apiServiceProvider);
+      await syncNotificationPrefsToServer(
         api,
         enabled: patch.enabled,
         sound: patch.sound,
         soundAlways: patch.soundAlways,
-      ),
-    );
-    _mirrors[api] = tail;
+      );
+    });
+    _mirrors[key] = tail;
     unawaited(
       tail.whenComplete(() {
-        if (identical(_mirrors[api], tail)) _mirrors.remove(api);
+        if (identical(_mirrors[key], tail)) _mirrors.remove(key);
       }),
     );
   }

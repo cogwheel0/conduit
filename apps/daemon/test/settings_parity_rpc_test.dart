@@ -34,6 +34,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -909,6 +910,43 @@ void _withAnAccount() {
       expect(api.mirrored, <bool?>[false, true]);
     });
 
+    test("a notification mirror waits for the account's earlier one when "
+        'its API client is replaced in between', () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final first = api;
+        // The first change's mirror is slow to reach the server.
+        final held = first.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(first.mirrorAsked.isCompleted, isTrue);
+        // The account's client is rebuilt (a renewed token) before the next.
+        final second = api = _Api()..reached = first.reached;
+        container.invalidate(apiServiceProvider);
+        var answered = false;
+        notifications
+            .set(const NotificationSettingsPatch(enabled: true))
+            .then((_) => answered = true);
+        async.flushMicrotasks();
+        // Answered at once; its mirror waits for the account's earlier one.
+        expect(answered, isTrue);
+        expect(second.mirrored, isEmpty);
+        held.complete();
+        async.flushMicrotasks();
+        expect(first.reached, <bool?>[false, true]);
+        expect(second.mirrored, <bool?>[true]);
+      });
+    });
+
     test('notification changes reach the server in the order their settings '
         'were written', () async {
       final held = Completer<void>();
@@ -1526,6 +1564,10 @@ final class _Api extends ApiService {
   /// The notification master toggle as each mirror reached the server;
   /// the first mirror waits for [mirrorHeld] when it is set.
   final mirrored = <bool?>[];
+
+  /// Every mirror as it reached the server, shared by the clients of one
+  /// account when a test sets it.
+  List<bool?> reached = <bool?>[];
   final mirrorAsked = Completer<void>();
   Completer<void>? mirrorHeld;
   final _mirrorWaits = <(int, Completer<void>)>[];
@@ -1549,6 +1591,7 @@ final class _Api extends ApiService {
     if (!mirrorAsked.isCompleted) mirrorAsked.complete();
     await held?.future;
     mirrored.add(notificationEnabled);
+    reached.add(notificationEnabled);
     for (final wait in _mirrorWaits.toList()) {
       if (mirrored.length >= wait.$1) {
         _mirrorWaits.remove(wait);
