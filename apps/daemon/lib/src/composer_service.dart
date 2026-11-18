@@ -14,7 +14,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesSecretsLoadingProvider;
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
-    show isTerminalAgentModel;
+    show isTerminalAgentModel, isTerminalAgentModelId;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/model_controls.dart'
@@ -110,7 +110,7 @@ final class ComposerService {
       DebugLogger.error('mcp-failed', scope: 'daemon/composer', error: error);
     }
 
-    final model = _container.read(selectedModelProvider);
+    final model = _shownModel(query.modelId);
     final read = _container.read;
     // The interpreter as the + menu offers it with nothing chosen yet (the
     // core's offer); why it would not run, for a choice the window holds.
@@ -192,6 +192,24 @@ final class ComposerService {
           ),
       ],
     );
+  }
+
+  /// The model the composer shows ([id], which the next turn goes to), so
+  /// the options are that model's: the account's selection when [id] is
+  /// null or names it, else the listed model of that id. A coding agent
+  /// that is not selected is known by its id alone. The selection when the
+  /// list has no such model.
+  Model? _shownModel(String? id) {
+    final selected = _container.read(selectedModelProvider);
+    if (id == null || selected?.id == id) return selected;
+    final listed = _container
+        .read(modelsProvider)
+        .value
+        ?.where((candidate) => candidate.id == id)
+        .firstOrNull;
+    if (listed != null) return listed;
+    if (isTerminalAgentModelId(id)) return Model(id: id, name: id);
+    return selected;
   }
 
   Future<Conversation?> _conversation(String chatId) async {

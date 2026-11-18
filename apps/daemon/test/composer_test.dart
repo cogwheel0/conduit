@@ -226,6 +226,15 @@ void main() {
       expect(agent.ownEffortControl, isTrue);
       expect(agent.compareModels, isFalse);
 
+      // A composer that shows another model (a temporary chat, where no
+      // agent answers) is offered that model's options, as its turn goes
+      // to it.
+      final shown = await ComposerService(
+        runtime.container,
+      ).options(ComposerOptionsQuery(modelId: modelId));
+      expect(shown.agentChat, isFalse);
+      expect(shown.ownEffortControl, isFalse);
+
       await ModelsService(runtime.container).select(modelId);
       final plain = await ComposerService(runtime.container).options();
       expect(plain.agentChat, isFalse);
