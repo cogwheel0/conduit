@@ -407,9 +407,9 @@ pub enum ComposerEvent {
     DraftSwitched,
     /// The draft for [`DraftKey`] was read: the composer shows it.
     DraftLoaded { key: DraftKey, text: String },
-    /// The draft read ended, however it ended (read, failed, given up for
-    /// typing, another chat or account): what waited for it goes on. After
-    /// [`Self::DraftLoaded`] when it was read.
+    /// The draft read ended, however it ended (read, failed, another chat
+    /// or account): what waited for it goes on. After [`Self::DraftLoaded`]
+    /// when it was read.
     DraftReadEnded,
 }
 
@@ -522,14 +522,18 @@ pub struct ComposerStore {
     /// folder, with the folder's model, prompt and knowledge.
     new_chat_folder: Option<String>,
     draft_saved: String,
-    /// What the stored draft holds is not known: its read failed, or typing
-    /// gave it up before it landed. This composer then writes no draft at
-    /// all (not while open, not on leaving): the stored draft stays as it
-    /// was, and a chat opened again reads it afresh.
+    /// What the stored draft holds is not known: its read failed. This
+    /// composer then writes no draft at all (not while open, not on
+    /// leaving): the stored draft stays as it was, and a chat opened again
+    /// reads it afresh. Typing never makes it unknown: a read always runs
+    /// to its end.
     draft_unknown: bool,
-    /// The draft read still on its way (its number), until it lands or is
-    /// given up: what the field holds before then is not the draft yet.
+    /// The draft read still on its way (its number), until it lands: what
+    /// the field holds before then is not the draft yet, and is joined with
+    /// it when it does.
     draft_reading: Option<u64>,
+    /// That read: typing never stops it.
+    _draft_read: Option<Task<()>>,
     draft_reads: u64,
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
@@ -630,6 +634,7 @@ impl ComposerStore {
             draft_saved: String::new(),
             draft_unknown: false,
             draft_reading: None,
+            _draft_read: None,
             draft_reads: 0,
             next_id: 0,
             scope: 0,
@@ -2111,6 +2116,7 @@ impl ComposerStore {
             return;
         };
         self._draft = None;
+        self._draft_read = None;
         self.end_draft_read(cx);
         // The New Chat draft, unknown, is left as it is; the new chat's is
         // known (it has none), so what was typed meanwhile is kept there.
@@ -2248,14 +2254,18 @@ impl ComposerStore {
         if self.draft == key && self.new_chat_folder == folder {
             return;
         }
-        // Unknown, what it holds is dropped: the stored draft stays.
+        // Left while its read is on its way, or unknown: nothing is
+        // written, and the stored draft stays as it was (what was typed
+        // then is not kept).
         if let Some(old) = self.draft.take()
+            && self.draft_reading.is_none()
             && text != self.draft_saved
             && !self.draft_unknown
         {
             self.save_now(&old, text);
         }
         self._draft = None;
+        self._draft_read = None;
         self.end_draft_read(cx);
         self.draft_saved = String::new();
         self.draft_unknown = false;
@@ -2300,8 +2310,8 @@ impl ComposerStore {
         self.draft_reads += 1;
         let read = self.draft_reads;
         self.draft_reading = Some(read);
-        self._draft = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+        self._draft_read = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
                     if s.draft.as_ref() == Some(&key) && s.holds(ticket) {
@@ -2317,13 +2327,18 @@ impl ComposerStore {
                                 s.draft_unknown = true;
                             }
                         }
+                    } else if s.draft.as_ref() == Some(&key) {
+                        // Read for a composition started over since (shared
+                        // text started fresh): it lands nowhere, and the
+                        // stored draft, never shown, is never written over.
+                        s.draft_unknown = true;
                     }
                     if s.draft_reading == Some(read) {
                         s.end_draft_read(cx);
                     }
                 });
-            }),
-        );
+            },
+        ));
     }
 
     /// The text changed: kept 400 ms after it last did.
@@ -2331,19 +2346,17 @@ impl ComposerStore {
         let Some(key) = self.draft.clone() else {
             return;
         };
-        // Typed before the draft was read: the read is given up (the task
-        // that reads it goes), what the draft holds is not known, and what
-        // waited for the read goes on.
+        // Typed before the draft was read: the read goes on, and what was
+        // typed is joined with the draft when it lands (then kept).
         if self.draft_reading.is_some() {
-            self.draft_unknown = true;
+            self._draft = None;
+            return;
         }
         if text == self.draft_saved {
             self._draft = None;
-            self.end_draft_read(cx);
             return;
         }
         let text = text.to_string();
-        self.end_draft_read(cx);
         // Not known, nothing is written over the stored draft.
         if self.draft_unknown {
             self._draft = None;
@@ -2367,6 +2380,7 @@ impl ComposerStore {
     /// The message went out: its draft goes at once.
     pub fn clear_draft(&mut self, cx: &mut Context<Self>) {
         self._draft = None;
+        self._draft_read = None;
         self.end_draft_read(cx);
         // Unknown, the stored draft is left as it is: never cleared unseen.
         if let Some(key) = self.draft.clone()
@@ -2558,6 +2572,7 @@ impl ComposerStore {
         self.draft_saved = String::new();
         self.draft_unknown = false;
         self._draft = None;
+        self._draft_read = None;
         self.end_draft_read(cx);
         self.set_params(serde_json::Value::Null);
         self.draft_model = None;
@@ -2565,6 +2580,16 @@ impl ComposerStore {
         self.refresh_models(cx);
         // The last account's text, panel and prompt leave the field.
         cx.emit(ComposerEvent::DraftSwitched);
+    }
+}
+
+/// A stored draft joined with what the composer held before it landed, as
+/// the draft first and then what came after it.
+pub fn joined_draft(stored: &str, current: &str) -> String {
+    if stored.is_empty() || current.starts_with(stored) {
+        current.to_string()
+    } else {
+        format!("{stored}{current}")
     }
 }
 

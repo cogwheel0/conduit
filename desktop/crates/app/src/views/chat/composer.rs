@@ -403,10 +403,16 @@ impl ChatComposer {
                         this.sync_dictation_target(cx);
                         cx.notify();
                     }
+                    // The draft read landed: shown, joined with what was
+                    // typed meanwhile (the draft first), then kept.
                     ComposerEvent::DraftLoaded { key, text } => {
                         let current = store.read(cx).draft_key() == Some(key);
-                        if current && this.text(cx).is_empty() && !text.is_empty() {
-                            this.set_text(text, window, cx);
+                        if current && !text.is_empty() {
+                            let typed = this.text(cx);
+                            let joined = crate::stores::composer::joined_draft(text, &typed);
+                            if joined != typed {
+                                this.set_text(&joined, window, cx);
+                            }
                         }
                     }
                     _ => {}

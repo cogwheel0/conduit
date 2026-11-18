@@ -471,8 +471,8 @@ impl ChatPane {
             // Toasts dock above the composer.
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
             // Words that waited for the draft read: given once it has ended,
-            // however it ended (read: after the composer has put the draft
-            // in the field; given up for typing: with what was typed).
+            // however it ended (read: after the composer has put the draft,
+            // and what was typed meanwhile, in the field).
             cx.subscribe_in(
                 &composer_store,
                 window,
@@ -4202,13 +4202,14 @@ mod tests {
             }
         }
 
-        /// Typing before the saved draft is read gives the read up: the
-        /// prefill that waited for it lands then, beside what was typed.
+        /// Typing while the saved draft is read never stops the read: when
+        /// it lands, the draft, what was typed and the prefill that waited
+        /// are all in the composer, and kept together.
         #[gpui_kit::test]
-        fn a_prefill_lands_when_typing_gives_up_the_draft_read(cx: &mut TestAppContext) {
+        fn typing_during_a_draft_read_is_joined_with_the_draft_and_kept(cx: &mut TestAppContext) {
             let (daemon, stores, pane, vcx) = bench(cx);
             daemon.on::<methods::DraftsGet>(|_| {
-                Ok(serde_json::json!({"text": "Pea trellis plan", "stored": true}))
+                Ok(serde_json::json!({"text": "Pea trellis plan ", "stored": true}))
             });
             daemon
                 .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
@@ -4217,17 +4218,69 @@ mod tests {
             vcx.run_until_parked();
             pane.update_in(vcx, |p, window, cx| {
                 let ticket = p.composer_store.read(cx).ticket();
-                p.take_given_text(ticket, "/plan ", window, cx);
+                p.take_given_text(ticket, "/plan", window, cx);
                 p.composer
-                    .update(cx, |c, cx| c.set_text("Typed first ", window, cx));
+                    .update(cx, |c, cx| c.set_text("the beds ", window, cx));
             });
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_millis(500));
+            vcx.run_until_parked();
+            assert!(
+                daemon.calls::<methods::DraftsSave>().is_empty(),
+                "saved before the draft was read"
+            );
+            read.release();
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
+            let joined = "Pea trellis plan the beds /plan";
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, joined);
+            let saved: Vec<String> = daemon
+                .calls::<methods::DraftsSave>()
+                .iter()
+                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
+                .collect();
+            assert_eq!(saved.last().map(String::as_str), Some(joined));
+        }
+
+        /// Typed during the draft read and left before it landed: nothing
+        /// is written, and the stored draft stays as it was (what was typed
+        /// then is not kept).
+        #[gpui_kit::test]
+        fn leaving_before_the_draft_read_lands_writes_nothing(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|p| {
+                let text = if p["chatId"] == "c1" {
+                    "Pea trellis plan "
+                } else {
+                    ""
+                };
+                Ok(serde_json::json!({"text": text, "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
             vcx.run_until_parked();
             read.release();
-            vcx.run_until_parked();
-            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
             assert!(
-                text.contains("Typed first") && text.contains("/plan"),
-                "the typed text and the prefill did not both land: {text:?}"
+                daemon.calls::<methods::DraftsSave>().is_empty(),
+                "a draft was written: {:?}",
+                daemon.calls::<methods::DraftsSave>()
             );
         }
 
