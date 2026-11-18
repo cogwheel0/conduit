@@ -199,12 +199,9 @@ void main() {
     );
     expect(summary.hasStoredSession, isTrue);
     final listed = await accounts.list();
-    expect(
-      listed.accounts
-          .where((a) => a.serverId == serverId)
-          .map((a) => a.connection.name),
-      everyElement('Bench'),
-    );
+    final row = listed.accounts.singleWhere((a) => a.id == active);
+    expect(row.serverId, serverId);
+    expect(row.connection.name, 'Bench');
   });
 
   test('a sign-in window opened for another account files nothing on the '
@@ -766,8 +763,9 @@ void main() {
         force: true,
       ),
     );
+    final pending = adding.accounts.activeAccountId;
     final gate = adding.accounts.accounts
-        .singleWhere((a) => a.id == adding.accounts.activeAccountId)
+        .singleWhere((a) => a.id == pending)
         .serverId;
     // The window's proxy sign-in is proved while another window renames
     // the server.
@@ -780,6 +778,12 @@ void main() {
         cookies: const {'_gate': 'open'},
       ),
     );
+    // Released and joined whatever an assertion below does.
+    addTearDown(() async {
+      proxyOnly.hold = null;
+      if (!release.isCompleted) release.complete();
+      await finishing.then<void>((_) {}, onError: (Object _) {});
+    });
     await held.future;
     await servers.update(
       ServerDraft(id: gate, name: 'Gate Two', url: 'https://ignored.test'),
@@ -789,11 +793,11 @@ void main() {
     final through = await finishing;
     expect(through.isAuthenticated, isFalse);
     final listed = await accounts.list();
+    final row = listed.accounts.singleWhere((a) => a.id == pending);
+    expect(row.serverId, gate);
     expect(
-      listed.accounts
-          .where((a) => a.serverId == gate)
-          .map((a) => a.connection.name),
-      everyElement('Gate Two'),
+      row.connection.name,
+      'Gate Two',
       reason: 'the rename made while the sign-in was proved stays',
     );
     final signedIn = await auth.loginWithPassword(
