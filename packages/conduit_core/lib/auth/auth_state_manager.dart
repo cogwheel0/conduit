@@ -1655,11 +1655,13 @@ class AuthStateManager extends _$AuthStateManager {
     bool superseded() =>
         _authAttemptSuperseded(attemptRevision) || !(canCommit?.call() ?? true);
     final storage = ref.read(optimizedStorageServiceProvider);
+    var writing = false;
     try {
       final selected = await storage.selectUnauthenticatedServerConfig(
         config,
         canCommit: () => !superseded(),
         joins: joins,
+        onWriting: () => writing = true,
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
@@ -1704,8 +1706,11 @@ class AuthStateManager extends _$AuthStateManager {
           _clearIncompleteLogoutFenceAfterTokenlessCleanup();
         },
       );
-      if (!selected) {
-        // Declined, or put back after it was published: the addition it was
+      // Declined before anything was written ([joins] or [canCommit] said
+      // no first): the previous account's session was never touched, and
+      // a reply it carries keeps its client.
+      if (!selected && writing) {
+        // Put back after it was written or published: the addition it was
         // for ended meanwhile. Storage holds the previous account's session
         // again, so auth shows it again, unless a newer attempt owns it.
         _restoreRolledBackAuthPublication(

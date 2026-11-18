@@ -1455,12 +1455,17 @@ class OptimizedStorageService {
   /// failed [canCommit] does. An account added on a saved server passes
   /// whether that server still has the address [config] was made from, so
   /// it never becomes a server of its own.
+  ///
+  /// [onWriting] is told when the first write begins. False without it
+  /// means nothing was written or published: the previous account's session
+  /// is as it was.
   Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     required FutureOr<void> Function() publish,
     bool Function()? canCommit,
     bool Function(OpenWebUiRegistry stored)? joins,
     void Function()? onRollbackUncertain,
+    void Function()? onWriting,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
@@ -1520,6 +1525,7 @@ class OptimizedStorageService {
         final vaultUndo = _VaultUndo();
         try {
           persistenceStarted = true;
+          onWriting?.call();
           // Even when re-selecting the active account: the saved sign-in
           // can be another account's, from before accounts existed. The
           // account's own session is not filed; it is signed in to afresh.
