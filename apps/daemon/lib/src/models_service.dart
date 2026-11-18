@@ -129,6 +129,12 @@ final class ModelsService {
       if (previous?.id == next?.id) return;
       events.emit(ConduitEventSpecs.modelsChanged, null);
     });
+    // The coding agents on offer are the selected terminal's: another
+    // terminal changes the list even when the model stays.
+    _container.listen<String?>(selectedTerminalIdProvider, (previous, next) {
+      if (previous == next) return;
+      events.emit(ConduitEventSpecs.modelsChanged, null);
+    });
     List<String>? last;
     _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
       final models = next.value;

@@ -278,6 +278,15 @@ void main() {
     });
   });
 
+  test('another terminal announces another list, the model unchanged', () {
+    final container = _agentContainer(_AgentsApi());
+    final bus = EventBus();
+    final changed = <String>[];
+    bus.tap((event, _, _) => changed.add(event));
+    ModelsService(container, events: bus);
+    container.read(selectedTerminalIdProvider.notifier).set('north');
+    expect(changed, <String>[ConduitEventSpecs.modelsChanged.name]);
+  });
   test('an unreachable server leaves the cached models on offer', () async {
     final container = ProviderContainer(
       overrides: [modelsProvider.overrideWith(_Unreachable.new)],
