@@ -200,6 +200,9 @@ pub struct CellView {
     pub bg: Rgb,
     /// The background is the terminal's own: nothing to paint.
     pub default_bg: bool,
+    /// The text is one of the palette's colours (kept at AA on what is
+    /// painted under it), not one the program gave exactly or hidden.
+    pub palette_text: bool,
     pub style: CellStyle,
     /// Index into [`Frame::zerowidth`] plus one; 0 for none.
     pub zerowidth: u16,
@@ -559,6 +562,7 @@ impl Emulator {
                 fg: palette.foreground,
                 bg: background,
                 default_bg: true,
+                palette_text: true,
                 style: CellStyle::default(),
                 zerowidth: 0,
             };
@@ -586,13 +590,15 @@ impl Emulator {
                 std::mem::swap(&mut fg, &mut bg);
                 default_bg = false;
             }
+            let palette_text = !flags.contains(Flags::HIDDEN)
+                && from_palette(if flags.contains(Flags::INVERSE) {
+                    cell.bg
+                } else {
+                    cell.fg
+                });
             if flags.contains(Flags::HIDDEN) {
                 fg = bg;
-            } else if from_palette(if flags.contains(Flags::INVERSE) {
-                cell.bg
-            } else {
-                cell.fg
-            }) {
+            } else if palette_text {
                 // The palette's text reads at AA on whatever this cell is
                 // drawn on; a colour the program gave exactly is its own.
                 let key = (rgb_key(fg), rgb_key(bg));
@@ -625,6 +631,7 @@ impl Emulator {
                 fg,
                 bg,
                 default_bg,
+                palette_text,
                 style,
                 zerowidth: extra,
             };

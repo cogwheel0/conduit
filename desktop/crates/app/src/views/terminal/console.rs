@@ -22,7 +22,9 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use conduit_components::theme::{ConduitTheme, MONO_FONT, contrast_ratio, legible_lightness};
+use conduit_components::theme::{
+    ConduitTheme, MONO_FONT, composite, contrast_ratio, legible_lightness,
+};
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
 use futures::StreamExt as _;
@@ -161,6 +163,62 @@ pub fn legible_on(text: Rgb, bg: Rgb) -> Rgb {
     let on_light =
         contrast_ratio(gpui_kit::black(), back) >= contrast_ratio(gpui_kit::white(), back);
     to_rgb(legible_lightness(fg, &[back], !on_light, ANSI_RATIO))
+}
+
+/// What the console paints over a cell: the selection and Find's colours
+/// (translucent, over the cell's own background).
+#[derive(Clone, Copy, Debug)]
+pub struct Highlights {
+    selection: Hsla,
+    matched: Hsla,
+    current: Hsla,
+}
+
+impl Highlights {
+    pub fn of(t: &ConduitTheme) -> Self {
+        let (matched, current) = crate::views::chat::transcript::find_fills(t);
+        Self {
+            selection: t.roles.text_selection,
+            matched,
+            current,
+        }
+    }
+
+    /// The highlight painted over `c`: the current match, then a match,
+    /// then the selection.
+    pub fn over(&self, c: &CellView) -> Option<Hsla> {
+        if c.style.current {
+            Some(self.current)
+        } else if c.style.matched {
+            Some(self.matched)
+        } else if c.style.selected {
+            Some(self.selection)
+        } else {
+            None
+        }
+    }
+}
+
+/// What is actually painted under a cell's text: its highlight, if any,
+/// over its own background (the console's for a default cell, which the
+/// frame gives as its `bg`).
+pub fn painted_background(c: &CellView, highlights: &Highlights) -> Rgb {
+    match highlights.over(c) {
+        Some(fill) => to_rgb(composite(fill, hsla(c.bg))),
+        None => c.bg,
+    }
+}
+
+/// The colour a cell's text is painted in: palette text kept at AA on what
+/// is painted under it ([`painted_background`]); a colour the program gave
+/// exactly, or hidden text, as the frame has it. Without a highlight this
+/// is the frame's colour, already at AA on the cell's background.
+pub fn cell_text(c: &CellView, highlights: &Highlights) -> Rgb {
+    if c.palette_text {
+        legible_on(c.fg, painted_background(c, highlights))
+    } else {
+        c.fg
+    }
 }
 
 /// The terminal's colours for the window's theme: its text and content
@@ -781,20 +839,17 @@ pub struct Grid {
     console: Entity<Console>,
     palette: Palette,
     focused: bool,
-    selection: Hsla,
-    matched: (Hsla, Hsla),
+    highlights: Highlights,
     cursor_text: Hsla,
 }
 
 impl Grid {
     pub fn new(console: Entity<Console>, t: &ConduitTheme, focused: bool) -> Self {
-        let (matched, current) = crate::views::chat::transcript::find_fills(t);
         Self {
             console,
             palette: palette(t),
             focused,
-            selection: t.roles.text_selection,
-            matched: (matched, current),
+            highlights: Highlights::of(t),
             cursor_text: t.roles.content,
         }
     }
@@ -1016,17 +1071,9 @@ impl Grid {
             while col < cols {
                 let c = &cells[col];
                 let fill_of = |c: &CellView| -> Option<Hsla> {
-                    if c.style.current {
-                        Some(self.matched.1)
-                    } else if c.style.matched {
-                        Some(self.matched.0)
-                    } else if c.style.selected {
-                        Some(self.selection)
-                    } else if !c.default_bg {
-                        Some(hsla(c.bg))
-                    } else {
-                        None
-                    }
+                    self.highlights
+                        .over(c)
+                        .or_else(|| (!c.default_bg).then(|| hsla(c.bg)))
                 };
                 let here = fill_of(c);
                 let mut end = col + 1;
@@ -1042,7 +1089,9 @@ impl Grid {
                 }
                 col = end;
             }
-            // Text runs, pinned to the grid.
+            // Text runs, pinned to the grid, each in its colour on what is
+            // painted under it.
+            let text_of = |c: &CellView| cell_text(c, &self.highlights);
             let mut col = 0;
             while col < cols {
                 let first = &cells[col];
@@ -1058,7 +1107,7 @@ impl Grid {
                         end += 1;
                         continue;
                     }
-                    if end > col && !same_run(first, c) {
+                    if end > col && (!same_run(first, c) || text_of(c) != text_of(first)) {
                         break;
                     }
                     s.push(c.ch);
@@ -1072,7 +1121,7 @@ impl Grid {
                 }
                 let blank = s.trim().is_empty() && !first.style.underline && !first.style.strike;
                 if !blank {
-                    let color = hsla(first.fg);
+                    let color = hsla(text_of(first));
                     let run = TextRun {
                         len: s.len(),
                         font: cell_font(first.style.bold, first.style.italic),
@@ -1281,10 +1330,12 @@ mod contrast_tests {
     use super::super::emulator::{Emulator, GridSize};
     use super::*;
 
-    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on every
-    /// background a cell can have (the console's own, and each ANSI colour
-    /// set as a cell background, black on bright green among them), in
-    /// light and dark, in every palette: as the console draws the cell.
+    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on what is
+    /// painted under it: every background a cell can have (the console's
+    /// own, and each ANSI colour set as a cell background, black on bright
+    /// green among them), and each of those under the selection, a Find
+    /// match and the current match. In light and dark, in every palette,
+    /// as the console paints the cell.
     #[test]
     fn ansi_text_meets_wcag_aa_on_every_cell_background() {
         let backgrounds: Vec<(String, String)> = std::iter::once(("default".into(), "49".into()))
@@ -1299,6 +1350,7 @@ mod contrast_tests {
         for (id, dark) in ids.iter().flat_map(|id| [(*id, false), (*id, true)]) {
             let t = ConduitTheme::new(id, dark, DesignPrefs::default(), gpui_kit::black());
             let p = palette(&t);
+            let h = Highlights::of(&t);
             let fg = contrast_ratio(hsla(p.foreground), hsla(p.background));
             assert!(fg >= 4.5, "{id} dark={dark}: foreground {fg:.2}");
             let e = Emulator::new(GridSize {
@@ -1311,16 +1363,50 @@ mod contrast_tests {
                     e.feed(format!("\x1b[{};{}H\x1b[0;{fg};{bg}mX", row + 1, f + 1).as_bytes());
                 }
             }
+            let mut check = |cell: &CellView, case: &str, f: usize, name: &str| {
+                let (text, under) = (cell_text(cell, &h), painted_background(cell, &h));
+                let r = contrast_ratio(hsla(text), hsla(under));
+                if r < 4.5 {
+                    low.push(format!(
+                        "{id} dark={dark}: ANSI {f} on {name}{case}: {text:?} on {under:?} is {r:.2}:1"
+                    ));
+                }
+            };
             let frame = e.frame(&p, &[], None);
             for (row, (name, _)) in backgrounds.iter().enumerate() {
                 for (f, cell) in frame.row(row).iter().take(16).enumerate() {
-                    let r = contrast_ratio(hsla(cell.fg), hsla(cell.bg));
-                    if r < 4.5 {
-                        low.push(format!(
-                            "{id} dark={dark}: ANSI {f} on {name}: {:?} on {:?} is {r:.2}:1",
-                            cell.fg, cell.bg
-                        ));
+                    check(cell, "", f, name);
+                    for (case, mark) in [
+                        (", selected", 0),
+                        (", a Find match", 1),
+                        (", the current match", 2),
+                    ] {
+                        let mut c = *cell;
+                        c.style.selected = mark == 0;
+                        c.style.matched = mark >= 1;
+                        c.style.current = mark == 2;
+                        check(&c, case, f, name);
                     }
+                }
+            }
+            // The emulator marks them so: Find's matches, the current one,
+            // and a selection over everything.
+            let matches = e.search("x");
+            assert_eq!(matches.len(), 16 * backgrounds.len(), "{id} dark={dark}");
+            e.select_all();
+            let found = e.frame(&p, &matches, Some(0));
+            let first = found.row(0)[0].style;
+            assert!(
+                first.current && first.matched && first.selected,
+                "{first:?}"
+            );
+            for (row, (name, _)) in backgrounds.iter().enumerate() {
+                for (f, cell) in found.row(row).iter().take(16).enumerate() {
+                    assert!(
+                        cell.style.matched,
+                        "{id}: ANSI {f} on {name} not marked found"
+                    );
+                    check(cell, ", found and selected", f, name);
                 }
             }
         }
