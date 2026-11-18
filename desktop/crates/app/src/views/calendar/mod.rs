@@ -357,8 +357,10 @@ impl CalendarPane {
         let (row, key, day) = items[next].clone();
         // The pane has the keyboard, not the row: say which.
         if let Some(item) = agenda.days[day].items.iter().find(|i| i.key == key) {
-            let title = shown_title(item, cx.l10n());
-            crate::views::a11y::announce_row(&title, next, items.len(), cx);
+            // With its day and time: two events of one name are told apart.
+            let l = cx.l10n();
+            let row = format!("{}, {}", shown_title(item, l), format::when(item, l));
+            crate::views::a11y::announce_row(&row, next, items.len(), cx);
         }
         self.selected = Some((key, day));
         self.scroll
@@ -1714,13 +1716,100 @@ mod tests {
             p.move_selection(true, cx);
             p.move_selection(true, cx);
         });
-        let untitled_said = format!("{}, 2 of 2", L10n::new("en").calendar_untitled_event());
+        let l = L10n::new("en");
+        let when = format::when(&item("k1"), &l);
         let said: Vec<String> = vcx.update(|_, cx| {
             AnnouncementLog::texts(cx)
                 .iter()
                 .map(ToString::to_string)
                 .collect()
         });
-        assert_eq!(said, ["k1, 1 of 2".to_string(), untitled_said]);
+        assert_eq!(
+            said,
+            [
+                format!("k1, {when}, 1 of 2"),
+                format!("{}, {when}, 2 of 2", l.calendar_untitled_event()),
+            ]
+        );
+    }
+
+    /// Two events of one name are told apart as the arrows reach them: each
+    /// is said with its day and time.
+    #[gpui_kit::test]
+    fn two_events_of_one_name_are_said_with_their_times(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use conduit_protocol::Capabilities;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let day = CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day: 12,
+            hour: 0,
+            minute: 0,
+        };
+        let standup = |key: &str, hour: i64| {
+            let mut i = item(key);
+            i.title = "Standup".into();
+            i.start.hour = hour;
+            i.time = CalendarRowTimeDto {
+                kind: "at".into(),
+                start: Some(i.start.clone()),
+                end: None,
+            };
+            i
+        };
+        let (morning, afternoon) = (standup("k1", 9), standup("k2", 15));
+        daemon.returns::<methods::CalendarAgenda>(CalendarAgenda {
+            available: true,
+            first_day: Some(day.clone()),
+            today: Some(day.clone()),
+            days: vec![CalendarAgendaDay {
+                day,
+                items: vec![morning.clone(), afternoon.clone()],
+            }],
+            ..Default::default()
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-agenda-times-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                calendar: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.move_selection(true, cx);
+            p.move_selection(true, cx);
+        });
+        let l = L10n::new("en");
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(
+            said,
+            [
+                format!("Standup, {}, 1 of 2", format::when(&morning, &l)),
+                format!("Standup, {}, 2 of 2", format::when(&afternoon, &l)),
+            ]
+        );
+        assert_ne!(format::when(&morning, &l), format::when(&afternoon, &l));
     }
 }
