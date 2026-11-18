@@ -2579,17 +2579,6 @@ mod tests {
         draw(&transcript, cx);
         draw(&transcript, cx);
         let states = chunk_states(&transcript, "a1", cx);
-        // Every drawn chunk names its committed parse (GPUI Kit's form of
-        // it still has the revision): else nothing would ever be held.
-        cx.update(|_, cx| {
-            for state in &states {
-                let rendered = state.read(cx).rendered_text();
-                assert!(
-                    crate::views::chat::lazy_chunk::committed_parse(&rendered).is_some(),
-                    "{rendered:?}"
-                );
-            }
-        });
         let first = |cx: &mut VisualTestContext| cx.update(|_, cx| states[0].read(cx).bounds());
         // At the answer's end the first chunk is far above: held, so the
         // scroll does not move it.

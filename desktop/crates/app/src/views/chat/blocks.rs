@@ -641,9 +641,7 @@ impl AssistantRow {
         // Its height is only kept from a layout of this text, for the
         // parse that drew it.
         let rendered = s.rendered_text();
-        let settled = (rendered.source() == md)
-            .then(|| super::lazy_chunk::committed_parse(&rendered))
-            .flatten();
+        let settled = (rendered.source() == md).then_some(rendered);
         let may_hold = !revealing
             && !selected
             && !s.focus_handle().contains_focused(window, cx)
