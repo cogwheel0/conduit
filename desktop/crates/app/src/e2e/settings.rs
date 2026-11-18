@@ -500,6 +500,10 @@ async fn model_name_in_message_box(
     })
     .await;
     pass &= ok("off again, the app's words come back", back);
+    // The profile keeps the value it started with.
+    if default == Some(true) {
+        set(true, cx);
+    }
     pass
 }
 
