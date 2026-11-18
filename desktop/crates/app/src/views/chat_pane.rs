@@ -3636,6 +3636,44 @@ mod tests {
             })
         }
 
+        /// A chat saved with a coding agent, opened while another model is
+        /// selected, shows "This chat used …" with Switch above the message
+        /// box, and Switch picks that agent for the chat.
+        #[gpui_kit::test]
+        fn a_chat_saved_with_an_agent_shows_switch(cx: &mut TestAppContext) {
+            let (daemon, stores, _pane, vcx) = bench(cx);
+            let agent = "agent:north:codex:gpt-test";
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "selectedId": "k",
+                    "agentNames": {agent: "Codex · gpt-test"},
+                    "chatAgent": agent
+                }))
+            });
+            daemon.on::<methods::ModelsSelect>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "selectedId": agent
+                }))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c-agent", cx));
+            vcx.run_until_parked();
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            let switch = vcx
+                .debug_bounds("chat-agent-switch")
+                .expect("Switch is offered for the chat's agent");
+            assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
+            vcx.simulate_click(switch.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1);
+            assert_eq!(picks[0]["id"], agent);
+            assert_eq!(picks[0]["chatId"], "c-agent");
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(vcx.debug_bounds("chat-agent-switch").is_none());
+        }
+
         /// A link handled right after a new chat's in the same batch
         /// (`conduit://clipboard`, then `conduit://chat/<id>`) keeps its own
         /// draft: what the new chat brought is written only while that new

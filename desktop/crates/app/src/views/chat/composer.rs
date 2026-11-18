@@ -4624,6 +4624,7 @@ fn chat_agent_offer(
     let composer = composer.clone();
     div()
         .id("chat-agent-offer")
+        .debug_selector(|| "chat-agent-offer".into())
         .role(Role::Group)
         .aria_label(SharedString::from(words.clone()))
         .mx(px(6.))
@@ -4645,13 +4646,15 @@ fn chat_agent_offer(
                 .child(SharedString::from(words)),
         )
         .child(
-            conduit_components::views::kit::Button::new(
-                "chat-agent-switch",
-                l10n.desktop_settings_switch_server(),
-            )
-            .on_click(Rc::new(move |_, _, cx| {
-                composer.update(cx, |s, cx| s.select_model(&id, cx))
-            })),
+            div().debug_selector(|| "chat-agent-switch".into()).child(
+                conduit_components::views::kit::Button::new(
+                    "chat-agent-switch",
+                    l10n.desktop_settings_switch_server(),
+                )
+                .on_click(Rc::new(move |_, _, cx| {
+                    composer.update(cx, |s, cx| s.select_model(&id, cx))
+                })),
+            ),
         )
         .into_any_element()
 }
