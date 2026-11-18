@@ -428,6 +428,57 @@ void main() {
     expect(signedIn.isAuthenticated, isTrue, reason: 'through the proxy');
     expect(signedIn.user?.email, 'grace@example.com');
   });
+  test('the cookie a sign-in window keeps puts nothing else of what it read '
+      'back', () async {
+    final proxyOnly = await FakeOwuiAuthServer.start(
+      users: const {
+        'ivy@example.com': (id: 'user-ivy', name: 'Ivy', password: 'pw-ivy'),
+      },
+      proxyCookie: '_gate=open',
+    );
+    addTearDown(proxyOnly.close);
+    final adding = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Gate', url: proxyOnly.url),
+        force: true,
+      ),
+    );
+    final gate = adding.accounts.accounts
+        .singleWhere((a) => a.id == adding.accounts.activeAccountId)
+        .serverId;
+    // The window's proxy sign-in is proved while another window renames
+    // the server.
+    final release = Completer<void>();
+    final held = proxyOnly.onHeld = Completer<void>();
+    proxyOnly.hold = release.future;
+    final finishing = auth.completeExternal(
+      ExternalAuthCompletion(
+        origin: proxyOnly.url,
+        cookies: const {'_gate': 'open'},
+      ),
+    );
+    await held.future;
+    await servers.update(
+      ServerDraft(id: gate, name: 'Gate Two', url: 'https://ignored.test'),
+    );
+    proxyOnly.hold = null;
+    release.complete();
+    final through = await finishing;
+    expect(through.isAuthenticated, isFalse);
+    final listed = await accounts.list();
+    expect(
+      listed.accounts.where((a) => a.serverId == gate).map(
+        (a) => a.connection.name,
+      ),
+      everyElement('Gate Two'),
+      reason: 'the rename made while the sign-in was proved stays',
+    );
+    final signedIn = await auth.loginWithPassword(
+      const PasswordLogin(username: 'ivy@example.com', password: 'pw-ivy'),
+    );
+    expect(signedIn.isAuthenticated, isTrue, reason: 'the cookie was kept');
+  });
+
   test('a sign-in window finished after its addition was cancelled '
       'commits nothing', () async {
     final proxyOnly = await FakeOwuiAuthServer.start(

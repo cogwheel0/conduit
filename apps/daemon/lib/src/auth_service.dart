@@ -578,23 +578,23 @@ final class AuthService {
     return _snapshot();
   }
 
-  /// Saves [config] -- the active account's connection with the cookie a
-  /// proxy sign-in captured -- in place of the one stored, unless
-  /// [stillCurrent] says the sign-in no longer counts (a sign-out has
-  /// revoked cookies since, or the account changed). The cookie is filed on
-  /// the account, not the shared address (`isCapturedSessionHeader`).
+  /// Keeps the cookie a proxy sign-in captured in [config] -- the active
+  /// account's connection with it -- on that account, not the shared
+  /// address (`isCapturedSessionHeader`), unless [stillCurrent] says the
+  /// sign-in no longer counts (a sign-out has revoked cookies since, or the
+  /// account changed). Storage asks [stillCurrent] inside its own write,
+  /// right before it writes: a sign-out or a cancellation queued ahead of
+  /// the write has finished by then, and nothing of it is undone.
   Future<void> _keepProxyCookie(
     ServerConfig config,
     bool Function() stillCurrent,
   ) async {
     final storage = _container.read(optimizedStorageServiceProvider);
-    if (!stillCurrent()) return;
-    final configs = await storage.getServerConfigsStrict();
-    if (!stillCurrent()) return;
-    if (!configs.any((saved) => saved.id == config.id)) return;
-    await storage.saveServerConfigs([
-      for (final saved in configs) saved.id == config.id ? config : saved,
-    ]);
+    final kept = await storage.saveCapturedSessionHeaders(
+      config,
+      canCommit: stillCurrent,
+    );
+    if (!kept) return;
     _container
       ..invalidate(serverConfigsProvider)
       ..invalidate(activeServerProvider);

@@ -2897,6 +2897,56 @@ class OptimizedStorageService {
     );
   }
 
+  /// Keeps the session headers a proxy sign-in captured in [config] -- the
+  /// connection of the account [config] names, with the cookie -- for that
+  /// account on the route [config] reaches its server through.
+  ///
+  /// Only those headers are written, into the registry as it is stored when
+  /// the write runs: nothing else of [config], a snapshot taken before the
+  /// sign-in was proved, goes back over what was saved since. Returns
+  /// whether they were kept: not once [canCommit] fails -- asked with the
+  /// storage locks held, after every read and right before the write, so a
+  /// sign-out or a cancellation queued ahead of it has finished and is seen
+  /// -- nor when the account is gone or its route no longer carries
+  /// [config]'s connection (another save moved it).
+  Future<bool> saveCapturedSessionHeaders(
+    ServerConfig config, {
+    required bool Function() canCommit,
+  }) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        if (!canCommit()) return false;
+        final registry = await _registryForWriteUnlocked();
+        final account = registry.account(config.id);
+        final server = account == null
+            ? null
+            : registry.server(account.serverId);
+        if (account == null || server == null) return false;
+        final route = server.routeForConnection(
+          config,
+          selectedEndpointId: _endpointSelection()[server.id],
+        );
+        if (!route.carries(config)) return false;
+        final captured = {
+          for (final entry in config.customHeaders.entries)
+            if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+        };
+        if (captured.isEmpty) return false;
+        // Nothing awaited since the read: what is checked is what the write
+        // goes over.
+        if (!canCommit()) return false;
+        await _saveRegistryUnlocked(
+          registry.withAccount(
+            account.copyWith(
+              capturedHeaders: {...account.capturedHeaders, route.id: captured},
+            ),
+          ),
+        );
+        return true;
+      }),
+    );
+  }
+
   /// The saved servers and accounts. Strict: a Keychain failure propagates
   /// rather than reading as "nothing saved".
   Future<OpenWebUiRegistry> getOpenWebUiRegistryStrict() =>

@@ -72,6 +72,9 @@ final class FakeOwuiAuthServer {
   /// While set, every request waits for it before it is answered.
   Future<void>? hold;
 
+  /// Completed, and cleared, when a request starts waiting on [hold].
+  Completer<void>? onHeld;
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<FakeOwuiAuthServer> start({
@@ -112,7 +115,12 @@ final class FakeOwuiAuthServer {
       return response.close();
     }
     final held = hold;
-    if (held != null) await held;
+    if (held != null) {
+      final reached = onHeld;
+      onHeld = null;
+      reached?.complete();
+      await held;
+    }
     final proxy = proxyCookie;
     if (proxy != null &&
         !(request.headers.value(HttpHeaders.cookieHeader) ?? '').contains(
