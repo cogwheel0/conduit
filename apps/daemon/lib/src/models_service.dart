@@ -180,24 +180,33 @@ final class ModelsService {
   /// list that says the window just opened a chat takes a new one (its
   /// ticket), as mobile restores a chat's agent each time it opens it. It
   /// goes once that is settled (the agent put back, or a terminal that
-  /// answered without it, or a chat that needs none), or once a model is
-  /// picked in the chat, so a later pick always wins. A lookup that failed
-  /// leaves it for the next list of that chat. Kept for the account and
-  /// session in [_restoreSession] / [_restoreAccount].
-  Map<String, int> _restoring = <String, int>{};
+  /// answered without it, or a chat that needs none). It carries the pick
+  /// count at its opening ([_picks]): a model picked anywhere since, in any
+  /// chat, wins over it, as the selection is the account's. A lookup that
+  /// failed leaves it for the next list of that chat. Kept for the account
+  /// and session in [_restoreSession] / [_restoreAccount].
+  Map<String, ({int opening, int picks})> _restoring =
+      <String, ({int opening, int picks})>{};
   int _openings = 0;
+
+  /// Bumped by every model pick (`models.select`), in any chat.
+  int _picks = 0;
+
+  /// The chat the latest list was for (null for a new chat): the chat
+  /// being shown, the only one whose agent may be put back.
+  String? _shown;
   Object? _restoreSession;
   String? _restoreAccount;
 
   /// [_restoring] for the account and session in charge now: emptied when
   /// either changed.
-  Map<String, int> _restoringNow() {
+  Map<String, ({int opening, int picks})> _restoringNow() {
     final session = _container.read(openWebUiAuthSessionEpochProvider);
     final account = currentPreferenceAccountId();
     if (!identical(session, _restoreSession) || account != _restoreAccount) {
       _restoreSession = session;
       _restoreAccount = account;
-      _restoring = <String, int>{};
+      _restoring = <String, ({int opening, int picks})>{};
     }
     return _restoring;
   }
@@ -239,8 +248,9 @@ final class ModelsService {
   Future<ModelList> _list(ModelListQuery query) async {
     final account = AccountScope.capture(_container);
     final chatId = query.chatId;
+    _shown = chatId;
     if (query.opening && chatId != null) {
-      _restoringNow()[chatId] = ++_openings;
+      _restoringNow()[chatId] = (opening: ++_openings, picks: _picks);
     }
     final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
@@ -556,9 +566,9 @@ final class ModelsService {
   Future<ModelList> select(String id, {String? chatId}) async {
     // The pick is made for the account it was asked under, or not at all.
     final account = AccountScope.capture(_container);
-    // A pick ends the chat's opening: an agent still being put back, or a
-    // later list, never selects the chat's agent over it.
-    if (chatId != null) _restoringNow().remove(chatId);
+    // A pick, in any chat, wins over every opening still putting an agent
+    // back: the selection it makes is the account's.
+    _picks++;
     if (isTerminalAgentModelId(id)) {
       final conversation = chatId == null ? null : await _conversation(chatId);
       final agent = (await _agents(conversation))
@@ -629,8 +639,9 @@ final class ModelsService {
   /// and answers with it. The terminal asked is the one the agent's id
   /// names (selected with it), not the one selected now. A conversation or
   /// terminal that could not be read leaves the opening for the next list;
-  /// a pick meanwhile, a newer opening or another account in charge ([scope])
-  /// puts nothing back.
+  /// a pick in any chat since the opening, a newer opening, another chat
+  /// shown or another account in charge ([scope]) puts nothing back. These
+  /// are checked together right before the write, with no wait between.
   Future<void> _reopenAgent(
     String chatId,
     Conversation? conversation,
@@ -642,6 +653,7 @@ final class ModelsService {
     final id = conversation.model;
     if (id == null ||
         !isTerminalAgentModelId(id) ||
+        _picks != ticket.picks ||
         _container.read(selectedModelProvider)?.id == id) {
       pending.remove(chatId);
       return;
@@ -665,7 +677,12 @@ final class ModelsService {
     final now = _restoringNow();
     if (!identical(now, pending) || now[chatId] != ticket) return;
     now.remove(chatId);
-    if (agent == null || !scope.isCurrent) return;
+    if (agent == null ||
+        _picks != ticket.picks ||
+        _shown != chatId ||
+        !scope.isCurrent) {
+      return;
+    }
     _selectAgent(agent);
   }
 

@@ -310,6 +310,44 @@ void main() {
       expect(container.read(selectedTerminalIdProvider), 'south');
     });
 
+    test(
+      'keeps a pick made in another chat while its agent was looked up',
+      () async {
+        final api = _AgentsApi()..held = Completer<void>();
+        final container = _agentContainer(api);
+        final models = ModelsService(container);
+        final listing = models.list(opening);
+        await pumpEventQueue();
+        expect(api.asked, <String>['north']);
+        // Another chat is opened and a model picked there before the first
+        // chat's terminal answers.
+        await models.list(
+          const ModelListQuery(chatId: 'plain-chat', opening: true),
+        );
+        await models.select('preferred-model', chatId: 'plain-chat');
+        api.held!.complete();
+        await listing;
+        expect(container.read(selectedModelProvider)?.id, 'preferred-model');
+        expect(container.read(selectedTerminalIdProvider), 'south');
+      },
+    );
+
+    test('puts nothing back once another chat is shown', () async {
+      final api = _AgentsApi()..held = Completer<void>();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      final listing = models.list(opening);
+      await pumpEventQueue();
+      expect(api.asked, <String>['north']);
+      await models.list(
+        const ModelListQuery(chatId: 'plain-chat', opening: true),
+      );
+      api.held!.complete();
+      await listing;
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+      expect(container.read(selectedTerminalIdProvider), 'south');
+    });
+
     test('is not reopened by a list that does not open it', () async {
       final container = _agentContainer(_AgentsApi());
       container.read(selectedTerminalIdProvider.notifier).set('north');
