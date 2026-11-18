@@ -397,6 +397,10 @@ impl ChatPane {
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                // The composer's own state for that chat moves too, whether
+                // or not it is the chat shown.
+                this.composer_store
+                    .update(cx, |c, _| c.rekey_chat(from, to));
             }),
             cx.subscribe_in(
                 &composer,
@@ -786,12 +790,8 @@ impl ChatPane {
                     }
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
-                        self.composer_store.update(cx, |c, _| {
-                            c.rekey_draft(DraftKey {
-                                chat_id: Some(id.clone()),
-                                folder_id: None,
-                            })
-                        });
+                        self.composer_store
+                            .update(cx, |c, _| c.rekey_chat(&current, &id));
                         return;
                     }
                 }

@@ -1021,20 +1021,20 @@ impl ComposerStore {
         if let Some(list) = &mut self.models {
             list.selected_id = Some(id.to_string());
         }
-        // A coding agent picked is this chat's own; any other pick ends it.
-        if let Some(key) = self.pick_key() {
-            if is_agent_id(id) {
-                let summary = self.models.as_ref().and_then(|list| {
+        // A coding agent picked is this chat's own, and any other pick ends
+        // it, once the daemon took the pick (a refused one changes nothing).
+        let key = self.pick_key();
+        let agent = is_agent_id(id).then(|| {
+            self.models
+                .as_ref()
+                .and_then(|list| {
                     find_model(list, id)
                         .cloned()
                         .or_else(|| list.agent_names.get(id).map(|name| agent_summary(id, name)))
-                });
-                self.agent_picks
-                    .insert(key, summary.unwrap_or_else(|| agent_summary(id, id)));
-            } else {
-                self.agent_picks.remove(&key);
-            }
-        }
+                })
+                .unwrap_or_else(|| agent_summary(id, id))
+        });
+        let scope = self.scope;
         cx.notify();
         let call = self.rpc.call::<methods::ModelsSelect>(&SelectModel {
             id: id.to_string(),
@@ -1045,6 +1045,18 @@ impl ComposerStore {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
                     Ok(list) => {
+                        if s.scope == scope
+                            && let Some(key) = key
+                        {
+                            match agent {
+                                Some(agent) => {
+                                    s.agent_picks.insert(key, agent);
+                                }
+                                None => {
+                                    s.agent_picks.remove(&key);
+                                }
+                            }
+                        }
                         s.set_models(list, cx);
                         s.refresh_options(cx);
                     }
@@ -1969,10 +1981,8 @@ impl ComposerStore {
         let Some(old) = self.draft.take() else {
             return;
         };
-        // A new chat's agent pick is the chat's it became.
-        if let Some(pick) = self.agent_picks.remove(&old) {
-            self.agent_picks.insert(key.clone(), pick);
-        }
+        // A new chat's state (its agent pick) is the chat's it became.
+        self.move_per_chat(&old, &key);
         self._draft = None;
         if !self.draft_saved.is_empty() {
             self.save_now(&old, "");
@@ -1984,9 +1994,35 @@ impl ComposerStore {
         self.draft = Some(key);
     }
 
-    pub fn rekey_draft(&mut self, key: DraftKey) {
-        if self.draft.is_some() {
-            self.draft = Some(key);
+    /// A chat's id moved (`route.remap`, open or not): everything this
+    /// composer keeps for it (its draft key, its agent pick) moves with it.
+    pub fn rekey_chat(&mut self, from: &str, to: &str) {
+        let moved = |key: &DraftKey| DraftKey {
+            chat_id: Some(to.to_string()),
+            folder_id: key.folder_id.clone(),
+        };
+        let keys: Vec<DraftKey> = self
+            .agent_picks
+            .keys()
+            .filter(|k| k.chat_id.as_deref() == Some(from))
+            .cloned()
+            .collect();
+        for key in keys {
+            self.move_per_chat(&key, &moved(&key));
+        }
+        if let Some(draft) = &self.draft
+            && draft.chat_id.as_deref() == Some(from)
+        {
+            self.draft = Some(moved(draft));
+        }
+    }
+
+    /// The one place per-chat state moves from one key to another (a new
+    /// chat's first message, a chat's id remapped): every map kept by chat
+    /// moves here.
+    fn move_per_chat(&mut self, old: &DraftKey, new: &DraftKey) {
+        if let Some(pick) = self.agent_picks.remove(old) {
+            self.agent_picks.insert(new.clone(), pick);
         }
     }
 
@@ -3475,6 +3511,126 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
             assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+    }
+
+    /// A pick the daemon refuses is not installed: the chat keeps what it
+    /// had, and no turn names the refused agent.
+    #[gpui_kit::test]
+    fn a_refused_pick_leaves_the_chat_as_it_was(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        });
+        daemon.once::<methods::ModelsSelect>(Err(conduit_daemon::protocol::error(
+            "rpc.notFound",
+            "the terminal does not offer it here",
+        )));
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-7".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
+            assert_ne!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+    }
+
+    /// A chat's id moving (`route.remap`), open or not, takes its agent
+    /// pick along with its draft: the chat goes on with its agent.
+    #[gpui_kit::test]
+    fn a_remapped_chat_keeps_its_agent(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        let offering = ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        };
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(offering.clone());
+        daemon.returns::<methods::ModelsSelect>(offering);
+        let store = store(&daemon, Arc::default(), cx);
+        let chat = |id: &str| {
+            Some(DraftKey {
+                chat_id: Some(id.into()),
+                folder_id: None,
+            })
+        };
+        store.update(cx, |s, cx| s.switch_draft(chat("local-1"), "", cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        // Remapped while it is open.
+        store.update(cx, |s, _| s.rekey_chat("local-1", "chat-9"));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.draft_key(), chat("chat-9").as_ref());
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+        // Remapped while another chat is open, then opened again.
+        store.update(cx, |s, cx| s.switch_draft(chat("chat-8"), "", cx));
+        cx.run_until_parked();
+        store.update(cx, |s, _| s.rekey_chat("chat-9", "chat-9b"));
+        store.update(cx, |s, cx| s.switch_draft(chat("chat-9b"), "", cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+    }
+
+    /// A chat saved with a coding agent offers Switch while it has no pick
+    /// of its own, even when the account picked that same agent in another
+    /// chat: the offer and the model shown come from the chat, never from
+    /// the account's selection.
+    #[gpui_kit::test]
+    fn a_saved_agent_is_offered_though_picked_elsewhere(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            agent_names: [(agent.to_string(), "Codex · gpt-test".to_string())].into(),
+            chat_agent: Some(agent.into()),
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-agent".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
+            assert_eq!(
+                s.chat_agent(),
+                Some((agent.to_string(), "Codex · gpt-test".to_string()))
+            );
         });
     }
 
