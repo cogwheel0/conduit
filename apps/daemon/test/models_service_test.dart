@@ -267,6 +267,12 @@ Object _session = Object();
 /// The chats read, in order; a read waits for [_chatHeld] while it is set,
 /// and `gone-chat` cannot be read.
 final _chatReads = <String>[];
+
+/// The terminal list cannot be read while this is set.
+var _terminalsUnreadable = false;
+
+/// The account's default model resolves once this completes, when set.
+Completer<void>? _defaultHeld;
 Completer<void>? _chatHeld;
 Completer<void> _chatAsked = Completer<void>();
 
@@ -275,6 +281,8 @@ ProviderContainer _agentContainer(_AgentsApi api) {
   _session = Object();
   _chatReads.clear();
   _chatHeld = null;
+  _terminalsUnreadable = false;
+  _defaultHeld = null;
   _chatAsked = Completer<void>();
   final container = ProviderContainer(
     overrides: [
@@ -284,7 +292,16 @@ ProviderContainer _agentContainer(_AgentsApi api) {
       reviewerModeProvider.overrideWith(_ReviewerOff.new),
       openWebUiAccountAvailableProvider.overrideWithValue(true),
       terminalAgentsSupportedProvider.overrideWithValue(true),
-      terminalAvailableServersProvider.overrideWith((ref) async => _terminals),
+      terminalAvailableServersProvider.overrideWith((ref) async {
+        if (_terminalsUnreadable) {
+          throw StateError('the terminal list is unreadable');
+        }
+        return _terminals;
+      }),
+      defaultModelProvider.overrideWith((ref) async {
+        await _defaultHeld?.future;
+        return const core.Model(id: 'first-model', name: 'First model');
+      }),
       loadConversationProvider.overrideWith((ref, id) async {
         _chatReads.add(id);
         if (!_chatAsked.isCompleted) _chatAsked.complete();
@@ -354,7 +371,8 @@ void main() {
     });
 
     test('offer no agents for a chat that could not be read', () async {
-      final container = _agentContainer(_AgentsApi());
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
       container.read(selectedTerminalIdProvider.notifier).set('north');
       final models = ModelsService(container);
       final list = await models.list(const ModelListQuery(chatId: 'gone-chat'));
@@ -364,6 +382,8 @@ void main() {
         refused(ConduitErrorCodes.notFound),
       );
       expect(container.read(selectedModelProvider)?.id, 'first-model');
+      // Neither request asked the terminal: an unread chat is not a new one.
+      expect(api.asked, isNot(contains('north')));
     });
   });
 
@@ -389,23 +409,56 @@ void main() {
       expect(container.read(selectedModelProvider)?.id, 'first-model');
     });
   });
+  test("a picked agent is not offered in another chat's workspace", () async {
+    final api = _AgentsApi();
+    final container = _agentContainer(api);
+    container.read(selectedTerminalIdProvider.notifier).set('north');
+    final models = ModelsService(container);
+    final picked = await models.select(_northAgent, chatId: 'agent-chat');
+    expect(picked.selectedId, _northAgent);
+    // Another chat on the same terminal, whose lookup finds no agent: the
+    // agent is not offered there, so the window names another model.
+    final other = await models.list(const ModelListQuery(chatId: 'plain-chat'));
+    expect(other.selectedId, _northAgent);
+    expect(
+      other.agents,
+      isEmpty,
+      reason: "agent-chat's agent offered in plain-chat",
+    );
+  });
+
+  test('a lookup that finds none never changes the agent picked', () async {
+    final api = _AgentsApi()..northAnswers = 1;
+    final container = _agentContainer(api);
+    container.read(selectedTerminalIdProvider.notifier).set('north');
+    final list = await ModelsService(container)
+        .select(_northAgent, chatId: 'agent-chat');
+    // The pick's own list asked north again, and north answered with none:
+    // the list reports what north offers now, and the pick stays.
+    expect(api.asked.where((t) => t == 'north'), hasLength(2));
+    expect(list.selectedId, _northAgent);
+    expect(list.agents, isEmpty);
+    expect(container.read(selectedModelProvider)?.id, _northAgent);
+  });
+
   test(
-    'a picked agent stays on offer when a later lookup finds none',
+    'a terminal list that cannot be read never changes the agent picked',
     () async {
-      final api = _AgentsApi()..northAnswers = 1;
+      final api = _AgentsApi();
       final container = _agentContainer(api);
       container.read(selectedTerminalIdProvider.notifier).set('north');
-      final list = await ModelsService(container)
-          .select(_northAgent, chatId: 'agent-chat');
-      // The pick's own list asked north again, and north answered with none:
-      // the agent picked is still the one offered and selected, never left
-      // for the window to replace with another model.
-      expect(api.asked.where((t) => t == 'north'), hasLength(2));
+      final models = ModelsService(container);
+      await models.select(_northAgent, chatId: 'agent-chat');
+      _terminalsUnreadable = true;
+      container.invalidate(terminalAvailableServersProvider);
+      final list = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(list.agents, isEmpty);
       expect(list.selectedId, _northAgent);
-      expect(list.agents.map((m) => m.id), <String>[_northAgent]);
+      expect(container.read(selectedModelProvider)?.id, _northAgent);
     },
   );
-
   test(
     "a terminal's agents are not offered once another terminal is chosen",
     () {
@@ -427,6 +480,29 @@ void main() {
       });
     },
   );
+  test("a terminal's agents are not offered once another terminal is chosen "
+      'while the model in use is still being worked out', () {
+    fakeAsync((time) {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      // Nothing is selected: the list waits for the account's default.
+      container.read(selectedModelProvider.notifier).clear();
+      _defaultHeld = Completer<void>();
+      final listing = _Outcome(
+        ModelsService(container)
+            .list(const ModelListQuery(chatId: 'agent-chat')),
+      );
+      time.elapse(Duration.zero);
+      expect(api.asked, contains('north'));
+      container.read(selectedTerminalIdProvider.notifier).set('south');
+      _defaultHeld!.complete();
+      time.elapse(Duration.zero);
+      final list = listing.value! as ModelList;
+      expect(list.agents, isEmpty, reason: "north's agents offered on south");
+    });
+  });
+
   test('a slower pick never replaces a later one', () {
     fakeAsync((time) {
       final api = _AgentsApi()..held = Completer<void>();

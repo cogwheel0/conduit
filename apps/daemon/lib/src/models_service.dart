@@ -233,28 +233,23 @@ final class ModelsService {
         : await _conversation(chatId, account);
     // A named chat that could not be read is not a new chat: its agents are
     // unknown, so none is offered (an unread chat is never taken for none).
+    final terminal = _container.read(selectedTerminalIdProvider);
     final found = chatId != null && conversation == null
         ? (agents: const <core.Model>[], asked: false)
         : await _agents(conversation, account, temporary: query.temporary);
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
-    // actually use is worse than showing none.
-    final selected = await currentModel(_container);
-    final selectedId = selected?.id;
-    // A coding agent picked on the selected terminal stays on offer when a
-    // later lookup there finds none or fails (never settled on absence):
-    // the window keeps it, and the next turn goes to it (refused by the
-    // server, visibly, if it is really gone), never to another model.
-    final agents = [
-      ...found.agents,
-      if (found.asked &&
-          selected != null &&
-          isTerminalAgentModel(selected) &&
-          terminalAgentTerminalId(selected) ==
-              _container.read(selectedTerminalIdProvider) &&
-          !found.agents.any((agent) => agent.id == selected.id))
-        selected,
-    ];
+    // actually use is worse than showing none. The list only reports what
+    // the terminal offers: it never decides the selection (the window keeps
+    // each chat's own pick), so nothing is added to it for the selection.
+    final selectedId = (await currentModel(_container))?.id;
+    // Checked right before the answer is put together, after its last
+    // wait: the account it was asked for, and the terminal its agents came
+    // from, are still the ones in charge.
+    account.require('the models are answered');
+    final agents = _container.read(selectedTerminalIdProvider) == terminal
+        ? found.agents
+        : const <core.Model>[];
     final plain = ModelList(
       models: models.map(_summarize).toList(growable: false),
       selectedId: selectedId,
