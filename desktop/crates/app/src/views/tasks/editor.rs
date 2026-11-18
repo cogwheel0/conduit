@@ -1864,6 +1864,92 @@ mod tests {
         );
     }
 
+    /// A Daily task's editor, open, with checks that echo what they are sent.
+    fn daily_editor(
+        daemon: &crate::stores::rpc::fake::FakeDaemon,
+        stores: &crate::stores::Stores,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<TaskEditor> {
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens")
+    }
+
+    /// Weekly is chosen and, before its check answers, `then` edits the
+    /// editor: the kind the last check carries.
+    fn kind_after(
+        cx: &mut gpui_kit::TestAppContext,
+        then: impl FnOnce(&mut TaskEditor, &mut Context<TaskEditor>),
+    ) -> serde_json::Value {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                then(e, cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        checks.last().expect("a check")["chooseKind"].clone()
+    }
+
+    /// Another kind chosen before Weekly's check answers replaces it.
+    #[gpui_kit::test]
+    fn another_kind_replaces_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| e.choose_kind("once", cx));
+        assert_eq!(kind, "once");
+    }
+
+    /// A schedule control changed before Weekly's check answers is the
+    /// newer schedule edit: no check after it carries Weekly.
+    #[gpui_kit::test]
+    fn a_schedule_edit_drops_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| e.edit_schedule(|f| f.schedule.hour = 7, cx));
+        assert!(
+            kind.is_null(),
+            "a check after the schedule edit carried Weekly: {kind}"
+        );
+    }
+
+    /// The name edited before Weekly's check answers is no schedule edit:
+    /// its check carries Weekly, so the choice is not lost to it.
+    #[gpui_kit::test]
+    fn a_name_edit_keeps_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| {
+            e.edit(|f| f.name = "Allotment digest (late)".into(), cx)
+        });
+        assert_eq!(kind, "weekly");
+    }
+
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
     /// Space opens it, as every other control in the editor.
     #[gpui_kit::test]
