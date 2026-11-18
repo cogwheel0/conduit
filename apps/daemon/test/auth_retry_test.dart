@@ -26,7 +26,10 @@ void main() {
   // Each case starts its own core and server, signed in as Ada, so it
   // passes alone and in its shard.
   setUp(() async {
+    // Each thing is put back as soon as it exists, so a setup that fails
+    // part way still cleans up what it made.
     temporary = Directory.systemTemp.createTempSync('auth-retry-test');
+    addTearDown(() => temporary.deleteSync(recursive: true));
     runtime = await CoreRuntime.start(
       config: BootstrapConfig(
         sessionToken: 'a' * 43,
@@ -36,13 +39,17 @@ void main() {
       directories: DaemonDirectories.create(temporary.path),
       log: DaemonLog(level: 'error', sink: NullSink()),
     );
+    addTearDown(runtime.dispose);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
       },
     );
+    addTearDown(owui.close);
     accounts = AccountsService(runtime.container, events: EventBus());
+    addTearDown(accounts.dispose);
     auth = AuthService(runtime.container);
+    addTearDown(auth.dispose);
 
     await auth.status();
     await accounts.list();
@@ -55,14 +62,6 @@ void main() {
       const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
     );
     expect(signedIn.isAuthenticated, isTrue);
-  });
-
-  tearDown(() async {
-    accounts.dispose();
-    auth.dispose();
-    await owui.close();
-    await runtime.dispose();
-    temporary.deleteSync(recursive: true);
   });
 
   test(
@@ -83,6 +82,7 @@ void main() {
       );
       addTearDown(watch.close);
 
+      final sessions = owui.signIns;
       final asked = owui.requests.length;
       final retried = await auth.retry();
       expect(
@@ -104,6 +104,7 @@ void main() {
       final back = await auth.retry();
       expect(back.isAuthenticated, isTrue);
       expect(back.user?.email, 'ada@example.com');
+      expect(owui.signIns, sessions, reason: 'the kept session was used again');
     },
   );
 

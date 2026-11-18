@@ -271,7 +271,7 @@
   "desktopHermesCadenceEveryHours": "{count, plural, other{每 # 小时}}",
   "desktopHermesCadenceEveryHoursAt": "{count, plural, other{每 # 小时的第 {minute} 分}}",
   "desktopHermesCadenceDaily": "每天 {time}",
-  "desktopHermesCadenceWeekdays": "工作日 {time}",
+  "desktopHermesCadenceWeekdays": "周一至周五 {time}",
   "desktopHermesCadenceWeekends": "周末 {time}",
   "desktopHermesCadenceWeekly": "{weekday, select, 0{每周日 {time}} 1{每周一 {time}} 2{每周二 {time}} 3{每周三 {time}} 4{每周四 {time}} 5{每周五 {time}} 6{每周六 {time}} other{每周一 {time}}}",
   "desktopHermesCadenceMonthly": "{day, plural, other{每月 # 日 {time}}}",
