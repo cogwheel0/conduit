@@ -95,24 +95,29 @@ final class NotificationsService {
     synced: _container.read(apiServiceProvider) != null,
   );
 
-  /// The tail of the changes: each runs after the one before it, server
-  /// mirror included.
+  /// The tail of the local changes: each one's settings are written after
+  /// the one before it.
   Future<void> _changes = Future<void>.value();
+
+  /// Per account (its API), the tail of the server mirrors: each one goes
+  /// after the one before it, in the order their changes were written, and
+  /// none ever holds a local change.
+  final Map<ApiService, Future<void>> _mirrors = {};
 
   /// Writes [patch] for the account it was asked under: each setter, the
   /// server mirror and the answer go through that account's
   /// [AccountScope.require], so a switch while one setting persists stops
   /// the rest (and the mirror) instead of writing them for the next account.
   ///
-  /// Changes run one at a time, each with its server mirror: the next one
-  /// starts only once the last mirror was answered, so the server ends up
-  /// with the values this Mac ends up with. The answer comes once this
-  /// change's own settings are written; it does not wait for the server.
+  /// Local changes run one at a time and are answered once their settings
+  /// are written. Each then queues its server mirror, with the API of the
+  /// account it was written for, behind that account's earlier mirrors: the
+  /// server gets the changes in the order this Mac wrote them, so it ends up
+  /// with the last one, and a slow server never holds the next change.
   Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) {
     final account = AccountScope.capture(_container);
     final written = Completer<NotificationSettingsDto>();
     final change = _changes.then((_) async {
-      final ApiService? api;
       try {
         final n = _notifier;
         Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
@@ -132,22 +137,40 @@ final class NotificationsService {
         // Local persistence went through; the server only mirrors three of
         // them, with the API of the account they were written for.
         account.require('the notification settings are mirrored');
-        api = _container.read(apiServiceProvider);
+        final api = _container.read(apiServiceProvider);
         written.complete(get());
+        _mirror(api, patch);
       } on Object catch (error, stack) {
         written.completeError(error, stack);
-        return;
       }
-      // Never throws: a failed mirror only loses the parity.
-      await syncNotificationPrefsToServer(
+    });
+    _changes = change.then<void>((_) {}, onError: (Object _) {});
+    return written.future;
+  }
+
+  /// Queues [patch]'s server mirror on [api]'s account, behind its earlier
+  /// ones. Never throws: a failed mirror only loses the parity.
+  void _mirror(ApiService? api, NotificationSettingsPatch patch) {
+    if (api == null) return;
+    if (patch.enabled == null &&
+        patch.sound == null &&
+        patch.soundAlways == null) {
+      return;
+    }
+    final tail = (_mirrors[api] ?? Future<void>.value()).then(
+      (_) => syncNotificationPrefsToServer(
         api,
         enabled: patch.enabled,
         sound: patch.sound,
         soundAlways: patch.soundAlways,
-      );
-    });
-    _changes = change.then<void>((_) {}, onError: (Object _) {});
-    return written.future;
+      ),
+    );
+    _mirrors[api] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_mirrors[api], tail)) _mirrors.remove(api);
+      }),
+    );
   }
 
   void dispose() {

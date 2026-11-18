@@ -875,8 +875,8 @@ void _withAnAccount() {
       expect(settings.calls, <String>['notificationsEnabled']);
     });
 
-    test('two notification changes reach the server in the order they were '
-        'made', () async {
+    test('a server mirror that has not answered never holds the next '
+        'notification change', () async {
       final settings = _NotificationSettings();
       final container = ProviderContainer(
         overrides: [
@@ -892,17 +892,50 @@ void _withAnAccount() {
       final off = notifications.set(
         const NotificationSettingsPatch(enabled: false),
       );
-      final on = notifications.set(
-        const NotificationSettingsPatch(enabled: true),
-      );
       await api.mirrorAsked.future;
+      var answered = false;
+      final on = notifications
+          .set(const NotificationSettingsPatch(enabled: true))
+          .then((dto) => answered = true);
+      await pumpEventQueue();
+      // Written and answered while the server still has not answered.
+      expect(answered, isTrue);
+      expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
       held.complete();
       await off;
       await on;
-      // Settled: the server holds what this Mac does.
+      // Settled: the server got both, in order, and holds what this Mac does.
       await api.mirrorsSettled(2);
+      expect(api.mirrored, <bool?>[false, true]);
+    });
+
+    test('notification changes reach the server in the order their settings '
+        'were written', () async {
+      final held = Completer<void>();
+      final settings = _NotificationSettings()..held = held;
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifications = NotificationsService(container);
+      // The first change's own setting is slow to be written.
+      final off = notifications.set(
+        const NotificationSettingsPatch(enabled: false),
+      );
+      await settings.asked.future;
+      final on = notifications.set(
+        const NotificationSettingsPatch(enabled: true),
+      );
+      held.complete();
+      await off;
+      await on;
+      await api.mirrorsSettled(2);
+      expect(api.mirrored, <bool?>[false, true]);
       expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
-      expect(api.mirrored.last, isTrue);
     });
 
     test("a webhook list read under one account is never answered with the "
@@ -1255,11 +1288,20 @@ final class _Settings extends AppSettingsNotifier {
 
 /// Notification settings kept in memory: each setter lands at once.
 final class _NotificationSettings extends AppSettingsNotifier {
+  /// Holds the first write of the master toggle when set; [asked]
+  /// completes as it starts.
+  Completer<void>? held;
+  final asked = Completer<void>();
+
   @override
   AppSettings build() => const AppSettings();
 
   @override
   Future<void> setNotificationsEnabled(bool value) async {
+    final wait = held;
+    held = null;
+    if (!asked.isCompleted) asked.complete();
+    await wait?.future;
     state = state.copyWith(notificationsEnabled: value);
   }
 }
