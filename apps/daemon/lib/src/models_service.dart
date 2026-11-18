@@ -804,7 +804,11 @@ final class ModelsService {
     logo: _logo(model),
     agent: terminalAgentDto(
       model.id,
-      terminalName: model.metadata?[kTerminalAgentTerminalNameKey] as String?,
+      // The server's metadata, copied as sent: only text names a terminal.
+      terminalName: switch (model.metadata?[kTerminalAgentTerminalNameKey]) {
+        final String name => name,
+        _ => null,
+      },
     ),
   );
 

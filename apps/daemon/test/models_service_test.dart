@@ -653,6 +653,26 @@ void main() {
     expect(container.read(hermesFastTierSelectionProvider), isFalse);
   });
 
+  test("a model whose metadata names no terminal in words is listed", () async {
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(
+          () => _These(const <core.Model>[
+            core.Model(
+              id: 'odd-model',
+              name: 'Odd model',
+              metadata: <String, dynamic>{'terminalName': 7},
+            ),
+          ]),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final list = await ModelsService(container).list();
+    expect(list.models.map((m) => m.id), <String>['odd-model']);
+  });
+
   test('with no list at all, the failure is the answer', () async {
     final container = ProviderContainer(
       overrides: [modelsProvider.overrideWith(_Failing.new)],
