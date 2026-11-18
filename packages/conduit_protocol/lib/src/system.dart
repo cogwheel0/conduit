@@ -130,11 +130,12 @@ enum UiRequestKind {
 
   /// Hermes holds a switch to another model (a pricier, data-sharing or
   /// smaller-context one) until the user confirms it: `messageArgs.model`
-  /// (the model's name) and, when Hermes gave one, `messageArgs.reason`.
-  /// `allow` switches the chat and sends the waiting message; `deny` keeps
-  /// the current model, sends nothing and gives the words back to the
-  /// composer (`composer.insertText`). Unanswered (no window, the
-  /// timeout), the switch is refused as before.
+  /// (the model's name), when Hermes gave one `messageArgs.reason`, and
+  /// `detail.chatId`, the chat whose message waits: it is shown and
+  /// answered with that chat only. `allow` switches the chat and sends the
+  /// waiting message; `deny` keeps the current model and sends nothing (the
+  /// message stays in the chat). Unanswered (no window, the timeout), the
+  /// switch is refused as before; a stopped send takes the request back.
   @JsonValue('hermesModelSwitch')
   hermesModelSwitch,
 }

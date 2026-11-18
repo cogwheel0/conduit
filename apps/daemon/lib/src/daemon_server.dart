@@ -279,6 +279,9 @@ class DaemonServer {
       chatPrompts: _chatPrompts,
       queued: _queuedCompletions,
     );
+    // A Hermes model switch is asked as the question of the chat holding
+    // its session.
+    core.uiRequests.hermesChatOf = _turns!.hermesChatOf;
     // The list's unread dots and a chat's abilities read the turns.
     _chats!.turns = _turns;
     // Changing the address in use asks first while one of them answers.
@@ -1251,6 +1254,7 @@ class DaemonServer {
     _hermesRooms = null;
     _hermesAdmin?.dispose();
     _hermesAdmin = null;
+    _core?.uiRequests.hermesChatOf = null;
     _turns = null;
     _chats?.dispose();
     _chats = null;

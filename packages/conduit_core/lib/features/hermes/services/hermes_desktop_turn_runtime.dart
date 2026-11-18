@@ -1107,6 +1107,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       model: model,
       provider: selection.provider,
       reason: reason == null || reason.isEmpty ? null : reason,
+      sessionId: binding.storedId,
+      stopped: cancelToken?.whenCancel.then<void>((_) {}),
     );
     final confirmed = await prompt!(held);
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;

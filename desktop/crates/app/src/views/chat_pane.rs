@@ -1114,15 +1114,11 @@ impl ChatPane {
                     ChatStoreEvent::Missing => cx.notify(),
                     // For the app's view in the transcript.
                     ChatStoreEvent::McpApp(_) => {}
-                    ChatStoreEvent::InsertText {
-                        text,
-                        only_into_empty,
-                    } => {
+                    ChatStoreEvent::InsertText { text } => {
                         // The composition the words were given to: written
                         // into it only while it is still the one shown.
                         let ticket = this.composer_store.read(cx).ticket();
-                        let (pane, text, only) =
-                            (cx.entity().downgrade(), text.clone(), *only_into_empty);
+                        let (pane, text) = (cx.entity().downgrade(), text.clone());
                         let Some(handle) = cx
                             .try_global::<crate::AppState>()
                             .and_then(|s| s.main_window)
@@ -1132,7 +1128,7 @@ impl ChatPane {
                         cx.defer(move |cx| {
                             let _ = handle.update(cx, |_, window, cx| {
                                 pane.update(cx, |p, cx| {
-                                    p.take_given_text(ticket, &text, only, window, cx)
+                                    p.take_given_text(ticket, &text, window, cx)
                                 })
                             });
                         });
@@ -1919,16 +1915,14 @@ impl ChatPane {
         &mut self,
         ticket: crate::stores::composer::CompositionTicket,
         text: &str,
-        only_into_empty: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if !self.composer_store.read(cx).holds(ticket) {
             return;
         }
-        self.composer.update(cx, |c, cx| {
-            c.take_given_text(text, only_into_empty, window, cx)
-        });
+        self.composer
+            .update(cx, |c, cx| c.take_given_text(text, window, cx));
     }
 
     /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
@@ -4115,14 +4109,14 @@ mod tests {
             pane.update_in(vcx, |p, window, cx| {
                 let ticket = p.composer_store.read(cx).ticket();
                 p.composer_store.update(cx, |c, cx| c.start_over(cx));
-                p.take_given_text(ticket, "Kept back words", false, window, cx);
+                p.take_given_text(ticket, "Kept back words", window, cx);
             });
             vcx.run_until_parked();
             assert_eq!(text(&pane, vcx), "", "written into a later composition");
             // Still the composition they were given to: written.
             pane.update_in(vcx, |p, window, cx| {
                 let ticket = p.composer_store.read(cx).ticket();
-                p.take_given_text(ticket, "Kept back words", false, window, cx);
+                p.take_given_text(ticket, "Kept back words", window, cx);
             });
             vcx.run_until_parked();
             assert_eq!(text(&pane, vcx), "Kept back words");

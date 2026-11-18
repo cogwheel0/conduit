@@ -79,6 +79,8 @@ impl ApprovalsView {
         let toasts = stores.toasts.clone();
         let subscriptions = vec![
             cx.observe(&stores.ui_requests, |_, _, cx| cx.notify()),
+            // A request that is one chat's alone shows with that chat.
+            cx.observe(&stores.navigation, |_, _, cx| cx.notify()),
             cx.subscribe_in(&input, window, enter),
             cx.subscribe_in(&secret, window, enter),
             // Sent too late: Hermes had its answer from elsewhere, or gave up.
@@ -107,7 +109,13 @@ impl ApprovalsView {
     }
 
     pub fn has_request(&self, cx: &App) -> bool {
-        self.stores.ui_requests.read(cx).top().is_some()
+        self.top(cx).is_some()
+    }
+
+    /// The chat the main window shows: a request that is one chat's alone
+    /// shows (and is answered) with it only.
+    fn shown_chat(&self, cx: &App) -> Option<String> {
+        self.stores.navigation.read(cx).selection().chat_id()
     }
 
     /// The request the card on screen was last drawn for (its fields
@@ -236,17 +244,24 @@ impl ApprovalsView {
     }
 
     fn top(&self, cx: &App) -> Option<UiRequest> {
-        self.stores.ui_requests.read(cx).top().cloned()
+        let chat = self.shown_chat(cx);
+        self.stores
+            .ui_requests
+            .read(cx)
+            .top_for(chat.as_deref())
+            .cloned()
     }
 
-    /// `request_id` while it is still waiting.
+    /// `request_id` while it is still waiting, and shown with the chat open.
     fn waiting(&self, request_id: &str, cx: &App) -> Option<UiRequest> {
+        let chat = self.shown_chat(cx);
         self.stores
             .ui_requests
             .read(cx)
             .queue
             .iter()
             .find(|r| r.request_id == request_id)
+            .filter(|r| crate::stores::ui_requests::shown_with(r, chat.as_deref()))
             .cloned()
     }
 
@@ -922,7 +937,7 @@ impl ApprovalsView {
                 ],
             ),
             // The phone's question, in its words: Hermes' reason when it
-            // gave one. Keep sends nothing and gives the words back.
+            // gave one. Keep sends nothing; the message stays in the chat.
             Card::HermesModelSwitch { model, reason } => (
                 ApprovalCard::new(
                     id.clone(),
@@ -1112,10 +1127,11 @@ impl Render for ApprovalsView {
         self.last = Some(top.clone());
         self.sync(&top, window, cx);
         let l10n = cx.l10n().clone();
+        let chat = self.shown_chat(cx);
         let (count, answering, error, hermes_failed) = {
             let u = self.stores.ui_requests.read(cx);
             (
-                u.queue.len(),
+                u.shown_count(chat.as_deref()),
                 u.answering.contains(&top.request_id),
                 u.error.clone(),
                 u.hermes_failed.contains(&top.request_id),
@@ -1458,6 +1474,68 @@ mod replay_tests {
     /// keeps what it holds when the same request is raised again (Hermes
     /// replays what a resumed chat waits on); what the request says is
     /// refreshed. Only another request empties it.
+    /// A held model switch is its chat's question: the dock shows it, and
+    /// answers it, only while that chat is open.
+    #[gpui_kit::test]
+    fn a_held_model_switch_shows_and_answers_with_its_chat_only(cx: &mut TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-switch-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::UiRespond>(conduit_protocol::AcceptedResult {
+            accepted: true,
+        });
+        let rpc = daemon.rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
+        let mut held = hermes("m", UiRequestKind::HermesModelSwitch, "", json!({}));
+        held.message_args
+            .insert("model".into(), "Heron Large".into());
+        held.detail = json!({"chatId": "local:hermes_a"});
+        stores
+            .ui_requests
+            .update(vcx, |u, cx| u.on_request(held, cx));
+        let allow = || crate::stores::ui_requests::Answer::new("allow");
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_b", cx));
+        draw(vcx);
+        view.update(vcx, |v, cx| {
+            assert!(!v.has_request(cx), "shown with another chat");
+            v.answer("m", allow(), false, cx);
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon
+                .calls::<conduit_protocol::methods::UiRespond>()
+                .is_empty(),
+            "answered from another chat"
+        );
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_a", cx));
+        draw(vcx);
+        view.update(vcx, |v, cx| {
+            assert!(v.has_request(cx), "not shown with its chat");
+            v.answer("m", allow(), false, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<conduit_protocol::methods::UiRespond>().len(),
+            1
+        );
+    }
+
     #[gpui_kit::test]
     fn a_request_raised_again_keeps_what_its_field_holds(cx: &mut TestAppContext) {
         let scratch =

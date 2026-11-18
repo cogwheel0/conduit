@@ -5069,8 +5069,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   'composerInsertText': r'''
 {
   "chatId": "chat-7c1f0b2a",
-  "text": "Summarise the packing list",
-  "onlyIntoEmpty": true
+  "text": "Summarise the packing list"
 }''',
 
   'queueState': r'''

@@ -309,15 +309,19 @@ final class UiRequestsService implements UiRequestPort {
     return choices.contains(response.choice) ? response.choice : 'deny';
   }
 
-  /// Asks whether to switch a Hermes chat to [model], a model Hermes holds
-  /// for the user's confirmation, and send the waiting message: true to
-  /// switch, false to keep the current model. Null when nobody answered
-  /// (no window, or the prompt timed out): core then refuses the switch,
-  /// as it does with no prompt bound. [reason] is Hermes' own, as it gave
-  /// it; the window words the rest.
+  /// Asks whether to switch Hermes chat [chatId] to [model], a model Hermes
+  /// holds for the user's confirmation, and send the waiting message: true
+  /// to switch, false to keep the current model. The question is that
+  /// chat's: windows show and answer it with that chat only. Null when
+  /// nobody answered (no window, the prompt timed out, or [until]
+  /// completed: the send was stopped): core then refuses the switch, as it
+  /// does with no prompt bound. [reason] is Hermes' own, as it gave it; the
+  /// window words the rest.
   Future<bool?> askHermesModelSwitch({
     required String model,
+    required String chatId,
     String? reason,
+    Future<void>? until,
   }) async {
     final response = await _ask(
       UiRequestKind.hermesModelSwitch,
@@ -326,8 +330,10 @@ final class UiRequestsService implements UiRequestPort {
         'model': model,
         if (reason != null && reason.trim().isNotEmpty) 'reason': reason,
       },
+      detail: <String, dynamic>{'chatId': chatId},
       defaultChoice: 'cancel',
       timeout: _promptTimeout,
+      until: until,
     );
     return switch (response.choice) {
       'allow' => true,

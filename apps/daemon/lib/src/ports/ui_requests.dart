@@ -58,12 +58,27 @@ final class DaemonUiRequestPort implements UiRequestPort {
   void notify(UiNoticeLevel level, String message) =>
       _target.notify(level, message);
 
+  /// The chat whose live scope holds a Hermes session, set once the
+  /// daemon's turns are made ([TurnsService.hermesChatOf]).
+  String? Function(String sessionId)? hermesChatOf;
+
   /// Core's Hermes model-switch prompt (`hermesModelSwitchPromptProvider`):
-  /// asked of the windows once the broker is attached; null (the switch
-  /// refused, as before) until then.
+  /// asked of the windows, as the question of the chat holding the session,
+  /// once the broker is attached; a stopped send takes it back. Null (the
+  /// switch refused, as before) with no broker, or no live chat holding the
+  /// session to ask it in.
   Future<bool?> confirmHermesModelSwitch(HermesHeldModelSwitch held) {
     final target = _target;
-    if (target is! UiRequestsService) return Future<bool?>.value();
-    return target.askHermesModelSwitch(model: held.model, reason: held.reason);
+    final session = held.sessionId;
+    final chatId = session == null ? null : hermesChatOf?.call(session);
+    if (target is! UiRequestsService || chatId == null) {
+      return Future<bool?>.value();
+    }
+    return target.askHermesModelSwitch(
+      model: held.model,
+      chatId: chatId,
+      reason: held.reason,
+      until: held.stopped,
+    );
   }
 }

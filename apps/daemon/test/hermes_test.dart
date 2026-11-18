@@ -6,7 +6,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatComposerTextInsertionTargetId, composerTextInsertionProvider;
+    show
+        ComposerTextInsertion,
+        chatComposerTextInsertionTargetId,
+        composerTextInsertionProvider;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesCapabilitiesProvider, hermesConfigProvider;
@@ -35,6 +38,21 @@ void main() {
   late CoreRuntime runtime;
   late FakeHermesServer hermesServer;
   late HermesService hermes;
+  var connected = false;
+
+  /// Hermes saved as the connection in use, as the first test leaves it: a
+  /// test that runs alone saves it itself.
+  Future<void> connect() async {
+    if (connected) return;
+    hermes = HermesService(runtime.container, events: EventBus());
+    await hermes.saveSettings(
+      HermesSettingsEdit(
+        baseUrl: hermesServer.baseUrl,
+        apiKey: hermesServer.key,
+      ),
+    );
+    connected = true;
+  }
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-test');
@@ -82,6 +100,7 @@ void main() {
     expect((await hermes.test(right)).ok, isTrue);
 
     settings = await hermes.saveSettings(right);
+    connected = true;
     expect(settings.enabled, isTrue);
     expect(settings.usable, isTrue);
     expect(settings.hasApiKey, isTrue);
@@ -365,17 +384,27 @@ void main() {
 
   test('scheduled runs leave the lists while Show Scheduled Runs is off, '
       'and the lists say how many', () async {
+    await connect();
     final events = EventBus();
     final announced = <String>[];
     events.attach('test', (envelope) => announced.add(envelope.event));
     final watching = HermesService(runtime.container, events: events);
     addTearDown(watching.dispose);
     final settings = CoreSettingsService(runtime.container);
+    final shown = settings.get().hermesShowScheduledSessions;
+    addTearDown(
+      () => settings.set(AppSettingsPatch(hermesShowScheduledSessions: shown)),
+    );
     final run = hermesServer.seedForeign(
       title: 'Morning brief',
       source: 'cron',
     );
+    addTearDown(() => hermes.delete(run));
     final kept = hermesServer.seedForeign(title: 'Tide tables');
+    addTearDown(() => hermes.delete(kept));
+    await settings.set(
+      const AppSettingsPatch(hermesShowScheduledSessions: true),
+    );
 
     var listed = await hermes.sessions();
     expect(listed.sessions.map((s) => s.id), containsAll(<String>[run, kept]));
@@ -396,67 +425,75 @@ void main() {
     listed = await hermes.update(HermesSessionUpdate(id: run, pinned: true));
     expect(listed.sessions.first.id, run);
     expect(listed.hiddenScheduledRuns, 0);
-
-    await settings.set(
-      const AppSettingsPatch(hermesShowScheduledSessions: true),
-    );
-    for (final id in <String>[run, kept]) {
-      await hermes.delete(id);
-    }
   });
 
-  test(
-    'words the core gives a chat\'s composer go to that chat\'s windows',
-    () async {
-      final events = EventBus();
-      final heard = <(String, String?, Map<String, dynamic>)>[];
-      events.tap((event, scope, payload) => heard.add((event, scope, payload)));
-      final turns = TurnsService(runtime.container, events, hermes: hermes);
-      addTearDown(turns.dispose);
-      final id = hermesServer.seedForeign(
-        title: 'Seed list',
-        source: 'api_server',
-        turns: <(String, String)>[('Which seeds first?', 'Peas.')],
-      );
-      final chatId = hermesChatId(id);
-      final scope = await turns.holdScope(chatId);
-      addTearDown(() => turns.releaseScope(chatId));
+  test("Hermes' prefill goes to its chat's windows; words given back "
+      'after a kept model stay in the chat, and the picker stays', () async {
+    await connect();
+    final events = EventBus();
+    final given = <ComposerInsertText>[];
+    final prefilled = Completer<ComposerInsertText>();
+    events.tap((event, scope, payload) {
+      if (event != ConduitEvents.composerInsertText) return;
+      final text = ComposerInsertText.fromJson(payload);
+      given.add(text);
+      if (!prefilled.isCompleted) prefilled.complete(text);
+    });
+    final turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
+    final id = hermesServer.seedForeign(
+      title: 'Seed list',
+      source: 'api_server',
+      turns: <(String, String)>[('Which seeds first?', 'Peas.')],
+    );
+    addTearDown(() => hermes.delete(id));
+    final chatId = hermesChatId(id);
+    final scope = await turns.holdScope(chatId);
+    addTearDown(() => turns.releaseScope(chatId));
+    final picked = runtime.container.read(selectedModelProvider);
+    addTearDown(() {
+      if (picked != null) {
+        runtime.container
+            .read(selectedModelProvider.notifier)
+            .set(picked, allowHidden: true);
+      }
+    });
+    // The session's questions are this chat's.
+    expect(turns.hermesChatOf(id), chatId);
+    expect(turns.hermesChatOf('$id-other'), isNull);
 
-      scope
-          .read(composerTextInsertionProvider.notifier)
-          .insert(
-            targetId: chatComposerTextInsertionTargetId,
-            text: 'Plant the peas in March?',
-            onlyIntoEmpty: true,
-          );
-      await pumpEventQueue();
-      final sent = heard.singleWhere(
-        (e) => e.$1 == ConduitEvents.composerInsertText,
-      );
-      expect(sent.$2, chatId);
-      expect(
-        ComposerInsertText.fromJson(sent.$3),
-        ComposerInsertText(
-          chatId: chatId,
-          text: 'Plant the peas in March?',
-          onlyIntoEmpty: true,
-        ),
-      );
-      // Taken back once handed over, and never the app-wide composer's.
-      expect(scope.read(composerTextInsertionProvider), isNull);
-      expect(runtime.container.read(composerTextInsertionProvider), isNull);
-      // Words given back mean the chat kept its model over a held switch:
-      // the model the core puts the chat back on is the picker's too.
-      const kept = Model(id: 'hermes:demo-model', name: 'demo-model');
-      scope.read(selectedModelProvider.notifier).set(kept, allowHidden: true);
-      expect(runtime.container.read(selectedModelProvider)?.id, kept.id);
-      // Only that once: a later pick in the chat leaves the picker alone.
-      const other = Model(id: 'hermes:other-model', name: 'other-model');
-      scope.read(selectedModelProvider.notifier).set(other, allowHidden: true);
-      expect(runtime.container.read(selectedModelProvider)?.id, kept.id);
-      await hermes.delete(id);
-    },
-  );
+    final takenBack = Completer<void>();
+    scope.listen<ComposerTextInsertion?>(composerTextInsertionProvider, (
+      before,
+      now,
+    ) {
+      if (before != null && now == null && !takenBack.isCompleted) {
+        takenBack.complete();
+      }
+    });
+    final insertion = scope.read(composerTextInsertionProvider.notifier);
+    insertion.insert(
+      targetId: chatComposerTextInsertionTargetId,
+      text: 'Plant the peas in March?',
+      onlyIntoEmpty: true,
+    );
+    await takenBack.future;
+    // The chat kept its model: core puts the chat back on it, and the
+    // account's picker is left as it is.
+    const kept = Model(id: 'hermes:demo-model', name: 'demo-model');
+    scope.read(selectedModelProvider.notifier).set(kept, allowHidden: true);
+    expect(runtime.container.read(selectedModelProvider)?.id, picked?.id);
+
+    insertion.insert(
+      targetId: chatComposerTextInsertionTargetId,
+      text: '/plan ',
+    );
+    final sent = await prefilled.future;
+    expect(sent, ComposerInsertText(chatId: chatId, text: '/plan '));
+    expect(given, hasLength(1), reason: 'the kept words reached a window');
+    // Never the app-wide composer's.
+    expect(runtime.container.read(composerTextInsertionProvider), isNull);
+  });
 
   test('a transcript whose rows have no ids keeps the names a window '
       'was given', () async {

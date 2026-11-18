@@ -5389,17 +5389,13 @@ fn default_composer_mention_dto_kind() -> MentionKind {
 }
 
 /// Payload of `composer.insertText`: words the core gives a chat's
-/// composer, such as a Hermes message kept back when the user declined a
-/// model switch, or text Hermes prefills.
+/// composer: text Hermes prefills. (A message kept back when the user
+/// declined a model switch stays in the chat, never in the composer.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ComposerInsertText {
     pub chat_id: String,
     pub text: String,
-    /// Given back rather than added: the composer takes `text` only while
-    /// it holds nothing, so a newer draft is never changed by it.
-    #[serde(default)]
-    pub only_into_empty: bool,
 }
 
 /// What a chat's terminal shows in the Computer viewer: its desktop, or
@@ -12925,11 +12921,12 @@ pub enum UiRequestKind {
     LibreChatQuestion,
     /// Hermes holds a switch to another model (a pricier, data-sharing or
     /// smaller-context one) until the user confirms it: `messageArgs.model`
-    /// (the model's name) and, when Hermes gave one, `messageArgs.reason`.
-    /// `allow` switches the chat and sends the waiting message; `deny` keeps
-    /// the current model, sends nothing and gives the words back to the
-    /// composer (`composer.insertText`). Unanswered (no window, the
-    /// timeout), the switch is refused as before.
+    /// (the model's name), when Hermes gave one `messageArgs.reason`, and
+    /// `detail.chatId`, the chat whose message waits: it is shown and
+    /// answered with that chat only. `allow` switches the chat and sends the
+    /// waiting message; `deny` keeps the current model and sends nothing (the
+    /// message stays in the chat). Unanswered (no window, the timeout), the
+    /// switch is refused as before; a stopped send takes the request back.
     #[serde(rename = "hermesModelSwitch")]
     HermesModelSwitch,
     /// A value this build does not know, from a newer daemon. It decodes

@@ -139,6 +139,21 @@ fn arg(r: &UiRequest, key: &str) -> Option<String> {
 }
 
 /// The card for `request`.
+/// Whether `request` shows (and is answered) while `chat` is open: a held
+/// Hermes model switch is the question of the chat whose message waits
+/// (`detail.chatId`), shown with that chat only and never answered from
+/// another; every other request shows with any chat.
+pub fn shown_with(request: &UiRequest, chat: Option<&str>) -> bool {
+    match request.kind {
+        UiRequestKind::HermesModelSwitch => request
+            .detail
+            .get("chatId")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|owner| chat == Some(owner)),
+        _ => true,
+    }
+}
+
 pub fn card(request: &UiRequest) -> Card {
     let title = arg(request, "title").unwrap_or_default();
     let message = arg(request, "message").unwrap_or_default();
@@ -465,6 +480,17 @@ impl UiRequestsStore {
 
     pub fn top(&self) -> Option<&UiRequest> {
         self.queue.first()
+    }
+
+    /// The first request the dock shows while `chat` is open: a request
+    /// that is one chat's alone ([`shown_with`]) waits for that chat.
+    pub fn top_for(&self, chat: Option<&str>) -> Option<&UiRequest> {
+        self.queue.iter().find(|r| shown_with(r, chat))
+    }
+
+    /// How many requests the dock has while `chat` is open.
+    pub fn shown_count(&self, chat: Option<&str>) -> usize {
+        self.queue.iter().filter(|r| shown_with(r, chat)).count()
     }
 
     /// A new daemon session: the daemon sends what is still waiting again.

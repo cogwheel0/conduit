@@ -388,17 +388,13 @@ abstract class ComposerMentionDto with _$ComposerMentionDto {
 }
 
 /// Payload of `composer.insertText`: words the core gives a chat's
-/// composer, such as a Hermes message kept back when the user declined a
-/// model switch, or text Hermes prefills.
+/// composer: text Hermes prefills. (A message kept back when the user
+/// declined a model switch stays in the chat, never in the composer.)
 @freezed
 abstract class ComposerInsertText with _$ComposerInsertText {
   const factory ComposerInsertText({
     required String chatId,
     required String text,
-
-    /// Given back rather than added: the composer takes [text] only while
-    /// it holds nothing, so a newer draft is never changed by it.
-    @Default(false) bool onlyIntoEmpty,
   }) = _ComposerInsertText;
 
   factory ComposerInsertText.fromJson(Map<String, dynamic> json) =>

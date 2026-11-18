@@ -408,11 +408,9 @@ pub enum ChatStoreEvent {
     Missing,
     /// An MCP App's host has something for its view.
     McpApp(McpAppEvent),
-    /// Words the core gives the chat's composer (`composer.insertText`): a
-    /// Hermes message kept back when a model switch was declined, or what
-    /// Hermes prefills. `only_into_empty` text goes in only while the
-    /// composer holds nothing.
-    InsertText { text: String, only_into_empty: bool },
+    /// Words the core gives the chat's composer (`composer.insertText`):
+    /// what Hermes prefills.
+    InsertText { text: String },
 }
 
 /// Where a step of an answer's version arrows landed: version `index`
@@ -1179,7 +1177,6 @@ impl ChatStore {
             Event::ComposerInsertText(e) if e.chat_id == self.chat_id => {
                 cx.emit(ChatStoreEvent::InsertText {
                     text: e.text.clone(),
-                    only_into_empty: e.only_into_empty,
                 })
             }
             Event::ChatPromptsChanged(state) if state.chat_id == self.chat_id => {

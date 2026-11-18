@@ -2586,7 +2586,6 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   'composerInsertText': const ComposerInsertText(
     chatId: 'chat-7c1f0b2a',
     text: 'Summarise the packing list',
-    onlyIntoEmpty: true,
   ),
   'queueState': const QueueState(
     chatId: 'chat-7c1f0b2a',
