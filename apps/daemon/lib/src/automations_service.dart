@@ -788,17 +788,13 @@ final class _TaskEditor {
     this.opened,
     this.base,
     this.terminals,
-  ) : _terminal = opened.terminalId;
+  );
 
   final ProviderContainer _container;
   final AutomationsOwner owner;
   final AutomationDraft opened;
   final ProviderSubscription<AutomationEditorOptions> base;
   final ProviderSubscription<AsyncValue<List<TerminalServerInfo>?>> terminals;
-
-  /// The terminal the draft was last on: moving off it drops its folder and
-  /// any agent of it ([AutomationDraft.withTerminal]).
-  String? _terminal;
 
   /// Keeps the draft's terminal's coding agents read while it is open.
   ProviderSubscription<AsyncValue<List<Model>?>>? _agents;
@@ -856,23 +852,29 @@ final class _TaskEditor {
   AutomationDraft apply(AutomationFields fields) {
     final channel = fields.target == 'channel';
     final channelId = fields.channelId;
-    final draft = _withTerminal(_applied(fields, channel, channelId), fields);
-    _terminal = draft.terminalId;
-    return draft;
+    return _onTerminal(_applied(fields, channel, channelId), fields);
   }
 
-  /// [draft] on the fields' terminal and folder. A terminal other than the
-  /// one it was on starts from that terminal's own folder, and keeps no
-  /// agent of the old one.
-  AutomationDraft _withTerminal(AutomationDraft draft, AutomationFields f) {
+  /// [draft] on the fields' terminal, in the folder they carry with it. The
+  /// window drops the old terminal's folder in the edit that changes the
+  /// terminal, so each request carries a folder of its own terminal, and no
+  /// request (a check, the terminals' list) changes what a later one (a
+  /// Save) means: nothing is remembered between them. A coding agent of
+  /// another terminal is never kept: it cannot run on this one.
+  AutomationDraft _onTerminal(AutomationDraft draft, AutomationFields f) {
     final id = _text(f.terminalId);
-    final cwd = _text(f.workingDirectory);
-    final previous = _terminal;
     var next = draft.copyWith(clearTerminal: true);
-    if (previous != null) {
-      next = next.copyWith(terminalId: previous, terminalCwd: cwd);
+    if (id != null) {
+      next = next.copyWith(
+        terminalId: id,
+        terminalCwd: _text(f.workingDirectory),
+      );
     }
-    return id == previous ? next : next.withTerminal(id);
+    final agentTerminal = parseTerminalAgentModelId(next.modelId.trim())
+        ?.terminalId;
+    return agentTerminal != null && agentTerminal != id
+        ? next.copyWith(modelId: '')
+        : next;
   }
 
   static String? _text(String? value) {

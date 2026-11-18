@@ -155,6 +155,33 @@ void main() {
     });
   });
 
+  test(
+    "a check takes the folder the window sends with the task's terminal",
+    () async {
+      final c = container();
+      await c.read(activeServerProvider.future);
+      final service = AutomationsService(c);
+      addTearDown(service.dispose);
+      api.withTerminal = true;
+      final open = await service.editor(const AutomationEditorOpen(id: 't1'));
+      expect(open.fields.terminalId, 'north');
+      // The window moved the task to south and a folder was typed there
+      // before any answer came back: the request carries both.
+      final state = await service.checkDraft(
+        AutomationDraftEdit(
+          token: open.token,
+          fields: open.fields.copyWith(
+            terminalId: 'south',
+            workingDirectory: '/srv/south-repo',
+          ),
+        ),
+      );
+      expect(state.fields.terminalId, 'south');
+      expect(state.fields.workingDirectory, '/srv/south-repo');
+      expect(state.fields.modelId, '', reason: "north's agent kept on south");
+    },
+  );
+
   test("a Run Now result stays with the account that ran it", () async {
     final c = container();
     await c.read(activeServerProvider.future);
