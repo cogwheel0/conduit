@@ -100,7 +100,9 @@ pub struct TaskEditor {
     typing_rule: bool,
     /// A schedule kind chosen (Once, Daily, Weekly) whose check has not
     /// answered yet: every check until then carries it, so a check started
-    /// for something else (the terminal's agents) never drops the choice.
+    /// for something else (another field, the terminal's agents) never drops
+    /// the choice. A newer edit of the schedule itself (a rule typed, a
+    /// schedule control) replaces it.
     pending_kind: Option<String>,
     /// The rule the field shows next, once the controls changed it.
     rrule_pending: Option<String>,
@@ -295,13 +297,15 @@ impl TaskEditor {
         self.check_now(None, cx);
     }
 
-    /// The schedule's controls changed: the rule follows them.
+    /// The schedule's controls changed: the rule follows them, and a kind
+    /// chosen before (still unanswered) gives way to this newer edit.
     fn edit_schedule(
         &mut self,
         change: impl FnOnce(&mut AutomationFields),
         cx: &mut Context<Self>,
     ) {
         self.typing_rule = false;
+        self.pending_kind = None;
         self.edit(change, cx);
     }
 
@@ -315,8 +319,10 @@ impl TaskEditor {
             return;
         }
         self.typing_rule = true;
-        // A settled check's rule, not yet in the field, gives way to this.
+        // A settled check's rule, not yet in the field, gives way to this,
+        // and so does a kind chosen before whose check has not answered.
         self.rrule_pending = None;
+        self.pending_kind = None;
         fields.schedule.kind = "custom".into();
         fields.schedule.rrule = rule;
         cx.notify();
@@ -1734,6 +1740,67 @@ mod tests {
             "weekly",
             "the check after the terminal's answer dropped the schedule choice"
         );
+    }
+
+    /// Weekly is chosen, then a rule typed before Weekly's check answers:
+    /// the typed rule is the newer edit, and no check after it carries the
+    /// older choice, so the schedule kept (and saved) is the rule typed.
+    #[gpui_kit::test]
+    fn a_rule_typed_after_a_kind_choice_wins(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        let monthly = "RRULE:FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0";
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                e.type_rule(monthly.to_string(), cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let last = checks[before..].last().expect("a check");
+        assert!(
+            last.get("chooseKind").is_none_or(|k| k.is_null()),
+            "the typed rule's check carried the older kind choice: {last}"
+        );
+        assert_eq!(last["fields"]["schedule"]["rrule"], monthly);
+        vcx.update(|_, cx| {
+            let f = task.read(cx).fields.clone().expect("the fields");
+            assert_eq!(f.schedule.rrule, monthly);
+            assert_eq!(f.schedule.kind, "custom");
+        });
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
