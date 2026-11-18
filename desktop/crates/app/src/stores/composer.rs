@@ -180,7 +180,7 @@ impl ComposerPrefs {
 
 /// Which draft the composer holds: a stored chat's, or a new chat's (in a
 /// folder, or none).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DraftKey {
     pub chat_id: Option<String>,
     pub folder_id: Option<String>,
@@ -432,6 +432,11 @@ pub struct ComposerStore {
     /// Keeps no draft, yet sends ordinary saved chats (Quick Ask): not a
     /// temporary chat, so its list offers coding agents.
     pub saves_without_draft: bool,
+    /// Per chat (its draft key), the coding agent picked there, for this
+    /// account ([`Self::reset`] forgets them): shown and sent for that chat
+    /// whatever a later list offers, and never for another chat. A chat
+    /// with no pick of its own has no agent.
+    agent_picks: std::collections::HashMap<DraftKey, ModelSummary>,
     pub options: ComposerOptions,
     /// LibreChat's tools for the model, when it is a LibreChat one
     /// (`librechat.composer`): chosen in `tool_ids`, as Open WebUI's are.
@@ -551,6 +556,7 @@ impl ComposerStore {
             prefs: ComposerPrefs::default(),
             models: None,
             saves_without_draft: false,
+            agent_picks: std::collections::HashMap::new(),
             options: ComposerOptions::default(),
             librechat: LibreChatComposer::default(),
             prompts: None,
@@ -641,6 +647,10 @@ impl ComposerStore {
     /// The composer shows that model rather than "Choose a model".
     pub fn selected_model(&self) -> Option<&ModelSummary> {
         let list = self.models.as_ref()?;
+        // This chat's own coding agent, whatever the list offers now.
+        if let Some(pick) = self.chat_pick() {
+            return Some(pick);
+        }
         // A new chat in a folder starts on the folder's model.
         if let Some(model) = self
             .draft_model
@@ -651,19 +661,38 @@ impl ComposerStore {
         }
         list.selected_id
             .as_deref()
+            // An agent the account selected is another chat's pick: a chat
+            // with no pick of its own has none.
+            .filter(|id| !is_agent_id(id))
             .and_then(|id| find_model(list, id))
             .or_else(|| list.models.first())
     }
 
-    /// The selection the daemon holds is not one this chat offers (a coding
-    /// agent where none can answer): the composer shows another model, and
-    /// the next turn must name it rather than go to the selection.
-    fn selection_hidden(&self) -> bool {
-        self.models.as_ref().is_some_and(|list| {
-            list.selected_id
-                .as_deref()
-                .is_some_and(|id| find_model(list, id).is_none())
+    /// Where this composer keeps an agent pick: its draft's key (Quick Ask,
+    /// which keeps no draft, has one key of its own); none in a temporary
+    /// chat, where no agent can answer.
+    fn pick_key(&self) -> Option<DraftKey> {
+        self.draft.clone().or_else(|| {
+            self.saves_without_draft.then_some(DraftKey {
+                chat_id: None,
+                folder_id: None,
+            })
         })
+    }
+
+    /// The coding agent picked in this chat, if one was.
+    fn chat_pick(&self) -> Option<&ModelSummary> {
+        self.agent_picks.get(&self.pick_key()?)
+    }
+
+    /// The model shown is not the daemon's selection (an agent picked for
+    /// another chat, or none offered here): the next turn must name it.
+    fn shown_differs(&self) -> bool {
+        let Some(list) = self.models.as_ref() else {
+            return false;
+        };
+        self.selected_model()
+            .is_some_and(|m| list.selected_id.as_deref() != Some(m.id.as_str()))
     }
 
     /// The model the next message goes to: the `@` one, else the selected.
@@ -721,7 +750,7 @@ impl ComposerStore {
     pub fn chat_agent(&self) -> Option<(String, String)> {
         let list = self.models.as_ref()?;
         let id = list.chat_agent.clone()?;
-        if list.selected_id.as_deref() == Some(id.as_str()) {
+        if self.chat_pick().is_some_and(|pick| pick.id == id) {
             return None;
         }
         let name = list
@@ -991,6 +1020,20 @@ impl ComposerStore {
         // Shown at once; the daemon's answer replaces it.
         if let Some(list) = &mut self.models {
             list.selected_id = Some(id.to_string());
+        }
+        // A coding agent picked is this chat's own; any other pick ends it.
+        if let Some(key) = self.pick_key() {
+            if is_agent_id(id) {
+                let summary = self.models.as_ref().and_then(|list| {
+                    find_model(list, id)
+                        .cloned()
+                        .or_else(|| list.agent_names.get(id).map(|name| agent_summary(id, name)))
+                });
+                self.agent_picks
+                    .insert(key, summary.unwrap_or_else(|| agent_summary(id, id)));
+            } else {
+                self.agent_picks.remove(&key);
+            }
         }
         cx.notify();
         let call = self.rpc.call::<methods::ModelsSelect>(&SelectModel {
@@ -1741,8 +1784,11 @@ impl ComposerStore {
                 .as_ref()
                 .map(|m| m.id.clone())
                 .or_else(|| self.offered_draft_model())
+                // The chat's own agent always goes with its turn: no list
+                // (empty, failed or stale) can send it elsewhere.
+                .or_else(|| self.chat_pick().map(|m| m.id.clone()))
                 .or_else(|| {
-                    self.selection_hidden()
+                    self.shown_differs()
                         .then(|| self.selected_model().map(|m| m.id.clone()))
                         .flatten()
                 }),
@@ -1923,6 +1969,10 @@ impl ComposerStore {
         let Some(old) = self.draft.take() else {
             return;
         };
+        // A new chat's agent pick is the chat's it became.
+        if let Some(pick) = self.agent_picks.remove(&old) {
+            self.agent_picks.insert(key.clone(), pick);
+        }
         self._draft = None;
         if !self.draft_saved.is_empty() {
             self.save_now(&old, "");
@@ -2246,6 +2296,7 @@ impl ComposerStore {
     /// asked are dropped when they arrive.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
+        self.agent_picks.clear();
         self.draft_round += 1;
         self.parked.clear();
         self._searches = [None, None, None];
@@ -2487,6 +2538,25 @@ pub fn placeholder_model_name(name: &str) -> Option<String> {
 }
 
 /// The model `id` among the account's models, then the coding agents.
+/// Whether `id` names a coding agent (`agent:<terminal>:<agent>:<model>`).
+fn is_agent_id(id: &str) -> bool {
+    id.starts_with("agent:")
+}
+
+/// A coding agent known by its id and the name the picker gives it.
+fn agent_summary(id: &str, name: &str) -> ModelSummary {
+    ModelSummary {
+        id: id.to_string(),
+        name: name.to_string(),
+        description: None,
+        pinned: false,
+        capabilities: vec![],
+        connection: None,
+        logo: None,
+        agent: None,
+    }
+}
+
 pub fn find_model<'a>(list: &'a ModelList, id: &str) -> Option<&'a ModelSummary> {
     list.models.iter().chain(&list.agents).find(|m| m.id == id)
 }
@@ -3172,6 +3242,7 @@ mod tests {
         daemon.returns::<methods::ModelsSelect>(ModelList {
             models: vec![model("k", "Kestrel")],
             selected_id: Some(agent.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
             ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
@@ -3221,6 +3292,11 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.chat_agent(), None);
             assert!(s.mention.is_none(), "the one-message model outlived Switch");
+            assert_eq!(
+                s.selected_model().map(|m| m.id.as_str()),
+                Some(agent),
+                "Switch did not select the chat's agent"
+            );
         });
     }
 
@@ -3253,6 +3329,152 @@ mod tests {
             let list = s.models.as_ref().expect("a list");
             assert!(list.agents.is_empty(), "a temporary chat offered an agent");
             assert!(find_model(list, agent).is_none());
+        });
+    }
+
+    /// A coding agent picked in a chat is that chat's: a later list that
+    /// does not offer it (empty, failed, stale) never changes it, it is
+    /// shown, and every turn of the chat names it (the daemon sends a turn
+    /// to an agent by its id, and the server refuses it, visibly, if it is
+    /// gone), never another model.
+    #[gpui_kit::test]
+    fn a_chats_agent_pick_outlives_lists_that_lack_it(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        let offering = ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        };
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.once::<methods::ModelsList>(Ok(offering.clone()));
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            selected_id: Some(agent.into()),
+            ..offering
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-7".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        // The terminal answers with no agent now (and the daemon's
+        // selection reads otherwise): the chat's pick stands.
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+    }
+
+    /// A chat with no pick of its own has no agent: opening another chat
+    /// after an agent was picked in one shows a regular model there, and
+    /// its turn names that model, whatever the account's selection is.
+    #[gpui_kit::test]
+    fn another_chat_has_no_agent_of_its_own(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        });
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        let chat = |id: &str| {
+            Some(DraftKey {
+                chat_id: Some(id.into()),
+                folder_id: None,
+            })
+        };
+        store.update(cx, |s, cx| s.switch_draft(chat("chat-7"), "", cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.switch_draft(chat("chat-8"), "", cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some("k"));
+        });
+        // Back in chat-7, its own agent.
+        store.update(cx, |s, cx| s.switch_draft(chat("chat-7"), "", cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
+        });
+    }
+
+    /// An agent picked in a new chat is the chat's once its first message
+    /// made it.
+    #[gpui_kit::test]
+    fn a_new_chats_agent_pick_follows_it(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        });
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: None,
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| {
+            s.adopt_draft(
+                DraftKey {
+                    chat_id: Some("chat-9".into()),
+                    folder_id: None,
+                },
+                "",
+                cx,
+            )
+        });
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
         });
     }
 
