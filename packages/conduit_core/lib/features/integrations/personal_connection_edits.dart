@@ -150,8 +150,8 @@ Map<String, dynamic> mergePersonalConnectionPatch(
 
 /// [patch] merged into [current], the entry as it is stored now. A key the
 /// patch leaves alone never follows the connection to another origin
-/// ([personalConnectionKeyMoves]): a URL on another scheme, host or port
-/// removes it. Decided here, against the stored entry, never against an
+/// ([personalConnectionKeyMoves]): a URL, or an absolute document path, on
+/// another scheme, host or port removes it. Decided here, against the stored entry, never against an
 /// editor's copy of it, which can be older (another client may have moved
 /// the URL, or saved a key, since it was read).
 Map<String, dynamic> mergePersonalConnectionEdit(
@@ -161,13 +161,25 @@ Map<String, dynamic> mergePersonalConnectionEdit(
   final merged = mergePersonalConnectionPatch(current, patch);
   if (!patch.containsKey('key') &&
       (current['key']?.toString() ?? '').isNotEmpty &&
-      personalConnectionKeyMoves(
-        current['url']?.toString() ?? '',
-        merged['url']?.toString() ?? '',
-      )) {
+      (personalConnectionKeyMoves(
+            current['url']?.toString() ?? '',
+            merged['url']?.toString() ?? '',
+          ) ||
+          personalConnectionKeyMoves(
+            _documentLocation(current),
+            _documentLocation(merged),
+          ))) {
     merged['key'] = '';
   }
   return merged;
+}
+
+/// Where [entry]'s OpenAPI document is fetched from, with its key: an
+/// absolute `path` itself, else the connection's URL (a relative path stays
+/// on its origin), as Test Connection and the server build it.
+String _documentLocation(Map<String, dynamic> entry) {
+  final path = entry['path']?.toString().trim() ?? '';
+  return path.contains('://') ? path : entry['url']?.toString() ?? '';
 }
 
 sealed class PersonalConnectionEdit {

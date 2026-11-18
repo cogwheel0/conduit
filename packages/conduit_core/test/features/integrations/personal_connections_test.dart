@@ -370,6 +370,41 @@ void main() {
       },
     );
 
+    test(
+      'a kept key never follows a document path that leads to another origin',
+      () {
+        final tool = _toolServer('alpha', 'Alpha');
+        final draft = PersonalToolServerDraft.fromEntry(tool);
+        // Test Connection and the server fetch an absolute path itself.
+        for (final away in <String>[
+          'https://beta.example/openapi.json',
+          'http://alpha.example/openapi.json',
+          'https://alpha.example:8443/openapi.json',
+        ]) {
+          check(
+            because: away,
+            mergePersonalConnectionEdit(
+              tool,
+              draft.copyWith(path: away).toPatch(tool),
+            )['key'],
+          ).equals('');
+        }
+        // A relative path, or an absolute one on the same origin, keeps it.
+        for (final same in <String>[
+          'spec/openapi.json',
+          'https://alpha.example/spec/openapi.json',
+        ]) {
+          check(
+            because: same,
+            mergePersonalConnectionEdit(
+              tool,
+              draft.copyWith(path: same).toPatch(tool),
+            )['key'],
+          ).equals('key-alpha');
+        }
+      },
+    );
+
     test('a kept key never follows a connection to another origin', () {
       final tool = _toolServer('alpha', 'Alpha');
       final toolDraft = PersonalToolServerDraft.fromEntry(tool);
