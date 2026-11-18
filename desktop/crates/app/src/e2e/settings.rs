@@ -315,7 +315,8 @@ async fn chats(dir: &Path, cx: &mut AsyncApp) -> bool {
             && has(&controls, "Switch", "Automatic Actions")
             && has(&controls, "Switch", "Advanced"),
     );
-    let before = daemon_settings(cx).await.unwrap_or_default();
+    let read = daemon_settings(cx).await;
+    let before = read.clone().unwrap_or_default();
     // Three switches and a quick action, through the controls' own calls.
     in_settings(cx, |v, _, cx| {
         let store = v.chats.clone();
@@ -364,7 +365,9 @@ async fn chats(dir: &Path, cx: &mut AsyncApp) -> bool {
         "the store shows what the daemon has",
         shown == after.send_on_enter,
     );
-    pass &= model_name_in_message_box(&controls, before.show_model_name_in_composer, cx).await;
+    // Off by default only as the daemon read it: an unread value is no proof.
+    let default = read.map(|s| s.show_model_name_in_composer);
+    pass &= model_name_in_message_box(&controls, default, cx).await;
 
     // Message actions: Automatic off, Regenerate up, then Reset.
     in_settings(cx, |v, _, cx| {
@@ -441,10 +444,14 @@ fn placeholder(cx: &mut App) -> Option<(String, Option<String>)> {
 /// Show Model Name in Message Box (mobile's #1053): off by default; on, the
 /// empty message box asks the selected model by name; off again, the app's
 /// own words come back.
-async fn model_name_in_message_box(controls: &[String], default: bool, cx: &mut AsyncApp) -> bool {
+async fn model_name_in_message_box(
+    controls: &[String],
+    default: Option<bool>,
+    cx: &mut AsyncApp,
+) -> bool {
     let mut pass = ok(
         "Chat has Show Model Name in Message Box, off by default",
-        has(controls, "Switch", "Show Model Name in Message Box") && !default,
+        has(controls, "Switch", "Show Model Name in Message Box") && default == Some(false),
     );
     let plain = cx.update(|cx| cx.l10n().message_hint_text());
     let before = cx.update(placeholder);
