@@ -669,7 +669,16 @@ impl ComposerStore {
 
     /// `models.list`, then `composer.options` (which depends on it).
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
-        let call = self.rpc.call::<methods::ModelsList>(&self.list_query());
+        self.list_models(false, cx);
+    }
+
+    /// [`Self::refresh_models`], saying whether this composer has just
+    /// opened its chat (`opening`): the daemon puts a chat's coding agent
+    /// back once per opening. It replaces a list still on its way.
+    fn list_models(&mut self, opening: bool, cx: &mut Context<Self>) {
+        let call = self
+            .rpc
+            .call::<methods::ModelsList>(&self.list_query(opening));
         let scope = self.scope;
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -695,9 +704,11 @@ impl ComposerStore {
     /// What `models.list` lists for: the open chat, or a new one (a chat
     /// that keeps no draft is a temporary one, where no coding agent
     /// answers).
-    fn list_query(&self) -> conduit_protocol::ModelListQuery {
+    fn list_query(&self, opening: bool) -> conduit_protocol::ModelListQuery {
+        let chat_id = self.chat_id();
         conduit_protocol::ModelListQuery {
-            chat_id: self.chat_id(),
+            opening: opening && chat_id.is_some(),
+            chat_id,
             temporary: self.draft.is_none(),
         }
     }
@@ -983,13 +994,15 @@ impl ComposerStore {
         if self.channel.is_some() {
             return;
         }
+        // The options are the shown model's: the next turn goes to it.
+        let model_id = self.selected_model().map(|m| m.id.clone());
         let call =
             self.rpc
                 .call::<methods::ComposerOptions>(&conduit_protocol::ComposerOptionsQuery {
                     chat_id: self.chat_id(),
+                    model_id: model_id.clone(),
                 });
         let scope = self.scope;
-        let model_id = self.selected_model().map(|m| m.id.clone());
         let librechat = self
             .rpc
             .call::<methods::LibrechatComposer>(&LibreChatComposerTarget { model_id });
@@ -1997,9 +2010,11 @@ impl ComposerStore {
         }
         cx.emit(ComposerEvent::DraftSwitched);
         // The chat's coding agents, and whether it is one's (Regenerate and
-        // Edit follow it), are the new chat's.
-        if self.models.is_some() && self.channel.is_none() {
-            self.refresh_models(cx);
+        // Edit follow it), are the new chat's; an opened chat may put its
+        // agent back. Asked even while the first list is on its way: that
+        // one was for the chat before.
+        if self.channel.is_none() {
+            self.list_models(opened, cx);
         }
         let Some(key) = key else {
             return;
@@ -3108,6 +3123,55 @@ mod tests {
         });
         cx.run_until_parked();
         store.read_with(cx, |s, _| assert!(s.has_attachments() && !s.uploading()));
+    }
+
+    /// Opening a saved chat lists its models as an opening (the daemon puts
+    /// a chat's coding agent back once per opening), even while the first
+    /// list is still on its way; other lists are no opening, and the
+    /// composer's options are asked for the model it shows.
+    #[gpui_kit::test]
+    fn opening_a_chat_lists_its_models_as_an_opening(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        let store = store(&daemon, Arc::default(), cx);
+        // The first list has not answered when a chat opens.
+        let first = daemon.hold::<methods::ModelsList>();
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-7".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        first.release();
+        cx.run_until_parked();
+        let lists = daemon.calls::<methods::ModelsList>();
+        let opened: Vec<_> = lists.iter().filter(|q| q["opening"] == true).collect();
+        assert_eq!(
+            opened.len(),
+            1,
+            "the chat was not listed as an opening: {lists:?}"
+        );
+        assert_eq!(opened[0]["chatId"], "chat-7");
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        let last = daemon.calls::<methods::ModelsList>().pop().expect("a list");
+        assert_eq!(last["opening"], false, "a refresh was taken as an opening");
+        let options = daemon
+            .calls::<methods::ComposerOptions>()
+            .pop()
+            .expect("options");
+        assert_eq!(options["modelId"], "k");
     }
 
     /// Right after sign-in the daemon has selected nothing yet and runs the
