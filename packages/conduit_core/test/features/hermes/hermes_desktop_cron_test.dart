@@ -333,8 +333,8 @@ void main() {
     check(adapter.requests.where((r) => r.method != 'GET')).isEmpty();
   });
 
-  test('an install Hermes goes on with in the background is made even when '
-      'the reload after it fails', () async {
+  test('an install Hermes accepted is made even when the reload after it '
+      'fails; a refused one is not', () async {
     final adapter = _RoutesAdapter({
       'POST /api/mcp/catalog/install': (200, {'background': true}),
     });
@@ -361,8 +361,15 @@ void main() {
 
     check(await service.addMcpCatalogEntry(entry)).isTrue();
 
-    // One made at once that cannot be loaded still says so.
+    // Made at once: made, with nothing still installing.
     adapter.routes['POST /api/mcp/catalog/install'] = (200, {'ok': true});
+    check(await service.addMcpCatalogEntry(entry)).isFalse();
+
+    // Refused by Hermes: an Add that failed.
+    adapter.routes['POST /api/mcp/catalog/install'] = (
+      400,
+      {'detail': 'unknown entry'},
+    );
     await check(service.addMcpCatalogEntry(entry)).throws<Object>();
   });
 
