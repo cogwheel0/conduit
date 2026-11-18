@@ -75,6 +75,13 @@ final class FakeOwuiAuthServer {
   /// Completed, and cleared, when a request starts waiting on [hold].
   Completer<void>? onHeld;
 
+  /// While set, the next `/health` asked over this plain listener is sent
+  /// to the https address on the same host and port, once.
+  bool redirectHealthToHttpsOnce = false;
+
+  /// Every request's headers, lower-case names, in arrival order.
+  final List<Map<String, String>> headersSeen = <Map<String, String>>[];
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<FakeOwuiAuthServer> start({
@@ -102,6 +109,20 @@ final class FakeOwuiAuthServer {
 
     final path = request.uri.path;
     requests.add('${request.method} $path');
+    final seen = <String, String>{};
+    request.headers.forEach((name, values) => seen[name] = values.join(','));
+    headersSeen.add(seen);
+    if (redirectHealthToHttpsOnce && path == '/health') {
+      redirectHealthToHttpsOnce = false;
+      await request.drain<void>();
+      response
+        ..statusCode = HttpStatus.movedPermanently
+        ..headers.set(
+          HttpHeaders.locationHeader,
+          'https://127.0.0.1:${_server.port}/health',
+        );
+      return response.close();
+    }
     final accepted = proxyAccepts;
     final renewed =
         accepted != null &&

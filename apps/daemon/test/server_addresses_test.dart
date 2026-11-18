@@ -455,6 +455,39 @@ void main() {
     expect(found.outcome, ServerAddressCheckOutcome.answered);
   });
 
+  test('a host typed without a scheme is checked at the address its server '
+      'redirects to, and a saved value never goes over plain http', () async {
+    final port = Uri.parse(owui.url).port;
+    // Saved: this server's https address, with a gate header.
+    await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .editServerEndpoints(serverId, (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(
+            id: 'route-secure',
+            url: 'https://127.0.0.1:$port',
+            customHeaders: const {'X-Gate': 'kept-value'},
+          ),
+        ]);
+    // The first plain /health is sent to https; any later one is not.
+    owui.redirectHealthToHttpsOnce = true;
+    final before = owui.headersSeen.length;
+    final found = await check(
+      ServerAddressForm(
+        url: '127.0.0.1:$port',
+        headers: const [ServerAddressHeader(name: 'X-Gate')],
+      ),
+      endpointId: 'route-secure',
+    );
+    expect(
+      owui.headersSeen.skip(before).where((h) => h.containsKey('x-gate')),
+      isEmpty,
+      reason: 'the saved value went to http://127.0.0.1:$port',
+    );
+    // Checked at https only (which this plain fake cannot answer).
+    expect(found.outcome, ServerAddressCheckOutcome.unusable);
+  });
+
   test('another server does not know the session: sign in first', () async {
     final found = await check(ServerAddressForm(url: other.url));
     expect(found.outcome, ServerAddressCheckOutcome.answered);

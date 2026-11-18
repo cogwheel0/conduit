@@ -336,7 +336,11 @@ final class ServersService {
         ? core.ServerAddressDraft()
         : core.ServerAddressDraft.of(saved);
     draft
-      ..url = form.url
+      // The one resolved address: what was probed, what the saved values
+      // were judged for, and what is checked and saved. Never the raw form,
+      // which the core would resolve again (a second probe can answer
+      // otherwise, and send those values over plain http).
+      ..url = formatted ?? form.url
       ..label = form.label
       ..allowSelfSigned = form.allowSelfSignedCertificates;
 
