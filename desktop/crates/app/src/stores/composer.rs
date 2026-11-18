@@ -429,6 +429,9 @@ pub struct ComposerStore {
     converter: Option<Converter>,
     pub prefs: ComposerPrefs,
     pub models: Option<ModelList>,
+    /// Keeps no draft, yet sends ordinary saved chats (Quick Ask): not a
+    /// temporary chat, so its list offers coding agents.
+    pub saves_without_draft: bool,
     pub options: ComposerOptions,
     /// LibreChat's tools for the model, when it is a LibreChat one
     /// (`librechat.composer`): chosen in `tool_ids`, as Open WebUI's are.
@@ -547,6 +550,7 @@ impl ComposerStore {
             converter: default_converter(),
             prefs: ComposerPrefs::default(),
             models: None,
+            saves_without_draft: false,
             options: ComposerOptions::default(),
             librechat: LibreChatComposer::default(),
             prompts: None,
@@ -699,7 +703,7 @@ impl ComposerStore {
     fn list_query(&self) -> conduit_protocol::ModelListQuery {
         conduit_protocol::ModelListQuery {
             chat_id: self.chat_id(),
-            temporary: self.draft.is_none(),
+            temporary: self.draft.is_none() && !self.saves_without_draft,
         }
     }
 
@@ -3198,6 +3202,23 @@ mod tests {
         assert_eq!(picks[0]["id"], agent);
         assert_eq!(picks[0]["chatId"], "chat-7");
         store.read_with(cx, |s, _| assert_eq!(s.chat_agent(), None));
+    }
+
+    /// Quick Ask keeps no draft but sends ordinary chats: its list is for a
+    /// chat that is not temporary, so its coding agents are offered.
+    #[gpui_kit::test]
+    fn quick_asks_list_is_not_a_temporary_chats(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ModelsList>(ModelList::default());
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.saves_without_draft = true;
+            s.refresh_models(cx)
+        });
+        cx.run_until_parked();
+        let lists = daemon.calls::<methods::ModelsList>();
+        assert_eq!(lists.last().expect("a list")["temporary"], false);
     }
 
     /// Right after sign-in the daemon has selected nothing yet and runs the

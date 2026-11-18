@@ -108,7 +108,11 @@ impl QuickAskView {
         // Settings › Chat's choices (Send with Enter, quick pills, Save as
         // Note), kept as they change.
         let prefs = ComposerPrefs::from_settings(stores.app_settings.read(cx).settings());
-        composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
+        composer_store.update(cx, |c, cx| {
+            c.set_prefs(prefs, cx);
+            // Quick Ask's chats are ordinary chats, not temporary ones.
+            c.saves_without_draft = true;
+        });
         let placeholder = cx.l10n().message_hint_text();
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
