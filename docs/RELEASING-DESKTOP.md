@@ -70,8 +70,9 @@ reads them from a prompt or from stdin.
    security find-identity -v -p codesigning | grep 'Developer ID Application'
    ```
 
-4. Check it locally before anything else ("Check the certificate and the
-   credentials on this Mac", below).
+4. Check it locally before you store it: make the notarization profile
+   first (step 2, `conduit-desktop-notary`, which the check signs in with),
+   then run "Check the certificate and the credentials on this Mac", below.
 5. Export certificate and key: Keychain Access › My Certificates, select the
    Developer ID Application certificate, File › Export Items… › `.p12`,
    with a strong export password. Then store both:

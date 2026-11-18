@@ -153,6 +153,8 @@ never a real one. Each has its own README:
 | [`tool/local_librechat`](../tool/local_librechat/README.md) | a fake LibreChat server for the LibreChat passes and tests |
 | [`tool/local_hermes_live`](../tool/local_hermes_live/README.md) | a fake live-voice vendor and a loopback TURN relay, for a Hermes voice call |
 
+From the repository root (the `cd` lines included):
+
 ```sh
 tool/local_owui/owui.sh setup     # once: a venv with open-webui 0.13.2
 tool/local_owui/owui.sh up        # start it with its fakes, seed it
