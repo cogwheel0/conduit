@@ -5,6 +5,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/database/database_provider.dart'
+    show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -18,6 +20,11 @@ import 'support/null_sink.dart';
 /// server's id) against a fake Open WebUI on loopback, reached as
 /// 127.0.0.1 and as localhost: the same server at two addresses. A second
 /// fake is another server, which does not know the first one's sessions.
+///
+/// Each test starts from its own state: a new fake Open WebUI saved as a new
+/// server, signed in to, its account's user known, and with a second
+/// address only when the test adds one. Nothing a test leaves is read by
+/// another, in whatever order they run.
 void main() {
   late Directory temporary;
   late CoreRuntime runtime;
@@ -31,6 +38,9 @@ void main() {
   late _Replies replies;
   final changed = <String?>[];
   late String serverId;
+  const users = {
+    'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+  };
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('server-addresses-test');
@@ -43,10 +53,6 @@ void main() {
       directories: DaemonDirectories.create(temporary.path),
       log: DaemonLog(level: 'error', sink: NullSink()),
     );
-    const users = {
-      'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
-    };
-    owui = await FakeOwuiAuthServer.start(users: users);
     other = await FakeOwuiAuthServer.start(users: users);
     proxied = await FakeOwuiAuthServer.start(
       users: users,
@@ -63,31 +69,65 @@ void main() {
     servers = ServersService(runtime.container, events: events);
     replies = _Replies();
     servers.replies = replies;
-
     await accounts.list();
-    final added = await accounts.add(
-      AddAccount(
-        server: ServerDraft(name: 'Lab', url: owui.url),
-      ),
-    );
-    serverId = added.accounts.accounts
-        .singleWhere((a) => a.id == added.accounts.activeAccountId)
-        .serverId;
-    final signedIn = await auth.loginWithPassword(
-      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-    );
-    expect(signedIn.isAuthenticated, isTrue);
   });
 
   tearDownAll(() async {
     servers.dispose();
     accounts.dispose();
     auth.dispose();
-    await owui.close();
     await other.close();
     await proxied.close();
     await runtime.dispose();
     temporary.deleteSync(recursive: true);
+  });
+
+  /// Once [accountId]'s user is known to storage: the core binds it after
+  /// the sign-in's database is certified, on its own time. An address check
+  /// proves an address only with an account whose user is known.
+  Future<void> userKnown(String accountId) async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    while (true) {
+      final certified = Completer<void>();
+      final watch = runtime.container.listen<Object?>(
+        openWebUiCertifiedDatabaseServerProvider,
+        (_, _) {
+          if (!certified.isCompleted) certified.complete();
+        },
+      );
+      try {
+        // Read after any bind already begun: both take storage's lock.
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        if (registry.account(accountId)?.userId != null) return;
+        await certified.future;
+      } finally {
+        watch.close();
+      }
+    }
+  }
+
+  setUp(() async {
+    replies.reset();
+    changed.clear();
+    owui = await FakeOwuiAuthServer.start(users: users);
+    addTearDown(owui.close);
+    final added = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        force: true,
+      ),
+    );
+    final account = added.accounts.activeAccountId!;
+    serverId = added.accounts.accounts
+        .singleWhere((a) => a.id == account)
+        .serverId;
+    final signedIn = await auth.loginWithPassword(
+      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+    );
+    expect(signedIn.isAuthenticated, isTrue);
+    await userKnown(account);
+    await runtime.container.read(activeServerProvider.future);
+    changed.clear();
   });
 
   Future<ServerAddresses> list() =>
@@ -105,6 +145,26 @@ void main() {
   );
 
   String localhost() => owui.url.replaceFirst('127.0.0.1', 'localhost');
+
+  /// Saves this server's second address, at localhost with the header
+  /// `X-Lab: one`, as an earlier edit would have.
+  Future<ServerAddressDto> addSecond() async {
+    await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .editServerEndpoints(
+          serverId,
+          (endpoints) => [
+            ...endpoints,
+            OpenWebUiEndpoint(
+              id: 'route-loopback-name',
+              url: localhost(),
+              label: 'Loopback name',
+              customHeaders: const {'X-Lab': 'one'},
+            ),
+          ],
+        );
+    return (await list()).addresses.last;
+  }
 
   test('a server starts with the address it was added at, in use', () async {
     final addresses = await list();
@@ -273,7 +333,7 @@ void main() {
   });
 
   test('an edit keeps a header value it was not given', () async {
-    final second = (await list()).addresses.last;
+    final second = await addSecond();
     final found = await check(
       ServerAddressForm(
         url: second.url,
@@ -299,7 +359,7 @@ void main() {
 
   test('an address moved to another origin is sent no saved header value, '
       'and asks for it again', () async {
-    final second = (await list()).addresses.last;
+    final second = await addSecond();
     final asked = other.requests.length;
     final found = await check(
       ServerAddressForm(
@@ -326,7 +386,7 @@ void main() {
 
   test('a saved header value is kept as saved, never checked as typed '
       'input', () async {
-    final second = (await list()).addresses.last;
+    final second = await addSecond();
     final storage = runtime.container.read(optimizedStorageServiceProvider);
     // Longer than a typed value may be: saved before that limit, say.
     final long = 'v' * 2048;
@@ -382,7 +442,7 @@ void main() {
     );
     expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
     expect(saved.problem, ServerAddressProblemCode.needsSignIn);
-    expect(saved.addresses!.addresses, hasLength(2));
+    expect(saved.addresses!.addresses, hasLength(1));
   });
 
   test('an address behind a sign-in proxy is saved with what its sign-in '
@@ -433,6 +493,7 @@ void main() {
   });
 
   test('reorder puts them in the order given, and it is kept', () async {
+    await addSecond();
     final before = (await list()).addresses;
     final result = await servers.reorder(
       ServerAddressReorderRequest(
@@ -453,6 +514,7 @@ void main() {
 
   test('a reply started after removing was asked about is asked about '
       'before the address goes', () async {
+    await addSecond();
     final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
     // No reply when the remove is asked for; another window's starts before
     // storage writes.
@@ -468,6 +530,7 @@ void main() {
 
   test('an order that names an address twice is refused, the saved order '
       'kept', () async {
+    await addSecond();
     final before = (await list()).addresses.map((a) => a.id).toList();
     expect(before, hasLength(2));
     await expectLater(
@@ -489,6 +552,7 @@ void main() {
   });
 
   test('removing the address in use asks while a reply arrives', () async {
+    await addSecond();
     final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
     replies.answering = true;
     addTearDown(() => replies.answering = false);
@@ -695,6 +759,12 @@ void main() {
 final class _Replies implements AddressReplies {
   bool answering = false;
   int stopped = 0;
+
+  void reset() {
+    answering = false;
+    stopped = 0;
+    next.clear();
+  }
 
   /// What the next asks answer, first to last, before [answering] does.
   final List<bool> next = <bool>[];
