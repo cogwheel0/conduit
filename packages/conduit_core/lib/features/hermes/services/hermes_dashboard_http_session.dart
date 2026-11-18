@@ -107,8 +107,10 @@ final class HermesDashboardCookie {
     if (name is! String || name.isEmpty || value is! String) return null;
     if (domain is! String || domain.isEmpty) return null;
     final expires = json['expires'];
-    // Past what a DateTime holds: not a cookie this jar wrote.
-    if (expires is int && (expires < -_maxMillis || expires > _maxMillis)) {
+    // An expiry that is not one this jar writes (not a whole number, or
+    // past what a DateTime holds) is not a cookie; none is a session one.
+    if (expires != null &&
+        (expires is! int || expires < -_maxMillis || expires > _maxMillis)) {
       return null;
     }
     return HermesDashboardCookie(
