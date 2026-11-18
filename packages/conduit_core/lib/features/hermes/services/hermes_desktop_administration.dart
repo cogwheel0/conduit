@@ -229,7 +229,14 @@ final class _HermesDesktopAdministration {
         params: {'name': entry.name, 'preset': entry.name},
       );
     }
-    await reloadMcp();
+    // An install Hermes accepted and goes on with in the background is
+    // made: a reload that fails meanwhile (the server is not ready to load
+    // yet) does not turn it into a failed add, which would be asked again.
+    try {
+      await reloadMcp();
+    } on Object {
+      if (!stillInstalling) rethrow;
+    }
     return stillInstalling;
   }
 

@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
@@ -330,6 +331,39 @@ void main() {
     adapter.routes['GET /api/cron/jobs'] = (500, {'detail': 'busy'});
     await check(jobs.current('job-1')).throws<Object>();
     check(adapter.requests.where((r) => r.method != 'GET')).isEmpty();
+  });
+
+  test('an install Hermes goes on with in the background is made even when '
+      'the reload after it fails', () async {
+    final adapter = _RoutesAdapter({
+      'POST /api/mcp/catalog/install': (200, {'background': true}),
+    });
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+      ),
+      dio: Dio()..httpClientAdapter = adapter,
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) =>
+            throw StateError('No gateway in this test.'),
+      ),
+    );
+    addTearDown(service.close);
+    const entry = HermesMcpCatalogEntry(
+      name: 'tide_charts',
+      description: 'Tide tables',
+      installed: false,
+      fromDashboard: true,
+    );
+
+    check(await service.addMcpCatalogEntry(entry)).isTrue();
+
+    // One made at once that cannot be loaded still says so.
+    adapter.routes['POST /api/mcp/catalog/install'] = (200, {'ok': true});
+    await check(service.addMcpCatalogEntry(entry)).throws<Object>();
   });
 
   test('an edit sends only the delivery and policy it changes', () async {
