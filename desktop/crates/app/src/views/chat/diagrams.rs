@@ -385,7 +385,6 @@ fn drawn(kind: DiagramKind, code: &str, window: &mut Window, cx: &mut App) -> Dr
         CACHE.with(|c| c.borrow_mut().put(key, Drawn::Failed, now));
         return Drawn::Failed;
     };
-    CACHE.with(|c| c.borrow_mut().put(key.clone(), Drawn::Pending, now));
     let id = NEXT_JOB.with(|n| {
         let id = n.get();
         n.set(id + 1);
@@ -477,23 +476,18 @@ fn enqueue(job: Job, window: &mut Window, cx: &mut App) {
     pump(wk, cx);
 }
 
-/// Puts `job` on `queue`, once per key. Past [`QUEUE_CAP`] the oldest
-/// waiting job leaves, and its picture is no longer on its way (a message
-/// still showing it asks for it again): a transcript that shows diagrams
-/// faster than they are drawn never piles up their sources.
+/// Puts `job` on `queue`, once per key, and marks its picture on its way.
+/// A full queue ([`QUEUE_CAP`]) turns it away and keeps nothing for it: a
+/// message still showing it asks again on a later frame (each finished
+/// diagram draws the window again). A waiting job never leaves but to be
+/// drawn, so the front always drains in order and a transcript that shows
+/// diagrams faster than they are drawn never piles up their sources.
 fn admit(queue: &mut VecDeque<Job>, job: Job, cache: &mut Cache) {
-    if queue.iter().any(|j| j.key == job.key) {
+    if queue.iter().any(|j| j.key == job.key) || queue.len() >= QUEUE_CAP {
         return;
     }
+    cache.put(job.key.clone(), Drawn::Pending, Instant::now());
     queue.push_back(job);
-    while queue.len() > QUEUE_CAP {
-        let Some(old) = queue.pop_front() else {
-            break;
-        };
-        if matches!(cache.drawn.get(&old.key), Some(Drawn::Pending)) {
-            cache.remove(&old.key);
-        }
-    }
 }
 
 /// What the renderer page says.
@@ -1327,28 +1321,52 @@ mod tests {
         }
     }
 
-    /// A transcript shows diagrams faster than the renderer draws them: the
-    /// queue holds at most [`QUEUE_CAP`], the newest; one that leaves it is
-    /// no longer on its way (asked for again where a message shows it), and
-    /// a key already queued is queued once.
+    /// A stable transcript shows more diagrams than may wait: each frame
+    /// asks for every picture not yet cached, in the same order, and each
+    /// time the renderer finishes one the window draws again. The queue
+    /// never holds more than [`QUEUE_CAP`]; a job that waits is never put
+    /// out of the queue (only drawing takes it), one past the cap is not
+    /// on its way (nothing pending is kept for it, so a later frame asks
+    /// again), and every diagram is drawn, each once.
     #[test]
-    fn the_queue_keeps_the_newest_diagrams_each_once() {
+    fn a_full_queue_turns_new_diagrams_away_and_every_one_is_drawn() {
         let t0 = Instant::now();
         let mut cache = Cache::new();
-        let mut queue = VecDeque::new();
-        let n = QUEUE_CAP as u64 + 5;
-        for k in 0..n {
-            cache.put(key_n(k), Drawn::Pending, t0);
-            admit(&mut queue, job_n(k), &mut cache);
+        let mut queue: VecDeque<Job> = VecDeque::new();
+        let n = QUEUE_CAP as u64 * 2 + 7;
+        let mut drawn = Vec::new();
+        for _frame in 0..(n * 4) {
+            for k in 0..n {
+                if cache.get(&key_n(k)).is_some() {
+                    continue;
+                }
+                let before: Vec<Key> = queue.iter().map(|j| j.key.clone()).collect();
+                admit(&mut queue, job_n(k), &mut cache);
+                let after: Vec<Key> = queue.iter().map(|j| j.key.clone()).collect();
+                assert!(after.len() <= QUEUE_CAP, "{} wait", after.len());
+                assert!(
+                    after.starts_with(&before),
+                    "a waiting diagram left the queue"
+                );
+                let queued = after.contains(&key_n(k));
+                assert_eq!(
+                    matches!(cache.get(&key_n(k)), Some(Drawn::Pending)),
+                    queued,
+                    "{k} is pending exactly when it waits"
+                );
+            }
+            // The renderer draws the front one; the window draws again.
+            let Some(job) = queue.pop_front() else {
+                break;
+            };
+            cache.put(job.key.clone(), Drawn::Failed, t0);
+            drawn.push(job.key.code);
         }
-        admit(&mut queue, job_n(n - 1), &mut cache);
-        assert_eq!(queue.len(), QUEUE_CAP);
-        assert_eq!(queue.front().map(|j| j.key.clone()), Some(key_n(5)));
-        assert_eq!(queue.back().map(|j| j.key.clone()), Some(key_n(n - 1)));
-        for k in 0..5 {
-            assert!(cache.get(&key_n(k)).is_none(), "{k} stays pending for ever");
-        }
-        assert!(matches!(cache.get(&key_n(5)), Some(Drawn::Pending)));
+        let mut each = drawn.clone();
+        each.sort_unstable();
+        each.dedup();
+        assert_eq!(each.len(), drawn.len(), "a diagram was drawn twice");
+        assert_eq!(drawn.len() as u64, n, "every diagram is drawn");
     }
 
     /// More diagrams than the cache holds, all on screen: each is drawn
