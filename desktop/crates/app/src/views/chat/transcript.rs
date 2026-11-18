@@ -317,9 +317,9 @@ impl Transcript {
             .as_ref()
             .and_then(gpui_kit::WeakEntity::upgrade)
         {
-            let mut agent_chat = composer.read(cx).options.agent_chat;
+            let mut agent_chat = composer.read(cx).agent_chat();
             subscriptions.push(cx.observe(&composer, move |_, composer, cx| {
-                let now = composer.read(cx).options.agent_chat;
+                let now = composer.read(cx).agent_chat();
                 if now != agent_chat {
                     agent_chat = now;
                     cx.notify();

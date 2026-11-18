@@ -400,7 +400,7 @@ impl ChatPane {
                 // The composer's own state for that chat moves too, whether
                 // or not it is the chat shown.
                 this.composer_store
-                    .update(cx, |c, _| c.rekey_chat(from, to));
+                    .update(cx, |c, cx| c.rekey_chat(from, to, cx));
             }),
             cx.subscribe_in(
                 &composer,
@@ -791,7 +791,7 @@ impl ChatPane {
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
                         self.composer_store
-                            .update(cx, |c, _| c.rekey_chat(&current, &id));
+                            .update(cx, |c, cx| c.rekey_chat(&current, &id, cx));
                         return;
                     }
                 }
@@ -1888,7 +1888,7 @@ impl ChatPane {
     /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
     /// no answer is run again and no message edited.
     pub fn agent_chat(&self, cx: &App) -> bool {
-        self.composer_store.read(cx).options.agent_chat
+        self.composer_store.read(cx).agent_chat()
     }
 
     /// Chat › Regenerate: the newest answer again.
@@ -3604,6 +3604,21 @@ mod tests {
             cx: &mut TestAppContext,
         ) -> (FakeDaemon, Stores, Entity<ChatPane>, &mut VisualTestContext) {
             let daemon = FakeDaemon::new();
+            // Each chat's list answers with a model to name.
+            daemon.returns::<methods::ModelsList>(conduit_protocol::ModelList {
+                models: vec![conduit_protocol::ModelSummary {
+                    id: "k".into(),
+                    name: "Kestrel".into(),
+                    description: None,
+                    pinned: false,
+                    capabilities: vec![],
+                    connection: None,
+                    logo: None,
+                    agent: None,
+                }],
+                selected_id: Some("k".into()),
+                ..Default::default()
+            });
             let scratch = std::env::temp_dir().join(format!("conduit-pane-{}", std::process::id()));
             let stores = cx.update(|cx| {
                 crate::views::test_globals(cx);

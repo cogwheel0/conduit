@@ -136,7 +136,7 @@ impl RowHost {
         self.composer
             .as_ref()
             .and_then(WeakEntity::upgrade)
-            .is_some_and(|c| c.read(cx).options.agent_chat)
+            .is_some_and(|c| c.read(cx).agent_chat())
     }
 }
 

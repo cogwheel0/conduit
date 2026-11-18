@@ -895,7 +895,7 @@ impl ChatComposer {
         let has_text = !self.text(cx).trim().is_empty();
         !self.offline
             && !composer.uploading()
-            && !composer.names_no_model()
+            && composer.can_name_model()
             && (has_text || composer.has_attachments())
     }
 
@@ -4754,10 +4754,15 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        // The composer's own list has answered: it has a model to name.
+        lists_a_model(&daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
@@ -4771,6 +4776,24 @@ mod tests {
             window.draw(cx).clear(cx);
         });
         (view, vcx, seen)
+    }
+
+    /// [daemon] answers `models.list` with one model to name.
+    fn lists_a_model(daemon: &FakeDaemon) {
+        daemon.returns::<conduit_protocol::methods::ModelsList>(conduit_protocol::ModelList {
+            models: vec![conduit_protocol::ModelSummary {
+                id: "k".into(),
+                name: "Kestrel".into(),
+                description: None,
+                pinned: false,
+                capabilities: vec![],
+                connection: None,
+                logo: None,
+                agent: None,
+            }],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
     }
 
     fn value(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> String {
@@ -5125,7 +5148,10 @@ mod tests {
             serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
         );
         let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        lists_a_model(&daemon);
         let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
         view.update(cx, |c, _| c.composer = store);
         cx.simulate_input("Hello");
         view.update_in(cx, |c, window, cx| {
@@ -5398,10 +5424,14 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        lists_a_model(daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
