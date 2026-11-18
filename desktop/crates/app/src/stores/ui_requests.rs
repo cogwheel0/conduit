@@ -138,7 +138,6 @@ fn arg(r: &UiRequest, key: &str) -> Option<String> {
     r.message_args.get(key).cloned().filter(|s| !s.is_empty())
 }
 
-/// The card for `request`.
 /// Whether `request` shows (and is answered) while `chat` is open: a held
 /// Hermes model switch is the question of the chat whose message waits
 /// (`detail.chatId`), shown with that chat only and never answered from
@@ -154,6 +153,7 @@ pub fn shown_with(request: &UiRequest, chat: Option<&str>) -> bool {
     }
 }
 
+/// The card for `request`.
 pub fn card(request: &UiRequest) -> Card {
     let title = arg(request, "title").unwrap_or_default();
     let message = arg(request, "message").unwrap_or_default();
