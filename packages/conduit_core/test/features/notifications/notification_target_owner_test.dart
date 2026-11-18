@@ -308,6 +308,52 @@ void main() {
             .map((t) => t.id),
       ).deepEquals(['b-hook']);
     });
+    test("a former session's save that lands later leaves the next "
+        "session's list alone", () async {
+      final session = await _Session.start();
+      addTearDown(session.dispose);
+      await session.container.read(notificationTargetsProvider.future);
+      final notifier = session.container.read(
+        notificationTargetsProvider.notifier,
+      );
+      final former = notifier.captureOwner()!;
+      // The first session's save is out when a new session starts.
+      final write = session.server.holdWrite = Completer<void>();
+      final saving = notifier.create(
+        url: _secretUrl,
+        enabled: true,
+        events: const ['chat.finished'],
+        delivery: 'away',
+        owner: former,
+      );
+      await session.server.writeAsked.future;
+      session.server.listStatus = 500;
+      session.newSession();
+      await expectLater(
+        session.container.read(notificationTargetsProvider.future),
+        throwsA(isA<DioException>()),
+      );
+      // The new session reads its list again; the read is out.
+      session.server
+        ..listStatus = 200
+        ..targets = [_target('b-hook')];
+      final list = session.server.holdList = Completer<void>();
+      final refreshed = notifier.refresh(owner: notifier.captureOwner()!);
+      await session.server.listAsked.future;
+      session.server.holdList = null;
+      // The former session's save lands: its reload belongs to no one now.
+      write.complete();
+      await saving;
+      list.complete();
+      await refreshed;
+      check(
+        session.container
+            .read(notificationTargetsProvider)
+            .requireValue
+            .targets
+            .map((t) => t.id),
+      ).deepEquals(['b-hook']);
+    });
   });
 
   group('requests', () {
@@ -543,6 +589,13 @@ final class _Session {
       ..invalidate(userPermissionsProvider);
   }
 
+  /// A new sign-in session of the same account on the same API: its
+  /// credentials stay, so a request already out is not cancelled.
+  void newSession() {
+    _epoch = Object();
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+  }
+
   void dispose() {
     container.dispose();
     api.dispose();
@@ -578,6 +631,14 @@ final class _Server implements HttpClientAdapter {
   final requests = <RequestOptions>[];
   List<Map<String, dynamic>> targets = [_target('ops')];
   Completer<void>? holdList;
+
+  /// Completes as a list read is held by [holdList].
+  final listAsked = Completer<void>();
+
+  /// Holds each write's answer while set; [writeAsked] completes as the
+  /// first one waits.
+  Completer<void>? holdWrite;
+  final writeAsked = Completer<void>();
   int listStatus = 200;
   int eventsStatus = 200;
   String? writeRejection;
@@ -594,6 +655,10 @@ final class _Server implements HttpClientAdapter {
     if (isWrite && writeRejection != null) {
       return _json({'detail': writeRejection}, 400);
     }
+    if (isWrite && holdWrite != null) {
+      if (!writeAsked.isCompleted) writeAsked.complete();
+      await holdWrite!.future;
+    }
     if (path.endsWith('/events')) {
       return eventsStatus == 200
           ? _json({
@@ -605,6 +670,7 @@ final class _Server implements HttpClientAdapter {
     }
     if (path.endsWith('/targets') && options.method == 'GET') {
       final body = {'targets': targets};
+      if (holdList != null && !listAsked.isCompleted) listAsked.complete();
       await holdList?.future;
       return listStatus == 200
           ? _json(body)

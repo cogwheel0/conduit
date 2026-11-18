@@ -353,8 +353,12 @@ class NotificationTargets extends _$NotificationTargets {
   /// showing, marked stale. A load that is not superseded always settles
   /// the state: one whose owner is no longer current while nothing is
   /// shown ends as [NotificationTargetsOwnerChangedException], never left
-  /// loading for every later read to wait on.
+  /// loading for every later read to wait on. A reload for an owner that
+  /// is no longer current (a former account's save that landed late) never
+  /// starts: it takes no generation, so it neither supersedes nor touches
+  /// the current account's load.
   Future<void> _reload(NotificationTargetsOwner owner) async {
+    if (!_isCurrent(owner)) return;
     final generation = ++_loadGeneration;
     void settleStale() {
       if (generation != _loadGeneration || !ref.mounted || state.hasValue) {
