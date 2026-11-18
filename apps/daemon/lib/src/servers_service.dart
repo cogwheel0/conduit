@@ -342,7 +342,9 @@ final class ServersService {
     for (final header in form.headers) {
       final name = header.name.trim();
       final keptValue = header.value == null ? kept[name] : null;
-      final value = (header.value ?? keptValue ?? '').trim();
+      // A typed value is trimmed; a kept one stays as saved, byte for byte,
+      // so a label edit changes nothing the connection is compared by.
+      final value = header.value?.trim() ?? keptValue ?? '';
       // A value kept as saved is not typed input: only its name and place
       // are checked, so a label edit is never refused over it.
       final problem = keptValue != null

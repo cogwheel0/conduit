@@ -14,6 +14,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:checks/checks.dart' as checks;
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
@@ -334,21 +335,7 @@ void main() {
       expect(found.headerName, 'Authorization');
     });
 
-    test('the same header twice', () async {
-      final found = await check(
-        ServerAddressForm(
-          url: localhost(),
-          headers: const [
-            ServerAddressHeader(name: 'X-Lab', value: 'one'),
-            ServerAddressHeader(name: 'X-Lab', value: 'two'),
-          ],
-        ),
-      );
-      expect(found.problem, ServerAddressProblemCode.headerAlreadyAdded);
-      expect(found.headerName, 'X-Lab');
-    });
-
-    test('the same header twice, in another case', () async {
+    test('the same header twice, in any case', () async {
       final found = await check(
         ServerAddressForm(
           url: localhost(),
@@ -358,8 +345,12 @@ void main() {
           ],
         ),
       );
-      expect(found.problem, ServerAddressProblemCode.headerAlreadyAdded);
-      expect(found.headerName, 'x-lab');
+      checks.check(found)
+        ..has(
+          (f) => f.problem,
+          'problem',
+        ).equals(ServerAddressProblemCode.headerAlreadyAdded)
+        ..has((f) => f.headerName, 'headerName').equals('x-lab');
     });
 
     test('a key without its certificate', () async {
@@ -569,18 +560,21 @@ void main() {
       'there', () async {
     final storage = runtime.container.read(optimizedStorageServiceProvider);
     // A second address at localhost with a client certificate and key.
-    await storage.editServerEndpoints(serverId, (endpoints) => [
-      ...endpoints,
-      OpenWebUiEndpoint(
-        id: 'route-with-identity',
-        url: localhost(),
-        mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nlab\n',
-        mtlsCertificateLabel: 'lab.crt',
-        mtlsPrivateKeyPem: '-----BEGIN PRIVATE KEY-----\nlab\n',
-        mtlsPrivateKeyLabel: 'lab.key',
-        mtlsPrivateKeyPassword: 'key-pass',
-      ),
-    ]);
+    await storage.editServerEndpoints(
+      serverId,
+      (endpoints) => [
+        ...endpoints,
+        OpenWebUiEndpoint(
+          id: 'route-with-identity',
+          url: localhost(),
+          mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nlab\n',
+          mtlsCertificateLabel: 'lab.crt',
+          mtlsPrivateKeyPem: '-----BEGIN PRIVATE KEY-----\nlab\n',
+          mtlsPrivateKeyLabel: 'lab.key',
+          mtlsPrivateKeyPassword: 'key-pass',
+        ),
+      ],
+    );
     // Moved to the server's 127.0.0.1 origin, no new files given.
     final found = await check(
       ServerAddressForm(url: '${owui.url}/', label: 'Moved'),
@@ -612,6 +606,39 @@ void main() {
     expect(found.outcome, ServerAddressCheckOutcome.unusable);
     expect(found.problem, ServerAddressProblemCode.headerNameReserved);
     expect(found.headerName, 'cookie');
+  });
+
+  test('a saved header value is kept byte for byte by a label edit', () async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.editServerEndpoints(
+      serverId,
+      (endpoints) => [
+        ...endpoints,
+        OpenWebUiEndpoint(
+          id: 'route-spaced',
+          url: localhost(),
+          customHeaders: const {'X-Lab': ' padded value '},
+        ),
+      ],
+    );
+    final found = await check(
+      ServerAddressForm(
+        url: localhost(),
+        label: 'Renamed',
+        headers: const [ServerAddressHeader(name: 'X-Lab')],
+      ),
+      endpointId: 'route-spaced',
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final route = (await storage.getOpenWebUiRegistryStrict())
+        .server(serverId)!
+        .endpoint('route-spaced')!;
+    expect(route.label, 'Renamed');
+    expect(route.customHeaders['X-Lab'], ' padded value ');
   });
 
   test('another server does not know the session: sign in first', () async {
