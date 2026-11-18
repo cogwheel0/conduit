@@ -192,7 +192,19 @@ final class ModelsService {
     for (var attempt = 0; ; attempt++) {
       final session = _container.read(openWebUiAuthSessionEpochProvider);
       final accountId = currentPreferenceAccountId();
-      final list = await _list(query);
+      final ModelList list;
+      try {
+        list = await _list(query);
+      } on RpcError catch (error) {
+        // A list that names no chat is put together again for the next
+        // account, once; a chat's own list is refused (below).
+        if (error.code == ConduitErrorCodes.sessionExpired &&
+            attempt == 0 &&
+            query.chatId == null) {
+          continue;
+        }
+        rethrow;
+      }
       if (identical(
             session,
             _container.read(openWebUiAuthSessionEpochProvider),
@@ -223,7 +235,7 @@ final class ModelsService {
     // unknown, so none is offered (an unread chat is never taken for none).
     final agents = chatId != null && conversation == null
         ? const <core.Model>[]
-        : await _agents(conversation, temporary: query.temporary);
+        : await _agents(conversation, account, temporary: query.temporary);
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
     // actually use is worse than showing none.
@@ -555,9 +567,10 @@ final class ModelsService {
         );
       }
       final agent =
-          (await _agents(conversation))
-              .where((candidate) => candidate.id == id)
-              .firstOrNull ??
+          (await _agents(
+            conversation,
+            account,
+          )).where((candidate) => candidate.id == id).firstOrNull ??
           // Switch: the chat's own agent, asked of its own terminal (picking
           // it selects that terminal), whichever terminal is selected now.
           (conversation?.model == id ? await _onItsTerminal(id, chatId) : null);
@@ -599,9 +612,13 @@ final class ModelsService {
 
   /// The coding agents the selected terminal offers [conversation] (null
   /// for a new chat): none where no agent can answer, or when the terminal
-  /// was not reached in time.
+  /// was not reached in time. Asked and answered for [account] only: it is
+  /// checked right before the terminal is asked (the core reads the
+  /// account's API then) and when the answer is back, so no caller goes on
+  /// (to Switch's own-terminal lookup, say) for another account.
   Future<List<core.Model>> _agents(
-    Conversation? conversation, {
+    Conversation? conversation,
+    AccountScope account, {
     bool temporary = false,
   }) async {
     try {
@@ -610,7 +627,12 @@ final class ModelsService {
         conversation,
         temporary: temporary,
       );
-      return await terminalAgentModelsIn(_container, scope);
+      account.require('the coding agents are asked for');
+      final agents = await terminalAgentModelsIn(_container, scope);
+      account.require('the coding agents are answered');
+      return agents;
+    } on RpcError {
+      rethrow;
     } on Object catch (error) {
       DebugLogger.warning(
         'agents-unlisted',
@@ -775,9 +797,10 @@ final class ModelsService {
           ? null
           : await _conversation(chatId, account);
       if (chatId != null && conversation == null) return null;
-      return (await _agents(conversation))
-          .where((candidate) => candidate.id == id)
-          .firstOrNull;
+      return (await _agents(
+        conversation,
+        account,
+      )).where((candidate) => candidate.id == id).firstOrNull;
     }
     return _model(id);
   }

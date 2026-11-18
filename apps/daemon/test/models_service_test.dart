@@ -191,6 +191,11 @@ final class _AgentsApi extends ApiService {
   Completer<void>? held;
   final northAsked = Completer<void>();
 
+  /// South's answers wait for this while it is set; [southAsked] marks the
+  /// question reaching it.
+  Completer<void>? southHeld;
+  final southAsked = Completer<void>();
+
   @override
   Future<List<core.Model>> getTerminalAgentModels({
     required String terminalId,
@@ -205,6 +210,10 @@ final class _AgentsApi extends ApiService {
     if (terminalId == 'north') {
       if (!northAsked.isCompleted) northAsked.complete();
       await held?.future;
+    }
+    if (terminalId == 'south') {
+      if (!southAsked.isCompleted) southAsked.complete();
+      await southHeld?.future;
     }
     return terminalId == 'north'
         ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
@@ -331,6 +340,27 @@ void main() {
       expect(container.read(selectedModelProvider)?.id, 'first-model');
     });
   });
+
+  test(
+    "Switch never asks the next account's server for the chat's agent",
+    () async {
+      final api = _AgentsApi()..southHeld = Completer<void>();
+      final container = _agentContainer(api);
+      // Switch under A: the selected terminal (south) is asked first, slowly.
+      final switching = ModelsService(container)
+          .select(_northAgent, chatId: 'agent-chat');
+      await api.southAsked.future;
+      // B signs in; south then answers A with no agent.
+      _session = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      api.southHeld!.complete();
+      await expectLater(switching, refused(ConduitErrorCodes.sessionExpired));
+      expect(api.asked, <String>[
+        'south',
+      ], reason: "A's chat asked of north for B");
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+    },
+  );
 
   test('a slower pick never replaces a later one', () async {
     final api = _AgentsApi()..held = Completer<void>();
