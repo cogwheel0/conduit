@@ -565,6 +565,43 @@ void main() {
     expect(found.outcome, ServerAddressCheckOutcome.unusable);
   });
 
+  test('an address moved to another origin takes no saved client identity '
+      'there', () async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    // A second address at localhost with a client certificate and key.
+    await storage.editServerEndpoints(serverId, (endpoints) => [
+      ...endpoints,
+      OpenWebUiEndpoint(
+        id: 'route-with-identity',
+        url: localhost(),
+        mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nlab\n',
+        mtlsCertificateLabel: 'lab.crt',
+        mtlsPrivateKeyPem: '-----BEGIN PRIVATE KEY-----\nlab\n',
+        mtlsPrivateKeyLabel: 'lab.key',
+        mtlsPrivateKeyPassword: 'key-pass',
+      ),
+    ]);
+    // Moved to the server's 127.0.0.1 origin, no new files given.
+    final found = await check(
+      ServerAddressForm(url: '${owui.url}/', label: 'Moved'),
+      endpointId: 'route-with-identity',
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(
+        checkId: found.checkId!,
+        sendSessionConfirmed: true,
+      ),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final moved = (await storage.getOpenWebUiRegistryStrict())
+        .server(serverId)!
+        .endpoint('route-with-identity')!;
+    expect(moved.mtlsCertificateChainPem, isNull);
+    expect(moved.mtlsPrivateKeyPem, isNull);
+    expect(moved.mtlsPrivateKeyPassword, isNull);
+  });
+
   test('a cookie typed in an address, in any case, is refused', () async {
     final found = await check(
       ServerAddressForm(

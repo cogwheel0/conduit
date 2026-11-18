@@ -326,16 +326,7 @@ final class ServersService {
     if (formatted != null && !core.hasExplicitHttpScheme(form.url)) {
       formatted = await core.upgradeSchemeLessServerUrl(formatted);
     }
-    // A saved header's value goes only where it went: an address moved to
-    // another origin is sent none of them, and asks for each again.
-    final sameOrigin =
-        saved != null &&
-        formatted != null &&
-        openWebUiServerIdentityUrl(formatted) ==
-            openWebUiServerIdentityUrl(saved.url);
-    final draft = saved == null
-        ? core.ServerAddressDraft()
-        : core.ServerAddressDraft.of(saved);
+    final draft = _draftFor(saved, resolvedUrl: formatted);
     draft
       // The one resolved address: what was probed, what the saved values
       // were judged for, and what is checked and saved. Never the raw form,
@@ -350,7 +341,7 @@ final class ServersService {
     final headers = <String, String>{};
     for (final header in form.headers) {
       final name = header.name.trim();
-      final keptValue = header.value == null && sameOrigin ? kept[name] : null;
+      final keptValue = header.value == null ? kept[name] : null;
       final value = (header.value ?? keptValue ?? '').trim();
       // A value kept as saved is not typed input: only its name and place
       // are checked, so a label edit is never refused over it.
@@ -419,6 +410,27 @@ final class ServersService {
           behindProxy: true,
         );
     }
+  }
+
+  /// What an edit of [saved] (none for a new address) starts from: the
+  /// saved address with its secrets -- header values, client certificate,
+  /// key and key password -- only while it stays on the origin they were
+  /// saved for ([resolvedUrl]). Moved to another origin it starts empty:
+  /// none of them goes to a host the user did not give them to, and the
+  /// form supplies each again. (Its captured cookies follow the same rule
+  /// in the core, `keptAddressSessionHeaders`.)
+  static core.ServerAddressDraft _draftFor(
+    OpenWebUiEndpoint? saved, {
+    required String? resolvedUrl,
+  }) {
+    final sameOrigin =
+        saved != null &&
+        resolvedUrl != null &&
+        openWebUiServerIdentityUrl(resolvedUrl) ==
+            openWebUiServerIdentityUrl(saved.url);
+    return sameOrigin
+        ? core.ServerAddressDraft.of(saved)
+        : core.ServerAddressDraft();
   }
 
   ServerAddressCheckResult _keep(
