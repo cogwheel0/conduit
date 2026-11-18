@@ -117,6 +117,15 @@ void main() {
       check(back.cookies.single.expires).equals(now);
       check(back.cookies.single.secure).isTrue();
       check(HermesDashboardCookieJar.fromJson('nonsense').isEmpty).isTrue();
+      // An expiry past what a DateTime holds is not a cookie.
+      check(
+        HermesDashboardCookie.fromJson({
+          'name': 'pref',
+          'value': '1',
+          'domain': 'gateway.example',
+          'expires': 9000000000000000,
+        }),
+      ).isNull();
     });
   });
 

@@ -94,6 +94,11 @@ final class HermesDashboardCookie {
     if (expires != null) 'expires': expires!.toUtc().millisecondsSinceEpoch,
   };
 
+  /// The farthest a DateTime reaches from the epoch, in milliseconds.
+  static const int _maxMillis = 8640000000000000;
+
+  /// The cookie [json] describes ([toJson]), or null when it does not
+  /// describe one.
   static HermesDashboardCookie? fromJson(Object? json) {
     if (json is! Map) return null;
     final name = json['name'];
@@ -102,6 +107,10 @@ final class HermesDashboardCookie {
     if (name is! String || name.isEmpty || value is! String) return null;
     if (domain is! String || domain.isEmpty) return null;
     final expires = json['expires'];
+    // Past what a DateTime holds: not a cookie this jar wrote.
+    if (expires is int && (expires < -_maxMillis || expires > _maxMillis)) {
+      return null;
+    }
     return HermesDashboardCookie(
       name: name,
       value: value,
