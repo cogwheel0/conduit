@@ -1047,7 +1047,8 @@ final class WorkspaceService {
   /// Duplicates [skill], as the phone does: Open WebUI 0.12 and later copy
   /// it themselves (`clone`), every file of its package and its on/off
   /// state included; an older one, or one not known to have it that
-  /// answers 404 or 405, is sent a copy made from what was read.
+  /// answers 404 or 405 while the skill is still there, is sent a copy made
+  /// from what was read.
   /// [sameAccount] refuses the copy when another account signed in after
   /// the read (the clone's refusal is awaited before a copy goes).
   Future<String> _duplicateSkill(
@@ -1085,7 +1086,23 @@ final class WorkspaceService {
     } on DioException catch (error) {
       final status = error.response?.statusCode;
       if (serverClones == true || (status != 404 && status != 405)) rethrow;
+      // A 404 is also what the clone says of a skill deleted since the
+      // read: copied only while the skill is still there.
+      if (!await _skillStillThere(skill.id)) {
+        throw _notFound(WorkspaceKind.skills, skill.id);
+      }
       return copy();
+    }
+  }
+
+  /// Whether skill [id] is still on the server: false only when it says it
+  /// is not (404); any other failure is thrown.
+  Future<bool> _skillStillThere(String id) async {
+    try {
+      return await _api().getWorkspaceSkill(id) != null;
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return false;
+      rethrow;
     }
   }
 
