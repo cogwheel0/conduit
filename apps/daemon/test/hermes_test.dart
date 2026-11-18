@@ -230,11 +230,31 @@ void main() {
     }
     expect(asked.single.kind, UiRequestKind.hermesDecision);
     expect(asked.single.messageCode, 'hermes.approval');
+    // A question about this session's send is this chat's, even with an
+    // old answer of the session kept in another chat (as an Open WebUI chat
+    // keeps a Hermes answer); with no send running, nobody's.
+    final other = hermesServer.seedForeign(title: 'Seed swap');
+    final otherChat = hermesChatId(other);
+    final otherScope = await turns.holdScope(otherChat);
+    addTearDown(() => turns.releaseScope(otherChat));
+    otherScope.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      ...otherScope.read(chatMessagesProvider),
+      ChatMessage(
+        id: 'segment-1',
+        role: 'assistant',
+        content: 'Sow them in rows.',
+        timestamp: DateTime.utc(2026, 11, 18),
+        metadata: <String, dynamic>{'hermesSessionId': sessionId},
+      ),
+    ]);
+    expect(turns.hermesChatOf(sessionId), first.chatId);
     uiRequests.respond(
       UiResponse(requestId: asked.single.requestId, choice: 'once'),
     );
     await answered(3);
     expect(completed.last.text.trim(), 'Approved and done.');
+    expect(turns.hermesChatOf(sessionId), isNull);
+    await hermes.delete(other);
     expect(hermesServer.approvals.single['choice'], 'once');
 
     // Opened again, from Hermes's own record.
@@ -459,23 +479,6 @@ void main() {
             .set(picked, allowHidden: true);
       }
     });
-    // The session's questions are this chat's.
-    expect(turns.hermesChatOf(id), chatId);
-    expect(turns.hermesChatOf('$id-other'), isNull);
-    // A Hermes answer kept in an Open WebUI chat names its session on the
-    // message, not on the chat: that chat holds the session too.
-    scope.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
-      ...scope.read(chatMessagesProvider),
-      ChatMessage(
-        id: 'segment-1',
-        role: 'assistant',
-        content: 'Sow them in rows.',
-        timestamp: DateTime.utc(2026, 11, 18),
-        metadata: const <String, dynamic>{'hermesSessionId': 'segment-7'},
-      ),
-    ]);
-    expect(turns.hermesChatOf('segment-7'), chatId);
-
     final takenBack = Completer<void>();
     scope.listen<ComposerTextInsertion?>(composerTextInsertionProvider, (
       before,
