@@ -864,7 +864,12 @@ void main() {
       accessHeaders: const {},
       wanted: () => wanted,
     );
-    await secure.readArrived!.future;
+    // Fails at once, not at the runner's timeout, if the sign-in ended
+    // before its commit read the store.
+    await Future.any([
+      secure.readArrived!.future,
+      adopting.then((_) => fail('the sign-in ended before the store read')),
+    ]);
     // The window closes while the commit waits for the store.
     wanted = false;
     release.complete();
@@ -873,36 +878,35 @@ void main() {
     expect(await secure.peek(), isNull);
   });
 
-  test('what a dashboard\'s answers change while the store cannot be read '
-      'is written once it can, deletions and repeats included', () async {
+  test('while the store cannot be read, a dashboard request is refused and '
+      'takes nothing in; once it reads, its cookies are served', () async {
     final secure = _UnreadableStore();
     await signedInStore(secure);
+    final stored = await secure.peek();
     final root = Uri.parse(dashboard.baseUrl);
 
-    // A rotation while unreadable, repeated once readable again.
     secure.unreadable = true;
-    var store = await DaemonHermesDashboardCookies.open(secure);
-    var bridge = store.bridge(root: root, accessHeaders: const {});
-    await bridge.request('GET', root.resolve('/api/rotate'));
-    secure.unreadable = false;
-    await bridge.request('GET', root.resolve('/api/rotate'));
-    expect(
-      (await DaemonHermesDashboardCookies.open(secure)).cookies
-          .map((c) => '${c.name}=${c.value}'),
-      ['hermes_session_at=rotated-late'],
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    final bridge = store.bridge(root: root, accessHeaders: const {});
+    final sent = dashboard.cookies.length;
+    await expectLater(
+      bridge.request('GET', root.resolve('/api/rotate')),
+      throwsA(isA<StateError>()),
     );
+    expect(dashboard.cookies, hasLength(sent));
+    expect(store.cookies, isEmpty);
+    expect(store.hasSession(dashboard.baseUrl), isFalse);
 
-    // A deletion while unreadable stays deleted once readable again.
-    secure.unreadable = true;
-    store = await DaemonHermesDashboardCookies.open(secure);
-    bridge = store.bridge(root: root, accessHeaders: const {});
-    await bridge.request('GET', root.resolve('/api/expire'));
+    // Readable again: the request that finds it unread has it read, and the
+    // store's cookies are served from then on, as stored.
     secure.unreadable = false;
-    await bridge.request('GET', root.resolve('/api/adds'));
-    final names = (await DaemonHermesDashboardCookies.open(secure)).cookies
-        .map((c) => c.name);
-    expect(names, isNot(contains('hermes_session_at')));
-    expect(names, containsAll(<String>['hermes_session_rt', 'dashboard_pref']));
+    await expectLater(
+      bridge.request('GET', root.resolve('/api/status')),
+      throwsA(isA<StateError>()),
+    );
+    await bridge.request('GET', root.resolve('/api/status'));
+    expect(dashboard.cookies.last, contains('hermes_session_at=rotated'));
+    expect(await secure.peek(), stored);
   });
 
   test('a clear removes every cookie its dashboard\'s answers set, past '
