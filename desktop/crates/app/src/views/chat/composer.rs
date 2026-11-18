@@ -4652,7 +4652,7 @@ fn chat_agent_offer(
                     l10n.desktop_settings_switch_server(),
                 )
                 .on_click(Rc::new(move |_, _, cx| {
-                    composer.update(cx, |s, cx| s.select_model(&id, cx))
+                    composer.update(cx, |s, cx| s.switch_to_chat_agent(&id, cx))
                 })),
             ),
         )

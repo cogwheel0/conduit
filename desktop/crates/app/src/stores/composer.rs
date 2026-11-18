@@ -707,6 +707,14 @@ impl ComposerStore {
         }
     }
 
+    /// Switch: the chat's saved agent [`Self::chat_agent`] for the next
+    /// turns. A one-message model (`@`) goes, as choosing a model in the
+    /// picker drops it, so the next message goes to the agent.
+    pub fn switch_to_chat_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.set_mention(None, cx);
+        self.select_model(id, cx);
+    }
+
     /// The coding agent the open chat was saved with, by id and as the
     /// picker names it, while another model is selected: the composer
     /// offers Switch to it. The daemon never selects it on its own.
@@ -3195,14 +3203,18 @@ mod tests {
             .expect("options");
         assert_eq!(options["modelId"], "k");
         assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
-        // Switch.
-        store.update(cx, |s, cx| s.select_model(agent, cx));
+        // A one-message model is set; then Switch.
+        store.update(cx, |s, cx| s.set_mention(Some(model("k", "Kestrel")), cx));
+        store.update(cx, |s, cx| s.switch_to_chat_agent(agent, cx));
         cx.run_until_parked();
         let picks = daemon.calls::<methods::ModelsSelect>();
         assert_eq!(picks.len(), 1);
         assert_eq!(picks[0]["id"], agent);
         assert_eq!(picks[0]["chatId"], "chat-7");
-        store.read_with(cx, |s, _| assert_eq!(s.chat_agent(), None));
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.chat_agent(), None);
+            assert!(s.mention.is_none(), "the one-message model outlived Switch");
+        });
     }
 
     /// Quick Ask keeps no draft but sends ordinary chats: its list is for a
