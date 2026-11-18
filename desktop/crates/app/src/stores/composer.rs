@@ -525,14 +525,13 @@ pub struct ComposerStore {
     /// What the stored draft holds is not known: its read failed. This
     /// composer then writes no draft at all (not while open, not on
     /// leaving): the stored draft stays as it was, and a chat opened again
-    /// reads it afresh. Typing never makes it unknown: a read always runs
-    /// to its end.
+    /// reads it afresh.
     draft_unknown: bool,
-    /// The draft read still on its way (its number), until it lands: what
-    /// the field holds before then is not the draft yet, and is joined with
-    /// it when it does.
+    /// The draft read still on its way (its number), until it lands or
+    /// fails: the composer takes no input and sends nothing until then.
+    /// The read is this composer's, not a chat id's: it lands on the chat
+    /// shown, under whatever id that chat has by then.
     draft_reading: Option<u64>,
-    /// That read: typing never stops it.
     _draft_read: Option<Task<()>>,
     draft_reads: u64,
     next_id: u64,
@@ -2211,6 +2210,7 @@ impl ComposerStore {
     fn end_draft_read(&mut self, cx: &mut Context<Self>) {
         if self.draft_reading.take().is_some() {
             cx.emit(ComposerEvent::DraftReadEnded);
+            cx.notify();
         }
     }
 
@@ -2310,32 +2310,33 @@ impl ComposerStore {
         self.draft_reads += 1;
         let read = self.draft_reads;
         self.draft_reading = Some(read);
+        cx.notify();
         self._draft_read = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.draft.as_ref() == Some(&key) && s.holds(ticket) {
-                        match draft {
-                            Ok(d) => {
-                                s.draft_unknown = false;
-                                s.draft_saved = d.text.clone();
-                                cx.emit(ComposerEvent::DraftLoaded { key, text: d.text });
-                            }
-                            // Never settled on absence: not an empty draft.
-                            Err(e) => {
-                                log::warn!("drafts.get: {e}");
-                                s.draft_unknown = true;
-                            }
+                    // This composer's read, still the one on its way: it
+                    // lands on the chat shown, whatever its id is now.
+                    if s.draft_reading != Some(read) {
+                        return;
+                    }
+                    match (s.draft.clone(), draft) {
+                        (Some(key), Ok(d)) if s.holds(ticket) => {
+                            s.draft_unknown = false;
+                            s.draft_saved = d.text.clone();
+                            cx.emit(ComposerEvent::DraftLoaded { key, text: d.text });
                         }
-                    } else if s.draft.as_ref() == Some(&key) {
+                        // Never settled on absence: not an empty draft.
+                        (_, Err(e)) => {
+                            log::warn!("drafts.get: {e}");
+                            s.draft_unknown = true;
+                        }
                         // Read for a composition started over since (shared
                         // text started fresh): it lands nowhere, and the
                         // stored draft, never shown, is never written over.
-                        s.draft_unknown = true;
+                        _ => s.draft_unknown = true,
                     }
-                    if s.draft_reading == Some(read) {
-                        s.end_draft_read(cx);
-                    }
+                    s.end_draft_read(cx);
                 });
             },
         ));
@@ -2346,8 +2347,8 @@ impl ComposerStore {
         let Some(key) = self.draft.clone() else {
             return;
         };
-        // Typed before the draft was read: the read goes on, and what was
-        // typed is joined with the draft when it lands (then kept).
+        // The field takes no input while the draft is read: nothing it
+        // holds then is written.
         if self.draft_reading.is_some() {
             self._draft = None;
             return;

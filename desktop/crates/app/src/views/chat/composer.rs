@@ -290,8 +290,7 @@ pub struct ChatComposer {
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
     /// The prompt being rendered: its request, where its text goes, and the
-    /// draft it was asked over ([`Self::render_prompt`]); moved with the
-    /// text when a draft is put in front ([`Self::prepend_stored`]).
+    /// draft it was asked over ([`Self::render_prompt`]).
     rendering: Option<(u64, usize, String)>,
     /// The composition a saved recording's transcription was asked for in:
     /// its words are added only while that composition is shown.
@@ -388,8 +387,8 @@ impl ChatComposer {
                     _ => {}
                 },
             ),
-            // Drafts: another chat's replaces what was shown; a draft read
-            // shows unless something was typed meanwhile.
+            // Drafts: another chat's replaces what was shown; the field takes
+            // no input until the chat's draft is read, then shows it.
             cx.subscribe_in(
                 &composer,
                 window,
@@ -407,19 +406,12 @@ impl ChatComposer {
                         this.sync_dictation_target(cx);
                         cx.notify();
                     }
-                    // The draft read landed: shown, joined with what was
-                    // typed meanwhile (the draft first), then kept.
-                    // Empty or not, the composer ends as an edit leaves it:
-                    // what it holds is kept if it differs from the draft.
+                    // The draft read landed: the field shows the stored
+                    // draft (it took no input meanwhile), caret at its end.
                     ComposerEvent::DraftLoaded { key, text }
                         if store.read(cx).draft_key() == Some(key) =>
                     {
-                        if text.is_empty() {
-                            let typed = this.text(cx);
-                            store.update(cx, |s, cx| s.draft_changed(&typed, cx));
-                        } else {
-                            this.prepend_stored(text, window, cx);
-                        }
+                        this.set_text(text, window, cx);
                     }
                     _ => {}
                 },
@@ -908,13 +900,17 @@ impl ChatComposer {
         self.has_message(cx) && self.composer.read(cx).can_name_model()
     }
 
-    /// Something to send now, the connection up and no file still being
-    /// read. Queue, Steer and Send Next need no more: they go to the turn
-    /// or chat already running, not to a model the list names.
+    /// Something to send now, the connection up, no file still being read
+    /// and the chat's draft read (nothing goes while it is). Queue, Steer
+    /// and Send Next need no more: they go to the turn or chat already
+    /// running, not to a model the list names.
     fn has_message(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
         let has_text = !self.text(cx).trim().is_empty();
-        !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
+        !self.offline
+            && !composer.uploading()
+            && !composer.draft_reading()
+            && (has_text || composer.has_attachments())
     }
 
     /// The call button stands where Send would: nothing to send.
@@ -1665,44 +1661,6 @@ impl ChatComposer {
             });
         })
         .detach();
-    }
-
-    /// The chat's draft, read after the field was typed into: it goes in
-    /// front of what the field holds (plainly, the draft first), and every
-    /// place kept on the text moves with it: the caret and selection, the
-    /// mentions, an open prompt form's place, a prompt still rendering, and
-    /// dictation's base. Then kept as an edit is. Nothing else puts text in
-    /// front of the caret.
-    fn prepend_stored(&mut self, stored: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let typed = self.text(cx);
-        let shift = stored.len();
-        let utf16 = stored.encode_utf16().count() as i64;
-        let selected = self.input.read(cx).selected_range();
-        let mentions: Vec<_> = self
-            .mentions(cx)
-            .into_iter()
-            .map(|mut m| {
-                m.start += utf16;
-                m.end += utf16;
-                m
-            })
-            .collect();
-        if let Some(form) = self.form.as_mut() {
-            form.at += shift;
-        }
-        if let Some((_, at, draft)) = self.rendering.as_mut() {
-            *at += shift;
-            draft.insert_str(0, stored);
-        }
-        if let Some(base) = self.dictation_base.as_mut() {
-            base.insert_str(0, stored);
-        }
-        let content = content_with_mentions(&format!("{stored}{typed}"), &mentions);
-        self.input.update(cx, |s, cx| {
-            s.set_value(content, window, cx);
-            s.set_selected_range(selected.start + shift..selected.end + shift, cx);
-        });
-        self.text_changed(cx);
     }
 
     fn rendered(
@@ -4244,10 +4202,14 @@ impl Render for ChatComposer {
             .map(|(d, n)| dictation_view::notice_banner(&me, &d, &n, cx));
 
         let paste_store = composer.clone();
+        // No input while dictating, nor while the chat's draft is read:
+        // what was typed then would be neither the draft nor kept apart
+        // from it.
+        let reading = self.composer.read(cx).draft_reading();
         let textarea = Textarea::new(&self.input)
             .appearance(false)
             .bordered(false)
-            .readonly(dictating)
+            .readonly(dictating || reading)
             .text_size(px(m.body))
             .aria_label(l10n.desktop_message_field())
             .accessibility_id("composer-input")
@@ -5242,63 +5204,6 @@ mod tests {
             view.read_with(cx, |c, cx| c.composer.read(cx).attachments.len()),
             1
         );
-    }
-
-    /// A prompt form opened while the chat's draft is read: the draft
-    /// lands in front, and the form's text still goes where the form was
-    /// opened.
-    #[gpui_kit::test]
-    fn a_prompt_form_keeps_its_place_when_the_draft_lands_in_front(cx: &mut TestAppContext) {
-        use conduit_protocol::methods::{DraftsGet, DraftsSave, PromptsRender};
-        let daemon = FakeDaemon::new();
-        daemon.returns::<DraftsGet>(
-            serde_json::from_value(serde_json::json!({"text": "Draft one. "})).unwrap(),
-        );
-        daemon.returns::<DraftsSave>(
-            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
-        );
-        daemon.on::<PromptsRender>(|p| {
-            Ok(if p["values"].as_object().is_some_and(|v| !v.is_empty()) {
-                serde_json::json!({"content": "politely", "inputs": []})
-            } else {
-                serde_json::json!({
-                    "content": "",
-                    "inputs": [{"name": "tone", "type": "text", "label": "Tone"}],
-                })
-            })
-        });
-        let read = daemon.hold::<DraftsGet>();
-        let (view, cx, _) = composer_on(daemon, cx);
-        view.update(cx, |c, cx| {
-            c.composer
-                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
-        });
-        view.update_in(cx, |c, window, cx| {
-            c.set_text("Say hi ", window, cx);
-            let prompt = serde_json::from_value(serde_json::json!({
-                "command": "/tone", "title": "Tone"
-            }))
-            .unwrap();
-            c.render_prompt(prompt, 7, BTreeMap::new(), window, cx);
-        });
-        cx.run_until_parked();
-        assert!(
-            view.read_with(cx, |c, _| c.form.is_some()),
-            "the form opens"
-        );
-        read.release();
-        cx.run_until_parked();
-        assert_eq!(value(&view, cx), "Draft one. Say hi ");
-        view.update_in(cx, |c, window, cx| {
-            if let Some(form) = c.form.as_ref()
-                && let Some(FieldInput::Text(state)) = form.fields.first().map(|f| &f.value)
-            {
-                state.update(cx, |s, cx| s.set_value("warm", window, cx));
-            }
-            c.submit_form(window, cx);
-        });
-        cx.run_until_parked();
-        assert_eq!(value(&view, cx), "Draft one. Say hi politely");
     }
 
     #[gpui_kit::test]
