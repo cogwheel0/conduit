@@ -22,7 +22,7 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use conduit_components::theme::{ConduitTheme, MONO_FONT, legible_lightness};
+use conduit_components::theme::{ConduitTheme, MONO_FONT, contrast_ratio, legible_lightness};
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
 use futures::StreamExt as _;
@@ -150,6 +150,19 @@ pub fn hsla(c: Rgb) -> Hsla {
 /// WCAG AA (4.5:1), with room for rounding each channel to a byte.
 const ANSI_RATIO: f32 = 4.55;
 
+/// `text` as drawn on `bg`: unchanged when it reads at WCAG AA there, else
+/// only its lightness moved, toward the end (black or white) that reads
+/// better on `bg`, until it does. A yellow stays yellow.
+pub fn legible_on(text: Rgb, bg: Rgb) -> Rgb {
+    let (fg, back) = (hsla(text), hsla(bg));
+    if contrast_ratio(fg, back) >= 4.5 {
+        return text;
+    }
+    let on_light =
+        contrast_ratio(gpui_kit::black(), back) >= contrast_ratio(gpui_kit::white(), back);
+    to_rgb(legible_lightness(fg, &[back], !on_light, ANSI_RATIO))
+}
+
 /// The terminal's colours for the window's theme: its text and content
 /// colours for the defaults, and ANSI colours tuned to sit on them.
 pub fn palette(t: &ConduitTheme) -> Palette {
@@ -166,26 +179,12 @@ pub fn palette(t: &ConduitTheme) -> Palette {
     } else {
         [
             0x1d1d1f, 0xc4262e, 0x1d7f3a, 0x946200, 0x0a55b0, 0x8250c8, 0x167a85, 0x6e6e73,
-            // The bright colours as dark as AA (4.5:1) on white needs.
-            0x5a5a5f, 0xde2e34, 0x248640, 0x9e6b00, 0x1a6fd6, 0x9252e4, 0x1d808b, 0x3a3a3c,
+            0x5a5a5f, 0xe0393f, 0x2a9e4c, 0xb57a00, 0x1a6fd6, 0xa16ae8, 0x2193a0, 0x3a3a3c,
         ]
     };
-    // Each text colour kept at AA on this palette's own console background
-    // (the light panels differ from white): only its lightness moves, so a
-    // yellow stays yellow. Black on dark (ANSI 0) is a background colour.
-    let background = hsla(to_rgb(t.roles.content));
-    let mut ansi = ansi.map(hex);
-    for (i, c) in ansi.iter_mut().enumerate() {
-        if t.dark && i == 0 {
-            continue;
-        }
-        *c = to_rgb(legible_lightness(
-            hsla(*c),
-            &[background],
-            t.dark,
-            ANSI_RATIO,
-        ));
-    }
+    // These are cell backgrounds as well as text: the text is kept legible
+    // cell by cell, on the background it is drawn on ([`legible_on`]).
+    let ansi = ansi.map(hex);
     Palette {
         ansi,
         foreground: to_rgb(t.roles.text),
@@ -1279,34 +1278,49 @@ pub const SETTLE: Duration = Duration::from_millis(150);
 mod contrast_tests {
     use conduit_components::theme::{ConduitTheme, DesignPrefs, contrast_ratio};
 
+    use super::super::emulator::{Emulator, GridSize};
     use super::*;
 
-    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on the console's
-    /// background in light and dark, in every palette (each has its own
-    /// panel colour), but the one colour a palette means as a background:
-    /// black on dark (ANSI 0), whose text would be a
-    /// background-on-background.
+    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on every
+    /// background a cell can have (the console's own, and each ANSI colour
+    /// set as a cell background, black on bright green among them), in
+    /// light and dark, in every palette: as the console draws the cell.
     #[test]
-    fn ansi_text_meets_wcag_aa_on_the_console_in_both_modes() {
+    fn ansi_text_meets_wcag_aa_on_every_cell_background() {
+        let backgrounds: Vec<(String, String)> = std::iter::once(("default".into(), "49".into()))
+            .chain((0..16).map(|b| {
+                let code = if b < 8 { 40 + b } else { 100 + b - 8 };
+                (format!("ANSI {b}"), code.to_string())
+            }))
+            .collect();
         let mut low = vec![];
         let ids: Vec<&str> = conduit_components::theme::palettes().ids().collect();
         assert!(ids.len() > 1, "{ids:?}");
         for (id, dark) in ids.iter().flat_map(|id| [(*id, false), (*id, true)]) {
             let t = ConduitTheme::new(id, dark, DesignPrefs::default(), gpui_kit::black());
             let p = palette(&t);
-            let bg = hsla(p.background);
-            let fg = contrast_ratio(hsla(p.foreground), bg);
+            let fg = contrast_ratio(hsla(p.foreground), hsla(p.background));
             assert!(fg >= 4.5, "{id} dark={dark}: foreground {fg:.2}");
-            for (i, c) in p.ansi.iter().enumerate() {
-                if dark && i == 0 {
-                    continue;
+            let e = Emulator::new(GridSize {
+                cols: 20,
+                rows: backgrounds.len() + 1,
+            });
+            for (row, (_, bg)) in backgrounds.iter().enumerate() {
+                for f in 0..16 {
+                    let fg = if f < 8 { 30 + f } else { 90 + f - 8 };
+                    e.feed(format!("\x1b[{};{}H\x1b[0;{fg};{bg}mX", row + 1, f + 1).as_bytes());
                 }
-                let r = contrast_ratio(hsla(*c), bg);
-                if r < 4.5 {
-                    low.push(format!(
-                        "{id} dark={dark}: ANSI {i} {c:?} on {:?} is {r:.2}:1",
-                        p.background
-                    ));
+            }
+            let frame = e.frame(&p, &[], None);
+            for (row, (name, _)) in backgrounds.iter().enumerate() {
+                for (f, cell) in frame.row(row).iter().take(16).enumerate() {
+                    let r = contrast_ratio(hsla(cell.fg), hsla(cell.bg));
+                    if r < 4.5 {
+                        low.push(format!(
+                            "{id} dark={dark}: ANSI {f} on {name}: {:?} on {:?} is {r:.2}:1",
+                            cell.fg, cell.bg
+                        ));
+                    }
                 }
             }
         }

@@ -12,6 +12,7 @@
 //! * Colours resolve against a [`Palette`] here, so the painter gets plain
 //!   RGB per cell.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -24,6 +25,8 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Processor, Rgb};
+
+use super::console::legible_on;
 
 /// How much history a terminal keeps, in lines.
 pub const SCROLLBACK: usize = 10_000;
@@ -94,6 +97,20 @@ impl Palette {
             _ => self.foreground,
         }
     }
+}
+
+/// Whether `color` is one of the palette's (the default colours and the 16
+/// ANSI ones), not one the program gave as an exact colour.
+fn from_palette(color: Color) -> bool {
+    match color {
+        Color::Named(_) => true,
+        Color::Indexed(i) => i < 16,
+        Color::Spec(_) => false,
+    }
+}
+
+fn rgb_key(c: Rgb) -> u32 {
+    (c.r as u32) << 16 | (c.g as u32) << 8 | c.b as u32
 }
 
 /// `c` at two thirds, toward `toward` (dim and faint text).
@@ -548,6 +565,7 @@ impl Emulator {
             size.cols * size.rows
         ];
         let mut zerowidth = vec![];
+        let mut legible: HashMap<(u32, u32), Rgb> = HashMap::new();
         let selection = content.selection;
         for indexed in content.display_iter {
             let point = indexed.point;
@@ -570,6 +588,15 @@ impl Emulator {
             }
             if flags.contains(Flags::HIDDEN) {
                 fg = bg;
+            } else if from_palette(if flags.contains(Flags::INVERSE) {
+                cell.bg
+            } else {
+                cell.fg
+            }) {
+                // The palette's text reads at AA on whatever this cell is
+                // drawn on; a colour the program gave exactly is its own.
+                let key = (rgb_key(fg), rgb_key(bg));
+                fg = *legible.entry(key).or_insert_with(|| legible_on(fg, bg));
             }
             let matched = visible
                 .iter()
@@ -653,7 +680,11 @@ mod tests {
     fn palette() -> Palette {
         let grey = |v| Rgb { r: v, g: v, b: v };
         let mut ansi = [grey(0); 16];
-        ansi[1] = Rgb { r: 200, g: 0, b: 0 };
+        ansi[1] = Rgb {
+            r: 255,
+            g: 96,
+            b: 96,
+        };
         ansi[2] = Rgb { r: 0, g: 160, b: 0 };
         Palette {
             ansi,
@@ -684,7 +715,14 @@ mod tests {
         e.feed(b"\x1b[31mred\x1b[0m \x1b[42mbg\x1b[0m \x1b[38;2;1;2;3mrgb\x1b[0m");
         let f = e.frame(&palette(), &[], None);
         let row = f.row(0);
-        assert_eq!(row[0].fg, Rgb { r: 200, g: 0, b: 0 });
+        assert_eq!(
+            row[0].fg,
+            Rgb {
+                r: 255,
+                g: 96,
+                b: 96
+            }
+        );
         assert!(row[0].default_bg);
         assert_eq!(row[4].bg, Rgb { r: 0, g: 160, b: 0 });
         assert!(!row[4].default_bg);
