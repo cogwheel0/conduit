@@ -79,8 +79,9 @@ abstract class ModelList with _$ModelList {
     @Default(<String, String>{}) Map<String, String> agentNames,
 
     /// The coding agent this chat ([ModelListQuery.chatId]) was saved with,
-    /// when [selectedId] is another model: the window offers to switch to
-    /// it (`models.select` with it and the chat). The selection is never
+    /// whatever [selectedId] is (that may be another chat's pick): the
+    /// window offers to switch to it (`models.select` with it and the chat)
+    /// while the chat has no pick of its own. The selection is never
     /// changed for it.
     String? chatAgent,
   }) = _ModelList;

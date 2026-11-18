@@ -344,8 +344,23 @@ void main() {
       final list = await ModelsService(container)
           .select(_northAgent, chatId: 'agent-chat');
       expect(list.selectedId, _northAgent);
-      expect(list.chatAgent, isNull);
+      // Still the chat's saved agent; the window hides Switch for its pick.
+      expect(list.chatAgent, _northAgent);
       expect(container.read(selectedTerminalIdProvider), 'north');
+    });
+
+    test('tells the window its agent though the account selected it', () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      // Picked in another window's chat: the account's selection.
+      await models.select(_northAgent, chatId: 'agent-chat');
+      final list = await models.list(
+        const ModelListQuery(chatId: 'agent-chat'),
+      );
+      expect(list.selectedId, _northAgent);
+      expect(list.chatAgent, _northAgent);
     });
 
     test('names no agent for a chat with an ordinary model', () async {

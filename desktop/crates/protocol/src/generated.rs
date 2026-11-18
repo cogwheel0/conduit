@@ -10044,8 +10044,9 @@ pub struct ModelList {
     #[serde(default)]
     pub agent_names: BTreeMap<String, String>,
     /// The coding agent this chat (`ModelListQuery.chatId`) was saved with,
-    /// when `selectedId` is another model: the window offers to switch to
-    /// it (`models.select` with it and the chat). The selection is never
+    /// whatever `selectedId` is (that may be another chat's pick): the
+    /// window offers to switch to it (`models.select` with it and the chat)
+    /// while the chat has no pick of its own. The selection is never
     /// changed for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_agent: Option<String>,

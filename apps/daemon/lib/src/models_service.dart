@@ -255,7 +255,7 @@ final class ModelsService {
       selectedId: selectedId,
       agents: agents.map(_summarize).toList(growable: false),
       agentNames: _agentNames(conversation),
-      chatAgent: _chatAgent(conversation, selectedId),
+      chatAgent: _chatAgent(conversation),
     );
     try {
       return _arranged([...models, ...agents], plain);
@@ -684,12 +684,13 @@ final class ModelsService {
     }
   }
 
-  /// The coding agent [conversation] was saved with, when the selection
-  /// ([selectedId]) is another model: the window offers Switch to it. The
-  /// selection is the account's and stays as it is until a pick.
-  static String? _chatAgent(Conversation? conversation, String? selectedId) {
+  /// The coding agent [conversation] was saved with: the window offers
+  /// Switch to it while the chat has no pick of its own. Reported whatever
+  /// the account's selection is (that may be another chat's pick); the
+  /// selection is never changed for it.
+  static String? _chatAgent(Conversation? conversation) {
     final id = conversation?.model;
-    return isTerminalAgentModelId(id) && id != selectedId ? id : null;
+    return isTerminalAgentModelId(id) ? id : null;
   }
 
   /// The coding agents [conversation]'s replies came from, named as the
