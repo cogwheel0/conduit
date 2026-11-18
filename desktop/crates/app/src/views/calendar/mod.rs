@@ -774,7 +774,7 @@ impl CalendarPane {
             .as_ref()
             .is_some_and(|(key, day)| key == &item.key && *day == d);
         let scheduled = item.kind == "scheduled";
-        let title = shown_title(&item, &l);
+        let title = shown_title(item, &l);
         let time = format::row_time(&item.time, &l);
         let mut detail = vec![time.clone()];
         if scheduled {
