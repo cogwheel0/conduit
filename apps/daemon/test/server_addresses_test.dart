@@ -355,6 +355,43 @@ void main() {
     ]);
   });
 
+  test('a reply started after removing was asked about is asked about '
+      'before the address goes', () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    // No reply when the remove is asked for; another window's starts before
+    // storage writes.
+    replies.next.addAll([false, true]);
+    addTearDown(replies.next.clear);
+    final asked = await servers.remove(
+      ServerAddressRemoveRequest(serverId: serverId, endpointId: inUse.id),
+    );
+    expect(asked.outcome, ServerAddressChangeOutcome.needsConfirmation);
+    expect(asked.confirmation, ServerAddressConfirmation.replyInProgress);
+    expect((await list()).addresses, hasLength(2));
+  });
+
+  test('an order that names an address twice is refused, the saved order '
+      'kept', () async {
+    final before = (await list()).addresses.map((a) => a.id).toList();
+    expect(before, hasLength(2));
+    await expectLater(
+      servers.reorder(
+        ServerAddressReorderRequest(
+          serverId: serverId,
+          order: [before.last, before.last, before.first],
+        ),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.invalidParams,
+        ),
+      ),
+    );
+    expect((await list()).addresses.map((a) => a.id), before);
+  });
+
   test('removing the address in use asks while a reply arrives', () async {
     final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
     replies.answering = true;
@@ -563,8 +600,11 @@ final class _Replies implements AddressReplies {
   bool answering = false;
   int stopped = 0;
 
+  /// What the next asks answer, first to last, before [answering] does.
+  final List<bool> next = <bool>[];
+
   @override
-  bool get addressAnswering => answering;
+  bool get addressAnswering => next.isNotEmpty ? next.removeAt(0) : answering;
 
   @override
   Future<void> stopAddressAnswers() async {

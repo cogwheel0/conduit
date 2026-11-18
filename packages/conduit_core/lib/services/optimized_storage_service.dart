@@ -2771,10 +2771,13 @@ class OptimizedStorageService {
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
     _RouteSession? session,
   }) async {
-    final stored = (await _registryForWriteUnlocked()).server(serverId);
+    final registry = await _registryForWriteUnlocked();
+    final stored = registry.server(serverId);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
     }
+    // [edit] runs right before the write, nothing awaited between: a check
+    // it makes (and throws on) holds for what is written.
     final endpoints = edit(stored.endpoints);
     if (endpoints.isEmpty) {
       throw ArgumentError('A server needs at least one route.');
@@ -2782,6 +2785,7 @@ class OptimizedStorageService {
     await _saveServerUnlocked(
       OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
       session: session,
+      registry: registry,
     );
   }
 
@@ -2789,8 +2793,9 @@ class OptimizedStorageService {
   Future<void> _saveServerUnlocked(
     OpenWebUiServer server, {
     _RouteSession? session,
+    OpenWebUiRegistry? registry,
   }) async {
-    final registry = await _registryForWriteUnlocked();
+    registry ??= await _registryForWriteUnlocked();
     final stored = registry.server(server.id);
     if (stored == null) {
       throw StateError('That server is no longer saved.');

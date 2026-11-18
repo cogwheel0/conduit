@@ -593,22 +593,28 @@ final class ServersService {
         debugMessage: 'a server keeps one address',
       );
     }
-    if (_addressInUse(server.id, registry) == request.endpointId &&
-        _replyArrives()) {
-      if (!request.stopReplies) {
-        return ServerAddressEditResult(
-          outcome: ServerAddressChangeOutcome.needsConfirmation,
-          confirmation: ServerAddressConfirmation.replyInProgress,
-          addresses: _addressesOf(server, registry),
-        );
-      }
+    bool replyThroughIt() =>
+        _addressInUse(server.id, registry) == request.endpointId &&
+        _replyArrives();
+    ServerAddressEditResult ask() => ServerAddressEditResult(
+      outcome: ServerAddressChangeOutcome.needsConfirmation,
+      confirmation: ServerAddressConfirmation.replyInProgress,
+      addresses: _addressesOf(server, registry),
+    );
+    if (replyThroughIt()) {
+      if (!request.stopReplies) return ask();
       await _stopReplies();
     }
-    await core.editServerAddresses(
-      _container,
-      server.id,
-      (endpoints) => core.withoutServerAddress(endpoints, request.endpointId),
-    );
+    try {
+      await core.editServerAddresses(_container, server.id, (endpoints) {
+        // Asked again in storage's own write, right before it writes: a
+        // reply another window started since is asked about too, never cut.
+        if (replyThroughIt()) throw const _ReplyStarted();
+        return core.withoutServerAddress(endpoints, request.endpointId);
+      });
+    } on _ReplyStarted {
+      return ask();
+    }
     _changed(server.id);
     return ServerAddressEditResult(
       outcome: ServerAddressChangeOutcome.done,
@@ -620,6 +626,14 @@ final class ServersService {
   Future<ServerAddressEditResult> reorder(
     ServerAddressReorderRequest request,
   ) async {
+    // Each address once: one written twice makes the saved servers
+    // unreadable at the next start.
+    if (request.order.toSet().length != request.order.length) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'an address is named twice in the order',
+      );
+    }
     final registry = await _storage.getOpenWebUiRegistryStrict();
     if (registry.server(request.serverId) == null) {
       throw _notFound(request.serverId);
@@ -938,6 +952,12 @@ final class ServersService {
     }
     return trimmed;
   }
+}
+
+/// Thrown inside a storage edit when a reply started through the address
+/// since it was asked about.
+final class _ReplyStarted implements Exception {
+  const _ReplyStarted();
 }
 
 /// The daemon's own Open WebUI answers, which arrive through the active
