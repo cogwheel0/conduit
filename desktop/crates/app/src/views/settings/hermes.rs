@@ -518,19 +518,28 @@ fn schedules_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement {
 /// Show: one the daemon refuses is said, and the switch keeps the value the
 /// daemon kept.
 pub fn set_show_scheduled_runs(stores: &Stores, on: bool, cx: &mut App) {
-    let answer = stores.app_settings.update(cx, |s, cx| {
-        s.save(
+    let (write, answer) = stores.app_settings.update(cx, |s, cx| {
+        s.scheduled_runs_writes += 1;
+        let answer = s.save(
             AppSettingsPatch {
                 hermes_show_scheduled_sessions: Some(on),
                 ..Default::default()
             },
             cx,
-        )
+        );
+        (s.scheduled_runs_writes, answer)
     });
+    let settings = stores.app_settings.downgrade();
     let toasts = stores.toasts.downgrade();
     cx.spawn(async move |cx: &mut AsyncApp| {
-        // Dropped unanswered when a later change replaced it: that one says.
-        if matches!(answer.await, Ok(false)) {
+        if !matches!(answer.await, Ok(false)) {
+            return;
+        }
+        // A newer change of the setting says its own outcome.
+        let newest = settings
+            .read_with(cx, |s, _| s.scheduled_runs_writes == write)
+            .unwrap_or(false);
+        if newest {
             let _ = toasts.update(cx, |t, cx| {
                 let text = cx.l10n().error_message();
                 t.show(NoticeLevel::Error, text, cx)
@@ -1310,6 +1319,56 @@ pub fn catalog_added(
 mod tests {
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+
+    /// A refusal is said even when the settings are read again while the
+    /// change waits for its answer, and not for a change a newer one
+    /// replaced.
+    #[gpui_kit::test]
+    fn a_refusal_is_said_through_a_refresh_and_only_for_the_newest_change(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let refusal = || {
+            Err(conduit_daemon::protocol::error(
+                "rpc.unavailable",
+                "preference changes are unavailable",
+            ))
+        };
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-scheduled-refresh-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        cx.run_until_parked();
+        let toasts =
+            |cx: &mut gpui_kit::TestAppContext| cx.read(|cx| stores.toasts.read(cx).toasts.len());
+        let before = toasts(cx);
+        daemon.once::<methods::SettingsSet>(refusal());
+        let held = daemon.hold::<methods::SettingsSet>();
+        cx.update(|cx| set_show_scheduled_runs(&stores, false, cx));
+        cx.run_until_parked();
+        stores.app_settings.update(cx, |s, cx| s.refresh(cx));
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(toasts(cx), before + 1, "the refresh dropped the refusal");
+
+        // Two changes: the older one's refusal is not said. (The notice
+        // said above is cleared: the same notice twice in a row is one.)
+        stores.toasts.update(cx, |t, _| t.toasts.clear());
+        let before = toasts(cx);
+        daemon.once::<methods::SettingsSet>(refusal());
+        daemon.once::<methods::SettingsSet>(refusal());
+        let held = daemon.hold::<methods::SettingsSet>();
+        cx.update(|cx| {
+            set_show_scheduled_runs(&stores, false, cx);
+            set_show_scheduled_runs(&stores, true, cx);
+        });
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(toasts(cx), before + 1);
+    }
 
     /// A Show Scheduled Runs change the daemon refuses is said, from
     /// Settings and from the sidebar's Show alike.

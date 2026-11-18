@@ -36,6 +36,9 @@ pub struct AppSettingsStore {
     /// Why the last change was refused, until the next one.
     pub error: Option<RpcError>,
     generation: u64,
+    /// Show Scheduled Runs changes asked so far: a refusal is said only
+    /// while no newer change of it was asked.
+    pub scheduled_runs_writes: u64,
     _fetch: Option<Task<()>>,
     _health: Option<Task<()>>,
 }
@@ -88,6 +91,7 @@ impl AppSettingsStore {
             reconnect_failed: false,
             error: None,
             generation: 0,
+            scheduled_runs_writes: 0,
             _fetch: None,
             _health: None,
         }
@@ -172,8 +176,9 @@ impl AppSettingsStore {
         drop(self.save(patch, cx));
     }
 
-    /// [`Self::set`], answering whether the daemon took `patch` (dropped
-    /// unanswered when a later change replaces it).
+    /// [`Self::set`], answering whether the daemon took `patch`. Every save
+    /// is answered: a later save or a refresh never drops the answer (only
+    /// what is shown follows the newest).
     pub fn save(
         &mut self,
         patch: AppSettingsPatch,
@@ -184,26 +189,25 @@ impl AppSettingsStore {
         self.generation += 1;
         let generation = self.generation;
         let call = self.rpc.call::<methods::SettingsSet>(&patch);
-        self._fetch = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let result = call.await;
-                let _ = this.update(cx, |s, cx| match result {
-                    Ok(settings) => {
-                        s.error = None;
-                        if s.generation == generation {
-                            s.adopt(settings, cx);
-                        }
-                        let _ = done.send(true);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| match result {
+                Ok(settings) => {
+                    s.error = None;
+                    if s.generation == generation {
+                        s.adopt(settings, cx);
                     }
-                    Err(e) => {
-                        log::warn!("settings.set: {e}");
-                        s.error = Some(e);
-                        cx.notify();
-                        let _ = done.send(false);
-                    }
-                });
-            }),
-        );
+                    let _ = done.send(true);
+                }
+                Err(e) => {
+                    log::warn!("settings.set: {e}");
+                    s.error = Some(e);
+                    cx.notify();
+                    let _ = done.send(false);
+                }
+            });
+        })
+        .detach();
         answer
     }
 
