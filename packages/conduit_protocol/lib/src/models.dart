@@ -77,6 +77,12 @@ abstract class ModelList with _$ModelList {
     /// as the picker names them ("Codex · gpt-5.1"), for a reply's header
     /// when its terminal no longer offers the agent.
     @Default(<String, String>{}) Map<String, String> agentNames,
+
+    /// The coding agent this chat ([ModelListQuery.chatId]) was saved with,
+    /// when [selectedId] is another model: the window offers to switch to
+    /// it (`models.select` with it and the chat). The selection is never
+    /// changed for it.
+    String? chatAgent,
   }) = _ModelList;
 
   factory ModelList.fromJson(Map<String, dynamic> json) =>
@@ -118,11 +124,6 @@ abstract class ModelListQuery with _$ModelListQuery {
 
     /// The new chat is a temporary one, where no coding agent answers.
     @Default(false) bool temporary,
-
-    /// The window has just opened [chatId]: a chat started with a coding
-    /// agent reopens with it, once per opening, unless a model is picked
-    /// there first.
-    @Default(false) bool opening,
   }) = _ModelListQuery;
 
   factory ModelListQuery.fromJson(Map<String, dynamic> json) =>

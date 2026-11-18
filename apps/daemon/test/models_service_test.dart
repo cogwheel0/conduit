@@ -158,8 +158,7 @@ final _terminals = <TerminalServerInfo>[
   ),
 ];
 
-/// A server whose terminal north offers one coding agent, and south none;
-/// asking fails while [failing] holds.
+/// A server whose terminal north offers one coding agent, and south none.
 final class _AgentsApi extends ApiService {
   _AgentsApi()
     : super(
@@ -171,11 +170,7 @@ final class _AgentsApi extends ApiService {
         workerManager: WorkerManager(),
       );
 
-  bool failing = false;
   final asked = <String>[];
-
-  /// North's answers wait for this while it is set.
-  Completer<void>? held;
 
   @override
   Future<List<core.Model>> getTerminalAgentModels({
@@ -188,8 +183,6 @@ final class _AgentsApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     asked.add(terminalId);
-    if (terminalId == 'north') await held?.future;
-    if (failing) throw const SocketException('No route to host');
     return terminalId == 'north'
         ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
         : const <core.Model>[];
@@ -241,118 +234,34 @@ ProviderContainer _agentContainer(_AgentsApi api) {
 
 void main() {
   group('a chat started with a coding agent', () {
-    const opening = ModelListQuery(chatId: 'agent-chat', opening: true);
-    const again = ModelListQuery(chatId: 'agent-chat');
+    const listed = ModelListQuery(chatId: 'agent-chat');
 
-    test(
-      'reopens on its own terminal, whichever terminal is selected',
-      () async {
-        final api = _AgentsApi();
-        final container = _agentContainer(api);
-        final list = await ModelsService(container).list(opening);
-        expect(list.selectedId, _northAgent);
-        expect(container.read(selectedTerminalIdProvider), 'north');
-        expect(list.agents.map((m) => m.id), <String>[_northAgent]);
-      },
-    );
-
-    test('whose terminal could not be asked reopens on a later list', () async {
-      final api = _AgentsApi()..failing = true;
+    test('tells the window its agent, the selection left as it is', () async {
+      final api = _AgentsApi();
       final container = _agentContainer(api);
-      final models = ModelsService(container);
-      expect((await models.list(opening)).selectedId, 'first-model');
-      api.failing = false;
-      expect((await models.list(again)).selectedId, _northAgent);
-    });
-
-    test(
-      'keeps a model picked there when another chat lists in between',
-      () async {
-        final api = _AgentsApi();
-        final container = _agentContainer(api);
-        container.read(selectedTerminalIdProvider.notifier).set('north');
-        final models = ModelsService(container);
-        expect((await models.list(opening)).selectedId, _northAgent);
-        await models.select('first-model', chatId: 'agent-chat');
-        await models.list(
-          const ModelListQuery(chatId: 'plain-chat', opening: true),
-        );
-        expect((await models.list(again)).selectedId, 'first-model');
-      },
-    );
-
-    test('keeps a model picked there before its agent was found', () async {
-      final api = _AgentsApi()..held = Completer<void>();
-      final container = _agentContainer(api);
-      final models = ModelsService(container);
-      final listing = models.list(opening);
-      await pumpEventQueue();
-      expect(api.asked, <String>['north']);
-      await models.select('first-model', chatId: 'agent-chat');
-      api.held!.complete();
-      await listing;
-      expect(container.read(selectedModelProvider)?.id, 'first-model');
-    });
-
-    test('puts nothing back once another account signed in', () async {
-      final api = _AgentsApi()..held = Completer<void>();
-      final container = _agentContainer(api);
-      final models = ModelsService(container);
-      final listing = models.list(opening);
-      await pumpEventQueue();
-      expect(api.asked, <String>['north']);
-      _session = Object();
-      container.invalidate(openWebUiAuthSessionEpochProvider);
-      api.held!.complete();
-      // The list is the next account's, with nothing put back for it.
-      expect((await listing).selectedId, 'first-model');
-      expect(container.read(selectedModelProvider)?.id, 'first-model');
-      expect(container.read(selectedTerminalIdProvider), 'south');
-    });
-
-    test(
-      'keeps a pick made in another chat while its agent was looked up',
-      () async {
-        final api = _AgentsApi()..held = Completer<void>();
-        final container = _agentContainer(api);
-        final models = ModelsService(container);
-        final listing = models.list(opening);
-        await pumpEventQueue();
-        expect(api.asked, <String>['north']);
-        // Another chat is opened and a model picked there before the first
-        // chat's terminal answers.
-        await models.list(
-          const ModelListQuery(chatId: 'plain-chat', opening: true),
-        );
-        await models.select('preferred-model', chatId: 'plain-chat');
-        api.held!.complete();
-        await listing;
-        expect(container.read(selectedModelProvider)?.id, 'preferred-model');
-        expect(container.read(selectedTerminalIdProvider), 'south');
-      },
-    );
-
-    test('puts nothing back once another chat is shown', () async {
-      final api = _AgentsApi()..held = Completer<void>();
-      final container = _agentContainer(api);
-      final models = ModelsService(container);
-      final listing = models.list(opening);
-      await pumpEventQueue();
-      expect(api.asked, <String>['north']);
-      await models.list(
-        const ModelListQuery(chatId: 'plain-chat', opening: true),
-      );
-      api.held!.complete();
-      await listing;
-      expect(container.read(selectedModelProvider)?.id, 'first-model');
-      expect(container.read(selectedTerminalIdProvider), 'south');
-    });
-
-    test('is not reopened by a list that does not open it', () async {
-      final container = _agentContainer(_AgentsApi());
-      container.read(selectedTerminalIdProvider.notifier).set('north');
-      final list = await ModelsService(container).list(again);
+      final list = await ModelsService(container).list(listed);
       expect(list.selectedId, 'first-model');
+      expect(list.chatAgent, _northAgent);
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+      expect(container.read(selectedTerminalIdProvider), 'south');
+      expect(api.asked, isNot(contains('north')));
+    });
+
+    test('switches to it on its own terminal when the window asks', () async {
+      final api = _AgentsApi();
+      final container = _agentContainer(api);
+      final list = await ModelsService(container)
+          .select(_northAgent, chatId: 'agent-chat');
+      expect(list.selectedId, _northAgent);
+      expect(list.chatAgent, isNull);
+      expect(container.read(selectedTerminalIdProvider), 'north');
+    });
+
+    test('names no agent for a chat with an ordinary model', () async {
+      final container = _agentContainer(_AgentsApi());
+      final list = await ModelsService(container)
+          .list(const ModelListQuery(chatId: 'plain-chat'));
+      expect(list.chatAgent, isNull);
     });
   });
 

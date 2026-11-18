@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit는 메시지를 받아쓰거나 음성 통화에서 말할 때 듣습니다. 받아쓰기 녹음은 보낼 때까지 초안과 함께 보관됩니다.",
   "desktopUsageSpeechRecognition": "설정 › 오디오에서 ‘이 Mac에서’를 선택하면 Conduit가 받아쓴 내용을 이 Mac에서 텍스트로 바꿉니다.",
   "desktopUsageLocalNetwork": "Conduit는 추가한 로컬 네트워크의 서버(Open WebUI, 모델 제공자, MCP 도구 서버 등)에 연결합니다.",
-  "desktopBackendAppleOnDeviceSubtitle": "Apple의 비공개 모델을 이 Mac에서 실행합니다. 오프라인에서도 작동합니다."
+  "desktopBackendAppleOnDeviceSubtitle": "Apple의 비공개 모델을 이 Mac에서 실행합니다. 오프라인에서도 작동합니다.",
+  "desktopChatUsedAgent": "이 채팅에서는 {agent}을(를) 사용했습니다.",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -3962,6 +3962,9 @@ impl Render for ChatComposer {
             .selected_model()
             .map(model_label)
             .unwrap_or_else(|| l10n.desktop_shortcut_focus_model_picker());
+        // The coding agent this chat was saved with, when another model is
+        // selected: offered, never chosen for the user.
+        let chat_agent = store.chat_agent();
 
         let frame = conduit_components::views::composer::composer_frame(&t);
         // In Quick Ask the panel is itself raised, so its composer sits a
@@ -4434,6 +4437,7 @@ impl Render for ChatComposer {
             .children(form)
             .children(panel)
             .children(notice)
+            .children(chat_agent.map(|(id, name)| chat_agent_offer(&composer, id, name, cx)))
             .children(recordings)
             .child(
                 div()
@@ -4601,6 +4605,55 @@ impl Render for ChatComposer {
                     .children(picker),
             )
     }
+}
+
+/// "This chat used <agent>" with Switch, above the message box of a chat
+/// saved with a coding agent while another model is selected. Switch picks
+/// it (`models.select`), as choosing it in the picker would.
+fn chat_agent_offer(
+    composer: &Entity<ComposerStore>,
+    id: String,
+    name: String,
+    cx: &mut Context<ChatComposer>,
+) -> AnyElement {
+    let l10n = cx.l10n().clone();
+    let t = cx.conduit().clone();
+    let r = t.roles;
+    let m = t.metrics;
+    let words = l10n.desktop_chat_used_agent(&name);
+    let composer = composer.clone();
+    div()
+        .id("chat-agent-offer")
+        .role(Role::Group)
+        .aria_label(SharedString::from(words.clone()))
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(t.card_radius())
+        .border_1()
+        .border_color(r.border)
+        .bg(conduit_components::views::kit::on_raised_fill(&t))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(SharedString::from(words)),
+        )
+        .child(
+            conduit_components::views::kit::Button::new(
+                "chat-agent-switch",
+                l10n.desktop_settings_switch_server(),
+            )
+            .on_click(Rc::new(move |_, _, cx| {
+                composer.update(cx, |s, cx| s.select_model(&id, cx))
+            })),
+        )
+        .into_any_element()
 }
 
 /// `content` without the bytes in `cut` (a trigger word): the tokens after

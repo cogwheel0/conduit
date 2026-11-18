@@ -28,5 +28,6 @@
   ],
   "agentNames": {
     "agent:buildbox:pi:default": "Pi · default"
-  }
+  },
+  "chatAgent": "agent:buildbox:pi:default"
 }

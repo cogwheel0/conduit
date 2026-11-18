@@ -6632,5 +6632,14 @@
   "desktopAddressRemoved": "Address removed.",
   "@desktopAddressRemoved": {
     "description": "Spoken by VoiceOver once an address of a server was removed."
+  },
+  "desktopChatUsedAgent": "This chat used {agent}.",
+  "@desktopChatUsedAgent": {
+    "description": "Above the message box of a chat saved with a coding agent while another model is selected; {agent} is the agent as the model picker names it (\"Codex · gpt-5.1\"). A Switch button follows.",
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
   }
 }

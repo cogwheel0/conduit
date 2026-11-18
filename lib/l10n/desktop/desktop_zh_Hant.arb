@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "當你聽寫訊息或在語音通話中說話時，Conduit 會聆聽。聽寫的錄音會隨草稿保留，直到你傳送為止。",
   "desktopUsageSpeechRecognition": "當你在「設定 › 音訊」中選擇「在這台 Mac 上」時，Conduit 會在這台 Mac 上將你聽寫的內容轉為文字。",
   "desktopUsageLocalNetwork": "Conduit 會連線至你在區域網路上加入的伺服器，例如 Open WebUI、模型供應商和 MCP 工具伺服器。",
-  "desktopBackendAppleOnDeviceSubtitle": "在此 Mac 上執行 Apple 的私密模型，離線也能用。"
+  "desktopBackendAppleOnDeviceSubtitle": "在此 Mac 上執行 Apple 的私密模型，離線也能用。",
+  "desktopChatUsedAgent": "此聊天曾使用 {agent}。",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

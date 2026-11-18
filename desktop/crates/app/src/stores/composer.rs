@@ -668,17 +668,9 @@ impl ComposerStore {
     }
 
     /// `models.list`, then `composer.options` (which depends on it).
+    /// It replaces a list still on its way.
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
-        self.list_models(false, cx);
-    }
-
-    /// [`Self::refresh_models`], saying whether this composer has just
-    /// opened its chat (`opening`): the daemon puts a chat's coding agent
-    /// back once per opening. It replaces a list still on its way.
-    fn list_models(&mut self, opening: bool, cx: &mut Context<Self>) {
-        let call = self
-            .rpc
-            .call::<methods::ModelsList>(&self.list_query(opening));
+        let call = self.rpc.call::<methods::ModelsList>(&self.list_query());
         let scope = self.scope;
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -704,13 +696,29 @@ impl ComposerStore {
     /// What `models.list` lists for: the open chat, or a new one (a chat
     /// that keeps no draft is a temporary one, where no coding agent
     /// answers).
-    fn list_query(&self, opening: bool) -> conduit_protocol::ModelListQuery {
-        let chat_id = self.chat_id();
+    fn list_query(&self) -> conduit_protocol::ModelListQuery {
         conduit_protocol::ModelListQuery {
-            opening: opening && chat_id.is_some(),
-            chat_id,
+            chat_id: self.chat_id(),
             temporary: self.draft.is_none(),
         }
+    }
+
+    /// The coding agent the open chat was saved with, by id and as the
+    /// picker names it, while another model is selected: the composer
+    /// offers Switch to it. The daemon never selects it on its own.
+    pub fn chat_agent(&self) -> Option<(String, String)> {
+        let list = self.models.as_ref()?;
+        let id = list.chat_agent.clone()?;
+        if list.selected_id.as_deref() == Some(id.as_str()) {
+            return None;
+        }
+        let name = list
+            .agent_names
+            .get(&id)
+            .cloned()
+            .or_else(|| find_model(list, &id).map(|m| m.name.clone()))
+            .unwrap_or_else(|| id.clone());
+        Some((id, name))
     }
 
     /// `models.controls` for the selected model: none for a model without.
@@ -2009,12 +2017,12 @@ impl ComposerStore {
             self.resolve_draft_model(folder, cx);
         }
         cx.emit(ComposerEvent::DraftSwitched);
-        // The chat's coding agents, and whether it is one's (Regenerate and
-        // Edit follow it), are the new chat's; an opened chat may put its
-        // agent back. Asked even while the first list is on its way: that
-        // one was for the chat before.
+        // The chat's coding agents, whether it is one's (Regenerate and
+        // Edit follow it) and the agent it was saved with are the new
+        // chat's. Asked even while the first list is on its way: that one
+        // was for the chat before.
         if self.channel.is_none() {
-            self.list_models(opened, cx);
+            self.refresh_models(cx);
         }
         let Some(key) = key else {
             return;
@@ -3125,22 +3133,31 @@ mod tests {
         store.read_with(cx, |s, _| assert!(s.has_attachments() && !s.uploading()));
     }
 
-    /// Opening a saved chat lists its models as an opening (the daemon puts
-    /// a chat's coding agent back once per opening), even while the first
-    /// list is still on its way; other lists are no opening, and the
+    /// A chat saved with a coding agent, opened while another model is
+    /// selected: its list is asked even while the first list is on its way,
+    /// the agent is offered (by the name the picker gives it) and never
+    /// selected for the user, and Switch picks it for that chat. The
     /// composer's options are asked for the model it shows.
     #[gpui_kit::test]
-    fn opening_a_chat_lists_its_models_as_an_opening(cx: &mut TestAppContext) {
+    fn a_chat_saved_with_an_agent_offers_switch_to_it(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("k", "Kestrel")],
             selected_id: Some("k".into()),
+            agent_names: [(agent.to_string(), "Codex · gpt-test".to_string())].into(),
+            chat_agent: Some(agent.into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(agent.into()),
             ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
         daemon.returns::<methods::DraftsGet>(Draft::default());
         let store = store(&daemon, Arc::default(), cx);
-        // The first list has not answered when a chat opens.
+        // The first list has not answered when the chat opens.
         let first = daemon.hold::<methods::ModelsList>();
         store.update(cx, |s, cx| s.refresh_models(cx));
         store.update(cx, |s, cx| {
@@ -3156,22 +3173,31 @@ mod tests {
         first.release();
         cx.run_until_parked();
         let lists = daemon.calls::<methods::ModelsList>();
-        let opened: Vec<_> = lists.iter().filter(|q| q["opening"] == true).collect();
-        assert_eq!(
-            opened.len(),
-            1,
-            "the chat was not listed as an opening: {lists:?}"
+        assert!(
+            lists.iter().any(|q| q["chatId"] == "chat-7"),
+            "the opened chat was not listed: {lists:?}"
         );
-        assert_eq!(opened[0]["chatId"], "chat-7");
-        store.update(cx, |s, cx| s.refresh_models(cx));
-        cx.run_until_parked();
-        let last = daemon.calls::<methods::ModelsList>().pop().expect("a list");
-        assert_eq!(last["opening"], false, "a refresh was taken as an opening");
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
+            assert_eq!(
+                s.chat_agent(),
+                Some((agent.to_string(), "Codex · gpt-test".to_string()))
+            );
+        });
         let options = daemon
             .calls::<methods::ComposerOptions>()
             .pop()
             .expect("options");
         assert_eq!(options["modelId"], "k");
+        assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
+        // Switch.
+        store.update(cx, |s, cx| s.select_model(agent, cx));
+        cx.run_until_parked();
+        let picks = daemon.calls::<methods::ModelsSelect>();
+        assert_eq!(picks.len(), 1);
+        assert_eq!(picks[0]["id"], agent);
+        assert_eq!(picks[0]["chatId"], "chat-7");
+        store.read_with(cx, |s, _| assert_eq!(s.chat_agent(), None));
     }
 
     /// Right after sign-in the daemon has selected nothing yet and runs the

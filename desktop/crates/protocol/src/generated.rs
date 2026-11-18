@@ -10043,6 +10043,12 @@ pub struct ModelList {
     /// when its terminal no longer offers the agent.
     #[serde(default)]
     pub agent_names: BTreeMap<String, String>,
+    /// The coding agent this chat (`ModelListQuery.chatId`) was saved with,
+    /// when `selectedId` is another model: the window offers to switch to
+    /// it (`models.select` with it and the chat). The selection is never
+    /// changed for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_agent: Option<String>,
 }
 
 /// A coding agent's place: the terminal it runs on, the agent (`codex`,
@@ -10075,11 +10081,6 @@ pub struct ModelListQuery {
     /// The new chat is a temporary one, where no coding agent answers.
     #[serde(default)]
     pub temporary: bool,
-    /// The window has just opened `chatId`: a chat started with a coding
-    /// agent reopens with it, once per opening, unless a model is picked
-    /// there first.
-    #[serde(default)]
-    pub opening: bool,
 }
 
 /// Params for `models.select`.

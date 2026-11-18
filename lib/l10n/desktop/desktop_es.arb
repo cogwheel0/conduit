@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit escucha cuando dictas un mensaje o hablas en una llamada de voz. La grabación de un dictado se queda con tu borrador hasta que lo envíes.",
   "desktopUsageSpeechRecognition": "Conduit convierte lo que dictas en texto en este Mac cuando eliges «En este Mac» en Ajustes › Audio.",
   "desktopUsageLocalNetwork": "Conduit se conecta a los servidores de tu red local que añadas, como Open WebUI, proveedores de modelos y servidores de herramientas MCP.",
-  "desktopBackendAppleOnDeviceSubtitle": "Ejecuta el modelo privado de Apple en este Mac, incluso sin conexión."
+  "desktopBackendAppleOnDeviceSubtitle": "Ejecuta el modelo privado de Apple en este Mac, incluso sin conexión.",
+  "desktopChatUsedAgent": "Este chat usó {agent}.",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit počúva, keď diktujete správu alebo hovoríte v hlasovom hovore. Záznam diktovania zostane pri koncepte, kým ho neodošlete.",
   "desktopUsageSpeechRecognition": "Conduit prevádza diktovaný text na text priamo v tomto Macu, keď v Nastavenia › Zvuk zvolíte „V tomto Macu“.",
   "desktopUsageLocalNetwork": "Conduit sa pripája k serverom vo vašej miestnej sieti, ktoré pridáte, napríklad k Open WebUI, poskytovateľom modelov a serverom nástrojov MCP.",
-  "desktopBackendAppleOnDeviceSubtitle": "Spúšťajte súkromný model Apple v tomto Macu, aj offline."
+  "desktopBackendAppleOnDeviceSubtitle": "Spúšťajte súkromný model Apple v tomto Macu, aj offline.",
+  "desktopChatUsedAgent": "Tento chat používal {agent}.",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

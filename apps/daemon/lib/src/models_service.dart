@@ -176,43 +176,8 @@ final class ModelsService {
     }
   }
 
-  /// The openings whose coding agent is still to be put back, by chat: a
-  /// list that says the window just opened a chat takes a new one (its
-  /// ticket), as mobile restores a chat's agent each time it opens it. It
-  /// goes once that is settled (the agent put back, or a terminal that
-  /// answered without it, or a chat that needs none). It carries the pick
-  /// count at its opening ([_picks]): a model picked anywhere since, in any
-  /// chat, wins over it, as the selection is the account's. A lookup that
-  /// failed leaves it for the next list of that chat. Kept for the account
-  /// and session in [_restoreSession] / [_restoreAccount].
-  Map<String, ({int opening, int picks})> _restoring =
-      <String, ({int opening, int picks})>{};
-  int _openings = 0;
-
-  /// Bumped by every model pick (`models.select`), in any chat.
-  int _picks = 0;
-
-  /// The chat the latest list was for (null for a new chat): the chat
-  /// being shown, the only one whose agent may be put back.
-  String? _shown;
-  Object? _restoreSession;
-  String? _restoreAccount;
-
-  /// [_restoring] for the account and session in charge now: emptied when
-  /// either changed.
-  Map<String, ({int opening, int picks})> _restoringNow() {
-    final session = _container.read(openWebUiAuthSessionEpochProvider);
-    final account = currentPreferenceAccountId();
-    if (!identical(session, _restoreSession) || account != _restoreAccount) {
-      _restoreSession = session;
-      _restoreAccount = account;
-      _restoring = <String, ({int opening, int picks})>{};
-    }
-    return _restoring;
-  }
-
-  /// How long reopening waits for the agent's terminal to answer.
-  static const Duration _reopenWait = Duration(seconds: 3);
+  /// How long Switch waits for the agent's own terminal to answer.
+  static const Duration _agentLookupWait = Duration(seconds: 3);
 
   /// One account's list: started again once if the account (or its
   /// signed-in user) changes while it is put together, and refused if it
@@ -224,11 +189,7 @@ final class ModelsService {
     for (var attempt = 0; ; attempt++) {
       final session = _container.read(openWebUiAuthSessionEpochProvider);
       final accountId = currentPreferenceAccountId();
-      // The window opened the chat under the account of the first
-      // attempt: a list started again for the next account opens nothing.
-      final list = await _list(
-        attempt == 0 ? query : query.copyWith(opening: false),
-      );
+      final list = await _list(query);
       if (identical(
             session,
             _container.read(openWebUiAuthSessionEpochProvider),
@@ -246,18 +207,10 @@ final class ModelsService {
   }
 
   Future<ModelList> _list(ModelListQuery query) async {
-    final account = AccountScope.capture(_container);
     final chatId = query.chatId;
-    _shown = chatId;
-    if (query.opening && chatId != null) {
-      _restoringNow()[chatId] = (opening: ++_openings, picks: _picks);
-    }
     final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
     final conversation = chatId == null ? null : await _conversation(chatId);
-    // Before the agents are listed: reopening selects the agent's own
-    // terminal, whose agents the list then offers.
-    if (chatId != null) await _reopenAgent(chatId, conversation, account);
     final agents = await _agents(conversation, temporary: query.temporary);
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
@@ -268,6 +221,7 @@ final class ModelsService {
       selectedId: selectedId,
       agents: agents.map(_summarize).toList(growable: false),
       agentNames: _agentNames(conversation),
+      chatAgent: _chatAgent(conversation, selectedId),
     );
     try {
       return _arranged([...models, ...agents], plain);
@@ -566,14 +520,15 @@ final class ModelsService {
   Future<ModelList> select(String id, {String? chatId}) async {
     // The pick is made for the account it was asked under, or not at all.
     final account = AccountScope.capture(_container);
-    // A pick, in any chat, wins over every opening still putting an agent
-    // back: the selection it makes is the account's.
-    _picks++;
     if (isTerminalAgentModelId(id)) {
       final conversation = chatId == null ? null : await _conversation(chatId);
-      final agent = (await _agents(conversation))
-          .where((candidate) => candidate.id == id)
-          .firstOrNull;
+      final agent =
+          (await _agents(conversation))
+              .where((candidate) => candidate.id == id)
+              .firstOrNull ??
+          // Switch: the chat's own agent, asked of its own terminal (picking
+          // it selects that terminal), whichever terminal is selected now.
+          (conversation?.model == id ? await _onItsTerminal(id, chatId) : null);
       if (agent == null) {
         throw RpcError(
           code: ConduitErrorCodes.notFound,
@@ -634,56 +589,32 @@ final class ModelsService {
     }
   }
 
-  /// A chat started with a coding agent reopens with it, as on mobile:
-  /// once per opening ([_restoring]), and only when its terminal is asked
-  /// and answers with it. The terminal asked is the one the agent's id
-  /// names (selected with it), not the one selected now. A conversation or
-  /// terminal that could not be read leaves the opening for the next list;
-  /// a pick in any chat since the opening, a newer opening, another chat
-  /// shown or another account in charge ([scope]) puts nothing back. These
-  /// are checked together right before the write, with no wait between.
-  Future<void> _reopenAgent(
-    String chatId,
-    Conversation? conversation,
-    AccountScope scope,
-  ) async {
-    final pending = _restoringNow();
-    final ticket = pending[chatId];
-    if (ticket == null || conversation == null) return;
-    final id = conversation.model;
-    if (id == null ||
-        !isTerminalAgentModelId(id) ||
-        _picks != ticket.picks ||
-        _container.read(selectedModelProvider)?.id == id) {
-      pending.remove(chatId);
-      return;
-    }
-    final core.Model? agent;
+  /// The coding agent [id] as its own terminal offers it to [chatId], or
+  /// null when that terminal does not offer it or could not be asked.
+  Future<core.Model?> _onItsTerminal(String id, String? chatId) async {
     try {
-      agent = await resolveTerminalAgentModel(
+      return await resolveTerminalAgentModel(
         _container,
         id,
         chatId: chatId,
-        timeout: _reopenWait,
+        timeout: _agentLookupWait,
       );
     } on Object catch (error) {
       DebugLogger.warning(
-        'agent-reopen-failed',
+        'agent-lookup-failed',
         scope: 'daemon/models',
         data: <String, Object?>{'error': error.runtimeType.toString()},
       );
-      return;
+      return null;
     }
-    final now = _restoringNow();
-    if (!identical(now, pending) || now[chatId] != ticket) return;
-    now.remove(chatId);
-    if (agent == null ||
-        _picks != ticket.picks ||
-        _shown != chatId ||
-        !scope.isCurrent) {
-      return;
-    }
-    _selectAgent(agent);
+  }
+
+  /// The coding agent [conversation] was saved with, when the selection
+  /// ([selectedId]) is another model: the window offers Switch to it. The
+  /// selection is the account's and stays as it is until a pick.
+  static String? _chatAgent(Conversation? conversation, String? selectedId) {
+    final id = conversation?.model;
+    return isTerminalAgentModelId(id) && id != selectedId ? id : null;
   }
 
   /// The coding agents [conversation]'s replies came from, named as the

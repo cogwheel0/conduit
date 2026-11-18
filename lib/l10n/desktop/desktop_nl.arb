@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit luistert als je een bericht dicteert of in een spraakgesprek praat. De opname van een dictaat blijft bij je concept tot je het verstuurt.",
   "desktopUsageSpeechRecognition": "Conduit zet wat je dicteert om in tekst op deze Mac als je ‘Op deze Mac’ kiest in Instellingen › Audio.",
   "desktopUsageLocalNetwork": "Conduit maakt verbinding met servers op je lokale netwerk die je toevoegt, zoals Open WebUI, modelaanbieders en MCP-toolservers.",
-  "desktopBackendAppleOnDeviceSubtitle": "Voer het privémodel van Apple uit op deze Mac, zelfs offline."
+  "desktopBackendAppleOnDeviceSubtitle": "Voer het privémodel van Apple uit op deze Mac, zelfs offline.",
+  "desktopChatUsedAgent": "Deze chat gebruikte {agent}.",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

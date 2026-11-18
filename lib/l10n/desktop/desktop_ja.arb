@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit は、メッセージを音声入力するときや音声通話で話すときに聞き取ります。音声入力の録音は、送信するまで下書きと一緒に保存されます。",
   "desktopUsageSpeechRecognition": "「設定」›「オーディオ」で「この Mac」を選ぶと、Conduit は音声入力した内容をこの Mac 上でテキストに変換します。",
   "desktopUsageLocalNetwork": "Conduit は、追加したローカルネットワーク上のサーバ（Open WebUI、モデルプロバイダ、MCP ツールサーバなど）に接続します。",
-  "desktopBackendAppleOnDeviceSubtitle": "Apple のプライベートなモデルをこの Mac で実行します。オフラインでも使えます。"
+  "desktopBackendAppleOnDeviceSubtitle": "Apple のプライベートなモデルをこの Mac で実行します。オフラインでも使えます。",
+  "desktopChatUsedAgent": "このチャットでは {agent} を使用していました。",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }

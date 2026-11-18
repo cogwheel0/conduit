@@ -9479,7 +9479,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "agentNames": {
     "agent:buildbox:pi:default": "Pi · default"
-  }
+  },
+  "chatAgent": "agent:buildbox:pi:default"
 }''',
 
   'terminalAgent': r'''
@@ -9493,8 +9494,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   'modelListQuery': r'''
 {
   "chatId": "chat-1",
-  "temporary": true,
-  "opening": true
+  "temporary": true
 }''',
 
   'selectModelInChat': r'''

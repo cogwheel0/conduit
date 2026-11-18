@@ -4743,17 +4743,14 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     agentNames: <String, String>{
       'agent:buildbox:pi:default': 'Pi · default',
     },
+    chatAgent: 'agent:buildbox:pi:default',
   ),
   'terminalAgent': const TerminalAgentDto(
     terminalId: 'buildbox',
     agent: 'claude-code',
     model: 'sonnet',
   ),
-  'modelListQuery': const ModelListQuery(
-    chatId: 'chat-1',
-    temporary: true,
-    opening: true,
-  ),
+  'modelListQuery': const ModelListQuery(chatId: 'chat-1', temporary: true),
   'selectModelInChat': const SelectModel(
     id: 'agent:buildbox:codex:gpt-5.1',
     chatId: 'chat-1',

@@ -1945,5 +1945,13 @@
   "desktopUsageMicrophone": "Conduit écoute quand vous dictez un message ou parlez pendant un appel vocal. L’enregistrement d’une dictée reste avec votre brouillon jusqu’à ce que vous l’envoyiez.",
   "desktopUsageSpeechRecognition": "Conduit transforme ce que vous dictez en texte sur ce Mac lorsque vous choisissez « Sur ce Mac » dans Paramètres › Audio.",
   "desktopUsageLocalNetwork": "Conduit se connecte aux serveurs de votre réseau local que vous ajoutez, comme Open WebUI, les fournisseurs de modèles et les serveurs d’outils MCP.",
-  "desktopBackendAppleOnDeviceSubtitle": "Exécutez le modèle privé d’Apple sur ce Mac, même hors ligne."
+  "desktopBackendAppleOnDeviceSubtitle": "Exécutez le modèle privé d’Apple sur ce Mac, même hors ligne.",
+  "desktopChatUsedAgent": "Ce chat utilisait {agent}.",
+  "@desktopChatUsedAgent": {
+    "placeholders": {
+      "agent": {
+        "type": "String"
+      }
+    }
+  }
 }
