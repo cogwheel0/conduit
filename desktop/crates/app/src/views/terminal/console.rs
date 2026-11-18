@@ -209,6 +209,30 @@ pub fn painted_background(c: &CellView, highlights: &Highlights) -> Rgb {
     }
 }
 
+/// The fills the grid paints for `frame`, row by row: runs of neighbouring
+/// cells of one painted colour ([`painted_background`]), as (row, column,
+/// cells, colour). Every cell is covered, the console's own background
+/// too, so a background the terminal set (OSC 11) is the one painted, and
+/// the colour painted under each cell is the one its text is kept legible
+/// on.
+pub fn fill_spans(frame: &Frame, highlights: &Highlights) -> Vec<(usize, usize, usize, Rgb)> {
+    let mut spans = vec![];
+    for row in 0..frame.size.rows {
+        let cells = frame.row(row);
+        let mut col = 0;
+        while col < cells.len() {
+            let here = painted_background(&cells[col], highlights);
+            let mut end = col + 1;
+            while end < cells.len() && painted_background(&cells[end], highlights) == here {
+                end += 1;
+            }
+            spans.push((row, col, end - col, here));
+            col = end;
+        }
+    }
+    spans
+}
+
 /// The colour a cell's text is painted in: palette text kept at AA on what
 /// is painted under it ([`painted_background`]); a colour the program gave
 /// exactly, or hidden text, as the frame has it. Without a highlight this
@@ -1061,34 +1085,15 @@ impl Grid {
                 size(cell.width * cols as f32, cell.height),
             )
         };
-        let mut backgrounds = vec![];
+        // Every cell's fill, as its text's contrast is reckoned against it.
+        let backgrounds: Vec<(Bounds<Pixels>, Hsla)> = fill_spans(frame, &self.highlights)
+            .into_iter()
+            .map(|(row, col, cells, color)| (cell_rect(row, col, cells), hsla(color)))
+            .collect();
         let mut runs = vec![];
         let cols = frame.size.cols;
         for row in 0..frame.size.rows {
             let cells = frame.row(row);
-            // Backgrounds and highlights, merged across equal neighbours.
-            let mut col = 0;
-            while col < cols {
-                let c = &cells[col];
-                let fill_of = |c: &CellView| -> Option<Hsla> {
-                    self.highlights
-                        .over(c)
-                        .or_else(|| (!c.default_bg).then(|| hsla(c.bg)))
-                };
-                let here = fill_of(c);
-                let mut end = col + 1;
-                while end < cols && fill_of(&cells[end]) == here {
-                    end += 1;
-                }
-                if let Some(color) = here {
-                    // A highlight over a coloured cell keeps the colour under it.
-                    if (c.style.selected || c.style.matched) && !c.default_bg {
-                        backgrounds.push((cell_rect(row, col, end - col), hsla(c.bg)));
-                    }
-                    backgrounds.push((cell_rect(row, col, end - col), color));
-                }
-                col = end;
-            }
             // Text runs, pinned to the grid, each in its colour on what is
             // painted under it.
             let text_of = |c: &CellView| cell_text(c, &self.highlights);
@@ -1389,6 +1394,55 @@ mod contrast_tests {
                     }
                 }
             }
+            // What the grid paints under each cell is what its text was
+            // kept legible on: one fill per cell, neighbours merged only
+            // when their fills are equal (a selection over a black cell
+            // and a white one paints each its own).
+            let mixed = Emulator::new(GridSize { cols: 8, rows: 2 });
+            mixed.feed(b"\x1b[0;37;40mA\x1b[0;30;47mB\x1b[0;31;40mC\x1b[0;32;47mD\x1b[0mE");
+            mixed.select_all();
+            let painted = |frame: &Frame, label: &str, low: &mut Vec<String>| {
+                for (row, col, cells, color) in fill_spans(frame, &h) {
+                    for at in col..col + cells {
+                        let cell = frame.row(row)[at];
+                        if painted_background(&cell, &h) != color {
+                            low.push(format!("{id} dark={dark}: {label} ({row}, {at}) painted {color:?}, reckoned {:?}", painted_background(&cell, &h)));
+                        }
+                        let r = contrast_ratio(hsla(cell_text(&cell, &h)), hsla(color));
+                        if cell.ch != ' ' && r < 4.5 {
+                            low.push(format!("{id} dark={dark}: {label} ({row}, {at}) text on its fill is {r:.2}:1"));
+                        }
+                    }
+                }
+                let covered: usize = fill_spans(frame, &h).iter().map(|s| s.2).sum();
+                if covered != frame.size.cols * frame.size.rows {
+                    low.push(format!(
+                        "{id} dark={dark}: {label} fills cover {covered} cells"
+                    ));
+                }
+            };
+            let mut fills_low = vec![];
+            painted(
+                &mixed.frame(&p, &[], None),
+                "selected mixed cells",
+                &mut fills_low,
+            );
+            // A background the terminal sets (OSC 11) is the one painted
+            // and reckoned against, under Find's highlight too.
+            let set = Emulator::new(GridSize { cols: 8, rows: 2 });
+            set.feed(b"\x1b]11;rgb:66/66/66\x1b\\found");
+            let found_matches = set.search("found");
+            let frame = set.frame(&p, &found_matches, Some(0));
+            assert_eq!(
+                frame.background,
+                Rgb {
+                    r: 0x66,
+                    g: 0x66,
+                    b: 0x66
+                },
+                "{id} dark={dark}"
+            );
+            painted(&frame, "OSC 11 background, found", &mut fills_low);
             // The emulator marks them so: Find's matches, the current one,
             // and a selection over everything.
             let matches = e.search("x");
@@ -1409,6 +1463,7 @@ mod contrast_tests {
                     check(cell, ", found and selected", f, name);
                 }
             }
+            low.extend(fills_low);
         }
         assert!(low.is_empty(), "{low:#?}");
     }
