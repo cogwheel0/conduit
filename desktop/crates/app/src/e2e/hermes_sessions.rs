@@ -7,7 +7,7 @@
 //! Hermes alone), then: the seeded sessions listed; one opened in the chat
 //! pane and a turn sent in it, its row spinning meanwhile; a switch to a
 //! second model Hermes holds (its context-cache guard) asked about in the
-//! chat, kept (the words back in the composer) and then confirmed, the answer
+//! chat, kept (the question stays in the chat) and then confirmed, the answer
 //! headed with the model's name, not Hermes' agent id; Pin and Unpin,
 //! Rename in the row, Fork, Archive and Unarchive, Hide (Hidden Chats
 //! lists it, Unhide brings it back), Branch from Here on a reply, Undo
@@ -689,18 +689,16 @@ fn answer(choice_allow: bool, cx: &mut AsyncApp) -> bool {
 
 /// Hermes holds a switch to another model (the recipe's context-cache
 /// guard, `switch_context_confirm_tokens: 100`): the chat asks with
-/// Hermes' reason; Keep Current Model sends nothing and gives the words
-/// back to the empty composer; Switch and Send sends them on the new model.
+/// Hermes' reason; Keep Current Model sends nothing (the question stays in
+/// the chat with its note, the composer and the picker as they were);
+/// Switch and Send sends it on the new model.
 async fn model_switch(main: gpui_kit::AnyWindowHandle, dir: &Path, cx: &mut AsyncApp) -> bool {
     let models = wait_until(cx, Duration::from_secs(30), |cx| {
         model_ending("demo-model-large", cx).is_some()
     })
     .await;
     let mut pass = ok("the gateway offers a second model", models);
-    let (Some(large), Some(current)) = (
-        cx.update(|cx| model_ending("demo-model-large", cx)),
-        cx.update(selected_model),
-    ) else {
+    let Some(large) = cx.update(|cx| model_ending("demo-model-large", cx)) else {
         return ok("the models to switch between", false);
     };
     let before = cx.update(|cx| messages(cx).len());
@@ -732,10 +730,9 @@ async fn model_switch(main: gpui_kit::AnyWindowHandle, dir: &Path, cx: &mut Asyn
         has(&controls, "Button", "Keep Current Model") && has(&controls, "Button", "Switch"),
     );
     pass &= ok("Keep Current Model answers", answer(false, cx));
-    let given_back = wait_until(cx, Duration::from_secs(20), |cx| {
-        composer_text(cx) == SWITCHED_QUESTION
-    })
-    .await;
+    settle(cx, 600).await;
+    // A kept switch gives nothing back: the composer stays empty.
+    let kept_empty = cx.update(|cx| composer_text(cx).is_empty());
     // Nothing went to Hermes: the question stays in the chat with the
     // core's note that the model was kept, and no answer.
     let noted = cx.update(|cx| {
@@ -752,23 +749,17 @@ async fn model_switch(main: gpui_kit::AnyWindowHandle, dir: &Path, cx: &mut Asyn
         asked && !answered
     });
     pass &= ok(
-        "kept: the words come back to the empty composer, nothing sent",
-        given_back && noted,
+        "kept: the question stays in the chat, the composer stays empty, nothing sent",
+        kept_empty && noted,
     );
-    let back = wait_until(cx, Duration::from_secs(20), move |cx| {
-        selected_model(cx).as_deref() == Some(current.as_str())
-    })
-    .await;
-    pass &= ok("and the picker returns to the model in use", back);
+    // The account's picker is left as the user set it.
+    let left = cx.update(|cx| selected_model(cx).as_deref() == Some(large.as_str()));
+    pass &= ok("and the picker is left as it was", left);
     settle(cx, 400).await;
     shoot_main(dir, "hermes-model-switch-kept", cx).await;
 
     // Asked again, and switched this time.
-    pick(&large, cx);
-    settle(cx, 600).await;
-    in_pane(cx, |p, window, cx| {
-        p.composer.update(cx, |c, cx| c.submit(window, cx))
-    });
+    send(SWITCHED_QUESTION, cx).await;
     let asked = wait_until(cx, Duration::from_secs(40), |cx| {
         ui_top(cx).is_some_and(|r| r.kind == conduit_protocol::UiRequestKind::HermesModelSwitch)
     })
