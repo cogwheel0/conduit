@@ -229,6 +229,13 @@ final class FakeOwuiAuthServer {
 
     if (turnAway) {
       await request.drain<void>();
+      // The proxy's own sign-in page is served, not sent to itself again.
+      if (path == '/oauth2/start') {
+        response
+          ..headers.contentType = ContentType.html
+          ..write('<html><body>Proxy sign-in</body></html>');
+        return response.close();
+      }
       response
         ..statusCode = HttpStatus.found
         ..headers.set(

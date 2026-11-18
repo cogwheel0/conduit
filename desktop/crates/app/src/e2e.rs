@@ -86,8 +86,10 @@
 //! * `servers`: a saved server's sheet: addresses added (asking before a
 //!   session goes to a new host), refused in the phone's words, edited,
 //!   reordered (kept across a conduitd restart), handed to the sign-in
-//!   proxy's window, removed; the server renamed; Add Account on This
-//!   Server; Add Account's Hermes Agent and Model Provider ([`servers`]).
+//!   proxy's window (only with `OWUI_PROXY_URL` set: start the proxy with
+//!   `owui.sh proxy start`; without it the scenario says it skipped that
+//!   step), removed; the server renamed; Add Account on This Server; Add
+//!   Account's Hermes Agent and Model Provider ([`servers`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
