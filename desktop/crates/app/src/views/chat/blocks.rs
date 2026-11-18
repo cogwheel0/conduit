@@ -617,28 +617,45 @@ impl AssistantRow {
     }
 
     /// A settled chunk of a long answer, held while it is far from the
-    /// view ([`LazyChunk`]) unless something in it changes height on its
-    /// own, it has focus or a selection under way, or Find is revealing a
-    /// match in this answer.
+    /// view ([`LazyChunk`]) only while nothing depends on its live layout:
+    /// nothing in it changes height on its own, it has no focus, the answer
+    /// has no selection (`selected`: being made or made), Find is not
+    /// revealing a match in this answer, and it has no link or code block
+    /// while Full Keyboard Access is on. Its place drops a height measured
+    /// for another text.
     fn lazy_chunk(
         &mut self,
         state: &gpui_kit::Entity<gpui_kit::component::text::TextViewState>,
         md: &str,
+        selected: bool,
         text: impl FnOnce() -> AnyElement + 'static,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> LazyChunk {
         let place = self.places.entry(state.entity_id()).or_default().clone();
+        let facts = place.text_facts(md);
         let now = cx.background_executor().now();
         let revealing = self.revealing_until.is_some_and(|until| now < until);
+        let keyboard = conduit_components::views::focus::full_keyboard_access(cx);
         let s = state.read(cx);
         // Its height is only kept from a layout of this text.
         let settled = s.rendered_text().source() == md;
         let may_hold = !revealing
-            && !s.is_selecting()
+            && !selected
             && !s.focus_handle().contains_focused(window, cx)
-            && !place.changes_height_later(md);
+            && !facts.media
+            && !(keyboard && facts.stops);
         LazyChunk::new(place, text).holdable(may_hold, settled)
+    }
+
+    /// Whether any text of this answer has a selection, being made or made
+    /// (the drag ended): its chunks then stay laid out, so the selection
+    /// keeps every one of them and Copy takes all of its text.
+    fn has_selection(&self, cx: &App) -> bool {
+        self.texts.values().any(|(_, state)| {
+            let s = state.read(cx);
+            s.is_selecting() || !s.selected_text().is_empty()
+        })
     }
 
     /// Forgets the places of text states this row no longer has.
@@ -709,6 +726,7 @@ impl AssistantRow {
                     let state = self.text_state(&state_key, md, window, cx);
                     vec![chat_text_live(&state, key.clone().into(), live).into_any_element()]
                 } else {
+                    let selected = self.has_selection(cx);
                     let views = chunks
                         .iter()
                         .enumerate()
@@ -730,7 +748,7 @@ impl AssistantRow {
                                 let (state, key) = (state.clone(), key.clone());
                                 move || chat_text_live(&state, key.into(), tail).into_any_element()
                             };
-                            self.lazy_chunk(&state, chunk, text, window, cx)
+                            self.lazy_chunk(&state, chunk, selected, text, window, cx)
                                 .into_any_element()
                         })
                         .collect();
