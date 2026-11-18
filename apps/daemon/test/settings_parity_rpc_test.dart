@@ -911,13 +911,14 @@ void _withAnAccount() {
     });
 
     test("a notification mirror waits for the account's earlier one when "
-        'its API client is replaced in between', () {
+        'its API client is replaced and its token renewed in between', () {
       fakeAsync((async) {
         final settings = _NotificationSettings();
         final container = ProviderContainer(
           overrides: [
             appSettingsProvider.overrideWith(() => settings),
             openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
             apiServiceProvider.overrideWith((ref) => api),
           ],
         );
@@ -929,7 +930,7 @@ void _withAnAccount() {
         notifications.set(const NotificationSettingsPatch(enabled: false));
         async.flushMicrotasks();
         expect(first.mirrorAsked.isCompleted, isTrue);
-        // The account's client is rebuilt (a renewed token) before the next.
+        // The account's client is rebuilt before the next change.
         final second = api = _Api()..reached = first.reached;
         container.invalidate(apiServiceProvider);
         var answered = false;
@@ -940,10 +941,44 @@ void _withAnAccount() {
         // Answered at once; its mirror waits for the account's earlier one.
         expect(answered, isTrue);
         expect(second.mirrored, isEmpty);
+        // The same account's token is renewed (a new session) meanwhile.
+        epoch = Object();
+        container.invalidate(openWebUiAuthSessionEpochProvider);
         held.complete();
         async.flushMicrotasks();
         expect(first.reached, <bool?>[false, true]);
         expect(second.mirrored, <bool?>[true]);
+      });
+    });
+
+    test("another account taking charge drops the first account's pending "
+        'notification mirror', () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        // Another user signs in before the first account's second mirror.
+        user = _bo;
+        epoch = Object();
+        container
+          ..invalidate(currentUserProvider2)
+          ..invalidate(openWebUiAuthSessionEpochProvider);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
       });
     });
 

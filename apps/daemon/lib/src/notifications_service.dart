@@ -98,11 +98,12 @@ final class NotificationsService {
   /// the one before it.
   Future<void> _changes = Future<void>.value();
 
-  /// Per account (its primary account and settings owner, whatever client
-  /// serves it), the tail of the server mirrors: each one goes after the
-  /// one before it, in the order their changes were written, and none ever
-  /// holds a local change. A client rebuilt for the same account (a renewed
-  /// token) continues the same queue.
+  /// Per account identity ([AccountScope.identity]: the primary account,
+  /// its server and the signed-in user; never a token, client or session),
+  /// the tail of the server mirrors: each one goes after the one before it,
+  /// in the order their changes were written, and none ever holds a local
+  /// change. A renewed token or a rebuilt client keeps the queue and its
+  /// order.
   final Map<Object, Future<void>> _mirrors = {};
 
   /// Writes [patch] for the account it was asked under: each setter, the
@@ -149,18 +150,20 @@ final class NotificationsService {
   }
 
   /// Queues [patch]'s server mirror on [account]'s queue, behind its
-  /// earlier ones. When its turn comes it goes only while [account] is
-  /// still in charge, with the API client serving it then (read under that
-  /// check). Never throws: a failed mirror only loses the parity.
+  /// earlier ones. When its turn comes it goes only while the same account
+  /// is in charge ([AccountScope.isSameAccount]: a renewed session of it
+  /// still is; another user or server is not, and its pending mirrors are
+  /// dropped), with the API client serving it then, read under that check.
+  /// Never throws: a failed mirror only loses the parity.
   void _mirror(AccountScope account, NotificationSettingsPatch patch) {
     if (patch.enabled == null &&
         patch.sound == null &&
         patch.soundAlways == null) {
       return;
     }
-    final key = (account.primary, account.preferenceAccount);
+    final key = account.identity;
     final tail = (_mirrors[key] ?? Future<void>.value()).then((_) async {
-      if (!account.isCurrent) return;
+      if (!account.isSameAccount) return;
       final api = _container.read(apiServiceProvider);
       await syncNotificationPrefsToServer(
         api,
