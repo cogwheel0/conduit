@@ -22,7 +22,7 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use conduit_components::theme::{ConduitTheme, MONO_FONT};
+use conduit_components::theme::{ConduitTheme, MONO_FONT, legible_lightness};
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
 use futures::StreamExt as _;
@@ -147,6 +147,9 @@ pub fn hsla(c: Rgb) -> Hsla {
     .into()
 }
 
+/// WCAG AA (4.5:1), with room for rounding each channel to a byte.
+const ANSI_RATIO: f32 = 4.55;
+
 /// The terminal's colours for the window's theme: its text and content
 /// colours for the defaults, and ANSI colours tuned to sit on them.
 pub fn palette(t: &ConduitTheme) -> Palette {
@@ -167,8 +170,24 @@ pub fn palette(t: &ConduitTheme) -> Palette {
             0x5a5a5f, 0xde2e34, 0x248640, 0x9e6b00, 0x1a6fd6, 0x9252e4, 0x1d808b, 0x3a3a3c,
         ]
     };
+    // Each text colour kept at AA on this palette's own console background
+    // (the light panels differ from white): only its lightness moves, so a
+    // yellow stays yellow. Black on dark (ANSI 0) is a background colour.
+    let background = hsla(to_rgb(t.roles.content));
+    let mut ansi = ansi.map(hex);
+    for (i, c) in ansi.iter_mut().enumerate() {
+        if t.dark && i == 0 {
+            continue;
+        }
+        *c = to_rgb(legible_lightness(
+            hsla(*c),
+            &[background],
+            t.dark,
+            ANSI_RATIO,
+        ));
+    }
     Palette {
-        ansi: ansi.map(hex),
+        ansi,
         foreground: to_rgb(t.roles.text),
         background: to_rgb(t.roles.content),
         cursor: to_rgb(t.roles.text),
@@ -1263,18 +1282,21 @@ mod contrast_tests {
     use super::*;
 
     /// Text in every ANSI colour reads at WCAG AA (4.5:1) on the console's
-    /// background in light and dark, but the one colour a palette means
-    /// as a background: black on dark (ANSI 0), whose text would be a
+    /// background in light and dark, in every palette (each has its own
+    /// panel colour), but the one colour a palette means as a background:
+    /// black on dark (ANSI 0), whose text would be a
     /// background-on-background.
     #[test]
     fn ansi_text_meets_wcag_aa_on_the_console_in_both_modes() {
         let mut low = vec![];
-        for dark in [false, true] {
-            let t = ConduitTheme::new("conduit", dark, DesignPrefs::default(), gpui_kit::black());
+        let ids: Vec<&str> = conduit_components::theme::palettes().ids().collect();
+        assert!(ids.len() > 1, "{ids:?}");
+        for (id, dark) in ids.iter().flat_map(|id| [(*id, false), (*id, true)]) {
+            let t = ConduitTheme::new(id, dark, DesignPrefs::default(), gpui_kit::black());
             let p = palette(&t);
             let bg = hsla(p.background);
             let fg = contrast_ratio(hsla(p.foreground), bg);
-            assert!(fg >= 4.5, "dark={dark}: foreground {fg:.2}");
+            assert!(fg >= 4.5, "{id} dark={dark}: foreground {fg:.2}");
             for (i, c) in p.ansi.iter().enumerate() {
                 if dark && i == 0 {
                     continue;
@@ -1282,7 +1304,7 @@ mod contrast_tests {
                 let r = contrast_ratio(hsla(*c), bg);
                 if r < 4.5 {
                     low.push(format!(
-                        "dark={dark}: ANSI {i} {c:?} on {:?} is {r:.2}:1",
+                        "{id} dark={dark}: ANSI {i} {c:?} on {:?} is {r:.2}:1",
                         p.background
                     ));
                 }
