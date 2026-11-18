@@ -205,17 +205,12 @@ final class ServersService {
     final activeAfter = await _activeConfig();
     if (activeBefore != null &&
         activeAfter != null &&
-        _connectionOf(activeBefore) == _connectionOf(activeAfter)) {
+        activeAfter.sameConnectionAs(activeBefore)) {
       _container.invalidate(openWebUiAccountsProvider);
       return;
     }
     _republishServerConfigs();
   }
-
-  /// [config] without what does not reach the server: its name, and the
-  /// bookkeeping of which account is active and when it last connected.
-  static ServerConfig _connectionOf(ServerConfig config) =>
-      config.copyWith(name: '', isActive: false, lastConnected: null);
 
   // ---------------------------------------------------------------------
   // servers.addresses.*
@@ -498,6 +493,15 @@ final class ServersService {
           return false;
         },
         stillWanted: () => _checked.containsKey(request.checkId),
+        replyArrives: _replyArrives,
+      );
+    } on core.ServerAddressReplyArriving {
+      // A reply started through the address while Save waited to write:
+      // asked about, never cut off; the check stays for the answer.
+      return ServerAddressSaveResult(
+        outcome: ServerAddressChangeOutcome.needsConfirmation,
+        confirmation: ServerAddressConfirmation.replyInProgress,
+        host: host,
       );
     } on Object catch (error, stackTrace) {
       DebugLogger.error(

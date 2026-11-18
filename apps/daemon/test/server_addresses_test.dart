@@ -512,6 +512,76 @@ void main() {
     ]);
   });
 
+  test('an address edit after a rename leaves the live client alone', () async {
+    await servers.update(
+      ServerDraft(id: serverId, name: 'Annex', url: 'https://ignored.test'),
+    );
+    final client = runtime.container.read(apiServiceProvider);
+    expect(client, isNotNull);
+    final order = (await list()).addresses.map((a) => a.id).toList();
+    await servers.reorder(
+      ServerAddressReorderRequest(serverId: serverId, order: order),
+    );
+    expect(
+      identical(runtime.container.read(apiServiceProvider), client),
+      isTrue,
+      reason: 'the name is no connection: a new client ends a reply',
+    );
+  });
+
+  test(
+    'renaming the address in use neither asks about nor stops a reply',
+    () async {
+      final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+      replies.answering = true;
+      addTearDown(() => replies.answering = false);
+      final found = await check(
+        ServerAddressForm(url: inUse.url, label: 'Desk'),
+        endpointId: inUse.id,
+      );
+      expect(found.outcome, ServerAddressCheckOutcome.answered);
+      final saved = await servers.save(
+        ServerAddressSaveRequest(checkId: found.checkId!),
+      );
+      expect(saved.outcome, ServerAddressChangeOutcome.done);
+      expect(replies.stopped, 0);
+      expect(
+        saved.addresses!.addresses.singleWhere((a) => a.id == inUse.id).label,
+        'Desk',
+      );
+    },
+  );
+
+  test('a reply started while Save waits to write is asked about, never cut '
+      'off', () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        label: 'Desk',
+        headers: const [ServerAddressHeader(name: 'X-Desk', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    // No reply when Save asks first; one starts before storage writes.
+    replies.next.addAll([false, true]);
+    addTearDown(replies.next.clear);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.needsConfirmation);
+    expect(saved.confirmation, ServerAddressConfirmation.replyInProgress);
+    expect(replies.stopped, 0);
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      registry.server(serverId)!.endpoint(inUse.id)!.customHeaders,
+      isNot(contains('X-Desk')),
+    );
+  });
+
   test('a reply started after removing was asked about is asked about '
       'before the address goes', () async {
     await addSecond();

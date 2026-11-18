@@ -66,4 +66,13 @@ extension ServerConfigTls on ServerConfig {
   /// Whether the configuration requires a custom `dart:io` TLS client.
   bool get needsCustomTlsClient =>
       allowSelfSignedCertificates || hasMutualTlsCredentials;
+
+  /// Whether [other] reaches its server the same way: everything but the
+  /// name and the bookkeeping of which account is active and when it last
+  /// connected. A client built for one serves the other.
+  bool sameConnectionAs(ServerConfig other) =>
+      _connectionOnly(this) == _connectionOnly(other);
 }
+
+ServerConfig _connectionOnly(ServerConfig config) =>
+    config.copyWith(name: '', isActive: false, lastConnected: null);
