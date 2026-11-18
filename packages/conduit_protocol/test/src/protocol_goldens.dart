@@ -6291,7 +6291,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "path": "openapi.json",
   "spec": "",
   "authType": "bearer",
-  "hasKey": true
+  "hasKey": true,
+  "fingerprint": ""
 }''',
 
   'personalConnections': r'''
@@ -6315,7 +6316,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "path": "",
       "spec": "",
       "authType": "bearer",
-      "hasKey": false
+      "hasKey": false,
+      "fingerprint": ""
     }
   ],
   "cleared": [

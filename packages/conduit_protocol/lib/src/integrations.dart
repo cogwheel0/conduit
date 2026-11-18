@@ -49,6 +49,11 @@ abstract class PersonalConnectionDto with _$PersonalConnectionDto {
     /// `bearer` or `none`.
     @Default('bearer') String authType,
     @Default(false) bool hasKey,
+
+    /// A hash of the entry as stored, its key included (never the key
+    /// itself). The editor sends it back with a save or a test, which is
+    /// refused (`conflict`, reason `changed`) once the entry changed since.
+    @Default('') String fingerprint,
   }) = _PersonalConnectionDto;
 
   factory PersonalConnectionDto.fromJson(Map<String, dynamic> json) =>
@@ -120,6 +125,11 @@ abstract class PersonalConnectionSave with _$PersonalConnectionSave {
     String? identity,
     PersonalConnectionDraft? draft,
     bool? enabled,
+
+    /// For `patch`: the [PersonalConnectionDto.fingerprint] of the entry
+    /// the editor opened. The save is refused (`conflict`, reason
+    /// `changed`) when the stored entry no longer has it.
+    String? fingerprint,
   }) = _PersonalConnectionSave;
 
   factory PersonalConnectionSave.fromJson(Map<String, dynamic> json) =>
@@ -136,6 +146,11 @@ abstract class PersonalConnectionTest with _$PersonalConnectionTest {
     required PersonalKind kind,
     String? identity,
     required PersonalConnectionDraft draft,
+
+    /// For an entry: the [PersonalConnectionDto.fingerprint] it was opened
+    /// with. Refused, with nothing probed (`conflict`, reason `changed`),
+    /// once the entry changed since.
+    String? fingerprint,
   }) = _PersonalConnectionTest;
 
   factory PersonalConnectionTest.fromJson(Map<String, dynamic> json) =>

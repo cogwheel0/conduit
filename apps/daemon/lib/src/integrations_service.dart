@@ -104,6 +104,7 @@ final class IntegrationsService {
           spec: draft.spec,
           authType: draft.authType,
           hasKey: hasKey,
+          fingerprint: personalConnectionFingerprint(raw),
         );
       case PersonalConnectionKind.terminal:
         final draft = PersonalTerminalDraft.fromEntry(raw);
@@ -117,6 +118,7 @@ final class IntegrationsService {
           url: draft.url,
           path: draft.path,
           hasKey: hasKey,
+          fingerprint: personalConnectionFingerprint(raw),
         );
     }
   }
@@ -308,6 +310,27 @@ final class IntegrationsService {
     return entry;
   }
 
+  /// [entry], unless the editor opened it with another [fingerprint]
+  /// (another window saved it since): then refused, as the save's own edit
+  /// would be ([PersonalConnectionEditFailure.changed]), and the editor
+  /// reads it again. Nothing is built from, or probed with, a stale draft.
+  PersonalConnectionEntry _unchanged(
+    PersonalConnectionEntry entry,
+    String? fingerprint,
+  ) {
+    if (fingerprint == null ||
+        personalConnectionFingerprint(entry.raw) == fingerprint) {
+      return entry;
+    }
+    throw RpcError(
+      code: ConduitErrorCodes.conflict,
+      debugMessage: 'the connection changed since it was opened',
+      args: <String, String>{
+        'reason': PersonalConnectionEditFailure.changed.name,
+      },
+    );
+  }
+
   Future<PersonalConnections> save(PersonalConnectionSave params) async {
     final kind = _kind(params.kind);
     if (params.draft case final draft?) _modes(kind, draft);
@@ -326,7 +349,10 @@ final class IntegrationsService {
       case PersonalEditOp.patch:
         final draft = params.draft ?? const PersonalConnectionDraft();
         _validate(kind, draft);
-        final entry = _existing(kind, params.identity);
+        final entry = _unchanged(
+          _existing(kind, params.identity),
+          params.fingerprint,
+        );
         final patch = isTool
             ? _toolDraft(draft).toPatch(entry.raw)
             : _terminalDraft(draft).toPatch(entry.raw);
@@ -336,6 +362,8 @@ final class IntegrationsService {
           entry.identity,
           patch,
           stampKey: isTool ? _stampKey() : null,
+          // Checked again against the server's latest copy as it is written.
+          fingerprint: params.fingerprint,
         );
       case PersonalEditOp.remove:
         edit = RemovePersonalConnection(
@@ -400,7 +428,10 @@ final class IntegrationsService {
           ? _toolDraft(params.draft).toNewEntry(id: _stampKey())
           : _terminalDraft(params.draft).toNewEntry();
     } else {
-      final existing = _existing(kind, params.identity);
+      final existing = _unchanged(
+        _existing(kind, params.identity),
+        params.fingerprint,
+      );
       final patch = isTool
           ? _toolDraft(params.draft).toPatch(existing.raw)
           : _terminalDraft(params.draft).toPatch(existing.raw);

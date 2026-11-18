@@ -6,9 +6,12 @@
 /// unknown fields, secrets and untouched entries as the server stored them.
 library;
 
+import 'dart:convert';
+
 import 'package:conduit_core/features/integrations/personal_connection_drafts.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
+import 'package:crypto/crypto.dart';
 
 enum PersonalConnectionEditFailure {
   /// The target is no longer in the latest list.
@@ -19,6 +22,10 @@ enum PersonalConnectionEditFailure {
 
   /// The entry lacks what the edit needs, such as a URL or a key.
   invalid,
+
+  /// The entry changed since the editor read it (another window or client
+  /// saved it): the edit is refused, and the editor reads it again.
+  changed,
 }
 
 class PersonalConnectionEditException implements Exception {
@@ -186,6 +193,24 @@ String _documentLocation(Map<String, dynamic> entry) {
   return path.contains('://') ? path : url;
 }
 
+/// A hash of [entry] as stored: every field, its key included, in one
+/// canonical form (map keys sorted), so the same entry always gives the
+/// same text. Only the hash leaves, never the key. An editor keeps the
+/// fingerprint of the entry it opened; [PatchPersonalConnection] refuses
+/// its edit once the stored entry has another.
+String personalConnectionFingerprint(Map<String, dynamic> entry) => sha256
+    .convert(utf8.encode(jsonEncode(_canonical(normalizeJsonLikeMap(entry)))))
+    .toString();
+
+Object? _canonical(Object? value) => switch (value) {
+  final Map<dynamic, dynamic> map => {
+    for (final key in map.keys.map((k) => k.toString()).toList()..sort())
+      key: _canonical(map[key]),
+  },
+  final List<dynamic> list => [for (final item in list) _canonical(item)],
+  _ => value,
+};
+
 sealed class PersonalConnectionEdit {
   const PersonalConnectionEdit();
 
@@ -286,13 +311,22 @@ final class AddPersonalConnection extends PersonalConnectionEdit {
 /// Merges [patch] into the entry [identity] names.
 ///
 /// [stampKey] is written to a keyless tool server so the entry gains an
-/// identity that outlives later list changes.
+/// identity that outlives later list changes. [fingerprint], the
+/// [personalConnectionFingerprint] of the entry the editor opened, refuses
+/// the edit ([PersonalConnectionEditFailure.changed]) when the latest copy
+/// has another: an editor never saves over a change it has not seen.
 final class PatchPersonalConnection extends PersonalConnectionEdit {
-  const PatchPersonalConnection(this.identity, this.patch, {this.stampKey});
+  const PatchPersonalConnection(
+    this.identity,
+    this.patch, {
+    this.stampKey,
+    this.fingerprint,
+  });
 
   final String identity;
   final Map<String, dynamic> patch;
   final String? stampKey;
+  final String? fingerprint;
 
   @override
   PersonalConnectionEditResult apply(
@@ -302,6 +336,13 @@ final class PatchPersonalConnection extends PersonalConnectionEdit {
     final index = _requireIndex(kind, latest, identity);
     final list = _copy(latest);
     final current = personalConnectionMap(list[index])!;
+    // Checked against the latest copy, right before the list is written.
+    if (fingerprint != null &&
+        personalConnectionFingerprint(current) != fingerprint) {
+      throw const PersonalConnectionEditException(
+        PersonalConnectionEditFailure.changed,
+      );
+    }
     var merged = mergePersonalConnectionEdit(current, patch);
     if (kind == PersonalConnectionKind.toolServer &&
         stampKey != null &&

@@ -330,6 +330,10 @@ final class _ConnectionEditor {
   List<Object?>? start;
   bool initialized = false;
 
+  /// The list a save or test was refused against because the entry had
+  /// changed: the form fills again from the next list read, not this one.
+  PersonalConnectionsSnapshot? refusedOn;
+
   String name = '';
   String description = '';
   String url = '';
@@ -387,6 +391,8 @@ final class _ConnectionEditor {
   /// Fills the form from [snapshot] once, then follows the entry through
   /// later reads of the list, within the account that opened the form.
   void initialize(PersonalConnectionsSnapshot snapshot) {
+    if (identical(snapshot, refusedOn)) return;
+    refusedOn = null;
     owner ??= snapshot.session;
     if (initialized) {
       if (ownerChanged) return;
@@ -1111,6 +1117,8 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         existing.identity,
         patch,
         stampKey: editor.isTool ? editor.stampKey : null,
+        // Refused if the entry changed since this form opened it.
+        fingerprint: personalConnectionFingerprint(opened),
       );
     } else {
       return;
@@ -1141,10 +1149,24 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..message = personalConnectionSaveError(l10n, error)
         ..messageIsError = true;
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        _reloadChanged(editor);
+      }
     } finally {
       editor.saving = false;
     }
     await _applyEditor(l10n, editor);
+  }
+
+  /// [editor]'s entry changed since it opened it: the form fills again from
+  /// the entry as the list now has it.
+  void _reloadChanged(_ConnectionEditor editor) {
+    editor
+      ..refusedOn = _ref.read(personalConnectionsProvider).asData?.value
+      ..initialized = false;
+    _ref.invalidate(personalConnectionsProvider);
   }
 
   Future<void> _test(AppLocalizations l10n, _ConnectionEditor editor) async {
@@ -1160,6 +1182,19 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     }
     final existing = editor.existing;
     final opened = editor.opened;
+    // Changed since this form opened it: nothing is probed with its draft.
+    if (existing != null &&
+        opened != null &&
+        personalConnectionFingerprint(existing.raw) !=
+            personalConnectionFingerprint(opened)) {
+      editor
+        ..attempted = true
+        ..test = _TestState.failed
+        ..testText = l10n.personalConnectionsNotFound;
+      _reloadChanged(editor);
+      await _applyEditor(l10n, editor);
+      return;
+    }
     final entry = existing == null || opened == null
         ? editor.newEntry()
         : mergePersonalConnectionEdit(existing.raw, editor.patch(opened));

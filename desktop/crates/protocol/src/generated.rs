@@ -8422,6 +8422,11 @@ pub struct PersonalConnectionDto {
     pub auth_type: String,
     #[serde(default)]
     pub has_key: bool,
+    /// A hash of the entry as stored, its key included (never the key
+    /// itself). The editor sends it back with a save or a test, which is
+    /// refused (`conflict`, reason `changed`) once the entry changed since.
+    #[serde(default)]
+    pub fingerprint: String,
 }
 
 fn default_personal_connection_dto_enabled() -> bool {
@@ -8594,6 +8599,11 @@ pub struct PersonalConnectionSave {
     pub draft: Option<PersonalConnectionDraft>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// For `patch`: the `PersonalConnectionDto.fingerprint` of the entry
+    /// the editor opened. The save is refused (`conflict`, reason
+    /// `changed`) when the stored entry no longer has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
 }
 
 /// Params for `integrations.test`: the form as it stands, for the entry
@@ -8607,6 +8617,11 @@ pub struct PersonalConnectionTest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<String>,
     pub draft: PersonalConnectionDraft,
+    /// For an entry: the `PersonalConnectionDto.fingerprint` it was opened
+    /// with. Refused, with nothing probed (`conflict`, reason `changed`),
+    /// once the entry changed since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
 }
 
 /// Why a test failed.

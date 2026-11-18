@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/integrations/personal_connection_drafts.dart';
@@ -500,6 +501,69 @@ void main() {
             )
             .toPatch(tool)['key'],
       ).equals('beta-key');
+    });
+
+    test('a save from an editor opened before another window changed the entry '
+        'is refused, and nothing is written', () async {
+      final opened = _toolServer('alpha', 'Alpha');
+      // Another window renamed it since this editor opened it.
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[_toolServer('alpha', 'Renamed')],
+        },
+      });
+      final before = jsonEncode(server.settings);
+      await check(
+        _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(opened)
+                .copyWith(description: 'Typed here')
+                .toPatch(opened),
+            fingerprint: personalConnectionFingerprint(opened),
+          ),
+        ),
+      ).throws<PersonalConnectionEditException>(
+        (it) => it
+            .has((e) => e.failure, 'failure')
+            .equals(PersonalConnectionEditFailure.changed),
+      );
+
+      check(jsonEncode(server.settings)).equals(before);
+    });
+
+    test('a save from an editor that saw the latest entry still keeps its key '
+        'to its origin', () async {
+      final opened = _toolServer('alpha', 'Alpha');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[_toolServer('alpha', 'Alpha')],
+        },
+      });
+      await _api(server).editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(opened)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(opened),
+          fingerprint: personalConnectionFingerprint(opened),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+      // The same entry, its map keys in another order: the same print.
+      check(
+        personalConnectionFingerprint(
+          Map<String, dynamic>.fromEntries(opened.entries.toList().reversed),
+        ),
+      ).equals(personalConnectionFingerprint(opened));
+      // Its key counts.
+      check(personalConnectionFingerprint({...opened, 'key': 'other'}))
+          .not((it) => it.equals(personalConnectionFingerprint(opened)));
     });
 
     test('a key saved since the editor read the entry never follows its URL '

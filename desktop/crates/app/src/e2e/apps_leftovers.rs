@@ -693,6 +693,7 @@ async fn preview_socket(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bo
                 enabled: true,
             }),
             enabled: None,
+            fingerprint: None,
         },
         cx,
     )
@@ -785,6 +786,7 @@ async fn preview_socket(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bo
                 identity: Some(entry.identity.clone()),
                 draft: None,
                 enabled: None,
+                fingerprint: None,
             },
             cx,
         )

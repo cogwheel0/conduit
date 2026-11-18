@@ -602,8 +602,10 @@ void main() {
       });
     });
 
-    testWidgets('a name edit keeps what another client changed since the '
-        'form opened', (tester) async {
+    testWidgets('a save after another client changed the entry is refused, '
+        'writes nothing, and fills the form from the entry as it is now', (
+      tester,
+    ) async {
       final rig = await pump(tester);
       await rig.open(_alpha);
       // Another client moves the server meanwhile.
@@ -612,11 +614,19 @@ void main() {
       ];
 
       await rig.change(_row('name'), 'Alpha renamed');
+      final writes = rig.writes.length;
       await rig.change(_row('save'));
 
+      expect(rig.writes, hasLength(writes));
       final stored = rig.storedTools.single;
-      expect((stored['info'] as Map)['name'], 'Alpha renamed');
+      expect((stored['info'] as Map)['name'], 'Alpha tools');
       expect(stored['url'], 'https://moved.example');
+      expect(rig.closed, isEmpty);
+      // The list is read again, and the form fills from it.
+      await rig.settle(rig.container.read(personalConnectionsProvider.future));
+      expect(rig.titles(_alpha), contains(_l10n.personalConnectionsNotFound));
+      expect(rig.row(_alpha, _row('url'))!.value, 'https://moved.example');
+      expect(rig.row(_alpha, _row('name'))!.value, 'Alpha tools');
     });
 
     testWidgets('once another account is signed in, the form keeps what was '
