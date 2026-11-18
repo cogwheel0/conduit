@@ -356,6 +356,10 @@ pub enum FixedCommand {
     Forward,
     /// Go › the `n`th sidebar section (⌘1…⌘8; `n` from 1).
     GoToSection(u8),
+    /// Go › Move Focus to Next Area (⌥⌘`): out of the terminal too.
+    NextArea,
+    /// Go › Move Focus to Previous Area (⌥⌘~, Shift with ⌥⌘`).
+    PreviousArea,
     /// Chat › Stop Speaking (⌘., the Mac's Cancel; Esc too while it reads).
     StopSpeaking,
 }
@@ -426,6 +430,10 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::GoToSection(6), k("6").primary()),
         (F::GoToSection(7), k("7").primary()),
         (F::GoToSection(8), k("8").primary()),
+        // ⌥⌘` beside the system's ⌘` (next window), as Xcode's Next Area;
+        // Shift with it types ~, which is the key the Mac reports.
+        (F::NextArea, k("`").primary().alt()),
+        (F::PreviousArea, k("~").primary().alt()),
     ]
 }
 
@@ -673,7 +681,13 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
         ),
         (
             KeyGroup::Go,
-            vec![Fixed(F::Back), Fixed(F::Forward), Fixed(F::GoToSection(1))],
+            vec![
+                Fixed(F::Back),
+                Fixed(F::Forward),
+                Fixed(F::GoToSection(1)),
+                Fixed(F::NextArea),
+                Fixed(F::PreviousArea),
+            ],
         ),
         (
             KeyGroup::Window,
@@ -1134,11 +1148,11 @@ mod tests {
             let n = rows.iter().filter(|r| **r == KeyRow::Area(key)).count();
             assert_eq!(n, 1, "{key:?}");
         }
-        // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
+        // 15 rebindable, 20 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
         // Notes, Workspace's Save, 6 in the terminal (its PDF window's Save
         // among them), 5 in Calendar, 2 in Scheduled Tasks, a room's Send
         // and a scheduled agent's Save.
-        assert_eq!(rows.len(), 67);
+        assert_eq!(rows.len(), 69);
         // One area's keys share no chord among themselves (areas may: only
         // the one in front takes its keys); where one is a fixed command's
         // too (⌘I Chat Settings), Notes takes it only in its own contexts.
@@ -1216,6 +1230,18 @@ mod tests {
             describe(&fixed_stroke(FixedCommand::GoToSection(3)), true),
             "⌘3"
         );
+        // The way out of the terminal (whose Tab is the shell's): ⌥⌘` and
+        // ⌥⌘~, which no command, default or terminal key takes.
+        for (command, shown) in [
+            (FixedCommand::NextArea, "⌥⌘`"),
+            (FixedCommand::PreviousArea, "⌥⌘~"),
+        ] {
+            let stroke = fixed_stroke(command);
+            assert_eq!(describe(&stroke, true), shown);
+            assert_eq!(fixed_conflict(&stroke, None), Some(command));
+            assert!(default_shortcuts().iter().all(|s| s.stroke != stroke));
+            assert!(area_shortcuts().iter().all(|(_, s)| *s != stroke));
+        }
         // The composer's larger editor and Ask Conduit.
         assert_eq!(
             describe(&fixed_stroke(FixedCommand::ExpandEditor), true),

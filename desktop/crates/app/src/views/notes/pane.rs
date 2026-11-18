@@ -37,6 +37,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::kit::{
@@ -3163,6 +3164,11 @@ impl Render for NotePane {
                 .justify_center()
                 .text_color(r.text_subtle)
                 .child(l.loading_note())
+                .child(live_text(
+                    "note-loading",
+                    Some(l.loading_note().into()),
+                    Priority::Medium,
+                ))
                 .into_any_element(),
             Load::Missing => div()
                 .id("note-missing")

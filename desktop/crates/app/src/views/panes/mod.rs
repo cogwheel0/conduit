@@ -26,6 +26,7 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
+use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::{IconButton, heading};
 use conduit_components::views::shell::toolbar_capsule;
 use conduit_components::window::{TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region};
@@ -482,6 +483,7 @@ impl Render for AreaPane {
                                 .rounded(px(6.))
                                 .cursor_pointer()
                                 .hover(|s| s.bg(r.hover))
+                                .keyboard_shadow(cx)
                                 .on_click(move |e, window, cx| {
                                     // The menu's command goes through the pane.
                                     window.focus(&focus, cx);

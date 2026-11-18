@@ -10,6 +10,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::views::focus::{RadioGroupExt as _, radio_option_id};
 use conduit_components::views::kit::{Button, grouped_section, radio_dot};
 use conduit_protocol::{
@@ -727,7 +728,8 @@ impl Render for HermesJobSheet {
                         .role(Role::Alert)
                         .text_size(px(t.metrics.small))
                         .text_color(t.roles.danger)
-                        .child(e),
+                        .child(e.clone())
+                        .child(live_text("live", Some(e), Priority::High)),
                 )
             });
         let mut body = vec![

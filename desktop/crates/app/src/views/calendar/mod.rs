@@ -24,6 +24,7 @@ pub mod new_calendar;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -354,6 +355,13 @@ impl CalendarPane {
             (false, Some(i)) => i.saturating_sub(1),
         };
         let (row, key, day) = items[next].clone();
+        // The pane has the keyboard, not the row: say which.
+        if let Some(item) = agenda.days[day].items.iter().find(|i| i.key == key) {
+            // With its day and time: two events of one name are told apart.
+            let l = cx.l10n();
+            let row = format!("{}, {}", shown_title(item, l), format::when(item, l));
+            crate::views::a11y::announce_row(&row, next, items.len(), cx);
+        }
         self.selected = Some((key, day));
         self.scroll
             .scroll_to_item(row, gpui_kit::ScrollStrategy::Nearest);
@@ -623,7 +631,7 @@ impl CalendarPane {
                     .child(
                         heading(
                             "calendar-range",
-                            SharedString::from(range),
+                            SharedString::from(range.clone()),
                             2,
                             t.metrics.body + 3.,
                             FontWeight::SEMIBOLD,
@@ -631,6 +639,13 @@ impl CalendarPane {
                         )
                         .truncate(),
                     )
+                    // The range is heard as the arrows move it, as the
+                    // phone's header is.
+                    .child(live_text(
+                        "calendar-range-live",
+                        (!range.is_empty()).then(|| range.into()),
+                        Priority::Medium,
+                    ))
                     .when(paging, |d| {
                         d.child(
                             div()
@@ -761,11 +776,7 @@ impl CalendarPane {
             .as_ref()
             .is_some_and(|(key, day)| key == &item.key && *day == d);
         let scheduled = item.kind == "scheduled";
-        let title = if item.title.trim().is_empty() {
-            l.calendar_untitled_event()
-        } else {
-            item.title.clone()
-        };
+        let title = shown_title(item, &l);
         let time = format::row_time(&item.time, &l);
         let mut detail = vec![time.clone()];
         if scheduled {
@@ -1041,11 +1052,7 @@ pub fn confirm_delete(
     cx: &mut App,
 ) {
     let l = cx.l10n().clone();
-    let title = if item.title.trim().is_empty() {
-        l.calendar_untitled_event()
-    } else {
-        item.title.clone()
-    };
+    let title = shown_title(&item, &l);
     let spec = if item.recurring {
         SheetSpec::new(
             l.calendar_event_delete_series_confirm(&title),
@@ -1158,6 +1165,16 @@ impl Render for CalendarPane {
                     .child(header)
                     .child(body),
             )
+    }
+}
+
+/// An item's title as its row draws it and VoiceOver says it: an untitled
+/// event has the localized "Untitled event".
+fn shown_title(item: &CalendarItemDto, l: &L10n) -> String {
+    if item.title.trim().is_empty() {
+        l.calendar_untitled_event()
+    } else {
+        item.title.clone()
     }
 }
 
@@ -1640,5 +1657,159 @@ mod tests {
             before,
             "Down on a focused agenda row moved nothing"
         );
+    }
+
+    /// Arrowing onto an untitled event says the name its row shows, so
+    /// VoiceOver never goes quiet on a row.
+    #[gpui_kit::test]
+    fn an_untitled_event_is_said_by_the_name_its_row_shows(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use conduit_protocol::Capabilities;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let day = CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day: 12,
+            hour: 0,
+            minute: 0,
+        };
+        let mut untitled = item("k2");
+        untitled.title = " ".into();
+        daemon.returns::<methods::CalendarAgenda>(CalendarAgenda {
+            available: true,
+            first_day: Some(day.clone()),
+            today: Some(day.clone()),
+            days: vec![CalendarAgendaDay {
+                day,
+                items: vec![item("k1"), untitled],
+            }],
+            ..Default::default()
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-agenda-say-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                calendar: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
+        vcx.run_until_parked();
+        assert!(
+            stores.calendar.read_with(vcx, |c, _| c.agenda.is_some()),
+            "the agenda loaded"
+        );
+        pane.update(vcx, |p, cx| {
+            p.move_selection(true, cx);
+            p.move_selection(true, cx);
+        });
+        let l = L10n::new("en");
+        let when = format::when(&item("k1"), &l);
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(
+            said,
+            [
+                format!("k1, {when}, 1 of 2"),
+                format!("{}, {when}, 2 of 2", l.calendar_untitled_event()),
+            ]
+        );
+    }
+
+    /// Two events of one name are told apart as the arrows reach them: each
+    /// is said with its day and time.
+    #[gpui_kit::test]
+    fn two_events_of_one_name_are_said_with_their_times(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use conduit_protocol::Capabilities;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let day = CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day: 12,
+            hour: 0,
+            minute: 0,
+        };
+        let standup = |key: &str, hour: i64| {
+            let mut i = item(key);
+            i.title = "Standup".into();
+            i.start.hour = hour;
+            i.time = CalendarRowTimeDto {
+                kind: "at".into(),
+                start: Some(i.start.clone()),
+                end: None,
+            };
+            i
+        };
+        let (morning, afternoon) = (standup("k1", 9), standup("k2", 15));
+        daemon.returns::<methods::CalendarAgenda>(CalendarAgenda {
+            available: true,
+            first_day: Some(day.clone()),
+            today: Some(day.clone()),
+            days: vec![CalendarAgendaDay {
+                day,
+                items: vec![morning.clone(), afternoon.clone()],
+            }],
+            ..Default::default()
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-agenda-times-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                calendar: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
+        vcx.run_until_parked();
+        pane.update(vcx, |p, cx| {
+            p.move_selection(true, cx);
+            p.move_selection(true, cx);
+        });
+        let l = L10n::new("en");
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(
+            said,
+            [
+                format!("Standup, {}, 1 of 2", format::when(&morning, &l)),
+                format!("Standup, {}, 2 of 2", format::when(&afternoon, &l)),
+            ]
+        );
+        assert_ne!(format::when(&morning, &l), format::when(&afternoon, &l));
     }
 }

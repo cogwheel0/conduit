@@ -11,8 +11,10 @@
 //!
 //! Accessibility: every interactive element gets an AccessKit role and label,
 //! and each message is a labelled `Role::Article` (a bare TextView is
-//! invisible to VoiceOver).
+//! invisible to VoiceOver). Changes the user isn't looking at
+//! are spoken through [`announce`].
 
+pub mod announce;
 pub mod assets;
 #[cfg(target_os = "macos")]
 pub mod capture;

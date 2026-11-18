@@ -49,6 +49,10 @@ pub struct Strings {
     pub previous_version: SharedString,
     pub next_version: SharedString,
     pub copy: SharedString,
+    /// Said after a code block's Copy.
+    pub code_copied: SharedString,
+    /// A code block's accessible name; `{name}` is its language.
+    pub code_block: SharedString,
     pub edit: SharedString,
     pub regenerate: SharedString,
     pub good_response: SharedString,
@@ -182,6 +186,8 @@ impl Default for Strings {
             previous_version: s("Previous Answer"),
             next_version: s("Next Answer"),
             copy: s("Copy"),
+            code_copied: s("Code copied to the clipboard."),
+            code_block: s("{name} code"),
             edit: s("Edit"),
             regenerate: s("Regenerate"),
             good_response: s("Good Answer"),

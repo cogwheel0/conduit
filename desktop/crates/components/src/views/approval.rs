@@ -700,6 +700,13 @@ impl RenderOnce for ApprovalCard {
             .id(ElementId::Name(format!("approval-{id}").into()))
             .role(Role::AlertDialog)
             .aria_label(format!("{}: {}", self.title, self.detail))
+            // Said when it appears over the composer, as the phone's prompt
+            // surface is: the focus stays where the user was typing.
+            .child(crate::announce::live_text(
+                "live",
+                Some(format!("{}: {}", self.title, self.detail).into()),
+                crate::announce::Priority::High,
+            ))
             .w_full()
             .flex()
             .flex_col()

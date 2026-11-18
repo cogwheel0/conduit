@@ -44,6 +44,12 @@ pub struct ConnectionIssueView {
     try_scope: Option<(Option<String>, bool)>,
     /// Why the last try didn't work, when it says more than the page.
     pub error: Option<String>,
+    /// Tries that came back (Try Again, Sign In to Proxy Again). The status
+    /// line is drawn under this number, so each outcome is a new live
+    /// region and VoiceOver hears it, even the same words as the last one
+    /// when no "Connecting…" frame was drawn between them (a refusal that
+    /// comes back within a frame).
+    pub tries: usize,
 }
 
 impl ConnectionIssueView {
@@ -57,6 +63,7 @@ impl ConnectionIssueView {
             try_id: 0,
             try_scope: None,
             error: None,
+            tries: 0,
         }
     }
 
@@ -185,6 +192,7 @@ impl ConnectionIssueView {
                         let _ = this.update(cx, |s, cx| {
                             if s.answers(id) {
                                 s.busy = Busy::Idle;
+                                s.tries += 1;
                                 s.error = Some(cx.l10n().desktop_proxy_sign_in_failed());
                                 cx.notify();
                             }
@@ -211,6 +219,7 @@ impl ConnectionIssueView {
     fn settle(&mut self, result: Result<AuthSnapshot, RpcError>, cx: &mut Context<Self>) {
         let renewing = self.busy == Busy::Renewing;
         self.busy = Busy::Idle;
+        self.tries += 1;
         match result {
             Ok(snapshot) => {
                 if !snapshot.is_authenticated && !snapshot.is_loading {
@@ -338,7 +347,15 @@ impl Render for ConnectionIssueView {
                         cx,
                     )),
             )
-            .child(status)
+            // Each try's outcome under its own id: a new live region, spoken
+            // when it draws (see `tries`).
+            .child(
+                div()
+                    .id(("connection-issue-outcome", self.tries))
+                    .flex()
+                    .flex_col()
+                    .child(status),
+            )
             .child(form_buttons(buttons))
     }
 }

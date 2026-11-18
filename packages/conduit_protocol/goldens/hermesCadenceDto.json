@@ -1,0 +1,5 @@
+{
+  "kind": "everyHours",
+  "every": 6,
+  "minute": 30
+}

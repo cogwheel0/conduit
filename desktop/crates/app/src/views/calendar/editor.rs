@@ -13,6 +13,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{Button, IconButton, Switch, field_fill, field_fill_hover};
@@ -699,7 +700,12 @@ impl EventEditor {
                             .pb(px(8.))
                             .text_size(px(cx.conduit().metrics.small))
                             .text_color(cx.conduit().roles.danger)
-                            .child(SharedString::from(l.calendar_end_before_start())),
+                            .child(SharedString::from(l.calendar_end_before_start()))
+                            .child(live_text(
+                                "live",
+                                Some(l.calendar_end_before_start().into()),
+                                Priority::High,
+                            )),
                     );
                 }
                 rows.push(row.into_any_element());
@@ -1097,7 +1103,12 @@ impl Render for EventEditor {
                             .px(px(12.))
                             .text_size(px(t.metrics.small))
                             .text_color(r.danger)
-                            .child(SharedString::from(l.calendar_calendar_required())),
+                            .child(SharedString::from(l.calendar_calendar_required()))
+                            .child(live_text(
+                                "live",
+                                Some(l.calendar_calendar_required().into()),
+                                Priority::High,
+                            )),
                     );
                 }
             }

@@ -765,6 +765,19 @@ impl Render for MainWindow {
             }))
             .when(shows_main, |d| {
                 d.on_action(cx.listener(|this, _: &GoBack, _, cx| this.go(true, cx)))
+                    // Go › Move Focus to Next and Previous Area: the window's
+                    // next or previous stop, as Tab and Shift-Tab, out of a
+                    // view that keeps Tab (the terminal's console) too.
+                    .on_action(cx.listener(
+                        |_, _: &crate::actions::MoveFocusToNextArea, window, cx| {
+                            window.focus_next(cx);
+                        },
+                    ))
+                    .on_action(cx.listener(
+                        |_, _: &crate::actions::MoveFocusToPreviousArea, window, cx| {
+                            window.focus_prev(cx);
+                        },
+                    ))
                     .on_action(cx.listener(|this, _: &GoForward, _, cx| this.go(false, cx)))
                     .on_action(cx.listener(|this, a: &GoToSection, window, cx| {
                         this.go_to_section(a.index, window, cx)

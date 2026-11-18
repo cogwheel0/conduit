@@ -18,7 +18,10 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::kit::{Button, Switch, raised_fill};
-use conduit_protocol::{HermesJobDto, HermesJobRef, HermesJobToggle, NoticeLevel, methods};
+use conduit_protocol::{
+    HermesCadenceDto, HermesCadenceKind, HermesJobDto, HermesJobRef, HermesJobToggle, NoticeLevel,
+    methods,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, AsyncApp, ElementId, FontWeight, Role, SharedString, Window, div, px, relative,
@@ -204,6 +207,50 @@ struct CardState<'a> {
     last: bool,
 }
 
+/// A job's schedule in this language, from what core read of its cron
+/// (`scheduleText` is the English): the time of day as this Mac writes it.
+/// None for a cadence this build doesn't know.
+pub fn cadence_text(c: &HermesCadenceDto, l: &L10n) -> Option<String> {
+    let at = || {
+        let (hour, minute) = (c.hour.unwrap_or(0), c.minute.unwrap_or(0));
+        time_of_day(hour as u32, minute as u32, l.locale())
+    };
+    let past = || format!("{:02}", c.minute.unwrap_or(0));
+    let every = c.every.unwrap_or(2);
+    Some(match c.kind {
+        HermesCadenceKind::None => l.desktop_hermes_cadence_none(),
+        HermesCadenceKind::EveryMinute => l.desktop_hermes_cadence_every_minute(),
+        HermesCadenceKind::EveryMinutes => l.desktop_hermes_cadence_every_minutes(every),
+        HermesCadenceKind::EveryHour if c.minute.unwrap_or(0) == 0 => {
+            l.desktop_hermes_cadence_every_hour()
+        }
+        HermesCadenceKind::EveryHour => l.desktop_hermes_cadence_every_hour_at(&past()),
+        HermesCadenceKind::EveryHours if c.minute.unwrap_or(0) == 0 => {
+            l.desktop_hermes_cadence_every_hours(every)
+        }
+        HermesCadenceKind::EveryHours => l.desktop_hermes_cadence_every_hours_at(every, &past()),
+        HermesCadenceKind::Daily => l.desktop_hermes_cadence_daily(&at()),
+        HermesCadenceKind::Weekdays => l.desktop_hermes_cadence_weekdays(&at()),
+        HermesCadenceKind::Weekends => l.desktop_hermes_cadence_weekends(&at()),
+        HermesCadenceKind::Weekly => {
+            let day = c.weekday.unwrap_or(0).rem_euclid(7).to_string();
+            l.desktop_hermes_cadence_weekly(&day, &at())
+        }
+        HermesCadenceKind::Monthly => l.desktop_hermes_cadence_monthly(c.day.unwrap_or(1), &at()),
+        HermesCadenceKind::Unknown => return None,
+    })
+}
+
+/// `hour`:`minute` as this Mac writes a time of day in `locale`.
+fn time_of_day(hour: u32, minute: u32, locale: &str) -> String {
+    use chrono::TimeZone as _;
+    let ms = chrono::Local
+        .with_ymd_and_hms(2026, 1, 15, hour.min(23), minute.min(59), 0)
+        .earliest()
+        .map_or(0, |t| t.timestamp_millis());
+    dates::format(ms, Form::Time, locale)
+}
+
 /// A time as a job card says it: the day and month, then the time.
 fn when(ms: i64, l: &L10n) -> String {
     let locale = l.locale();
@@ -304,8 +351,10 @@ fn card(
         .unwrap_or_else(|| job.prompt.lines().next().unwrap_or_default().to_string());
     let id = job.id.clone();
     let schedule = job
-        .schedule_text
-        .clone()
+        .cadence
+        .as_ref()
+        .and_then(|c| cadence_text(c, l))
+        .or_else(|| job.schedule_text.clone())
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| job.schedule.clone());
     let raw = (schedule != job.schedule).then(|| job.schedule.clone());

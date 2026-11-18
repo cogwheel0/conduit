@@ -403,6 +403,19 @@ impl RowHost {
     }
 }
 
+/// Says which version the arrows landed on (VoiceOver; focus stays on the
+/// arrow), as the phone's switcher says it.
+fn announce_version(step: Option<crate::stores::chat::VersionStep>, cx: &mut App) {
+    if let Some(step) = step {
+        let text = step.spoken(cx.l10n());
+        conduit_components::announce::announce(
+            text,
+            conduit_components::announce::Priority::High,
+            cx,
+        );
+    }
+}
+
 fn copy_text(text: &str, pane: &RowSink, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
     pane.copied(cx);
@@ -1066,7 +1079,8 @@ fn version_pager(
             .color(r.text_faint)
             .disabled(shown <= 1)
             .on_click(std::rc::Rc::new(move |_, _, cx| {
-                let _ = prev_store.update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
+                let step = prev_store.update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
+                announce_version(step.ok().flatten(), cx);
             })),
         )
         .child(
@@ -1103,7 +1117,8 @@ fn version_pager(
             .color(r.text_faint)
             .disabled(shown >= total)
             .on_click(std::rc::Rc::new(move |_, _, cx| {
-                let _ = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
+                let step = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
+                announce_version(step.ok().flatten(), cx);
             })),
         )
         .into_any_element()

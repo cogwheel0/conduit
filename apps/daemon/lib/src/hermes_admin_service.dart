@@ -21,7 +21,11 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
     show HermesDesktopRpcException;
-import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart'
+    hide HermesCadenceKind;
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart'
+    as core_cadence
+    show HermesCadenceKind;
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
@@ -1043,6 +1047,7 @@ final class HermesAdminService {
       prompt: job.prompt,
       schedule: job.schedule,
       scheduleText: describeHermesCronSchedule(job.schedule),
+      cadence: hermesCadenceDto(parseHermesCronSchedule(job.schedule)),
       enabled: job.enabled,
       lastStatus: job.lastStatus,
       lastError: job.lastError,
@@ -1496,3 +1501,29 @@ HermesCapabilities hermesCapabilitiesFallback(HermesBackendService service) =>
 /// The connection a request is made under (`HermesAdminService._enter`):
 /// its name and the configuration in use, read together.
 typedef _Scope = ({String? connection, HermesConfig active});
+
+/// [cadence] on the wire (null when core could not read the schedule).
+HermesCadenceDto? hermesCadenceDto(HermesCadence? cadence) => switch (cadence) {
+  null => null,
+  final c => HermesCadenceDto(
+    kind: switch (c.kind) {
+      core_cadence.HermesCadenceKind.none => HermesCadenceKind.none,
+      core_cadence.HermesCadenceKind.everyMinute =>
+        HermesCadenceKind.everyMinute,
+      core_cadence.HermesCadenceKind.everyMinutes =>
+        HermesCadenceKind.everyMinutes,
+      core_cadence.HermesCadenceKind.everyHour => HermesCadenceKind.everyHour,
+      core_cadence.HermesCadenceKind.everyHours => HermesCadenceKind.everyHours,
+      core_cadence.HermesCadenceKind.daily => HermesCadenceKind.daily,
+      core_cadence.HermesCadenceKind.weekdays => HermesCadenceKind.weekdays,
+      core_cadence.HermesCadenceKind.weekends => HermesCadenceKind.weekends,
+      core_cadence.HermesCadenceKind.weekly => HermesCadenceKind.weekly,
+      core_cadence.HermesCadenceKind.monthly => HermesCadenceKind.monthly,
+    },
+    every: c.every,
+    hour: c.hour,
+    minute: c.minute,
+    weekday: c.weekday,
+    day: c.day,
+  ),
+};

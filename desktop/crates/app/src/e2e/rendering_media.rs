@@ -694,13 +694,23 @@ async fn streaming_diagram(dir: &Path, cx: &mut AsyncApp) -> bool {
         return ok("the main window is open", false);
     };
     // While the fence is open the transcript draws a Mermaid code block
-    // (`mermaid code`), and nothing is sent to be drawn.
+    // (named "Mermaid code" in English), and nothing is sent to be drawn.
+    let code_label = cx.update(|cx| {
+        use conduit_components::ActiveStrings as _;
+        conduit_components::strings::fill(
+            &cx.strings().code_block,
+            &[(
+                "name",
+                &conduit_components::views::markdown::language_name("mermaid"),
+            )],
+        )
+    });
     let deadline = std::time::Instant::now() + Duration::from_secs(40);
     let (mut saw_code, mut drawn_while_open, mut shot) = (false, false, false);
     while std::time::Instant::now() < deadline {
         let streaming = cx.update(|cx| chat_store(cx).is_some_and(|s| s.read(cx).is_streaming()));
         let nodes = drive::nodes(main, cx).await;
-        if drive::find(&nodes, "Group", |l| l == "mermaid code").is_some() && streaming {
+        if drive::find(&nodes, "Group", |l| l == code_label).is_some() && streaming {
             saw_code = true;
             let (r, p, f) = cx.update(|_| drawn_counts());
             drawn_while_open |= r + p + f != r0 + p0 + f0;

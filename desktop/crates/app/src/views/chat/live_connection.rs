@@ -16,6 +16,7 @@
 use std::rc::Rc;
 use std::time::Duration;
 
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::ConduitTheme;
 use conduit_components::views::kit::{Button, ClickHandler};
@@ -143,7 +144,12 @@ pub fn card(
                     .role(Role::Alert)
                     .text_size(px(m.small))
                     .text_color(r.danger)
-                    .child(SharedString::from(l10n.desktop_live_updates_retry_failed())),
+                    .child(SharedString::from(l10n.desktop_live_updates_retry_failed()))
+                    .child(live_text(
+                        "live",
+                        Some(l10n.desktop_live_updates_retry_failed().into()),
+                        Priority::High,
+                    )),
             )
         })
         .child(

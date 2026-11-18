@@ -426,7 +426,10 @@ impl RenderOnce for CodeBlock {
         div()
             .id(ElementId::Name(id.clone().into()))
             .role(Role::Group)
-            .aria_label(format!("{lang} code"))
+            .aria_label(crate::strings::fill(
+                &strings.code_block,
+                &[("name", &language_name(&lang))],
+            ))
             .w_full()
             .my(px(4.))
             .flex()
@@ -482,7 +485,11 @@ impl RenderOnce for CodeBlock {
                             false,
                         )
                         .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()))
+                            cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()));
+                            // Heard as the phone says it; nothing changes on
+                            // screen to look at.
+                            let said = cx.strings().code_copied.clone();
+                            crate::announce::announce(said, crate::announce::Priority::Medium, cx);
                         })
                         .keyboard_control(Ring::Outset(5.), window, cx),
                     ),

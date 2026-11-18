@@ -1271,7 +1271,13 @@ impl ChatComposer {
             let len = models.len();
             let picker = self.picker.as_mut().expect("checked");
             match key {
-                "up" | "down" => picker.highlighted = menu_step(key, picker.highlighted, len),
+                "up" | "down" => {
+                    picker.highlighted = menu_step(key, picker.highlighted, len);
+                    if let Some(m) = models.get(picker.highlighted) {
+                        let label = crate::stores::composer::model_label(m);
+                        crate::views::a11y::announce_row(&label, picker.highlighted, len, cx);
+                    }
+                }
                 "enter" | "tab" => {
                     if let Some(m) = models.get(picker.highlighted).cloned() {
                         self.choose_model(&m.id, window, cx);
@@ -1293,7 +1299,10 @@ impl ChatComposer {
         let len = self.menu_len(cx);
         let menu = self.menu.as_mut().expect("checked");
         match key {
-            "up" | "down" => menu.highlighted = menu_step(key, menu.highlighted, len),
+            "up" | "down" => {
+                menu.highlighted = menu_step(key, menu.highlighted, len);
+                self.announce_menu_row(cx);
+            }
             "enter" | "tab" => {
                 if len == 0 {
                     // Nothing to choose: Enter sends as usual.
@@ -1308,6 +1317,21 @@ impl ChatComposer {
         }
         cx.notify();
         true
+    }
+
+    /// Speaks the open `/`, `@`, `#` or `$` menu's highlighted row and its
+    /// place ([`crate::views::a11y`]: the menu is the field's sibling, so
+    /// its selection alone is never heard).
+    fn announce_menu_row(&self, cx: &mut Context<Self>) {
+        let Some(menu) = &self.menu else {
+            return;
+        };
+        let entries = self.entries(cx);
+        let total = entries.len();
+        if let Some(entry) = entries.get(menu.highlighted.min(total.saturating_sub(1))) {
+            let label = entry_label(entry);
+            crate::views::a11y::announce_row(&label, menu.highlighted, total, cx);
+        }
     }
 
     /// The open menu's trigger and rows as `(group, title)`, as drawn (the
@@ -2946,10 +2970,7 @@ impl ChatComposer {
                         i as u64,
                     ))
                     .role(Role::MenuItem)
-                    .aria_label(SharedString::from(match &entry.group {
-                        Some(g) => format!("{}, {g}", entry.title),
-                        None => entry.title.clone(),
-                    }))
+                    .aria_label(SharedString::from(entry_label(&entry)))
                     .aria_selected(hot)
                     .aria_position_in_set(i + 1)
                     .aria_size_of_set(total)
@@ -3721,6 +3742,15 @@ impl ChatComposer {
             .child(icon(glyph, 13., r.text_subtle))
             .on_click(on_click)
             .into_any_element()
+    }
+}
+
+/// A `/`, `@`, `#` or `$` menu row's name for VoiceOver: its title, then
+/// its group when the menu has groups.
+fn entry_label(entry: &Entry) -> String {
+    match &entry.group {
+        Some(g) => format!("{}, {g}", entry.title),
+        None => entry.title.clone(),
     }
 }
 
@@ -5078,6 +5108,60 @@ mod tests {
             view.read_with(cx, |c, _| c.menu.as_ref().map(|m| m.trigger.kind)),
             Some(TriggerKind::Model)
         );
+    }
+
+    #[gpui_kit::test]
+    fn each_arrow_in_the_slash_menu_says_the_row_and_its_place(cx: &mut TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let (view, cx, _) = composer(cx);
+        cx.update(|_, cx| AnnouncementLog::install(cx));
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        let prompt = |command: &str, title: &str| PromptSummary {
+            command: command.into(),
+            title: title.into(),
+            description: None,
+            uses_clipboard: false,
+        };
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.prompts = Some(vec![
+                    prompt("/summarize", "Summarize"),
+                    prompt("/sow", "Sowing dates"),
+                    prompt("/soil", "Soil check"),
+                ]);
+                cx.notify()
+            })
+        });
+        cx.simulate_input("/s");
+        let rows = view
+            .read_with(cx, |c, cx| c.menu_rows(cx))
+            .expect("a / menu");
+        assert_eq!(rows.1.len(), 3);
+        let titles: Vec<String> = rows.1.iter().map(|(_, t)| t.clone()).collect();
+        let key = |k: &'static str, cx: &mut VisualTestContext| {
+            cx.update(|window, cx| view.update(cx, |c, cx| assert!(c.menu_key(k, window, cx))));
+        };
+        // Opening and typing say nothing; each arrow says where it landed,
+        // wrapping as the highlight does.
+        assert_eq!(cx.update(|_, cx| AnnouncementLog::len(cx)), 0);
+        key("down", cx);
+        key("down", cx);
+        key("down", cx);
+        key("up", cx);
+        let heard = cx.update(|_, cx| AnnouncementLog::texts(cx));
+        assert_eq!(
+            heard,
+            [
+                format!("{}, 2 of 3", titles[1]),
+                format!("{}, 3 of 3", titles[2]),
+                format!("{}, 1 of 3", titles[0]),
+                format!("{}, 3 of 3", titles[2]),
+            ]
+            .map(SharedString::from)
+        );
+        // As drawn: the highlighted row is the one heard last.
+        let highlighted = view.read_with(cx, |c, _| c.menu.as_ref().map(|m| m.highlighted));
+        assert_eq!(highlighted, Some(2));
     }
 
     /// A composer over `daemon` (so its searches answer), focused.

@@ -737,3 +737,30 @@ String appleFailureMessage(AppleFailure failure) => switch (failure) {
   AppleFailure.unavailable => appleUnavailableMessage(null),
   AppleFailure.failed => 'Apple On-Device request failed.',
 };
+
+/// The error block `type` of a chat error that is one of the texts above
+/// (`appleFailure.<failure>`, `appleUnavailable.<reason>`, or
+/// `appleUnavailable.other` for the plain "unavailable"), so the window
+/// words it in its own language; null for any other text. The texts are
+/// saved with the message, so the code is read back from them.
+String? appleErrorType(String? text) {
+  if (text == null || text.isEmpty) return null;
+  for (final reason in const <AppleUnavailableReason>[
+    AppleUnavailableReason.systemTooOld,
+    AppleUnavailableReason.deviceNotEligible,
+    AppleUnavailableReason.appleIntelligenceNotEnabled,
+    AppleUnavailableReason.modelNotReady,
+    AppleUnavailableReason.notOffered,
+  ]) {
+    if (appleUnavailableMessage(reason) == text) {
+      return 'appleUnavailable.${reason.name}';
+    }
+  }
+  if (appleUnavailableMessage(null) == text) return 'appleUnavailable.other';
+  for (final failure in AppleFailure.values) {
+    if (appleFailureMessage(failure) == text) {
+      return 'appleFailure.${failure.name}';
+    }
+  }
+  return null;
+}

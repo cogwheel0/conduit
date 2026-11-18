@@ -79,6 +79,10 @@
 //! * `apple-only`: Apple On-Device as the only model (Open WebUI signed
 //!   out, the engine's scripted model answering): Ask Conduit, Quick Ask and
 //!   the widget's links answer through it, or say why not ([`apple::only`]).
+//! * `a11y-sweep`: Calendar, Scheduled Tasks, the terminal and two
+//!   Settings panes, as VoiceOver and Full Keyboard Access (simulated in
+//!   the app) meet them: announcements, roles and labels, and Tab's reach
+//!   and order ([`a11y_sweep`]).
 //! * `offline-setup`, `offline`: a signed-in account whose server is out of
 //!   reach at launch, with conduitd restarted once while the window opens;
 //!   two launches, run by `crates/app/e2e-offline.sh` ([`offline`]).
@@ -89,6 +93,7 @@
 //! ([`crate::views::privacy`]), and the forms are captured before values are
 //! typed.
 
+mod a11y_sweep;
 mod actions;
 mod apple;
 mod apps_leftovers;
@@ -852,6 +857,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "sign-in-two-step" => sign_in::two_step(&inputs, &dir, cx).await,
         "sign-in-proxy" => sign_in::proxy(&inputs, &dir, cx).await,
         "apps-leftovers" => apps_leftovers::run(&inputs, &dir, cx).await,
+        "a11y-sweep" => a11y_sweep::run(&inputs, &dir, cx).await,
         other => ok(&format!("unknown scenario {other}"), false),
     }
 }

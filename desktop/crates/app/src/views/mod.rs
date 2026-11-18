@@ -1,5 +1,6 @@
 //! The app's views, built from `conduit-components`.
 
+pub mod a11y;
 pub mod access_sheet;
 pub mod accounts;
 pub mod add_account;

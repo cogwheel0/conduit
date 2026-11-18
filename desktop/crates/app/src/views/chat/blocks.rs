@@ -29,7 +29,8 @@ use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::Button;
 use conduit_components::views::markdown::CodeBlock;
 use conduit_protocol::{
-    ChatFileDto, MessageBlockDto, MessageBlockKind, ReasoningTitle, ToolCallDto,
+    ChatFileDto, MessageBlockDto, MessageBlockKind, MessageStatusDto, ReasoningTitle, StatusPhrase,
+    ToolCallDto,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -180,8 +181,24 @@ pub fn status_line(block: &MessageBlockDto, l10n: &L10n) -> Option<String> {
         .statuses
         .as_ref()?
         .last()
-        .map(|s| s.description.clone())
+        .map(|s| status_text(s, l10n))
         .filter(|d| !d.trim().is_empty())
+}
+
+/// What a status line reads: core's own lines in this language
+/// ([`StatusPhrase`]), else the server's words as they came.
+pub fn status_text(status: &MessageStatusDto, l10n: &L10n) -> String {
+    let query = status.query.as_deref().filter(|q| !q.trim().is_empty());
+    match (status.phrase, query, status.count) {
+        (Some(StatusPhrase::KnowledgeSearch), Some(q), _) => {
+            l10n.desktop_status_searching_knowledge(q)
+        }
+        (Some(StatusPhrase::Searching), _, _) => l10n.desktop_status_searching(),
+        (Some(StatusPhrase::Querying), _, _) => l10n.desktop_status_querying(),
+        (Some(StatusPhrase::SourcesRetrieved), _, Some(n)) => l10n.desktop_status_sources(n),
+        (Some(StatusPhrase::Processing), _, _) => l10n.desktop_status_processing(),
+        _ => status.description.clone(),
+    }
 }
 
 /// What a tool call's line names after its tool ("Port Wren"): the first
@@ -241,14 +258,48 @@ pub fn pretty(text: &str) -> String {
 /// A spinner (rotating loader) while something runs.
 /// What an error block says: the server's own words, or a plain sentence.
 pub fn error_text(block: &MessageBlockDto, l10n: &L10n) -> String {
-    match block.r#type.as_deref() {
-        Some("directToolsUnsupported") => l10n.direct_model_tools_unsupported(),
-        _ => block
+    let typed = match block.r#type.as_deref() {
+        Some("directToolsUnsupported") => Some(l10n.direct_model_tools_unsupported()),
+        Some(t) => apple_error_text(t, l10n),
+        None => None,
+    };
+    typed.unwrap_or_else(|| {
+        block
             .error
             .clone()
             .filter(|e| !e.trim().is_empty())
-            .unwrap_or_else(|| l10n.desktop_something_went_wrong()),
-    }
+            .unwrap_or_else(|| l10n.desktop_something_went_wrong())
+    })
+}
+
+/// Apple's on-device engine's failure (the daemon's `appleFailure.*` and
+/// `appleUnavailable.*` types) in this language; None for another type,
+/// whose block keeps the words it came with.
+pub fn apple_error_text(kind: &str, l10n: &L10n) -> Option<String> {
+    Some(match kind {
+        "appleUnavailable.systemTooOld" => l10n.desktop_apple_error_system_too_old(),
+        "appleUnavailable.deviceNotEligible" => l10n.desktop_apple_mac_not_eligible(),
+        "appleUnavailable.appleIntelligenceNotEnabled" => {
+            l10n.desktop_apple_error_intelligence_off()
+        }
+        "appleUnavailable.modelNotReady" => l10n.desktop_apple_error_model_not_ready(),
+        "appleUnavailable.notOffered" => l10n.desktop_apple_error_pcc_not_offered(),
+        "appleUnavailable.other" => l10n.desktop_apple_error_unavailable(),
+        "appleFailure.contextExceeded" => l10n.desktop_apple_error_context_exceeded(),
+        "appleFailure.notReady" => l10n.desktop_apple_error_not_ready(),
+        "appleFailure.guardrail" => l10n.desktop_apple_error_guardrail(),
+        "appleFailure.refusal" => l10n.desktop_apple_error_refusal(),
+        "appleFailure.unsupported" => l10n.desktop_apple_error_unsupported(),
+        "appleFailure.decoding" => l10n.desktop_apple_error_decoding(),
+        "appleFailure.busy" => l10n.desktop_apple_error_busy(),
+        "appleFailure.timedOut" => l10n.desktop_apple_error_timed_out(),
+        "appleFailure.invalidRequest" => l10n.desktop_apple_error_invalid_request(),
+        "appleFailure.invalidSchema" => l10n.desktop_apple_error_invalid_schema(),
+        "appleFailure.invalidToolSchema" => l10n.desktop_apple_error_invalid_tool_schema(),
+        "appleFailure.invalidStream" => l10n.desktop_apple_error_invalid_stream(),
+        "appleFailure.failed" => l10n.desktop_apple_error_failed(),
+        _ => return None,
+    })
 }
 
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: gpui_kit::Hsla) -> AnyElement {
@@ -1067,7 +1118,8 @@ impl AssistantRow {
                 let timeline = expanded.then(|| {
                     disclosure_body(&t).flex().flex_col().gap(px(6.)).children(
                         statuses.iter().enumerate().map(|(n, s)| {
-                            let repeats = n == last && s.description == header_line;
+                            let said = status_text(s, &l10n);
+                            let repeats = n == last && said == header_line;
                             let indent = if repeats { 0. } else { 18. };
                             div()
                                 .flex()
@@ -1090,7 +1142,7 @@ impl AssistantRow {
                                                 12.,
                                                 r.text_faint,
                                             ))
-                                            .child(SharedString::from(s.description.clone())),
+                                            .child(SharedString::from(said)),
                                     )
                                 })
                                 .when(!s.queries.is_empty(), |d| {
@@ -1869,6 +1921,135 @@ mod tests {
         assert_eq!(reasoning_title(&b, &de), "Gedacht für 1 Sekunde");
     }
 
+    /// Core's own English (the phone's words) is what the window says in
+    /// English, and every other language has its own words for it: the
+    /// status lines, Apple's failures, the call refusals and the Hermes
+    /// cadences.
+    #[test]
+    fn core_words_read_in_every_language() {
+        use conduit_protocol::{CallRefusal, HermesCadenceDto, HermesCadenceKind};
+
+        use crate::views::chat::call::refusal_text;
+        use crate::views::panes::hermes_jobs::cadence_text;
+
+        let status = |phrase, count: Option<i64>, query: Option<&str>| MessageStatusDto {
+            description: "server words".into(),
+            phrase: Some(phrase),
+            count,
+            query: query.map(String::from),
+            action: None,
+            done: true,
+            queries: vec![],
+            links: vec![],
+            details: vec![],
+        };
+        let statuses = [
+            status(StatusPhrase::KnowledgeSearch, None, Some("tide tables")),
+            status(StatusPhrase::Searching, None, None),
+            status(StatusPhrase::Querying, None, None),
+            status(StatusPhrase::SourcesRetrieved, Some(0), None),
+            status(StatusPhrase::SourcesRetrieved, Some(1), None),
+            status(StatusPhrase::SourcesRetrieved, Some(4), None),
+            status(StatusPhrase::Processing, None, None),
+        ];
+        let apple = [
+            "appleUnavailable.systemTooOld",
+            "appleUnavailable.deviceNotEligible",
+            "appleUnavailable.appleIntelligenceNotEnabled",
+            "appleUnavailable.modelNotReady",
+            "appleUnavailable.notOffered",
+            "appleUnavailable.other",
+            "appleFailure.contextExceeded",
+            "appleFailure.notReady",
+            "appleFailure.guardrail",
+            "appleFailure.refusal",
+            "appleFailure.unsupported",
+            "appleFailure.decoding",
+            "appleFailure.busy",
+            "appleFailure.timedOut",
+            "appleFailure.invalidRequest",
+            "appleFailure.invalidSchema",
+            "appleFailure.invalidToolSchema",
+            "appleFailure.invalidStream",
+            "appleFailure.failed",
+        ];
+        let refusals = [
+            CallRefusal::ModelRequired,
+            CallRefusal::HermesLoading,
+            CallRefusal::HermesUnavailable,
+            CallRefusal::DirectUnavailable,
+            CallRefusal::SignInRequired,
+            CallRefusal::BackendUnsupported,
+        ];
+        let cadence =
+            |kind, every: Option<i64>, minute: Option<i64>, weekday, day| HermesCadenceDto {
+                kind,
+                every,
+                hour: Some(17),
+                minute,
+                weekday,
+                day,
+            };
+        let cadences = [
+            cadence(HermesCadenceKind::None, None, None, None, None),
+            cadence(HermesCadenceKind::EveryMinute, None, None, None, None),
+            cadence(HermesCadenceKind::EveryMinutes, Some(15), None, None, None),
+            cadence(HermesCadenceKind::EveryHour, None, Some(0), None, None),
+            cadence(HermesCadenceKind::EveryHour, None, Some(5), None, None),
+            cadence(HermesCadenceKind::EveryHours, Some(6), Some(0), None, None),
+            cadence(HermesCadenceKind::EveryHours, Some(6), Some(30), None, None),
+            cadence(HermesCadenceKind::Daily, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekdays, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekends, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekly, None, Some(45), Some(4), None),
+            cadence(HermesCadenceKind::Monthly, None, Some(45), None, Some(22)),
+        ];
+        let said = |l: &L10n| -> Vec<String> {
+            let mut out: Vec<String> = statuses.iter().map(|s| status_text(s, l)).collect();
+            out.extend(apple.iter().map(|k| apple_error_text(k, l).expect(k)));
+            out.extend(refusals.iter().map(|r| refusal_text(*r, l).expect("known")));
+            out.extend(cadences.iter().map(|c| cadence_text(c, l).expect("known")));
+            out
+        };
+        let en = said(&L10n::new("en"));
+        // The phone's (core's) English, word for word.
+        for (got, want) in en.iter().zip([
+            "Searching Knowledge for “tide tables”",
+            "Searching",
+            "Querying",
+            "No sources found",
+            "Retrieved 1 source",
+            "Retrieved 4 sources",
+            "Processing",
+        ]) {
+            assert_eq!(got, want);
+        }
+        let english_cadences = &en[en.len() - cadences.len()..];
+        assert_eq!(english_cadences[2], "Every 15 minutes");
+        assert_eq!(english_cadences[4], "Every hour at :05");
+        assert_eq!(english_cadences[6], "Every 6 hours at :30");
+        assert!(english_cadences[10].starts_with("Every Thursday at "));
+        assert!(english_cadences[11].starts_with("Monthly on the 22nd at "));
+        for locale in crate::l10n::LOCALES.iter().filter(|l| **l != "en") {
+            let words = said(&L10n::new(locale));
+            for (i, (got, english)) in words.iter().zip(&en).enumerate() {
+                assert!(!got.trim().is_empty(), "{locale} #{i}");
+                assert!(!got.contains('{'), "{locale} #{i}: {got}");
+                assert_ne!(got, english, "{locale} #{i} is still English");
+            }
+        }
+        // No phrase, or one without what it needs, keeps the server's words.
+        let no_query = status(StatusPhrase::KnowledgeSearch, None, None);
+        assert_eq!(status_text(&no_query, &L10n::new("de")), "server words");
+        let bare = MessageStatusDto {
+            phrase: None,
+            description: "Searched the web".into(),
+            ..status(StatusPhrase::Searching, None, None)
+        };
+        assert_eq!(status_text(&bare, &L10n::new("de")), "Searched the web");
+        assert_eq!(apple_error_text("serverOverloaded", &L10n::new("de")), None);
+    }
+
     #[test]
     fn status_rows_read_the_last_line_or_the_tool_summary() {
         let l10n = L10n::new("en");
@@ -1876,6 +2057,9 @@ mod tests {
         b.statuses = Some(vec![
             conduit_protocol::MessageStatusDto {
                 description: "Searching the web".into(),
+                phrase: None,
+                count: None,
+                query: None,
                 action: None,
                 done: true,
                 queries: vec![],
@@ -1884,6 +2068,9 @@ mod tests {
             },
             conduit_protocol::MessageStatusDto {
                 description: "Read 3 pages".into(),
+                phrase: None,
+                count: None,
+                query: None,
                 action: None,
                 done: true,
                 queries: vec![],

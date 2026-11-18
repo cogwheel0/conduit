@@ -20,6 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, IconButton, Segment, Segmented, grouped_section};
 use conduit_protocol::{
@@ -687,7 +688,8 @@ impl ChatSettingsSheet {
                         .pb(px(8.))
                         .text_size(px(t.metrics.small))
                         .text_color(t.roles.danger)
-                        .child(e),
+                        .child(e.clone())
+                        .child(live_text("live", Some(e.into()), Priority::High)),
                 )
             })
             .into_any_element()

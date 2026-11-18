@@ -343,6 +343,15 @@ final class CallsService {
         error: snapshot.errorMessage,
         notice: _noticeOf(snapshot.notice),
         noticeCount: snapshot.noticeCount,
+        refusal: switch (snapshot.refusal) {
+          null => null,
+          VoiceCallRefusal.modelRequired => CallRefusal.modelRequired,
+          VoiceCallRefusal.hermesLoading => CallRefusal.hermesLoading,
+          VoiceCallRefusal.hermesUnavailable => CallRefusal.hermesUnavailable,
+          VoiceCallRefusal.directUnavailable => CallRefusal.directUnavailable,
+          VoiceCallRefusal.signInRequired => CallRefusal.signInRequired,
+          VoiceCallRefusal.backendUnsupported => CallRefusal.backendUnsupported,
+        },
         standardReason: realtime || !settingsRealtime
             ? null
             : controller?.realtimeAudioMissing ?? false

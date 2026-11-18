@@ -326,6 +326,7 @@ fn connection_row(
     row.cursor_pointer()
         .hover(|s| s.bg(r.hover))
         .active(|s| s.bg(pressed))
+        .keyboard_shadow(cx)
         .tip(l.hermes_use_connection(), None)
         .on_click(move |_, _, cx| {
             hermes_admin::activate(&stores, &id, cx);

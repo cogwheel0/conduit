@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::MONO_FONT;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -360,6 +361,16 @@ impl BackgroundWorkSheet {
                     t.roles.text_subtle
                 })
                 .child(SharedString::from(notice.text.clone()))
+                // Said when it appears, as the phone's notice is.
+                .child(live_text(
+                    "live",
+                    Some(SharedString::from(notice.text.clone())),
+                    if notice.error {
+                        Priority::High
+                    } else {
+                        Priority::Medium
+                    },
+                ))
                 .into_any_element(),
         )
     }

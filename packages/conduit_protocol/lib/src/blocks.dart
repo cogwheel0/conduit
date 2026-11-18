@@ -297,12 +297,34 @@ abstract class ToolCallDto with _$ToolCallDto {
       _$ToolCallDtoFromJson(json);
 }
 
+/// The status lines core words itself (the core's `ChatStatusPhrase`).
+enum StatusPhrase {
+  /// "Searching Knowledge for "…"", with [MessageStatusDto.query].
+  knowledgeSearch,
+  searching,
+  querying,
+
+  /// "Retrieved N sources", with [MessageStatusDto.count].
+  sourcesRetrieved,
+  processing,
+}
+
 /// One line of a `status` block's timeline.
 @freezed
 abstract class MessageStatusDto with _$MessageStatusDto {
   const factory MessageStatusDto({
     /// What the line reads, worded as Open WebUI's client words it.
     required String description,
+
+    /// When [description] is core's own wording rather than Open WebUI's:
+    /// which, for the window to word in its own language.
+    StatusPhrase? phrase,
+
+    /// How many sources `sourcesRetrieved` found.
+    int? count,
+
+    /// What `knowledgeSearch` searched for.
+    String? query,
 
     /// The update's action (`web_search`, `knowledge_search`, …), if any.
     String? action,

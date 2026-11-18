@@ -287,6 +287,16 @@ pub fn shortcut_label(action: ShortcutAction, l10n: &L10n) -> String {
     }
 }
 
+/// Two sentences as one footer: a space between them, none after a
+/// full-width stop (Chinese, Japanese).
+pub fn join_sentences(first: &str, second: &str) -> String {
+    if first.ends_with('。') {
+        format!("{first}{second}")
+    } else {
+        format!("{first} {second}")
+    }
+}
+
 /// A fixed command's name in Settings › Keyboard (the menu item's, where it
 /// reads alone).
 pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
@@ -318,6 +328,8 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::Back => l10n.desktop_menu_back(),
         F::Forward => l10n.desktop_menu_forward(),
         F::GoToSection(_) => l10n.desktop_keyboard_go_to_section(),
+        F::NextArea => l10n.desktop_menu_next_area(),
+        F::PreviousArea => l10n.desktop_menu_previous_area(),
     }
 }
 
@@ -1102,7 +1114,17 @@ impl SettingsView {
                 KeyGroup::Workspace => Some(l10n.desktop_keyboard_workspace_footer().into()),
                 KeyGroup::Calendar => Some(l10n.desktop_keyboard_calendar_footer().into()),
                 KeyGroup::ScheduledTasks => Some(l10n.desktop_keyboard_tasks_footer().into()),
-                KeyGroup::Terminal => Some(l10n.desktop_keyboard_terminal_footer().into()),
+                // And the way out of it, whose Tab is the shell's.
+                KeyGroup::Terminal => {
+                    let (next, _) = crate::views::terminal::console::leave_keys();
+                    Some(
+                        join_sentences(
+                            &l10n.desktop_keyboard_terminal_footer(),
+                            &l10n.desktop_terminal_leave_hint(&next),
+                        )
+                        .into(),
+                    )
+                }
                 KeyGroup::HermesRooms => Some(l10n.desktop_keyboard_rooms_footer().into()),
                 KeyGroup::HermesJobs => Some(l10n.desktop_keyboard_hermes_jobs_footer().into()),
                 _ => None,
@@ -2323,6 +2345,13 @@ mod tests {
                 &value[start..start + 40]
             );
         }
+    }
+
+    #[test]
+    fn footers_join_sentences_as_each_language_does() {
+        use super::join_sentences;
+        assert_eq!(join_sentences("One.", "Two."), "One. Two.");
+        assert_eq!(join_sentences("一。", "二。"), "一。二。");
     }
 
     #[test]

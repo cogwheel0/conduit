@@ -12,6 +12,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{
@@ -507,6 +508,11 @@ impl TaskEditor {
                 .text_size(px(cx.conduit().metrics.small))
                 .text_color(cx.conduit().roles.danger)
                 .child(SharedString::from(issue_text(found, l)))
+                .child(live_text(
+                    "live",
+                    Some(issue_text(found, l).into()),
+                    Priority::High,
+                ))
                 .into_any_element(),
         )
     }

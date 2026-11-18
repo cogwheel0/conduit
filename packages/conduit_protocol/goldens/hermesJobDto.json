@@ -3,7 +3,12 @@
   "name": "Morning brief",
   "prompt": "Summarise the news",
   "schedule": "0 8 * * *",
-  "scheduleText": "At 08:00",
+  "scheduleText": "Every day at 8:00 AM",
+  "cadence": {
+    "kind": "daily",
+    "hour": 8,
+    "minute": 0
+  },
   "enabled": false,
   "lastStatus": "ok",
   "lastError": "none",

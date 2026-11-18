@@ -22,7 +22,7 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
-use conduit_components::theme::{ConduitTheme, MONO_FONT};
+use conduit_components::theme::{ConduitTheme, MONO_FONT, contrast_ratio, legible_lightness};
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
 use futures::StreamExt as _;
@@ -147,6 +147,22 @@ pub fn hsla(c: Rgb) -> Hsla {
     .into()
 }
 
+/// WCAG AA (4.5:1), with room for rounding each channel to a byte.
+const ANSI_RATIO: f32 = 4.55;
+
+/// `text` as drawn on `bg`: unchanged when it reads at WCAG AA there, else
+/// only its lightness moved, toward the end (black or white) that reads
+/// better on `bg`, until it does. A yellow stays yellow.
+pub fn legible_on(text: Rgb, bg: Rgb) -> Rgb {
+    let (fg, back) = (hsla(text), hsla(bg));
+    if contrast_ratio(fg, back) >= 4.5 {
+        return text;
+    }
+    let on_light =
+        contrast_ratio(gpui_kit::black(), back) >= contrast_ratio(gpui_kit::white(), back);
+    to_rgb(legible_lightness(fg, &[back], !on_light, ANSI_RATIO))
+}
+
 /// The terminal's colours for the window's theme: its text and content
 /// colours for the defaults, and ANSI colours tuned to sit on them.
 pub fn palette(t: &ConduitTheme) -> Palette {
@@ -166,8 +182,11 @@ pub fn palette(t: &ConduitTheme) -> Palette {
             0x5a5a5f, 0xe0393f, 0x2a9e4c, 0xb57a00, 0x1a6fd6, 0xa16ae8, 0x2193a0, 0x3a3a3c,
         ]
     };
+    // These are cell backgrounds as well as text: the text is kept legible
+    // cell by cell, on the background it is drawn on ([`legible_on`]).
+    let ansi = ansi.map(hex);
     Palette {
-        ansi: ansi.map(hex),
+        ansi,
         foreground: to_rgb(t.roles.text),
         background: to_rgb(t.roles.content),
         cursor: to_rgb(t.roles.text),
@@ -176,7 +195,8 @@ pub fn palette(t: &ConduitTheme) -> Palette {
 
 impl Console {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let focus = cx.focus_handle();
+        // A stop for Tab, as a text view is; inside, Tab is the shell's.
+        let focus = cx.focus_handle().tab_stop(true);
         Self {
             emulator: Emulator::new(GridSize { cols: 80, rows: 24 }),
             focus,
@@ -1162,6 +1182,17 @@ fn context_menu(
         .show(position, window, cx);
 }
 
+/// The chords that leave the console, whose Tab is the shell's: Go › Move
+/// Focus to Next Area and Previous Area, as menus write them (⌥⌘`, ⌥⌘~).
+pub fn leave_keys() -> (String, String) {
+    use crate::keymap::{FixedCommand, describe, fixed_stroke};
+    let mac = cfg!(target_os = "macos");
+    (
+        describe(&fixed_stroke(FixedCommand::NextArea), mac),
+        describe(&fixed_stroke(FixedCommand::PreviousArea), mac),
+    )
+}
+
 /// The console as an element: the grid, with the pointer and keys wired to
 /// `console`.
 pub fn view(
@@ -1178,10 +1209,14 @@ pub fn view(
     let wheel = console.clone();
     use crate::l10n::ActiveL10n as _;
     let label = cx.l10n().terminal();
+    // VoiceOver's help on it: Tab is the shell's here, so which keys leave.
+    let (next, previous) = leave_keys();
+    let help = cx.l10n().desktop_terminal_keys_help(&next, &previous);
     div()
         .id("terminal-console")
         .role(gpui_kit::Role::Terminal)
         .aria_label(SharedString::from(label))
+        .aria_description(SharedString::from(help))
         .key_context(CONSOLE_CONTEXT)
         .track_focus(&focus)
         .size_full()
@@ -1238,3 +1273,57 @@ pub fn view(
 /// How long a console waits before taking a burst of output as finished,
 /// for the E2E's "the output arrived" checks.
 pub const SETTLE: Duration = Duration::from_millis(150);
+
+#[cfg(test)]
+mod contrast_tests {
+    use conduit_components::theme::{ConduitTheme, DesignPrefs, contrast_ratio};
+
+    use super::super::emulator::{Emulator, GridSize};
+    use super::*;
+
+    /// Text in every ANSI colour reads at WCAG AA (4.5:1) on every
+    /// background a cell can have (the console's own, and each ANSI colour
+    /// set as a cell background, black on bright green among them), in
+    /// light and dark, in every palette: as the console draws the cell.
+    #[test]
+    fn ansi_text_meets_wcag_aa_on_every_cell_background() {
+        let backgrounds: Vec<(String, String)> = std::iter::once(("default".into(), "49".into()))
+            .chain((0..16).map(|b| {
+                let code = if b < 8 { 40 + b } else { 100 + b - 8 };
+                (format!("ANSI {b}"), code.to_string())
+            }))
+            .collect();
+        let mut low = vec![];
+        let ids: Vec<&str> = conduit_components::theme::palettes().ids().collect();
+        assert!(ids.len() > 1, "{ids:?}");
+        for (id, dark) in ids.iter().flat_map(|id| [(*id, false), (*id, true)]) {
+            let t = ConduitTheme::new(id, dark, DesignPrefs::default(), gpui_kit::black());
+            let p = palette(&t);
+            let fg = contrast_ratio(hsla(p.foreground), hsla(p.background));
+            assert!(fg >= 4.5, "{id} dark={dark}: foreground {fg:.2}");
+            let e = Emulator::new(GridSize {
+                cols: 20,
+                rows: backgrounds.len() + 1,
+            });
+            for (row, (_, bg)) in backgrounds.iter().enumerate() {
+                for f in 0..16 {
+                    let fg = if f < 8 { 30 + f } else { 90 + f - 8 };
+                    e.feed(format!("\x1b[{};{}H\x1b[0;{fg};{bg}mX", row + 1, f + 1).as_bytes());
+                }
+            }
+            let frame = e.frame(&p, &[], None);
+            for (row, (name, _)) in backgrounds.iter().enumerate() {
+                for (f, cell) in frame.row(row).iter().take(16).enumerate() {
+                    let r = contrast_ratio(hsla(cell.fg), hsla(cell.bg));
+                    if r < 4.5 {
+                        low.push(format!(
+                            "{id} dark={dark}: ANSI {f} on {name}: {:?} on {:?} is {r:.2}:1",
+                            cell.fg, cell.bg
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(low.is_empty(), "{low:#?}");
+    }
+}

@@ -488,7 +488,16 @@ pub(crate) fn row(
 }
 
 pub(crate) fn note(text: String, t: &ConduitTheme, danger: bool) -> AnyElement {
+    // An error is said when it appears (the phone's panel error is a live
+    // region); loading and empty notes are not.
+    let live = danger.then(|| SharedString::from(text.clone()));
     div()
+        .relative()
+        .child(conduit_components::announce::live_text(
+            "note-live",
+            live,
+            conduit_components::announce::Priority::High,
+        ))
         .px(px(8.))
         .py(px(6.))
         .text_size(px(t.metrics.control))
@@ -551,7 +560,18 @@ impl ChatComposer {
                     Some(Panel::ServerFiles(p)) => {
                         p.picker.update(cx, |p, cx| p.step(key, cx));
                     }
-                    Some(Panel::Mcp(p)) => p.highlighted = step(p.highlighted),
+                    Some(Panel::Mcp(p)) => {
+                        p.highlighted = step(p.highlighted);
+                        let items = p.items(cx);
+                        if let Some(item) = items.get(p.highlighted) {
+                            let title = match item {
+                                McpItem::Prompt { title, .. } | McpItem::Resource { title, .. } => {
+                                    title.clone()
+                                }
+                            };
+                            crate::views::a11y::announce_row(&title, p.highlighted, len, cx);
+                        }
+                    }
                     _ => return false,
                 }
                 cx.notify();

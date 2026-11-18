@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.68.0";
+pub const PROTOCOL_VERSION: &str = "1.69.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -1705,12 +1705,43 @@ pub struct ToolCallDto {
     pub shown_embeds: Vec<EmbedDto>,
 }
 
+/// The status lines core words itself (the core's `ChatStatusPhrase`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StatusPhrase {
+    /// "Searching Knowledge for "…"", with `MessageStatusDto.query`.
+    #[serde(rename = "knowledgeSearch")]
+    KnowledgeSearch,
+    #[serde(rename = "searching")]
+    Searching,
+    #[serde(rename = "querying")]
+    Querying,
+    /// "Retrieved N sources", with `MessageStatusDto.count`.
+    #[serde(rename = "sourcesRetrieved")]
+    SourcesRetrieved,
+    #[serde(rename = "processing")]
+    Processing,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// One line of a `status` block's timeline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageStatusDto {
     /// What the line reads, worded as Open WebUI's client words it.
     pub description: String,
+    /// When `description` is core's own wording rather than Open WebUI's:
+    /// which, for the window to word in its own language.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phrase: Option<StatusPhrase>,
+    /// How many sources `sourcesRetrieved` found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+    /// What `knowledgeSearch` searched for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
     /// The update's action (`web_search`, `knowledge_search`, …), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
@@ -2244,6 +2275,30 @@ pub enum CallStandardReason {
     Unknown,
 }
 
+/// Why core refused to start a call (the core's `VoiceCallRefusal`), so
+/// the window words it in its own language; `CallState.error` keeps the
+/// English the phone shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallRefusal {
+    #[serde(rename = "modelRequired")]
+    ModelRequired,
+    #[serde(rename = "hermesLoading")]
+    HermesLoading,
+    #[serde(rename = "hermesUnavailable")]
+    HermesUnavailable,
+    #[serde(rename = "directUnavailable")]
+    DirectUnavailable,
+    #[serde(rename = "signInRequired")]
+    SignInRequired,
+    /// The model's backend has no voice calls (LibreChat).
+    #[serde(rename = "backendUnsupported")]
+    BackendUnsupported,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
 /// The call now: what `calls.changed` carries and every `calls.*` answers.
 /// There is at most one call at a time, app-wide.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2300,6 +2355,10 @@ pub struct CallState {
     /// Why a call that could have been realtime runs Standard.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standard_reason: Option<CallStandardReason>,
+    /// With `errorKind` `message`: why core would not start the call, when
+    /// that is the error (`error` is its English).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<CallRefusal>,
 }
 
 impl Default for CallState {
@@ -2323,6 +2382,7 @@ impl Default for CallState {
             notice: None,
             notice_count: Default::default(),
             standard_reason: None,
+            refusal: None,
         }
     }
 }
@@ -6482,6 +6542,61 @@ pub struct HermesChatDto {
     pub bot: Option<HermesBotDto>,
 }
 
+/// The cadences core reads in a Hermes job's cron schedule (the core's
+/// `HermesCadenceKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HermesCadenceKind {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "everyMinute")]
+    EveryMinute,
+    #[serde(rename = "everyMinutes")]
+    EveryMinutes,
+    #[serde(rename = "everyHour")]
+    EveryHour,
+    #[serde(rename = "everyHours")]
+    EveryHours,
+    #[serde(rename = "daily")]
+    Daily,
+    #[serde(rename = "weekdays")]
+    Weekdays,
+    #[serde(rename = "weekends")]
+    Weekends,
+    #[serde(rename = "weekly")]
+    Weekly,
+    #[serde(rename = "monthly")]
+    Monthly,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// A Hermes job's schedule, read (the core's `HermesCadence`): what
+/// `HermesJobDto.scheduleText` says in English, for the window to word in
+/// its own language.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HermesCadenceDto {
+    pub kind: HermesCadenceKind,
+    /// The step of `everyMinutes` and `everyHours`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every: Option<i64>,
+    /// The time's hour, 0–23.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hour: Option<i64>,
+    /// The time's minute, 0–59; for the hourly kinds, the minute past the
+    /// hour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minute: Option<i64>,
+    /// `weekly`'s day: 0 is Sunday, 6 Saturday.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weekday: Option<i64>,
+    /// `monthly`'s day of the month, 1–31.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day: Option<i64>,
+}
+
 /// A scheduled agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -6497,6 +6612,10 @@ pub struct HermesJobDto {
     /// The schedule in words, when it could be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schedule_text: Option<String>,
+    /// `scheduleText` as data, when core read the schedule: the window
+    /// words it in its own language (the English is the fallback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadence: Option<HermesCadenceDto>,
     #[serde(default = "default_hermes_job_dto_enabled")]
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -22573,6 +22692,7 @@ pub mod conformance {
         "HermesBotRef",
         "HermesBots",
         "HermesBranch",
+        "HermesCadenceDto",
         "HermesCapabilitiesDto",
         "HermesCatalog",
         "HermesChanged",
@@ -23222,6 +23342,7 @@ pub mod conformance {
             "HermesBotRef" => roundtrip::<super::HermesBotRef>(json),
             "HermesBots" => roundtrip::<super::HermesBots>(json),
             "HermesBranch" => roundtrip::<super::HermesBranch>(json),
+            "HermesCadenceDto" => roundtrip::<super::HermesCadenceDto>(json),
             "HermesCapabilitiesDto" => roundtrip::<super::HermesCapabilitiesDto>(json),
             "HermesCatalog" => roundtrip::<super::HermesCatalog>(json),
             "HermesChanged" => roundtrip::<super::HermesChanged>(json),
