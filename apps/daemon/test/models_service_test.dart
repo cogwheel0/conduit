@@ -191,6 +191,10 @@ final class _AgentsApi extends ApiService {
   Completer<void>? held;
   final northAsked = Completer<void>();
 
+  /// How many more times north answers with its agent (null: always);
+  /// after that it answers with none.
+  int? northAnswers;
+
   /// South's answers wait for this while it is set; [southAsked] marks the
   /// question reaching it.
   Completer<void>? southHeld;
@@ -215,9 +219,16 @@ final class _AgentsApi extends ApiService {
       if (!southAsked.isCompleted) southAsked.complete();
       await southHeld?.future;
     }
-    return terminalId == 'north'
-        ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
-        : const <core.Model>[];
+    // North's agent works in agent-chat's workspace only.
+    if (terminalId != 'north' || chatId != 'agent-chat') {
+      return const <core.Model>[];
+    }
+    final left = northAnswers;
+    if (left != null) {
+      if (left <= 0) return const <core.Model>[];
+      northAnswers = left - 1;
+    }
+    return const [core.Model(id: _northAgent, name: 'Codex · gpt-test')];
   }
 }
 
@@ -359,6 +370,39 @@ void main() {
         'south',
       ], reason: "A's chat asked of north for B");
       expect(container.read(selectedModelProvider)?.id, 'first-model');
+    },
+  );
+
+  test(
+    'a picked agent stays on offer when a later lookup finds none',
+    () async {
+      final api = _AgentsApi()..northAnswers = 1;
+      final container = _agentContainer(api);
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final list = await ModelsService(container)
+          .select(_northAgent, chatId: 'agent-chat');
+      // The pick's own list asked north again, and north answered with none:
+      // the agent picked is still the one offered and selected, never left
+      // for the window to replace with another model.
+      expect(api.asked.where((t) => t == 'north'), hasLength(2));
+      expect(list.selectedId, _northAgent);
+      expect(list.agents.map((m) => m.id), <String>[_northAgent]);
+    },
+  );
+
+  test(
+    "a terminal's agents are not offered once another terminal is chosen",
+    () async {
+      final api = _AgentsApi()..held = Completer<void>();
+      final container = _agentContainer(api);
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final listing = ModelsService(container)
+          .list(const ModelListQuery(chatId: 'agent-chat'));
+      await api.northAsked.future;
+      container.read(selectedTerminalIdProvider.notifier).set('south');
+      api.held!.complete();
+      final list = await listing;
+      expect(list.agents, isEmpty, reason: "north's agents offered on south");
     },
   );
 
@@ -704,6 +748,7 @@ void main() {
       await models.select('fast-a');
       // The models are read again, slowly, while the switch is asked.
       _FastGated.gate = Completer<void>();
+      addTearDown(() => _FastGated.gate = null);
       container.invalidate(modelsProvider);
       final switching = models.setFastTier(
         const SetFastTier(modelId: 'fast-a', on: true),

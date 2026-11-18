@@ -233,13 +233,28 @@ final class ModelsService {
         : await _conversation(chatId, account);
     // A named chat that could not be read is not a new chat: its agents are
     // unknown, so none is offered (an unread chat is never taken for none).
-    final agents = chatId != null && conversation == null
-        ? const <core.Model>[]
+    final found = chatId != null && conversation == null
+        ? (agents: const <core.Model>[], asked: false)
         : await _agents(conversation, account, temporary: query.temporary);
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
     // actually use is worse than showing none.
-    final selectedId = (await currentModel(_container))?.id;
+    final selected = await currentModel(_container);
+    final selectedId = selected?.id;
+    // A coding agent picked on the selected terminal stays on offer when a
+    // later lookup there finds none or fails (never settled on absence):
+    // the window keeps it, and the next turn goes to it (refused by the
+    // server, visibly, if it is really gone), never to another model.
+    final agents = [
+      ...found.agents,
+      if (found.asked &&
+          selected != null &&
+          isTerminalAgentModel(selected) &&
+          terminalAgentTerminalId(selected) ==
+              _container.read(selectedTerminalIdProvider) &&
+          !found.agents.any((agent) => agent.id == selected.id))
+        selected,
+    ];
     final plain = ModelList(
       models: models.map(_summarize).toList(growable: false),
       selectedId: selectedId,
@@ -479,24 +494,27 @@ final class ModelsService {
         debugMessage: 'Fast tier belongs to the selected model that offers it',
       );
     }
+    // Checked, written and answered with no wait between: the switch is
+    // never left on for another account.
     account.require('the Fast tier is switched');
     _container.read(hermesFastTierSelectionProvider.notifier).set(request.on);
-    final options = await _options(model);
-    account.require('the Fast tier is answered');
-    return options;
+    return _optionsFor(model, selected);
   }
 
   bool _savedOnChat(core.Model model) =>
       !isHermesModel(model) &&
       _container.read(directModelRegistryProvider).resolve(model) == null;
 
-  Future<ModelOptionsDto> _options(core.Model? model) async {
+  Future<ModelOptionsDto> _options(core.Model? model) async =>
+      _optionsFor(model, (await currentModel(_container))?.id);
+
+  /// [model]'s options while [selectedId] is the model in use.
+  ModelOptionsDto _optionsFor(core.Model? model, String? selectedId) {
     final read = _container.read;
     final policy = reasoningEffortPolicyForModel(read, model);
     final binding = model == null
         ? null
         : read(directModelRegistryProvider).resolve(model);
-    final selectedId = (await currentModel(_container))?.id;
     final offersFast =
         model != null &&
         model.metadata?['hermesFast'] == true &&
@@ -570,7 +588,7 @@ final class ModelsService {
           (await _agents(
             conversation,
             account,
-          )).where((candidate) => candidate.id == id).firstOrNull ??
+          )).agents.where((candidate) => candidate.id == id).firstOrNull ??
           // Switch: the chat's own agent, asked of its own terminal (picking
           // it selects that terminal), whichever terminal is selected now.
           (conversation?.model == id ? await _onItsTerminal(id, chatId) : null);
@@ -612,15 +630,20 @@ final class ModelsService {
 
   /// The coding agents the selected terminal offers [conversation] (null
   /// for a new chat): none where no agent can answer, or when the terminal
-  /// was not reached in time. Asked and answered for [account] only: it is
-  /// checked right before the terminal is asked (the core reads the
-  /// account's API then) and when the answer is back, so no caller goes on
-  /// (to Switch's own-terminal lookup, say) for another account.
-  Future<List<core.Model>> _agents(
+  /// was not reached in time. [asked] tells whether a terminal was asked at
+  /// all (the chat can have an agent). Asked and answered for [account]
+  /// and for the terminal selected when it was asked: both are checked
+  /// right before the terminal is asked (the core reads the account's API
+  /// then) and when the answer is back, so no caller goes on (to Switch's
+  /// own-terminal lookup, say) for another account, and no list offers one
+  /// terminal's agents beside another's selection.
+  Future<({List<core.Model> agents, bool asked})> _agents(
     Conversation? conversation,
     AccountScope account, {
     bool temporary = false,
   }) async {
+    const none = (agents: <core.Model>[], asked: false);
+    final terminal = _container.read(selectedTerminalIdProvider);
     try {
       final scope = await terminalAgentScopeFor(
         _container,
@@ -628,9 +651,12 @@ final class ModelsService {
         temporary: temporary,
       );
       account.require('the coding agents are asked for');
+      if (_container.read(selectedTerminalIdProvider) != terminal) return none;
+      if (scope == null) return none;
       final agents = await terminalAgentModelsIn(_container, scope);
       account.require('the coding agents are answered');
-      return agents;
+      if (_container.read(selectedTerminalIdProvider) != terminal) return none;
+      return (agents: agents, asked: true);
     } on RpcError {
       rethrow;
     } on Object catch (error) {
@@ -639,7 +665,7 @@ final class ModelsService {
         scope: 'daemon/models',
         data: <String, Object?>{'error': error.runtimeType.toString()},
       );
-      return const <core.Model>[];
+      return none;
     }
   }
 
@@ -800,7 +826,7 @@ final class ModelsService {
       return (await _agents(
         conversation,
         account,
-      )).where((candidate) => candidate.id == id).firstOrNull;
+      )).agents.where((candidate) => candidate.id == id).firstOrNull;
     }
     return _model(id);
   }
