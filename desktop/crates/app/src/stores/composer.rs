@@ -2762,6 +2762,7 @@ mod tests {
             default_id: None,
             agents: vec![],
             agent_names: Default::default(),
+            chat_agent: None,
         }
     }
 
