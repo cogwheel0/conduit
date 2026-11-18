@@ -1250,24 +1250,38 @@ final class HermesAdminService {
     }
     final scheduling =
         _container.read(hermesApiServiceProvider) is HermesDesktopApiService;
-    // An edit never replaces routes the core could not read: they were
-    // never shown, so no choice of the user's is about them. A phone's
-    // Notify Me is kept as it was.
-    final unread =
-        edit.id != null &&
-        (_container.read(hermesJobsProvider).value ?? const <HermesJob>[]).any(
-          (j) => j.id == edit.id && !j.deliveryKnown,
+    // Delivery is sent only when the edit changes it, merged with the job's
+    // push target (a phone's Notify Me, never listed here) as the gateway
+    // holds it now: read again, never taken from a list read before, which
+    // the phone may have changed since. A read that fails fails the save; a
+    // job whose routes cannot be read keeps them as stored (they were never
+    // shown, so no choice of the user's is about them).
+    String? deliver;
+    if (scheduling && edit.deliver != null) {
+      if (edit.id == null) {
+        deliver = _deliverValue(
+          hermesJobDeliverKeepingNotifyMe(edit.deliver!, notify: false),
         );
-    final deliver = scheduling && !unread
-        ? _deliverValue(
-            edit.deliver == null
-                ? null
-                : hermesJobDeliverKeepingNotifyMe(
-                    edit.deliver!,
-                    notify: edit.id != null && await _notifiesConduit(edit.id!),
-                  ),
-          )
-        : null;
+      } else {
+        final HermesJob stored;
+        try {
+          stored = await _jobs.current(edit.id!);
+        } on HermesJobNotFoundException {
+          throw const RpcError(
+            code: ConduitErrorCodes.notFound,
+            debugMessage: 'the job no longer exists',
+          );
+        }
+        deliver = stored.deliveryKnown
+            ? _deliverValue(
+                hermesJobDeliverKeepingNotifyMe(
+                  edit.deliver!,
+                  notify: hermesDeliverIncludesConduit(stored.deliveryTarget),
+                ),
+              )
+            : null;
+      }
+    }
     // Read on the connection the edit was made under.
     _check(scope);
     final catchUp = scheduling ? _catchUp(edit.catchUp) : null;
@@ -1299,19 +1313,6 @@ final class HermesAdminService {
     _announce();
     return _jobsAfter(saved: saved);
   });
-
-  /// Whether job [id] delivers to Conduit's push plugin: a phone's Notify
-  /// Me, which an edit made here keeps.
-  Future<bool> _notifiesConduit(String id) async {
-    final listed =
-        _container.read(hermesJobsProvider).value ??
-        await readSettled<List<HermesJob>>(
-          _container,
-          hermesJobsProvider.future,
-        ).catchError((Object _) => const <HermesJob>[]);
-    final job = listed.where((j) => j.id == id).firstOrNull;
-    return hermesDeliverIncludesConduit(job?.deliveryTarget);
-  }
 
   /// [value]'s targets as Hermes stores them, or null when the edit leaves
   /// them alone.

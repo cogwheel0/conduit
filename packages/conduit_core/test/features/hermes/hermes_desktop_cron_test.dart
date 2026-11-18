@@ -296,6 +296,42 @@ void main() {
     check(adapter.requests.last.query).deepEquals({'profile': 'ops'});
   });
 
+  test('a change merged with a job reads it again, never from the list '
+      'read before', () async {
+    Map<String, Object?> job(String deliver) => {
+      'id': 'job-1',
+      'name': 'Digest',
+      'prompt': 'Summarize the notes',
+      'schedule': '0 7 * * *',
+      'enabled': true,
+      'deliver': deliver,
+    };
+    final adapter = _RoutesAdapter({
+      'GET /api/cron/jobs': (200, [job('local')]),
+    });
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_service(adapter)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesJobsProvider, (_, _) {});
+    final listed = await container.read(hermesJobsProvider.future);
+    check(listed.single.deliveryTarget).equals('local');
+    final jobs = container.read(hermesJobsProvider.notifier);
+
+    // Another device turned Notify Me on since the list was read.
+    adapter.routes['GET /api/cron/jobs'] = (200, [job('local,conduit')]);
+    check((await jobs.current('job-1')).deliveryTarget).equals('local,conduit');
+
+    adapter.routes['GET /api/cron/jobs'] = (200, <Object>[]);
+    await check(jobs.current('job-1')).throws<HermesJobNotFoundException>();
+
+    adapter.routes['GET /api/cron/jobs'] = (500, {'detail': 'busy'});
+    await check(jobs.current('job-1')).throws<Object>();
+    check(adapter.requests.where((r) => r.method != 'GET')).isEmpty();
+  });
+
   test('an edit sends only the delivery and policy it changes', () async {
     final adapter = _RoutesAdapter();
     final service = _service(adapter);

@@ -147,6 +147,15 @@ class HermesJobStopUnsupportedException implements Exception {
   String toString() => 'This Hermes server cannot stop running jobs.';
 }
 
+/// A job read again before a change is no longer listed: it was deleted
+/// meanwhile, so the change is not made.
+class HermesJobNotFoundException implements Exception {
+  const HermesJobNotFoundException();
+
+  @override
+  String toString() => 'This Hermes job no longer exists.';
+}
+
 /// A Hermes scheduled job (`/api/jobs/*`): a prompt run on a cron, interval,
 /// duration, or one-shot schedule.
 class HermesJob {
