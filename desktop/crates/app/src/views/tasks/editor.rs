@@ -358,7 +358,11 @@ impl TaskEditor {
                             s.pending_kind = None;
                             s.take_state(state, cx)
                         }
-                        Err(e) => log::warn!("automations.checkDraft: {e}"),
+                        Err(e) => {
+                            // Not taken: a later check does not carry it.
+                            s.pending_kind = None;
+                            log::warn!("automations.checkDraft: {e}")
+                        }
                     }
                     cx.notify();
                 });
@@ -1801,6 +1805,63 @@ mod tests {
             assert_eq!(f.schedule.rrule, monthly);
             assert_eq!(f.schedule.kind, "custom");
         });
+    }
+
+    /// Weekly's check fails: the choice is not carried by a later check of
+    /// another field (it was not taken), so that check never turns the
+    /// schedule Weekly behind the user's back.
+    #[gpui_kit::test]
+    fn a_failed_kind_check_drops_the_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        daemon.once::<methods::AutomationsCheckDraft>(Err(conduit_daemon::protocol::error(
+            "rpc.serverError",
+            "the check was refused",
+        )));
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.edit(|f| f.name = "Allotment digest (late)".into(), cx)
+            })
+        });
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        assert_eq!(checks[before]["chooseKind"], "weekly");
+        let last = checks.last().expect("a check");
+        assert!(
+            last.get("chooseKind").is_none_or(|k| k.is_null()),
+            "a check after the failed one carried its kind choice: {last}"
+        );
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
