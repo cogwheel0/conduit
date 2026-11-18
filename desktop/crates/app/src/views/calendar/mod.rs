@@ -357,7 +357,8 @@ impl CalendarPane {
         let (row, key, day) = items[next].clone();
         // The pane has the keyboard, not the row: say which.
         if let Some(item) = agenda.days[day].items.iter().find(|i| i.key == key) {
-            crate::views::a11y::announce_row(&item.title, next, items.len(), cx);
+            let title = shown_title(item, cx.l10n());
+            crate::views::a11y::announce_row(&title, next, items.len(), cx);
         }
         self.selected = Some((key, day));
         self.scroll
@@ -773,11 +774,7 @@ impl CalendarPane {
             .as_ref()
             .is_some_and(|(key, day)| key == &item.key && *day == d);
         let scheduled = item.kind == "scheduled";
-        let title = if item.title.trim().is_empty() {
-            l.calendar_untitled_event()
-        } else {
-            item.title.clone()
-        };
+        let title = shown_title(&item, &l);
         let time = format::row_time(&item.time, &l);
         let mut detail = vec![time.clone()];
         if scheduled {
@@ -1053,11 +1050,7 @@ pub fn confirm_delete(
     cx: &mut App,
 ) {
     let l = cx.l10n().clone();
-    let title = if item.title.trim().is_empty() {
-        l.calendar_untitled_event()
-    } else {
-        item.title.clone()
-    };
+    let title = shown_title(&item, &l);
     let spec = if item.recurring {
         SheetSpec::new(
             l.calendar_event_delete_series_confirm(&title),
@@ -1170,6 +1163,16 @@ impl Render for CalendarPane {
                     .child(header)
                     .child(body),
             )
+    }
+}
+
+/// An item's title as its row draws it and VoiceOver says it: an untitled
+/// event has the localized "Untitled event".
+fn shown_title(item: &CalendarItemDto, l: &L10n) -> String {
+    if item.title.trim().is_empty() {
+        l.calendar_untitled_event()
+    } else {
+        item.title.clone()
     }
 }
 
@@ -1652,5 +1655,72 @@ mod tests {
             before,
             "Down on a focused agenda row moved nothing"
         );
+    }
+
+    /// Arrowing onto an untitled event says the name its row shows, so
+    /// VoiceOver never goes quiet on a row.
+    #[gpui_kit::test]
+    fn an_untitled_event_is_said_by_the_name_its_row_shows(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use conduit_protocol::Capabilities;
+
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let day = CalendarWallTime {
+            year: 2026,
+            month: 11,
+            day: 12,
+            hour: 0,
+            minute: 0,
+        };
+        let mut untitled = item("k2");
+        untitled.title = " ".into();
+        daemon.returns::<methods::CalendarAgenda>(CalendarAgenda {
+            available: true,
+            first_day: Some(day.clone()),
+            today: Some(day.clone()),
+            days: vec![CalendarAgendaDay {
+                day,
+                items: vec![item("k1"), untitled],
+            }],
+            ..Default::default()
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-agenda-say-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.system_capabilities = Some(Capabilities {
+                calendar: true,
+                ..Default::default()
+            });
+            cx.notify();
+        });
+        let s = stores.clone();
+        let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
+        vcx.run_until_parked();
+        assert!(
+            stores.calendar.read_with(vcx, |c, _| c.agenda.is_some()),
+            "the agenda loaded"
+        );
+        pane.update(vcx, |p, cx| {
+            p.move_selection(true, cx);
+            p.move_selection(true, cx);
+        });
+        let untitled_said = format!("{}, 2 of 2", L10n::new("en").calendar_untitled_event());
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(said, ["k1, 1 of 2".to_string(), untitled_said]);
     }
 }
