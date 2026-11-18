@@ -106,6 +106,8 @@ void main() {
         await releaseFirst.future;
       }
       if (!canCommit()) return false;
+      // As storage does: its first write is announced before publication.
+      (invocation.namedArguments[#onWriting] as void Function()?)?.call();
       await publish();
       publishedServerIds.add(config.id);
       return true;

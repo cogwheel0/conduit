@@ -769,6 +769,68 @@ void main() {
     check(after.isAuthenticated).isTrue();
   });
 
+  // An account added on a saved server is refused before storage writes
+  // (the server lost the address it was made from) while the account in
+  // charge is still settling: that account settles as it would have.
+  test('a server selection refused before it writes leaves the account in '
+      'charge to settle', () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    final tokenRead = Completer<String?>();
+    when(() => storage.getAuthTokenStrict()).thenAnswer((_) => tokenRead.future);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    when(() => storage.getActiveServerId())
+        .thenAnswer((_) async => 'account-a');
+    when(
+      () => storage.selectUnauthenticatedServerConfig(
+        any(),
+        publish: any(named: 'publish'),
+        canCommit: any(named: 'canCommit'),
+        onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
+      ),
+    ).thenAnswer((_) async => false);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    // The account in charge is still reading its session.
+    container.read(authStateManagerProvider);
+
+    await container
+        .read(authStateManagerProvider.notifier)
+        .selectUnauthenticatedServerConfig(
+          const ServerConfig(
+            id: 'account-new',
+            name: 'New',
+            url: 'https://new.example',
+          ),
+          joins: (_) => false,
+        );
+    tokenRead.complete(_tokenA);
+
+    final after = await _settledAuth(container);
+    check(after.isLoading).isFalse();
+    check(after.token).equals(_tokenA);
+    check(after.isAuthenticated).isTrue();
+  });
+
   test('a merge storage declines deletes nothing', () async {
     final storage = _Storage();
     final isolation = _RecordingIsolation();

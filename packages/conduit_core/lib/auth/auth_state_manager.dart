@@ -1651,20 +1651,35 @@ class AuthStateManager extends _$AuthStateManager {
         ? _lastSettledState
         : currentState;
     final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
-    final attemptRevision = _beginAuthAttempt();
-    bool superseded() =>
-        _authAttemptSuperseded(attemptRevision) || !(canCommit?.call() ?? true);
+    // The attempt is claimed only as storage begins to write: a selection
+    // declined before that ([joins], [canCommit]) supersedes nothing, so an
+    // account still settling (a refresh, its start) finishes as it would
+    // have. Until then it asks that no other attempt began meanwhile.
+    final startRevision = _authAttemptRevision;
+    final startSafetyEpoch = _sessionSafetyEpoch;
+    int? attemptRevision;
+    bool superseded() {
+      final claimed = attemptRevision;
+      final overtaken = claimed == null
+          ? !ref.mounted ||
+                _authAttemptRevision != startRevision ||
+                _sessionSafetyEpoch != startSafetyEpoch
+          : _authAttemptSuperseded(claimed);
+      return overtaken || !(canCommit?.call() ?? true);
+    }
+
     final storage = ref.read(optimizedStorageServiceProvider);
-    var writing = false;
     try {
       final selected = await storage.selectUnauthenticatedServerConfig(
         config,
         canCommit: () => !superseded(),
         joins: joins,
-        onWriting: () => writing = true,
+        onWriting: () => attemptRevision = _beginAuthAttempt(),
         onRollbackUncertain: () {
           if (!ref.mounted) return;
-          _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
+          _poisonUncertainServerSession(
+            failedAttemptRevision: attemptRevision ?? startRevision,
+          );
         },
         publish: () {
           if (superseded()) {
@@ -1707,22 +1722,24 @@ class AuthStateManager extends _$AuthStateManager {
         },
       );
       // Declined before anything was written ([joins] or [canCommit] said
-      // no first): the previous account's session was never touched, and
-      // a reply it carries keeps its client.
-      if (!selected && writing) {
+      // no first): no attempt was claimed, the previous account's session
+      // was never touched, and a reply it carries keeps its client.
+      final claimed = attemptRevision;
+      if (!selected && claimed != null) {
         // Put back after it was written or published: the addition it was
         // for ended meanwhile. Storage holds the previous account's session
         // again, so auth shows it again, unless a newer attempt owns it.
         _restoreRolledBackAuthPublication(
-          attemptRevision: attemptRevision,
+          attemptRevision: claimed,
           capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
           previousState: previousState,
         );
       }
     } catch (error, stackTrace) {
-      if (error is! ServerConfigSessionRollbackException) {
+      final claimed = attemptRevision;
+      if (error is! ServerConfigSessionRollbackException && claimed != null) {
         _restoreRolledBackAuthPublication(
-          attemptRevision: attemptRevision,
+          attemptRevision: claimed,
           capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
           previousState: previousState,
         );
