@@ -1645,12 +1645,6 @@ class AuthStateManager extends _$AuthStateManager {
     bool Function()? canCommit,
     bool Function(OpenWebUiRegistry stored)? joins,
   }) async {
-    final currentState = _current;
-    final previousState =
-        currentState.isLoading || currentState.status == AuthStatus.loading
-        ? _lastSettledState
-        : currentState;
-    final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
     // The attempt is claimed only as storage begins to write: a selection
     // declined before that ([joins], [canCommit]) supersedes nothing, so an
     // account still settling (a refresh, its start) finishes as it would
@@ -1658,6 +1652,20 @@ class AuthStateManager extends _$AuthStateManager {
     final startRevision = _authAttemptRevision;
     final startSafetyEpoch = _sessionSafetyEpoch;
     int? attemptRevision;
+    // What a rollback puts back: the auth state as the claim is made, in the
+    // same synchronous step (nothing awaited between), so an account that
+    // settled while the selection waited for storage is what comes back.
+    late AuthState previousState;
+    late int capturedSessionSafetyEpoch;
+    void claim() {
+      final current = _current;
+      previousState = current.isLoading || current.status == AuthStatus.loading
+          ? _lastSettledState
+          : current;
+      capturedSessionSafetyEpoch = _sessionSafetyEpoch;
+      attemptRevision = _beginAuthAttempt();
+    }
+
     bool superseded() {
       final claimed = attemptRevision;
       final overtaken = claimed == null
@@ -1674,7 +1682,7 @@ class AuthStateManager extends _$AuthStateManager {
         config,
         canCommit: () => !superseded(),
         joins: joins,
-        onWriting: () => attemptRevision = _beginAuthAttempt(),
+        onWriting: claim,
         onRollbackUncertain: () {
           if (!ref.mounted) return;
           _poisonUncertainServerSession(
