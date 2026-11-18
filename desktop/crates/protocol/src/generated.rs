@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.67.0";
+pub const PROTOCOL_VERSION: &str = "1.68.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -783,6 +783,13 @@ pub struct AppleReport {
     /// words missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<i64>,
+    /// Every report a window sends is numbered by it, from 1, as it is sent
+    /// (a send tried again keeps its number). The daemon takes a `ready`
+    /// only when it is newer than every report it took from that window, and
+    /// a `ready` ends only runs whose start the window answered before it: a
+    /// late copy of an older one never ends a run started since.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -818,6 +825,7 @@ impl Default for AppleReport {
             status: None,
             run_id: None,
             seq: None,
+            order: None,
             content: None,
             input_tokens: None,
             output_tokens: None,

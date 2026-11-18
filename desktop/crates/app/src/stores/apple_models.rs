@@ -62,6 +62,10 @@ pub struct AppleModelsStore {
     engine_log: Option<Vec<AppleCommand>>,
     /// Counts the daemon sessions: a `ready` said again belongs to its own.
     session: u64,
+    /// The number the last report carried ([`AppleReport::order`]), given
+    /// as it is sent: a send the connection tries again keeps its number,
+    /// so the daemon knows a late copy of a `ready` from a newer one.
+    order: i64,
 }
 
 impl AppleModelsStore {
@@ -79,6 +83,7 @@ impl AppleModelsStore {
             asked: HashMap::new(),
             engine_log: Some(vec![]),
             session: 0,
+            order: 0,
         }
     }
 
@@ -108,6 +113,7 @@ impl AppleModelsStore {
             asked: HashMap::new(),
             engine_log: None,
             session: 0,
+            order: 0,
         }
     }
 
@@ -123,7 +129,7 @@ impl AppleModelsStore {
     /// (`rpc.daemonUnavailable`), it is said again, with the runs as they
     /// are then, for as long as `session` is the daemon session.
     fn ready(&mut self, session: u64, cx: &mut Context<Self>) {
-        let call = self.rpc.call::<methods::AppleReport>(&AppleReport {
+        let call = self.report_call(AppleReport {
             kind: Some(AppleReportKind::Ready),
             supported: Some(apple_models::supported()),
             runs: self.runs.iter().cloned().collect(),
@@ -145,6 +151,19 @@ impl AppleModelsStore {
             },
         )
         .detach();
+    }
+
+    /// Sends `report` numbered now: `Rpc::call` queues it at once, in the
+    /// order of the numbers.
+    fn report_call(
+        &mut self,
+        mut report: AppleReport,
+    ) -> impl std::future::Future<
+        Output = Result<conduit_protocol::OkResult, conduit_daemon::RpcError>,
+    > + use<> {
+        self.order += 1;
+        report.order = Some(self.order);
+        self.rpc.call::<methods::AppleReport>(&report)
     }
 
     /// What the window's connection says.
@@ -244,7 +263,7 @@ impl AppleModelsStore {
             }
         }
         let concerns = run.or(started);
-        let call = self.rpc.call::<methods::AppleReport>(&report);
+        let call = self.report_call(report);
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             if let Err(e) = call.await {
                 log::debug!("apple.report: {e}");
@@ -281,7 +300,7 @@ impl AppleModelsStore {
                 cx,
             );
         }
-        let call = self.rpc.call::<methods::AppleReport>(&AppleReport {
+        let call = self.report_call(AppleReport {
             kind: Some(AppleReportKind::Failed),
             run_id: Some(run),
             failure: Some(AppleFailure::Failed),
@@ -395,6 +414,14 @@ mod tests {
         let sent = sent(&daemon);
         let seqs: Vec<Option<i64>> = sent.iter().map(|r| r["seq"].as_i64()).collect();
         assert_eq!(seqs, vec![None, Some(1), Some(2), None], "{sent:?}");
+        // Every report is numbered as it is sent, whatever its kind.
+        let orders: Vec<Option<i64>> = sent.iter().map(|r| r["order"].as_i64()).collect();
+        let first = orders[0].expect("numbered");
+        assert_eq!(
+            orders,
+            (first..first + 4).map(Some).collect::<Vec<_>>(),
+            "{sent:?}"
+        );
         assert_eq!(sent[3]["kind"], "failed");
         assert_eq!(sent[3]["runId"], "run-1");
         assert!(

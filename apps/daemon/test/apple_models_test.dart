@@ -384,6 +384,30 @@ void main() {
     expect(window.cancelled, isEmpty);
   });
 
+  test('a ready sent before a start was answered, delivered again after it, '
+      'never ends that run', () async {
+    window.ready(supported: true);
+    // Numbered now; the connection delivers it again once the run started.
+    final stale = window.readyReport(supported: true);
+    window.reply = const <String>['Slowly '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Tell me a long story.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    window.resend(stale);
+    await pumpEventQueue();
+    window.finish(run.id);
+    await done.timeout(const Duration(seconds: 2));
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.last, isA<DirectStreamDone>());
+  });
+
   test('a Cancel lost on the way is sent again when the window says ready '
       'still holding the run', () async {
     window.ready(supported: true);
@@ -734,14 +758,25 @@ final class _Window {
   }
 
   void ready({required bool supported, List<String> runs = const []}) =>
-      apple.report(
-        AppleReport(
-          kind: AppleReportKind.ready,
-          supported: supported,
-          runs: runs,
-        ),
-        from: id,
-      );
+      resend(readyReport(supported: supported, runs: runs));
+
+  /// A `ready` numbered now, as the window sends it, for [resend] to deliver
+  /// (again) later, as the connection does with a send tried again.
+  AppleReport readyReport({
+    required bool supported,
+    List<String> runs = const [],
+  }) => AppleReport(
+    kind: AppleReportKind.ready,
+    supported: supported,
+    runs: runs,
+    order: ++_order,
+  );
+
+  /// Delivers [report] as it was numbered.
+  void resend(AppleReport report) => apple.report(report, from: id);
+
+  /// The number of the last report this window sent.
+  int _order = 0;
 
   /// Ends a run held open.
   void finish(String runId) =>
@@ -764,7 +799,7 @@ final class _Window {
       _numbers[runId] = number;
       report = report.copyWith(seq: number);
     }
-    apple.report(report, from: id);
+    apple.report(report.copyWith(order: ++_order), from: id);
   }
 
   /// A report this window did not number in order: another window's run,

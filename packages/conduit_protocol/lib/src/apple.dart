@@ -278,6 +278,13 @@ abstract class AppleReport with _$AppleReport {
     /// on the way, and the daemon ends the run rather than keep a reply with
     /// words missing.
     int? seq,
+
+    /// Every report a window sends is numbered by it, from 1, as it is sent
+    /// (a send tried again keeps its number). The daemon takes a `ready`
+    /// only when it is newer than every report it took from that window, and
+    /// a `ready` ends only runs whose start the window answered before it: a
+    /// late copy of an older one never ends a run started since.
+    int? order,
     String? content,
     int? inputTokens,
     int? outputTokens,
