@@ -20,12 +20,18 @@
 //! * a held chunk whose column changed width is measured again next frame
 //!   (and drawn at once if it is in view).
 //!
-//! The row decides which chunks may be held at all: none whose height can
-//! change on its own (pictures, PDF cards and diagrams load later), none
-//! with focus or a selection under way, none Find in Chat is revealing. And
-//! none while assistive technology is connected: a held chunk's links and
-//! buttons would leave the accessibility tree, where VoiceOver reaches them
-//! anywhere in an answer on screen.
+//! A chunk is held only while nothing depends on its live layout. Its
+//! height belongs to the text and the transcript width it was measured at:
+//! another text (an answer's other version, an edit) or another width is
+//! laid out again before it can be held. And the row holds none whose
+//! height can change on its own (pictures, PDF cards and diagrams load
+//! later), none with focus, none while the answer has a selection (being
+//! made or made: a held chunk drops out of it, and Copy would miss its
+//! text), none Find in Chat is revealing, and none with a link or a code
+//! block's buttons while Full Keyboard Access is on (Tab reaches them only
+//! when laid out). And none while assistive technology is connected: a held
+//! chunk's links and buttons would leave the accessibility tree, where
+//! VoiceOver reaches them anywhere in an answer on screen.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -66,6 +72,10 @@ struct Measured {
     width: Pixels,
     height: Pixels,
     typography: Typography,
+    /// The width of the area the chunk was laid out in (the transcript's),
+    /// as its layout saw it: a pass that only measures rows never reaches
+    /// [`ChunkPlace::held`]'s own width check.
+    area: Pixels,
 }
 
 #[derive(Default)]
@@ -76,30 +86,59 @@ struct PlaceState {
     seen: Option<(Bounds<Pixels>, Bounds<Pixels>)>,
 }
 
+/// What a chunk's text says about holding it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextFacts {
+    /// [`changes_height_later`].
+    pub media: bool,
+    /// [`has_keyboard_stops`].
+    pub stops: bool,
+}
+
 /// What a row remembers of one chunk between frames.
 #[derive(Default)]
-pub struct ChunkPlace(RefCell<PlaceState>, Cell<Option<(usize, bool)>>);
+pub struct ChunkPlace {
+    state: RefCell<PlaceState>,
+    /// The text the facts (and the measured height) belong to, by hash.
+    text: Cell<Option<(u64, TextFacts)>>,
+}
+
+fn hash_of(markdown: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    markdown.hash(&mut hasher);
+    hasher.finish()
+}
 
 impl ChunkPlace {
-    /// [`changes_height_later`] for the chunk's text, worked out once per
-    /// text (a settled chunk's text does not change; its length tells).
-    pub fn changes_height_later(&self, markdown: &str) -> bool {
-        if let Some((len, media)) = self.1.get()
-            && len == markdown.len()
+    /// The facts of the chunk's text, worked out once per text. Another
+    /// text (another version of the answer, an edit) also drops the height
+    /// measured for the last one: it is laid out again before it is held.
+    pub fn text_facts(&self, markdown: &str) -> TextFacts {
+        let hash = hash_of(markdown);
+        if let Some((known, facts)) = self.text.get()
+            && known == hash
         {
-            return media;
+            return facts;
         }
-        let media = changes_height_later(markdown);
-        self.1.set(Some((markdown.len(), media)));
-        media
+        let facts = TextFacts {
+            media: changes_height_later(markdown),
+            stops: has_keyboard_stops(markdown),
+        };
+        if self.text.get().is_some() {
+            self.state.borrow_mut().measured = None;
+        }
+        self.text.set(Some((hash, facts)));
+        facts
     }
 
     /// The height to hold the chunk at this frame, if it may be held: it
-    /// was measured with this typography and was far from the view.
-    fn held_height(&self, typography: &Typography) -> Option<Pixels> {
-        let state = self.0.borrow();
+    /// was measured with this typography, in an area of this width, and
+    /// was far from the view.
+    fn held_height(&self, typography: &Typography, area: Pixels) -> Option<Pixels> {
+        let state = self.state.borrow();
         let measured = state.measured.as_ref()?;
-        if measured.typography != *typography {
+        if measured.typography != *typography || measured.area != area {
             return None;
         }
         let (bounds, view) = state.seen?;
@@ -108,20 +147,26 @@ impl ChunkPlace {
         far.then_some(measured.height)
     }
 
-    fn laid_out(&self, bounds: Bounds<Pixels>, view: Bounds<Pixels>, settled: Option<Typography>) {
-        let mut state = self.0.borrow_mut();
+    fn laid_out(
+        &self,
+        bounds: Bounds<Pixels>,
+        view: Bounds<Pixels>,
+        settled: Option<(Typography, Pixels)>,
+    ) {
+        let mut state = self.state.borrow_mut();
         state.seen = Some((bounds, view));
-        state.measured = settled.map(|typography| Measured {
+        state.measured = settled.map(|(typography, area)| Measured {
             width: bounds.size.width,
             height: bounds.size.height,
             typography,
+            area,
         });
     }
 
     /// Records where a held chunk is; `false` when its width is no longer
     /// the one it was measured at (the measurement is dropped).
     fn held(&self, bounds: Bounds<Pixels>, view: Bounds<Pixels>) -> bool {
-        let mut state = self.0.borrow_mut();
+        let mut state = self.state.borrow_mut();
         state.seen = Some((bounds, view));
         let fits = state
             .measured
@@ -171,6 +216,8 @@ impl LazyChunk {
 pub struct ChunkLayout {
     child: Option<AnyElement>,
     typography: Typography,
+    /// The width of the area this layout ran in ([`Measured::area`]).
+    area: Pixels,
 }
 
 impl IntoElement for LazyChunk {
@@ -203,11 +250,12 @@ impl Element for LazyChunk {
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let typography = Typography::of(window);
+        let area = window.content_mask().bounds.size.width;
         // With assistive technology connected every chunk is laid out, so
         // its links and buttons stay in the accessibility tree as before.
         if self.may_hold
             && !window.is_a11y_active()
-            && let Some(height) = self.place.held_height(&typography)
+            && let Some(height) = self.place.held_height(&typography, area)
         {
             // Held: its room, as the chunk filled it.
             let mut style = Style::default();
@@ -219,6 +267,7 @@ impl Element for LazyChunk {
                 ChunkLayout {
                     child: None,
                     typography,
+                    area,
                 },
             );
         }
@@ -229,6 +278,7 @@ impl Element for LazyChunk {
             ChunkLayout {
                 child: Some(child),
                 typography,
+                area,
             },
         )
     }
@@ -248,7 +298,8 @@ impl Element for LazyChunk {
             self.place.laid_out(
                 bounds,
                 view,
-                self.settled.then(|| layout.typography.clone()),
+                self.settled
+                    .then(|| (layout.typography.clone(), layout.area)),
             );
             return Some(child);
         }
@@ -313,6 +364,21 @@ pub fn changes_height_later(markdown: &str) -> bool {
     })
 }
 
+/// Whether a chunk's markdown draws something Tab stops at under Full
+/// Keyboard Access: a link (inline, reference or bare) or a code block
+/// (its Copy and Preview buttons).
+pub fn has_keyboard_stops(markdown: &str) -> bool {
+    markdown.contains("](")
+        || markdown.contains("]:")
+        || markdown.contains("://")
+        || markdown.contains('<')
+        || markdown.contains("```")
+        || markdown.contains("~~~")
+        || markdown
+            .lines()
+            .any(|line| line.starts_with("    ") || line.starts_with('\t'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +399,68 @@ mod tests {
         ));
         assert!(changes_height_later("```mermaid\ngraph TD; A-->B\n```"));
         assert!(changes_height_later("Intro\n\n  ~~~ chart\n{}\n~~~"));
+    }
+
+    fn typography() -> Typography {
+        Typography {
+            style: TextStyle::default(),
+            rem: px(16.),
+            scale: 2.,
+        }
+    }
+
+    /// A chunk far below a view of the transcript, and that view.
+    fn far_below() -> (Bounds<Pixels>, Bounds<Pixels>) {
+        let chunk = Bounds {
+            origin: gpui_kit::point(px(0.), px(5000.)),
+            size: size(px(700.), px(120.)),
+        };
+        let view = Bounds {
+            origin: gpui_kit::point(px(0.), px(0.)),
+            size: size(px(700.), px(800.)),
+        };
+        (chunk, view)
+    }
+
+    #[test]
+    fn another_text_or_width_is_laid_out_again_before_it_is_held() {
+        let place = ChunkPlace::default();
+        let t = typography();
+        let (chunk, view) = far_below();
+        let first = "The first version of this paragraph.";
+        // The same length: only the text tells them apart.
+        let other = "Another version of this paragraph!!!";
+        assert_eq!(first.len(), other.len());
+        place.text_facts(first);
+        place.laid_out(chunk, view, Some((t.clone(), px(700.))));
+        assert_eq!(place.held_height(&t, px(700.)), Some(px(120.)));
+        // The transcript is another width: laid out again.
+        assert_eq!(place.held_height(&t, px(640.)), None);
+        // The same text keeps its height; another text drops it.
+        place.text_facts(first);
+        assert_eq!(place.held_height(&t, px(700.)), Some(px(120.)));
+        place.text_facts(other);
+        assert_eq!(place.held_height(&t, px(700.)), None);
+    }
+
+    #[test]
+    fn the_facts_follow_the_text_not_its_length() {
+        let place = ChunkPlace::default();
+        let picture = "![tide](https://example.org/t.png)";
+        let plain = "x".repeat(picture.len());
+        assert!(!place.text_facts(&plain).media);
+        assert!(place.text_facts(picture).media);
+        assert!(!place.text_facts(&plain).media);
+    }
+
+    #[test]
+    fn links_and_code_blocks_are_where_tab_stops() {
+        assert!(!has_keyboard_stops("Plain **text**, `code` and $x^2$."));
+        assert!(has_keyboard_stops(
+            "The [timetable](https://example.org/t)."
+        ));
+        assert!(has_keyboard_stops("See https://example.org for more."));
+        assert!(has_keyboard_stops("```rust\nfn f() {}\n```"));
+        assert!(has_keyboard_stops("Intro\n\n~~~\nplain\n~~~"));
     }
 }
