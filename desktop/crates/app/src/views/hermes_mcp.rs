@@ -741,7 +741,9 @@ impl CatalogSheet {
                         // listed again even when a step after the install
                         // failed.
                         s.clear(window, cx);
-                        s.stores.hermes_admin.update(cx, |a, cx| a.refresh_mcp(cx));
+                        s.stores
+                            .hermes_admin
+                            .update(cx, |a, cx| a.refresh_mcp_after(ticket, cx));
                     }
                 }
                 cx.notify();

@@ -729,6 +729,15 @@ impl HermesAdminStore {
         .detach();
     }
 
+    /// Reads the servers again after `ticket`'s action failed (a step after
+    /// the install may have failed once it was made): only while its
+    /// connection is still in use, so another's list is never read over.
+    pub fn refresh_mcp_after(&mut self, ticket: Ticket, cx: &mut Context<Self>) {
+        if self.is_current(ticket.generation) {
+            self.refresh_mcp(cx);
+        }
+    }
+
     /// An MCP read or action about to be asked.
     pub fn ask_mcp(&mut self) -> Ticket {
         let seq = self.mcp_order.ask();
@@ -1422,6 +1431,39 @@ mod tests {
             2,
             "read again after it was listed"
         );
+    }
+
+    /// An add that failed after another connection came into use reads
+    /// nothing again: the list shown is the new connection's.
+    #[gpui_kit::test]
+    fn a_failed_add_of_the_connection_before_reads_nothing_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::to_value(servers("studio-tools")).unwrap())
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let ticket = store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.ask_mcp()
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.adopt_connections(list("b"), cx));
+        cx.run_until_parked();
+        let after_switch = reads.load(Ordering::SeqCst);
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            after_switch,
+            "read again for the old add"
+        );
+        let ticket = store.update(cx, |s, _| s.ask_mcp());
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), after_switch + 1);
     }
 
     /// A catalog read of one connection is never shown or picked from once

@@ -1080,7 +1080,7 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
                         .toasts
                         .update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
                     // Listed again even when a step after the install failed.
-                    let _ = admin.update(cx, |a, cx| a.refresh_mcp(cx));
+                    let _ = admin.update(cx, |a, cx| a.refresh_mcp_after(ticket, cx));
                 }
             });
         })
