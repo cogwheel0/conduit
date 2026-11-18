@@ -351,18 +351,23 @@ impl ConnectionStore {
     }
 
     /// Registers what `key` wants delivered; the union of every key's events
-    /// and scopes is subscribed (now, and after each reconnect).
+    /// and scopes is subscribed (now, and after each reconnect). A follower
+    /// leaves by subscribing its key to nothing, which removes the key.
     pub fn subscribe(&mut self, key: &'static str, events: &[&'static str], scopes: Vec<String>) {
-        // A key is one follower's: it may change its scopes, but another
-        // follower's events under the same key would replace these (the
-        // union is built from one entry per key).
-        debug_assert!(
-            self.subscriptions
-                .get(key)
-                .is_none_or(|(held, _)| held.as_slice() == events),
-            "two followers share the event subscription key {key:?}"
-        );
-        self.subscriptions.insert(key, (events.to_vec(), scopes));
+        if events.is_empty() && scopes.is_empty() {
+            self.subscriptions.remove(key);
+        } else {
+            // A key is one follower's: it may change its scopes, but another
+            // follower's events under the same key would replace these (the
+            // union is built from one entry per key).
+            debug_assert!(
+                self.subscriptions
+                    .get(key)
+                    .is_none_or(|(held, _)| held.as_slice() == events),
+                "two followers share the event subscription key {key:?}"
+            );
+            self.subscriptions.insert(key, (events.to_vec(), scopes));
+        }
         let mut names: BTreeSet<&'static str> = WINDOW_EVENTS.iter().copied().collect();
         let mut all_scopes: BTreeSet<String> = BTreeSet::new();
         for (events, scopes) in self.subscriptions.values() {
@@ -827,5 +832,41 @@ mod tests {
         assert!(Status::Connecting.blocks(false));
         assert!(!Status::Reconnecting { attempt: 2 }.blocks(true));
         assert!(!Status::Connected.blocks(false));
+    }
+
+    /// A follower leaves by subscribing its key to nothing (Computer does when
+    /// its window closes): the key goes, so the follower can come back later
+    /// with its events, as Computer does when it opens again.
+    #[gpui_kit::test]
+    fn a_follower_leaves_by_subscribing_to_nothing(cx: &mut gpui_kit::TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-connection-follow-{}", std::process::id()));
+        let connection = cx.update(|cx| {
+            ConnectionStore::start(
+                ConnectionOptions {
+                    paths: AppPaths {
+                        flavor: conduit_daemon::paths::Flavor::Dev,
+                        user_data: scratch.join("user-data"),
+                        logs: scratch.join("logs"),
+                    },
+                    binary: PathBuf::from("/nonexistent/conduitd"),
+                    master_key: Err("test".into()),
+                    locale: "en".into(),
+                    client_version: "0".into(),
+                },
+                cx,
+            )
+        });
+        let follows = [events::TURN_STARTED, events::TURN_FINISHED];
+        connection.update(cx, |c, _| {
+            c.subscribe("computer", &follows, vec!["chat-1".into()]);
+            c.subscribe("computer", &[], vec![]);
+            assert!(!c.subscriptions.contains_key("computer"));
+            c.subscribe("computer", &follows, vec!["chat-2".into()]);
+            assert_eq!(
+                c.subscriptions.get("computer"),
+                Some(&(follows.to_vec(), vec!["chat-2".to_string()]))
+            );
+        });
     }
 }
