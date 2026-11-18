@@ -317,21 +317,43 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// or one just finished.
   bool hasScope(String chatId) => _sessionOf(chatId) != null;
 
-  /// The chat whose live scope holds Hermes session [sessionId] (its
-  /// `local:hermes_` chat, or a chat that names the session), so a
-  /// question about that session's send is the chat's alone; null when no
-  /// live chat holds it.
+  /// The chat whose send holds Hermes session [sessionId], so a question
+  /// about that send is the chat's alone: the chat with a running send
+  /// whose chat holds the session (its `local:hermes_` chat, a chat that
+  /// names the session, or an Open WebUI chat with a Hermes answer of that
+  /// session), else, with no running send, a live chat that holds it; null
+  /// when none does.
   String? hermesChatOf(String sessionId) {
     if (sessionId.isEmpty) return null;
-    for (final session in _sessions) {
-      if (session.scope.isDisposed) continue;
-      final conversation = session.scope.conversation;
+    bool holds(_ChatSession session) {
       final chatId = session.chatId;
-      if (chatId == null || chatId.isEmpty) continue;
-      if (chatId == '$kHermesSessionConversationIdPrefix$sessionId' ||
-          conversation?.metadata['hermesSessionId']?.toString() == sessionId) {
-        return chatId;
+      if (chatId == '$kHermesSessionConversationIdPrefix$sessionId') {
+        return true;
       }
+      final conversation = session.scope.conversation;
+      if (conversation?.metadata['hermesSessionId']?.toString() == sessionId) {
+        return true;
+      }
+      return session.scope.messages.any(
+        (m) => m.metadata?['hermesSessionId']?.toString() == sessionId,
+      );
+    }
+
+    bool sending(_ChatSession session) {
+      final turn = session.turn;
+      return session.pending != null || (turn != null && !turn.finished);
+    }
+
+    final live = <_ChatSession>[
+      for (final session in _sessions)
+        if (!session.scope.isDisposed && (session.chatId ?? '').isNotEmpty)
+          session,
+    ];
+    for (final session in live) {
+      if (sending(session) && holds(session)) return session.chatId;
+    }
+    for (final session in live) {
+      if (holds(session)) return session.chatId;
     }
     return null;
   }

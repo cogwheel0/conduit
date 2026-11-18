@@ -9,6 +9,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ComposerTextInsertion,
         chatComposerTextInsertionTargetId,
+        chatMessagesProvider,
         composerTextInsertionProvider;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
@@ -432,12 +433,12 @@ void main() {
     await connect();
     final events = EventBus();
     final given = <ComposerInsertText>[];
-    final prefilled = Completer<ComposerInsertText>();
+    final prefilled = Completer<(String?, ComposerInsertText)>();
     events.tap((event, scope, payload) {
       if (event != ConduitEvents.composerInsertText) return;
       final text = ComposerInsertText.fromJson(payload);
       given.add(text);
-      if (!prefilled.isCompleted) prefilled.complete(text);
+      if (!prefilled.isCompleted) prefilled.complete((scope, text));
     });
     final turns = TurnsService(runtime.container, events, hermes: hermes);
     addTearDown(turns.dispose);
@@ -461,6 +462,19 @@ void main() {
     // The session's questions are this chat's.
     expect(turns.hermesChatOf(id), chatId);
     expect(turns.hermesChatOf('$id-other'), isNull);
+    // A Hermes answer kept in an Open WebUI chat names its session on the
+    // message, not on the chat: that chat holds the session too.
+    scope.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      ...scope.read(chatMessagesProvider),
+      ChatMessage(
+        id: 'segment-1',
+        role: 'assistant',
+        content: 'Sow them in rows.',
+        timestamp: DateTime.utc(2026, 11, 18),
+        metadata: const <String, dynamic>{'hermesSessionId': 'segment-7'},
+      ),
+    ]);
+    expect(turns.hermesChatOf('segment-7'), chatId);
 
     final takenBack = Completer<void>();
     scope.listen<ComposerTextInsertion?>(composerTextInsertionProvider, (
@@ -488,7 +502,8 @@ void main() {
       targetId: chatComposerTextInsertionTargetId,
       text: '/plan ',
     );
-    final sent = await prefilled.future;
+    final (sentTo, sent) = await prefilled.future;
+    expect(sentTo, chatId, reason: 'sent to every window, not the chat\'s');
     expect(sent, ComposerInsertText(chatId: chatId, text: '/plan '));
     expect(given, hasLength(1), reason: 'the kept words reached a window');
     // Never the app-wide composer's.
