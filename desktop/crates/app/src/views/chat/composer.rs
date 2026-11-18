@@ -893,7 +893,10 @@ impl ChatComposer {
     fn ready(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
         let has_text = !self.text(cx).trim().is_empty();
-        !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
+        !self.offline
+            && !composer.uploading()
+            && !composer.names_no_model()
+            && (has_text || composer.has_attachments())
     }
 
     /// The call button stands where Send would: nothing to send.

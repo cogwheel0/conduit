@@ -685,14 +685,11 @@ impl ComposerStore {
         self.agent_picks.get(&self.pick_key()?)
     }
 
-    /// The model shown is not the daemon's selection (an agent picked for
-    /// another chat, or none offered here): the next turn must name it.
-    fn shown_differs(&self) -> bool {
-        let Some(list) = self.models.as_ref() else {
-            return false;
-        };
-        self.selected_model()
-            .is_some_and(|m| list.selected_id.as_deref() != Some(m.id.as_str()))
+    /// The list has loaded but names no model this chat could send to
+    /// (no regular model, and no agent of its own): the composer does not
+    /// send, as a turn naming none would go to the account's selection.
+    pub fn names_no_model(&self) -> bool {
+        self.models.is_some() && self.mention.is_none() && self.selected_model().is_none()
     }
 
     /// The model the next message goes to: the `@` one, else the selected.
@@ -1796,14 +1793,11 @@ impl ComposerStore {
                 .as_ref()
                 .map(|m| m.id.clone())
                 .or_else(|| self.offered_draft_model())
-                // The chat's own agent always goes with its turn: no list
-                // (empty, failed or stale) can send it elsewhere.
-                .or_else(|| self.chat_pick().map(|m| m.id.clone()))
-                .or_else(|| {
-                    self.shown_differs()
-                        .then(|| self.selected_model().map(|m| m.id.clone()))
-                        .flatten()
-                }),
+                // Every turn names the model this chat shows (its own agent
+                // included): never the account's selection of the moment,
+                // which another chat's pick can change before this chat's
+                // list catches up.
+                .or_else(|| self.selected_model().map(|m| m.id.clone())),
             folder_id: new_chat.then(|| self.new_chat_folder.clone()).flatten(),
             chat_params: (new_chat && has_params(&self.draft_params))
                 .then(|| self.draft_params.clone()),
@@ -3634,6 +3628,66 @@ mod tests {
         });
     }
 
+    /// Chat B shows Kestrel; another composer picks a coding agent (the
+    /// account's selection) before B's list is read again: B's turn still
+    /// names Kestrel, the model it shows, never the account's selection.
+    #[gpui_kit::test]
+    fn every_send_names_the_model_shown(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-b".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some("k"));
+        });
+    }
+
+    /// A list with no regular model, while the account's selection is a
+    /// coding agent this chat never picked: no model is shown, and the
+    /// composer does not send (a turn naming none would go to the agent).
+    #[gpui_kit::test]
+    fn no_send_without_a_model_shown(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            selected_id: Some("agent:north:codex:gpt-test".into()),
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("chat-b".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.selected_model().is_none());
+            assert!(s.names_no_model());
+        });
+    }
+
     /// Quick Ask keeps no draft but sends ordinary chats: its list is for a
     /// chat that is not temporary, so its coding agents are offered.
     #[gpui_kit::test]
@@ -3719,13 +3773,14 @@ mod tests {
                 s.draft_model, None,
                 "the folder's model came back over the pick"
             );
-            assert_eq!(s.turn_options(vec![]).model, None);
+            // The model shown, never the folder's.
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some("a"));
         });
         // A folder model this account is not offered is not sent either.
         store.update(cx, |s, _| s.draft_model = Some("gone".into()));
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("a"));
-            assert_eq!(s.turn_options(vec![]).model, None);
+            assert_eq!(s.turn_options(vec![]).model.as_deref(), Some("a"));
         });
         // A reasoning pick answered after another chat opened.
         daemon.returns::<methods::ModelsSetReasoningEffort>(conduit_protocol::ModelOptionsDto {
@@ -3972,9 +4027,10 @@ mod tests {
             assert!(turn.web_search && !turn.image_generation);
             assert_eq!(turn.tool_ids, vec!["calc".to_string()]);
             assert_eq!(turn.knowledge.len(), 1);
-            // The `@` model and `#` knowledge were for that message only.
+            // The `@` model and `#` knowledge were for that message only:
+            // the next turn names the model shown.
             let again = s.take_turn(vec![], cx);
-            assert_eq!(again.model, None);
+            assert_eq!(again.model.as_deref(), Some("a"));
             assert!(again.knowledge.is_empty() && again.web_search);
             s.select_model("b", cx);
         });
