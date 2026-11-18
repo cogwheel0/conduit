@@ -528,8 +528,8 @@ void main() {
     // The window signed in through the proxy and Open WebUI both; proving
     // that session is held up while another window cancels the addition.
     final release = Completer<void>();
+    final held = proxyOnly.onHeld = Completer<void>();
     proxyOnly.hold = release.future;
-    final asked = proxyOnly.requests.length;
     final finishing = auth.completeExternal(
       ExternalAuthCompletion(
         origin: proxyOnly.url,
@@ -537,15 +537,17 @@ void main() {
         token: proxyOnly.sessionFor('hal@example.com'),
       ),
     );
-    for (var i = 0; i < 100 && proxyOnly.requests.length == asked; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-    }
-    expect(proxyOnly.requests.length, greaterThan(asked));
-    final cancelling = accounts.cancelAdd();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    release.complete();
+    // Released and joined whatever an assertion below does.
+    addTearDown(() async {
+      proxyOnly.hold = null;
+      if (!release.isCompleted) release.complete();
+      await finishing.then<void>((_) {}, onError: (Object _) {});
+    });
+    // The proof is on the wire; the addition ends before it is answered.
+    await held.future;
+    await accounts.cancelAdd();
     proxyOnly.hold = null;
-    await cancelling;
+    release.complete();
     final snapshot = await finishing;
     expect(snapshot.user?.email, isNot('hal@example.com'));
     final after = await accounts.list();
