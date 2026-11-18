@@ -638,8 +638,12 @@ impl AssistantRow {
         let revealing = self.revealing_until.is_some_and(|until| now < until);
         let keyboard = conduit_components::views::focus::full_keyboard_access(cx);
         let s = state.read(cx);
-        // Its height is only kept from a layout of this text.
-        let settled = s.rendered_text().source() == md;
+        // Its height is only kept from a layout of this text, for the
+        // parse that drew it.
+        let rendered = s.rendered_text();
+        let settled = (rendered.source() == md)
+            .then(|| super::lazy_chunk::committed_parse(&rendered))
+            .flatten();
         let may_hold = !revealing
             && !selected
             && !s.focus_handle().contains_focused(window, cx)

@@ -76,6 +76,10 @@ struct Measured {
     /// as its layout saw it: a pass that only measures rows never reaches
     /// [`ChunkPlace::held`]'s own width check.
     area: Pixels,
+    /// The committed parse the layout drew ([`committed_parse`]): the same
+    /// text parsed again (with the chat's plugins, say) can be another
+    /// height.
+    parse: usize,
 }
 
 #[derive(Default)]
@@ -135,10 +139,10 @@ impl ChunkPlace {
     /// The height to hold the chunk at this frame, if it may be held: it
     /// was measured with this typography, in an area of this width, and
     /// was far from the view.
-    fn held_height(&self, typography: &Typography, area: Pixels) -> Option<Pixels> {
+    fn held_height(&self, typography: &Typography, area: Pixels, parse: usize) -> Option<Pixels> {
         let state = self.state.borrow();
         let measured = state.measured.as_ref()?;
-        if measured.typography != *typography || measured.area != area {
+        if measured.typography != *typography || measured.area != area || measured.parse != parse {
             return None;
         }
         let (bounds, view) = state.seen?;
@@ -151,15 +155,16 @@ impl ChunkPlace {
         &self,
         bounds: Bounds<Pixels>,
         view: Bounds<Pixels>,
-        settled: Option<(Typography, Pixels)>,
+        settled: Option<(Typography, Pixels, usize)>,
     ) {
         let mut state = self.state.borrow_mut();
         state.seen = Some((bounds, view));
-        state.measured = settled.map(|(typography, area)| Measured {
+        state.measured = settled.map(|(typography, area, parse)| Measured {
             width: bounds.size.width,
             height: bounds.size.height,
             typography,
             area,
+            parse,
         });
     }
 
@@ -186,8 +191,9 @@ pub struct LazyChunk {
     /// The row allows holding it (nothing in it changes height on its own,
     /// no focus, selection or reveal in it).
     may_hold: bool,
-    /// Its text's parse has landed, so this layout's height can be kept.
-    settled: bool,
+    /// The committed parse of its text, once that parse has landed: only
+    /// then is this layout's height kept, for that parse.
+    settled: Option<usize>,
     /// Makes the chunk's element, only when it is laid out.
     build: Option<Box<dyn FnOnce() -> AnyElement>>,
 }
@@ -198,15 +204,15 @@ impl LazyChunk {
         Self {
             place,
             may_hold: false,
-            settled: false,
+            settled: None,
             build: Some(Box::new(build)),
         }
     }
 
     /// Whether the chunk may be held, and whether its text's parse has
     /// landed (only then is its height kept for holding).
-    pub fn holdable(mut self, may_hold: bool, settled: bool) -> Self {
-        self.may_hold = may_hold && settled;
+    pub fn holdable(mut self, may_hold: bool, settled: Option<usize>) -> Self {
+        self.may_hold = may_hold && settled.is_some();
         self.settled = settled;
         self
     }
@@ -255,7 +261,8 @@ impl Element for LazyChunk {
         // its links and buttons stay in the accessibility tree as before.
         if self.may_hold
             && !window.is_a11y_active()
-            && let Some(height) = self.place.held_height(&typography, area)
+            && let Some(parse) = self.settled
+            && let Some(height) = self.place.held_height(&typography, area, parse)
         {
             // Held: its room, as the chunk filled it.
             let mut style = Style::default();
@@ -299,7 +306,7 @@ impl Element for LazyChunk {
                 bounds,
                 view,
                 self.settled
-                    .then(|| (layout.typography.clone(), layout.area)),
+                    .map(|parse| (layout.typography.clone(), layout.area, parse)),
             );
             return Some(child);
         }
@@ -364,6 +371,24 @@ pub fn changes_height_later(markdown: &str) -> bool {
     })
 }
 
+/// The committed parse of `rendered` (its revision): a text state parses
+/// the same text again when its parse options change (the chat's plugins
+/// arrive after Find made the state, say), and a height measured from one
+/// parse does not hold for another. Until GPUI Kit exposes the revision
+/// (follow-up: an upstream accessor, or a vendored one, before the next
+/// GPUI Kit bump), this relies on the `Debug` format of GPUI Kit 0.9's
+/// `RenderedText` (`revision: N`), the only place it shows the revision;
+/// when that format no longer has it, this is None and the chunk is never
+/// held (laid out as usual: slower, never wrong).
+pub fn committed_parse(rendered: &gpui_kit::base::text::RenderedText) -> Option<usize> {
+    let debug = format!("{rendered:?}");
+    let rest = &debug[debug.find("revision: ")? + "revision: ".len()..];
+    let digits = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..digits].parse().ok()
+}
+
 /// Whether a chunk's markdown draws something Tab stops at under Full
 /// Keyboard Access: a link (inline, reference or bare) or a code block
 /// (its Copy and Preview buttons).
@@ -371,6 +396,7 @@ pub fn has_keyboard_stops(markdown: &str) -> bool {
     markdown.contains("](")
         || markdown.contains("]:")
         || markdown.contains("://")
+        || markdown.contains("www.")
         || markdown.contains('<')
         || markdown.contains("```")
         || markdown.contains("~~~")
@@ -432,15 +458,30 @@ mod tests {
         let other = "Another version of this paragraph!!!";
         assert_eq!(first.len(), other.len());
         place.text_facts(first);
-        place.laid_out(chunk, view, Some((t.clone(), px(700.))));
-        assert_eq!(place.held_height(&t, px(700.)), Some(px(120.)));
+        place.laid_out(chunk, view, Some((t.clone(), px(700.), 3)));
+        assert_eq!(place.held_height(&t, px(700.), 3), Some(px(120.)));
         // The transcript is another width: laid out again.
-        assert_eq!(place.held_height(&t, px(640.)), None);
+        assert_eq!(place.held_height(&t, px(640.), 3), None);
+        // The same text parsed again (another committed parse): laid out
+        // again.
+        assert_eq!(place.held_height(&t, px(700.), 4), None);
         // The same text keeps its height; another text drops it.
         place.text_facts(first);
-        assert_eq!(place.held_height(&t, px(700.)), Some(px(120.)));
+        assert_eq!(place.held_height(&t, px(700.), 3), Some(px(120.)));
         place.text_facts(other);
-        assert_eq!(place.held_height(&t, px(700.)), None);
+        assert_eq!(place.held_height(&t, px(700.), 3), None);
+    }
+
+    #[test]
+    fn without_a_parse_revision_a_chunk_is_never_held() {
+        let place = Rc::new(ChunkPlace::default());
+        let chunk = LazyChunk::new(place.clone(), || gpui_kit::div().into_any_element())
+            .holdable(true, None);
+        assert!(!chunk.may_hold, "no revision: never held");
+        // Nor do its layouts leave a height to hold it at later.
+        let (bounds, view) = far_below();
+        place.laid_out(bounds, view, None);
+        assert_eq!(place.held_height(&typography(), px(700.), 0), None);
     }
 
     #[test]
@@ -460,6 +501,9 @@ mod tests {
             "The [timetable](https://example.org/t)."
         ));
         assert!(has_keyboard_stops("See https://example.org for more."));
+        assert!(has_keyboard_stops(
+            "The table at www.example.org/tides.pdf."
+        ));
         assert!(has_keyboard_stops("```rust\nfn f() {}\n```"));
         assert!(has_keyboard_stops("Intro\n\n~~~\nplain\n~~~"));
     }
