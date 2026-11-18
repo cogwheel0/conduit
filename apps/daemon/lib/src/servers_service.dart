@@ -319,6 +319,12 @@ final class ServersService {
     if (carriesUser(form.url.trim()) || carriesUser(formatted)) {
       return _unusable(core.ServerAddressProblem.invalidAddress);
     }
+    // Typed without a scheme, the address is what its server redirects it
+    // to: resolved first (the probe carries no header), so a saved address
+    // reached again by its host alone keeps its values.
+    if (formatted != null && !core.hasExplicitHttpScheme(form.url)) {
+      formatted = await core.upgradeSchemeLessServerUrl(formatted);
+    }
     // A saved header's value goes only where it went: an address moved to
     // another origin is sent none of them, and asks for each again.
     final sameOrigin =

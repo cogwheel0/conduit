@@ -451,20 +451,23 @@ final class AccountsService {
         !await _mayLeave(force: request.force)) {
       return _result(AccountChangeOutcome.blockedByActiveReply);
     }
-    if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
     // The server's first address as saved now, after the wait above; and,
-    // when the selection is written, that server must still have it, or the
-    // account would become a server of its own (another window removed it).
+    // when the selection is written, that address must still be the
+    // server's first, or the account would join through another one, or
+    // become a server of its own (another window moved or removed it).
     final joined = request.serverId == null
         ? null
         : await _firstAddressOf(request.serverId!);
+    // Only once that lookup held: Cancel goes back to LibreChat.
+    if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
     var moved = false;
     bool joins(OpenWebUiRegistry stored) {
       final still =
           stored
               .server(request.serverId!)
               ?.endpoints
-              .any((endpoint) => endpoint.carries(joined!)) ??
+              .firstOrNull
+              ?.carries(joined!) ??
           false;
       if (!still) moved = true;
       return still;
