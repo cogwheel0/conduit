@@ -946,7 +946,14 @@ impl ComposerStore {
         );
     }
 
-    fn set_models(&mut self, list: ModelList, cx: &mut Context<Self>) {
+    fn set_models(&mut self, mut list: ModelList, cx: &mut Context<Self>) {
+        // A temporary chat offers no coding agent (none can answer there),
+        // whichever answer the list came with (a pick's answer is for a
+        // chat that is not temporary): a selected agent is then hidden, and
+        // the next turn names the model shown.
+        if self.list_query().temporary {
+            list.agents.clear();
+        }
         // An `@` model that is no longer offered is dropped.
         if let Some(m) = &self.mention
             && find_model(&list, &m.id).is_none()
@@ -3214,6 +3221,38 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.chat_agent(), None);
             assert!(s.mention.is_none(), "the one-message model outlived Switch");
+        });
+    }
+
+    /// A temporary chat picks a regular model: the pick's answer lists the
+    /// terminal's agents (it is for a chat that is not temporary), but the
+    /// composer offers none, so no agent can be picked or run there.
+    #[gpui_kit::test]
+    fn a_temporary_chat_offers_no_agent_after_a_pick(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let agent = "agent:north:codex:gpt-test";
+        let with_agents = |selected: &str| ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some(selected.into()),
+            agents: vec![model(agent, "Codex · gpt-test")],
+            ..Default::default()
+        };
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("k", "Kestrel")],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ModelsSelect>(with_agents("k"));
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.select_model("k", cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let list = s.models.as_ref().expect("a list");
+            assert!(list.agents.is_empty(), "a temporary chat offered an agent");
+            assert!(find_model(list, agent).is_none());
         });
     }
 
