@@ -388,13 +388,7 @@ final class IntegrationsService {
     } on PersonalConnectionsOwnerChanged {
       throw _accountChanged;
     } on PersonalConnectionEditException catch (error) {
-      throw RpcError(
-        code: error.failure == PersonalConnectionEditFailure.notFound
-            ? ConduitErrorCodes.notFound
-            : ConduitErrorCodes.conflict,
-        debugMessage: 'the edit was refused',
-        args: <String, String>{'reason': error.failure.name},
-      );
+      throw _refused(error);
     } on PersonalConnectionsWriteRejected {
       throw const RpcError(
         code: ConduitErrorCodes.conflict,
@@ -422,25 +416,36 @@ final class IntegrationsService {
     final owner = _owner(params.owner);
     final isTool = kind == PersonalConnectionKind.toolServer;
     _validate(kind, params.draft);
-    final Map<String, dynamic> entry;
+    // A stored entry is tested as Save would store the form: its edit runs
+    // against settings read again, refused once the entry changed since
+    // the editor opened it, so a stale form's key is sent nowhere.
+    final PatchPersonalConnection? edit;
     if (params.identity == null) {
-      entry = isTool
-          ? _toolDraft(params.draft).toNewEntry(id: _stampKey())
-          : _terminalDraft(params.draft).toNewEntry();
+      edit = null;
     } else {
       final existing = _unchanged(
         _existing(kind, params.identity),
         params.fingerprint,
       );
-      final patch = isTool
-          ? _toolDraft(params.draft).toPatch(existing.raw)
-          : _terminalDraft(params.draft).toPatch(existing.raw);
-      // As a save would store it, a kept key left behind on an origin change.
-      entry = mergePersonalConnectionEdit(existing.raw, patch);
+      edit = PatchPersonalConnection(
+        existing.identity,
+        isTool
+            ? _toolDraft(params.draft).toPatch(existing.raw)
+            : _terminalDraft(params.draft).toPatch(existing.raw),
+        fingerprint: params.fingerprint,
+      );
     }
     final account = AccountScope.capture(_container);
     try {
-      final outcome = await _controller.testConnection(owner, kind, entry);
+      final outcome = edit == null
+          ? await _controller.testConnection(
+              owner,
+              kind,
+              isTool
+                  ? _toolDraft(params.draft).toNewEntry(id: _stampKey())
+                  : _terminalDraft(params.draft).toNewEntry(),
+            )
+          : await _controller.testEdit(owner, kind, edit);
       // A probe made for the previous account is not that account's answer
       // to show under the next one.
       account.require('a connection test is answered');
@@ -463,6 +468,17 @@ final class IntegrationsService {
       );
     } on PersonalConnectionsOwnerChanged {
       throw _accountChanged;
+    } on PersonalConnectionEditException catch (error) {
+      throw _refused(error);
     }
   }
+
+  /// A refused edit, as Save and Test answer it.
+  static RpcError _refused(PersonalConnectionEditException error) => RpcError(
+    code: error.failure == PersonalConnectionEditFailure.notFound
+        ? ConduitErrorCodes.notFound
+        : ConduitErrorCodes.conflict,
+    debugMessage: 'the edit was refused',
+    args: <String, String>{'reason': error.failure.name},
+  );
 }

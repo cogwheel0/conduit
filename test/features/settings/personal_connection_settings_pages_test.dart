@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/core/utils/native_sheet_utils.dart';
 import 'package:conduit/features/settings/pages/personal_connection_settings_pages.dart';
@@ -638,6 +640,39 @@ void main() {
       );
     });
 
+    testWidgets('a Test from a form opened before another client changed the '
+        'entry is refused, probes nothing, and fills the form again', (
+      tester,
+    ) async {
+      // Every HTTP client the probe could open is counted (the test
+      // binding answers them itself; none may be opened at all).
+      final previous = HttpOverrides.current;
+      final opened = _CountingHttpOverrides(previous);
+      HttpOverrides.global = opened;
+      addTearDown(() => HttpOverrides.global = previous);
+      const url = 'https://alpha.example';
+      server.settings['ui'] = <String, dynamic>{
+        'toolServers': <dynamic>[_tool('alpha', 'Alpha tools', url: url)],
+        'terminalServers': <dynamic>[],
+      };
+      final rig = await pump(tester);
+      await rig.open(_alpha);
+      // Another client renames it meanwhile; this form's list is not read
+      // again.
+      (server.settings['ui'] as Map)['toolServers'] = <dynamic>[
+        _tool('alpha', 'Renamed elsewhere', url: url),
+      ];
+
+      final before = opened.clients;
+      await rig.change(_row('test'));
+
+      check(opened.clients).equals(before);
+      check(rig.row(_alpha, '$_alpha-test-result')?.title)
+          .equals(_l10n.personalConnectionsNotFound);
+      await rig.settle(rig.container.read(personalConnectionsProvider.future));
+      check(rig.row(_alpha, _row('name'))?.value).equals('Renamed elsewhere');
+    });
+
     testWidgets('once another account is signed in, the form keeps what was '
         'typed and saves nothing', (tester) async {
       final rig = await pump(tester);
@@ -737,4 +772,19 @@ final class _Session extends Notifier<PersonalConnectionsSession?> {
   PersonalConnectionsSession? build() => null;
 
   void use(PersonalConnectionsSession? session) => state = session;
+}
+
+/// Counts the HTTP clients opened, and opens them as [previous] does.
+final class _CountingHttpOverrides extends HttpOverrides {
+  _CountingHttpOverrides(this.previous);
+
+  final HttpOverrides? previous;
+  var clients = 0;
+
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    clients++;
+    return previous?.createHttpClient(context) ??
+        super.createHttpClient(context);
+  }
 }

@@ -1186,22 +1186,16 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     }
     final existing = editor.existing;
     final opened = editor.opened;
-    // Changed since this form opened it: nothing is probed with its draft.
-    if (existing != null &&
-        opened != null &&
-        personalConnectionFingerprint(existing.raw) !=
-            personalConnectionFingerprint(opened)) {
-      editor
-        ..attempted = true
-        ..test = _TestState.failed
-        ..testText = l10n.personalConnectionsNotFound;
-      _reloadChanged(editor);
-      await _applyEditor(l10n, editor);
-      return;
-    }
-    final entry = existing == null || opened == null
-        ? editor.newEntry()
-        : mergePersonalConnectionEdit(existing.raw, editor.patch(opened));
+    // A stored entry is tested as Save would store the form, against the
+    // settings read again: refused once the entry changed since this form
+    // opened it, so a stale form's key is sent nowhere.
+    final edit = existing == null || opened == null
+        ? null
+        : PatchPersonalConnection(
+            existing.identity,
+            editor.patch(opened),
+            fingerprint: personalConnectionFingerprint(opened),
+          );
     editor
       ..attempted = true
       ..test = _TestState.testing
@@ -1210,11 +1204,13 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor);
     final revision = editor.revision;
     try {
-      final result = await _controller.testConnection(
-        owner,
-        editor.kind,
-        entry,
-      );
+      final result = edit == null
+          ? await _controller.testConnection(
+              owner,
+              editor.kind,
+              editor.newEntry(),
+            )
+          : await _controller.testEdit(owner, editor.kind, edit);
       if (!identical(_editors[editor.key], editor)) return;
       // Edited while it was tested: the answer is about other values.
       if (editor.revision != revision) return;
@@ -1235,6 +1231,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..test = _TestState.failed
         ..testText = personalConnectionSaveError(l10n, error);
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        _reloadChanged(editor);
+      }
     }
     await _applyEditor(l10n, editor);
   }
