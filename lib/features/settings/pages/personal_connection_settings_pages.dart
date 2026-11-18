@@ -330,6 +330,10 @@ final class _ConnectionEditor {
   List<Object?>? start;
   bool initialized = false;
 
+  /// The list a save or test was refused against because the entry had
+  /// changed: the form fills again from the next list read, not this one.
+  PersonalConnectionsSnapshot? refusedOn;
+
   String name = '';
   String description = '';
   String url = '';
@@ -387,6 +391,8 @@ final class _ConnectionEditor {
   /// Fills the form from [snapshot] once, then follows the entry through
   /// later reads of the list, within the account that opened the form.
   void initialize(PersonalConnectionsSnapshot snapshot) {
+    if (identical(snapshot, refusedOn)) return;
+    refusedOn = null;
     owner ??= snapshot.session;
     if (initialized) {
       if (ownerChanged) return;
@@ -417,7 +423,11 @@ final class _ConnectionEditor {
     if (entry == null) return;
     initialized = true;
     opened = entry.raw;
+    // Every field comes from the entry, the key text too: a form filled
+    // again (after a save refused because the entry changed) shows nothing
+    // typed that the next save would leave out.
     keyMode = PersonalConnectionSecretMode.keep;
+    keyText = '';
     if (isTool) {
       final draft = PersonalToolServerDraft.fromEntry(entry.raw);
       name = draft.name;
@@ -1111,6 +1121,8 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         existing.identity,
         patch,
         stampKey: editor.isTool ? editor.stampKey : null,
+        // Refused if the entry changed since this form opened it.
+        fingerprint: personalConnectionFingerprint(opened),
       );
     } else {
       return;
@@ -1141,10 +1153,29 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..message = personalConnectionSaveError(l10n, error)
         ..messageIsError = true;
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        // A Test result was about the values refused; the entry the form
+        // fills with now was not tested.
+        editor
+          ..test = _TestState.idle
+          ..testText = null;
+        _reloadChanged(editor);
+      }
     } finally {
       editor.saving = false;
     }
     await _applyEditor(l10n, editor);
+  }
+
+  /// [editor]'s entry changed since it opened it: the form fills again from
+  /// the entry as the list now has it.
+  void _reloadChanged(_ConnectionEditor editor) {
+    editor
+      ..refusedOn = _ref.read(personalConnectionsProvider).asData?.value
+      ..initialized = false;
+    _ref.invalidate(personalConnectionsProvider);
   }
 
   Future<void> _test(AppLocalizations l10n, _ConnectionEditor editor) async {
@@ -1160,9 +1191,16 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     }
     final existing = editor.existing;
     final opened = editor.opened;
-    final entry = existing == null || opened == null
-        ? editor.newEntry()
-        : mergePersonalConnectionPatch(existing.raw, editor.patch(opened));
+    // A stored entry is tested as Save would store the form, against the
+    // settings read again: refused once the entry changed since this form
+    // opened it, so a stale form's key is sent nowhere.
+    final edit = existing == null || opened == null
+        ? null
+        : PatchPersonalConnection(
+            existing.identity,
+            editor.patch(opened),
+            fingerprint: personalConnectionFingerprint(opened),
+          );
     editor
       ..attempted = true
       ..test = _TestState.testing
@@ -1171,11 +1209,13 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor);
     final revision = editor.revision;
     try {
-      final result = await _controller.testConnection(
-        owner,
-        editor.kind,
-        entry,
-      );
+      final result = edit == null
+          ? await _controller.testConnection(
+              owner,
+              editor.kind,
+              editor.newEntry(),
+            )
+          : await _controller.testEdit(owner, editor.kind, edit);
       if (!identical(_editors[editor.key], editor)) return;
       // Edited while it was tested: the answer is about other values.
       if (editor.revision != revision) return;
@@ -1196,6 +1236,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..test = _TestState.failed
         ..testText = personalConnectionSaveError(l10n, error);
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        _reloadChanged(editor);
+      }
     }
     await _applyEditor(l10n, editor);
   }

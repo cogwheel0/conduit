@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_http_session.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -57,6 +58,45 @@ final class _FakeDashboard {
             HttpHeaders.setCookieHeader,
             'hermes_session_at=rotated-late; HttpOnly; Path=/',
           );
+          response.write('{}');
+        // A dashboard answer that sets cookies the sign-in did not have.
+        case '/api/adds':
+          response.headers
+            ..add(
+              HttpHeaders.setCookieHeader,
+              'hermes_session_rt=fresh; HttpOnly; Path=/',
+            )
+            ..add(HttpHeaders.setCookieHeader, 'dashboard_pref=1; Path=/');
+          response.write('{}');
+        // An answer that deletes the session cookie.
+        case '/api/expire':
+          response.headers.add(
+            HttpHeaders.setCookieHeader,
+            'hermes_session_at=; Max-Age=0; Path=/',
+          );
+          response.write('{}');
+        // An answer that sets more cookies than a sign-in's record holds.
+        case '/api/many':
+          for (var i = 0; i < 70; i++) {
+            response.headers.add(
+              HttpHeaders.setCookieHeader,
+              'pref_$i=1; Path=/',
+            );
+          }
+          response.write('{}');
+        // A gateway's Webapp listener: its session cookies carry the
+        // gateway's suffix (`g`), as each gateway home names its own.
+        case '/api/gateway':
+          final gateway = request.uri.queryParameters['g'] ?? '';
+          response.headers
+            ..add(
+              HttpHeaders.setCookieHeader,
+              'hermes_session_at_$gateway=at-${server.port}; HttpOnly; Path=/',
+            )
+            ..add(
+              HttpHeaders.setCookieHeader,
+              'hermes_webapp_signin_$gateway=1; Path=/',
+            );
           response.write('{}');
         case '/api/auth/me'
             when cookie?.contains('hermes_session_at=good') ?? false:
@@ -746,6 +786,230 @@ void main() {
     return answer;
   }
 
+  test('a purge over cookies that could not be read clears the store '
+      'before it says so, and only its own dashboard\'s', () async {
+    final other = await _FakeDashboard.start();
+    addTearDown(other.close);
+    final secure = _UnreadableStore();
+    final signedIn = await signedInStore(secure);
+    final otherRoot = Uri.parse(other.baseUrl);
+    await signedIn
+        .bridge(root: otherRoot, accessHeaders: const {})
+        .request('GET', otherRoot.resolve('/api/gateway?g=fedcba9876543210'));
+    // Opened while the secure store refuses reads: the jar is empty, but
+    // the store still holds both sessions.
+    secure.unreadable = true;
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    expect(store.cookies, isEmpty);
+
+    // Still unreadable: not cleared, and the store is left as it was.
+    final before = await secure.peek();
+    expect(await store.clearForOrigin(dashboard.baseUrl), isFalse);
+    expect(await secure.peek(), before);
+
+    // Readable again: this dashboard's cookies go, the other's stay.
+    secure.unreadable = false;
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    final reopened = await DaemonHermesDashboardCookies.open(secure);
+    expect(
+      reopened.cookies.map((c) => c.name),
+      unorderedEquals(<String>[
+        'hermes_session_at_fedcba9876543210',
+        'hermes_webapp_signin_fedcba9876543210',
+      ]),
+    );
+    expect(reopened.hasSession(other.baseUrl), isTrue);
+    expect(reopened.hasSession(dashboard.baseUrl), isFalse);
+  });
+
+  test('a stored cookie that cannot be read is dropped, and the rest '
+      'load', () async {
+    final origin = hermesDashboardCookieOriginKey(dashboard.baseUrl)!;
+    final secure = _UnreadableStore()
+      ..seed({
+        origin: [
+          signedInCookie.toJson(),
+          {
+            ...signedInCookie.toJson(),
+            'name': 'pref',
+            // Past the last instant a DateTime holds.
+            'expires': 9000000000000000,
+          },
+          'nonsense',
+        ],
+        'http://127.0.0.1:1': 'not a jar',
+      });
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    expect(store.cookies.map((c) => c.name), ['hermes_session_at']);
+    expect(store.hasSession(dashboard.baseUrl), isTrue);
+    // Written again without what could not be read.
+    expect(jsonDecode((await secure.peek())!), {
+      origin: [signedInCookie.toJson()],
+    });
+  });
+
+  test('a sign-in whose window closed while the store was being read '
+      'keeps nothing', () async {
+    final secure = _UnreadableStore()..unreadable = true;
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    final release = Completer<void>();
+    secure
+      ..unreadable = false
+      ..holdRead = release
+      ..readArrived = Completer<void>();
+    var wanted = true;
+    final adopting = store.adopt(
+      Uri.parse(dashboard.baseUrl),
+      const [signedInCookie],
+      accessHeaders: const {},
+      wanted: () => wanted,
+    );
+    // Fails at once, not at the runner's timeout, if the sign-in ended
+    // before its commit read the store.
+    await Future.any([
+      secure.readArrived!.future,
+      adopting.then((_) => fail('the sign-in ended before the store read')),
+    ]);
+    // The window closes while the commit waits for the store.
+    wanted = false;
+    release.complete();
+    expect(await adopting, isFalse);
+    expect(store.cookies, isEmpty);
+    expect(await secure.peek(), isNull);
+  });
+
+  test('while the store cannot be read, a dashboard request is refused and '
+      'takes nothing in; once it reads, its cookies are served', () async {
+    final secure = _UnreadableStore();
+    await signedInStore(secure);
+    final stored = await secure.peek();
+    final root = Uri.parse(dashboard.baseUrl);
+
+    secure.unreadable = true;
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    final bridge = store.bridge(root: root, accessHeaders: const {});
+    final sent = dashboard.cookies.length;
+    await expectLater(
+      bridge.request('GET', root.resolve('/api/rotate')),
+      throwsA(isA<StateError>()),
+    );
+    expect(dashboard.cookies, hasLength(sent));
+    expect(store.cookies, isEmpty);
+    expect(store.hasSession(dashboard.baseUrl), isFalse);
+
+    // Readable again: the request that finds it unread has it read, and the
+    // store's cookies are served from then on, as stored.
+    secure.unreadable = false;
+    await expectLater(
+      bridge.request('GET', root.resolve('/api/status')),
+      throwsA(isA<StateError>()),
+    );
+    await bridge.request('GET', root.resolve('/api/status'));
+    expect(dashboard.cookies.last, contains('hermes_session_at=rotated'));
+    expect(await secure.peek(), stored);
+  });
+
+  test('a clear removes every cookie its dashboard\'s answers set, past '
+      'any count', () async {
+    final secure = InMemorySecureKeyValueStore();
+    final store = await signedInStore(secure);
+    final root = Uri.parse(dashboard.baseUrl);
+    await store
+        .bridge(root: root, accessHeaders: const {})
+        .request('GET', root.resolve('/api/many'));
+    expect(store.cookies.length, greaterThan(70));
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    expect(store.cookies, isEmpty);
+    expect((await DaemonHermesDashboardCookies.open(secure)).cookies, isEmpty);
+  });
+
+  test('two dashboards on one host keep their cookies apart', () async {
+    final other = await _FakeDashboard.start();
+    addTearDown(other.close);
+    final secure = InMemorySecureKeyValueStore();
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    final a = Uri.parse(dashboard.baseUrl);
+    final b = Uri.parse(other.baseUrl);
+    final bridgeA = store.bridge(root: a, accessHeaders: const {});
+    final bridgeB = store.bridge(root: b, accessHeaders: const {});
+    await bridgeA.request('GET', a.resolve('/api/gateway?g=0123456789abcdef'));
+    await bridgeB.request('GET', b.resolve('/api/gateway?g=fedcba9876543210'));
+
+    // Each dashboard is sent its own cookies only.
+    await bridgeA.request('GET', a.resolve('/api/status'));
+    await bridgeB.request('GET', b.resolve('/api/status'));
+    expect(dashboard.cookies.last, contains('0123456789abcdef'));
+    expect(dashboard.cookies.last, isNot(contains('fedcba9876543210')));
+    expect(other.cookies.last, contains('fedcba9876543210'));
+    expect(other.cookies.last, isNot(contains('0123456789abcdef')));
+
+    // Clearing one leaves the other's, in the jar and in the store.
+    expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+    for (final held in [
+      store,
+      await DaemonHermesDashboardCookies.open(secure),
+    ]) {
+      expect(
+        held.cookies.map((c) => c.name),
+        unorderedEquals(<String>[
+          'hermes_session_at_fedcba9876543210',
+          'hermes_webapp_signin_fedcba9876543210',
+        ]),
+      );
+    }
+    await bridgeB.request('GET', b.resolve('/api/status'));
+    expect(other.cookies.last, contains('fedcba9876543210'));
+  });
+
+  test('cookies saved in the old single-jar form are dropped once, and the '
+      'store is written in the new form', () async {
+    final secure = InMemorySecureKeyValueStore({
+      kHermesDashboardCookiesKey: jsonEncode([signedInCookie.toJson()]),
+    });
+    final store = await DaemonHermesDashboardCookies.open(secure);
+    expect(store.cookies, isEmpty);
+    expect(store.hasSession(dashboard.baseUrl), isFalse);
+    expect(await secure.read(key: kHermesDashboardCookiesKey), isNull);
+    // A sign-in afterwards is kept in the new form.
+    expect(
+      await store.adopt(Uri.parse(dashboard.baseUrl), const [
+        signedInCookie,
+      ], accessHeaders: const {}),
+      isTrue,
+    );
+    final stored = jsonDecode(
+      (await secure.read(key: kHermesDashboardCookiesKey))!,
+    );
+    expect(stored, isA<Map<String, dynamic>>());
+    expect(
+      (await DaemonHermesDashboardCookies.open(secure))
+          .hasSession(dashboard.baseUrl),
+      isTrue,
+    );
+  });
+
+  test(
+    'cookies a dashboard answer adds are cleared with the sign-in',
+    () async {
+      final secure = InMemorySecureKeyValueStore();
+      final store = await signedInStore(secure);
+      final root = Uri.parse(dashboard.baseUrl);
+      await store
+          .bridge(root: root, accessHeaders: const {})
+          .request('GET', root.resolve('/api/adds'));
+      expect(
+        store.cookies.map((c) => c.name),
+        containsAll(<String>['hermes_session_rt', 'dashboard_pref']),
+      );
+      expect(await store.clearForOrigin(dashboard.baseUrl), isTrue);
+      expect(store.cookies, isEmpty);
+      expect(
+        (await DaemonHermesDashboardCookies.open(secure)).cookies,
+        isEmpty,
+      );
+    },
+  );
+
   test('a dashboard answer from before a purge keeps nothing', () async {
     final secure = InMemorySecureKeyValueStore();
     final store = await signedInStore(secure);
@@ -823,6 +1087,35 @@ final class _FailingStore extends InMemorySecureKeyValueStore {
   Future<void> write({required String key, required String? value}) => failing
       ? Future<void>.error(const FileSystemException('refused'))
       : super.write(key: key, value: value);
+}
+
+/// A secure store whose reads fail while [unreadable] (a locked Keychain).
+final class _UnreadableStore extends InMemorySecureKeyValueStore {
+  bool unreadable = false;
+
+  /// When set, the next read waits for it, after completing [readArrived].
+  Completer<void>? holdRead;
+  Completer<void>? readArrived;
+
+  /// What the store holds, read past [unreadable].
+  Future<String?> peek() => super.read(key: kHermesDashboardCookiesKey);
+
+  /// Stores [jars] as written, without a daemon.
+  void seed(Object jars) => unawaited(
+    super.write(key: kHermesDashboardCookiesKey, value: jsonEncode(jars)),
+  );
+
+  @override
+  Future<String?> read({required String key}) async {
+    final wait = holdRead;
+    if (wait != null) {
+      holdRead = null;
+      readArrived?.complete();
+      await wait.future;
+    }
+    if (unreadable) throw const FileSystemException('locked');
+    return super.read(key: key);
+  }
 }
 
 /// A secure store whose next write waits for [release] once [holdNext]

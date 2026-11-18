@@ -23,12 +23,14 @@ Future<T> readServerRule<T>(
   T Function() read, {
   required bool Function(T value) stale,
 }) async {
-  for (final source in <Future<Object?>>[
-    readSettled(container, backendConfigProvider.future),
-    readSettled(container, userPermissionsProvider.future),
+  // Each read starts right before it is awaited: one started early and
+  // failing while another is awaited would be an error nobody handles.
+  for (final source in <Future<Object?> Function()>[
+    () => readSettled(container, backendConfigProvider.future),
+    () => readSettled(container, userPermissionsProvider.future),
   ]) {
     try {
-      await source;
+      await source();
     } on Object {
       // A failed source reads as a refusal, as core's rules have it.
     }

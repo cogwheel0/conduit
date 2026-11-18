@@ -60,7 +60,8 @@ fn refresh_composer_tools(cx: &mut App) {
 /// A save's refusal in the phone's words.
 pub fn save_error(e: &RpcError, l10n: &L10n) -> String {
     match e.args.get("reason").map(String::as_str) {
-        Some("notFound") => l10n.personal_connections_not_found(),
+        // Gone, or changed since the editor opened it: the same words.
+        Some("notFound" | "changed") => l10n.personal_connections_not_found(),
         Some("duplicate") => l10n.personal_connections_duplicate(),
         Some("rejected") => l10n.personal_connections_save_rejected(),
         Some("accountChanged") => l10n.personal_connections_owner_changed(),
@@ -158,6 +159,7 @@ impl PersonalConnectionsPane {
                 identity: Some(identity.clone()),
                 draft: None,
                 enabled: Some(on),
+                fingerprint: None,
             });
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             let result = call.await;

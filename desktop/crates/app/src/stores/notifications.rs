@@ -218,6 +218,15 @@ impl NotificationsStore {
                         if seq > s.confirmed_by {
                             s.confirmed = settings;
                             s.confirmed_by = seq;
+                            // The daemon applied the older writes still out
+                            // before this one: what this one set is no
+                            // longer theirs to show. Their other switches
+                            // stay shown until they land.
+                            for (n, older) in &mut s.pending {
+                                if *n < seq {
+                                    superseded(older, &patch);
+                                }
+                            }
                         }
                         if newest {
                             s.error = None;
@@ -240,6 +249,34 @@ impl NotificationsStore {
         })
         .detach();
     }
+}
+
+/// `older` without the switches `newer` sets: a confirmed newer write
+/// decides them.
+fn superseded(older: &mut NotificationSettingsPatch, newer: &NotificationSettingsPatch) {
+    let NotificationSettingsPatch {
+        enabled,
+        sound,
+        sound_always,
+        in_app_banner,
+        system,
+        answers,
+        channels,
+        mentions_only,
+    } = newer;
+    let drop_if = |field: &mut Option<bool>, newer: &Option<bool>| {
+        if newer.is_some() {
+            *field = None;
+        }
+    };
+    drop_if(&mut older.enabled, enabled);
+    drop_if(&mut older.sound, sound);
+    drop_if(&mut older.sound_always, sound_always);
+    drop_if(&mut older.in_app_banner, in_app_banner);
+    drop_if(&mut older.system, system);
+    drop_if(&mut older.answers, answers);
+    drop_if(&mut older.channels, channels);
+    drop_if(&mut older.mentions_only, mentions_only);
 }
 
 /// `patch` applied to `settings`, as the daemon will store it.
@@ -629,6 +666,66 @@ mod tests {
             assert!(s.settings().in_app_banner, "the refused value stayed shown");
             assert!(!s.settings().sound, "the older write's value went");
         });
+    }
+
+    /// Two writes to the same switch answered newest first: the newer's
+    /// confirmed value shows at once, not the older one still out (which
+    /// the daemon applied before it). An older write to another switch
+    /// stays shown until it lands.
+    #[gpui_kit::test]
+    fn a_confirmed_write_supersedes_older_writes_to_the_same_switch(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsGet>(desktop_defaults());
+        let store = cx.new(|_| NotificationsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        // The daemon applies each in turn: its answers say so.
+        let state = std::sync::Arc::new(std::sync::Mutex::new(desktop_defaults()));
+        let held_state = state.clone();
+        daemon.on::<methods::NotificationsSet>(move |p| {
+            let mut st = held_state.lock().unwrap();
+            if let Some(v) = p.get("sound").and_then(|v| v.as_bool()) {
+                st.sound = v;
+            }
+            if let Some(v) = p.get("system").and_then(|v| v.as_bool()) {
+                st.system = v;
+            }
+            Ok(serde_json::to_value(st.clone()).unwrap())
+        });
+        let older = daemon.hold_one::<methods::NotificationsSet>(0);
+        let set = |s: &mut NotificationsStore, patch, cx: &mut Context<NotificationsStore>| {
+            s.set(patch, cx)
+        };
+        store.update(cx, |s, cx| {
+            set(
+                s,
+                NotificationSettingsPatch {
+                    sound: Some(false),
+                    mentions_only: Some(true),
+                    ..Default::default()
+                },
+                cx,
+            );
+            set(
+                s,
+                NotificationSettingsPatch {
+                    sound: Some(true),
+                    ..Default::default()
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.settings().sound, "the older write's value came back");
+            assert!(
+                s.settings().mentions_only,
+                "the older write's other switch went before it landed"
+            );
+        });
+        drop(older);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(s.settings().sound));
     }
 
     /// A write still out when a new daemon session begins: the new

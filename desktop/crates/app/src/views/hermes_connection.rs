@@ -653,6 +653,38 @@ impl HermesConnectionSheet {
     /// Clear (by the memory key): the saved key goes at the next Save, and
     /// the daemon makes one, as before a key was set. A replacement typed
     /// before goes too; one typed after is the key saved.
+    /// The Mode control: the API (`desktop` false) or a Desktop Gateway.
+    /// A Gateway Save carries no memory key, so switching to a Gateway
+    /// discards the memory-key edit still pending (a Clear and any
+    /// replacement typed): none outlives a Save that did not carry it, and
+    /// the discarded edit no longer counts as unsaved.
+    pub fn choose_mode(&mut self, desktop: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if desktop {
+            self.discard_memory_key_edit(window, cx);
+        }
+        self.desktop = desktop;
+        self.note = None;
+        if self.desktop && self.profiles_asked.is_none() && self.existing.is_some() {
+            self.load_profiles(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// The memory key field as the sheet opened it: empty, saying a saved
+    /// key is kept, with no Clear pending.
+    fn discard_memory_key_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.memory_cleared = false;
+        self.memory_key
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        let l = cx.l10n().clone();
+        let hint = if self.existing.as_ref().is_some_and(|c| c.has_memory_key) {
+            l.hermes_configured_replace_placeholder()
+        } else {
+            l.desktop_optional()
+        };
+        forms::set_hint(&self.memory_key, hint, cx);
+    }
+
     pub fn clear_memory_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.memory_cleared = true;
         self.memory_key
@@ -950,7 +982,12 @@ impl HermesConnectionSheet {
                 forms::set_hint(&input, l.hermes_configured_replace_placeholder(), cx);
             }
         }
-        if !saved.has_memory_key && self.memory_cleared && sent.memory_cleared {
+        // The Save carried the clear: the saved key went, or a replacement
+        // typed after Clear took its place. Either way it is done, so a
+        // later Save leaves the key as saved. (Clear can't be pressed while
+        // a Save is out, and a Gateway Save never has one: switching to a
+        // Gateway discards it.)
+        if sent.memory_cleared {
             self.memory_cleared = false;
         }
         // Each row is followed by its identity (the row, not its name): a
@@ -1484,14 +1521,7 @@ impl Render for HermesConnectionSheet {
                 usize::from(self.desktop),
             )
             .on_select(Rc::new(move |i, window, cx| {
-                let _ = this.update(cx, |s, cx| {
-                    s.desktop = i == 1;
-                    s.note = None;
-                    if s.desktop && s.profiles_asked.is_none() && s.existing.is_some() {
-                        s.load_profiles(window, cx);
-                    }
-                    cx.notify();
-                });
+                let _ = this.update(cx, |s, cx| s.choose_mode(i == 1, window, cx));
             }))
         };
         let derived = forms::host_of(&forms::text(&self.url, cx));
@@ -1839,6 +1869,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
     use crate::views::sheet::bench::bench;
 
     fn list(active: &str, saved: Option<&str>, auth: &str) -> HermesConnections {
@@ -2538,6 +2569,172 @@ mod tests {
                 "clear last: {clear_last}"
             );
         }
+    }
+
+    /// Clear, then a replacement typed and saved: the Save carried the
+    /// clear (the replacement is what it saved), so a later Save that
+    /// leaves the key alone keeps the replacement instead of clearing it.
+    #[gpui_kit::test]
+    fn a_saved_replacement_ends_the_clear(cx: &mut gpui_kit::TestAppContext) {
+        let api = |saved: Option<&str>| {
+            let mut l = list("a", saved, "nativePkce");
+            l.connections[1].mode = "responses".into();
+            l.connections[1].has_memory_key = true;
+            l
+        };
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::HermesConnectionsSave>(api(Some("b")));
+        stores
+            .hermes_admin
+            .update(vcx, |a, cx| a.adopt_connections(api(None), cx));
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.clear_memory_key(w, cx);
+            s.memory_key
+                .update(cx, |i, cx| i.set_value("synthetic-memory-key", w, cx));
+            s.save(w, cx);
+        });
+        // A word typed while the Save is out keeps the editor open.
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx))
+        });
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| assert!(sheet::current::<HermesConnectionSheet>(cx).is_some()));
+        on_sheet(vcx, &sheet, |s, w, cx| s.save(w, cx));
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2);
+        assert_eq!(saves[0]["memoryKey"], json!("synthetic-memory-key"));
+        assert!(
+            saves[1]["memoryKey"].is_null(),
+            "the second Save cleared the saved replacement: {}",
+            saves[1]["memoryKey"]
+        );
+    }
+
+    /// "b" on the API with a memory key saved; `saved` names the connection
+    /// a Save answers for.
+    fn api_with_memory_key(saved: Option<&str>) -> HermesConnections {
+        let mut l = list("a", saved, "nativePkce");
+        l.connections[1].mode = "responses".into();
+        l.connections[1].has_memory_key = true;
+        l
+    }
+
+    /// A Gateway Save of the open sheet, kept open by a word typed while it
+    /// is out, answered with "b" as a Gateway that still has its key.
+    fn gateway_save(
+        daemon: &FakeDaemon,
+        vcx: &mut VisualTestContext,
+        sheet: &Entity<HermesConnectionSheet>,
+    ) {
+        let mut gateway = api_with_memory_key(Some("b"));
+        gateway.connections[1].mode = "desktop".into();
+        daemon.returns::<methods::HermesConnectionsSave>(gateway);
+        let held = daemon.hold::<methods::HermesConnectionsSave>();
+        on_sheet(vcx, sheet, |s, w, cx| s.save(w, cx));
+        on_sheet(vcx, sheet, |s, w, cx| {
+            s.name.update(cx, |i, cx| i.set_value("Cold frame", w, cx))
+        });
+        drop(held);
+        vcx.run_until_parked();
+        vcx.update(|_, cx| assert!(sheet::current::<HermesConnectionSheet>(cx).is_some()));
+    }
+
+    /// Clear, then the Mode switched to a Desktop Gateway: a Gateway Save
+    /// carries no memory key, so the pending Clear is discarded and no
+    /// longer counts as unsaved. After a Gateway Save and back to the API,
+    /// the saved key is kept and the next API Save sends no memory key.
+    #[gpui_kit::test]
+    fn switching_to_a_gateway_discards_a_pending_clear(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(api_with_memory_key(None), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| s.clear_memory_key(w, cx));
+        vcx.update(|_, cx| assert!(sheet::has_unsaved(cx)));
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.choose_mode(true, w, cx);
+            s.choose_mode(false, w, cx);
+        });
+        vcx.update(|_, cx| {
+            assert!(!sheet.read(cx).memory_cleared);
+            assert!(!sheet::has_unsaved(cx), "the discarded Clear still counts");
+        });
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.clear_memory_key(w, cx);
+            s.choose_mode(true, w, cx);
+        });
+        gateway_save(&daemon, vcx, &sheet);
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.choose_mode(false, w, cx);
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2, "{saves:?}");
+        assert!(saves[0]["memoryKey"].is_null(), "{}", saves[0]["memoryKey"]);
+        assert!(
+            saves[1]["memoryKey"].is_null(),
+            "the saved key was cleared: {}",
+            saves[1]["memoryKey"]
+        );
+    }
+
+    /// Clear and a replacement typed, then the Mode switched to a Desktop
+    /// Gateway: both are discarded (the field is empty again), so nothing
+    /// is blanked by the Gateway Save's answer or cleared by a later API
+    /// Save.
+    #[gpui_kit::test]
+    fn switching_to_a_gateway_discards_a_typed_replacement(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        stores.hermes_admin.update(vcx, |a, cx| {
+            a.adopt_connections(api_with_memory_key(None), cx)
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, Some("b".into()), window, cx));
+        vcx.run_until_parked();
+        let sheet = vcx
+            .update(|_, cx| sheet::current::<HermesConnectionSheet>(cx))
+            .expect("the editor opens");
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.clear_memory_key(w, cx);
+            s.memory_key
+                .update(cx, |i, cx| i.set_value("synthetic-memory-key", w, cx));
+            s.choose_mode(true, w, cx);
+        });
+        vcx.update(|_, cx| {
+            let s = sheet.read(cx);
+            assert!(!s.memory_cleared);
+            assert_eq!(forms::raw(&s.memory_key, cx), "");
+        });
+        gateway_save(&daemon, vcx, &sheet);
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.choose_mode(false, w, cx);
+            s.save(w, cx);
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::HermesConnectionsSave>();
+        assert_eq!(saves.len(), 2, "{saves:?}");
+        assert!(saves[0]["memoryKey"].is_null(), "{}", saves[0]["memoryKey"]);
+        assert!(
+            saves[1]["memoryKey"].is_null(),
+            "the saved key was cleared or replaced: {}",
+            saves[1]["memoryKey"]
+        );
     }
 
     /// Typed words make Quit ask first.

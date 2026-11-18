@@ -432,6 +432,30 @@ class PersonalConnectionsController
   ///
   /// A probe sends the entry's credential to its host, so it is refused, with
   /// nothing sent, once [owner] is no longer the active account.
+  /// Tests [edit] of a stored entry without saving it: the settings are
+  /// read again, [edit] runs against them as [save] would run it (an editor
+  /// opened before the entry changed is refused there,
+  /// [PersonalConnectionEditFailure.changed], and a kept key never follows
+  /// it to another origin), and the entry it would store is probed. Nothing
+  /// is probed when the read fails or the edit is refused.
+  Future<PersonalConnectionTestResult> testEdit(
+    PersonalConnectionsSession owner,
+    PersonalConnectionKind kind,
+    PatchPersonalConnection edit,
+  ) async {
+    _requireOwner(owner);
+    final settings = await owner.api.getUserSettings(
+      authSnapshot: owner.authSnapshot,
+    );
+    _requireOwner(owner);
+    final result = edit.apply(
+      kind,
+      effectivePersonalServerList(settings, kind.settingsKey),
+    );
+    final entry = personalConnectionMap(result.list[result.entryIndex!])!;
+    return testConnection(owner, kind, entry);
+  }
+
   Future<PersonalConnectionTestResult> testConnection(
     PersonalConnectionsSession owner,
     PersonalConnectionKind kind,

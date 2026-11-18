@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.67.0",
+  "protocolVersion": "1.68.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {

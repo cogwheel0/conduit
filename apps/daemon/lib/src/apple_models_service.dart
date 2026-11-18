@@ -59,7 +59,7 @@ List<Override> appleModelsOverrides(AppleModelsBridge bridge) => <Override>[
 final class AppleModelsService {
   AppleModelsService(this._container, {required this.bridge}) {
     bridge._onReady = _ready;
-    bridge._onGone = _gone;
+    bridge._onRecheck = _recheck;
   }
 
   final ProviderContainer _container;
@@ -182,9 +182,10 @@ final class AppleModelsService {
     }());
   }
 
-  /// A window's engine went: the offer follows the engines left, and with
-  /// none that has the model it is withdrawn at once.
-  void _gone() => unawaited(_onDevice());
+  /// A window's engine went, or a run said the model can't answer: the
+  /// Mac is asked again, and the offer follows (with no engine left that
+  /// has the model it is withdrawn at once).
+  void _recheck() => unawaited(_onDevice());
 
   Future<void> _rediscover() async {
     try {
@@ -226,13 +227,20 @@ final class AppleModelsBridge implements ApplePccHost {
   EventBus? _events;
   ApplePccHostListener? _listener;
   void Function(bool supported)? _onReady;
-  void Function()? _onGone;
+  void Function()? _onRecheck;
   int _nextId = 0;
 
-  /// Commands not answered yet, with the window each went to: only that
-  /// window's answer counts.
-  final Map<int, ({Completer<AppleReport> answer, String window})> _pending =
-      <int, ({Completer<AppleReport> answer, String window})>{};
+  /// Commands not answered yet, with the window each went to (only that
+  /// window's answer counts) and, for a start, its run.
+  final Map<
+    int,
+    ({Completer<AppleReport> answer, String window, String? startOf})
+  >
+  _pending =
+      <
+        int,
+        ({Completer<AppleReport> answer, String window, String? startOf})
+      >{};
 
   /// The windows whose engines said `ready`, in the order they last said
   /// it, with whether this Mac has Apple's models.
@@ -243,6 +251,29 @@ final class AppleModelsBridge implements ApplePccHost {
 
   /// The number of the last report taken from each run.
   final Map<String, int> _numbers = <String, int>{};
+
+  /// The number ([AppleReport.order]) of the newest report taken from each
+  /// window: a `ready` numbered at or below it is a late copy of an older
+  /// one (a send the connection tried again), and is not taken.
+  final Map<String, int> _taken = <String, int>{};
+
+  /// For each run whose start its window answered, the number of that
+  /// answer: a `ready` numbered after it was made once the window had the
+  /// run, so one that does not list it says the run is gone. A run with no
+  /// answer yet is not ended by a `ready` (the window cannot list it).
+  final Map<String, int> _startedAt = <String, int>{};
+
+  /// Runs asked to stop that have not ended: a `ready` that still lists one
+  /// (its Cancel lost on the way) is told to stop it again.
+  final Set<String> _cancelling = <String>{};
+
+  /// Forgets [runId] as a run here; returns the window that ran it.
+  String? _forget(String runId) {
+    _numbers.remove(runId);
+    _cancelling.remove(runId);
+    _startedAt.remove(runId);
+    return _owners.remove(runId);
+  }
 
   /// What the engine last said of the on-device model (for its reason).
   AppleEngineStatus? lastStatus;
@@ -369,12 +400,12 @@ final class AppleModelsBridge implements ApplePccHost {
         ),
         to: engine,
         timeout: _startTimeout,
+        startOf: request.runId,
       );
     } on Object {
       // Never started, or not known to: an engine that did start it is
       // stopped, and its reports no longer count.
-      if (_owners.remove(request.runId) case final owner?) {
-        _numbers.remove(request.runId);
+      if (_forget(request.runId) case final owner?) {
         _stopIn(owner, request.runId);
       }
       rethrow;
@@ -385,6 +416,7 @@ final class AppleModelsBridge implements ApplePccHost {
   Future<void> cancel(String runId) async {
     final owner = _owners[runId];
     if (owner == null) return;
+    _cancelling.add(runId);
     await _command(
       (id) => AppleCommand(id: id, kind: AppleCommandKind.cancel, runId: runId),
       to: owner,
@@ -398,6 +430,7 @@ final class AppleModelsBridge implements ApplePccHost {
   /// engines left.
   void forgetWindow(String window) {
     final wasEngine = _engines.remove(window) != null;
+    _taken.remove(window);
     for (final pending in _pending.values.toList()) {
       if (pending.window == window && !pending.answer.isCompleted) {
         pending.answer.completeError(StateError('the window closed'));
@@ -406,14 +439,13 @@ final class AppleModelsBridge implements ApplePccHost {
     for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
       if (owner == window) _end(runId, stop: false);
     }
-    if (wasEngine) _onGone?.call();
+    if (wasEngine) _onRecheck?.call();
   }
 
   /// Ends [runId] here, failed, and stops it in the window running it: the
   /// one way out for a run whose words or tool results went astray. Once.
   void _end(String runId, {bool stop = true}) {
-    final owner = _owners.remove(runId);
-    _numbers.remove(runId);
+    final owner = _forget(runId);
     if (owner == null) return;
     _event(
       PlatformPccStreamEvent(
@@ -464,6 +496,17 @@ final class AppleModelsBridge implements ApplePccHost {
   /// What window [from] said: what a run did first, then the answer, so a
   /// command's caller sees the state it left.
   void report(AppleReport report, {required String from}) {
+    final order = report.order;
+    if (order != null) {
+      final taken = _taken[from];
+      if (report.kind == AppleReportKind.ready &&
+          taken != null &&
+          order <= taken) {
+        // Older than what this window said since: not what it has now.
+        return;
+      }
+      if (taken == null || order > taken) _taken[from] = order;
+    }
     switch (report.kind) {
       case null:
         break;
@@ -497,21 +540,24 @@ final class AppleModelsBridge implements ApplePccHost {
         );
       case AppleReportKind.failed:
         final runId = report.runId ?? '';
-        _owners.remove(runId);
-        _numbers.remove(runId);
+        _forget(runId);
+        final unavailable = report.failure == AppleFailure.unavailable;
         _event(
           PlatformPccStreamEvent(
             runId: runId,
             kind: PlatformPccEventKind.error,
-            content: report.failure == AppleFailure.unavailable
+            content: unavailable
                 ? appleUnavailableMessage(report.reason)
                 : appleFailureMessage(report.failure ?? AppleFailure.failed),
           ),
         );
+        // The model can't answer now (Apple Intelligence turned off, say):
+        // the Mac is asked again so the offer follows. Other failures (a
+        // full context) say nothing of the model.
+        if (unavailable) _onRecheck?.call();
       case AppleReportKind.done:
         final runId = report.runId ?? '';
-        _owners.remove(runId);
-        _numbers.remove(runId);
+        _forget(runId);
         _event(
           PlatformPccStreamEvent(runId: runId, kind: PlatformPccEventKind.done),
         );
@@ -523,15 +569,24 @@ final class AppleModelsBridge implements ApplePccHost {
       if (waiting != null &&
           waiting.window == from &&
           !waiting.answer.isCompleted) {
+        if (waiting.startOf case final runId? when report.ok) {
+          // Unnumbered (an older window): before any numbered `ready`.
+          _startedAt[runId] = order ?? -1;
+        }
         waiting.answer.complete(report);
       }
     }
   }
 
-  /// Window [from] said `ready` (it connected, or said it again): it runs
-  /// commands from now on. A run it has that is not its own here (one that
-  /// ended with an earlier session, or another window's) is stopped there;
-  /// a run of its own that it no longer has ends here.
+  /// Window [from] said `ready` (it connected, or said it again after
+  /// events were lost): it runs commands from now on. It is reconciled with
+  /// only what it can have seen. A run it has that is not its own here (one
+  /// that ended with an earlier session, or another window's), or that it
+  /// was asked to stop (that Cancel may be what was lost), is stopped
+  /// there; a run of its own that it no longer has ends here, but only one
+  /// whose start the window answered before this `ready` (numbered by
+  /// [AppleReport.order]): one still on its way, or answered since, is not
+  /// something this `ready` can list.
   void _ready(String from, AppleReport report) {
     final supported = report.supported ?? false;
     _engines
@@ -539,10 +594,19 @@ final class AppleModelsBridge implements ApplePccHost {
       ..[from] = supported;
     final kept = report.runs.toSet();
     for (final runId in kept) {
-      if (_owners[runId] != from) _stopIn(from, runId);
+      if (_owners[runId] != from || _cancelling.contains(runId)) {
+        _stopIn(from, runId);
+      }
     }
     for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
-      if (owner == from && !kept.contains(runId)) _end(runId, stop: false);
+      final startedAt = _startedAt[runId];
+      final order = report.order;
+      if (owner == from &&
+          !kept.contains(runId) &&
+          startedAt != null &&
+          (order == null || startedAt < order)) {
+        _end(runId, stop: false);
+      }
     }
     _onReady?.call(supported);
   }
@@ -603,6 +667,7 @@ final class AppleModelsBridge implements ApplePccHost {
     AppleCommand Function(int id) build, {
     required String? to,
     Duration? timeout,
+    String? startOf,
   }) async {
     final events = _events;
     if (events == null) throw StateError('no engine yet');
@@ -612,7 +677,7 @@ final class AppleModelsBridge implements ApplePccHost {
       throw StateError('no window to run ${command.kind.name}');
     }
     final completer = Completer<AppleReport>();
-    _pending[id] = (answer: completer, window: to);
+    _pending[id] = (answer: completer, window: to, startOf: startOf);
     try {
       events.emitTo(to, ConduitEventSpecs.appleCommand, command);
       final report = await completer.future.timeout(timeout ?? _timeout);

@@ -35,9 +35,16 @@ bool _isSessionCookie(String name) => _sessionCookieNames.contains(
 /// cookies over ([adopt]). From then on the daemon is the browser: the
 /// dashboard bridge ([bridge]) sends them with each dashboard request and
 /// keeps what Hermes rotates, a sign-out ([signOut]) asks Hermes to end the
-/// session, and the core's [clearForOrigin] deletes what the sign-in
-/// recorded ([HermesDashboardCookieRegistry]), as the phone's WebView glue
-/// does. The cookies are secrets: they live in the secure store.
+/// session, and the core's [clearForOrigin] deletes them. The cookies are
+/// secrets: they live in the secure store.
+///
+/// Each dashboard origin (`scheme://host:port`,
+/// [hermesDashboardCookieOriginKey]) has a jar of its own, in memory and in
+/// the store: a dashboard's requests, the cookies its answers set and its
+/// sign-in read and write that jar only, so a cookie is sent only to the
+/// origin that set it (cookies ignore ports; two gateways on one host keep
+/// apart) and a clear of an origin deletes its jar whole, every cookie in
+/// it, with nothing to record and nothing to miss.
 ///
 /// A sign-in's cookies enter the jar at one commit point ([_commit]), taken
 /// in turn with every clear: only while no clear started after the sign-in
@@ -46,31 +53,109 @@ bool _isSessionCookie(String name) => _sessionCookieNames.contains(
 ///
 /// A purge is real or says it is not: [clearForOrigin] and [clearAll] answer
 /// true only once the secure store no longer holds the cookies. One whose
-/// write failed leaves them out of the jar and is written again by the next
-/// purge or [completePendingClear]. [clearAll], the full purge the core asks
-/// for at an Open WebUI sign-out, empties the jar, as the phone's shared
-/// WebView store is emptied.
+/// write failed leaves them out of the jar, and the store is written again
+/// before anything else reads or writes it (by the next write, purge or
+/// [completePendingClear]). [clearAll], the full purge the core asks for at
+/// an Open WebUI sign-out, empties every jar, as the phone's shared WebView
+/// store is emptied.
+///
+/// A store that could not be read at [open] is unread, and the jars fail
+/// closed until it is read: a dashboard request is refused (and has the
+/// store read again), so no answer is taken in; a sign-in fails as a failed
+/// save does; a clear of one origin answers false, to be asked again.
+/// [clearAll] writes the empty store. Once read, the store is the one
+/// source: nothing was taken in meanwhile, so nothing is merged.
+///
+/// Cookies kept in the earlier single-jar form are dropped once, as the
+/// store is opened, and the store is written in this form: a dashboard
+/// signed in to before then signs in again.
 final class DaemonHermesDashboardCookies implements CookieJarPort {
-  DaemonHermesDashboardCookies._(this._store, this._jar);
+  DaemonHermesDashboardCookies._(
+    this._store,
+    this._jars, {
+    bool unread = false,
+    bool dirty = false,
+  }) : _unread = unread,
+       _dirty = dirty;
 
-  /// Reads the kept cookies from [store].
+  /// Reads the kept cookies from [store]. A store that cannot be read
+  /// starts every jar empty and [_unread]. What cannot be decoded (the
+  /// earlier single-jar form, a cookie that is not one) is dropped, and
+  /// the store written again at once (else [_dirty]). Nothing it holds
+  /// stops the daemon from starting.
   static Future<DaemonHermesDashboardCookies> open(
     SecureKeyValueStore store,
   ) async {
-    HermesDashboardCookieJar jar;
+    final String? source;
     try {
-      final source = await store.read(key: kHermesDashboardCookiesKey);
-      jar = source == null
-          ? HermesDashboardCookieJar()
-          : HermesDashboardCookieJar.fromJson(jsonDecode(source));
+      source = await store.read(key: kHermesDashboardCookiesKey);
     } on Object {
-      jar = HermesDashboardCookieJar();
+      return DaemonHermesDashboardCookies._(store, {}, unread: true);
     }
-    return DaemonHermesDashboardCookies._(store, jar);
+    final (jars, rewrite) = _decode(source);
+    if (!rewrite) return DaemonHermesDashboardCookies._(store, jars);
+    try {
+      await store.write(key: kHermesDashboardCookiesKey, value: _encode(jars));
+      return DaemonHermesDashboardCookies._(store, jars);
+    } on Object {
+      return DaemonHermesDashboardCookies._(store, jars, dirty: true);
+    }
+  }
+
+  /// The jars kept in [source], per origin key, and whether the store must
+  /// be written again: it held what is dropped here (the earlier
+  /// single-jar form, which was a list, or anything that is not a jar or
+  /// a cookie). Stored bytes are not trusted: nothing in them throws.
+  static (Map<String, HermesDashboardCookieJar>, bool) _decode(String? source) {
+    if (source == null) return ({}, false);
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is! Map) return ({}, true);
+      var rewrite = false;
+      final jars = <String, HermesDashboardCookieJar>{};
+      for (final MapEntry(:key, :value) in decoded.entries) {
+        if (key is! String || value is! List) {
+          rewrite = true;
+          continue;
+        }
+        final cookies = <HermesDashboardCookie>[];
+        for (final entry in value) {
+          HermesDashboardCookie? cookie;
+          try {
+            cookie = HermesDashboardCookie.fromJson(entry);
+          } on Object {
+            cookie = null;
+          }
+          if (cookie == null) {
+            rewrite = true;
+          } else {
+            cookies.add(cookie);
+          }
+        }
+        jars[key] = HermesDashboardCookieJar(cookies);
+      }
+      return (jars, rewrite);
+    } on Object {
+      return ({}, true);
+    }
+  }
+
+  /// What the store holds for [jars]: the cookies of each non-empty one,
+  /// by origin key; null with none.
+  static String? _encode(Map<String, HermesDashboardCookieJar> jars) {
+    final kept = {
+      for (final MapEntry(:key, :value) in jars.entries)
+        if (!value.isEmpty) key: value.toJson(),
+    };
+    return kept.isEmpty ? null : jsonEncode(kept);
   }
 
   final SecureKeyValueStore _store;
-  final HermesDashboardCookieJar _jar;
+
+  /// Per origin key. A jar, once made, stays (emptied by a clear): the
+  /// dashboard sessions made on it keep reading the one the store keeps.
+  final Map<String, HermesDashboardCookieJar> _jars;
+
   Future<void> _saving = Future<void>.value();
 
   /// The tail of the commits and clears, run one at a time.
@@ -86,6 +171,10 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
 
   static String _originKey(String origin) =>
       hermesDashboardCookieOriginKey(origin) ?? origin;
+
+  /// [origin]'s jar, made empty the first time.
+  HermesDashboardCookieJar _jarFor(String origin) =>
+      _jars.putIfAbsent(_originKey(origin), HermesDashboardCookieJar.new);
 
   /// What a write to [origin]'s cookies starts under, taken when its
   /// request starts.
@@ -112,32 +201,71 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   /// reads its cookies, and with its ticket taken at that same moment. A
   /// request made while a purge of its origin waits to empty the jar reads
   /// nothing: it is refused (it would read the cookies the purge removes
-  /// under a ticket the purge already moved past). The intake keeps the
-  /// answer's cookies only if no purge started since, in turn with the
-  /// commits and clears.
+  /// under a ticket the purge already moved past), and so is one made while
+  /// the store is [_unread], which has it read again for the next. The
+  /// intake keeps the answer's cookies, in [root]'s jar, only if no purge
+  /// started since, in turn with the commits and clears.
   HermesDashboardCookieIntake _intake(Uri root) {
     final origin = root.toString();
     if (_purgePending(origin)) {
       throw StateError('The dashboard sign-in is being cleared.');
     }
+    if (_unread) {
+      unawaited(_inTurn(_read));
+      throw StateError('The dashboard cookies cannot be read.');
+    }
     final ticket = _ticket(origin);
     return (url, setCookies) => _inTurn(() async {
       if (!_unpurged(origin, ticket)) return;
-      if (_jar.absorb(url, setCookies)) await _saveRotated();
+      if (_jarFor(origin).absorb(url, setCookies) || _dirty) {
+        await _saveRotated();
+      }
     });
   }
 
-  /// The last write failed: the secure store may hold what the jar no
-  /// longer does, so the next purge writes even with nothing left to remove.
-  bool _dirty = false;
+  /// The store could not be read at [open], nor since: the jars are empty
+  /// and serve nothing, and nothing is written over the store, until it is
+  /// read.
+  bool _unread;
 
-  /// The cookies, for tests and diagnostics.
-  List<HermesDashboardCookie> get cookies => _jar.cookies;
+  /// The last write failed, or the store still holds what the jars do not
+  /// (what could not be decoded): the jars are what it must hold, and the
+  /// next write or purge writes them.
+  bool _dirty;
 
-  /// Writes the jar after the writes before it. A write that fails fails
+  /// Every jar's cookies, for tests and diagnostics.
+  List<HermesDashboardCookie> get cookies => [
+    for (final jar in _jars.values) ...jar.cookies,
+  ];
+
+  /// Reads an [_unread] store into the jars, which took in nothing while
+  /// it was unread. True once it is read (at once when it was), false while
+  /// it still cannot be. In turn.
+  Future<bool> _read() async {
+    if (!_unread) return true;
+    final String? source;
+    try {
+      source = await _store.read(key: kHermesDashboardCookiesKey);
+    } on Object {
+      return false;
+    }
+    final (stored, rewrite) = _decode(source);
+    if (rewrite) _dirty = true;
+    for (final MapEntry(key: origin, value: jar) in stored.entries) {
+      final held = _jars.putIfAbsent(origin, HermesDashboardCookieJar.new);
+      for (final cookie in jar.cookies) {
+        held.put(cookie);
+      }
+    }
+    _unread = false;
+    return true;
+  }
+
+  /// Writes the jars after the writes before it. A write that fails fails
   /// its caller (and marks the store [_dirty]); the next write still runs.
+  /// Never while [_unread].
   Future<void> _save() {
-    final value = _jar.isEmpty ? null : jsonEncode(_jar.toJson());
+    final value = _encode(_jars);
     final write = _saving
         .then(
           (_) => _store.write(key: kHermesDashboardCookiesKey, value: value),
@@ -164,9 +292,11 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     return run;
   }
 
-  /// A purge's write: needed when [removed] changed the jar or an earlier
-  /// write failed. True once the secure store holds what the jar does.
+  /// A purge's write: needed when [removed] changed a jar or the store
+  /// still holds what the jars do not. True once the secure store holds
+  /// what the jars do. The store is read first ([_read]).
   Future<bool> _purged(bool removed) async {
+    if (!await _read()) return false;
     if (!removed && !_dirty) return true;
     try {
       await _save();
@@ -176,20 +306,13 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     }
   }
 
-  static String? _host(String origin) {
-    final host = Uri.tryParse(origin)?.host;
-    return host == null || host.isEmpty ? null : host;
-  }
-
   /// The commit point: takes [cookies], a sign-in window's for [root]'s
-  /// host, while sign-in [generation] is still [root]'s latest, no purge
-  /// started since [ticket], and [wanted] still holds, checked in
-  /// turn right before the jar changes. Those of its host are kept, and
-  /// recorded as this sign-in's for [root] (the window's store was fresh,
-  /// so every one of them is), as the phone's registers its sign-in. True
-  /// when a session cookie was among them; false, with nothing taken, once
-  /// superseded or unwanted. A save that fails puts the jar back and is
-  /// thrown.
+  /// host, into [root]'s jar, while sign-in [generation] is still [root]'s
+  /// latest, no purge started since [ticket], and [wanted] still holds,
+  /// checked in turn right before the jar changes. True when a session
+  /// cookie was among them; false, with nothing taken, once superseded or
+  /// unwanted. A save that fails (or a store that cannot be read, so not
+  /// written) puts the jar back and is thrown.
   Future<bool> _commit(
     Uri root,
     Iterable<HermesDashboardCookie> cookies, {
@@ -199,10 +322,16 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }) {
     final origin = root.toString();
     return _inTurn(() async {
+      final readable = await _read();
+      // Checked after the read, right before the jar changes, with nothing
+      // awaited between: a clear or a closed window meanwhile wins.
       if (!_unpurged(origin, ticket) ||
           !HermesDashboardCookieRegistry.isCurrent(origin, generation) ||
           !(wanted?.call() ?? true)) {
         return false;
+      }
+      if (!readable) {
+        throw StateError('The dashboard cookies could not be read.');
       }
       final host = root.host;
       final taken = [
@@ -214,30 +343,21 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
           ))
             cookie,
       ];
+      final jar = _jarFor(origin);
       final replaced = {
-        for (final cookie in _jar.cookies) cookie.identity: cookie,
+        for (final cookie in jar.cookies) cookie.identity: cookie,
       };
       for (final cookie in taken) {
-        _jar.put(cookie);
+        jar.put(cookie);
       }
       try {
-        await HermesDashboardCookieRegistry.record(
-          origin,
-          identities: hermesDashboardCookieIdentityDelta(
-            current: {for (final cookie in taken) cookie.identity},
-            baseline: const {},
-            retainedNames: kHermesDashboardRetainedCookieNames,
-            recorded: HermesDashboardCookieRegistry.identitiesFor(origin),
-          ),
-          retainedNames: kHermesDashboardRetainedCookieNames,
-        );
         await _save();
       } on Object {
         final identities = {for (final cookie in taken) cookie.identity};
-        _jar.removeAll(identities);
+        jar.removeAll(identities);
         for (final identity in identities) {
           final before = replaced[identity];
-          if (before != null) _jar.put(before);
+          if (before != null) jar.put(before);
         }
         rethrow;
       }
@@ -245,20 +365,16 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     });
   }
 
-  /// Whether a dashboard session this daemon recorded for [baseUrl]'s
-  /// dashboard is still held.
+  /// Whether a dashboard session for [baseUrl]'s dashboard is held, in its
+  /// own jar.
   bool hasSession(String baseUrl) {
     final root = hermesDashboardRoot(baseUrl);
-    final recorded = HermesDashboardCookieRegistry.identitiesFor(
-      root.toString(),
-    );
-    if (recorded.isEmpty) return false;
-    final held = _jar.identitiesFor(root.host);
-    return _jar.cookies.any(
+    final jar = _jars[_originKey(root.toString())];
+    if (jar == null) return false;
+    final held = jar.identitiesFor(root.host);
+    return jar.cookies.any(
       (cookie) =>
-          _isSessionCookie(cookie.name) &&
-          recorded.contains(cookie.identity) &&
-          held.contains(cookie.identity),
+          _isSessionCookie(cookie.name) && held.contains(cookie.identity),
     );
   }
 
@@ -271,7 +387,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }) => HermesDashboardHttpSession(
     root: root,
     accessHeaders: accessHeaders,
-    jar: _jar,
+    jar: _jarFor(root.toString()),
     beginExchange: () => _intake(root),
     httpClient: httpClient,
   );
@@ -285,7 +401,7 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   }) => hermesDashboardHttpSignOut(
     root: root,
     accessHeaders: accessHeaders,
-    jar: _jar,
+    jar: _jarFor(root.toString()),
     beginExchange: () => _intake(root),
     httpClient: httpClient,
   );
@@ -352,11 +468,15 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
   @override
   bool get isSupported => true;
 
+  /// None. The daemon's jars are per origin and hold only that dashboard's
+  /// own sign-in cookies, so none is ever unrecorded: this answers none, and
+  /// nothing uses it to decide what is deleted or sent (a clear empties the
+  /// origin's jar whole). Its one caller, the core's dashboard-cookie clear,
+  /// asks only whether Hermes must sign a session out first; returning the
+  /// jar's identities would make every session look unrecorded and an
+  /// explicit Sign Out require a gateway sign-out.
   @override
-  Future<Set<String>> identitiesFor(String origin) async {
-    final host = _host(origin);
-    return host == null ? const {} : _jar.identitiesFor(host);
-  }
+  Future<Set<String>> identitiesFor(String origin) async => const {};
 
   @override
   Future<bool> clearForOrigin(String origin) {
@@ -369,11 +489,14 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     _purges[key] = (_purges[key] ?? 0) + 1;
     _pendingPurges[key] = (_pendingPurges[key] ?? 0) + 1;
     return _inTurn(() async {
-      final bool removed;
+      var removed = false;
       try {
-        removed = _jar.removeAll(
-          HermesDashboardCookieRegistry.identitiesFor(origin),
-        );
+        // Unreadable still: not cleared, and asked again.
+        if (!await _read()) return false;
+        final jar = _jars[key];
+        removed =
+            jar != null &&
+            jar.removeAll({for (final cookie in jar.cookies) cookie.identity});
       } finally {
         final left = (_pendingPurges[key] ?? 1) - 1;
         if (left > 0) {
@@ -382,22 +505,19 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
           _pendingPurges.remove(key);
         }
       }
-      // Gone from the jar but still in the secure store: not cleared yet,
-      // and the record stays for the purge that writes it.
-      if (!await _purged(removed)) return false;
-      await HermesDashboardCookieRegistry.forget(origin);
-      return true;
+      return _purged(removed);
     });
   }
 
-  /// Every cookie: the jar holds only dashboard sessions.
+  /// Every cookie: the jars hold only dashboard sessions.
   @override
   Future<bool> clearCookies() => clearAll();
 
   @override
   Future<bool> clearWebsiteData() async => true;
 
-  /// Empties the jar, superseding every sign-in still being checked.
+  /// Empties every jar, superseding every sign-in still being checked, and
+  /// the store with them, read or not.
   @override
   Future<bool> clearAll() {
     _epoch++;
@@ -405,17 +525,29 @@ final class DaemonHermesDashboardCookies implements CookieJarPort {
     return _inTurn(() {
       final bool removed;
       try {
-        removed = _jar.removeAll({for (final c in _jar.cookies) c.identity});
+        removed = _jars.values.fold(
+          false,
+          (changed, jar) =>
+              jar.removeAll({for (final c in jar.cookies) c.identity}) ||
+              changed,
+        );
       } finally {
         _pendingFullPurges--;
+      }
+      // What an unread store holds goes too: nothing of it is kept.
+      if (_unread) {
+        _unread = false;
+        _dirty = true;
       }
       return _purged(removed);
     });
   }
 
-  /// Writes a purge whose write failed before.
+  /// Writes a purge whose write failed before. None waits while the store
+  /// cannot be read (a clear then answered false, to be asked again).
   @override
-  Future<bool> completePendingClear() => _inTurn(() => _purged(false));
+  Future<bool> completePendingClear() =>
+      _inTurn(() async => !await _read() || await _purged(false));
 }
 
 /// The HTTP client a dashboard request for [root] goes out on: [config]'s

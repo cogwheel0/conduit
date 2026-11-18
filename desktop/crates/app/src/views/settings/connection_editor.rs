@@ -6,7 +6,11 @@
 //! document comes from (fetched from a path, or pasted as JSON) and how it
 //! authenticates (a bearer key, or none). A terminal has a name, URL, path
 //! and key. The stored key never comes back: an edit keeps it unless a new
-//! one is typed or Remove Saved Key is chosen. Test Connection reads the
+//! one is typed or Remove Saved Key is chosen, and never past an origin
+//! change: a URL on another scheme, host or port removes it unless a new
+//! key is typed. The daemon decides that against the entry as stored when
+//! it saves (or tests), so the editor sends Keep unless asked to replace or
+//! remove the key; the form only says so ([`key_moves`]). Test Connection reads the
 //! document (or checks the terminal) with the form as it stands, without
 //! saving. A connection the editor cannot read (another auth mode) shows
 //! what it can and can still be switched or deleted. The drafts, checks and
@@ -19,15 +23,15 @@ use conduit_components::views::kit::{Button, Segment, Segmented, Switch, setting
 use conduit_components::views::settings::settings_section;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    PersonalConnectionDraft, PersonalConnectionDto, PersonalConnectionSave, PersonalConnectionTest,
-    PersonalConnectionTestResult, PersonalConnections, PersonalEditOp, PersonalKeyMode,
-    PersonalKind, PersonalProbeFailure, methods,
+    NoParams, PersonalConnectionDraft, PersonalConnectionDto, PersonalConnectionSave,
+    PersonalConnectionTest, PersonalConnectionTestResult, PersonalConnections, PersonalEditOp,
+    PersonalKeyMode, PersonalKind, PersonalProbeFailure, methods,
 };
 use gpui_kit::component::input::{InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncApp, Context, Entity, FontWeight, Role, SharedString, WeakEntity, Window,
-    div, px, relative,
+    AnyElement, AnyWindowHandle, App, AsyncApp, Context, Entity, FontWeight, Role, SharedString,
+    WeakEntity, Window, div, px, relative,
 };
 
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -107,6 +111,9 @@ pub struct ConnectionEditorSheet {
     pub key_mode: PersonalKeyMode,
     pub enabled: bool,
     pub saving: bool,
+    /// A conflict reload's list read is out: the form is locked until it
+    /// settles.
+    pub reloading: bool,
     pub testing: bool,
     pub deleting: bool,
     pub issues: Issues,
@@ -119,6 +126,8 @@ pub struct ConnectionEditorSheet {
     /// notifies too, and must not clear the feedback a request just gave).
     seen: Texts,
     on_change: OnChange,
+    /// The sheet's window, to fill the fields again after a reload.
+    window: AnyWindowHandle,
 }
 
 impl ConnectionEditorSheet {
@@ -175,12 +184,8 @@ impl ConnectionEditorSheet {
                 fill(&path, &e.path, window, cx);
                 let text = e.spec.clone();
                 spec.update(cx, |s, cx| s.set_value(text, window, cx));
-                spec_type = if e.spec_type == "json" { "json" } else { "url" };
-                auth_type = if e.auth_type == "none" {
-                    "none"
-                } else {
-                    "bearer"
-                };
+                spec_type = spec_type_of(e);
+                auth_type = auth_type_of(e);
                 key_mode = PersonalKeyMode::Keep;
                 enabled = e.enabled;
             }
@@ -243,6 +248,7 @@ impl ConnectionEditorSheet {
             key_mode,
             enabled,
             saving: false,
+            reloading: false,
             testing: false,
             deleting: false,
             issues: Issues::default(),
@@ -262,6 +268,7 @@ impl ConnectionEditorSheet {
             },
             on_change,
             seen: Texts::default(),
+            window: window.window_handle(),
         };
         this.initial = this.fingerprint(cx);
         this.seen = this.texts(cx);
@@ -277,7 +284,7 @@ impl ConnectionEditorSheet {
     }
 
     pub fn in_flight(&self) -> bool {
-        self.saving || self.testing || self.deleting
+        self.saving || self.reloading || self.testing || self.deleting
     }
 
     /// Test Connection, as its button presses it.
@@ -366,6 +373,23 @@ impl ConnectionEditorSheet {
         !self.read_only() && self.fingerprint(cx) != self.initial
     }
 
+    /// What the form says happens to the saved key: the form's mode, except
+    /// that a kept key goes once the URL leaves the origin the editor opened
+    /// with. Only shown: Save and Test send the form's own mode, and the
+    /// daemon removes a kept key against the entry as stored then (another
+    /// client may have moved it since this editor opened).
+    fn key_mode_now(&self, cx: &App) -> PersonalKeyMode {
+        match &self.entry {
+            Some(e)
+                if self.key_mode == PersonalKeyMode::Keep
+                    && key_moves(&e.url, &forms::raw(&self.url, cx)) =>
+            {
+                PersonalKeyMode::Clear
+            }
+            _ => self.key_mode,
+        }
+    }
+
     pub fn draft(&self, cx: &App) -> PersonalConnectionDraft {
         PersonalConnectionDraft {
             name: forms::raw(&self.name, cx),
@@ -421,6 +445,7 @@ impl ConnectionEditorSheet {
                 identity,
                 draft: Some(self.draft(cx)),
                 enabled: None,
+                fingerprint: self.entry.as_ref().map(|e| e.fingerprint.clone()),
             });
         self.saving = true;
         self.error = None;
@@ -449,6 +474,7 @@ impl ConnectionEditorSheet {
                             Some(issues) => s.issues = issues,
                             None => s.error = Some(save_error(&e, &l10n)),
                         }
+                        s.reload_if_changed(&e, cx);
                     }
                 }
                 cx.notify();
@@ -468,6 +494,7 @@ impl ConnectionEditorSheet {
                 kind: self.kind,
                 identity: self.entry.as_ref().map(|e| e.identity.clone()),
                 draft: self.draft(cx),
+                fingerprint: self.entry.as_ref().map(|e| e.fingerprint.clone()),
             });
         self.testing = true;
         self.attempt = None;
@@ -483,20 +510,99 @@ impl ConnectionEditorSheet {
                         s.issues = Issues::default();
                         s.attempt = Some(attempt(&result, &l10n));
                     }
-                    Err(e) => match Self::issues_from(&e, &l10n) {
-                        Some(issues) => s.issues = issues,
-                        None => {
-                            s.attempt = Some(Attempt {
-                                ok: false,
-                                text: save_error(&e, &l10n),
-                            })
+                    Err(e) => {
+                        match Self::issues_from(&e, &l10n) {
+                            Some(issues) => s.issues = issues,
+                            None => {
+                                s.attempt = Some(Attempt {
+                                    ok: false,
+                                    text: save_error(&e, &l10n),
+                                })
+                            }
                         }
-                    },
+                        s.reload_if_changed(&e, cx);
+                    }
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The daemon refused a save or test because the entry changed since this
+    /// editor opened it (reason `changed`): the list is read again and the
+    /// form fills from the entry as it is now, its typed changes gone (the
+    /// refusal says so); an entry that went stays as it was. The read is in
+    /// flight like a save: the form is locked until it settles, either way.
+    /// Only a list this account's read gave in full replaces the pane's and
+    /// fills the form; a failed one leaves both (the form keeps its
+    /// fingerprint, so its next Save is refused and reloads again).
+    fn reload_if_changed(&mut self, e: &RpcError, cx: &mut Context<Self>) {
+        if e.args.get("reason").map(String::as_str) != Some("changed") {
+            return;
+        }
+        let Some(identity) = self.entry.as_ref().map(|e| e.identity.clone()) else {
+            return;
+        };
+        let call = self.rpc(cx).call::<methods::IntegrationsList>(&NoParams);
+        let on_change = self.on_change.clone();
+        let handle = self.window;
+        self.reloading = true;
+        cx.notify();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let settled = handle.update(cx, |_, window, cx| {
+                let _ = this.update(cx, |s, cx| {
+                    s.reloading = false;
+                    if let Ok(list) = result
+                        && !list.failed
+                        && list.owner == s.owner
+                    {
+                        let fresh = list
+                            .tool_servers
+                            .iter()
+                            .chain(&list.terminals)
+                            .find(|e| e.kind == s.kind && e.identity == identity)
+                            .cloned();
+                        on_change(list, cx);
+                        if let Some(entry) = fresh {
+                            s.fill(entry, window, cx);
+                        }
+                    }
+                    cx.notify();
+                });
+            });
+            if settled.is_err() {
+                let _ = this.update(cx, |s, cx| {
+                    s.reloading = false;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The form as [`Self::new`] fills it from `entry`, which becomes the
+    /// entry edited (its fingerprint the one sent back).
+    fn fill(&mut self, entry: PersonalConnectionDto, window: &mut Window, cx: &mut Context<Self>) {
+        for (state, value) in [
+            (&self.name, entry.name.clone()),
+            (&self.description, entry.description.clone()),
+            (&self.url, entry.url.clone()),
+            (&self.path, entry.path.clone()),
+            (&self.key, String::new()),
+        ] {
+            state.update(cx, |s, cx| s.set_value(value, window, cx));
+        }
+        let text = entry.spec.clone();
+        self.spec.update(cx, |s, cx| s.set_value(text, window, cx));
+        self.spec_type = spec_type_of(&entry).into();
+        self.auth_type = auth_type_of(&entry).into();
+        self.key_mode = PersonalKeyMode::Keep;
+        self.enabled = entry.enabled;
+        self.entry = Some(entry);
+        self.initial = self.fingerprint(cx);
+        self.seen = self.texts(cx);
     }
 
     /// A connection the editor can't read has no Save: its switch saves at
@@ -518,6 +624,7 @@ impl ConnectionEditorSheet {
                 identity: Some(entry.identity.clone()),
                 draft: None,
                 enabled: Some(on),
+                fingerprint: None,
             });
         self.saving = true;
         self.enabled = on;
@@ -589,6 +696,7 @@ impl ConnectionEditorSheet {
                         identity: Some(entry.identity.clone()),
                         draft: None,
                         enabled: None,
+                        fingerprint: None,
                     })
             }) else {
                 return;
@@ -652,7 +760,12 @@ impl ConnectionEditorSheet {
     fn key_row(&self, l10n: &L10n, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let stored = self.entry.as_ref().is_some_and(|e| e.has_key);
         let removing = self.key_mode == PersonalKeyMode::Clear;
-        let help: Option<SharedString> = if removing {
+        // Another origin: the saved key goes unless one is typed, and there
+        // is no keeping it.
+        let moved = stored
+            && self.key_mode == PersonalKeyMode::Keep
+            && self.key_mode_now(cx) == PersonalKeyMode::Clear;
+        let help: Option<SharedString> = if removing || moved {
             Some(l10n.personal_connections_key_will_remove().into())
         } else if stored && self.key_mode == PersonalKeyMode::Keep {
             Some(l10n.personal_connections_key_kept().into())
@@ -668,7 +781,7 @@ impl ConnectionEditorSheet {
             window,
             cx,
         );
-        if !stored {
+        if !stored || moved {
             return field.into_any_element();
         }
         let view = cx.entity().downgrade();
@@ -1086,6 +1199,34 @@ impl Render for ConnectionEditorSheet {
     }
 }
 
+/// The spec type the form shows for `e`: `json` or `url`.
+fn spec_type_of(e: &PersonalConnectionDto) -> &'static str {
+    if e.spec_type == "json" { "json" } else { "url" }
+}
+
+/// The auth type the form shows for `e`: `none` or `bearer`.
+fn auth_type_of(e: &PersonalConnectionDto) -> &'static str {
+    if e.auth_type == "none" {
+        "none"
+    } else {
+        "bearer"
+    }
+}
+
+/// Whether a saved key would reach another origin: `url` names another
+/// scheme, host or port than `saved` (an unreadable URL counts as another
+/// one unless it is the saved text itself).
+pub fn key_moves(saved: &str, url: &str) -> bool {
+    let (saved, url) = (saved.trim(), url.trim());
+    if saved == url {
+        return false;
+    }
+    match (url::Url::parse(saved), url::Url::parse(url)) {
+        (Ok(a), Ok(b)) => a.origin() != b.origin(),
+        _ => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -1129,6 +1270,15 @@ mod tests {
         entry: Option<PersonalConnectionDto>,
         vcx: &mut VisualTestContext,
     ) -> Entity<ConnectionEditorSheet> {
+        open_with(stores, entry, Rc::new(|_, _: &mut App| {}), vcx)
+    }
+
+    fn open_with(
+        stores: &Stores,
+        entry: Option<PersonalConnectionDto>,
+        on_change: super::OnChange,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<ConnectionEditorSheet> {
         let stores = stores.clone();
         let sheet = vcx
             .update(|window, cx| {
@@ -1137,7 +1287,7 @@ mod tests {
                     "p1".into(),
                     PersonalKind::ToolServer,
                     entry,
-                    Rc::new(|_, _: &mut App| {}),
+                    on_change,
                     window,
                     cx,
                 )
@@ -1187,6 +1337,59 @@ mod tests {
         let saves = daemon.calls::<methods::IntegrationsSave>();
         assert_eq!(saves[0]["draft"]["keyMode"], "replace");
         assert_eq!(saves[0]["draft"]["key"], "seed-token");
+    }
+
+    /// The editor never removes a saved key on its own: on another origin
+    /// than the one it opened with, Save and Test still send Keep (the form
+    /// says the key goes), and the daemon removes a kept key against the
+    /// entry as stored when it saves. So a path edit after another client
+    /// moved the server, and saved its key, keeps that key. A key typed for
+    /// the new origin is the one sent.
+    #[gpui_kit::test]
+    fn the_editor_sends_keep_and_the_save_decides_an_origin_change(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::IntegrationsSave>(listed(entry(true, true)));
+        daemon.returns::<methods::IntegrationsTest>(Default::default());
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        for url in [
+            "https://tools.example.com/v2",
+            "https://elsewhere.example.org/v2",
+            "http://tools.example.com",
+            "https://tools.example.com:8443",
+        ] {
+            type_into(&sheet, |s| s.url.clone(), url, vcx);
+            sheet.update(vcx, |s, cx| s.press_test(cx));
+            vcx.run_until_parked();
+        }
+        // The form says a key on another origin goes.
+        sheet.read_with(vcx, |s, cx| {
+            assert_eq!(s.key_mode_now(cx), super::PersonalKeyMode::Clear);
+        });
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        let tests = daemon.calls::<methods::IntegrationsTest>();
+        assert_eq!(tests.len(), 4);
+        for test in &tests {
+            assert_eq!(test["draft"]["keyMode"], "keep", "{}", test["draft"]["url"]);
+        }
+        let saves = daemon.calls::<methods::IntegrationsSave>();
+        assert_eq!(saves[0]["draft"]["keyMode"], "keep");
+        // A key typed for the new origin is the one sent.
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        type_into(
+            &sheet,
+            |s| s.url.clone(),
+            "https://elsewhere.example.org",
+            vcx,
+        );
+        type_into(&sheet, |s| s.key.clone(), "seed-token", vcx);
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        let tests = daemon.calls::<methods::IntegrationsTest>();
+        assert_eq!(tests[4]["draft"]["keyMode"], "replace");
+        assert_eq!(tests[4]["draft"]["key"], "seed-token");
     }
 
     /// Nothing can be typed while a save is out, so the sheet never closes
@@ -1310,6 +1513,152 @@ mod tests {
     fn editor_up(vcx: &mut VisualTestContext) -> bool {
         vcx.update(|_, cx| sheet::current::<ConnectionEditorSheet>(cx))
             .is_some()
+    }
+
+    /// The entry's fingerprint goes back with Test and Save. A Save the
+    /// daemon refuses because the entry changed since the editor opened it
+    /// (another window saved it) says so with the "changed or removed
+    /// elsewhere" words and fills the form again from the entry as it is
+    /// now, the typed change gone; the next Save sends the new fingerprint.
+    #[gpui_kit::test]
+    fn a_stale_save_is_refused_and_the_editor_reloads(cx: &mut gpui_kit::TestAppContext) {
+        use crate::l10n::ActiveL10n as _;
+        use crate::views::sheet::SheetBody as _;
+        let (daemon, stores, vcx) = bench(cx);
+        let mut changed = conduit_daemon::RpcError::new(conduit_protocol::ErrorCode::Conflict);
+        changed.args.insert("reason".into(), "changed".into());
+        daemon.once::<methods::IntegrationsSave>(Err(changed));
+        daemon.returns::<methods::IntegrationsTest>(Default::default());
+        let mut now = entry(true, true);
+        now.name = "Seed renamed".into();
+        now.fingerprint = "fp-2".into();
+        daemon.returns::<methods::IntegrationsList>(listed(now.clone()));
+        let mut opened = entry(true, true);
+        opened.fingerprint = "fp-1".into();
+        let sheet = open(&stores, Some(opened), vcx);
+        sheet.update(vcx, |s, cx| s.press_test(cx));
+        vcx.run_until_parked();
+        type_into(&sheet, |s| s.description.clone(), "Typed here", vcx);
+        type_into(&sheet, |s| s.key.clone(), "typed-secret", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        settle(vcx);
+        assert_eq!(
+            daemon.calls::<methods::IntegrationsTest>()[0]["fingerprint"],
+            "fp-1"
+        );
+        assert_eq!(
+            daemon.calls::<methods::IntegrationsSave>()[0]["fingerprint"],
+            "fp-1"
+        );
+        sheet.read_with(vcx, |s, cx| {
+            assert_eq!(
+                s.error.as_deref(),
+                Some(cx.l10n().personal_connections_not_found().as_str())
+            );
+            assert_eq!(
+                s.entry.as_ref().map(|e| e.fingerprint.as_str()),
+                Some("fp-2")
+            );
+            assert_eq!(super::forms::raw(&s.name, cx), "Seed renamed");
+            assert_eq!(super::forms::raw(&s.description, cx), now.description);
+            // The typed key goes too, and the saved one is kept: nothing
+            // shown is left out of the next save.
+            assert_eq!(super::forms::raw(&s.key, cx), "");
+            assert_eq!(s.key_mode, conduit_protocol::PersonalKeyMode::Keep);
+            assert!(!s.unsaved(cx), "the reloaded form counts as edited");
+        });
+        daemon.returns::<methods::IntegrationsSave>(listed(now));
+        type_into(&sheet, |s| s.name.clone(), "Seed again", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        settle(vcx);
+        assert_eq!(
+            daemon.calls::<methods::IntegrationsSave>()[1]["fingerprint"],
+            "fp-2"
+        );
+    }
+
+    /// A Save refused as `changed`.
+    fn changed() -> conduit_daemon::RpcError {
+        let mut e = conduit_daemon::RpcError::new(conduit_protocol::ErrorCode::Conflict);
+        e.args.insert("reason".into(), "changed".into());
+        e
+    }
+
+    /// Nothing can be typed while a conflict reload reads the list, so its
+    /// refill never erases words typed meanwhile; the form unlocks once the
+    /// read settles.
+    #[gpui_kit::test]
+    fn nothing_is_typed_while_a_conflict_reload_reads_the_list(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(changed()));
+        let mut now = entry(true, true);
+        now.name = "Seed renamed".into();
+        now.fingerprint = "fp-2".into();
+        daemon.returns::<methods::IntegrationsList>(listed(now));
+        let held = daemon.hold_one::<methods::IntegrationsList>(0);
+        let sheet = open(&stores, Some(entry(true, true)), vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        vcx.run_until_parked();
+        assert!(
+            sheet.read_with(vcx, |s, _| s.in_flight()),
+            "the reload left the form open"
+        );
+        draw_sheet(vcx);
+        let window = vcx
+            .update(|_, cx| sheet::current_window(cx))
+            .expect("the sheet's window");
+        let mut sheet_cx = VisualTestContext::from_window(window, &app);
+        // The name field has the caret; this is typed while the list is read.
+        sheet_cx.simulate_input(" club");
+        vcx.run_until_parked();
+        let typed = sheet.read_with(vcx, |s, cx| super::forms::raw(&s.name, cx));
+        assert_eq!(
+            typed, "Seed catalogue",
+            "a word went in while the reload was out"
+        );
+        drop(held);
+        vcx.run_until_parked();
+        sheet.read_with(vcx, |s, cx| {
+            assert!(!s.in_flight());
+            assert_eq!(super::forms::raw(&s.name, cx), "Seed renamed");
+        });
+    }
+
+    /// A reload whose list could not be read keeps the pane's last list and
+    /// the form as it is, its fingerprint too (the next Save is refused and
+    /// reloads again), and unlocks it.
+    #[gpui_kit::test]
+    fn a_failed_conflict_reload_leaves_the_list_and_the_form(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.once::<methods::IntegrationsSave>(Err(changed()));
+        daemon.returns::<methods::IntegrationsList>(PersonalConnections {
+            owner: "p1".into(),
+            failed: true,
+            ..Default::default()
+        });
+        let lists = Rc::new(Cell::new(0));
+        let counted = lists.clone();
+        let mut opened = entry(true, true);
+        opened.fingerprint = "fp-1".into();
+        let sheet = open_with(
+            &stores,
+            Some(opened),
+            Rc::new(move |_, _: &mut App| counted.set(counted.get() + 1)),
+            vcx,
+        );
+        type_into(&sheet, |s| s.description.clone(), "Typed here", vcx);
+        sheet.update(vcx, |s, cx| s.save(cx));
+        settle(vcx);
+        assert_eq!(lists.get(), 0, "a failed list replaced the pane's");
+        sheet.read_with(vcx, |s, cx| {
+            assert!(!s.in_flight());
+            assert_eq!(
+                s.entry.as_ref().map(|e| e.fingerprint.as_str()),
+                Some("fp-1")
+            );
+            assert_eq!(super::forms::raw(&s.description, cx), "Typed here");
+        });
     }
 
     /// Quit while a save is out queues nothing: a beep, no question (the

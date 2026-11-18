@@ -11,5 +11,6 @@
   "path": "openapi.json",
   "spec": "",
   "authType": "bearer",
-  "hasKey": true
+  "hasKey": true,
+  "fingerprint": ""
 }

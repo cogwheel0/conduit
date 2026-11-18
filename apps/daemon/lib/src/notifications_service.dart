@@ -94,39 +94,90 @@ final class NotificationsService {
     synced: _container.read(apiServiceProvider) != null,
   );
 
+  /// The tail of the local changes: each one's settings are written after
+  /// the one before it.
+  Future<void> _changes = Future<void>.value();
+
+  /// Per account identity ([AccountScope.identity]: the primary account,
+  /// its server and the signed-in user; never a token, client or session),
+  /// the tail of the server mirrors: each one goes after the one before it,
+  /// in the order their changes were written, and none ever holds a local
+  /// change. A renewed token or a rebuilt client keeps the queue and its
+  /// order.
+  final Map<Object, Future<void>> _mirrors = {};
+
   /// Writes [patch] for the account it was asked under: each setter, the
   /// server mirror and the answer go through that account's
   /// [AccountScope.require], so a switch while one setting persists stops
   /// the rest (and the mirror) instead of writing them for the next account.
-  Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) async {
+  ///
+  /// Local changes run one at a time and are answered once their settings
+  /// are written. Each then queues its server mirror behind that account's
+  /// earlier ones (one queue per account, whichever client serves it): the
+  /// server gets the changes in the order this Mac wrote them, so it ends up
+  /// with the last one, and a slow server never holds the next change.
+  Future<NotificationSettingsDto> set(NotificationSettingsPatch patch) {
     final account = AccountScope.capture(_container);
-    final n = _notifier;
-    Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
-      if (value == null) return;
-      account.require('a notification setting is written');
-      await setter(value);
-    }
+    final written = Completer<NotificationSettingsDto>();
+    final change = _changes.then((_) async {
+      try {
+        final n = _notifier;
+        Future<void> write<T>(T? value, Future<void> Function(T) setter) async {
+          if (value == null) return;
+          account.require('a notification setting is written');
+          await setter(value);
+        }
 
-    await write(patch.enabled, n.setNotificationsEnabled);
-    await write(patch.sound, n.setNotificationSound);
-    await write(patch.soundAlways, n.setNotificationSoundAlways);
-    await write(patch.inAppBanner, n.setNotificationInAppBanner);
-    await write(patch.system, n.setNotificationSystem);
-    await write(patch.answers, n.setNotificationChatEnabled);
-    await write(patch.channels, n.setNotificationChannelEnabled);
-    await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
-    // Local persistence went through; the server only mirrors three of them,
-    // with the API of the account they were written for.
-    account.require('the notification settings are mirrored');
-    unawaited(
-      syncNotificationPrefsToServer(
-        _container.read(apiServiceProvider),
+        await write(patch.enabled, n.setNotificationsEnabled);
+        await write(patch.sound, n.setNotificationSound);
+        await write(patch.soundAlways, n.setNotificationSoundAlways);
+        await write(patch.inAppBanner, n.setNotificationInAppBanner);
+        await write(patch.system, n.setNotificationSystem);
+        await write(patch.answers, n.setNotificationChatEnabled);
+        await write(patch.channels, n.setNotificationChannelEnabled);
+        await write(patch.mentionsOnly, n.setNotificationChannelMentionsOnly);
+        // Local persistence went through; the server only mirrors three of
+        // them, with the API of the account they were written for.
+        account.require('the notification settings are answered');
+        written.complete(get());
+        _mirror(account, patch);
+      } on Object catch (error, stack) {
+        written.completeError(error, stack);
+      }
+    });
+    _changes = change.then<void>((_) {}, onError: (Object _) {});
+    return written.future;
+  }
+
+  /// Queues [patch]'s server mirror on [account]'s queue, behind its
+  /// earlier ones. When its turn comes it goes only while the same account
+  /// is in charge ([AccountScope.isSameAccount]: a renewed session of it
+  /// still is; another user or server is not, and its pending mirrors are
+  /// dropped), with the API client serving it then, read under that check.
+  /// Never throws: a failed mirror only loses the parity.
+  void _mirror(AccountScope account, NotificationSettingsPatch patch) {
+    if (patch.enabled == null &&
+        patch.sound == null &&
+        patch.soundAlways == null) {
+      return;
+    }
+    final key = account.identity;
+    final tail = (_mirrors[key] ?? Future<void>.value()).then((_) async {
+      if (!account.isSameAccount) return;
+      final api = _container.read(apiServiceProvider);
+      await syncNotificationPrefsToServer(
+        api,
         enabled: patch.enabled,
         sound: patch.sound,
         soundAlways: patch.soundAlways,
-      ),
+      );
+    });
+    _mirrors[key] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_mirrors[key], tail)) _mirrors.remove(key);
+      }),
     );
-    return get();
   }
 
   void dispose() {

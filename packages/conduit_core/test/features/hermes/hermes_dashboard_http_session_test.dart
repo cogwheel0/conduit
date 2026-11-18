@@ -117,6 +117,26 @@ void main() {
       check(back.cookies.single.expires).equals(now);
       check(back.cookies.single.secure).isTrue();
       check(HermesDashboardCookieJar.fromJson('nonsense').isEmpty).isTrue();
+      // An expiry past what a DateTime holds, or not a whole number, is not
+      // a cookie; none at all is a session cookie.
+      for (final expires in <Object>[9000000000000000, '1000', 1.5]) {
+        check(
+          because: '$expires',
+          HermesDashboardCookie.fromJson({
+            'name': 'pref',
+            'value': '1',
+            'domain': 'gateway.example',
+            'expires': expires,
+          }),
+        ).isNull();
+      }
+      check(
+        HermesDashboardCookie.fromJson({
+          'name': 'pref',
+          'value': '1',
+          'domain': 'gateway.example',
+        })?.expires,
+      ).isNull();
     });
   });
 
@@ -311,8 +331,11 @@ void main() {
       });
     });
 
-    for (final stall in ['its connection never opens', 'saving its cookies '
-        'never ends']) {
+    for (final stall in [
+      'its connection never opens',
+      'saving its cookies '
+          'never ends',
+    ]) {
       test('a request whose $stall still times out at its deadline, and the '
           'next one goes out a short while after', () {
         fakeAsync((async) {
@@ -328,9 +351,12 @@ void main() {
           Object? timedOut;
           dashboard
               .request('POST', at('/api/stuck'))
-              .then((_) {}, onError: (Object e) {
-                timedOut = e;
-              });
+              .then(
+                (_) {},
+                onError: (Object e) {
+                  timedOut = e;
+                },
+              );
           var nextDone = false;
           dashboard
               .request('GET', at('/api/next'))

@@ -32,7 +32,7 @@ final class DirectService {
       directConnectionProfilesProvider.future,
     );
     await _settleAccountSources();
-    final account = await _openWebUi();
+    final (snapshot: account, failed: accountFailed) = await _openWebUi();
     return DirectConnectionList(
       connections: <DirectConnectionSummary>[
         for (final profile in profiles)
@@ -54,7 +54,7 @@ final class DirectService {
       preferred:
           _container.read(preferredBackendProvider) == PreferredBackend.direct,
       usable: await _usable(profiles),
-      openWebUiLoadFailed: _openWebUiFailed,
+      openWebUiLoadFailed: accountFailed,
     );
   }
 
@@ -186,15 +186,14 @@ final class DirectService {
     }
   }
 
-  /// Whether the last read of the Open WebUI account's connections failed.
-  bool _openWebUiFailed = false;
-
   /// The connections kept in the Open WebUI account, when the server
-  /// allows them and they could be read.
-  Future<OpenWebUiDirectConnectionsSnapshot?> _openWebUi() async {
+  /// allows them and they could be read, with whether this read of them
+  /// [failed]: the two go together, so another read meanwhile (another
+  /// window's, another account's) never lends a list its own outcome.
+  Future<({OpenWebUiDirectConnectionsSnapshot? snapshot, bool failed})>
+  _openWebUi() async {
     if (!_container.read(openWebUiDirectConnectionsAvailableProvider)) {
-      _openWebUiFailed = false;
-      return null;
+      return (snapshot: null, failed: false);
     }
     try {
       final snapshot = await readSettled(
@@ -202,22 +201,23 @@ final class DirectService {
         openWebUiDirectConnectionsProvider.future,
       );
       // A failed reload keeps the last snapshot as data, with the error.
-      _openWebUiFailed = _container
-          .read(openWebUiDirectConnectionsProvider)
-          .hasError;
-      return snapshot;
+      return (
+        snapshot: snapshot,
+        failed: _container.read(openWebUiDirectConnectionsProvider).hasError,
+      );
     } on Object {
       // Unreadable account settings should not hide this computer's own
       // connections.
-      _openWebUiFailed = true;
-      final last = _container.read(openWebUiDirectConnectionsProvider).value;
-      return last;
+      return (
+        snapshot: _container.read(openWebUiDirectConnectionsProvider).value,
+        failed: true,
+      );
     }
   }
 
   /// [id]'s record in the Open WebUI account, if it is one of those.
   Future<OpenWebUiDirectConnectionRecord?> _accountRecord(String? id) async =>
-      id == null ? null : (await _openWebUi())?.recordByProfileId(id);
+      id == null ? null : (await _openWebUi()).snapshot?.recordByProfileId(id);
 
   Future<DirectConnectionList> save(DirectConnectionEdit edit) async {
     final record = await _accountRecord(edit.id);

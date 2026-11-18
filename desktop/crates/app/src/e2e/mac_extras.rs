@@ -660,6 +660,7 @@ async fn add_personal_tool_server(inputs: &E2eInputs, cx: &mut AsyncApp) -> bool
                 ..Default::default()
             }),
             enabled: None,
+            fingerprint: None,
         })
         .await;
     ok(

@@ -50,6 +50,19 @@ void main() {
     effectiveDirectConnectionProfilesFutureProvider.future,
   )).map((profile) => profile.id).toList();
 
+  /// Completes once the offer says [want]: a listener on the offer,
+  /// registered now, never a poll.
+  Future<void> answers(bool want) {
+    final reached = Completer<void>();
+    final listener = container.listen<bool>(appleOnDeviceAnswersProvider, (
+      _,
+      next,
+    ) {
+      if (next == want && !reached.isCompleted) reached.complete();
+    }, fireImmediately: true);
+    return reached.future.whenComplete(listener.close);
+  }
+
   DirectCompletionRequest ask(String text) => DirectCompletionRequest(
     remoteModelId: kAppleOnDeviceRemoteModelId,
     messages: <DirectChatMessage>[
@@ -240,6 +253,37 @@ void main() {
     );
   });
 
+  test('a run that says the model cannot answer asks the Mac again, so the '
+      'offer follows; another failure leaves it', () async {
+    final offeredNow = answers(true);
+    window.ready(supported: true);
+    await offeredNow;
+    Future<void> run(String text) => container
+        .read(applePccAdapterProvider)
+        .startCompletion(DirectConnectionProfile.appleOnDevice(), ask(text))
+        .events
+        .drain<void>();
+
+    window.failure = AppleFailure.contextExceeded;
+    final asked = window.statusAsked;
+    await run('A very long conversation.');
+    await pumpEventQueue();
+    expect(window.statusAsked, asked, reason: 'a full context is not the Mac');
+    expect(container.read(appleOnDeviceAnswersProvider), isTrue);
+
+    // Apple Intelligence was turned off since the last ask.
+    window.engine = const AppleEngineStatus(
+      availability: AppleAvailability.unavailable,
+      reason: AppleUnavailableReason.appleIntelligenceNotEnabled,
+    );
+    window.failure = AppleFailure.unavailable;
+    final withdrawn = answers(false);
+    await run('Name three hardy herbs.');
+    await withdrawn;
+    expect(window.statusAsked, greaterThan(asked), reason: 'not asked again');
+    expect(container.read(appleOnDeviceAnswersProvider), isFalse);
+  });
+
   test("a tool call is answered back to the window's run", () async {
     window.ready(supported: true);
     window.toolCall = true;
@@ -305,6 +349,88 @@ void main() {
       events.whereType<DirectStreamError>().single.message,
       'Apple On-Device request failed.',
     );
+  });
+
+  test('a ready said again while a start is on its way keeps that run: the '
+      'window cannot list it yet', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Basil.'];
+    final held = window.holdStart = Completer<void>();
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Name one tender herb.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(
+      () => window.commands.any((c) => c.kind == AppleCommandKind.start),
+    );
+    // Events were lost: the window says ready with the runs it has, and it
+    // has not taken the start yet.
+    window.ready(supported: true);
+    await pumpEventQueue();
+    held.complete();
+    await done;
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(
+      events.whereType<DirectContentDelta>().map((e) => e.content).join(),
+      'Basil.',
+    );
+    expect(events.last, isA<DirectStreamDone>());
+    expect(window.cancelled, isEmpty);
+  });
+
+  test('a ready sent before a start was answered, delivered again after it, '
+      'never ends that run', () async {
+    window.ready(supported: true);
+    // Numbered now; the connection delivers it again once the run started.
+    final stale = window.readyReport(supported: true);
+    window.reply = const <String>['Slowly '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Tell me a long story.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    window.resend(stale);
+    await pumpEventQueue();
+    window.finish(run.id);
+    await done;
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(events.last, isA<DirectStreamDone>());
+  });
+
+  test('a Cancel lost on the way is sent again when the window says ready '
+      'still holding the run', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Slowly '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Tell me a long story.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    window.dropCancels = 1;
+    unawaited(run.cancel('stop'));
+    await window.until(() => window.lost.isNotEmpty);
+    expect(window.cancelled, isEmpty, reason: 'that Cancel never arrived');
+    // The window, after the gap, still has the run.
+    window.ready(supported: true, runs: <String>[run.id]);
+    await window.until(() => window.cancelled.isNotEmpty);
+    expect(window.cancelled, <String>[run.id]);
+    window.answerLost();
+    await done;
+    expect(events.whereType<DirectStreamError>(), isEmpty);
   });
 
   test('with two windows, one engine runs a request: the last to say '
@@ -603,6 +729,23 @@ final class _Window {
 
   /// Holds status answers back until it completes.
   Completer<void>? holdStatus;
+
+  /// Holds a start back, untaken (no run, no answer), until it completes.
+  Completer<void>? holdStart;
+
+  /// Drops this many Cancel commands, as if lost on the way: they are kept
+  /// in [lost], unanswered.
+  int dropCancels = 0;
+  final lost = <AppleCommand>[];
+
+  /// Answers the dropped commands at last, so nothing waits on them.
+  void answerLost() {
+    for (final c in lost) {
+      _report(AppleReport(id: c.id));
+    }
+    lost.clear();
+  }
+
   final Map<String, Completer<void>> _toolAnswered =
       <String, Completer<void>>{};
 
@@ -613,14 +756,25 @@ final class _Window {
   }
 
   void ready({required bool supported, List<String> runs = const []}) =>
-      apple.report(
-        AppleReport(
-          kind: AppleReportKind.ready,
-          supported: supported,
-          runs: runs,
-        ),
-        from: id,
-      );
+      resend(readyReport(supported: supported, runs: runs));
+
+  /// A `ready` numbered now, as the window sends it, for [resend] to deliver
+  /// (again) later, as the connection does with a send tried again.
+  AppleReport readyReport({
+    required bool supported,
+    List<String> runs = const [],
+  }) => AppleReport(
+    kind: AppleReportKind.ready,
+    supported: supported,
+    runs: runs,
+    order: ++_order,
+  );
+
+  /// Delivers [report] as it was numbered.
+  void resend(AppleReport report) => apple.report(report, from: id);
+
+  /// The number of the last report this window sent.
+  int _order = 0;
 
   /// Ends a run held open.
   void finish(String runId) =>
@@ -643,7 +797,7 @@ final class _Window {
       _numbers[runId] = number;
       report = report.copyWith(seq: number);
     }
-    apple.report(report, from: id);
+    apple.report(report.copyWith(order: ++_order), from: id);
   }
 
   /// A report this window did not number in order: another window's run,
@@ -660,6 +814,7 @@ final class _Window {
         _report(AppleReport(id: c.id, status: status));
       case AppleCommandKind.start:
         final runId = c.request!.runId;
+        if (holdStart case final hold?) await hold.future;
         _report(AppleReport(id: c.id));
         if (failure case final failure?) {
           _report(
@@ -709,6 +864,11 @@ final class _Window {
         );
         _report(AppleReport(kind: AppleReportKind.done, runId: runId));
       case AppleCommandKind.cancel:
+        if (dropCancels > 0) {
+          dropCancels--;
+          lost.add(c);
+          return;
+        }
         cancelled.add(c.runId!);
         _report(AppleReport(id: c.id));
         _report(AppleReport(kind: AppleReportKind.done, runId: c.runId));

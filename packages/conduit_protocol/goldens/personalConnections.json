@@ -18,7 +18,8 @@
       "path": "",
       "spec": "",
       "authType": "bearer",
-      "hasKey": false
+      "hasKey": false,
+      "fingerprint": ""
     }
   ],
   "cleared": [

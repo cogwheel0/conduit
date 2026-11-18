@@ -710,6 +710,108 @@ void main() {
         expect(heard.indexOf(batch), allOf(isNonNegative, lessThan(left)));
       }, timeout: const Timeout(Duration(minutes: 4)));
 
+      test('each queued batch goes out once, in a chat whose earlier batch '
+          'went out after a Stop & Send', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final completed = <String>[];
+        late String chatId;
+        Future<SendTurnAccepted>? meanwhile;
+        var armed = false;
+        events.attach('probe', (envelope) {
+          switch (envelope.event) {
+            case ConduitEvents.turnCompleted:
+              completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+            case ConduitEvents.queueChanged:
+              final queue = QueueState.fromJson(envelope.payload);
+              // The second batch waits for the chat to settle: a window that
+              // shows Send is used now, as the desktop's E2E does.
+              if (armed &&
+                  queue.phase == QueuePhase.admitting &&
+                  meanwhile == null) {
+                meanwhile = turns.send(
+                  SendTurn(
+                    chatId: chatId,
+                    model: turnModel,
+                    text: 'Reply with exactly the word: lark',
+                  ),
+                )..ignore();
+              }
+          }
+        });
+        final first = await turns.send(
+          SendTurn(model: turnModel, text: 'Reply with exactly the word: pong'),
+        );
+        chatId = first.chatId;
+        created.add(chatId);
+        subscribeWindow(events, turns, 'probe', <String>[chatId]);
+        await _waitFor(() => completed.isNotEmpty, seconds: 60);
+        expect(completed, isNotEmpty);
+
+        // A slow answer, two messages queued behind it, the first sent now.
+        await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Answer slow please',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the north side?'));
+        final two = turns.queueAdd(
+          QueueAdd(chatId: chatId, text: 'And the south side?'),
+        );
+        final now = await turns.queueSendNow(
+          QueueDraftRef(chatId: chatId, draftId: two.drafts.first.id),
+        );
+        expect(now.outcome, 'admitted');
+        await _waitFor(
+          () =>
+              completed.length >= 4 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        expect(completed, hasLength(4));
+
+        // A long answer, one message queued behind it, and a message sent
+        // while that batch waits for the chat to settle.
+        await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Tell me something long',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        armed = true;
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the east side?'));
+        await _waitFor(() => meanwhile != null, seconds: 60);
+        await meanwhile!;
+        await _waitFor(
+          () =>
+              completed.length >= 7 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        final asked = (await ChatsService(
+          runtime.container,
+          events: events,
+        ).get(chatId))!.messages.where((m) => m.role == 'user');
+        expect(asked.map((m) => m.content), <String>[
+          'Reply with exactly the word: pong',
+          'Answer slow please',
+          'And the north side?',
+          'And the south side?',
+          'Tell me something long',
+          'Reply with exactly the word: lark',
+          'And the east side?',
+        ]);
+        expect(completed, hasLength(7));
+      }, timeout: const Timeout(Duration(minutes: 4)));
+
       test('compares two models: one message, two answers', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);
@@ -743,9 +845,10 @@ void main() {
           // Both written: an empty placeholder is not an answer yet.
           return answer.isNotEmpty &&
               <String>[
-                for (final a in answer) a.content,
-                for (final v in answer.first.versions) v.content,
-              ].where((text) => text.trim().isNotEmpty).length >= 2;
+                    for (final a in answer) a.content,
+                    for (final v in answer.first.versions) v.content,
+                  ].where((text) => text.trim().isNotEmpty).length >=
+                  2;
         }, seconds: 60);
         final answers = detail.messages.where((m) => m.role == 'assistant');
         printOnFailure('messages: ${detail.messages}');
@@ -4151,10 +4254,7 @@ void main() {
               ),
             );
             expect(typed.values['limit'], 9);
-            expect(
-              typed.fields.singleWhere((f) => f.key == 'limit').text,
-              '9',
-            );
+            expect(typed.fields.singleWhere((f) => f.key == 'limit').text, '9');
             final listedTool = await workspace.list(
               WorkspaceQuery(kind: WorkspaceKind.tools, query: 'Live typed'),
             );
