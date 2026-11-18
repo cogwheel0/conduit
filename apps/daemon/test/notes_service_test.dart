@@ -427,6 +427,38 @@ void main() {
       expect(kept?.data, isNot(contains('then rain')));
     });
 
+    test('a recordings request still reading its note when shutdown begins '
+        'gets no recorder', () async {
+      final gate = _ReadGate();
+      final gated = AppDatabase(NativeDatabase.memory().interceptWith(gate));
+      addTearDown(gated.close);
+      active = gated;
+      container.invalidate(appDatabaseProvider);
+      final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+      addTearDown(() => dir.delete(recursive: true));
+      final notes = NotesService(
+        container,
+        paths: DaemonDirectories.create(dir.path),
+      );
+      addTearDown(notes.close);
+      final release = gate.hold();
+      final listing = notes.recordings('kiln-log');
+      await gate.asked;
+      // Shutdown takes its snapshot of the recorders while the note is read.
+      await notes.close();
+      release.complete();
+      await expectLater(
+        listing,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.daemonUnavailable,
+          ),
+        ),
+      );
+    });
+
     test(
       'lists no recording for a request begun under the last account',
       () async {
