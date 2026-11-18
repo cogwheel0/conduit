@@ -305,7 +305,12 @@ async fn catalog_values(
         }) && entries.iter().any(|e| e.name == "star_atlas" && e.oauth),
     );
     let shown = entries.to_vec();
-    cx.update(|cx| admin(cx).update(cx, |a, _| a.mcp_catalog = shown));
+    cx.update(|cx| {
+        admin(cx).update(cx, |a, _| {
+            let asked = a.ask_catalog();
+            a.take_catalog(&asked, shown)
+        })
+    });
     choose_mcp(
         crate::views::settings::hermes::CATALOG_MENU,
         "tide_charts",

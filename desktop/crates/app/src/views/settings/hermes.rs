@@ -940,6 +940,8 @@ fn mcp_row(
 /// Add from Catalog: a native menu of the servers Hermes offers.
 fn show_catalog(stores: &Stores, window: &mut Window, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
+    // The answer is shown only while the connection it was asked of is in use.
+    let asked = stores.hermes_admin.read(cx).ask_catalog();
     let call = rpc.call::<methods::HermesMcpCatalog>(&NoParams);
     let toasts = stores.toasts.downgrade();
     let admin = stores.hermes_admin.downgrade();
@@ -967,7 +969,12 @@ fn show_catalog(stores: &Stores, window: &mut Window, cx: &mut App) {
             });
             return;
         }
-        let _ = admin.update(cx, |a, _| a.mcp_catalog = entries.clone());
+        if !admin
+            .update(cx, |a, _| a.take_catalog(&asked, entries.clone()))
+            .unwrap_or(false)
+        {
+            return;
+        }
         let _ = handle.update(cx, |_, window, cx| {
             let mut native = NativeMenu::new();
             for entry in entries {
@@ -1019,24 +1026,26 @@ pub fn choose(stores: &Stores, menu: &str, value: &str, window: &mut Window, cx:
         connection: connection.clone(),
     };
     if menu == CATALOG_MENU {
-        let entry = stores
-            .hermes_admin
-            .read(cx)
-            .mcp_catalog
-            .iter()
-            .find(|e| e.name == value)
-            .cloned();
+        // A pick from a menu of another connection's catalog (one came into
+        // use since it was shown) adds nothing: the catalog in use now is
+        // shown instead.
+        let Some((entry, read_for)) = stores.hermes_admin.read(cx).catalog_entry(value) else {
+            show_catalog(stores, window, cx);
+            return;
+        };
         // An entry that asks for values opens a sheet asking for them.
-        if let Some(entry) = entry.as_ref().filter(|e| !e.credentials.is_empty()) {
-            crate::views::hermes_mcp::open_catalog(stores, entry.clone(), window, cx);
+        if !entry.credentials.is_empty() {
+            crate::views::hermes_mcp::open_catalog(stores, entry, window, cx);
             return;
         }
         let name = value.to_string();
-        let oauth = entry.is_some_and(|e| e.oauth);
+        let oauth = entry.oauth;
+        // Added to the connection the catalog was read for: the daemon
+        // refuses it once another is in use.
         let call = rpc.call::<methods::HermesMcpAddFromCatalog>(&HermesMcpCatalogAdd {
             name: name.clone(),
             credentials: Default::default(),
-            connection: connection.clone(),
+            connection: read_for,
         });
         // Its answer is taken in the order it was asked.
         let ticket = stores.hermes_admin.update(cx, |a, _| a.ask_mcp());

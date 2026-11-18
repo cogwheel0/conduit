@@ -96,9 +96,11 @@ pub struct HermesAdminStore {
     pub busy: HashSet<String>,
     /// MCP servers with an action in flight.
     pub mcp_busy: HashSet<String>,
-    /// The MCP catalog as Add from Catalog last showed it: a pick opens
-    /// the entry's values sheet from it.
-    pub mcp_catalog: Vec<HermesMcpCatalogEntryDto>,
+    /// The MCP catalog as Add from Catalog last showed it, and the
+    /// connection it was read for ([`Self::take_catalog`]): a pick opens the
+    /// entry's values sheet from it, or adds it to that connection.
+    mcp_catalog: Vec<HermesMcpCatalogEntryDto>,
+    mcp_catalog_for: Option<String>,
     /// Catalog servers Hermes is still installing, and whether each signs
     /// in with OAuth once listed: Settings says so until they are listed.
     pub mcp_installing: Vec<(String, bool)>,
@@ -186,6 +188,13 @@ impl Ticket {
     }
 }
 
+/// A catalog read as it was asked: the generation and connection in use.
+#[derive(Clone, Debug)]
+pub struct CatalogAsk {
+    generation: u64,
+    connection: Option<String>,
+}
+
 /// A connections-list read or action, as it was asked (its place in the
 /// order they were asked in): answered only if it is newer than the last
 /// list taken and than the last reset. A list that switches connections
@@ -260,7 +269,7 @@ impl HermesAdminStore {
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
         self.list_order.forget();
-        self.mcp_catalog.clear();
+        self.forget_catalog();
         self.mcp_installing.clear();
         self.toolsets_busy.clear();
         self.skills_reloading = false;
@@ -272,6 +281,45 @@ impl HermesAdminStore {
     /// the daemon refuses once another is in use.
     pub fn connection(&self) -> Option<String> {
         self.connections.as_ref()?.connection.clone()
+    }
+
+    /// What a catalog read is asked under: its answer is shown only while
+    /// the same connection is in use ([`Self::take_catalog`]).
+    pub fn ask_catalog(&self) -> CatalogAsk {
+        CatalogAsk {
+            generation: self.generation,
+            connection: self.connection(),
+        }
+    }
+
+    /// Keeps `entries`, read as `asked`, for the menu about to show them:
+    /// false (nothing kept, no menu) once another connection came into use,
+    /// so one connection's catalog never stands for another's.
+    pub fn take_catalog(
+        &mut self,
+        asked: &CatalogAsk,
+        entries: Vec<HermesMcpCatalogEntryDto>,
+    ) -> bool {
+        if !self.is_current(asked.generation) || self.connection() != asked.connection {
+            return false;
+        }
+        self.mcp_catalog = entries;
+        self.mcp_catalog_for = asked.connection.clone();
+        true
+    }
+
+    /// Catalog entry `name` as the menu showed it, with the connection it
+    /// was read for: none once another connection came into use (the
+    /// catalog is forgotten then), so a pick from an earlier menu adds
+    /// nothing to the connection in use now.
+    pub fn catalog_entry(&self, name: &str) -> Option<(HermesMcpCatalogEntryDto, Option<String>)> {
+        let entry = self.mcp_catalog.iter().find(|e| e.name == name)?;
+        Some((entry.clone(), self.mcp_catalog_for.clone()))
+    }
+
+    fn forget_catalog(&mut self) {
+        self.mcp_catalog.clear();
+        self.mcp_catalog_for = None;
     }
 
     /// The connection in use now, for a sheet or question to keep.
@@ -474,7 +522,7 @@ impl HermesAdminStore {
             self.status = None;
             self.catalog = None;
             self.mcp = None;
-            self.mcp_catalog.clear();
+            self.forget_catalog();
             self.mcp_installing.clear();
             self.jobs = None;
             self.runs.clear();
@@ -1273,6 +1321,41 @@ mod tests {
                 s.mcp,
                 Some(Loaded::Ready(servers("studio-tools"))),
                 "the servers were not read again for the connection in use"
+            );
+        });
+    }
+
+    /// A catalog read of one connection is never shown or picked from once
+    /// another is in use: its entries would ask for one server's values and
+    /// send them to the other.
+    #[gpui_kit::test]
+    fn a_catalog_read_before_a_switch_is_never_picked_from(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let entry: HermesMcpCatalogEntryDto = serde_json::from_value(json!({
+            "name": "tide_charts", "description": "Tide tables", "credentials": [],
+            "canAdd": true, "fromDashboard": true, "oauth": false,
+        }))
+        .unwrap();
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            let asked = s.ask_catalog();
+            s.adopt_connections(list("b"), cx);
+            assert!(
+                !s.take_catalog(&asked, vec![entry.clone()]),
+                "the shed's catalog was kept for the greenhouse"
+            );
+            assert!(s.catalog_entry("tide_charts").is_none());
+
+            let asked = s.ask_catalog();
+            assert!(s.take_catalog(&asked, vec![entry.clone()]));
+            let (_, read_for) = s.catalog_entry("tide_charts").unwrap();
+            assert_eq!(read_for.as_deref(), Some("0a1b2c3d:b"));
+
+            s.adopt_connections(list("a"), cx);
+            assert!(
+                s.catalog_entry("tide_charts").is_none(),
+                "a pick from the greenhouse's menu would add to the shed"
             );
         });
     }

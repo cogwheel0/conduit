@@ -829,16 +829,19 @@ final class HermesAdminService {
   ({HermesDesktopApiService service, List<HermesMcpCatalogEntry> entries})?
   _catalog;
 
+  /// Reads [service]'s catalog, kept while [scope]'s connection is still
+  /// in use: one read after a switch never stands for the next one's.
   Future<List<HermesMcpCatalogEntry>> _readCatalog(
+    _Scope scope,
     HermesDesktopApiService service,
   ) async {
     final entries = await service.mcpCatalog();
-    _catalog = (service: service, entries: entries);
+    if (_current(scope)) _catalog = (service: service, entries: entries);
     return entries;
   }
 
   Future<HermesMcpCatalog> mcpCatalog() => _bound(null, (scope) async {
-    final entries = await _readCatalog(_gatewayService());
+    final entries = await _readCatalog(scope, _gatewayService());
     return HermesMcpCatalog(
       entries: <HermesMcpCatalogEntryDto>[
         for (final entry in entries) _catalogEntryDto(entry),
@@ -912,7 +915,7 @@ final class HermesAdminService {
     var entry = cached != null && identical(cached.service, service)
         ? find(cached.entries)
         : null;
-    entry ??= find(await _readCatalog(service));
+    entry ??= find(await _readCatalog(scope, service));
     if (entry == null) {
       throw RpcError(
         code: ConduitErrorCodes.invalidParams,
@@ -949,8 +952,9 @@ final class HermesAdminService {
     } finally {
       // Listed again even when a step after the install failed, so the
       // entry is not asked for again; every window reads the list again,
-      // so one read before the change cannot leave it out.
-      _catalog = null;
+      // so one read before the change cannot leave it out. Only this
+      // connection's catalog is forgotten: another's read since stays.
+      if (identical(_catalog?.service, service)) _catalog = null;
       _announce();
     }
     // Made: a list that cannot be read says so rather than failing the add.
