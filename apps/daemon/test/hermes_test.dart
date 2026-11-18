@@ -233,7 +233,10 @@ void main() {
     // A question about this session's send is this chat's, even with an
     // old answer of the session kept in another chat (as an Open WebUI chat
     // keeps a Hermes answer); with no send running, nobody's.
-    final other = hermesServer.seedForeign(title: 'Seed swap');
+    final other = hermesServer.seedForeign(
+      title: 'Seed swap',
+      source: 'api_server',
+    );
     final otherChat = hermesChatId(other);
     final otherScope = await turns.holdScope(otherChat);
     addTearDown(() => turns.releaseScope(otherChat));
@@ -248,14 +251,35 @@ void main() {
       ),
     ]);
     expect(turns.hermesChatOf(sessionId), first.chatId);
-    uiRequests.respond(
-      UiResponse(requestId: asked.single.requestId, choice: 'once'),
+    // A second send running in that other chat too: two running sends
+    // hold the session, so a question about it is nobody's (refused, not
+    // asked in either chat).
+    await turns.send(
+      SendTurn(
+        text: 'Please approve the seed swap',
+        model: agent.id,
+        chatId: otherChat,
+      ),
     );
-    await answered(3);
+    final both = DateTime.now().add(const Duration(seconds: 10));
+    while (asked.length < 2 && DateTime.now().isBefore(both)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(asked, hasLength(2), reason: 'the second send never waited');
+    expect(turns.hermesChatOf(sessionId), isNull);
+    for (final request in asked) {
+      uiRequests.respond(
+        UiResponse(requestId: request.requestId, choice: 'once'),
+      );
+    }
+    await answered(4);
     expect(completed.last.text.trim(), 'Approved and done.');
     expect(turns.hermesChatOf(sessionId), isNull);
     await hermes.delete(other);
-    expect(hermesServer.approvals.single['choice'], 'once');
+    expect(hermesServer.approvals.map((a) => a['choice']), <String>[
+      'once',
+      'once',
+    ]);
 
     // Opened again, from Hermes's own record.
     final detail = await chats.get(first.chatId);
