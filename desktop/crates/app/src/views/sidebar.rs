@@ -1163,7 +1163,7 @@ impl SidebarView {
             // out, and Show, which turns it back on.
             SidebarItem::HermesScheduledHidden { count } => {
                 let text = l.hermes_scheduled_runs_hidden(*count as i64);
-                let settings = self.stores.app_settings.downgrade();
+                let stores = self.stores.clone();
                 div()
                     .id("hermes-scheduled-hidden")
                     .role(Role::Status)
@@ -1184,15 +1184,9 @@ impl SidebarView {
                         )
                         .ghost()
                         .on_click(Rc::new(move |_, _, cx| {
-                            let _ = settings.update(cx, |s, cx| {
-                                s.set(
-                                    conduit_protocol::AppSettingsPatch {
-                                        hermes_show_scheduled_sessions: Some(true),
-                                        ..Default::default()
-                                    },
-                                    cx,
-                                )
-                            });
+                            crate::views::settings::hermes::set_show_scheduled_runs(
+                                &stores, true, cx,
+                            );
                         })),
                     )
                     .into_any_element()

@@ -514,6 +514,32 @@ fn schedules_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement {
     .into_any_element()
 }
 
+/// Turns Show Scheduled Runs on or off, from Settings or the sidebar's
+/// Show: one the daemon refuses is said, and the switch keeps the value the
+/// daemon kept.
+pub fn set_show_scheduled_runs(stores: &Stores, on: bool, cx: &mut App) {
+    let answer = stores.app_settings.update(cx, |s, cx| {
+        s.save(
+            AppSettingsPatch {
+                hermes_show_scheduled_sessions: Some(on),
+                ..Default::default()
+            },
+            cx,
+        )
+    });
+    let toasts = stores.toasts.downgrade();
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        // Dropped unanswered when a later change replaced it: that one says.
+        if matches!(answer.await, Ok(false)) {
+            let _ = toasts.update(cx, |t, cx| {
+                let text = cx.l10n().error_message();
+                t.show(NoticeLevel::Error, text, cx)
+            });
+        }
+    })
+    .detach();
+}
+
 /// Conversations: Show Scheduled Runs, as on a phone (each run of a
 /// scheduled agent starts its own chat; off, they leave the Hermes list,
 /// pinned ones kept).
@@ -523,22 +549,14 @@ fn conversations_section(stores: &Stores, l: &L10n, cx: &mut App) -> AnyElement 
         .read(cx)
         .settings()
         .hermes_show_scheduled_sessions;
-    let store = stores.app_settings.clone();
+    let stores_click = stores.clone();
     let switch = Switch::new(
         "hermes-show-scheduled-runs",
         l.hermes_show_scheduled_runs(),
         on,
     )
     .on_click(Rc::new(move |_, _, cx| {
-        store.update(cx, |s, cx| {
-            s.set(
-                AppSettingsPatch {
-                    hermes_show_scheduled_sessions: Some(!on),
-                    ..Default::default()
-                },
-                cx,
-            )
-        });
+        set_show_scheduled_runs(&stores_click, !on, cx);
     }));
     settings_section(
         l.hermes_conversations_title(),
@@ -1285,5 +1303,47 @@ pub fn catalog_added(
         .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
     if signs_in {
         sign_in(stores, name, true, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// A Show Scheduled Runs change the daemon refuses is said, from
+    /// Settings and from the sidebar's Show alike.
+    #[gpui_kit::test]
+    fn a_refused_show_scheduled_runs_change_is_said(cx: &mut gpui_kit::TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.once::<methods::SettingsSet>(Err(conduit_daemon::protocol::error(
+            "rpc.unavailable",
+            "preference changes are unavailable",
+        )));
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-scheduled-runs-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        cx.run_until_parked();
+        let before = cx.read(|cx| stores.toasts.read(cx).toasts.len());
+        cx.update(|cx| set_show_scheduled_runs(&stores, false, cx));
+        cx.run_until_parked();
+        cx.read(|cx| {
+            assert_eq!(
+                stores.toasts.read(cx).toasts.len(),
+                before + 1,
+                "the refusal was not said"
+            );
+            assert!(
+                stores
+                    .app_settings
+                    .read(cx)
+                    .settings()
+                    .hermes_show_scheduled_sessions,
+                "the switch shows a value the daemon did not keep"
+            );
+        });
     }
 }
