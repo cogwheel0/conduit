@@ -114,6 +114,35 @@ void main() {
     expect(addresses.removable, isFalse, reason: 'one is always left');
   });
 
+  test('a rename leaves the live client, and every reply it carries, '
+      'alone', () async {
+    final client = runtime.container.read(apiServiceProvider);
+    expect(client, isNotNull);
+    final active = (await accounts.list()).activeAccountId;
+    final summary = await servers.update(
+      ServerDraft(id: serverId, name: 'Bench', url: 'https://ignored.test'),
+    );
+    expect(
+      identical(runtime.container.read(apiServiceProvider), client),
+      isTrue,
+      reason: 'a new client ends the replies the old one carries',
+    );
+    expect(
+      await runtime.container
+          .read(optimizedStorageServiceProvider)
+          .accountIdsWithSession(),
+      contains(active),
+    );
+    expect(summary.hasStoredSession, isTrue);
+    final listed = await accounts.list();
+    expect(
+      listed.accounts.where((a) => a.serverId == serverId).map(
+        (a) => a.connection.name,
+      ),
+      everyElement('Bench'),
+    );
+  });
+
   group('check refuses with the core problem', () {
     test('no address', () async {
       final found = await check(const ServerAddressForm());

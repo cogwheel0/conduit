@@ -132,9 +132,10 @@ final class ServersService {
 
     final next = <ServerConfig>[...configs]..[index] = updated;
     final hadSession = await _storage.getAuthTokenStrict() != null;
+    final activeBefore = await _activeConfig();
     await _storage.saveServerConfigs(next);
     await _endSessionIfMoved(hadSession: hadSession);
-    _republishServerConfigs();
+    await _publishSaved(activeBefore);
     _changed(registry.account(id)?.serverId);
     return summarize(
       updated,
@@ -160,26 +161,61 @@ final class ServersService {
         .onTokenInvalidated();
   }
 
-  /// Renames the saved server [serverId]: its accounts' connections carry
-  /// the server's name, and saving them with a new one renames it, nothing
-  /// else changing.
+  /// Renames the saved server [serverId] in storage as it is stored then:
+  /// its addresses, and the cookies its accounts keep there, as they are.
+  /// The name is not a connection, so the live client -- and every reply it
+  /// carries -- stays ([_publishSaved]).
   Future<ServerSummary> _rename(String serverId, String name) async {
+    final activeBefore = await _activeConfig();
+    if (!await _storage.renameServer(serverId, name)) throw _notFound(serverId);
+    await _publishSaved(activeBefore);
     final registry = await _storage.getOpenWebUiRegistryStrict();
     final accounts = {
       for (final account in registry.accountsOn(serverId)) account.id,
     };
-    final configs = await _storage.getServerConfigsStrict();
-    final next = [
-      for (final config in configs)
-        accounts.contains(config.id) ? config.copyWith(name: name) : config,
-    ];
-    final renamed = next.where((config) => accounts.contains(config.id));
-    if (renamed.isEmpty) throw _notFound(serverId);
-    await _storage.saveServerConfigs(next);
-    _republishServerConfigs();
+    final renamed = (await _storage.getServerConfigsStrict())
+        .where((config) => accounts.contains(config.id))
+        .firstOrNull;
+    if (renamed == null) throw _notFound(serverId);
     _changed(serverId);
-    return summarize(renamed.first);
+    return summarize(
+      renamed,
+      hasStoredSession: (await _storage.accountIdsWithSession()).contains(
+        renamed.id,
+      ),
+    );
   }
+
+  /// The active account's connection as stored now, if one is active.
+  Future<ServerConfig?> _activeConfig() async {
+    final id = await _storage.getEffectiveActiveServerId();
+    if (id == null) return null;
+    return (await _storage.getServerConfigsStrict())
+        .where((config) => config.id == id)
+        .firstOrNull;
+  }
+
+  /// Shows a save to the providers that cache storage. The live client is
+  /// rebuilt -- which ends every reply it carries -- only when the active
+  /// account's connection changed: its address, headers, certificates or
+  /// cookies, or which account is active, or none was before
+  /// ([_republishServerConfigs]). A name, or an edit to another server,
+  /// re-reads the accounts list alone.
+  Future<void> _publishSaved(ServerConfig? activeBefore) async {
+    final activeAfter = await _activeConfig();
+    if (activeBefore != null &&
+        activeAfter != null &&
+        _connectionOf(activeBefore) == _connectionOf(activeAfter)) {
+      _container.invalidate(openWebUiAccountsProvider);
+      return;
+    }
+    _republishServerConfigs();
+  }
+
+  /// [config] without what does not reach the server: its name, and the
+  /// bookkeeping of which account is active and when it last connected.
+  static ServerConfig _connectionOf(ServerConfig config) =>
+      config.copyWith(name: '', isActive: false, lastConnected: null);
 
   // ---------------------------------------------------------------------
   // servers.addresses.*

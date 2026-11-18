@@ -2663,6 +2663,28 @@ class OptimizedStorageService {
     }
   }
 
+  /// Renames [serverId] in the registry as it is stored when the write
+  /// runs: its routes, and the cookies its accounts keep on them, stay as
+  /// they are. False when the server is no longer saved.
+  Future<bool> renameServer(String serverId, String name) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final stored = (await _registryForWriteUnlocked()).server(serverId);
+        if (stored == null) return false;
+        if (stored.name != name) {
+          await _saveServerUnlocked(
+            OpenWebUiServer(
+              id: stored.id,
+              name: name,
+              endpoints: stored.endpoints,
+            ),
+          );
+        }
+        return true;
+      }),
+    );
+  }
+
   /// Saves [server]'s name and routes: added, removed, reordered or edited.
   ///
   /// Accounts keep their sessions. Adding a route is the user saying this
