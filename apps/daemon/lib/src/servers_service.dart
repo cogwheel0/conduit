@@ -355,7 +355,9 @@ final class ServersService {
       // are checked, so a label edit is never refused over it.
       final problem = keptValue != null
           ? core.validateServerAddressHeaderName(name) ??
-                (headers.containsKey(name)
+                (headers.keys.any(
+                      (added) => added.toLowerCase() == name.toLowerCase(),
+                    )
                     ? core.ServerAddressProblem.headerAlreadyAdded
                     : headers.length >= core.maxServerAddressHeaders
                     ? core.ServerAddressProblem.tooManyHeaders

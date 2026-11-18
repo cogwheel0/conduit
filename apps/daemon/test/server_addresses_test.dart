@@ -288,6 +288,20 @@ void main() {
       expect(found.headerName, 'X-Lab');
     });
 
+    test('the same header twice, in another case', () async {
+      final found = await check(
+        ServerAddressForm(
+          url: localhost(),
+          headers: const [
+            ServerAddressHeader(name: 'X-Lab', value: 'one'),
+            ServerAddressHeader(name: 'x-lab', value: 'two'),
+          ],
+        ),
+      );
+      expect(found.problem, ServerAddressProblemCode.headerAlreadyAdded);
+      expect(found.headerName, 'x-lab');
+    });
+
     test('a key without its certificate', () async {
       final found = await check(
         ServerAddressForm(

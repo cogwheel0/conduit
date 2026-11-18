@@ -844,7 +844,11 @@ ServerAddressProblem? validateServerAddressHeader(
       validateServerAddressHeaderName(name) ??
       validateServerAddressHeaderValue(value);
   if (problem != null) return problem;
-  if (headers.containsKey(name)) return ServerAddressProblem.headerAlreadyAdded;
+  // Header names are case-insensitive: `x-gate` is `X-Gate` again.
+  final lower = name.toLowerCase();
+  if (headers.keys.any((added) => added.toLowerCase() == lower)) {
+    return ServerAddressProblem.headerAlreadyAdded;
+  }
   if (headers.length >= maxServerAddressHeaders) {
     return ServerAddressProblem.tooManyHeaders;
   }
