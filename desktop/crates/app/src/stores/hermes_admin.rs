@@ -43,6 +43,11 @@ pub const LIVE_POLL: Duration = Duration::from_secs(2);
 /// How often an idle list is read, so a run started elsewhere shows up.
 pub const IDLE_POLL: Duration = Duration::from_secs(15);
 
+/// How often the MCP servers are read again while a catalog install is
+/// still going, and how many times at most (two minutes).
+pub const INSTALL_REREAD: Duration = Duration::from_secs(5);
+pub const INSTALL_REREADS: usize = 24;
+
 /// The connection a sheet or question was opened under.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Opened {
@@ -111,6 +116,9 @@ pub struct HermesAdminStore {
     /// The Scheduled Agents pane is shown: the list is polled.
     watching_jobs: bool,
     poll: Option<Task<()>>,
+    /// Reads the MCP servers again while a catalog install is still going,
+    /// so Settings lists it once Hermes finishes ([`Self::set_installing`]).
+    install_poll: Option<Task<()>>,
     poll_every: Option<Duration>,
     /// Notices the last list brought, for the window to say once.
     pending_notices: Vec<HermesJobNotice>,
@@ -271,6 +279,7 @@ impl HermesAdminStore {
         self.list_order.forget();
         self.forget_catalog();
         self.mcp_installing.clear();
+        self.install_poll = None;
         self.toolsets_busy.clear();
         self.skills_reloading = false;
         self.changed(cx);
@@ -524,6 +533,7 @@ impl HermesAdminStore {
             self.mcp = None;
             self.forget_catalog();
             self.mcp_installing.clear();
+            self.install_poll = None;
             self.jobs = None;
             self.runs.clear();
             self.runs_open.clear();
@@ -755,10 +765,46 @@ impl HermesAdminStore {
     }
 
     /// Catalog server `name` is still being installed (`oauth`: it signs in
-    /// once listed).
+    /// once listed). One already listed (the install finished before the
+    /// list was read) is not. The servers are read again every
+    /// [`INSTALL_REREAD`] while an install is still going, at most
+    /// [`INSTALL_REREADS`] times from the last install asked, so the
+    /// finished server is listed without anything else asking.
     pub fn set_installing(&mut self, name: &str, oauth: bool, cx: &mut Context<Self>) {
+        let listed = self
+            .mcp
+            .as_ref()
+            .and_then(Loaded::ready)
+            .is_some_and(|l| l.servers.iter().any(|s| s.name == name));
+        if listed {
+            return;
+        }
         self.mcp_installing.retain(|(n, _)| n != name);
         self.mcp_installing.push((name.to_string(), oauth));
+        // Each install read for gets the whole budget: a poll going is
+        // replaced.
+        {
+            let generation = self.generation;
+            self.install_poll = Some(cx.spawn(
+                async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    for _ in 0..INSTALL_REREADS {
+                        cx.background_executor().timer(INSTALL_REREAD).await;
+                        let go_on = this
+                            .update(cx, |s, cx| {
+                                if !s.is_current(generation) || s.mcp_installing.is_empty() {
+                                    return false;
+                                }
+                                s.refresh_mcp(cx);
+                                true
+                            })
+                            .unwrap_or(false);
+                        if !go_on {
+                            break;
+                        }
+                    }
+                },
+            ));
+        }
         self.changed(cx);
     }
 
@@ -766,6 +812,9 @@ impl HermesAdminStore {
     fn forget_installed(&mut self, servers: &HermesMcpServers) {
         self.mcp_installing
             .retain(|(name, _)| !servers.servers.iter().any(|s| &s.name == name));
+        if self.mcp_installing.is_empty() {
+            self.install_poll = None;
+        }
     }
 
     pub fn set_mcp_busy(&mut self, name: &str, busy: bool, cx: &mut Context<Self>) {
@@ -1323,6 +1372,56 @@ mod tests {
                 "the servers were not read again for the connection in use"
             );
         });
+    }
+
+    /// A catalog server Hermes is still installing is listed once Hermes is
+    /// done, with nothing else asking: the servers are read again while it
+    /// installs, and no more once it is listed. One already listed is never
+    /// said to be installing.
+    #[gpui_kit::test]
+    fn a_server_still_installing_is_listed_once_hermes_is_done(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let done = count.fetch_add(1, Ordering::SeqCst) > 0;
+            let names: &[&str] = if done { &["shed-tools", "tide_charts"] } else { &["shed-tools"] };
+            Ok(json!({
+                "available": true,
+                "servers": names.iter().map(|n| json!({"name": n, "enabled": true})).collect::<Vec<_>>(),
+            }))
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.adopt_mcp(servers("shed-tools"), cx);
+            s.set_installing("shed-tools", false, cx);
+            assert!(
+                s.mcp_installing.is_empty(),
+                "a listed server was said to be installing"
+            );
+            s.set_installing("tide_charts", false, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert_eq!(s.mcp_installing.len(), 1));
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.mcp_installing.is_empty(),
+                "the finished server was never listed"
+            );
+        });
+        cx.executor().advance_clock(INSTALL_REREAD * 4);
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "read again after it was listed"
+        );
     }
 
     /// A catalog read of one connection is never shown or picked from once
