@@ -370,93 +370,126 @@ void main() {
       },
     );
 
-    test(
-      'a kept key never follows a document path that leads to another origin',
-      () {
-        final tool = _toolServer('alpha', 'Alpha');
-        final draft = PersonalToolServerDraft.fromEntry(tool);
-        // Test Connection and the server fetch an absolute path itself.
-        for (final away in <String>[
-          'https://beta.example/openapi.json',
-          'http://alpha.example/openapi.json',
-          'https://alpha.example:8443/openapi.json',
-        ]) {
-          check(
-            because: away,
-            mergePersonalConnectionEdit(
-              tool,
-              draft.copyWith(path: away).toPatch(tool),
-            )['key'],
-          ).equals('');
-        }
-        // A relative path, or an absolute one on the same origin, keeps it.
-        for (final same in <String>[
-          'spec/openapi.json',
-          'https://alpha.example/spec/openapi.json',
-        ]) {
-          check(
-            because: same,
-            mergePersonalConnectionEdit(
-              tool,
-              draft.copyWith(path: same).toPatch(tool),
-            )['key'],
-          ).equals('key-alpha');
-        }
-      },
-    );
-
     test('a kept key never follows a connection to another origin', () {
       final tool = _toolServer('alpha', 'Alpha');
       final toolDraft = PersonalToolServerDraft.fromEntry(tool);
       final terminal = _terminal('https://term.example');
       final terminalDraft = PersonalTerminalDraft.fromEntry(terminal);
-      for (final moved in <String>[
-        'https://beta.example',
-        'http://alpha.example',
-        'https://alpha.example:8443',
-        'https://ALPHA.example.evil.test',
-      ]) {
+      // An inline document, with an absolute path on another origin that
+      // nothing fetches.
+      final inline = _toolServer(
+        'alpha',
+        'Alpha',
+        extra: <String, dynamic>{
+          'spec_type': 'json',
+          'spec': '{"paths": {}}',
+          'path': 'https://beta.example/openapi.json',
+        },
+      );
+      final inlineDraft = PersonalToolServerDraft.fromEntry(inline);
+      // (row, stored entry, patch, the key saved).
+      final rows =
+          <(String, Map<String, dynamic>, Map<String, dynamic>, String)>[
+            // The connection's URL: another scheme, host or port drops the key.
+            for (final moved in <String>[
+              'https://beta.example',
+              'http://alpha.example',
+              'https://alpha.example:8443',
+              'https://ALPHA.example.evil.test',
+            ])
+              (
+                'url $moved',
+                tool,
+                toolDraft.copyWith(url: moved).toPatch(tool),
+                '',
+              ),
+            for (final moved in <String>[
+              'https://other.example',
+              'https://term.example:9000',
+            ])
+              (
+                'terminal url $moved',
+                terminal,
+                terminalDraft.copyWith(url: moved).toPatch(terminal),
+                '',
+              ),
+            // The same origin (another path, a trailing slash, the default
+            // port, the host's case) keeps it.
+            for (final same in <String>[
+              'https://alpha.example/v2',
+              'https://alpha.example/',
+              'https://alpha.example:443',
+              'https://Alpha.Example',
+            ])
+              (
+                'url $same',
+                tool,
+                toolDraft.copyWith(url: same).toPatch(tool),
+                'key-alpha',
+              ),
+            (
+              'terminal url on its origin',
+              terminal,
+              terminalDraft
+                  .copyWith(url: 'https://term.example/shell')
+                  .toPatch(terminal),
+              'terminal-key',
+            ),
+            // A fetched document's absolute path is where the key goes.
+            for (final away in <String>[
+              'https://beta.example/openapi.json',
+              'http://alpha.example/openapi.json',
+              'https://alpha.example:8443/openapi.json',
+            ])
+              (
+                'path $away',
+                tool,
+                toolDraft.copyWith(path: away).toPatch(tool),
+                '',
+              ),
+            for (final same in <String>[
+              'spec/openapi.json',
+              'https://alpha.example/spec/openapi.json',
+            ])
+              (
+                'path $same',
+                tool,
+                toolDraft.copyWith(path: same).toPatch(tool),
+                'key-alpha',
+              ),
+            // An inline document fetches nothing: its path never moves the key,
+            // until the entry fetches from that path.
+            (
+              'inline path to another origin',
+              inline,
+              inlineDraft
+                  .copyWith(path: 'https://gamma.example/openapi.json')
+                  .toPatch(inline),
+              'key-alpha',
+            ),
+            (
+              'inline to fetched, from a path on another origin',
+              inline,
+              inlineDraft.copyWith(specType: 'url').toPatch(inline),
+              '',
+            ),
+            (
+              'fetched to inline',
+              tool,
+              toolDraft
+                  .copyWith(specType: 'json', spec: '{"paths": {}}')
+                  .toPatch(tool),
+              'key-alpha',
+            ),
+          ];
+      for (final (row, stored, patch, key) in rows) {
+        // A patch never names a kept key: the merge decides.
+        check(because: row, patch.containsKey('key')).isFalse();
         check(
-          because: moved,
-          mergePersonalConnectionEdit(
-            tool,
-            toolDraft.copyWith(url: moved).toPatch(tool),
-          )['key'],
-        ).equals('');
+          because: row,
+          mergePersonalConnectionEdit(stored, patch)['key'],
+        ).equals(key);
       }
-      for (final moved in <String>[
-        'https://other.example',
-        'https://term.example:9000',
-      ]) {
-        check(
-          because: moved,
-          mergePersonalConnectionEdit(
-            terminal,
-            terminalDraft.copyWith(url: moved).toPatch(terminal),
-          )['key'],
-        ).equals('');
-      }
-      // The same origin (another path, a trailing slash, the default port,
-      // the host's case) keeps it. A patch never names a kept key.
-      for (final same in <String>[
-        'https://alpha.example/v2',
-        'https://alpha.example/',
-        'https://alpha.example:443',
-        'https://Alpha.Example',
-      ]) {
-        final patch = toolDraft.copyWith(url: same).toPatch(tool);
-        check(because: same, patch.containsKey('key')).isFalse();
-        check(
-          because: same,
-          mergePersonalConnectionEdit(tool, patch)['key'],
-        ).equals('key-alpha');
-      }
-      check(
-        terminalDraft
-            .copyWith(url: 'https://term.example/shell')
-            .toPatch(terminal)
-            .containsKey('key'),
-      ).isFalse();
       // A key typed for the new origin is the one saved.
       check(
         toolDraft

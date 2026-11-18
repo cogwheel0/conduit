@@ -174,12 +174,16 @@ Map<String, dynamic> mergePersonalConnectionEdit(
   return merged;
 }
 
-/// Where [entry]'s OpenAPI document is fetched from, with its key: an
-/// absolute `path` itself, else the connection's URL (a relative path stays
-/// on its origin), as Test Connection and the server build it.
+/// Where [entry]'s key goes for its OpenAPI document: when the entry
+/// fetches it (any `spec_type` but `json`, as `probePersonalToolServer`
+/// decides), an absolute `path` itself, else the connection's URL (a
+/// relative path stays on its origin). An inline document (`json`) is
+/// fetched from nowhere: its `path`, unused, never counts.
 String _documentLocation(Map<String, dynamic> entry) {
+  final url = entry['url']?.toString() ?? '';
+  if ((entry['spec_type']?.toString().trim() ?? '') == 'json') return url;
   final path = entry['path']?.toString().trim() ?? '';
-  return path.contains('://') ? path : entry['url']?.toString() ?? '';
+  return path.contains('://') ? path : url;
 }
 
 sealed class PersonalConnectionEdit {
