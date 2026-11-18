@@ -50,6 +50,21 @@ void main() {
     effectiveDirectConnectionProfilesFutureProvider.future,
   )).map((profile) => profile.id).toList();
 
+  /// Completes once the offer says [want]: a listener on the offer,
+  /// registered now, never a poll.
+  Future<void> answers(bool want) {
+    final reached = Completer<void>();
+    final listener = container.listen<bool>(appleOnDeviceAnswersProvider, (
+      _,
+      next,
+    ) {
+      if (next == want && !reached.isCompleted) reached.complete();
+    }, fireImmediately: true);
+    return reached.future
+        .timeout(const Duration(seconds: 2))
+        .whenComplete(listener.close);
+  }
+
   DirectCompletionRequest ask(String text) => DirectCompletionRequest(
     remoteModelId: kAppleOnDeviceRemoteModelId,
     messages: <DirectChatMessage>[
@@ -242,8 +257,9 @@ void main() {
 
   test('a run that says the model cannot answer asks the Mac again, so the '
       'offer follows; another failure leaves it', () async {
+    final offeredNow = answers(true);
     window.ready(supported: true);
-    await window.until(() => container.read(appleOnDeviceAnswersProvider));
+    await offeredNow;
     Future<void> run(String text) => container
         .read(applePccAdapterProvider)
         .startCompletion(DirectConnectionProfile.appleOnDevice(), ask(text))
@@ -263,11 +279,9 @@ void main() {
       reason: AppleUnavailableReason.appleIntelligenceNotEnabled,
     );
     window.failure = AppleFailure.unavailable;
+    final withdrawn = answers(false);
     await run('Name three hardy herbs.');
-    for (var turn = 0; turn < 50 && window.statusAnswered <= asked; turn++) {
-      await pumpEventQueue();
-    }
-    await pumpEventQueue();
+    await withdrawn;
     expect(window.statusAsked, greaterThan(asked), reason: 'not asked again');
     expect(container.read(appleOnDeviceAnswersProvider), isFalse);
   });
