@@ -518,6 +518,10 @@ pub struct ComposerStore {
     /// folder, with the folder's model, prompt and knowledge.
     new_chat_folder: Option<String>,
     draft_saved: String,
+    /// The draft read still on its way (its number), until it lands or is
+    /// given up: what the field holds before then is not the draft yet.
+    draft_reading: Option<u64>,
+    draft_reads: u64,
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
     scope: u64,
@@ -615,6 +619,8 @@ impl ComposerStore {
             draft: None,
             new_chat_folder: None,
             draft_saved: String::new(),
+            draft_reading: None,
+            draft_reads: 0,
             next_id: 0,
             scope: 0,
             draft_round: 0,
@@ -2175,6 +2181,12 @@ impl ComposerStore {
         self.ticket() == ticket
     }
 
+    /// Whether the draft is still being read ([`ComposerEvent::DraftLoaded`]
+    /// follows): until then the field's emptiness says nothing about it.
+    pub fn draft_reading(&self) -> bool {
+        self.draft_reading.is_some()
+    }
+
     /// Another chat opened: `text` (what the composer held) is kept for the
     /// chat it held it for, and the new chat's draft is read (it arrives as
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
@@ -2221,6 +2233,7 @@ impl ComposerStore {
             self.save_now(&old, text);
         }
         self._draft = None;
+        self.draft_reading = None;
         self.draft_saved = String::new();
         self.draft = key.clone();
         self.new_chat_folder = folder.clone();
@@ -2260,10 +2273,16 @@ impl ComposerStore {
             folder_id: key.folder_id.clone(),
         });
         let ticket = self.ticket();
+        self.draft_reads += 1;
+        let read = self.draft_reads;
+        self.draft_reading = Some(read);
         self._draft = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    if s.draft_reading == Some(read) {
+                        s.draft_reading = None;
+                    }
                     if s.draft.as_ref() != Some(&key) || !s.holds(ticket) {
                         return;
                     }
@@ -2285,6 +2304,8 @@ impl ComposerStore {
             return;
         }
         let text = text.to_string();
+        // Typed before the draft was read: the read is given up.
+        self.draft_reading = None;
         self._draft = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
@@ -2304,6 +2325,7 @@ impl ComposerStore {
     pub fn clear_draft(&mut self, cx: &mut Context<Self>) {
         let _ = cx;
         self._draft = None;
+        self.draft_reading = None;
         if let Some(key) = self.draft.clone()
             && !self.draft_saved.is_empty()
         {
@@ -2491,6 +2513,7 @@ impl ComposerStore {
         self.new_chat_folder = None;
         self.draft_saved = String::new();
         self._draft = None;
+        self.draft_reading = None;
         self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
