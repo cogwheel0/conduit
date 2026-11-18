@@ -157,12 +157,18 @@ void main() {
     final asked = <UiRequest>[];
     final askedTwice = Completer<void>();
     final askedThrice = Completer<void>();
+    // The next turn of a chat that ends, by chat: true when it completed.
+    final ending = <String, Completer<bool>>{};
     events.attach('window', (envelope) {
       switch (envelope.event) {
         case ConduitEvents.turnCompleted:
-          completed.add(TurnCompleted.fromJson(envelope.payload));
+          final done = TurnCompleted.fromJson(envelope.payload);
+          completed.add(done);
+          ending.remove(done.chatId)?.complete(true);
         case ConduitEvents.turnFailed:
-          failed.add(TurnFailed.fromJson(envelope.payload));
+          final lost = TurnFailed.fromJson(envelope.payload);
+          failed.add(lost);
+          ending.remove(lost.chatId)?.complete(false);
         case ConduitEvents.uiRequest:
           asked.add(UiRequest.fromJson(envelope.payload));
           if (asked.length == 2) askedTwice.complete();
@@ -283,12 +289,15 @@ void main() {
     );
     expect(await port.confirmHermesModelSwitch(held), isNull);
     expect(asked, hasLength(2), reason: 'a switch was asked with two sends');
+    final firstEnds = (ending[first.chatId] = Completer<bool>()).future;
+    final otherEnds = (ending[otherChat] = Completer<bool>()).future;
     for (final request in asked) {
       uiRequests.respond(
         UiResponse(requestId: request.requestId, choice: 'once'),
       );
     }
-    await answered(4);
+    expect(await firstEnds, isTrue, reason: 'this chat\'s send failed');
+    expect(await otherEnds, isTrue, reason: 'the other chat\'s send failed');
     expect(completed.last.text.trim(), 'Approved and done.');
     expect(turns.hermesChatOf(sessionId), isNull);
 
