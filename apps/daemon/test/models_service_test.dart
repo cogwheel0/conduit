@@ -30,6 +30,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart' hide ReviewerMode;
 import 'package:conduitd/conduitd.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -99,6 +100,20 @@ final class _FastGated extends Models {
       core.Model(id: 'fast-b', name: 'Fast B', metadata: {'hermesFast': true}),
     ];
   }
+}
+
+/// A future's outcome, read on fake time once it settles: its value, or
+/// the code of the [RpcError] it was refused with.
+final class _Outcome {
+  _Outcome(Future<Object?> future) {
+    future.then(
+      (v) => value = v,
+      onError: (Object e) => refusal = e is RpcError ? e.code : '$e',
+    );
+  }
+
+  Object? value;
+  String? refusal;
 }
 
 /// A server offering exactly [models].
@@ -352,27 +367,28 @@ void main() {
     });
   });
 
-  test(
-    "Switch never asks the next account's server for the chat's agent",
-    () async {
+  test("Switch never asks the next account's server for the chat's agent", () {
+    fakeAsync((time) {
       final api = _AgentsApi()..southHeld = Completer<void>();
       final container = _agentContainer(api);
       // Switch under A: the selected terminal (south) is asked first, slowly.
-      final switching = ModelsService(container)
-          .select(_northAgent, chatId: 'agent-chat');
-      await api.southAsked.future;
+      final switching = _Outcome(
+        ModelsService(container).select(_northAgent, chatId: 'agent-chat'),
+      );
+      time.elapse(Duration.zero);
+      expect(api.southAsked.isCompleted, isTrue);
       // B signs in; south then answers A with no agent.
       _session = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
       api.southHeld!.complete();
-      await expectLater(switching, refused(ConduitErrorCodes.sessionExpired));
+      time.elapse(Duration.zero);
+      expect(switching.refusal, ConduitErrorCodes.sessionExpired);
       expect(api.asked, <String>[
         'south',
       ], reason: "A's chat asked of north for B");
       expect(container.read(selectedModelProvider)?.id, 'first-model');
-    },
-  );
-
+    });
+  });
   test(
     'a picked agent stays on offer when a later lookup finds none',
     () async {
@@ -392,32 +408,46 @@ void main() {
 
   test(
     "a terminal's agents are not offered once another terminal is chosen",
-    () async {
-      final api = _AgentsApi()..held = Completer<void>();
-      final container = _agentContainer(api);
-      container.read(selectedTerminalIdProvider.notifier).set('north');
-      final listing = ModelsService(container)
-          .list(const ModelListQuery(chatId: 'agent-chat'));
-      await api.northAsked.future;
-      container.read(selectedTerminalIdProvider.notifier).set('south');
-      api.held!.complete();
-      final list = await listing;
-      expect(list.agents, isEmpty, reason: "north's agents offered on south");
+    () {
+      fakeAsync((time) {
+        final api = _AgentsApi()..held = Completer<void>();
+        final container = _agentContainer(api);
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final listing = _Outcome(
+          ModelsService(container)
+              .list(const ModelListQuery(chatId: 'agent-chat')),
+        );
+        time.elapse(Duration.zero);
+        expect(api.northAsked.isCompleted, isTrue);
+        container.read(selectedTerminalIdProvider.notifier).set('south');
+        api.held!.complete();
+        time.elapse(Duration.zero);
+        final list = listing.value! as ModelList;
+        expect(list.agents, isEmpty, reason: "north's agents offered on south");
+      });
     },
   );
-
-  test('a slower pick never replaces a later one', () async {
-    final api = _AgentsApi()..held = Completer<void>();
-    final container = _agentContainer(api);
-    final models = ModelsService(container);
-    // Switch to the chat's agent, asked of north, which is slow.
-    final first = models.select(_northAgent, chatId: 'agent-chat');
-    await api.northAsked.future;
-    await models.select('preferred-model', chatId: 'plain-chat');
-    api.held!.complete();
-    await expectLater(first, refused(ConduitErrorCodes.conflict));
-    expect(container.read(selectedModelProvider)?.id, 'preferred-model');
-    expect(container.read(selectedTerminalIdProvider), 'south');
+  test('a slower pick never replaces a later one', () {
+    fakeAsync((time) {
+      final api = _AgentsApi()..held = Completer<void>();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      // Switch to the chat's agent, asked of north, which is slow (its
+      // lookup's own timeout never runs out: the clock does not move).
+      final first = _Outcome(models.select(_northAgent, chatId: 'agent-chat'));
+      time.elapse(Duration.zero);
+      expect(api.northAsked.isCompleted, isTrue);
+      final later = _Outcome(
+        models.select('preferred-model', chatId: 'plain-chat'),
+      );
+      time.elapse(Duration.zero);
+      expect(later.value, isNotNull, reason: 'the later pick did not land');
+      api.held!.complete();
+      time.elapse(Duration.zero);
+      expect(first.refusal, ConduitErrorCodes.conflict);
+      expect(container.read(selectedModelProvider)?.id, 'preferred-model');
+      expect(container.read(selectedTerminalIdProvider), 'south');
+    });
   });
 
   test('another terminal announces another list, the model unchanged', () {
