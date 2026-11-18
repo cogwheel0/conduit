@@ -390,6 +390,12 @@ Future<void> _durableQueueSend(
 
 class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
   bool _drainScheduled = false;
+
+  /// The queues whose batch is being admitted ([_admit]). One admission runs
+  /// per queue, claimed before its first wait: a drain asked for meanwhile
+  /// (reading the queue can itself ask for one) never sends the same drafts
+  /// again once the host's wait lets both through.
+  final Set<String> _admitting = <String>{};
   bool _lifetimeNoticeShown = false;
 
   /// True the first time it is asked in a session. Queued drafts do not survive
@@ -794,6 +800,22 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
   /// before that keeps every draft. After that the turn belongs to the outbox,
   /// whatever happens next, and the drafts are never put back.
   Future<ChatDraftSendNowOutcome> _admit(
+    String queueId,
+    List<String> draftIds,
+  ) async {
+    if (!_admitting.add(queueId)) return ChatDraftSendNowOutcome.changed;
+    try {
+      return await _admitClaimed(queueId, draftIds);
+    } finally {
+      _admitting.remove(queueId);
+      // A drain refused while this one ran is asked again: drafts queued
+      // meanwhile go once this batch's answer is done.
+      if (ref.mounted) _scheduleDrain();
+    }
+  }
+
+  /// [_admit], with the queue's admission claimed.
+  Future<ChatDraftSendNowOutcome> _admitClaimed(
     String queueId,
     List<String> draftIds,
   ) async {
