@@ -23,7 +23,9 @@ void main() {
   late AccountsService accounts;
   late AuthService auth;
 
-  setUpAll(() async {
+  // Each case starts its own core and server, signed in as Ada, so it
+  // passes alone and in its shard.
+  setUp(() async {
     temporary = Directory.systemTemp.createTempSync('auth-retry-test');
     runtime = await CoreRuntime.start(
       config: BootstrapConfig(
@@ -41,9 +43,21 @@ void main() {
     );
     accounts = AccountsService(runtime.container, events: EventBus());
     auth = AuthService(runtime.container);
+
+    await auth.status();
+    await accounts.list();
+    await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Fake', url: owui.url),
+      ),
+    );
+    final signedIn = await auth.loginWithPassword(
+      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+    );
+    expect(signedIn.isAuthenticated, isTrue);
   });
 
-  tearDownAll(() async {
+  tearDown(() async {
     accounts.dispose();
     auth.dispose();
     await owui.close();
@@ -54,18 +68,6 @@ void main() {
   test(
     'Retry asks the server before showing a kept session signed in',
     () async {
-      await auth.status();
-      await accounts.list();
-      await accounts.add(
-        AddAccount(
-          server: ServerDraft(name: 'Fake', url: owui.url),
-        ),
-      );
-      final signedIn = await auth.loginWithPassword(
-        const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-      );
-      expect(signedIn.isAuthenticated, isTrue);
-
       // The server's session is turned away, as by a sign-in proxy whose own
       // session expired, and the core shows the connection issue.
       owui.turnAway = true;
@@ -81,7 +83,13 @@ void main() {
       );
       addTearDown(watch.close);
 
+      final asked = owui.requests.length;
       final retried = await auth.retry();
+      expect(
+        owui.requests.skip(asked),
+        contains('GET /api/v1/auths/'),
+        reason: 'Retry asked the server about the session',
+      );
       expect(retried.isAuthenticated, isFalse);
       expect(retried.phase, AuthPhase.error);
       expect(retried.hasToken, isTrue, reason: 'the session is kept');
