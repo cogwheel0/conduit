@@ -87,6 +87,20 @@ final class _Personal extends PersonalizationSettings {
   }
 }
 
+/// [_Fast]'s models, read once [gate] (when set) completes.
+final class _FastGated extends Models {
+  static Completer<void>? gate;
+
+  @override
+  Future<List<core.Model>> build() async {
+    await gate?.future;
+    return const [
+      core.Model(id: 'fast-a', name: 'Fast A', metadata: {'hermesFast': true}),
+      core.Model(id: 'fast-b', name: 'Fast B', metadata: {'hermesFast': true}),
+    ];
+  }
+}
+
 /// A server offering exactly [models].
 final class _These extends Models {
   _These(this.models);
@@ -641,6 +655,34 @@ void main() {
       loaded.complete();
       await expectLater(pinning, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.toggled, isEmpty);
+    },
+  );
+
+  test(
+    'a Fast tier switch asked under one account is not made under the next',
+    () async {
+      var account = Object();
+      final container = ProviderContainer(
+        overrides: [
+          modelsProvider.overrideWith(_FastGated.new),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => account),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      final models = ModelsService(container);
+      await models.select('fast-a');
+      // The models are read again, slowly, while the switch is asked.
+      _FastGated.gate = Completer<void>();
+      container.invalidate(modelsProvider);
+      final switching = models.setFastTier(
+        const SetFastTier(modelId: 'fast-a', on: true),
+      );
+      account = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      _FastGated.gate!.complete();
+      await expectLater(switching, refused(ConduitErrorCodes.sessionExpired));
+      expect(container.read(hermesFastTierSelectionProvider), isFalse);
     },
   );
 
