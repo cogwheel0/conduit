@@ -162,7 +162,9 @@ and say which entries applied:
   depends on it, the tests beside the changed files, `cargo fmt` and `cargo
   check` for `desktop/`, and the protocol's generated Rust check when
   `packages/conduit_protocol/` or `desktop/crates/protocol/src/generated.rs`
-  changed. It ends by naming the CI jobs it left out.
+  changed (a protocol change needs that check to `pass`: a `skip` means the
+  pinned Rust toolchain's `rustfmt` is missing; install it and run again).
+  It ends by naming the CI jobs it left out.
 - While you iterate, run `flutter test <file>` for the app, or `dart test
   <file>` from a package's own directory.
 - **Do not run the whole suite** (`dart run tool/run_test_shards.dart`, or a

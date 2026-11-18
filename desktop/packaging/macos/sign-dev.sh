@@ -40,6 +40,8 @@ sign_dev_bundle() {
   local plist="$app/Contents/Info.plist" id group
   id="$(plutil -extract CFBundleIdentifier raw -o - "$plist")"
   [ "$id" != "$BUNDLE_ID_DEFAULT" ] || die "sign-dev.sh signs test bundles only, never $BUNDLE_ID_DEFAULT"
+  # The dev app is built with the test harness: never with a Developer ID.
+  refuse_harness_distribution "$(app_binary "$app")" "$SIGN_KIND"
   group="$(plutil -extract ConduitAppGroup raw -o - "$plist" 2>/dev/null || true)"
   local ent
   ent="$(dirname "$app")/entitlements"

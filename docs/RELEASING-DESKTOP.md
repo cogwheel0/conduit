@@ -264,23 +264,28 @@ that needs it.
    against `SHA256SUMS.txt` and against the item's signed enclosure (its
    length, and its EdDSA signature with `SPARKLE_PUBLIC_ED_KEY`), so a DMG
    swapped on the draft never goes live. Then it puts the feed on the
-   fixed prerelease `desktop-appcast` (made on the first release):
-   uploaded as `appcast.next.xml`, then swapped in by two renames, the
-   last one kept as `appcast.previous.xml`. Installed copies pick the
-   update up on their next daily check, or at once with Conduit › Check
-   for Updates….
+   fixed prerelease `desktop-appcast`. The first time, that release is
+   made as a **draft**, `appcast.xml` is uploaded to it and read back, and
+   only then is it published: a run that fails on the way leaves a draft
+   no installed copy reads, and the next run takes it over (re-run the feed
+   job). Later publications upload the new feed as `appcast.next.xml` and
+   swap it in by two renames, the last one kept as `appcast.previous.xml`.
+   Installed copies pick the update up on their next daily check, or at
+   once with Conduit › Check for Updates….
 
 Publish each draft, and wait for its feed job to pass, before tagging the
 next release: a draft's appcast is made from the live feed at build time,
 and the feed job refuses one that would drop a release published since.
-Feed publications run one at a time in their own queue, which no other
-run (a mobile release, a dry run) can cancel.
+Feed publications run one at a time, in order, in their own queue
+(`queue: max`): no other run (a mobile release, a dry run) can cancel
+one, and a newer publication never replaces one still waiting.
 
 Leave immutable releases off for the repository (Settings › General ›
 Releases). The update feed lives in one published release,
-`desktop-appcast`, whose `appcast.xml` is replaced at every publication;
-immutable releases would refuse that change, so the first update after
-turning them on could not be published. A re-run of the build job replaces
+`desktop-appcast` (a draft only until its first `appcast.xml` is checked),
+whose `appcast.xml` is replaced at every publication; immutable releases
+would refuse that change, so the first update after turning them on could
+not be published. A re-run of the build job replaces
 a draft's files only after looking the draft up again right before each
 one, and refuses once it is published; a release published in the moment
 between that look and the upload is the one case this does not close.
@@ -379,7 +384,9 @@ its DMG, is refused (Sparkle shows an error and the app stays as it was).
 
 To drive these steps from a script instead of by hand, the app's `--probe`
 starts the check (`check-for-updates`) and presses Sparkle's buttons
-(`press <title>`). The probe belongs to the test harness, which release
+(`press <title>`). A `press` line runs once, when the probe reads it: the
+driver waits until `<file>.panels.json` lists a button with that title
+before it appends the line (a press for a button not shown yet is lost). The probe belongs to the test harness, which release
 builds leave out, so build N and N+1 with `--test-harness` as well: every
 step then says "harness build, not for distribution", `verify` checks that
 the harness is in, and `--release` and Developer ID identities refuse the
@@ -492,12 +499,17 @@ the change still needs to ship, release a version above the newest build
 in the feed. To avoid this, wait for each release's feed job to pass before
 tagging the next one.
 
+**The first publication fails** (the feed release is still a draft):
+nothing is live and no installed copy reads a draft. Re-run the feed job;
+it takes the draft over, uploads `appcast.xml` again, checks it and
+publishes the release.
+
 **The feed job says the feed host exists but `appcast.xml` answers 404**:
-a publication stopped between its two renames, and installed copies cannot
-read the feed. On the `desktop-appcast` release, rename
+a later publication stopped between its two renames, and installed copies
+cannot read the feed. On the `desktop-appcast` release, rename
 `appcast.previous.xml` back to `appcast.xml` (and delete a leftover
 `appcast.next.xml`), then re-run the feed job. Neither the feed job nor
-`publish-appcast.sh` ever starts an empty feed over a host that exists.
+`publish-appcast.sh` ever starts an empty feed over a published host.
 
 ### Losing or rotating the Sparkle key
 

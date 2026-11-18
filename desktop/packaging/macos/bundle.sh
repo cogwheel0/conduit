@@ -291,6 +291,8 @@ build_whisper() {
   log "building libconduit_whisper (cmake)"
   "$cmake" -S "$REPO_ROOT/apps/daemon/native/whisper" -B "$dir" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
+    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG -g" \
     -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
     ${source_args[@]+"${source_args[@]}"} >/dev/null
@@ -492,20 +494,15 @@ do_build() {
 
 # --- sign ------------------------------------------------------------------
 
-# With --release, the bundle in --out must be a release build: the release
-# bundle id, no test environment (LSEnvironment), and this version. A
-# rehearsal's bundle is never signed or verified as a release.
+# The bundle in --out must be the build asked for: its bundle id is
+# --bundle-id (a rehearsal never re-signs or passes a release app, nor a
+# release step a test one), and with --release it carries no test
+# environment and is this version. And an app built with the test harness
+# is never signed for distribution or notarized, whatever the flags
+# (the marker is read from the binary itself).
 release_bundle() {
-  [ "$release" = 1 ] || return 0
-  local plist="$app/Contents/Info.plist" v
-  v="$(plutil -extract CFBundleIdentifier raw -o - "$plist" 2>/dev/null || true)"
-  [ "$v" = "$BUNDLE_ID_DEFAULT" ] ||
-    die "--release: $app is bundle id '$v', not $BUNDLE_ID_DEFAULT (a test build?)"
-  if plutil -extract LSEnvironment raw -o - "$plist" >/dev/null 2>&1; then
-    die "--release: $app carries a test environment (LSEnvironment)"
-  fi
-  v="$(plutil -extract CFBundleShortVersionString raw -o - "$plist" 2>/dev/null || true)"
-  [ "$v" = "$version" ] || die "--release: $app is version '$v', not $version"
+  check_bundle "$app" "$bundle_id" "$release" "$version"
+  refuse_harness_distribution "$(app_binary "$app")" "$SIGN_KIND"
 }
 
 do_sign() {
@@ -621,6 +618,8 @@ skip_notarization() {
 
 do_notarize_app() {
   skip_notarization && return 0
+  [ -d "$app" ] || die "no $app"
+  release_bundle
   local zip="$out/Conduit-$version-notarize.zip"
   move_aside "$zip"
   ditto -c -k --keepParent "$app" "$zip"

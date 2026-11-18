@@ -14,6 +14,8 @@
 #   or the new file cannot take its name, keeps the last one as
 #   appcast.previous.xml when it succeeds, and stops on a feed release whose
 #   appcast.xml is missing beside an appcast.previous.xml.
+# * a binary built with the test harness is never signed for distribution,
+#   and a step takes only the bundle id it was asked for.
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
 #   and refuses another file, another length or another key (with a
 #   throwaway key made here; skipped without an Ed25519 openssl).
@@ -90,8 +92,17 @@ mkdir -p "$tmp/bin"
 cat >"$tmp/bin/gh" <<'STUB'
 #!/bin/bash
 # A stub gh: STUB_LOOKUP=ok|404|500 answers release lookups; a release's
-# files live in $STUB_ASSETS (one file per asset, named "<id> <name>").
+# files live in $STUB_ASSETS (one file per asset, named "<id> <name>"); the
+# feed release's state (none, draft, published) is in $STUB_STATE (no file:
+# published). STUB_UPLOAD, STUB_PUBLISH=fail and STUB_DOWNLOAD=other make
+# those steps fail or read back other bytes.
 echo "gh $*" >>"$STUB_LOG"
+if [ "$1" = api ] && [[ "$*" == *"/releases?per_page"* ]]; then
+  [ "${STUB_LOOKUP:-ok}" = 500 ] && { echo "gh: Server Error (HTTP 500)" >&2; exit 1; }
+  state="$(cat "$STUB_STATE" 2>/dev/null || echo published)"
+  [ "$state" = none ] || echo "$state"
+  exit 0
+fi
 case "$1 $2" in
   "api repos/"*)
     if [ "$2" = "-X" ]; then :; fi
@@ -127,11 +138,36 @@ fi
 if [ "$1 $2" = "release upload" ]; then
   [ "${STUB_UPLOAD:-ok}" = fail ] && { echo "upload failed" >&2; exit 1; }
   name="$(basename "$4")"
-  ls "$STUB_ASSETS" | awk -v n="$name" '$2 == n' | grep -q . && { echo "already exists" >&2; exit 1; }
+  existing="$(ls "$STUB_ASSETS" | awk -v n="$name" '$2 == n')"
+  if [ -n "$existing" ]; then
+    [[ " $* " == *" --clobber "* ]] || { echo "already exists" >&2; exit 1; }
+    mv "$STUB_ASSETS/$existing" "$STUB_MOVED/$RANDOM-$name"
+  fi
   cp "$4" "$STUB_ASSETS/$RANDOM $name"
   exit 0
 fi
-if [ "$1 $2" = "release create" ]; then exit 0; fi
+if [ "$1 $2" = "release download" ]; then
+  pattern="" dir=""
+  while [ $# -gt 0 ]; do
+    case "$1" in -p) pattern="$2"; shift ;; -D) dir="$2"; shift ;; esac
+    shift
+  done
+  file="$(ls "$STUB_ASSETS" | awk -v n="$pattern" '$2 == n')"
+  [ -n "$file" ] || { echo "no asset $pattern" >&2; exit 1; }
+  if [ "${STUB_DOWNLOAD:-}" = other ]; then printf 'other bytes' >"$dir/$pattern"; else cp "$STUB_ASSETS/$file" "$dir/$pattern"; fi
+  exit 0
+fi
+if [ "$1 $2" = "release edit" ]; then
+  if [[ " $* " == *" --draft=false "* ]]; then
+    [ "${STUB_PUBLISH:-ok}" = fail ] && { echo "publish failed" >&2; exit 1; }
+    echo published >"$STUB_STATE"
+  fi
+  exit 0
+fi
+if [ "$1 $2" = "release create" ]; then
+  if [[ " $* " == *" --draft "* ]]; then echo draft >"$STUB_STATE"; else echo published >"$STUB_STATE"; fi
+  exit 0
+fi
 if [ "$1 $2" = "auth setup-git" ]; then exit 0; fi
 echo "stub gh: unexpected $*" >&2
 exit 2
@@ -143,8 +179,9 @@ cat >"$tmp/bin/git" <<'STUB'
 exit 3
 STUB
 chmod +x "$tmp/bin/gh" "$tmp/bin/git"
-export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_ASSETS="$tmp/assets"
-mkdir -p "$STUB_ASSETS"
+export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_ASSETS="$tmp/assets" \
+  STUB_STATE="$tmp/feed-state" STUB_MOVED="$tmp/moved-assets"
+mkdir -p "$STUB_ASSETS" "$STUB_MOVED"
 lookup() { # lookup want mode function [hosting]
   local want="$1" mode="$2" fn="$3" hosting="${4:-release-asset}" got
   got="$(STUB_LOOKUP="$mode" STUB_GIT="$mode" bash -c ". '$here/lib.sh'; APPCAST_HOSTING=$hosting; $fn" 2>/dev/null)"
@@ -206,6 +243,76 @@ if [ "$(ls "$STUB_ASSETS")" = "7 appcast.previous.xml" ]; then
   pass "a half-stopped publication is left for a person to put back"
 else
   fail "after a half-stopped publication the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+
+# The first publication: a draft first, published only once its appcast.xml
+# is uploaded and read back, so a failure leaves nothing live and the next
+# run takes the draft over.
+fresh_feed() { # state
+  mv "$STUB_ASSETS" "$tmp/moved/assets-$RANDOM" && mkdir -p "$STUB_ASSETS"
+  echo "$1" >"$STUB_STATE"
+}
+feed_state() { cat "$STUB_STATE"; }
+first() { env APPCAST_HOSTING=release-asset STUB_LOOKUP=404 "$@" "$here/publish-appcast.sh" "$tmp/good.xml" --push; }
+fresh_feed none
+expect 1 "a first publication whose upload fails stops" first STUB_UPLOAD=fail
+if [ "$(feed_state)" = draft ] && ! ls "$STUB_ASSETS" | grep -q ' appcast.xml$'; then
+  pass "a failed first upload leaves only a draft, nothing live"
+else
+  fail "after a failed first upload the feed release is $(feed_state) with: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+expect 0 "the next run takes the draft over and publishes it" first
+if [ "$(feed_state)" = published ] && cmp -s "$STUB_ASSETS/$(ls "$STUB_ASSETS" | awk '$2 == "appcast.xml"')" "$tmp/good.xml"; then
+  pass "the retried first publication is live with the new appcast.xml"
+else
+  fail "after the retry the feed release is $(feed_state) with: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+fresh_feed none
+expect 1 "a first publication that cannot publish its draft stops" first STUB_PUBLISH=fail
+[ "$(feed_state)" = draft ] && pass "a draft that could not be published stays a draft" ||
+  fail "after a failed publish the feed release is $(feed_state)"
+expect 0 "the next run publishes the draft" first
+fresh_feed none
+expect 1 "a first appcast that reads back as other bytes stops" first STUB_DOWNLOAD=other
+[ "$(feed_state)" = draft ] && pass "an appcast that reads back wrong is never published" ||
+  fail "after a wrong read-back the feed release is $(feed_state)"
+fresh_feed published
+
+# ── the test harness and the bundle in --out ────────────────────────────────
+# A binary built with the `harness` feature carries lib.rs's HARNESS_MARKER;
+# it is never signed for distribution, whatever the flags. Synthetic
+# binaries: one with the marker among other bytes, one without.
+printf 'MZ\0\0 code bytes conduit-desktop: test harness build \0\1\2' >"$tmp/harness-bin"
+printf 'MZ\0\0 code bytes conduit-desktop \0\1\2' >"$tmp/release-bin"
+harness() { bash -c ". '$here/lib.sh'; refuse_harness_distribution \"\$@\"" _ "$@"; }
+expect 1 "a harness binary is refused for distribution signing" harness "$tmp/harness-bin" distribution
+expect 0 "a harness binary may be signed with Apple Development" harness "$tmp/harness-bin" development
+expect 0 "a harness binary may be signed ad hoc" harness "$tmp/harness-bin" adhoc
+expect 0 "a binary without the harness may be signed for distribution" harness "$tmp/release-bin" distribution
+expect 1 "a missing binary is refused" harness "$tmp/no-such-bin" distribution
+if command -v plutil >/dev/null; then
+  app_with() { # app id [version] [LSEnvironment]
+    mkdir -p "$1/Contents"
+    plutil -create xml1 "$1/Contents/Info.plist"
+    plutil -insert CFBundleIdentifier -string "$2" "$1/Contents/Info.plist"
+    plutil -insert CFBundleShortVersionString -string "${3:-1.3.0}" "$1/Contents/Info.plist"
+    [ -z "${4:-}" ] || plutil -insert LSEnvironment -dictionary "$1/Contents/Info.plist"
+  }
+  bundle() { bash -c ". '$here/lib.sh'; check_bundle \"\$@\"" _ "$@"; }
+  app_with "$tmp/release.app" app.cogwheel.conduit.desktop
+  app_with "$tmp/test.app" app.cogwheel.conduit.desktop.mytest 1.3.0 env
+  expect 1 "a rehearsal never re-signs a release app as a test bundle" \
+    bundle "$tmp/release.app" app.cogwheel.conduit.desktop.mytest 0 1.3.0
+  expect 0 "a rehearsal takes its own test bundle" \
+    bundle "$tmp/test.app" app.cogwheel.conduit.desktop.mytest 0 1.3.0
+  expect 1 "a release step never takes a test bundle" \
+    bundle "$tmp/test.app" app.cogwheel.conduit.desktop 1 1.3.0
+  expect 0 "a release step takes the release build" \
+    bundle "$tmp/release.app" app.cogwheel.conduit.desktop 1 1.3.0
+  expect 1 "a release step refuses another version" \
+    bundle "$tmp/release.app" app.cogwheel.conduit.desktop 1 1.4.0
+else
+  echo "skip  check_bundle (no plutil here)"
 fi
 
 # ── verify_enclosure ────────────────────────────────────────────────────────

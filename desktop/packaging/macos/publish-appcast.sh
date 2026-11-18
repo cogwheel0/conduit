@@ -8,8 +8,10 @@
 # signed in (GH_TOKEN in CI) with contents: write on RELEASE_REPO.
 #
 #   release-asset  uploads appcast.xml to the fixed release APPCAST_RELEASE_TAG
-#                  (made once, as a prerelease so it never becomes the
-#                  repository's "Latest"), replacing the previous file
+#                  (a prerelease, so it never becomes the repository's
+#                  "Latest"), replacing the previous file; the first time it
+#                  is made as a draft and published only once its appcast.xml
+#                  is uploaded and checked, so a failed first run is retried
 #   pages          commits desktop/appcast.xml to the gh-pages branch
 #                  (Pages must serve that branch)
 #   branch         commits appcast.xml to APPCAST_BRANCH
@@ -112,19 +114,61 @@ replace_feed_asset() {
   log "appcast.xml replaced (the last one is kept as appcast.previous.xml)"
 }
 
+# The feed release's state: published (live), draft (a first publication
+# that stopped before publishing it; no installed copy reads a draft) or
+# none. A lookup that fails stops.
+feed_release_state() {
+  local states
+  states="$(gh api --paginate "repos/$RELEASE_REPO/releases?per_page=100" \
+    --jq ".[] | select(.tag_name == \"$APPCAST_RELEASE_TAG\") | if .draft then \"draft\" else \"published\" end")" ||
+    die "could not list the releases of $RELEASE_REPO"
+  case "$states" in
+    *published*) printf 'published\n' ;;
+    *draft*) printf 'draft\n' ;;
+    *) printf 'none\n' ;;
+  esac
+}
+
+# The first publication, which a failure never leaves half live: the feed
+# release is made as a DRAFT (or the draft a failed run left is taken over),
+# appcast.xml is uploaded to it, read back and compared, and only then is
+# the release published. Until that last step nothing is at the feed URL,
+# so the next run starts again from the draft.
+first_feed_release() {
+  local new="$1" state="$2" staged check
+  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
+  check="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-check.XXXXXX")"
+  cp "$new" "$staged/appcast.xml"
+  if [ "$state" = none ]; then
+    gh release create "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --draft --prerelease --latest=false \
+      --title "Conduit Desktop update feed" \
+      --notes "Sparkle's appcast for Conduit Desktop (appcast.xml). Installed copies read it from this fixed address; do not delete this release or its tag." ||
+      die "could not create the feed release as a draft; nothing is live"
+  else
+    log "taking over the draft feed release a failed run left"
+  fi
+  gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.xml" -R "$RELEASE_REPO" --clobber ||
+    die "the appcast did not upload to the draft feed release; nothing is live (run again)"
+  gh release download "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" -p appcast.xml -D "$check" ||
+    die "could not read the appcast back from the draft feed release; nothing is live (run again)"
+  cmp -s "$staged/appcast.xml" "$check/appcast.xml" ||
+    die "the draft feed release's appcast.xml is not the one uploaded; nothing is live (run again)"
+  gh release edit "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --draft=false --prerelease --latest=false ||
+    die "could not publish the feed release; it stays a draft (run again)"
+  log "the feed release $APPCAST_RELEASE_TAG is published with appcast.xml"
+}
+
 case "$APPCAST_HOSTING" in
   release-asset)
     if [ "$push" = 0 ]; then
-      printf 'would create the prerelease %s on %s if it does not exist\n' "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
-      printf 'would upload %s as appcast.next.xml, keep the current appcast.xml as appcast.previous.xml, then rename the new one appcast.xml\n' "$xml"
+      printf 'would publish %s on the feed release %s of %s: the first time as a draft first (published once its appcast.xml is checked), later by swapping it in\n' \
+        "$xml" "$APPCAST_RELEASE_TAG" "$RELEASE_REPO"
     else
-      state="$(release_exists "$APPCAST_RELEASE_TAG")"
-      if [ "$state" = no ]; then
-        gh release create "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --prerelease --latest=false \
-          --title "Conduit Desktop update feed" \
-          --notes "Sparkle's appcast for Conduit Desktop (appcast.xml). Installed copies read it from this fixed address; do not delete this release or its tag."
-      fi
-      replace_feed_asset "$xml"
+      state="$(feed_release_state)"
+      case "$state" in
+        published) replace_feed_asset "$xml" ;;
+        *) first_feed_release "$xml" "$state" ;;
+      esac
     fi
     ;;
   pages) commit_to_branch gh-pages desktop/appcast.xml ;;

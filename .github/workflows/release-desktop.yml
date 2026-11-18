@@ -32,8 +32,7 @@ on:
 # group and a newer one cancels it, so every event (mobile releases, dry
 # runs) would share one queue with the feed. Each job has its own group,
 # entered only when the job runs: a tag's build, the dry runs, and the feed
-# publications, one at a time (a newer publication queued behind a running
-# one replaces an older one still pending; it carries every live item).
+# publications, one at a time and each in its turn (queue: max).
 
 permissions:
   contents: read
@@ -121,7 +120,7 @@ jobs:
         run: |
           major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
           if [ "$major" -lt 26 ]; then
-            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)"
             if [ -z "$newest" ]; then
               echo "::error::Xcode 26 or later is needed (FoundationModels); set DESKTOP_MACOS_RUNNER to an image that has it"
               exit 1
@@ -415,6 +414,9 @@ jobs:
     concurrency:
       group: release-desktop-feed
       cancel-in-progress: false
+      # Every pending publication waits its turn (up to 100), in order:
+      # none is replaced by a newer one, so no release's item is skipped.
+      queue: max
     permissions:
       contents: write
     env:

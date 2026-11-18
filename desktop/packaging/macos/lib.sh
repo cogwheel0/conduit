@@ -138,7 +138,9 @@ release_exists() {
 
 # Whether the appcast has ever been published where APPCAST_HOSTING keeps
 # it: prints yes or no, and stops when it cannot tell. Only "no" may start a
-# new feed (the first desktop release).
+# new feed (the first desktop release). A feed release that is still a
+# draft (a first publication that stopped) is "no": GitHub's lookup by tag
+# sees published releases only, and publish-appcast.sh takes the draft over.
 feed_exists() {
   case "$APPCAST_HOSTING" in
     release-asset) release_exists "$APPCAST_RELEASE_TAG" ;;
@@ -302,6 +304,50 @@ PY
 }
 
 set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
+
+# The bytes only a build with the test harness carries (lib.rs
+# HARNESS_MARKER, compiled in with the `harness` feature only).
+HARNESS_MARKER='conduit-desktop: test harness build'
+
+# Whether the binary BIN was built with the test harness.
+has_harness_marker() { LC_ALL=C grep -aqF "$HARNESS_MARKER" "$1"; }
+
+# Stops when the binary BIN carries the test harness and KIND (SIGN_KIND)
+# signs for distribution: a harness build is signed ad hoc or with an Apple
+# Development identity only, and never notarized, whatever flags a script
+# was given. A binary that cannot be read stops too.
+#
+#   refuse_harness_distribution BIN KIND
+refuse_harness_distribution() {
+  [ -r "$1" ] || die "no binary at $1"
+  case "$2" in adhoc | development) return 0 ;; esac
+  if has_harness_marker "$1"; then
+    die "$1 was built with the test harness: never signed for distribution (Developer ID) or notarized"
+  fi
+}
+
+# Stops unless the app at APP is a bundle of id WANT (its Info.plist), so a
+# step never re-signs or verifies another build than the one asked for (a
+# release app as a test bundle, or the reverse). With RELEASE=1 it must also
+# carry no test environment (LSEnvironment) and be version VERSION.
+#
+#   check_bundle APP WANT RELEASE VERSION
+check_bundle() {
+  local plist="$1/Contents/Info.plist" v
+  v="$(plutil -extract CFBundleIdentifier raw -o - "$plist" 2>/dev/null || true)"
+  [ "$v" = "$2" ] || die "$1 is bundle id '${v:-?}', not $2: another build is in --out"
+  [ "$3" = 1 ] || return 0
+  if plutil -extract LSEnvironment raw -o - "$plist" >/dev/null 2>&1; then
+    die "--release: $1 carries a test environment (LSEnvironment)"
+  fi
+  v="$(plutil -extract CFBundleShortVersionString raw -o - "$plist" 2>/dev/null || true)"
+  [ "$v" = "$4" ] || die "--release: $1 is version '$v', not $4"
+}
+
+# The executable of the app at APP.
+app_binary() {
+  printf '%s/Contents/MacOS/%s\n' "$1" "$(plutil -extract CFBundleExecutable raw -o - "$1/Contents/Info.plist")"
+}
 
 # Refuses a codesign identity ($1: its SHA-1, or its name or part of it)
 # that the keychains hold only as revoked, expired or otherwise invalid,

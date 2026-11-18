@@ -206,8 +206,19 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     }
 }
 
+/// Bytes only a build with the test harness carries: the packaging scripts
+/// look for them in the built binary and never sign it for distribution
+/// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
+/// they were given.
+#[cfg(feature = "harness")]
+pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    // Kept in the binary (never optimized out): the marker is how a harness
+    // build is told from a release one after the fact.
+    #[cfg(feature = "harness")]
+    let _ = std::hint::black_box(HARNESS_MARKER);
     // A build without the test harness refuses its flags rather than
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
