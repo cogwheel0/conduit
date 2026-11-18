@@ -1156,6 +1156,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       if (error case PersonalConnectionEditException(
         failure: PersonalConnectionEditFailure.changed,
       )) {
+        // A Test result was about the values refused; the entry the form
+        // fills with now was not tested.
+        editor
+          ..test = _TestState.idle
+          ..testText = null;
         _reloadChanged(editor);
       }
     } finally {

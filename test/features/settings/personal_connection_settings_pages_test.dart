@@ -610,14 +610,16 @@ void main() {
     ) async {
       final rig = await pump(tester);
       await rig.open(_alpha);
+      await rig.change(_row('name'), 'Alpha renamed');
+      await rig.change(_row('url'), 'https://typed.example');
+      await rig.change(_row('key'), 'typed-secret');
+      // Tested before the entry changes: the result is about these values.
+      await rig.change(_row('test'));
+      check(rig.row(_alpha, '$_alpha-test-result')).isNotNull();
       // Another client moves the server meanwhile.
       (server.settings['ui'] as Map)['toolServers'] = <dynamic>[
         _tool('alpha', 'Alpha tools', url: 'https://moved.example'),
       ];
-
-      await rig.change(_row('name'), 'Alpha renamed');
-      await rig.change(_row('url'), 'https://typed.example');
-      await rig.change(_row('key'), 'typed-secret');
       final writes = rig.writes.length;
       await rig.change(_row('save'));
 
@@ -638,6 +640,8 @@ void main() {
         rig.row(_alpha, _row('key'))!.placeholder,
         _l10n.personalConnectionsKeyKept,
       );
+      // The reloaded entry was not tested: no result shows for it.
+      check(rig.row(_alpha, '$_alpha-test-result')).isNull();
     });
 
     testWidgets('a Test from a form opened before another client changed the '
