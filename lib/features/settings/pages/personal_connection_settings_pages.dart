@@ -1162,7 +1162,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     final opened = editor.opened;
     final entry = existing == null || opened == null
         ? editor.newEntry()
-        : mergePersonalConnectionPatch(existing.raw, editor.patch(opened));
+        : mergePersonalConnectionEdit(existing.raw, editor.patch(opened));
     editor
       ..attempted = true
       ..test = _TestState.testing

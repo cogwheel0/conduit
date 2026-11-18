@@ -7,8 +7,10 @@
 //! authenticates (a bearer key, or none). A terminal has a name, URL, path
 //! and key. The stored key never comes back: an edit keeps it unless a new
 //! one is typed or Remove Saved Key is chosen, and never past an origin
-//! change ([`key_moves`]): a URL on another scheme, host or port removes it
-//! unless a new key is typed. Test Connection reads the
+//! change: a URL on another scheme, host or port removes it unless a new
+//! key is typed. The daemon decides that against the entry as stored when
+//! it saves (or tests), so the editor sends Keep unless asked to replace or
+//! remove the key; the form only says so ([`key_moves`]). Test Connection reads the
 //! document (or checks the terminal) with the form as it stands, without
 //! saving. A connection the editor cannot read (another auth mode) shows
 //! what it can and can still be switched or deleted. The drafts, checks and
@@ -368,8 +370,11 @@ impl ConnectionEditorSheet {
         !self.read_only() && self.fingerprint(cx) != self.initial
     }
 
-    /// The key mode Save and Test send: the form's, except that a kept key
-    /// is removed once the URL leaves the entry's origin.
+    /// What the form says happens to the saved key: the form's mode, except
+    /// that a kept key goes once the URL leaves the origin the editor opened
+    /// with. Only shown: Save and Test send the form's own mode, and the
+    /// daemon removes a kept key against the entry as stored then (another
+    /// client may have moved it since this editor opened).
     fn key_mode_now(&self, cx: &App) -> PersonalKeyMode {
         match &self.entry {
             Some(e)
@@ -392,7 +397,7 @@ impl ConnectionEditorSheet {
             spec: self.spec.read(cx).value().to_string(),
             auth_type: self.auth_type.clone(),
             key: forms::raw(&self.key, cx),
-            key_mode: self.key_mode_now(cx),
+            key_mode: self.key_mode,
             enabled: self.enabled,
         }
     }
@@ -1224,47 +1229,43 @@ mod tests {
         assert_eq!(saves[0]["draft"]["key"], "seed-token");
     }
 
-    /// A saved key never follows a connection to another origin: once the
-    /// URL names another scheme, host or port, Save and Test send the key
-    /// to be removed (the form says so) unless a new one is typed; another
-    /// path on the same origin keeps it.
+    /// The editor never removes a saved key on its own: on another origin
+    /// than the one it opened with, Save and Test still send Keep (the form
+    /// says the key goes), and the daemon removes a kept key against the
+    /// entry as stored when it saves. So a path edit after another client
+    /// moved the server, and saved its key, keeps that key. A key typed for
+    /// the new origin is the one sent.
     #[gpui_kit::test]
-    fn a_saved_key_is_not_kept_when_the_origin_changes(cx: &mut gpui_kit::TestAppContext) {
+    fn the_editor_sends_keep_and_the_save_decides_an_origin_change(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
         let (daemon, stores, vcx) = bench(cx);
         daemon.returns::<methods::IntegrationsSave>(listed(entry(true, true)));
         daemon.returns::<methods::IntegrationsTest>(Default::default());
         let sheet = open(&stores, Some(entry(true, true)), vcx);
-        type_into(
-            &sheet,
-            |s| s.url.clone(),
+        for url in [
             "https://tools.example.com/v2",
-            vcx,
-        );
-        sheet.update(vcx, |s, cx| s.press_test(cx));
-        vcx.run_until_parked();
-        for moved in [
-            "https://elsewhere.example.org",
+            "https://elsewhere.example.org/v2",
             "http://tools.example.com",
             "https://tools.example.com:8443",
         ] {
-            type_into(&sheet, |s| s.url.clone(), moved, vcx);
+            type_into(&sheet, |s| s.url.clone(), url, vcx);
             sheet.update(vcx, |s, cx| s.press_test(cx));
             vcx.run_until_parked();
         }
+        // The form says a key on another origin goes.
+        sheet.read_with(vcx, |s, cx| {
+            assert_eq!(s.key_mode_now(cx), super::PersonalKeyMode::Clear);
+        });
         sheet.update(vcx, |s, cx| s.save(cx));
         vcx.run_until_parked();
         let tests = daemon.calls::<methods::IntegrationsTest>();
         assert_eq!(tests.len(), 4);
-        assert_eq!(tests[0]["draft"]["keyMode"], "keep", "same origin");
-        for test in &tests[1..] {
-            assert_eq!(
-                test["draft"]["keyMode"], "clear",
-                "{}",
-                test["draft"]["url"]
-            );
+        for test in &tests {
+            assert_eq!(test["draft"]["keyMode"], "keep", "{}", test["draft"]["url"]);
         }
         let saves = daemon.calls::<methods::IntegrationsSave>();
-        assert_eq!(saves[0]["draft"]["keyMode"], "clear");
+        assert_eq!(saves[0]["draft"]["keyMode"], "keep");
         // A key typed for the new origin is the one sent.
         let sheet = open(&stores, Some(entry(true, true)), vcx);
         type_into(

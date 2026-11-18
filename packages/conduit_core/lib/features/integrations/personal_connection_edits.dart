@@ -6,6 +6,7 @@
 /// unknown fields, secrets and untouched entries as the server stored them.
 library;
 
+import 'package:conduit_core/features/integrations/personal_connection_drafts.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
 
@@ -147,6 +148,28 @@ Map<String, dynamic> mergePersonalConnectionPatch(
   return merged;
 }
 
+/// [patch] merged into [current], the entry as it is stored now. A key the
+/// patch leaves alone never follows the connection to another origin
+/// ([personalConnectionKeyMoves]): a URL on another scheme, host or port
+/// removes it. Decided here, against the stored entry, never against an
+/// editor's copy of it, which can be older (another client may have moved
+/// the URL, or saved a key, since it was read).
+Map<String, dynamic> mergePersonalConnectionEdit(
+  Map<String, dynamic> current,
+  Map<String, dynamic> patch,
+) {
+  final merged = mergePersonalConnectionPatch(current, patch);
+  if (!patch.containsKey('key') &&
+      (current['key']?.toString() ?? '').isNotEmpty &&
+      personalConnectionKeyMoves(
+        current['url']?.toString() ?? '',
+        merged['url']?.toString() ?? '',
+      )) {
+    merged['key'] = '';
+  }
+  return merged;
+}
+
 sealed class PersonalConnectionEdit {
   const PersonalConnectionEdit();
 
@@ -263,7 +286,7 @@ final class PatchPersonalConnection extends PersonalConnectionEdit {
     final index = _requireIndex(kind, latest, identity);
     final list = _copy(latest);
     final current = personalConnectionMap(list[index])!;
-    var merged = mergePersonalConnectionPatch(current, patch);
+    var merged = mergePersonalConnectionEdit(current, patch);
     if (kind == PersonalConnectionKind.toolServer &&
         stampKey != null &&
         personalToolServerKey(merged) == null) {

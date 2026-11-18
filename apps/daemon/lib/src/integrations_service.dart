@@ -404,7 +404,8 @@ final class IntegrationsService {
       final patch = isTool
           ? _toolDraft(params.draft).toPatch(existing.raw)
           : _terminalDraft(params.draft).toPatch(existing.raw);
-      entry = mergePersonalConnectionPatch(existing.raw, patch);
+      // As a save would store it, a kept key left behind on an origin change.
+      entry = mergePersonalConnectionEdit(existing.raw, patch);
     }
     final account = AccountScope.capture(_container);
     try {

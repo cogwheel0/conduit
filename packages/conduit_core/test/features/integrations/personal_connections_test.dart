@@ -383,7 +383,10 @@ void main() {
       ]) {
         check(
           because: moved,
-          toolDraft.copyWith(url: moved).toPatch(tool)['key'],
+          mergePersonalConnectionEdit(
+            tool,
+            toolDraft.copyWith(url: moved).toPatch(tool),
+          )['key'],
         ).equals('');
       }
       for (final moved in <String>[
@@ -392,21 +395,26 @@ void main() {
       ]) {
         check(
           because: moved,
-          terminalDraft.copyWith(url: moved).toPatch(terminal)['key'],
+          mergePersonalConnectionEdit(
+            terminal,
+            terminalDraft.copyWith(url: moved).toPatch(terminal),
+          )['key'],
         ).equals('');
       }
       // The same origin (another path, a trailing slash, the default port,
-      // the host's case) keeps it: no key in the patch.
+      // the host's case) keeps it. A patch never names a kept key.
       for (final same in <String>[
         'https://alpha.example/v2',
         'https://alpha.example/',
         'https://alpha.example:443',
         'https://Alpha.Example',
       ]) {
+        final patch = toolDraft.copyWith(url: same).toPatch(tool);
+        check(because: same, patch.containsKey('key')).isFalse();
         check(
           because: same,
-          toolDraft.copyWith(url: same).toPatch(tool).containsKey('key'),
-        ).isFalse();
+          mergePersonalConnectionEdit(tool, patch)['key'],
+        ).equals('key-alpha');
       }
       check(
         terminalDraft
@@ -425,6 +433,150 @@ void main() {
             .toPatch(tool)['key'],
       ).equals('beta-key');
     });
+
+    test('a key saved since the editor read the entry never follows its URL '
+        'to another origin', () async {
+      // The editor read Alpha without a key; another client then saved
+      // one for Alpha's host.
+      final read = _toolServer('alpha', 'Alpha', key: '');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            _toolServer('alpha', 'Alpha', key: 'saved-elsewhere'),
+          ],
+        },
+      });
+      final api = _api(server);
+      await api.editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(read)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(read),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+
+      // A terminal read without a key, given one since, likewise.
+      final terminalRead = {..._terminal('https://term.example'), 'key': ''};
+      final terminals = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'terminalServers': <dynamic>[_terminal('https://term.example')],
+        },
+      });
+      await _api(terminals).editPersonalConnections(
+        PersonalConnectionKind.terminal,
+        PatchPersonalConnection(
+          'https://term.example',
+          PersonalTerminalDraft.fromEntry(terminalRead)
+              .copyWith(url: 'https://other.example')
+              .toPatch(terminalRead),
+        ),
+      );
+      final terminal =
+          terminals.settings['ui']['terminalServers'][0]
+              as Map<String, dynamic>;
+      check(terminal['url']).equals('https://other.example');
+      check(terminal['key']).equals('');
+    });
+
+    test('a URL another window moved, with its key, is not where an older '
+        'editor\'s Save takes that key', () async {
+      // The editor read Alpha keyless at alpha.example; another window
+      // then moved it to gamma.example and typed a key for gamma.
+      final read = _toolServer('alpha', 'Alpha', key: '');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            _toolServer(
+              'alpha',
+              'Alpha',
+              key: 'gamma-key',
+              extra: <String, dynamic>{'url': 'https://gamma.example'},
+            ),
+          ],
+        },
+      });
+      await _api(server).editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(read)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(read),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+    });
+
+    test(
+      'a path edit keeps the key another client saved after moving the URL',
+      () async {
+        // The editor read Alpha with its key at alpha.example; another
+        // client then moved it to beta.example and saved beta's key. The
+        // editor's Save names beta with another path, and no key.
+        final read = _toolServer('alpha', 'Alpha');
+        final server = FakeUserSettingsServer(<String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': <dynamic>[
+              _toolServer(
+                'alpha',
+                'Alpha',
+                key: 'beta-key',
+                extra: <String, dynamic>{'url': 'https://beta.example'},
+              ),
+            ],
+          },
+        });
+        await _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(read)
+                .copyWith(url: 'https://beta.example/v2')
+                .toPatch(read),
+          ),
+        );
+        final saved =
+            server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+        check(saved['url']).equals('https://beta.example/v2');
+        check(saved['key']).equals('beta-key');
+      },
+    );
+
+    test(
+      'a key saved since the editor read the entry stays on its origin',
+      () async {
+        final read = _toolServer('alpha', 'Alpha', key: '');
+        final server = FakeUserSettingsServer(<String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': <dynamic>[
+              _toolServer('alpha', 'Alpha', key: 'saved-elsewhere'),
+            ],
+          },
+        });
+        await _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(read)
+                .copyWith(url: 'https://alpha.example/v2')
+                .toPatch(read),
+          ),
+        );
+        final saved =
+            server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+        check(saved['url']).equals('https://alpha.example/v2');
+        check(saved['key']).equals('saved-elsewhere');
+      },
+    );
 
     test(
       'adding a duplicate identity is refused before anything is sent',
