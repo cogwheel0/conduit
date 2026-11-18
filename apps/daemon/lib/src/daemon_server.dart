@@ -1262,7 +1262,9 @@ class DaemonServer {
     _automations = null;
     _capabilities?.dispose();
     _capabilities = null;
-    _notes?.dispose();
+    // Waits for the recordings' writers: nothing writes once the database
+    // below is closed.
+    await _notes?.close();
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can

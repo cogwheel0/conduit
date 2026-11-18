@@ -444,7 +444,7 @@ void main() {
           container,
           paths: DaemonDirectories.create(dir.path),
         );
-        addTearDown(notes.dispose);
+        addTearDown(notes.close);
         final release = gate.hold();
         final listing = notes.recordings('kiln-log');
         await gate.asked;
@@ -516,7 +516,7 @@ void main() {
       events: events,
       paths: DaemonDirectories.create(dir.path),
     );
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('glaze-tests'))?.summary.title, 'Glaze tests');
     // The editor's recordings are asked for: the note's recorder is made.
     await notes.removeRecording(
@@ -591,7 +591,7 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final paths = _HeldPaths(DaemonDirectories.create(dir.path));
     final notes = NotesService(container, paths: paths);
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
     // The note's recorder is made under A, and settles.
     await notes.removeRecording(

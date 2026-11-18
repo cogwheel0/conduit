@@ -914,6 +914,18 @@ final class NotesService {
     _recorders.clear();
   }
 
+  /// [dispose], and waits until no recorder writes any more: what a
+  /// recording's upload was writing is written, and nothing comes after.
+  Future<void> close() async {
+    final controllers = [
+      for (final recorder in _recorders.values) recorder.controller,
+    ];
+    _recorders.clear();
+    await Future.wait([
+      for (final controller in controllers) controller.close(),
+    ]);
+  }
+
   /// `notes.changed` whenever the list does: an edit here, a sync, another
   /// window.
   void _announceChanges(EventBus events) {

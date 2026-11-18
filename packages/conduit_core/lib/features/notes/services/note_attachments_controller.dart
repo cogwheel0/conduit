@@ -146,7 +146,7 @@ class NoteAttachmentsController {
       (previous, next) {
         if (previous == ConnectivityStatus.offline &&
             next == ConnectivityStatus.online) {
-          unawaited(retry());
+          _track(retry());
         }
       },
     );
@@ -163,7 +163,7 @@ class NoteAttachmentsController {
         if (_disposed) return;
         _pending.clear();
         _onChanged();
-        if (_currentNote() != null) unawaited(loadPending());
+        if (_currentNote() != null) _track(loadPending());
       },
     );
   }
@@ -174,6 +174,29 @@ class NoteAttachmentsController {
     _authEpochSubscription?.close();
     _activeCancelToken?.cancel('Note editor disposed.');
     _activeCancelToken = null;
+  }
+
+  /// Work this controller started on its own (a retry, a reload, an
+  /// attachment drain), until it ends.
+  final Set<Future<void>> _running = <Future<void>>{};
+
+  void _track(Future<Object?> work) {
+    final Future<void> settled = work.then<void>(
+      (_) {},
+      onError: (Object _) {},
+    );
+    _running.add(settled);
+    settled.whenComplete(() => _running.remove(settled));
+  }
+
+  /// [dispose], then waits until the work it had started has stopped: the
+  /// files it was writing (a recording's manifest, a staged copy) are
+  /// written by then, and nothing of it writes after.
+  Future<void> close() async {
+    dispose();
+    while (_running.isNotEmpty) {
+      await Future.wait(_running.toList());
+    }
   }
 
   /// Stops any upload in flight and forgets what was queued, as a note
@@ -259,7 +282,7 @@ class NoteAttachmentsController {
       }
       _sortPending();
       _notify();
-      unawaited(retry(ids: <String>[item.id], showFeedback: true));
+      _track(retry(ids: <String>[item.id], showFeedback: true));
       return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -350,7 +373,7 @@ class NoteAttachmentsController {
       _notify();
       if (_container.read(connectivityStatusProvider) ==
           ConnectivityStatus.online) {
-        unawaited(retry());
+        _track(retry());
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -694,7 +717,7 @@ class NoteAttachmentsController {
 
     final NoteRow? row = await db.notesDao.getNote(resolvedId);
     if (row == null || row.deleted || !canCommit()) return null;
-    unawaited(_drainAttachment());
+    _track(_drainAttachment());
     return Note.fromJson(noteRowToServer(row));
   }
 
@@ -817,7 +840,7 @@ class NoteAttachmentsController {
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
     final Future<void>? check = _reportChange(id, updated);
-    if (check != null) unawaited(check);
+    if (check != null) _track(check);
   }
 
   /// Applies a change of recording [id]; a report of it gone that is checked
@@ -891,7 +914,7 @@ class NoteAttachmentsController {
     for (final String id in ids.toList()) {
       if (!_goneWhileMoving.remove(id)) continue;
       if (_movedCopies.containsKey(id)) {
-        unawaited(_confirmGone(id));
+        _track(_confirmGone(id));
       } else {
         _setChange(id, null);
       }
@@ -927,11 +950,7 @@ class NoteAttachmentsController {
   /// which is still there: only the recordings made on that page move. The
   /// others stay with [previous], stored for when it is opened again, and
   /// leave this editor, which shows [recovered] from now on.
-  Future<void> rebindTo(
-    Note previous,
-    Note recovered, {
-    String? pageId,
-  }) async {
+  Future<void> rebindTo(Note previous, Note recovered, {String? pageId}) async {
     bool moves(PendingNoteAudioUpload item) =>
         pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
     _rebinds++;
@@ -1077,7 +1096,7 @@ class NoteAttachmentsController {
       _notify();
       if (_container.read(connectivityStatusProvider) ==
           ConnectivityStatus.online) {
-        unawaited(retry(ids: reboundUploads.keys));
+        _track(retry(ids: reboundUploads.keys));
       }
     }
     _settleMove(attemptedUploadIds, reboundUploads);
@@ -1142,9 +1161,8 @@ Map<String, dynamic>? noteDataWithFileLink(
   final String md = notePageMarkdown(data, pageId);
   final String? fileId = attachment['id']?.toString();
   if (fileId == null ||
-      noteFileLinksInMarkdown(
-        md,
-      ).any((NoteFileLink link) => link.id == fileId)) {
+      noteFileLinksInMarkdown(md)
+          .any((NoteFileLink link) => link.id == fileId)) {
     return null;
   }
   final Map<String, dynamic> content =
