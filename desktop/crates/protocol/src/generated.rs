@@ -10113,6 +10113,10 @@ pub struct ModelSection {
 pub struct SetModelPinned {
     pub id: String,
     pub pinned: bool,
+    /// The chat whose list answers (its selection, its Switch offer); null
+    /// for a new chat's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 /// Params for `models.options`: the model a chat runs on.

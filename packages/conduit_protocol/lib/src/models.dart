@@ -163,8 +163,14 @@ abstract class ModelSection with _$ModelSection {
 /// Params for `models.setPinned`.
 @freezed
 abstract class SetModelPinned with _$SetModelPinned {
-  const factory SetModelPinned({required String id, required bool pinned}) =
-      _SetModelPinned;
+  const factory SetModelPinned({
+    required String id,
+    required bool pinned,
+
+    /// The chat whose list answers (its selection, its Switch offer); null
+    /// for a new chat's.
+    String? chatId,
+  }) = _SetModelPinned;
 
   factory SetModelPinned.fromJson(Map<String, dynamic> json) =>
       _$SetModelPinnedFromJson(json);

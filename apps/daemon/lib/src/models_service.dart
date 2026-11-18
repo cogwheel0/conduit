@@ -102,7 +102,65 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
   ModelsService(this._container, {EventBus? events}) {
-    if (events != null) _announceChanges(events);
+    if (events != null) {
+      _announceChanges(events);
+      _followRemaps(events);
+    }
+  }
+
+  /// Per account (its preference id), per chat (null: the New Chat slot),
+  /// the model picked there: the one record of each chat's selection. A
+  /// chat with no pick of its own has the account's default (never an
+  /// agent picked for another chat); another account never sees it.
+  final Map<String, Map<String?, core.Model>> _picks =
+      <String, Map<String?, core.Model>>{};
+
+  /// The picks of the account in charge now.
+  Map<String?, core.Model> _picksNow() =>
+      _picks.putIfAbsent(currentPreferenceAccountId() ?? '', () => {});
+
+  /// Chat ids that moved (`route.remap`), old to new.
+  final Map<String, String> _moved = <String, String>{};
+
+  /// [chatId] as it is now, after every move: a pick asked under a chat's
+  /// old id lands on its new one.
+  String? _now(String? chatId) {
+    var id = chatId;
+    for (var hops = 0; id != null && hops < 8; hops++) {
+      final next = _moved[id];
+      if (next == null) break;
+      id = next;
+    }
+    return id;
+  }
+
+  /// A chat's id moved (`route.remap`): its pick moves with it.
+  void _followRemaps(EventBus events) {
+    events.tap((event, _, payload) {
+      if (event != ConduitEvents.routeRemap) return;
+      final remap = RouteRemap.fromJson(payload);
+      _moved[remap.fromId] = remap.toId;
+      for (final picks in _picks.values) {
+        final pick = picks.remove(remap.fromId);
+        if (pick != null) picks[remap.toId] = pick;
+      }
+    });
+  }
+
+  /// A turn was sent ([fromChat] null: from New Chat) and went to [toChat]:
+  /// New Chat's pick is that new chat's now (the next New Chat starts with
+  /// none), and a coding agent the turn named is the chat's pick.
+  void sent({
+    required String? fromChat,
+    required String toChat,
+    String? model,
+  }) {
+    final picks = _picksNow();
+    final slot = fromChat == null ? picks.remove(null) : null;
+    if (model == null || !isTerminalAgentModelId(model)) return;
+    picks[_now(toChat)] = slot?.id == model
+        ? slot!
+        : core.Model(id: model, name: terminalAgentDisplayName(model) ?? model);
   }
 
   final ProviderContainer _container;
@@ -242,20 +300,39 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
-    final selectedId = (await currentModel(_container))?.id;
+    final current = await currentModel(_container);
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
     account.require('the models are answered');
-    final agents = _container.read(selectedTerminalIdProvider) == terminal
+    // The chat's own pick (kept here, the one record), else the account's
+    // default: an agent the account picked elsewhere is never this chat's,
+    // and a temporary chat runs no agent.
+    final pick = _picksNow()[_now(chatId)];
+    final agentPick = pick != null && isTerminalAgentModel(pick);
+    final selected = pick != null && !(agentPick && query.temporary)
+        ? pick
+        : current != null && isTerminalAgentModel(current)
+        ? _regularDefault(models)
+        : current;
+    final selectedId = selected?.id;
+    final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
         : const <core.Model>[];
+    // The chat's agent stays on offer beside what its terminal lists now.
+    final agents = [
+      ...found2,
+      if (selected != null &&
+          isTerminalAgentModel(selected) &&
+          !found2.any((agent) => agent.id == selected.id))
+        selected,
+    ];
     final plain = ModelList(
       models: models.map(_summarize).toList(growable: false),
       selectedId: selectedId,
       agents: agents.map(_summarize).toList(growable: false),
       agentNames: _agentNames(conversation),
-      chatAgent: _chatAgent(conversation),
+      chatAgent: _chatAgent(conversation, pick),
     );
     try {
       return _arranged([...models, ...agents], plain);
@@ -362,7 +439,7 @@ final class ModelsService {
           .read(personalizationSettingsProvider.notifier)
           .togglePinnedModel(request.id);
     }
-    return list();
+    return list(ModelListQuery(chatId: request.chatId));
   }
 
   /// `models.options`: reasoning effort (an Ollama model's thinking level)
@@ -596,7 +673,8 @@ final class ModelsService {
       }
       stillTheNewest('the coding agent is selected');
       _selectAgent(agent);
-      return list(ModelListQuery(chatId: chatId));
+      _picksNow()[_now(chatId)] = agent;
+      return _answerPick(chatId, account);
     }
     final models = await _models();
     final model = models.where((candidate) => candidate.id == id).firstOrNull;
@@ -609,7 +687,50 @@ final class ModelsService {
     }
     stillTheNewest('the model is selected');
     _container.read(selectedModelProvider.notifier).set(model);
-    return list(ModelListQuery(chatId: chatId));
+    _picksNow()[_now(chatId)] = model;
+    return _answerPick(chatId, account);
+  }
+
+  /// The list a pick answers with: [chatId]'s, put together for the
+  /// account the pick was made for and refused once another is in charge
+  /// (never started again for the next account).
+  Future<ModelList> _answerPick(String? chatId, AccountScope account) async {
+    final reply = await _list(ModelListQuery(chatId: _now(chatId)));
+    account.require('the pick is answered');
+    return reply;
+  }
+
+  /// The model a turn in [chatId] (null: a new chat) runs with when it
+  /// names none: that chat's own pick, else the coding agent it was saved
+  /// with, else the account's default; never an agent picked for another
+  /// chat.
+  Future<String?> modelFor(String? chatId) async {
+    final account = AccountScope.capture(_container);
+    final pick = _picksNow()[_now(chatId)];
+    if (pick != null) return pick.id;
+    if (chatId != null) {
+      final saved = (await _conversation(chatId, account))?.model;
+      if (isTerminalAgentModelId(saved)) return saved;
+    }
+    final current = await currentModel(_container);
+    account.require('the model in use is read');
+    if (current == null || !isTerminalAgentModel(current)) return current?.id;
+    final models = await _models();
+    account.require('the model in use is read');
+    return _regularDefault(models)?.id;
+  }
+
+  /// The account's default model among [models], else the first: for a
+  /// chat with no pick while the account's selection is another chat's
+  /// coding agent.
+  core.Model? _regularDefault(List<core.Model> models) {
+    String? id;
+    try {
+      id = _defaultModelId();
+    } on Object {
+      // No default to read: the first model.
+    }
+    return models.where((m) => m.id == id).firstOrNull ?? models.firstOrNull;
   }
 
   /// [agent] for the next turns, on its own terminal (picking an agent
@@ -684,13 +805,11 @@ final class ModelsService {
     }
   }
 
-  /// The coding agent [conversation] was saved with: the window offers
-  /// Switch to it while the chat has no pick of its own. Reported whatever
-  /// the account's selection is (that may be another chat's pick); the
-  /// selection is never changed for it.
-  static String? _chatAgent(Conversation? conversation) {
+  /// The coding agent [conversation] was saved with, while the chat's own
+  /// [pick] is not it: the window offers Switch to it.
+  static String? _chatAgent(Conversation? conversation, core.Model? pick) {
     final id = conversation?.model;
-    return isTerminalAgentModelId(id) ? id : null;
+    return isTerminalAgentModelId(id) && pick?.id != id ? id : null;
   }
 
   /// The coding agents [conversation]'s replies came from, named as the
@@ -815,10 +934,16 @@ final class ModelsService {
     final selected = await currentModel(_container);
     if (id == null || selected?.id == id) return selected;
     if (isTerminalAgentModelId(id)) {
+      // The chat's own agent, as it was picked there, else asked of its own
+      // terminal: never the terminal the account selected for another chat.
+      final pick = _picksNow()[_now(chatId)];
+      if (pick?.id == id) return pick;
       final conversation = chatId == null
           ? null
           : await _conversation(chatId, account);
       if (chatId != null && conversation == null) return null;
+      final own = await _onItsTerminal(id, chatId);
+      if (own != null) return own;
       return (await _agents(
         conversation,
         account,

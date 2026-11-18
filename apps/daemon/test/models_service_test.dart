@@ -168,6 +168,7 @@ final class _Failing extends Models {
 }
 
 const _northAgent = 'agent:north:codex:gpt-test';
+const _southAgent = 'agent:south:pi:test';
 
 /// The server's own terminals, north and south.
 final _terminals = <TerminalServerInfo>[
@@ -234,8 +235,14 @@ final class _AgentsApi extends ApiService {
       if (!southAsked.isCompleted) southAsked.complete();
       await southHeld?.future;
     }
-    // North's agent works in agent-chat's workspace only.
-    if (terminalId != 'north' || chatId != 'agent-chat') {
+    // South's agent works in plain-chat's workspace.
+    if (terminalId == 'south') {
+      return chatId == 'plain-chat'
+          ? const [core.Model(id: _southAgent, name: 'Pi · test')]
+          : const <core.Model>[];
+    }
+    // North's agent works in agent-chat's workspace, and in a new chat.
+    if (terminalId != 'north' || (chatId != 'agent-chat' && chatId != null)) {
       return const <core.Model>[];
     }
     final left = northAnswers;
@@ -344,8 +351,8 @@ void main() {
       final list = await ModelsService(container)
           .select(_northAgent, chatId: 'agent-chat');
       expect(list.selectedId, _northAgent);
-      // Still the chat's saved agent; the window hides Switch for its pick.
-      expect(list.chatAgent, _northAgent);
+      // The chat's own pick is its saved agent now: no Switch to offer.
+      expect(list.chatAgent, isNull);
       expect(container.read(selectedTerminalIdProvider), 'north');
     });
 
@@ -355,11 +362,11 @@ void main() {
       container.read(selectedTerminalIdProvider.notifier).set('north');
       final models = ModelsService(container);
       // Picked in another window's chat: the account's selection.
-      await models.select(_northAgent, chatId: 'agent-chat');
+      await models.select(_northAgent);
       final list = await models.list(
         const ModelListQuery(chatId: 'agent-chat'),
       );
-      expect(list.selectedId, _northAgent);
+      expect(list.selectedId, 'first-model');
       expect(list.chatAgent, _northAgent);
     });
 
@@ -434,7 +441,7 @@ void main() {
     // Another chat on the same terminal, whose lookup finds no agent: the
     // agent is not offered there, so the window names another model.
     final other = await models.list(const ModelListQuery(chatId: 'plain-chat'));
-    expect(other.selectedId, _northAgent);
+    expect(other.selectedId, 'first-model');
     expect(
       other.agents,
       isEmpty,
@@ -452,7 +459,8 @@ void main() {
     // the list reports what north offers now, and the pick stays.
     expect(api.asked.where((t) => t == 'north'), hasLength(2));
     expect(list.selectedId, _northAgent);
-    expect(list.agents, isEmpty);
+    // The chat's own pick stays on offer beside what north lists now.
+    expect(list.agents.map((m) => m.id), <String>[_northAgent]);
     expect(container.read(selectedModelProvider)?.id, _northAgent);
   });
 
@@ -469,7 +477,7 @@ void main() {
       final list = await models.list(
         const ModelListQuery(chatId: 'agent-chat'),
       );
-      expect(list.agents, isEmpty);
+      expect(list.agents.map((m) => m.id), <String>[_northAgent]);
       expect(list.selectedId, _northAgent);
       expect(container.read(selectedModelProvider)?.id, _northAgent);
     },
@@ -538,6 +546,139 @@ void main() {
       expect(first.refusal, ConduitErrorCodes.conflict);
       expect(container.read(selectedModelProvider)?.id, 'preferred-model');
       expect(container.read(selectedTerminalIdProvider), 'south');
+    });
+  });
+
+  group("each chat's own pick, kept by the daemon", () {
+    test(
+      "is the chat's selection whatever the account picks elsewhere",
+      () async {
+        final container = _agentContainer(_AgentsApi());
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final models = ModelsService(container);
+        await models.select(_northAgent, chatId: 'agent-chat');
+        await models.select('preferred-model', chatId: 'plain-chat');
+        final a = await models.list(const ModelListQuery(chatId: 'agent-chat'));
+        expect(a.selectedId, _northAgent);
+        final b = await models.list(const ModelListQuery(chatId: 'plain-chat'));
+        expect(b.selectedId, 'preferred-model');
+      },
+    );
+
+    test("moves with the chat's id", () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final bus = EventBus();
+      final models = ModelsService(container, events: bus);
+      await models.select(_northAgent, chatId: 'agent-chat');
+      bus.emit(
+        ConduitEventSpecs.routeRemap,
+        const RouteRemap(fromId: 'agent-chat', toId: 'agent-chat-9'),
+      );
+      final moved = await models.list(
+        const ModelListQuery(chatId: 'agent-chat-9'),
+      );
+      expect(moved.selectedId, _northAgent);
+    });
+
+    test("lands on the chat's new id when it moves while the pick is out", () {
+      fakeAsync((time) {
+        final api = _AgentsApi()..held = Completer<void>();
+        final container = _agentContainer(api);
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final bus = EventBus();
+        final models = ModelsService(container, events: bus);
+        final picking = _Outcome(
+          models.select(_northAgent, chatId: 'agent-chat'),
+        );
+        time.elapse(Duration.zero);
+        expect(api.northAsked.isCompleted, isTrue);
+        bus.emit(
+          ConduitEventSpecs.routeRemap,
+          const RouteRemap(fromId: 'agent-chat', toId: 'agent-chat-9'),
+        );
+        api.held!.complete();
+        time.elapse(Duration.zero);
+        expect(picking.refusal, isNull);
+        final moved = _Outcome(
+          models.list(const ModelListQuery(chatId: 'agent-chat-9')),
+        );
+        time.elapse(Duration.zero);
+        expect((moved.value! as ModelList).selectedId, _northAgent);
+      });
+    });
+
+    test(
+      "answers a chat's agent controls from the agent's own terminal",
+      () async {
+        final container = _agentContainer(_AgentsApi());
+        final models = ModelsService(container);
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        await models.select(_northAgent, chatId: 'agent-chat');
+        container.read(selectedTerminalIdProvider.notifier).set('south');
+        await models.select(_southAgent, chatId: 'plain-chat');
+        final controls = await models.controls(
+          const ModelControlsQuery(modelId: _northAgent, chatId: 'agent-chat'),
+        );
+        expect(controls.modelId, _northAgent);
+      },
+    );
+
+    test("goes from New Chat to the chat its first message makes", () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      models.sent(fromChat: null, toChat: 'new-chat-1', model: _northAgent);
+      final made = await models.list(
+        const ModelListQuery(chatId: 'new-chat-1'),
+      );
+      expect(made.selectedId, _northAgent);
+      final next = await models.list();
+      expect(next.selectedId, isNot(_northAgent));
+    });
+
+    test("a turn naming no model in one chat never goes to another chat's "
+        'agent', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      // Chat A's agent is the account's selection now.
+      await models.select(_northAgent, chatId: 'agent-chat');
+      expect(container.read(selectedModelProvider)?.id, _northAgent);
+      expect(await models.modelFor('plain-chat'), 'first-model');
+      expect(await models.modelFor('agent-chat'), _northAgent);
+    });
+
+    test("keeps a saved agent chat's Switch offer through a pin", () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      final pinned = await models.setPinned(
+        const SetModelPinned(
+          id: 'first-model',
+          pinned: false,
+          chatId: 'agent-chat',
+        ),
+      );
+      expect(pinned.chatAgent, _northAgent);
+    });
+
+    test("a new chat's pick is never answered for the next account", () {
+      fakeAsync((time) {
+        final api = _AgentsApi()..held = Completer<void>();
+        final container = _agentContainer(api);
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final picking = _Outcome(
+          ModelsService(container).select('preferred-model'),
+        );
+        time.elapse(Duration.zero);
+        expect(api.northAsked.isCompleted, isTrue);
+        _session = Object();
+        container.invalidate(openWebUiAuthSessionEpochProvider);
+        api.held!.complete();
+        time.elapse(Duration.zero);
+        expect(picking.refusal, ConduitErrorCodes.sessionExpired);
+      });
     });
   });
 

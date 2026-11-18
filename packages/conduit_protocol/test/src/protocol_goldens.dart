@@ -7303,7 +7303,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'setModelPinned': r'''
 {
   "id": "fake-model",
-  "pinned": true
+  "pinned": true,
+  "chatId": "chat-1"
 }''',
 
   'modelOptionsQuery': r'''

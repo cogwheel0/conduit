@@ -3663,7 +3663,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     defaultId: 'fake-model',
   ),
   'modelSection': const ModelSection(label: 'Agents', ids: <String>['agent-1']),
-  'setModelPinned': const SetModelPinned(id: 'fake-model', pinned: true),
+  'setModelPinned': const SetModelPinned(
+    id: 'fake-model',
+    pinned: true,
+    chatId: 'chat-1',
+  ),
   'modelOptionsQuery': const ModelOptionsQuery(
     modelId: 'fake-model',
     chatId: 'chat-1',
