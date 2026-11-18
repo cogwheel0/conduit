@@ -122,7 +122,12 @@ if [ "$1" = api ] && [ "$2" != "-X" ]; then
       [ -n "$file" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
       echo "${file#* }"
       ;;
-    *'select(.name == "appcast.next.xml")'*) ls "$STUB_ASSETS" | awk '$2 == "appcast.next.xml" {print $1}' ;;
+    *'select(.name == '*)
+      want="$*"
+      want="${want#*select(.name == \"}"
+      want="${want%%\"*}"
+      ls "$STUB_ASSETS" | awk -v n="$want" '$2 == n {print $1}'
+      ;;
     *".assets[]"*) ls "$STUB_ASSETS" ;;
     *) echo 42 ;;
   esac
@@ -140,8 +145,9 @@ if [ "$1" = api ] && [ "$2" = "-X" ]; then
       ;;
     PATCH)
       name="${6#name=}"
-      # STUB_RENAME_FAIL=<name>: renaming the file now called <name> fails.
-      [ "${STUB_RENAME_FAIL:-}" = "${file#* }" ] && { echo "rename failed" >&2; exit 1; }
+      # STUB_RENAME_FAIL=<glob>: renaming a file whose name matches fails.
+      # shellcheck disable=SC2254
+      case "${file#* }" in ${STUB_RENAME_FAIL:-//none//}) echo "rename failed" >&2; exit 1 ;; esac
       mv "$STUB_ASSETS/$file" "$STUB_ASSETS/$id $name"
       # STUB_LOST_REPLY=<name>: a rename to <name> is done, but its reply is
       # lost (gh fails although GitHub applied it).
@@ -156,9 +162,13 @@ if [ "$1 $2" = "release upload" ]; then
   existing="$(ls "$STUB_ASSETS" | awk -v n="$name" '$2 == n')"
   if [ -n "$existing" ]; then
     [[ " $* " == *" --clobber "* ]] || { echo "already exists" >&2; exit 1; }
-    mv "$STUB_ASSETS/$existing" "$STUB_MOVED/$RANDOM-$name"
+    mv "$STUB_ASSETS/$existing" "$STUB_MOVED/replaced-$existing"
   fi
-  cp "$4" "$STUB_ASSETS/$RANDOM $name"
+  # Ids from a counter that starts past the fixtures' (5, 7, 9): unique and
+  # the same on every run.
+  id=$(( $(cat "$STUB_IDS" 2>/dev/null || echo 1000) + 1 ))
+  echo "$id" >"$STUB_IDS"
+  cp "$4" "$STUB_ASSETS/$id $name"
   exit 0
 fi
 if [ "$1 $2" = "release download" ]; then
@@ -195,7 +205,7 @@ exit 3
 STUB
 chmod +x "$tmp/bin/gh" "$tmp/bin/git"
 export PATH="$tmp/bin:$PATH" STUB_LOG="$tmp/gh.log" STUB_ASSETS="$tmp/assets" \
-  STUB_STATE="$tmp/feed-state" STUB_MOVED="$tmp/moved-assets"
+  STUB_STATE="$tmp/feed-state" STUB_MOVED="$tmp/moved-assets" STUB_IDS="$tmp/stub-ids"
 mkdir -p "$STUB_ASSETS" "$STUB_MOVED"
 lookup() { # lookup want mode function [hosting]
   local want="$1" mode="$2" fn="$3" hosting="${4:-release-asset}" got
@@ -240,9 +250,10 @@ expect 1 "a feed release that cannot be read stops publishing" env STUB_LOOKUP=5
   APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good.xml" --push
 # The new file uploaded, but it cannot take the live name: the live one is
 # put back.
+aside=0
 mkdir -p "$tmp/moved" && mv "$STUB_ASSETS" "$tmp/moved/assets-1" && mkdir -p "$STUB_ASSETS"
 cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
-expect 1 "a new appcast that cannot take the live name stops" env STUB_RENAME_FAIL=appcast.next.xml \
+expect 1 "a new appcast that cannot take the live name stops" env STUB_RENAME_FAIL='appcast.next*' \
   APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$tmp/good.xml" --push
 if ls "$STUB_ASSETS" | grep -qx '7 appcast.xml'; then
   pass "the live appcast.xml is put back when the new one cannot take its name"
@@ -264,7 +275,7 @@ fi
 # is uploaded and read back, so a failure leaves nothing live and the next
 # run takes the draft over.
 fresh_feed() { # state
-  mv "$STUB_ASSETS" "$tmp/moved/assets-$RANDOM" && mkdir -p "$STUB_ASSETS"
+  aside=$((aside + 1)) && mv "$STUB_ASSETS" "$tmp/moved/assets-r$aside" && mkdir -p "$STUB_ASSETS"
   echo "$1" >"$STUB_STATE"
 }
 feed_state() { cat "$STUB_STATE"; }
@@ -296,7 +307,7 @@ fresh_feed published
 # A request GitHub applied whose reply was lost: the file's real name
 # decides, so the publication goes on (or is put back) by what happened.
 lost() { # env... : a published feed with live 7 and an older previous 5
-  mv "$STUB_ASSETS" "$tmp/moved/assets-$RANDOM" && mkdir -p "$STUB_ASSETS"
+  aside=$((aside + 1)) && mv "$STUB_ASSETS" "$tmp/moved/assets-r$aside" && mkdir -p "$STUB_ASSETS"
   echo published >"$STUB_STATE"
   cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
   printf '<rss/>older\n' >"$STUB_ASSETS/5 appcast.previous.xml"
@@ -315,11 +326,27 @@ live_is "$tmp/good.xml" && pass "after a lost set-aside reply the new appcast is
 expect 0 "a delete GitHub applied, its reply lost, goes on" lost STUB_LOST_DELETE=1
 live_is "$tmp/good.xml" && pass "after a lost delete reply the new appcast is live" ||
   fail "after a lost delete reply the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
-lost STUB_RENAME_FAIL=appcast.next.xml STUB_LOST_REPLY=appcast.xml >"$tmp/out.txt" 2>&1
+lost STUB_RENAME_FAIL='appcast.next*' STUB_LOST_REPLY=appcast.xml >"$tmp/out.txt" 2>&1
 if grep -q 'the live one is unchanged' "$tmp/out.txt" && ls "$STUB_ASSETS" | grep -qx '7 appcast.xml'; then
   pass "a restoration GitHub applied, its reply lost, reports the live feed unchanged"
 else
   fail "after a lost restoration reply: $(tail -1 "$tmp/out.txt"); files: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+
+# A publication run by hand alongside (outside CI's queue) has its own
+# staged file: this run promotes only the file it uploaded, and leaves the
+# other's alone.
+aside=$((aside + 1)) && mv "$STUB_ASSETS" "$tmp/moved/assets-r$aside" && mkdir -p "$STUB_ASSETS"
+echo published >"$STUB_STATE"
+cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+printf '<rss/>another run\n' >"$STUB_ASSETS/9 appcast.next.xml"
+expect 0 "a publication beside another run's staged file goes through" env APPCAST_HOSTING=release-asset \
+  "$here/publish-appcast.sh" "$tmp/good.xml" --push
+if cmp -s "$STUB_ASSETS/$(ls "$STUB_ASSETS" | awk '$2 == "appcast.xml"')" "$tmp/good.xml" &&
+  [ -f "$STUB_ASSETS/9 appcast.next.xml" ]; then
+  pass "only this run's upload is promoted; the other run's staged file stays"
+else
+  fail "beside another run's staged file the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
 fi
 
 # ── the test harness and the bundle in --out ────────────────────────────────
@@ -355,6 +382,9 @@ if command -v plutil >/dev/null; then
     bundle "$tmp/release.app" app.cogwheel.conduit.desktop 1 1.3.0
   expect 1 "a release step refuses another version" \
     bundle "$tmp/release.app" app.cogwheel.conduit.desktop 1 1.4.0
+  app_with "$tmp/release-env.app" app.cogwheel.conduit.desktop 1.3.0 env
+  expect 1 "a release step refuses a release build with a test environment" \
+    bundle "$tmp/release-env.app" app.cogwheel.conduit.desktop 1 1.3.0
 else
   echo "skip  check_bundle (no plutil here)"
 fi
@@ -401,6 +431,23 @@ if openssl_path="$(bash -c ". '$here/lib.sh'; ed25519_openssl" 2>/dev/null)"; th
   expect 1 "a signature made with another key is refused" \
     enclosure "$tmp/signed.xml" 1030099 "$dmg" "$other_key"
   expect 1 "no public key refuses" enclosure "$tmp/signed.xml" 1030099 "$dmg" ""
+  # mktemp fails for the enclosure's scratch folder only (openssl's probe
+  # still works): verification fails, and writes nothing where it runs.
+  mkdir -p "$tmp/no-scratch-bin" "$tmp/no-scratch-cwd"
+  cat >"$tmp/no-scratch-bin/mktemp" <<'STUB'
+#!/bin/bash
+case "$*" in *conduit-enclosure*) echo "mktemp: cannot create" >&2; exit 1 ;; esac
+exec /usr/bin/mktemp "$@"
+STUB
+  chmod +x "$tmp/no-scratch-bin/mktemp"
+  expect 1 "an enclosure check whose scratch folder cannot be made fails" \
+    env PATH="$tmp/no-scratch-bin:$PATH" bash -c "cd '$tmp/no-scratch-cwd' && . '$here/lib.sh' && verify_enclosure \"\$@\"" _ \
+    "$tmp/signed.xml" 1030099 "$dmg" "$key"
+  if [ -z "$(ls "$tmp/no-scratch-cwd")" ]; then
+    pass "a failed scratch folder writes nothing where the check runs"
+  else
+    fail "a failed scratch folder wrote: $(ls "$tmp/no-scratch-cwd" | tr '\n' ' ')"
+  fi
 else
   echo "skip  verify_enclosure (no openssl with Ed25519 here)"
 fi

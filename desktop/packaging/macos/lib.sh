@@ -228,8 +228,11 @@ rust_objcopy() {
 # bad signature.
 ed25519_openssl() {
   local c probe
-  probe="$(mktemp -d "${TMPDIR:-/tmp}/conduit-openssl.XXXXXX")"
-  printf 'a probe of raw Ed25519' >"$probe/data"
+  # Every step checked here: callers run this in `$(…) ||`, where errexit
+  # does not stop it.
+  probe="$(mktemp -d "${TMPDIR:-/tmp}/conduit-openssl.XXXXXX")" && [ -d "$probe" ] ||
+    die "could not make a scratch folder to probe openssl in"
+  printf 'a probe of raw Ed25519' >"$probe/data" || die "could not write in $probe"
   for c in ${OPENSSL:+"$OPENSSL"} openssl /opt/homebrew/opt/openssl@3/bin/openssl \
     /usr/local/opt/openssl@3/bin/openssl; do
     command -v "$c" >/dev/null 2>&1 || continue
@@ -280,8 +283,13 @@ elif len(raw) == 32:
 verify_enclosure() {
   local xml="$1" build="$2" file="$3" public="$4" openssl dir rc=0
   [ -n "$public" ] || { warn "no public key to check the enclosure with"; return 1; }
+  # Every step checked here, never by errexit: callers run this on the left
+  # of `||`, where errexit does not stop it, and a skipped step must never
+  # read as a verified DMG.
+  [ -r "$file" ] || { warn "enclosure: cannot read $file"; return 1; }
   openssl="$(ed25519_openssl)" || return 1
-  dir="$(mktemp -d "${TMPDIR:-/tmp}/conduit-enclosure.XXXXXX")"
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/conduit-enclosure.XXXXXX")" && [ -d "$dir" ] ||
+    { warn "enclosure: could not make a scratch folder"; return 1; }
   python3 -I - "$xml" "$build" "$file" "$public" "$dir" <<'PY' || rc=$?
 import base64, binascii, os, sys, xml.etree.ElementTree as ET
 xml, build, path, public, out = sys.argv[1:]
@@ -307,10 +315,15 @@ with open(os.path.join(out, "signature"), "wb") as f:
 with open(os.path.join(out, "public.der"), "wb") as f:
     f.write(bytes.fromhex("302a300506032b6570032100") + key)
 PY
+  if [ "$rc" = 0 ] && { [ ! -s "$dir/public.der" ] || [ ! -s "$dir/signature" ]; }; then
+    warn "enclosure: the signature or the key was not written"
+    rc=1
+  fi
   if [ "$rc" = 0 ]; then
     "$openssl" pkeyutl -verify -pubin -keyform DER -inkey "$dir/public.der" -rawin \
       -in "$file" -sigfile "$dir/signature" >/dev/null || rc=$?
   fi
+  [ "$rc" = 0 ] || warn "enclosure: $file is not the DMG the signed item describes"
   return "$rc"
 }
 
@@ -320,8 +333,17 @@ set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
 # HARNESS_MARKER, compiled in with the `harness` feature only).
 HARNESS_MARKER='conduit-desktop: test harness build'
 
-# Whether the binary BIN was built with the test harness.
-has_harness_marker() { LC_ALL=C grep -aqF "$HARNESS_MARKER" "$1"; }
+# Whether the binary BIN was built with the test harness: 0 yes, 1 no, and
+# it stops when BIN cannot be read (never taken for "no").
+has_harness_marker() {
+  local rc=0
+  LC_ALL=C grep -aqF "$HARNESS_MARKER" "$1" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) die "could not read $1 to look for the test harness" ;;
+  esac
+}
 
 # Stops when the binary BIN carries the test harness and KIND (SIGN_KIND)
 # signs for distribution: a harness build is signed ad hoc or with an Apple

@@ -70,7 +70,8 @@ reads them from a prompt or from stdin.
    security find-identity -v -p codesigning | grep 'Developer ID Application'
    ```
 
-4. Check it locally before anything else (step 5).
+4. Check it locally before anything else ("Check the certificate and the
+   credentials on this Mac", below).
 5. Export certificate and key: Keychain Access › My Certificates, select the
    Developer ID Application certificate, File › Export Items… › `.p12`,
    with a strong export password. Then store both:
@@ -268,8 +269,9 @@ that needs it.
    made as a **draft**, `appcast.xml` is uploaded to it and read back, and
    only then is it published: a run that fails on the way leaves a draft
    no installed copy reads, and the next run takes it over (re-run the feed
-   job). Later publications upload the new feed as `appcast.next.xml` and
-   swap it in by two renames, the last one kept as `appcast.previous.xml`.
+   job). Later publications upload the new feed under a name of their run's
+   own (`appcast.next-….xml`) and swap that file in by two renames, the last
+   one kept as `appcast.previous.xml`.
    Installed copies pick the update up on their next daily check, or at
    once with Conduit › Check for Updates….
 
@@ -510,7 +512,7 @@ publishes the release.
 a later publication stopped between its two renames, and installed copies
 cannot read the feed. On the `desktop-appcast` release, rename
 `appcast.previous.xml` back to `appcast.xml` (and delete a leftover
-`appcast.next.xml`), then re-run the feed job. Neither the feed job nor
+`appcast.next-….xml`), then re-run the feed job. Neither the feed job nor
 `publish-appcast.sh` ever starts an empty feed over a published host.
 
 ### Losing or rotating the Sparkle key

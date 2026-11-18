@@ -103,7 +103,7 @@ delete_asset() {
 
 # Replaces appcast.xml on the feed release without ever losing the live
 # one, and with the fixed URL empty for as short a time as can be: the new
-# file is uploaded first under another name (appcast.next.xml), then the
+# file is uploaded first under a name of its run's own (appcast.next-….xml), then the
 # live one is renamed appcast.previous.xml (replacing an older copy) and the
 # new one renamed appcast.xml, two quick renames. A rename that fails puts
 # the live one back. Every lookup that fails stops, and so does a feed
@@ -113,26 +113,29 @@ delete_asset() {
 # (rename_asset, delete_asset): a rename GitHub applied is never reported as
 # not done, nor undone by a wrong recovery.
 replace_feed_asset() {
-  local new="$1" staged assets current previous next uploaded rc
-  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
-  cp "$new" "$staged/appcast.next.xml"
+  local new="$1" staged assets current previous uploaded rc
+  # Staged under a name of this run's own, and promoted by the id of what
+  # this run uploaded: a publication run by hand alongside (outside CI's
+  # queue) never has its file promoted by this one, nor this one's by it,
+  # and neither removes the other's staged file.
+  local stage="appcast.next-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-$$.xml"
+  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")" && [ -d "$staged" ] ||
+    die "could not make a scratch folder; nothing was changed"
+  cp "$new" "$staged/$stage" || die "could not stage the new appcast; nothing was changed"
   assets="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
     --jq '.assets[] | "\(.id) \(.name)"')" || die "could not list the feed release's files"
   current="$(printf '%s\n' "$assets" | awk '$2 == "appcast.xml" {print $1}')"
   previous="$(printf '%s\n' "$assets" | awk '$2 == "appcast.previous.xml" {print $1}')"
-  next="$(printf '%s\n' "$assets" | awk '$2 == "appcast.next.xml" {print $1}')"
   if [ -z "$current" ] && [ -n "$previous" ]; then
     die "the feed release has appcast.previous.xml but no appcast.xml: a publication stopped half way; rename appcast.previous.xml to appcast.xml first (docs/RELEASING-DESKTOP.md)"
   fi
-  if [ -n "$next" ]; then
-    delete_asset "$next" || die "could not remove a stale appcast.next.xml; nothing was changed"
-  fi
-  gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.next.xml" -R "$RELEASE_REPO" ||
+  gh release upload "$APPCAST_RELEASE_TAG" "$staged/$stage" -R "$RELEASE_REPO" ||
     die "the new appcast did not upload; the live one is unchanged"
   uploaded="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
-    --jq '.assets[] | select(.name == "appcast.next.xml") | .id')" ||
-    die "could not find the uploaded appcast.next.xml; the live one is unchanged"
-  [ -n "$uploaded" ] || die "the uploaded appcast.next.xml is not listed; the live one is unchanged"
+    --jq ".assets[] | select(.name == \"$stage\") | .id")" ||
+    die "could not find the uploaded $stage; the live one is unchanged"
+  [ -n "$uploaded" ] && [ "$(printf '%s\n' "$uploaded" | wc -l | tr -d ' ')" = 1 ] ||
+    die "the uploaded $stage is not listed once; the live one is unchanged"
   if [ -n "$current" ]; then
     if [ -n "$previous" ]; then
       delete_asset "$previous" || die "could not remove the older appcast.previous.xml; the live one is unchanged"
@@ -188,9 +191,11 @@ feed_release_state() {
 # so the next run starts again from the draft.
 first_feed_release() {
   local new="$1" state="$2" staged check
-  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
-  check="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-check.XXXXXX")"
-  cp "$new" "$staged/appcast.xml"
+  staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")" && [ -d "$staged" ] ||
+    die "could not make a scratch folder; nothing is live"
+  check="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-check.XXXXXX")" && [ -d "$check" ] ||
+    die "could not make a scratch folder; nothing is live"
+  cp "$new" "$staged/appcast.xml" || die "could not stage the appcast; nothing is live"
   if [ "$state" = none ]; then
     gh release create "$APPCAST_RELEASE_TAG" -R "$RELEASE_REPO" --draft --prerelease --latest=false \
       --title "Conduit Desktop update feed" \

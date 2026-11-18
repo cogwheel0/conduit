@@ -211,6 +211,12 @@ build_rust() {
   local binary="$DESKTOP_DIR/target/$RUST_TARGET/release/conduit-desktop"
   if [ "$skip_rust" = 1 ]; then
     [ -f "$binary" ] || die "--skip-rust: no $binary"
+    # The binary reused must be the kind asked for (harness or not).
+    if has_harness_marker "$binary"; then
+      [ "$test_harness" = 1 ] || die "--skip-rust: $binary was built with the test harness; build again without --skip-rust"
+    else
+      [ "$test_harness" = 0 ] || die "--skip-rust: $binary was built without the test harness; build again without --skip-rust"
+    fi
     log "reusing $binary"
   else
     # The test harness only when asked (--test-harness, test bundles).
@@ -807,7 +813,9 @@ do_verify() {
   [ "$bad_strip" = 0 ] && ok "the binaries built here are stripped"
   [ "$bad_dsym" = 0 ] && ok "a dSYM with the same UUID for each, in dSYMs/ and $(basename "$out")/Conduit-$version-dSYMs.zip"
   if [ "$bad_dsym" = 0 ]; then
-    if otool -l "$out/dSYMs/Conduit.dSYM/Contents/Resources/DWARF/Conduit" 2>/dev/null | grep -q __debug_line; then
+    # grep reads all of otool's output (-q would close the pipe early, and
+    # with pipefail otool's SIGPIPE would fail the check).
+    if otool -l "$out/dSYMs/Conduit.dSYM/Contents/Resources/DWARF/Conduit" 2>/dev/null | grep __debug_line >/dev/null; then
       ok "Conduit.dSYM has line tables"
     elif [ "$strict" = 1 ]; then
       fail "Conduit.dSYM has no line tables (build without --skip-rust)"
@@ -818,10 +826,12 @@ do_verify() {
   if [ "$strict" = 1 ] && [ ! -f "$out/Conduit-$version-dSYMs.zip" ]; then
     fail "no Conduit-$version-dSYMs.zip"
   fi
-  if plutil -extract SUPublicEDKey raw -o - "$plist" >/dev/null 2>&1; then
+  if [ -n "$(plutil -extract SUPublicEDKey raw -o - "$plist" 2>/dev/null || true)" ]; then
     [ "$(plutil -extract SURequireSignedFeed raw -o - "$plist" 2>/dev/null)" = true ] &&
       ok "Sparkle: a signed appcast required (SURequireSignedFeed)" ||
       fail "Sparkle without SURequireSignedFeed"
+  elif [ "$strict" = 1 ]; then
+    fail "no SUPublicEDKey: a release or rehearsal needs its updater (build with SPARKLE_PUBLIC_ED_KEY)"
   fi
 
   # conduitd's libraries may only link the system and themselves.
