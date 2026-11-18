@@ -135,6 +135,8 @@ final class ComposerService {
     final voiceCall = await _voiceCallAdmitted(model);
     // A chat a coding agent answers takes only new messages at its end.
     final chatId = query.chatId;
+    // The chat is read for the account that asked, or not at all.
+    if (chatId != null) account.require('the chat is read');
     final agentChat = conversationUsesTerminalAgent(
       model,
       chatId == null ? null : await _conversation(chatId),
@@ -284,6 +286,7 @@ final class ComposerService {
 
   /// The server's users and channels matching [query], for `@`.
   Future<MentionList> mentions(String query) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const MentionList();
     final q = query.trim().toLowerCase();
@@ -327,6 +330,7 @@ final class ComposerService {
         }
       }(),
     ]);
+    account.require('the mentions are answered');
     return MentionList(users: users, channels: channels);
   }
 
@@ -334,9 +338,11 @@ final class ComposerService {
 
   /// Open WebUI skills matching [query], for `$`.
   Future<SkillList> skills(String query) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const SkillList();
     final skills = await searchComposerSkills(api, query: query.trim());
+    account.require('the skills are answered');
     return SkillList(
       items: <SkillSummary>[
         for (final skill in skills)
@@ -353,6 +359,7 @@ final class ComposerService {
   /// the core's searches and its four of each. A row with no name of its
   /// own comes with an empty one, which the window names in its language.
   Future<ContextSuggestions> context(String query) async {
+    final scope = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const ContextSuggestions();
     final notes = _container.read(notesFeatureEnabledProvider);
@@ -373,6 +380,7 @@ final class ComposerService {
         _container.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
       },
     );
+    scope.require('the context suggestions are answered');
     final suggestions = buildComposerContextSuggestions(
       notes: rows.notes,
       bases: rows.bases,
@@ -404,12 +412,14 @@ final class ComposerService {
   /// A web page's readable text or a YouTube video's transcript, read by the
   /// server, as mobile's Web Page dialog attaches it.
   Future<FetchedUrl> fetchUrl(String url) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     final trimmed = url.trim();
     if (!isFetchableUrl(trimmed)) return const FetchedUrl(error: 'invalidUrl');
     if (api == null) return const FetchedUrl(error: 'failed');
     try {
       final page = await readUrlContext(api, trimmed);
+      account.require('the web page is answered');
       if (page.content.isEmpty) return const FetchedUrl(error: 'noContent');
       return FetchedUrl(
         attachment: ContextAttachmentDto(
@@ -423,6 +433,8 @@ final class ComposerService {
           collectionName: page.collectionName,
         ),
       );
+    } on RpcError {
+      rethrow;
     } on Object catch (error) {
       DebugLogger.error(
         'fetch-url-failed',
@@ -457,6 +469,7 @@ final class ComposerService {
   /// The account's files on the server, newest first, matching [query]:
   /// what mobile's server-file picker lists.
   Future<ServerFileList> serverFiles(String query) async {
+    final account = AccountScope.capture(_container);
     if (_container.read(apiServiceProvider) == null) {
       return const ServerFileList();
     }
@@ -468,6 +481,7 @@ final class ComposerService {
     } else {
       files = await readSettled(_container, searchUserFilesProvider(q).future);
     }
+    account.require('the server files are answered');
     final sorted = List<FileInfo>.of(files)
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return ServerFileList(
@@ -493,7 +507,9 @@ final class ComposerService {
   Future<KnowledgeList> knowledge(String query) async {
     final api = _container.read(apiServiceProvider);
     if (api == null) return const KnowledgeList();
+    final account = AccountScope.capture(_container);
     final rows = await api.searchKnowledgeBases(query: query.trim());
+    account.require('the knowledge bases are answered');
     return KnowledgeList(
       items: <KnowledgeSummary>[
         for (final row in rows)

@@ -197,6 +197,42 @@ void main() {
     expect(picks.chosen, isEmpty, reason: "saved to the next account's server");
   });
 
+  test(
+    "the controls read under one account are never answered to the next",
+    () async {
+      PreferencesStore.debugOverride(InMemoryKeyValueStore());
+      addTearDown(PreferencesStore.debugReset);
+      var session = Object();
+      _SlowPicks.loaded = Completer<void>();
+      final slow = ProviderContainer(
+        overrides: [
+          modelControlChoicesProvider.overrideWith(_SlowPicks.new),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => session),
+        ],
+      );
+      addTearDown(slow.dispose);
+      slow.listen(modelControlChoicesProvider, (_, _) {});
+      slow.read(selectedModelProvider.notifier).set(_agent);
+      final asking = ModelsService(slow)
+          .controls(const ModelControlsQuery(modelId: _agentId));
+      // Another session takes charge while the picks are still read.
+      session = Object();
+      slow.invalidate(openWebUiAuthSessionEpochProvider);
+      slow.read(openWebUiAuthSessionEpochProvider);
+      _SlowPicks.loaded.complete();
+      await expectLater(
+        asking,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+    },
+  );
+
   test('a model without controls has none', () async {
     container
         .read(selectedModelProvider.notifier)

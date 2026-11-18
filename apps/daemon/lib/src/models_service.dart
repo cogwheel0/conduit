@@ -176,6 +176,9 @@ final class ModelsService {
     }
   }
 
+  /// Numbers each model pick: a pick writes only while it is the newest.
+  int _pickTickets = 0;
+
   /// How long Switch waits for the agent's own terminal to answer.
   static const Duration _agentLookupWait = Duration(seconds: 3);
 
@@ -197,7 +200,9 @@ final class ModelsService {
           accountId == currentPreferenceAccountId()) {
         return list;
       }
-      if (attempt > 0) {
+      // A chat is the account's that asked: never listed again, nor looked
+      // up, for the next account.
+      if (attempt > 0 || query.chatId != null) {
         throw const RpcError(
           code: ConduitErrorCodes.sessionExpired,
           debugMessage: 'the account changed while its models were listed',
@@ -207,11 +212,18 @@ final class ModelsService {
   }
 
   Future<ModelList> _list(ModelListQuery query) async {
+    final account = AccountScope.capture(_container);
     final chatId = query.chatId;
     final models = await _models();
     await _accountSettings(wait: _listSettingsWait);
-    final conversation = chatId == null ? null : await _conversation(chatId);
-    final agents = await _agents(conversation, temporary: query.temporary);
+    final conversation = chatId == null
+        ? null
+        : await _conversation(chatId, account);
+    // A named chat that could not be read is not a new chat: its agents are
+    // unknown, so none is offered (an unread chat is never taken for none).
+    final agents = chatId != null && conversation == null
+        ? const <core.Model>[]
+        : await _agents(conversation, temporary: query.temporary);
     // The model the next turn runs with, not the first in the list: the
     // composer shows this, and showing a model the next turn would not
     // actually use is worse than showing none.
@@ -313,17 +325,9 @@ final class ModelsService {
   Future<ModelList> setPinned(SetModelPinned request) async {
     // Pinned for the account that asked: once another is in use, its pins
     // are not changed.
-    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final account = AccountScope.capture(_container);
     await _accountSettings();
-    if (!identical(
-      session,
-      _container.read(openWebUiAuthSessionEpochProvider),
-    )) {
-      throw const RpcError(
-        code: ConduitErrorCodes.sessionExpired,
-        debugMessage: 'the account changed',
-      );
-    }
+    account.require('the pin is made');
     final pinned = _container.read(effectivePinnedModelIdsProvider);
     if (pinned.contains(request.id) != request.pinned) {
       if (!_container.read(canTogglePinnedModelsProvider)) {
@@ -344,15 +348,17 @@ final class ModelsService {
   Future<ModelOptionsDto> options(ModelOptionsQuery query) async {
     // A coding agent is found among its terminal's, and offers none: its
     // effort is a control of its own (`models.controls`).
-    final model = await _controlled(query.modelId, query.chatId);
+    final account = AccountScope.capture(_container);
+    final model = await _controlled(query.modelId, query.chatId, account);
     final options = await _options(model);
+    account.require('the model options are answered');
     // A chat's own saved effort is what its next turn sends: shown for it
     // over the model's pick.
     final chatId = query.chatId;
     if (chatId == null || model == null || !_savedOnChat(model)) {
       return options;
     }
-    final params = (await _conversation(chatId))?.chatParams;
+    final params = (await _conversation(chatId, account))?.chatParams;
     if (params == null || !params.containsKey(kChatParamReasoningEffort)) {
       return options;
     }
@@ -372,20 +378,8 @@ final class ModelsService {
   Future<ModelOptionsDto> setReasoningEffort(SetReasoningEffort request) async {
     // Picked for the account in use now: the pick's key is that account's,
     // so nothing is written once another one, or another server, is.
-    final session = _container.read(openWebUiAuthSessionEpochProvider);
-    final accountId = currentPreferenceAccountId();
-    void sameAccount() {
-      if (!identical(
-            session,
-            _container.read(openWebUiAuthSessionEpochProvider),
-          ) ||
-          accountId != currentPreferenceAccountId()) {
-        throw const RpcError(
-          code: ConduitErrorCodes.sessionExpired,
-          debugMessage: 'the account changed',
-        );
-      }
-    }
+    final account = AccountScope.capture(_container);
+    void sameAccount() => account.require('the reasoning pick is made');
 
     final model = await _model(request.modelId);
     sameAccount();
@@ -409,7 +403,9 @@ final class ModelsService {
     final chatId = request.chatId;
     // The named chat is read before anything changes: one that cannot be
     // read is refused, never taken for a new chat's draft.
-    final conversation = chatId == null ? null : await _conversation(chatId);
+    final conversation = chatId == null
+        ? null
+        : await _conversation(chatId, account);
     if (chatId != null && conversation == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,
@@ -448,13 +444,16 @@ final class ModelsService {
         debugMessage: error.message,
       );
     }
-    return (await _options(model)).copyWith(draft: draft);
+    final options = await _options(model);
+    sameAccount();
+    return options.copyWith(draft: draft);
   }
 
   /// `models.setFastTier`: Hermes' Fast tier for the next turns, until the
   /// model changes (the core resets it then, as on mobile). A turn's scope
   /// takes it when the turn starts.
   Future<ModelOptionsDto> setFastTier(SetFastTier request) async {
+    final account = AccountScope.capture(_container);
     final model = await _model(request.modelId);
     // One switch for the selected model: another model's request would
     // change it for the model in use.
@@ -468,8 +467,11 @@ final class ModelsService {
         debugMessage: 'Fast tier belongs to the selected model that offers it',
       );
     }
+    account.require('the Fast tier is switched');
     _container.read(hermesFastTierSelectionProvider.notifier).set(request.on);
-    return _options(model);
+    final options = await _options(model);
+    account.require('the Fast tier is answered');
+    return options;
   }
 
   bool _savedOnChat(core.Model model) =>
@@ -506,7 +508,13 @@ final class ModelsService {
     return models.where((candidate) => candidate.id == id).firstOrNull;
   }
 
-  Future<Conversation?> _conversation(String chatId) async {
+  /// The chat [chatId], read for [account] only (checked before the read
+  /// and after it), or null when it could not be read.
+  Future<Conversation?> _conversation(
+    String chatId,
+    AccountScope account,
+  ) async {
+    account.require('the chat is read');
     try {
       return await readSettled(
         _container,
@@ -514,14 +522,38 @@ final class ModelsService {
       );
     } on Object {
       return null;
+    } finally {
+      account.require('the chat was read');
     }
   }
 
   Future<ModelList> select(String id, {String? chatId}) async {
-    // The pick is made for the account it was asked under, or not at all.
+    // The pick is made for the account it was asked under, or not at all,
+    // and only while no later pick was asked (newest wins).
     final account = AccountScope.capture(_container);
+    final ticket = ++_pickTickets;
+    void stillTheNewest(String what) {
+      account.require(what);
+      if (ticket != _pickTickets) {
+        throw const RpcError(
+          code: ConduitErrorCodes.conflict,
+          args: <String, String>{'reason': 'superseded'},
+          debugMessage: 'a later model pick was asked',
+        );
+      }
+    }
+
     if (isTerminalAgentModelId(id)) {
-      final conversation = chatId == null ? null : await _conversation(chatId);
+      final conversation = chatId == null
+          ? null
+          : await _conversation(chatId, account);
+      if (chatId != null && conversation == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.notFound,
+          args: <String, String>{'id': chatId},
+          debugMessage: 'no chat $chatId to pick a coding agent for',
+        );
+      }
       final agent =
           (await _agents(conversation))
               .where((candidate) => candidate.id == id)
@@ -536,7 +568,7 @@ final class ModelsService {
           debugMessage: 'the selected terminal does not offer $id here',
         );
       }
-      account.require('the coding agent is selected');
+      stillTheNewest('the coding agent is selected');
       _selectAgent(agent);
       return list(ModelListQuery(chatId: chatId));
     }
@@ -549,7 +581,7 @@ final class ModelsService {
         debugMessage: 'this server does not offer $id',
       );
     }
-    account.require('the model is selected');
+    stillTheNewest('the model is selected');
     _container.read(selectedModelProvider.notifier).set(model);
     return list(ModelListQuery(chatId: chatId));
   }
@@ -635,8 +667,9 @@ final class ModelsService {
   /// `models.controls`: the model's controls, each with the option that
   /// applies now (the user's pick, else the control's default).
   Future<ModelControlList> controls(ModelControlsQuery query) async {
-    final model = await _controlled(query.modelId, query.chatId);
-    return _controlsOf(model);
+    final account = AccountScope.capture(_container);
+    final model = await _controlled(query.modelId, query.chatId, account);
+    return _controlsOf(model, account);
   }
 
   /// `models.setControl`: the pick, saved in the account's Open WebUI
@@ -645,7 +678,8 @@ final class ModelsService {
     // The pick is saved on the server of the account it was made under
     // ([AccountScope]), or nowhere.
     final account = AccountScope.capture(_container);
-    final model = await _controlled(request.modelId, request.chatId);
+    final model = await _controlled(request.modelId, request.chatId, account);
+    account.require('the model control is checked');
     final control = modelControlsOf(model)
         .where((c) => c.key == request.key)
         .firstOrNull;
@@ -678,14 +712,23 @@ final class ModelsService {
         debugMessage: 'the control was not saved: $error',
       );
     }
-    return _controlsOf(model);
+    // Saved for that account: answered only to it, never written again
+    // for another.
+    return _controlsOf(model, account);
   }
 
-  Future<ModelControlList> _controlsOf(core.Model? model) async {
+  /// [model]'s controls with [account]'s picks, answered only while that
+  /// account is in charge.
+  Future<ModelControlList> _controlsOf(
+    core.Model? model,
+    AccountScope account,
+  ) async {
     if (model == null || modelControlsOf(model).isEmpty) {
+      account.require('the model controls are answered');
       return ModelControlList(modelId: model?.id);
     }
     final choices = await _choices();
+    account.require('the model controls are answered');
     return ModelControlList(
       modelId: model.id,
       controls: <ModelControlDto>[
@@ -720,11 +763,18 @@ final class ModelsService {
 
   /// The model [id] names (the selection for null), a coding agent among
   /// them: the selected one, else one the terminal offers [chatId].
-  Future<core.Model?> _controlled(String? id, String? chatId) async {
+  Future<core.Model?> _controlled(
+    String? id,
+    String? chatId,
+    AccountScope account,
+  ) async {
     final selected = await currentModel(_container);
     if (id == null || selected?.id == id) return selected;
     if (isTerminalAgentModelId(id)) {
-      final conversation = chatId == null ? null : await _conversation(chatId);
+      final conversation = chatId == null
+          ? null
+          : await _conversation(chatId, account);
+      if (chatId != null && conversation == null) return null;
       return (await _agents(conversation))
           .where((candidate) => candidate.id == id)
           .firstOrNull;

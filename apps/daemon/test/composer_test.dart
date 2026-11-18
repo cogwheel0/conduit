@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
@@ -45,6 +46,59 @@ void main() {
       expect(video.youtube, isTrue);
       expect(video.error, 'failed');
       expect(video.attachment, isNull);
+    },
+  );
+
+  test(
+    "the composer's options never read a chat once another account took "
+    'charge',
+    () async {
+      var primary = const PrimaryAccountRef(
+        PrimaryAccountKind.openWebUi,
+        'server-ada',
+      );
+      final listed = Completer<void>();
+      final asked = Completer<void>();
+      final reads = <String>[];
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          primaryAccountProvider.overrideWith((ref) => primary),
+          secureStorageProvider.overrideWithValue(
+            _HeldSecureStore(asked, listed.future),
+          ),
+          loadConversationProvider.overrideWith((ref, id) async {
+            reads.add(id);
+            throw StateError('not kept here');
+          }),
+        ],
+        retry: (_, _) => null,
+      );
+      addTearDown(container.dispose);
+      final options = ComposerService(
+        container,
+      ).options(const ComposerOptionsQuery(chatId: 'chat-ada'));
+      // The MCP servers are still being read when another account takes
+      // charge.
+      await asked.future;
+      primary = const PrimaryAccountRef(
+        PrimaryAccountKind.openWebUi,
+        'server-bo',
+      );
+      container.invalidate(primaryAccountProvider);
+      container.read(primaryAccountProvider);
+      listed.complete();
+      await expectLater(
+        options,
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
+      expect(reads, isEmpty, reason: "Ada's chat was read for Bo");
     },
   );
 
@@ -321,4 +375,20 @@ void main() {
       },
     );
   });
+}
+
+/// A secure store whose reads (the MCP servers' list among them) wait for
+/// [listed]; [asked] marks the first read.
+final class _HeldSecureStore extends InMemorySecureKeyValueStore {
+  _HeldSecureStore(this.asked, this.listed);
+
+  final Completer<void> asked;
+  final Future<void> listed;
+
+  @override
+  Future<String?> read({required String key}) async {
+    if (!asked.isCompleted) asked.complete();
+    await listed;
+    return super.read(key: key);
+  }
 }

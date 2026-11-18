@@ -45,8 +45,12 @@ void main() {
   late Object epoch;
   late Completer<void> modelsListed;
   late Completer<void> agentsListed;
+  late Completer<void> agentsAsked;
+  var agentBuilds = 0;
 
   setUp(() {
+    agentsAsked = Completer<void>();
+    agentBuilds = 0;
     api = _Api();
     epoch = Object();
     modelsListed = Completer<void>()..complete();
@@ -72,6 +76,10 @@ void main() {
         foldersProvider.overrideWith(_Folders.new),
         automationTerminalsProvider.overrideWith((ref) async => _benches),
         automationAgentModelsProvider.overrideWith((ref, query) async {
+          // Asked on the account's server, as the core's lookup is.
+          ref.watch(apiServiceProvider);
+          agentBuilds++;
+          if (!agentsAsked.isCompleted) agentsAsked.complete();
           await agentsListed.future;
           return <core.Model>[
             core.Model(
@@ -91,6 +99,36 @@ void main() {
     c.invalidate(openWebUiAuthSessionEpochProvider);
   }
 
+  test(
+    'an open editor asks for no agents once another account signed in',
+    () async {
+      final c = container();
+      await c.read(activeServerProvider.future);
+      final service = AutomationsService(c);
+      addTearDown(service.dispose);
+      api.withTerminal = true;
+      final open = await service.editor(const AutomationEditorOpen(id: 't1'));
+      expect(agentBuilds, 1);
+      // Another account signs in, on a server of its own.
+      signInAnother(c);
+      c.invalidate(apiServiceProvider);
+      await c.pump();
+      expect(agentBuilds, 1, reason: "Ava's task asked of the next server");
+      await expectLater(
+        service.terminals(
+          AutomationDraftEdit(token: open.token, fields: open.fields),
+        ),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.args['reason'],
+            'reason',
+            'editorClosed',
+          ),
+        ),
+      );
+    },
+  );
+
   group("a task editor's answer after the terminal's agents load", () {
     test('is refused once another account signed in', () async {
       final c = container();
@@ -101,8 +139,7 @@ void main() {
       // Opening: the task's terminal is slow to list its agents.
       agentsListed = Completer<void>();
       final opening = service.editor(const AutomationEditorOpen(id: 't1'));
-      await api.asked.future;
-      await pumpEventQueue();
+      await agentsAsked.future;
       signInAnother(c);
       agentsListed.complete();
       await expectLater(opening, _accountChanged);
@@ -114,13 +151,14 @@ void main() {
       addTearDown(second.dispose);
       final open = await second.editor(const AutomationEditorOpen(id: 't1'));
       agentsListed = Completer<void>();
+      agentsAsked = Completer<void>();
       final listing = second.terminals(
         AutomationDraftEdit(
           token: open.token,
           fields: open.fields.copyWith(workingDirectory: '/srv/other'),
         ),
       );
-      await pumpEventQueue();
+      await agentsAsked.future;
       signInAnother(c2);
       agentsListed.complete();
       await expectLater(listing, _accountChanged);
@@ -134,8 +172,7 @@ void main() {
       api.withTerminal = true;
       agentsListed = Completer<void>();
       final opening = service.editor(const AutomationEditorOpen(id: 't1'));
-      await api.asked.future;
-      await pumpEventQueue(times: 50);
+      await agentsAsked.future;
       // Eight more editors open (new tasks: no terminal to wait for), and
       // the first is the oldest.
       for (var i = 0; i < 8; i++) {

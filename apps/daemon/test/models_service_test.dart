@@ -172,6 +172,11 @@ final class _AgentsApi extends ApiService {
 
   final asked = <String>[];
 
+  /// North's answers wait for this while it is set; [northAsked] marks the
+  /// question reaching it.
+  Completer<void>? held;
+  final northAsked = Completer<void>();
+
   @override
   Future<List<core.Model>> getTerminalAgentModels({
     required String terminalId,
@@ -183,6 +188,10 @@ final class _AgentsApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     asked.add(terminalId);
+    if (terminalId == 'north') {
+      if (!northAsked.isCompleted) northAsked.complete();
+      await held?.future;
+    }
     return terminalId == 'north'
         ? const [core.Model(id: _northAgent, name: 'Codex · gpt-test')]
         : const <core.Model>[];
@@ -206,9 +215,18 @@ Conversation _conversation(String id) => Conversation(
 /// The session the agent tests' container reads; another sign-in replaces it.
 Object _session = Object();
 
+/// The chats read, in order; a read waits for [_chatHeld] while it is set,
+/// and `gone-chat` cannot be read.
+final _chatReads = <String>[];
+Completer<void>? _chatHeld;
+Completer<void> _chatAsked = Completer<void>();
+
 /// A container for the agent tests: [api]'s terminals, with south selected.
 ProviderContainer _agentContainer(_AgentsApi api) {
   _session = Object();
+  _chatReads.clear();
+  _chatHeld = null;
+  _chatAsked = Completer<void>();
   final container = ProviderContainer(
     overrides: [
       openWebUiAuthSessionEpochProvider.overrideWith((ref) => _session),
@@ -218,9 +236,13 @@ ProviderContainer _agentContainer(_AgentsApi api) {
       openWebUiAccountAvailableProvider.overrideWithValue(true),
       terminalAgentsSupportedProvider.overrideWithValue(true),
       terminalAvailableServersProvider.overrideWith((ref) async => _terminals),
-      loadConversationProvider.overrideWith(
-        (ref, id) async => _conversation(id),
-      ),
+      loadConversationProvider.overrideWith((ref, id) async {
+        _chatReads.add(id);
+        if (!_chatAsked.isCompleted) _chatAsked.complete();
+        await _chatHeld?.future;
+        if (id == 'gone-chat') throw StateError('no chat $id here');
+        return _conversation(id);
+      }),
     ],
     retry: (_, _) => null,
   );
@@ -233,6 +255,9 @@ ProviderContainer _agentContainer(_AgentsApi api) {
 }
 
 void main() {
+  Matcher refused(String code) =>
+      throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
   group('a chat started with a coding agent', () {
     const listed = ModelListQuery(chatId: 'agent-chat');
 
@@ -263,6 +288,48 @@ void main() {
           .list(const ModelListQuery(chatId: 'plain-chat'));
       expect(list.chatAgent, isNull);
     });
+  });
+
+  group("a chat's own requests", () {
+    test('are never made again for the next account', () async {
+      final container = _agentContainer(_AgentsApi());
+      _chatHeld = Completer<void>();
+      final listing = ModelsService(container)
+          .list(const ModelListQuery(chatId: 'plain-chat'));
+      await _chatAsked.future;
+      _session = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      _chatHeld!.complete();
+      await expectLater(listing, refused(ConduitErrorCodes.sessionExpired));
+      expect(_chatReads, <String>['plain-chat'], reason: 'read again for B');
+    });
+
+    test('offer no agents for a chat that could not be read', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      final list = await models.list(const ModelListQuery(chatId: 'gone-chat'));
+      expect(list.agents, isEmpty);
+      await expectLater(
+        models.select(_northAgent, chatId: 'gone-chat'),
+        refused(ConduitErrorCodes.notFound),
+      );
+      expect(container.read(selectedModelProvider)?.id, 'first-model');
+    });
+  });
+
+  test('a slower pick never replaces a later one', () async {
+    final api = _AgentsApi()..held = Completer<void>();
+    final container = _agentContainer(api);
+    final models = ModelsService(container);
+    // Switch to the chat's agent, asked of north, which is slow.
+    final first = models.select(_northAgent, chatId: 'agent-chat');
+    await api.northAsked.future;
+    await models.select('preferred-model', chatId: 'plain-chat');
+    api.held!.complete();
+    await expectLater(first, refused(ConduitErrorCodes.conflict));
+    expect(container.read(selectedModelProvider)?.id, 'preferred-model');
+    expect(container.read(selectedTerminalIdProvider), 'south');
   });
 
   test('another terminal announces another list, the model unchanged', () {
@@ -329,9 +396,6 @@ void main() {
     expect(list.models, hasLength(2));
     expect(list.selectedId, isNull);
   });
-
-  Matcher refused(String code) =>
-      throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
 
   test(
     'a reasoning pick asked under one account is not made under the next',

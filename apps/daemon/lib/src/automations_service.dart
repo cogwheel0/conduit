@@ -17,6 +17,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart' show accountSwitchCountProvider;
 import 'event_bus.dart';
 import 'models_service.dart' show terminalAgentDto;
 import 'settled.dart';
@@ -44,6 +45,11 @@ final class AutomationsService {
   final int _pollLimit;
 
   ProviderSubscription<AsyncValue<AutomationsData>>? _watch;
+
+  /// Follows account changes while editors are open: each editor, with the
+  /// agent lookups it keeps, is the account's that opened it, so another
+  /// account in charge closes them all (a lookup never runs for it).
+  ProviderSubscription<int>? _accountWatch;
   final Map<String, _TaskEditor> _editors = <String, _TaskEditor>{};
   static const int _maxEditors = 8;
   final Random _random = Random.secure();
@@ -64,6 +70,8 @@ final class AutomationsService {
   void dispose() {
     _watch?.close();
     _watch = null;
+    _accountWatch?.close();
+    _accountWatch = null;
     for (final timer in _polls.values) {
       timer.cancel();
     }
@@ -111,12 +119,18 @@ final class AutomationsService {
         data == null) {
       await _notifier.refresh(owner: owner, query: query.query, status: status);
     }
+    // The list is the account's that asked, or none.
+    if (!_notifier.isCurrentOwner(owner)) {
+      return const AutomationList(failure: 'accountChanged');
+    }
     return _listOf(_container.read(automationsProvider));
   }
 
   Future<AutomationList> loadMore() async {
     await _requireData();
-    await _notifier.loadMore(owner: _owner());
+    final owner = _owner();
+    await _notifier.loadMore(owner: owner);
+    _stillCurrent(owner);
     return _listOf(_container.read(automationsProvider));
   }
 
@@ -146,9 +160,11 @@ final class AutomationsService {
 
   Future<AutomationRuns> runs(AutomationRunsQuery query) async {
     await _requireData();
+    final owner = _owner();
     final page = await _guard(
-      () => _notifier.runs(query.id, skip: query.skip, owner: _owner()),
+      () => _notifier.runs(query.id, skip: query.skip, owner: owner),
     );
+    _stillCurrent(owner);
     return AutomationRuns(
       items: [for (final run in page) _runDto(run)],
       hasMore: page.length >= automationRunsPageSize,
@@ -157,15 +173,19 @@ final class AutomationsService {
 
   Future<AutomationDetail> setActive(AutomationToggle toggle) async {
     await _requireData();
+    final owner = _owner();
     final task = await _guard(
-      () => _notifier.setActive(toggle.id, toggle.active, owner: _owner()),
+      () => _notifier.setActive(toggle.id, toggle.active, owner: owner),
     );
+    _stillCurrent(owner);
     return _detailOf(task);
   }
 
   Future<AutomationList> delete(AutomationRef ref) async {
     await _requireData();
-    await _guard(() => _notifier.remove(ref.id, owner: _owner()));
+    final owner = _owner();
+    await _guard(() => _notifier.remove(ref.id, owner: owner));
+    _stillCurrent(owner);
     _polls.remove(ref.id)?.cancel();
     _progress.remove(ref.id);
     _progressOwner.remove(ref.id);
@@ -334,6 +354,11 @@ final class AutomationsService {
       (_) => _random.nextInt(36).toRadixString(36),
     ).join();
     final editor = _TaskEditor(_container, owner, draft, options, terminals);
+    _accountWatch ??= _container.listen<int>(
+      accountSwitchCountProvider,
+      (_, _) => _closeEditors(),
+      onError: (_, _) {},
+    );
     _editors[token] = editor;
     while (_editors.length > _maxEditors) {
       _editors.remove(_editors.keys.first)?.close();
@@ -521,12 +546,21 @@ final class AutomationsService {
   /// it is closed too). A save meanwhile replaces it with the editor of the
   /// saved task, which is the one answered for.
   _TaskEditor _heldAfterWait(String token, _TaskEditor editor) {
-    final now = _editor(token);
-    if (!_notifier.isCurrentOwner(now.owner)) {
-      if (identical(_editors[token], now)) _editors.remove(token)?.close();
-      _stillCurrent(now.owner);
+    for (final held in [editor, ?_editors[token]]) {
+      if (!_notifier.isCurrentOwner(held.owner)) {
+        if (identical(_editors[token], held)) _editors.remove(token)?.close();
+        _stillCurrent(held.owner);
+      }
     }
-    return now;
+    return _editor(token);
+  }
+
+  /// Closes every open editor (another account is in charge).
+  void _closeEditors() {
+    for (final editor in _editors.values) {
+      editor.close();
+    }
+    _editors.clear();
   }
 
   _TaskEditor _editor(String token) =>
