@@ -112,6 +112,36 @@ class _UploadApi extends ApiService {
   }) async => existingFiles;
 }
 
+/// A store that counts the recordings it is asked to stage.
+class _CountingStore extends NoteAudioUploadStore {
+  _CountingStore({
+    required super.applicationSupportDirectory,
+    required super.temporaryDirectory,
+  });
+
+  int stages = 0;
+
+  @override
+  Future<PendingNoteAudioUpload> stage({
+    required File source,
+    required String serverId,
+    String accountId = '',
+    required String noteId,
+    required String fileName,
+    String? pageId,
+  }) {
+    stages++;
+    return super.stage(
+      source: source,
+      serverId: serverId,
+      accountId: accountId,
+      noteId: noteId,
+      fileName: fileName,
+      pageId: pageId,
+    );
+  }
+}
+
 /// A store whose account-wide scan waits until the test lets it finish.
 class _HeldScanStore extends NoteAudioUploadStore {
   _HeldScanStore({
@@ -319,6 +349,34 @@ void main() {
   });
 
   group('NoteAttachmentsController', () {
+    test('a recording asked to be kept after close starts nothing', () async {
+      final counting = _CountingStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      );
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: counting,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await controller.close();
+
+      final kept = await controller.stage(await recording('late.m4a'));
+
+      check(kept).isFalse();
+      check(counting.stages).equals(0);
+    });
+
     test('close waits for a recording being moved to a recovered note',
         () async {
       final held = _HeldScanStore(

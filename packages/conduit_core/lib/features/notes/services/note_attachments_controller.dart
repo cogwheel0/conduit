@@ -189,9 +189,13 @@ class NoteAttachmentsController {
     settled.whenComplete(() => _running.remove(settled));
   }
 
-  /// [work], one of this controller's writers (a stage, a retry, a reload,
-  /// a removal, a rebind), registered for [close] whoever started it.
-  Future<T> _tracked<T>(Future<T> work) {
+  /// Runs [writer], one of this controller's writers (a stage, a retry, a
+  /// reload, a removal, a rebind), registered for [close] whoever started
+  /// it -- or, once the controller is disposed, nothing at all: [closed] is
+  /// the answer, and no file is touched after [close] has returned.
+  Future<T> _admit<T>(Future<T> Function() writer, T closed) {
+    if (_disposed) return Future<T>.value(closed);
+    final Future<T> work = writer();
     _track(work);
     return work;
   }
@@ -253,7 +257,7 @@ class NoteAttachmentsController {
   /// [pageId] is the page the recording was started on; by default the page
   /// shown now.
   Future<bool> stage(File audioFile, {String? pageId}) =>
-      _tracked(_stage(audioFile, pageId: pageId));
+      _admit(() => _stage(audioFile, pageId: pageId), false);
 
   Future<bool> _stage(File audioFile, {String? pageId}) async {
     final Note? note = _currentNote();
@@ -309,7 +313,7 @@ class NoteAttachmentsController {
 
   /// Reads the recordings this note (and the ids it was remapped from) still
   /// has on disk, and retries them when online.
-  Future<void> loadPending() => _tracked(_loadPending());
+  Future<void> loadPending() => _admit<void>(_loadPending, null);
 
   Future<void> _loadPending() async {
     final Note? note = _currentNote();
@@ -401,7 +405,7 @@ class NoteAttachmentsController {
   /// Uploads and attaches [ids] (every pending recording by default), one at
   /// a time. [showFeedback] words the outcome to the user.
   Future<void> retry({Iterable<String>? ids, bool showFeedback = false}) =>
-      _tracked(_retry(ids: ids, showFeedback: showFeedback));
+      _admit<void>(() => _retry(ids: ids, showFeedback: showFeedback), null);
 
   Future<void> _retry({
     Iterable<String>? ids,
@@ -560,7 +564,8 @@ class NoteAttachmentsController {
 
   /// Removes a pending recording the user chose to delete (after asking).
   /// Nothing happens while it uploads, or once the server owns its bytes.
-  Future<void> removePending(String id) => _tracked(_removePending(id));
+  Future<void> removePending(String id) =>
+      _admit<void>(() => _removePending(id), null);
 
   Future<void> _removePending(String id) async {
     if (_inFlight.contains(id)) return;
@@ -972,7 +977,7 @@ class NoteAttachmentsController {
   /// others stay with [previous], stored for when it is opened again, and
   /// leave this editor, which shows [recovered] from now on.
   Future<void> rebindTo(Note previous, Note recovered, {String? pageId}) =>
-      _tracked(_rebindTo(previous, recovered, pageId: pageId));
+      _admit<void>(() => _rebindTo(previous, recovered, pageId: pageId), null);
 
   Future<void> _rebindTo(
     Note previous,
