@@ -60,7 +60,22 @@ pub struct ApprovalsView {
     _clarify_subscriptions: Vec<Subscription>,
     /// The last request drawn, shown while its card leaves.
     last: Option<UiRequest>,
+    /// What was typed into a card that left the screen while it still
+    /// waits (another chat's question showed, or none does), by request:
+    /// given back when it shows again. A secret is not kept: it lives in
+    /// its field only while its card is on screen.
+    parked: HashMap<String, Parked>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// A waiting card's typing, kept while another card is on screen.
+#[derive(Clone, Default)]
+struct Parked {
+    input: String,
+    selected: usize,
+    confirming_always: bool,
+    clarify: HashMap<String, ClarifyDraft>,
+    clarify_text: HashMap<String, String>,
 }
 
 impl ApprovalsView {
@@ -104,6 +119,7 @@ impl ApprovalsView {
             clarify_inputs: HashMap::new(),
             _clarify_subscriptions: vec![],
             last: None,
+            parked: HashMap::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -145,6 +161,7 @@ impl ApprovalsView {
             }
             return;
         }
+        self.park(cx);
         self.for_request = Some(top.request_id.clone());
         // A select starts on the value the server offered, if it names one.
         self.selected = match card(top) {
@@ -205,6 +222,48 @@ impl ApprovalsView {
                 i.focus(window, cx);
             });
         }
+        // Shown again: what was typed into it before it left.
+        if let Some(parked) = self.parked.remove(&top.request_id) {
+            if !parked.input.is_empty() {
+                self.input
+                    .update(cx, |i, cx| i.set_value(parked.input, window, cx));
+            }
+            self.selected = parked.selected;
+            self.confirming_always = parked.confirming_always;
+            self.clarify = parked.clarify;
+            for (id, text) in parked.clarify_text {
+                if let Some(state) = self.clarify_inputs.get(&id) {
+                    state.update(cx, |i, cx| i.set_value(text, window, cx));
+                }
+            }
+        }
+    }
+
+    /// Keeps the typing of the card on screen, while its request still
+    /// waits, for when it shows again; forgets what was kept for requests
+    /// gone since.
+    fn park(&mut self, cx: &App) {
+        let queue = &self.stores.ui_requests.read(cx).queue;
+        self.parked
+            .retain(|id, _| queue.iter().any(|r| &r.request_id == id));
+        let Some(id) = self.for_request.clone() else {
+            return;
+        };
+        if !queue.iter().any(|r| r.request_id == id) {
+            return;
+        }
+        let parked = Parked {
+            input: forms::raw(&self.input, cx),
+            selected: self.selected,
+            confirming_always: self.confirming_always,
+            clarify: self.clarify.clone(),
+            clarify_text: self
+                .clarify_inputs
+                .iter()
+                .map(|(q, state)| (q.clone(), forms::raw(state, cx)))
+                .collect(),
+        };
+        self.parked.insert(id, parked);
     }
 
     /// The own-words field of form question `q`.
@@ -1105,6 +1164,7 @@ impl Render for ApprovalsView {
         );
         let reduce = cx.reduce_motion();
         let Some(top) = top else {
+            self.park(cx);
             self.for_request = None;
             // Leaving: the last card, as it was, taking nothing.
             if shown.visible
@@ -1133,7 +1193,9 @@ impl Render for ApprovalsView {
             (
                 u.shown_count(chat.as_deref()),
                 u.answering.contains(&top.request_id),
-                u.error.clone(),
+                u.error
+                    .clone()
+                    .filter(|_| u.error_for.as_deref() == Some(top.request_id.as_str())),
                 u.hermes_failed.contains(&top.request_id),
             )
         };
@@ -1534,6 +1596,67 @@ mod replay_tests {
             daemon.calls::<conduit_protocol::methods::UiRespond>().len(),
             1
         );
+    }
+
+    /// A prompt's typed answer outlives another chat's question taking the
+    /// card for a while: it is there again when the prompt shows again.
+    #[gpui_kit::test]
+    fn typing_survives_another_chats_question_taking_the_card(cx: &mut TestAppContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-approvals-park-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&scratch);
+        let rpc = FakeDaemon::new().rpc();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install(
+                ConduitTheme::new("conduit", false, DesignPrefs::default(), gpui_kit::black()),
+                cx,
+            );
+            cx.set_global(conduit_components::Strings::default());
+            cx.set_global(L10n::new("en"));
+        });
+        let stores = cx.update(|cx| crate::fixture::stores(rpc, &scratch, cx));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| ApprovalsView::new(s, window, cx));
+        let mut held = hermes("m", UiRequestKind::HermesModelSwitch, "", json!({}));
+        held.message_args
+            .insert("model".into(), "Heron Large".into());
+        held.detail = json!({"chatId": "local:hermes_a"});
+        let prompt = UiRequest {
+            request_id: "p".into(),
+            kind: UiRequestKind::InputPrompt,
+            message_code: "ui.input".into(),
+            message_args: BTreeMap::from([("title".to_string(), "Name the bed".to_string())]),
+            detail: json!({}),
+            timeout_ms: Some(300_000),
+            default_choice: "cancel".into(),
+            input_type: None,
+            options: None,
+        };
+        stores.ui_requests.update(vcx, |u, cx| {
+            u.on_request(held, cx);
+            u.on_request(prompt, cx);
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_b", cx));
+        draw(vcx);
+        let field = view.read_with(vcx, |v, _| v.input.clone());
+        vcx.update(|window, cx| field.update(cx, |i, cx| i.set_value("North bed", window, cx)));
+        draw(vcx);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_a", cx));
+        draw(vcx);
+        assert_eq!(
+            view.read_with(vcx, |v, _| v.for_request.clone()).as_deref(),
+            Some("m")
+        );
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_b", cx));
+        draw(vcx);
+        assert_eq!(value(&field, vcx), "North bed", "the typed answer was lost");
     }
 
     #[gpui_kit::test]

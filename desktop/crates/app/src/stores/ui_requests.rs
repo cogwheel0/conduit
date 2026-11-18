@@ -460,6 +460,9 @@ pub struct UiRequestsStore {
     /// Requests answered here whose `ui.settled` has not arrived yet.
     pub answering: HashSet<String>,
     pub error: Option<RpcError>,
+    /// The request whose answer [`Self::error`] is about: its card says so,
+    /// and no other.
+    pub error_for: Option<String>,
     /// Hermes questions whose answer did not arrive (the card says so and
     /// stays, to be answered again).
     pub hermes_failed: HashSet<String>,
@@ -474,6 +477,7 @@ impl UiRequestsStore {
             queue: vec![],
             answering: HashSet::new(),
             error: None,
+            error_for: None,
             hermes_failed: HashSet::new(),
         }
     }
@@ -549,6 +553,7 @@ impl UiRequestsStore {
             return;
         }
         self.error = None;
+        self.error_for = None;
         let id = request_id.to_string();
         let call = self.rpc.call::<methods::UiRespond>(&UiResponse {
             request_id: id.clone(),
@@ -567,6 +572,7 @@ impl UiRequestsStore {
                         log::warn!("ui.respond: {e}");
                         s.answering.remove(&id);
                         s.error = Some(e);
+                        s.error_for = Some(id.clone());
                     }
                 }
                 cx.notify();
@@ -596,6 +602,7 @@ impl UiRequestsStore {
         }
         self.hermes_failed.remove(request_id);
         self.error = None;
+        self.error_for = None;
         let id = request_id.to_string();
         let call = self
             .rpc
@@ -868,6 +875,28 @@ mod tests {
             daemon.calls::<methods::UiRespond>()[1],
             json!({"requestId": "b", "choice": "deny", "remember": false})
         );
+    }
+
+    /// An answer that did not arrive is said on its own card only: the
+    /// next card shown (another chat's) is not marked failed.
+    #[gpui_kit::test]
+    fn a_failed_answer_is_said_on_its_own_card(cx: &mut gpui_kit::TestAppContext) {
+        let daemon = crate::stores::rpc::fake::FakeDaemon::new();
+        daemon.once::<methods::UiRespond>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "no answer",
+        )));
+        let store = cx.new(|_| UiRequestsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.on_request(request("a", UiRequestKind::ToolApproval, &[]), cx);
+            s.on_request(request("b", UiRequestKind::ToolApproval, &[]), cx);
+            s.respond("a", Answer::new("allow"), false, cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.error.is_some());
+            assert_eq!(s.error_for.as_deref(), Some("a"));
+        });
     }
 
     #[test]
