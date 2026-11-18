@@ -108,16 +108,27 @@ final class ModelsService {
     }
   }
 
-  /// Per account (its preference id), per chat (null: the New Chat slot),
-  /// the model picked there: the one record of each chat's selection. A
-  /// chat with no pick of its own has the account's default (never an
-  /// agent picked for another chat); another account never sees it.
-  final Map<String, Map<String?, core.Model>> _picks =
-      <String, Map<String?, core.Model>>{};
+  /// Per account ([AccountScope.identity]: the server and user, the
+  /// LibreChat account, whichever backend is in charge), per chat (null:
+  /// the New Chat slot), the model picked there: the one record of each
+  /// chat's selection. A chat with no pick of its own has the account's
+  /// default (never an agent picked for another chat); another account
+  /// never sees it.
+  final Map<Object, Map<String?, _Pick>> _picks =
+      <Object, Map<String?, _Pick>>{};
 
-  /// The picks of the account in charge now.
-  Map<String?, core.Model> _picksNow() =>
-      _picks.putIfAbsent(currentPreferenceAccountId() ?? '', () => {});
+  /// The revision the newest pick was written at: every pick written takes
+  /// the next one, so a write begun earlier tells a newer pick from its own.
+  int _revision = 0;
+
+  /// The picks of [account].
+  Map<String?, _Pick> _picksOf(AccountScope account) =>
+      _picks.putIfAbsent(account.identity, () => <String?, _Pick>{});
+
+  /// [model] as [chatId]'s pick for [account], at a new revision.
+  void _pick(AccountScope account, String? chatId, core.Model model) {
+    _picksOf(account)[_now(chatId)] = _Pick(model, ++_revision);
+  }
 
   /// Chat ids that moved (`route.remap`), old to new.
   final Map<String, String> _moved = <String, String>{};
@@ -134,7 +145,8 @@ final class ModelsService {
     return id;
   }
 
-  /// A chat's id moved (`route.remap`): its pick moves with it.
+  /// A chat's id moved (`route.remap`): its pick moves with it, unless a
+  /// newer one was already made under the new id.
   void _followRemaps(EventBus events) {
     events.tap((event, _, payload) {
       if (event != ConduitEvents.routeRemap) return;
@@ -142,25 +154,60 @@ final class ModelsService {
       _moved[remap.fromId] = remap.toId;
       for (final picks in _picks.values) {
         final pick = picks.remove(remap.fromId);
-        if (pick != null) picks[remap.toId] = pick;
+        if (pick != null) _land(picks, remap.toId, pick);
       }
     });
   }
 
-  /// A turn was sent ([fromChat] null: from New Chat) and went to [toChat]:
-  /// New Chat's pick is that new chat's now (the next New Chat starts with
-  /// none), and a coding agent the turn named is the chat's pick.
-  void sent({
-    required String? fromChat,
-    required String toChat,
-    String? model,
-  }) {
-    final picks = _picksNow();
-    final slot = fromChat == null ? picks.remove(null) : null;
-    if (model == null || !isTerminalAgentModelId(model)) return;
-    picks[_now(toChat)] = slot?.id == model
-        ? slot!
-        : core.Model(id: model, name: terminalAgentDisplayName(model) ?? model);
+  /// [pick] as [chatId]'s in [picks], unless a pick newer than it is there.
+  void _land(Map<String?, _Pick> picks, String chatId, _Pick pick) {
+    final there = picks[_now(chatId)];
+    if (there != null && there.revision > pick.revision) return;
+    picks[_now(chatId)] = pick;
+  }
+
+  /// A turn is about to be sent from [fromChat] (null: from New Chat): what
+  /// its landing may move, captured before it waits to be admitted.
+  ModelSend sending(String? fromChat) {
+    final account = AccountScope.capture(_container);
+    return ModelSend._(
+      account,
+      fromChat,
+      fromChat == null ? _picksOf(account)[null] : null,
+      _revision,
+    );
+  }
+
+  /// [send] was admitted and went to [toChat], with [model].
+  ///
+  /// A turn in a chat that exists changes no pick: a pick is made by
+  /// `models.select` alone, and a send that lands after a later one would
+  /// otherwise take it back. A turn from New Chat makes the chat: New
+  /// Chat's pick, of any kind, as it was when the turn was sent, is that
+  /// chat's now, and leaves New Chat unless New Chat was picked again
+  /// meanwhile. A coding agent the turn named with none picked is the
+  /// chat's too. Either lands only where no newer pick was made, and only
+  /// while the account the turn was sent under is still the one in charge,
+  /// with nothing changed in between: otherwise nothing is written.
+  void sent(ModelSend send, {required String toChat, String? model}) {
+    if (send._fromChat != null || !send._account.isCurrent) return;
+    final picks = _picksOf(send._account);
+    final slot = send._slot;
+    if (slot != null && picks[null]?.revision == slot.revision) {
+      picks.remove(null);
+    }
+    final made = slot != null && slot.model.id == model
+        ? slot
+        : model != null && isTerminalAgentModelId(model)
+        ? _Pick(
+            core.Model(
+              id: model,
+              name: terminalAgentDisplayName(model) ?? model,
+            ),
+            send._revision,
+          )
+        : null;
+    if (made != null) _land(picks, toChat, made);
   }
 
   final ProviderContainer _container;
@@ -308,7 +355,7 @@ final class ModelsService {
     // The chat's own pick (kept here, the one record), else the account's
     // default: an agent the account picked elsewhere is never this chat's,
     // and a temporary chat runs no agent.
-    final pick = _picksNow()[_now(chatId)];
+    final pick = _picksOf(account)[_now(chatId)]?.model;
     final agentPick = pick != null && isTerminalAgentModel(pick);
     final selected = pick != null && !(agentPick && query.temporary)
         ? pick
@@ -439,7 +486,11 @@ final class ModelsService {
           .read(personalizationSettingsProvider.notifier)
           .togglePinnedModel(request.id);
     }
-    return list(ModelListQuery(chatId: request.chatId));
+    // Answered for the account that pinned, right after the pin's last
+    // wait: once another is in charge, its chat is never looked up (the
+    // window lists its open chat again itself).
+    account.require('the pin is answered');
+    return _answerPick(request.chatId, account);
   }
 
   /// `models.options`: reasoning effort (an Ollama model's thinking level)
@@ -673,7 +724,7 @@ final class ModelsService {
       }
       stillTheNewest('the coding agent is selected');
       _selectAgent(agent);
-      _picksNow()[_now(chatId)] = agent;
+      _pick(account, chatId, agent);
       return _answerPick(chatId, account);
     }
     final models = await _models();
@@ -687,7 +738,7 @@ final class ModelsService {
     }
     stillTheNewest('the model is selected');
     _container.read(selectedModelProvider.notifier).set(model);
-    _picksNow()[_now(chatId)] = model;
+    _pick(account, chatId, model);
     return _answerPick(chatId, account);
   }
 
@@ -702,27 +753,35 @@ final class ModelsService {
 
   /// The model a turn in [chatId] (null: a new chat) runs with when it
   /// names none: that chat's own pick, else the coding agent it was saved
-  /// with, else the account's default; never an agent picked for another
-  /// chat.
-  Future<String?> modelFor(String? chatId) async {
+  /// with, else a regular model (the account's selection when it is one,
+  /// else its default, else the first). Never an agent picked for another
+  /// chat: with no regular model left, the turn is refused.
+  Future<String> modelFor(String? chatId) async {
     final account = AccountScope.capture(_container);
-    final pick = _picksNow()[_now(chatId)];
+    final pick = _picksOf(account)[_now(chatId)]?.model;
     if (pick != null) return pick.id;
     if (chatId != null) {
       final saved = (await _conversation(chatId, account))?.model;
-      if (isTerminalAgentModelId(saved)) return saved;
+      if (saved != null && isTerminalAgentModelId(saved)) return saved;
     }
     final current = await currentModel(_container);
     account.require('the model in use is read');
-    if (current == null || !isTerminalAgentModel(current)) return current?.id;
+    if (current != null && !isTerminalAgentModel(current)) return current.id;
     final models = await _models();
     account.require('the model in use is read');
-    return _regularDefault(models)?.id;
+    final regular = _regularDefault(models);
+    if (regular == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'no model this chat can run with',
+      );
+    }
+    return regular.id;
   }
 
-  /// The account's default model among [models], else the first: for a
-  /// chat with no pick while the account's selection is another chat's
-  /// coding agent.
+  /// The account's default model among [models]' regular ones, else the
+  /// first of them: for a chat with no pick while the account's selection is
+  /// another chat's coding agent (or none). Never a coding agent.
   core.Model? _regularDefault(List<core.Model> models) {
     String? id;
     try {
@@ -730,7 +789,8 @@ final class ModelsService {
     } on Object {
       // No default to read: the first model.
     }
-    return models.where((m) => m.id == id).firstOrNull ?? models.firstOrNull;
+    final regular = models.where((m) => !isTerminalAgentModel(m));
+    return regular.where((m) => m.id == id).firstOrNull ?? regular.firstOrNull;
   }
 
   /// [agent] for the next turns, on its own terminal (picking an agent
@@ -936,7 +996,7 @@ final class ModelsService {
     if (isTerminalAgentModelId(id)) {
       // The chat's own agent, as it was picked there, else asked of its own
       // terminal: never the terminal the account selected for another chat.
-      final pick = _picksNow()[_now(chatId)];
+      final pick = _picksOf(account)[_now(chatId)]?.model;
       if (pick?.id == id) return pick;
       final conversation = chatId == null
           ? null
@@ -987,4 +1047,23 @@ final class ModelsService {
     final url = directModelLogoAvatarUrl(model);
     return url?.substring(kModelLogoUrlScheme.length);
   }
+}
+
+/// One chat's pick, and the revision it was written at.
+final class _Pick {
+  const _Pick(this.model, this.revision);
+
+  final core.Model model;
+  final int revision;
+}
+
+/// A turn on its way ([ModelsService.sending]): the account and chat it
+/// was sent from, New Chat's pick then, and the newest revision then.
+final class ModelSend {
+  ModelSend._(this._account, this._fromChat, this._slot, this._revision);
+
+  final AccountScope _account;
+  final String? _fromChat;
+  final _Pick? _slot;
+  final int _revision;
 }

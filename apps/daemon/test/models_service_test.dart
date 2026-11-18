@@ -24,13 +24,17 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show PrimaryAccountKind, PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_protocol/conduit_protocol.dart' hide ReviewerMode;
 import 'package:conduitd/conduitd.dart';
+import 'package:checks/checks.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -271,6 +275,33 @@ Conversation _conversation(String id) => Conversation(
 /// The session the agent tests' container reads; another sign-in replaces it.
 Object _session = Object();
 
+/// The primary account the agent tests' container reads.
+const _home = PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'home');
+PrimaryAccountRef _primary = _home;
+
+/// [_primary] is [to] from now on, as an account switch leaves it.
+void _switchTo(ProviderContainer container, PrimaryAccountRef to) {
+  _primary = to;
+  container.invalidate(primaryAccountProvider);
+  container.read(primaryAccountProvider);
+}
+
+/// Account settings whose pin toggles wait for [held] while it is set.
+final class _HeldPins extends PersonalizationSettings {
+  Completer<void>? held;
+  final toggleAsked = Completer<void>();
+
+  @override
+  Future<ServerUserSettings> build() async => const ServerUserSettings();
+
+  @override
+  Future<ServerUserSettings> togglePinnedModel(String modelId) async {
+    if (!toggleAsked.isCompleted) toggleAsked.complete();
+    await held?.future;
+    return const ServerUserSettings();
+  }
+}
+
 /// The chats read, in order; a read waits for [_chatHeld] while it is set,
 /// and `gone-chat` cannot be read.
 final _chatReads = <String>[];
@@ -284,8 +315,13 @@ Completer<void>? _chatHeld;
 Completer<void> _chatAsked = Completer<void>();
 
 /// A container for the agent tests: [api]'s terminals, with south selected.
-ProviderContainer _agentContainer(_AgentsApi api) {
+ProviderContainer _agentContainer(
+  _AgentsApi api, {
+  Models Function() models = _Listed.new,
+  List<Override> extra = const [],
+}) {
   _session = Object();
+  _primary = _home;
   _chatReads.clear();
   _chatHeld = null;
   _terminalsUnreadable = false;
@@ -294,7 +330,8 @@ ProviderContainer _agentContainer(_AgentsApi api) {
   final container = ProviderContainer(
     overrides: [
       openWebUiAuthSessionEpochProvider.overrideWith((ref) => _session),
-      modelsProvider.overrideWith(_Listed.new),
+      primaryAccountProvider.overrideWith((ref) => _primary),
+      modelsProvider.overrideWith(models),
       apiServiceProvider.overrideWithValue(api),
       reviewerModeProvider.overrideWith(_ReviewerOff.new),
       openWebUiAccountAvailableProvider.overrideWithValue(true),
@@ -316,6 +353,7 @@ ProviderContainer _agentContainer(_AgentsApi api) {
         if (id == 'gone-chat') throw StateError('no chat $id here');
         return _conversation(id);
       }),
+      ...extra,
     ],
     retry: (_, _) => null,
   );
@@ -629,13 +667,213 @@ void main() {
       container.read(selectedTerminalIdProvider.notifier).set('north');
       final models = ModelsService(container);
       await models.select(_northAgent);
-      models.sent(fromChat: null, toChat: 'new-chat-1', model: _northAgent);
+      models.sent(
+        models.sending(null),
+        toChat: 'new-chat-1',
+        model: _northAgent,
+      );
       final made = await models.list(
         const ModelListQuery(chatId: 'new-chat-1'),
       );
       expect(made.selectedId, _northAgent);
       final next = await models.list();
       expect(next.selectedId, isNot(_northAgent));
+    });
+
+    test("a send that lands after a later pick leaves the chat that pick", () {
+      fakeAsync((time) {
+        final container = _agentContainer(_AgentsApi());
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final models = ModelsService(container);
+        // Chat C runs agent A; a send with A waits to be admitted while B
+        // is picked for C.
+        models.select(_northAgent, chatId: 'agent-chat');
+        time.elapse(Duration.zero);
+        final sending = models.sending('agent-chat');
+        models.select('preferred-model', chatId: 'agent-chat');
+        time.elapse(Duration.zero);
+        models.sent(sending, toChat: 'agent-chat', model: _northAgent);
+        final listed = _Outcome(
+          models.list(const ModelListQuery(chatId: 'agent-chat')),
+        );
+        time.elapse(Duration.zero);
+        check((listed.value! as ModelList).selectedId)
+            .equals('preferred-model');
+      });
+    });
+
+    test("a regular model picked in New Chat stays the created chat's", () {
+      fakeAsync((time) {
+        final container = _agentContainer(_AgentsApi());
+        final models = ModelsService(container);
+        models.select('preferred-model');
+        time.elapse(Duration.zero);
+        final sending = models.sending(null);
+        models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
+        // Another chat's pick is the account's selection now.
+        models.select('first-model', chatId: 'plain-chat');
+        time.elapse(Duration.zero);
+        check(container.read(selectedModelProvider)?.id).equals('first-model');
+        final made = _Outcome(
+          models.list(const ModelListQuery(chatId: 'new-chat-1')),
+        );
+        time.elapse(Duration.zero);
+        check((made.value! as ModelList).selectedId).equals('preferred-model');
+      });
+    });
+
+    test("a New Chat pick made while a send waits stays New Chat's", () {
+      fakeAsync((time) {
+        final container = _agentContainer(_AgentsApi());
+        final models = ModelsService(container);
+        models.select('preferred-model');
+        time.elapse(Duration.zero);
+        final sending = models.sending(null);
+        models.select('first-model');
+        time.elapse(Duration.zero);
+        models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
+        final made = _Outcome(
+          models.list(const ModelListQuery(chatId: 'new-chat-1')),
+        );
+        final next = _Outcome(models.list());
+        final nextModel = _Outcome(models.modelFor(null));
+        time.elapse(Duration.zero);
+        check((made.value! as ModelList).selectedId).equals('preferred-model');
+        check((next.value! as ModelList).selectedId).equals('first-model');
+        check(nextModel.value).equals('first-model');
+      });
+    });
+
+    test("a send that lands under another account moves no pick", () {
+      fakeAsync((time) {
+        final container = _agentContainer(_AgentsApi());
+        final models = ModelsService(container);
+        models.select('preferred-model');
+        time.elapse(Duration.zero);
+        final sending = models.sending(null);
+        // Another chat's pick is the account's selection now.
+        models.select('first-model', chatId: 'plain-chat');
+        time.elapse(Duration.zero);
+        _switchTo(
+          container,
+          const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-one'),
+        );
+        models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
+        _switchTo(container, _home);
+        final slot = _Outcome(models.list());
+        final made = _Outcome(
+          models.list(const ModelListQuery(chatId: 'new-chat-1')),
+        );
+        time.elapse(Duration.zero);
+        check((slot.value! as ModelList).selectedId).equals('preferred-model');
+        check((made.value! as ModelList).selectedId).equals('first-model');
+      });
+    });
+
+    test("a turn naming no model is refused when only another chat's agent "
+        'is left', () {
+      fakeAsync((time) {
+        final container = _agentContainer(
+          _AgentsApi(),
+          models: () => _These(const []),
+        );
+        container.read(selectedTerminalIdProvider.notifier).set('north');
+        final models = ModelsService(container);
+        models.select(_northAgent, chatId: 'agent-chat');
+        time.elapse(Duration.zero);
+        check(container.read(selectedModelProvider)?.id).equals(_northAgent);
+        final unnamed = _Outcome(models.modelFor('plain-chat'));
+        time.elapse(Duration.zero);
+        check(unnamed.value).isNull();
+        check(unnamed.refusal).equals(ConduitErrorCodes.unsupported);
+      });
+    });
+
+    test(
+      'a server model whose id only looks like an agent is a regular one',
+      () {
+        fakeAsync((time) {
+          const research = core.Model(id: 'agent:research', name: 'Research');
+          final container = _agentContainer(
+            _AgentsApi(),
+            models: () => _These(const [research]),
+          );
+          final models = ModelsService(container);
+          final picked = _Outcome(
+            models.select('agent:research', chatId: 'plain-chat'),
+          );
+          final unnamed = _Outcome(models.modelFor('plain-chat'));
+          time.elapse(Duration.zero);
+          final list = picked.value! as ModelList;
+          check(list.selectedId).equals('agent:research');
+          check(list.models.map((m) => m.id)).contains('agent:research');
+          check(list.models.single.agent).isNull();
+          check(list.agents.map((m) => m.id))
+              .not((it) => it.contains('agent:research'));
+          check(container.read(selectedModelProvider)?.id)
+              .equals('agent:research');
+          check(unnamed.value).equals('agent:research');
+          // A well-formed coding agent's id is still an agent's.
+          check(terminalAgentDto(_northAgent)?.agent).equals('codex');
+          check(terminalAgentDto('agent:research')).isNull();
+        });
+      },
+    );
+
+    test("one LibreChat account's picks are never another's", () {
+      fakeAsync((time) {
+        final container = _agentContainer(_AgentsApi());
+        final models = ModelsService(container);
+        _switchTo(
+          container,
+          const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-one'),
+        );
+        models.select('preferred-model', chatId: 'plain-chat');
+        time.elapse(Duration.zero);
+        models.select('first-model', chatId: 'agent-chat');
+        time.elapse(Duration.zero);
+        _switchTo(
+          container,
+          const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-two'),
+        );
+        final listed = _Outcome(
+          models.list(const ModelListQuery(chatId: 'plain-chat')),
+        );
+        time.elapse(Duration.zero);
+        check((listed.value! as ModelList).selectedId).equals('first-model');
+      });
+    });
+
+    test("a pin's reply never looks the chat up for the next account", () {
+      fakeAsync((time) {
+        final pins = _HeldPins()..held = Completer<void>();
+        final container = _agentContainer(
+          _AgentsApi(),
+          extra: [
+            personalizationSettingsProvider.overrideWith(() => pins),
+            canTogglePinnedModelsProvider.overrideWithValue(true),
+            effectivePinnedModelIdsProvider.overrideWithValue(const <String>[]),
+          ],
+        );
+        final models = ModelsService(container);
+        final pinning = _Outcome(
+          models.setPinned(
+            const SetModelPinned(
+              id: 'preferred-model',
+              pinned: true,
+              chatId: 'plain-chat',
+            ),
+          ),
+        );
+        time.elapse(Duration.zero);
+        check(pins.toggleAsked.isCompleted).isTrue();
+        _session = Object();
+        container.invalidate(openWebUiAuthSessionEpochProvider);
+        pins.held!.complete();
+        time.elapse(Duration.zero);
+        check(pinning.refusal).equals(ConduitErrorCodes.sessionExpired);
+        check(_chatReads).not((it) => it.contains('plain-chat'));
+      });
     });
 
     test("a turn naming no model in one chat never goes to another chat's "

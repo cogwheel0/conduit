@@ -844,12 +844,16 @@ class RpcSession {
   void _registerTurns() {
     _on(ConduitMethodSpecs.turnsSend, (r) async {
       final models = _models;
+      // What the turn's landing may move is captured before any wait.
+      final sending = models?.sending(r.chatId);
       // A turn that names no model runs with its own chat's (its pick, its
       // saved agent, else the account's default), never the account's
       // selection of the moment, which may be another chat's agent.
       final model = r.model ?? await models?.modelFor(r.chatId);
       final accepted = await _requireTurns().send(r.copyWith(model: model));
-      models?.sent(fromChat: r.chatId, toChat: accepted.chatId, model: model);
+      if (sending != null) {
+        models!.sent(sending, toChat: accepted.chatId, model: model);
+      }
       return accepted;
     });
     _on(
