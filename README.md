@@ -310,8 +310,9 @@ a menu-bar item.
   providers, the Mac app contacts other hosts only for updates (the daily
   automatic check, which you can turn off; Check for Updates when you choose
   it; and the download of an update you accept, from GitHub Releases) and
-  for what you ask for: a speech model you download, or pictures and PDFs
-  from other sites you choose to load.
+  for what you ask for: a speech model you download, pictures and PDFs from
+  other sites you choose to load, or on-device web search for a direct
+  model (its queries go to a public search engine).
 - No developer-operated backend receives your chats or other content. Traffic
   goes from your device to the server or provider you configured. The one
   developer-operated service is for optional push notifications on the phone:

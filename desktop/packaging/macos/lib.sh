@@ -219,20 +219,31 @@ rust_objcopy() {
   return 0
 }
 
-# An openssl that does Ed25519 (the one macOS ships, LibreSSL, does not):
-# $OPENSSL when set, else the first of `openssl` on PATH and Homebrew's
-# openssl@3 that can make an Ed25519 key. Stops, saying so, when none can,
-# so a missing tool is never reported as a bad key.
+# An openssl that does all the Ed25519 these scripts need (the one macOS
+# ships, LibreSSL, does none of it; OpenSSL 1.1.1 makes keys but cannot
+# sign or verify raw input): $OPENSSL when set, else the first of `openssl`
+# on PATH and Homebrew's openssl@3 that makes a throwaway key, derives its
+# public half, and signs and verifies raw bytes with them. Stops, saying
+# so, when none can, so a missing tool is never reported as a bad key or a
+# bad signature.
 ed25519_openssl() {
-  local c
+  local c probe
+  probe="$(mktemp -d "${TMPDIR:-/tmp}/conduit-openssl.XXXXXX")"
+  printf 'a probe of raw Ed25519' >"$probe/data"
   for c in ${OPENSSL:+"$OPENSSL"} openssl /opt/homebrew/opt/openssl@3/bin/openssl \
     /usr/local/opt/openssl@3/bin/openssl; do
-    if command -v "$c" >/dev/null 2>&1 && "$c" genpkey -algorithm ed25519 >/dev/null 2>&1; then
+    command -v "$c" >/dev/null 2>&1 || continue
+    if "$c" genpkey -algorithm ed25519 -outform DER -out "$probe/key.der" >/dev/null 2>&1 &&
+      "$c" pkey -inform DER -in "$probe/key.der" -pubout -outform DER -out "$probe/public.der" >/dev/null 2>&1 &&
+      "$c" pkeyutl -sign -inkey "$probe/key.der" -keyform DER -rawin -in "$probe/data" \
+        -out "$probe/signature" >/dev/null 2>&1 &&
+      "$c" pkeyutl -verify -pubin -keyform DER -inkey "$probe/public.der" -rawin -in "$probe/data" \
+        -sigfile "$probe/signature" >/dev/null 2>&1; then
       command -v "$c"
       return
     fi
   done
-  die "no OpenSSL with Ed25519 here (macOS's LibreSSL has none): brew install openssl@3, or set OPENSSL"
+  die "no OpenSSL with Ed25519 signing here (macOS's LibreSSL and OpenSSL 1.1.1 lack it): brew install openssl@3, or set OPENSSL"
 }
 
 # The public half (base64, as SUPublicEDKey) of a private Sparkle EdDSA key

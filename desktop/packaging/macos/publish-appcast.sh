@@ -66,6 +66,41 @@ commit_to_branch() {
   git -C "$clone" push origin "HEAD:$branch"
 }
 
+# The name the feed release's file ID has now ("gone" once it no longer
+# exists). A lookup that fails says so and returns 1: a state that cannot
+# be read is never guessed.
+asset_name() {
+  local out
+  if out="$(gh api "repos/$RELEASE_REPO/releases/assets/$1" --jq .name 2>&1)"; then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  case "$out" in
+    *"HTTP 404"*) printf 'gone\n' ;;
+    *) warn "could not look up the feed release's file $1: $out"; return 1 ;;
+  esac
+}
+
+# Renames the feed release's file ID to NAME. A request that fails may still
+# have been applied (GitHub renamed it and the reply was lost), so the
+# file's real name decides: 0 when it has NAME now, 1 when it does not, 2
+# when its name cannot be read.
+rename_asset() {
+  gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$1" -f name="$2" >/dev/null 2>&1 && return 0
+  local now
+  now="$(asset_name "$1")" || return 2
+  [ "$now" = "$2" ]
+}
+
+# Deletes the feed release's file ID, by the same rule: 0 once it is gone
+# (a lost reply included), 1 when it is still there, 2 when unknown.
+delete_asset() {
+  gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$1" >/dev/null 2>&1 && return 0
+  local now
+  now="$(asset_name "$1")" || return 2
+  [ "$now" = gone ]
+}
+
 # Replaces appcast.xml on the feed release without ever losing the live
 # one, and with the fixed URL empty for as short a time as can be: the new
 # file is uploaded first under another name (appcast.next.xml), then the
@@ -74,8 +109,11 @@ commit_to_branch() {
 # the live one back. Every lookup that fails stops, and so does a feed
 # release whose appcast.xml is missing while appcast.previous.xml is there
 # (a publication that stopped half way: docs/RELEASING-DESKTOP.md).
+# A request whose reply is lost is judged by the file's real state
+# (rename_asset, delete_asset): a rename GitHub applied is never reported as
+# not done, nor undone by a wrong recovery.
 replace_feed_asset() {
-  local new="$1" staged assets current previous next uploaded
+  local new="$1" staged assets current previous next uploaded rc
   staged="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed.XXXXXX")"
   cp "$new" "$staged/appcast.next.xml"
   assets="$(gh api "repos/$RELEASE_REPO/releases/tags/$APPCAST_RELEASE_TAG" \
@@ -87,8 +125,7 @@ replace_feed_asset() {
     die "the feed release has appcast.previous.xml but no appcast.xml: a publication stopped half way; rename appcast.previous.xml to appcast.xml first (docs/RELEASING-DESKTOP.md)"
   fi
   if [ -n "$next" ]; then
-    gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$next" >/dev/null ||
-      die "could not remove a stale appcast.next.xml; nothing was changed"
+    delete_asset "$next" || die "could not remove a stale appcast.next.xml; nothing was changed"
   fi
   gh release upload "$APPCAST_RELEASE_TAG" "$staged/appcast.next.xml" -R "$RELEASE_REPO" ||
     die "the new appcast did not upload; the live one is unchanged"
@@ -98,19 +135,34 @@ replace_feed_asset() {
   [ -n "$uploaded" ] || die "the uploaded appcast.next.xml is not listed; the live one is unchanged"
   if [ -n "$current" ]; then
     if [ -n "$previous" ]; then
-      gh api -X DELETE "repos/$RELEASE_REPO/releases/assets/$previous" >/dev/null ||
-        die "could not remove the older appcast.previous.xml; the live one is unchanged"
+      delete_asset "$previous" || die "could not remove the older appcast.previous.xml; the live one is unchanged"
     fi
-    gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.previous.xml >/dev/null ||
-      die "could not keep the live appcast.xml aside; the live one is unchanged"
+    rc=0
+    rename_asset "$current" appcast.previous.xml || rc=$?
+    case "$rc" in
+      0) ;;
+      1) die "could not keep the live appcast.xml aside; the live one is unchanged" ;;
+      *) die "could not tell whether the live appcast.xml was renamed: check the feed release (appcast.xml must be there; docs/RELEASING-DESKTOP.md)" ;;
+    esac
   fi
-  if ! gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$uploaded" -f name=appcast.xml >/dev/null; then
-    if [ -n "$current" ]; then
-      gh api -X PATCH "repos/$RELEASE_REPO/releases/assets/$current" -f name=appcast.xml >/dev/null ||
-        die "the new appcast could not take the live name and appcast.previous.xml could not be renamed back: rename it to appcast.xml"
-    fi
-    die "the new appcast could not take the live name; the live one is unchanged"
-  fi
+  rc=0
+  rename_asset "$uploaded" appcast.xml || rc=$?
+  case "$rc" in
+    0) ;;
+    1)
+      if [ -n "$current" ]; then
+        rc=0
+        rename_asset "$current" appcast.xml || rc=$?
+        case "$rc" in
+          0) ;;
+          1) die "the new appcast could not take the live name and appcast.previous.xml could not be renamed back: rename it to appcast.xml" ;;
+          *) die "the new appcast could not take the live name, and whether appcast.previous.xml was renamed back cannot be read: check the feed release (appcast.xml must be there)" ;;
+        esac
+      fi
+      die "the new appcast could not take the live name; the live one is unchanged"
+      ;;
+    *) die "could not tell whether the new appcast took the live name: check the feed release (appcast.xml must be there; docs/RELEASING-DESKTOP.md)" ;;
+  esac
   log "appcast.xml replaced (the last one is kept as appcast.previous.xml)"
 }
 

@@ -355,10 +355,12 @@ CONDUIT_SIGN_IDENTITY=<Apple Development SHA-1> SPARKLE_PUBLIC_ED_KEY=<throwaway
 
 Sparkle can be tested without touching the real app or the real feed:
 
-1. A throwaway key pair, outside the keychain and the repository:
-   `openssl genpkey -algorithm ed25519 -outform DER -out k.der`; the private
-   key is `tail -c 32 k.der | base64`, the public key
-   `openssl pkey -inform DER -in k.der -pubout -outform DER | tail -c 32 | base64`.
+1. A throwaway key pair, outside the keychain and the repository, with an
+   openssl that does Ed25519 (macOS's own does not):
+   `openssl="$(bash -c '. desktop/packaging/macos/lib.sh; ed25519_openssl')"`, then
+   `"$openssl" genpkey -algorithm ed25519 -outform DER -out k.der`; the
+   private key is `tail -c 32 k.der | base64`, the public key
+   `"$openssl" pkey -inform DER -in k.der -pubout -outform DER | tail -c 32 | base64`.
 2. Build versions N and N+1 as rehearsals (above) with
    `SPARKLE_PUBLIC_ED_KEY=<public>` and
    `CONDUIT_APPCAST_URL=http://127.0.0.1:<port>/appcast.xml`.
@@ -367,7 +369,7 @@ Sparkle can be tested without touching the real app or the real feed:
    serve that folder (`appcast.sh` copies the DMG next to the feed):
 
    ```sh
-   appcast.sh --dmg <N+1 DMG> --version <N+1> --fresh \
+   desktop/packaging/macos/appcast.sh --dmg <N+1 DMG> --version <N+1> --fresh \
      --download-url-prefix http://127.0.0.1:<port>/ --work /tmp/feed
    python3 -m http.server --bind 127.0.0.1 <port> --directory /tmp/feed
    ```

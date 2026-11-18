@@ -14,6 +14,8 @@
 #   or the new file cannot take its name, keeps the last one as
 #   appcast.previous.xml when it succeeds, and stops on a feed release whose
 #   appcast.xml is missing beside an appcast.previous.xml.
+# * a rename or delete GitHub applied whose reply was lost is judged by the
+#   file's real state, so the publication completes or is put back.
 # * a binary built with the test harness is never signed for distribution,
 #   and a step takes only the bundle id it was asked for.
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
@@ -114,6 +116,12 @@ if [ "$1" = api ] && [ "$2" != "-X" ]; then
     500) echo "gh: Server Error (HTTP 500)" >&2; exit 1 ;;
   esac
   case "$*" in
+    *"/releases/assets/"*)
+      id="${2##*/}"
+      file="$(ls "$STUB_ASSETS" | awk -v id="$id" '$1 == id')"
+      [ -n "$file" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+      echo "${file#* }"
+      ;;
     *'select(.name == "appcast.next.xml")'*) ls "$STUB_ASSETS" | awk '$2 == "appcast.next.xml" {print $1}' ;;
     *".assets[]"*) ls "$STUB_ASSETS" ;;
     *) echo 42 ;;
@@ -125,12 +133,19 @@ if [ "$1" = api ] && [ "$2" = "-X" ]; then
   file="$(ls "$STUB_ASSETS" | awk -v id="$id" '$1 == id')"
   [ -n "$file" ] || exit 1
   case "$3" in
-    DELETE) rm "$STUB_ASSETS/$file" ;;
+    DELETE)
+      mv "$STUB_ASSETS/$file" "$STUB_MOVED/deleted-$file"
+      # STUB_LOST_DELETE=1: the file is deleted, but the reply is lost.
+      [ "${STUB_LOST_DELETE:-}" = 1 ] && { echo "connection reset" >&2; exit 1; }
+      ;;
     PATCH)
       name="${6#name=}"
       # STUB_RENAME_FAIL=<name>: renaming the file now called <name> fails.
       [ "${STUB_RENAME_FAIL:-}" = "${file#* }" ] && { echo "rename failed" >&2; exit 1; }
       mv "$STUB_ASSETS/$file" "$STUB_ASSETS/$id $name"
+      # STUB_LOST_REPLY=<name>: a rename to <name> is done, but its reply is
+      # lost (gh fails although GitHub applied it).
+      [ "${STUB_LOST_REPLY:-}" = "$name" ] && { echo "connection reset" >&2; exit 1; }
       ;;
   esac
   exit 0
@@ -278,6 +293,35 @@ expect 1 "a first appcast that reads back as other bytes stops" first STUB_DOWNL
   fail "after a wrong read-back the feed release is $(feed_state)"
 fresh_feed published
 
+# A request GitHub applied whose reply was lost: the file's real name
+# decides, so the publication goes on (or is put back) by what happened.
+lost() { # env... : a published feed with live 7 and an older previous 5
+  mv "$STUB_ASSETS" "$tmp/moved/assets-$RANDOM" && mkdir -p "$STUB_ASSETS"
+  echo published >"$STUB_STATE"
+  cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+  printf '<rss/>older\n' >"$STUB_ASSETS/5 appcast.previous.xml"
+  env APPCAST_HOSTING=release-asset "$@" "$here/publish-appcast.sh" "$tmp/good.xml" --push
+}
+live_is() { # file: appcast.xml holds it, and the old live one is appcast.previous.xml
+  cmp -s "$STUB_ASSETS/$(ls "$STUB_ASSETS" | awk '$2 == "appcast.xml"')" "$1" &&
+    ls "$STUB_ASSETS" | grep -qx '7 appcast.previous.xml'
+}
+expect 0 "a promotion GitHub applied, its reply lost, completes" lost STUB_LOST_REPLY=appcast.xml
+live_is "$tmp/good.xml" && pass "after a lost promotion reply the new appcast is live" ||
+  fail "after a lost promotion reply the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+expect 0 "a set-aside GitHub applied, its reply lost, goes on" lost STUB_LOST_REPLY=appcast.previous.xml
+live_is "$tmp/good.xml" && pass "after a lost set-aside reply the new appcast is live" ||
+  fail "after a lost set-aside reply the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+expect 0 "a delete GitHub applied, its reply lost, goes on" lost STUB_LOST_DELETE=1
+live_is "$tmp/good.xml" && pass "after a lost delete reply the new appcast is live" ||
+  fail "after a lost delete reply the files are: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+lost STUB_RENAME_FAIL=appcast.next.xml STUB_LOST_REPLY=appcast.xml >"$tmp/out.txt" 2>&1
+if grep -q 'the live one is unchanged' "$tmp/out.txt" && ls "$STUB_ASSETS" | grep -qx '7 appcast.xml'; then
+  pass "a restoration GitHub applied, its reply lost, reports the live feed unchanged"
+else
+  fail "after a lost restoration reply: $(tail -1 "$tmp/out.txt"); files: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+fi
+
 # ── the test harness and the bundle in --out ────────────────────────────────
 # A binary built with the `harness` feature carries lib.rs's HARNESS_MARKER;
 # it is never signed for distribution, whatever the flags. Synthetic
@@ -313,6 +357,25 @@ if command -v plutil >/dev/null; then
     bundle "$tmp/release.app" app.cogwheel.conduit.desktop 1 1.4.0
 else
   echo "skip  check_bundle (no plutil here)"
+fi
+
+# ── the openssl the scripts use ─────────────────────────────────────────────
+# A stand-in for OpenSSL 1.1.1: it makes Ed25519 keys but cannot sign or
+# verify raw input. It is never the one chosen.
+cat >"$tmp/openssl-111" <<'STUB'
+#!/bin/bash
+case "$1" in genpkey) exit 0 ;; *) exit 1 ;; esac
+STUB
+chmod +x "$tmp/openssl-111"
+if chosen="$(OPENSSL="$tmp/openssl-111" bash -c ". '$here/lib.sh'; ed25519_openssl" 2>/dev/null)"; then
+  [ "$chosen" != "$tmp/openssl-111" ] && pass "an openssl that cannot sign raw Ed25519 is passed over" ||
+    fail "an openssl that cannot sign raw Ed25519 was chosen"
+else
+  if OPENSSL="$tmp/openssl-111" bash -c ". '$here/lib.sh'; ed25519_openssl" 2>&1 | grep -q 'Ed25519 signing'; then
+    pass "with no openssl that signs raw Ed25519 here, it says so"
+  else
+    fail "ed25519_openssl failed without saying why"
+  fi
 fi
 
 # ── verify_enclosure ────────────────────────────────────────────────────────

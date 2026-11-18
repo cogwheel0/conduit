@@ -95,6 +95,9 @@ fi
 export SPARKLE_PUBLIC_ED_KEY
 # Never the real feed: a local rehearsal must not read the release appcast.
 export CONDUIT_APPCAST_URL="${CONDUIT_APPCAST_URL:-http://127.0.0.1:9/appcast.xml}"
+# Not even when a release shell left the release feed's address exported.
+[ "$CONDUIT_APPCAST_URL" != "$(CONDUIT_APPCAST_URL='' appcast_url)" ] ||
+  die "CONDUIT_APPCAST_URL is the release feed: a rehearsal never reads it (unset it, or name a feed of your own)"
 
 log "3/6 bundle.sh all --rehearsal (build, sign, notarize and staple the app, DMG, notarize and staple it, verify)"
 CONDUIT_SIGN_IDENTITY="$identity" CONDUIT_NOTARY_PROFILE="$profile" \

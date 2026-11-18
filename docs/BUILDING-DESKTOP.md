@@ -212,9 +212,14 @@ CONDUIT_USER_DATA=/tmp/p-1 CONDUIT_LOGS=/tmp/l-1 \
   fixed position for `{{USER_LOCATION}}`) or skips what needs the real
   thing. If a system prompt still appears, stop and find which pass raised
   it.
+- `share-system` is not run with the command above: run
+  `packaging/macos/share/e2e-system.sh APP --shots DIR` with APP a test
+  bundle built with the harness (`bundle.sh --test-harness --bundle-id
+  <id>`); it registers that bundle's Share extension and Services items and
+  drives them as other apps do (the in-process `share` pass runs as above).
 - `a11y-sweep` expects `CONDUIT_FULL_KEYBOARD_ACCESS=1` (Full Keyboard
-  Access simulated in the app; the system setting is never changed), as the
-  design capture does. `CONDUIT_REDUCE_MOTION` likewise overrides Reduce
+  Access simulated in the app; the system setting is never changed; `run.sh`
+  passes it on), as the design capture does. `CONDUIT_REDUCE_MOTION` likewise overrides Reduce
   Motion for the app alone.
 - A pass prints `SMOKE e2e ok …` or `SMOKE FAILED …` lines and ends with
   `SMOKE e2e <scenario> passed|FAILED`.
@@ -619,7 +624,7 @@ makes:
 
    ```sh
    CONDUIT_SIGN_IDENTITY=<SHA-1> CONDUIT_DEV_WIDGET=1 \
-   CONDUIT_APP_PROFILE=<…>.provisionprofile CONDUIT_WIDGET_PROFILE=<…>.provisionprofile \
+   CONDUIT_APP_PROFILE="<…>.provisionprofile" CONDUIT_WIDGET_PROFILE="<…>.provisionprofile" \
      desktop/crates/app/run.sh
    ```
 
