@@ -104,6 +104,9 @@ pub struct TaskEditor {
     /// the choice. A newer edit of the schedule itself (a rule typed, a
     /// schedule control) replaces it.
     pending_kind: Option<String>,
+    /// Counts the user's edits (a kind choice included; a check settling is
+    /// none): a Save closes the editor only if no edit came after it began.
+    edit_revision: u64,
     /// The rule the field shows next, once the controls changed it.
     rrule_pending: Option<String>,
     check: Option<Task<()>>,
@@ -197,6 +200,7 @@ impl TaskEditor {
             terminals_call: None,
             typing_rule: false,
             pending_kind: None,
+            edit_revision: 0,
             rrule_pending: None,
             check: None,
             _subscriptions: subscriptions,
@@ -292,6 +296,7 @@ impl TaskEditor {
             return;
         };
         change(fields);
+        self.edit_revision += 1;
         self.failure = None;
         cx.notify();
         self.check_now(None, cx);
@@ -323,6 +328,7 @@ impl TaskEditor {
         // and so does a kind chosen before whose check has not answered.
         self.rrule_pending = None;
         self.pending_kind = None;
+        self.edit_revision += 1;
         fields.schedule.kind = "custom".into();
         fields.schedule.rrule = rule;
         cx.notify();
@@ -332,6 +338,7 @@ impl TaskEditor {
     /// Once, Daily or Weekly, starting from the current schedule's time.
     pub fn choose_kind(&mut self, kind: &str, cx: &mut Context<Self>) {
         self.typing_rule = false;
+        self.edit_revision += 1;
         self.check_now(Some(kind.to_string()), cx);
     }
 
@@ -565,6 +572,7 @@ impl TaskEditor {
         self.failure = None;
         cx.notify();
         let sent = fields.clone();
+        let revision = self.edit_revision;
         let call = self
             .rpc(cx)
             .call::<methods::AutomationsSave>(&AutomationDraftEdit {
@@ -590,7 +598,9 @@ impl TaskEditor {
                                 t.select(Some(id), cx);
                             }
                         });
-                        if s.fields.as_ref() == Some(&sent) {
+                        // Closed only when nothing was edited (or chosen)
+                        // since the Save began: a newer choice stays open.
+                        if s.edit_revision == revision {
                             sheet::dismiss(cx);
                         } else {
                             // Typed while the save was out: it stays, to save
@@ -1978,6 +1988,60 @@ mod tests {
             "Save sent the fields from before the kind choice"
         );
         drop(held);
+    }
+
+    /// A Save on Daily is out when Weekly is chosen: the Save succeeding
+    /// does not close the editor, so the newer choice is kept (and goes on
+    /// to be saved), not lost with the sheet.
+    #[gpui_kit::test]
+    fn a_choice_made_while_saving_keeps_the_editor_open(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        let saving = daemon.hold::<methods::AutomationsSave>();
+        let checks = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.run_until_parked();
+        saving.release();
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+                .is_some(),
+            "the Save closed the editor over a newer choice"
+        );
+        let sent = daemon.calls::<methods::AutomationsCheckDraft>();
+        assert_eq!(sent.last().expect("a check")["chooseKind"], "weekly");
+        drop(checks);
+    }
+
+    /// A Save with no edit after it closes the editor.
+    #[gpui_kit::test]
+    fn a_save_with_nothing_newer_closes_the_editor(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+                .is_none()
+        );
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
