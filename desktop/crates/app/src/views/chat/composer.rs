@@ -889,14 +889,19 @@ impl ChatComposer {
         !self.streaming && self.ready(cx)
     }
 
-    /// Something to send, and nothing holding it back but a running answer.
+    /// A new turn to start: something to send, a model the open chat's own
+    /// list names, and nothing holding it back but a running answer.
     fn ready(&self, cx: &App) -> bool {
+        self.has_message(cx) && self.composer.read(cx).can_name_model()
+    }
+
+    /// Something to send now, the connection up and no file still being
+    /// read. Queue, Steer and Send Next need no more: they go to the turn
+    /// or chat already running, not to a model the list names.
+    fn has_message(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
         let has_text = !self.text(cx).trim().is_empty();
-        !self.offline
-            && !composer.uploading()
-            && composer.can_name_model()
-            && (has_text || composer.has_attachments())
+        !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
     }
 
     /// The call button stands where Send would: nothing to send.
@@ -919,7 +924,7 @@ impl ChatComposer {
         // The queue is offered behind a running answer, and behind one that
         // waits in the outbox (nothing streams, Send shows).
         if !(self.streaming || self.queue_offer)
-            || !self.ready(cx)
+            || !self.has_message(cx)
             || self.text(cx).trim().is_empty()
         {
             return None;
@@ -3415,7 +3420,8 @@ impl ChatComposer {
         let options = store.model_options.clone();
         // A model with an effort control of its own (a coding agent's)
         // takes it from that control, below; the app's would contradict it.
-        let own_effort = store.options.own_effort_control;
+        // Unknown until the options for the chat and model on screen answer.
+        let own_effort = !store.options_answered() || store.options.own_effort_control;
         let controls = store
             .model_controls
             .as_ref()
@@ -4055,7 +4061,7 @@ impl Render for ChatComposer {
                 .items_center()
                 .gap(px(6.))
                 .children(busy_buttons)
-                .child(stop)
+                .child(div().debug_selector(|| "composer-stop".into()).child(stop))
                 .into_any_element()
         } else if self.offers_call(cx) {
             // Nothing to send: a voice call, as on the phone.
@@ -5459,6 +5465,56 @@ mod tests {
                 cx.notify()
             })
         });
+    }
+
+    /// The open chat's model list failed while an answer is written: only
+    /// a new turn needs it. The queue still takes the message, and Stop
+    /// still stops.
+    #[gpui_kit::test]
+    fn a_failed_model_list_leaves_the_queue_and_stop(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::DraftsGet>(Default::default());
+        let (view, cx, seen) = composer_with(&daemon, cx);
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        daemon.once::<conduit_protocol::methods::ModelsList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "busy",
+        )));
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.switch_draft(
+                    Some(crate::stores::composer::DraftKey {
+                        chat_id: Some("chat-9".into()),
+                        folder_id: None,
+                    }),
+                    "",
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        assert!(
+            !store.read_with(cx, |s, _| s.can_name_model()),
+            "the chat's list did not fail"
+        );
+        view.update(cx, |c, _| {
+            c.streaming = true;
+            c.queue_offer = true;
+        });
+        cx.simulate_input("And the north side?");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the north side?".into(),
+                mentions: vec![],
+            }]
+        );
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let stop = cx.debug_bounds("composer-stop").expect("Stop is offered");
+        cx.simulate_click(stop.center(), gpui_kit::Modifiers::none());
+        assert_eq!(*seen.borrow(), vec![ChatComposerEvent::Stop]);
     }
 
     #[gpui_kit::test]
