@@ -1035,7 +1035,7 @@ final class WorkspaceService {
               await api.getWorkspaceSkill(id) ??
               (throw _notFound(request.kind, id));
           sameAccount();
-          copyId = await _duplicateSkill(skill, suffix, sameAccount);
+          copyId = await _duplicateSkill(api, skill, suffix, sameAccount);
         case WorkspaceKind.knowledge:
           throw _invalid('knowledge is not duplicated');
       }
@@ -1044,14 +1044,14 @@ final class WorkspaceService {
     },
   );
 
-  /// Duplicates [skill], as the phone does: Open WebUI 0.12 and later copy
-  /// it themselves (`clone`), every file of its package and its on/off
-  /// state included; an older one, or one not known to have it that
-  /// answers 404 or 405 while the skill is still there, is sent a copy made
-  /// from what was read.
-  /// [sameAccount] refuses the copy when another account signed in after
-  /// the read (the clone's refusal is awaited before a copy goes).
+  /// Duplicates [skill], as the phone does: the server is asked to copy it
+  /// itself (`clone`, Open WebUI 0.12 and later), every file of its package
+  /// and its on/off state included. One not known to have it that answers
+  /// 404 or 405 while the skill is still there is sent a copy made from what
+  /// was read. [api] is the account's at the read, and [sameAccount] refuses
+  /// the lookup and the copy once another account signed in after it.
   Future<String> _duplicateSkill(
+    ApiService api,
     WorkspaceSkillDetail skill,
     String suffix,
     void Function() sameAccount,
@@ -1075,31 +1075,44 @@ final class WorkspaceService {
       return saved.id;
     }
 
-    final serverClones = ServerVersionCompat.knownAtLeast(
-      _container.read(workspaceServerVersionProvider),
-      '0.12.0',
-    );
-    if (serverClones == false) return copy();
+    final serverClones = _serverClonesSkills();
     try {
       final saved = await skills.clone(skill.id, newId: newId, name: name);
       return saved.id;
     } on DioException catch (error) {
       final status = error.response?.statusCode;
-      if (serverClones == true || (status != 404 && status != 405)) rethrow;
+      if (serverClones || (status != 404 && status != 405)) rethrow;
+      // Asked of the account the skill was read under, never the next.
+      sameAccount();
       // A 404 is also what the clone says of a skill deleted since the
       // read: copied only while the skill is still there.
-      if (!await _skillStillThere(skill.id)) {
+      if (!await _skillStillThere(api, skill.id)) {
         throw _notFound(WorkspaceKind.skills, skill.id);
       }
       return copy();
     }
   }
 
-  /// Whether skill [id] is still on the server: false only when it says it
-  /// is not (404); any other failure is thrown.
-  Future<bool> _skillStillThere(String id) async {
+  /// Whether this server is known to clone skills (Open WebUI 0.12 and
+  /// later): only from a config confirmed for the active server (its
+  /// `serverId`) that says so. Anything else, an older version in a cached
+  /// config or another server's, is not known: the clone is tried, and a 404
+  /// or 405 is answered by a copy, so a stale cache never skips the server's
+  /// own copy with its package files.
+  bool _serverClonesSkills() {
+    final activeId = _container.read(activeServerProvider).asData?.value?.id;
+    final config = _container.read(backendConfigProvider).asData?.value;
+    if (activeId == null || config == null || config.serverId != activeId) {
+      return false;
+    }
+    return ServerVersionCompat.knownAtLeast(config.version, '0.12.0') == true;
+  }
+
+  /// Whether skill [id] is still on the server [api] answers for: false only
+  /// when it says it is not (404); any other failure is thrown.
+  Future<bool> _skillStillThere(ApiService api, String id) async {
     try {
-      return await _api().getWorkspaceSkill(id) != null;
+      return await api.getWorkspaceSkill(id) != null;
     } on DioException catch (error) {
       if (error.response?.statusCode == 404) return false;
       rethrow;
