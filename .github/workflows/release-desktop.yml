@@ -338,8 +338,8 @@ jobs:
       # build's assets (nothing of a draft is live). A published release is
       # never changed here: its DMG is the one its feed describes. The draft
       # is looked up again right before each file replaces its old copy, so
-      # one published meanwhile keeps the rest (turn on immutable releases
-      # for the repository to close the gap that remains: see
+      # one published meanwhile keeps the rest. Immutable releases stay off:
+      # the feed release's appcast.xml is replaced at every publication (see
       # docs/RELEASING-DESKTOP.md).
       - name: Create the draft GitHub release
         if: env.DRY_RUN != 'true'

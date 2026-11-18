@@ -276,12 +276,14 @@ and the feed job refuses one that would drop a release published since.
 Feed publications run one at a time in their own queue, which no other
 run (a mobile release, a dry run) can cancel.
 
-Turn on immutable releases for the repository (Settings › General ›
-Releases). A re-run of the build job replaces a draft's files only after
-looking the draft up again right before each one, and refuses once it is
-published; with immutable releases GitHub also refuses any change to a
-published release's files, which closes the moment between that look and
-the upload.
+Leave immutable releases off for the repository (Settings › General ›
+Releases). The update feed lives in one published release,
+`desktop-appcast`, whose `appcast.xml` is replaced at every publication;
+immutable releases would refuse that change, so the first update after
+turning them on could not be published. A re-run of the build job replaces
+a draft's files only after looking the draft up again right before each
+one, and refuses once it is published; a release published in the moment
+between that look and the upload is the one case this does not close.
 
 ## What the workflow checks
 
