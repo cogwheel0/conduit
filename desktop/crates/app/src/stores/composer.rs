@@ -2583,16 +2583,6 @@ impl ComposerStore {
     }
 }
 
-/// A stored draft joined with what the composer held before it landed, as
-/// the draft first and then what came after it.
-pub fn joined_draft(stored: &str, current: &str) -> String {
-    if stored.is_empty() || current.starts_with(stored) {
-        current.to_string()
-    } else {
-        format!("{stored}{current}")
-    }
-}
-
 /// Whether `params` holds any setting.
 fn has_params(params: &serde_json::Value) -> bool {
     params.as_object().is_some_and(|o| !o.is_empty())

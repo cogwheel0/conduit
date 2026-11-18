@@ -4246,6 +4246,66 @@ mod tests {
             assert_eq!(saved.last().map(String::as_str), Some(joined));
         }
 
+        /// Typing while a read is on its way whose stored draft turns out
+        /// empty: the typing is kept once the read lands, as an edit is.
+        #[gpui_kit::test]
+        fn typing_during_a_draft_read_of_an_empty_draft_is_kept(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon
+                .on::<methods::DraftsGet>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
+            });
+            vcx.run_until_parked();
+            read.release();
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
+            let saved: Vec<String> = daemon
+                .calls::<methods::DraftsSave>()
+                .iter()
+                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
+                .collect();
+            assert_eq!(
+                saved,
+                vec!["the beds".to_string()],
+                "the typing was never kept"
+            );
+        }
+
+        /// The draft and what was typed during its read are joined plainly:
+        /// the draft, then the typing, nothing dropped even when the typing
+        /// starts with the same words.
+        #[gpui_kit::test]
+        fn a_draft_read_joins_plainly_with_the_typing(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|_| {
+                Ok(serde_json::json!({"text": "Please ", "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Please explain", window, cx));
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, "Please Please explain");
+        }
+
         /// Typed during the draft read and left before it landed: nothing
         /// is written, and the stored draft stays as it was (what was typed
         /// then is not kept).

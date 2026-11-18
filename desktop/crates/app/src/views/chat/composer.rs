@@ -289,6 +289,10 @@ pub struct ChatComposer {
     sent_recordings: Option<u64>,
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
+    /// The prompt being rendered: its request, where its text goes, and the
+    /// draft it was asked over ([`Self::render_prompt`]); moved with the
+    /// text when a draft is put in front ([`Self::prepend_stored`]).
+    rendering: Option<(u64, usize, String)>,
     /// The composition a saved recording's transcription was asked for in:
     /// its words are added only while that composition is shown.
     transcribing: Option<crate::stores::composer::CompositionTicket>,
@@ -405,14 +409,16 @@ impl ChatComposer {
                     }
                     // The draft read landed: shown, joined with what was
                     // typed meanwhile (the draft first), then kept.
-                    ComposerEvent::DraftLoaded { key, text } => {
-                        let current = store.read(cx).draft_key() == Some(key);
-                        if current && !text.is_empty() {
+                    // Empty or not, the composer ends as an edit leaves it:
+                    // what it holds is kept if it differs from the draft.
+                    ComposerEvent::DraftLoaded { key, text }
+                        if store.read(cx).draft_key() == Some(key) =>
+                    {
+                        if text.is_empty() {
                             let typed = this.text(cx);
-                            let joined = crate::stores::composer::joined_draft(text, &typed);
-                            if joined != typed {
-                                this.set_text(&joined, window, cx);
-                            }
+                            store.update(cx, |s, cx| s.draft_changed(&typed, cx));
+                        } else {
+                            this.prepend_stored(text, window, cx);
                         }
                     }
                     _ => {}
@@ -519,6 +525,7 @@ impl ChatComposer {
             dictation: None,
             sent_recordings: None,
             dictation_base: None,
+            rendering: None,
             transcribing: None,
             placeholder: placeholder.to_string(),
             custom_placeholder: false,
@@ -1614,47 +1621,88 @@ impl ChatComposer {
         let request_id = self.prompt_request;
         let scope = self.composer.read(cx).scope();
         // The draft as it was: the text goes where the trigger was only if
-        // the draft has not changed since, else at its end.
-        let draft = self.text(cx);
+        // the draft has not changed since (a draft put in front moves both),
+        // else at its end.
+        self.rendering = Some((request_id, at, self.text(cx)));
         let task = self
             .composer
             .update(cx, |c, cx| c.render_prompt(request, cx));
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            let _ = this.update_in(cx, |this, window, cx| match result {
-                // Cancelled, another prompt chosen since, or another account's.
-                _ if this.prompt_request != request_id
-                    || this.composer.read(cx).scope() != scope => {}
-                Ok(rendered) => {
-                    let at = if this.text(cx) == draft {
-                        at
-                    } else {
-                        this.text(cx).len()
-                    };
-                    this.rendered(prompt, at, rendered, window, cx)
-                }
-                Err(e) => {
-                    log::warn!("prompts.render: {e}");
-                    match &mut this.form {
-                        Some(form) => {
-                            form.busy = false;
-                            form.error = Some(cx.l10n().desktop_something_went_wrong());
+            let _ = this.update_in(cx, |this, window, cx| {
+                let asked = this
+                    .rendering
+                    .take_if(|(request, _, _)| *request == request_id);
+                let at = match &asked {
+                    Some((_, at, draft)) if this.text(cx) == *draft => *at,
+                    _ => this.text(cx).len(),
+                };
+                match result {
+                    // Cancelled, another prompt chosen since, or another account's.
+                    _ if this.prompt_request != request_id
+                        || this.composer.read(cx).scope() != scope => {}
+                    Ok(rendered) => this.rendered(prompt, at, rendered, window, cx),
+                    Err(e) => {
+                        log::warn!("prompts.render: {e}");
+                        match &mut this.form {
+                            Some(form) => {
+                                form.busy = false;
+                                form.error = Some(cx.l10n().desktop_something_went_wrong());
+                            }
+                            None => {
+                                this.form = Some(PromptForm {
+                                    prompt,
+                                    at,
+                                    fields: vec![],
+                                    error: Some(cx.l10n().desktop_something_went_wrong()),
+                                    busy: false,
+                                })
+                            }
                         }
-                        None => {
-                            this.form = Some(PromptForm {
-                                prompt,
-                                at,
-                                fields: vec![],
-                                error: Some(cx.l10n().desktop_something_went_wrong()),
-                                busy: false,
-                            })
-                        }
+                        cx.notify();
                     }
-                    cx.notify();
                 }
             });
         })
         .detach();
+    }
+
+    /// The chat's draft, read after the field was typed into: it goes in
+    /// front of what the field holds (plainly, the draft first), and every
+    /// place kept on the text moves with it: the caret and selection, the
+    /// mentions, an open prompt form's place, a prompt still rendering, and
+    /// dictation's base. Then kept as an edit is. Nothing else puts text in
+    /// front of the caret.
+    fn prepend_stored(&mut self, stored: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.text(cx);
+        let shift = stored.len();
+        let utf16 = stored.encode_utf16().count() as i64;
+        let selected = self.input.read(cx).selected_range();
+        let mentions: Vec<_> = self
+            .mentions(cx)
+            .into_iter()
+            .map(|mut m| {
+                m.start += utf16;
+                m.end += utf16;
+                m
+            })
+            .collect();
+        if let Some(form) = self.form.as_mut() {
+            form.at += shift;
+        }
+        if let Some((_, at, draft)) = self.rendering.as_mut() {
+            *at += shift;
+            draft.insert_str(0, stored);
+        }
+        if let Some(base) = self.dictation_base.as_mut() {
+            base.insert_str(0, stored);
+        }
+        let content = content_with_mentions(&format!("{stored}{typed}"), &mentions);
+        self.input.update(cx, |s, cx| {
+            s.set_value(content, window, cx);
+            s.set_selected_range(selected.start + shift..selected.end + shift, cx);
+        });
+        self.text_changed(cx);
     }
 
     fn rendered(
@@ -5194,6 +5242,63 @@ mod tests {
             view.read_with(cx, |c, cx| c.composer.read(cx).attachments.len()),
             1
         );
+    }
+
+    /// A prompt form opened while the chat's draft is read: the draft
+    /// lands in front, and the form's text still goes where the form was
+    /// opened.
+    #[gpui_kit::test]
+    fn a_prompt_form_keeps_its_place_when_the_draft_lands_in_front(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, DraftsSave, PromptsRender};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Draft one. "})).unwrap(),
+        );
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        daemon.on::<PromptsRender>(|p| {
+            Ok(if p["values"].as_object().is_some_and(|v| !v.is_empty()) {
+                serde_json::json!({"content": "politely", "inputs": []})
+            } else {
+                serde_json::json!({
+                    "content": "",
+                    "inputs": [{"name": "tone", "type": "text", "label": "Tone"}],
+                })
+            })
+        });
+        let read = daemon.hold::<DraftsGet>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| {
+            c.set_text("Say hi ", window, cx);
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/tone", "title": "Tone"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 7, BTreeMap::new(), window, cx);
+        });
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |c, _| c.form.is_some()),
+            "the form opens"
+        );
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Draft one. Say hi ");
+        view.update_in(cx, |c, window, cx| {
+            if let Some(form) = c.form.as_ref()
+                && let Some(FieldInput::Text(state)) = form.fields.first().map(|f| &f.value)
+            {
+                state.update(cx, |s, cx| s.set_value("warm", window, cx));
+            }
+            c.submit_form(window, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Draft one. Say hi politely");
     }
 
     #[gpui_kit::test]
