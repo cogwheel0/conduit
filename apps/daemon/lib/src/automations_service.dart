@@ -13,6 +13,7 @@ import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -505,8 +506,9 @@ final class AutomationsService {
       // The editor goes on as an edit of the task saved: what the window
       // typed while this save was out is saved to it next, never made again.
       if (_editors.containsKey(edit.token)) {
-        editor._agents?.close();
-        editor._agents = null;
+        // Its lists go on with the editor of the saved task; its agent
+        // question is the replaced editor's, and its answer is dropped.
+        editor._retire();
         _editors[edit.token] = _TaskEditor(
           _container,
           editor.owner,
@@ -836,15 +838,62 @@ final class _TaskEditor {
   final ProviderSubscription<AutomationEditorOptions> base;
   final ProviderSubscription<AsyncValue<List<TerminalServerInfo>?>> terminals;
 
-  /// Keeps the draft's terminal's coding agents read while it is open.
-  ProviderSubscription<AsyncValue<List<Model>?>>? _agents;
+  /// The draft's terminal's coding agents, asked by this editor itself
+  /// with the API of the account it belongs to, read as each question goes
+  /// out (no provider holds the question, so nothing can ask it again for
+  /// another account): [_agentsValue] for [_agentsQuery], loading until its
+  /// answer lands; an answer after [close] is dropped.
   AutomationAgentQuery? _agentsQuery;
+  AsyncValue<List<Model>?>? _agentsValue;
+  Future<void>? _agentsAnswer;
+  bool _closed = false;
 
   void close() {
+    _retire();
     base.close();
     terminals.close();
-    _agents?.close();
-    _agents = null;
+  }
+
+  /// Done with: an agent answer still on its way is dropped.
+  void _retire() {
+    _closed = true;
+    _agentsQuery = null;
+    _agentsValue = null;
+    _agentsAnswer = null;
+  }
+
+  /// Asks [query]'s terminal for its agents, for the account that opened
+  /// this editor only: none is asked once another account is in charge.
+  Future<void> _ask(AutomationAgentQuery query) async {
+    final automations = _container.read(automationsProvider.notifier);
+    if (!automations.isCurrentOwner(owner)) return;
+    final api = _container.read(apiServiceProvider);
+    AsyncValue<List<Model>?> answer;
+    if (!_container.read(automationAgentsSupportedProvider) || api == null) {
+      answer = const AsyncData<List<Model>?>(<Model>[]);
+    } else {
+      try {
+        answer = AsyncData<List<Model>?>(
+          await api.getTerminalAgentModels(
+            terminalId: query.terminalId,
+            terminalName: query.terminalName,
+            cwd: query.cwd,
+            forAutomation: true,
+            automationId: query.automationId,
+          ),
+        );
+      } on Object catch (error) {
+        DebugLogger.warning(
+          'automation-agents-failed',
+          scope: 'daemon/automations',
+          data: <String, Object?>{'error': error.runtimeType.toString()},
+        );
+        // Not read: the server decides whether the task's agent stands.
+        answer = const AsyncData<List<Model>?>(null);
+      }
+    }
+    if (_closed || query != _agentsQuery) return;
+    _agentsValue = answer;
   }
 
   /// What [draft] can pick now ([AutomationEditorOptions.withTerminalAgents]),
@@ -856,20 +905,15 @@ final class _TaskEditor {
       servers.asData?.value,
       cwd: draft.terminalCwd?.trim(),
     );
-    if (query != _agentsQuery) {
-      _agents?.close();
+    if (!_closed && query != _agentsQuery) {
       _agentsQuery = query;
-      _agents = query == null
-          ? null
-          : _container.listen<AsyncValue<List<Model>?>>(
-              automationAgentModelsProvider(query),
-              (_, _) {},
-            );
+      _agentsValue = query == null ? null : const AsyncLoading<List<Model>?>();
+      _agentsAnswer = query == null ? null : _ask(query);
     }
     return base.read().withTerminalAgents(
       draft: draft,
       terminals: servers,
-      agents: _agents?.read(),
+      agents: _agentsValue,
     );
   }
 
@@ -877,13 +921,10 @@ final class _TaskEditor {
   /// agents, so an answer carries them.
   Future<void> agentsSoon(AutomationDraft draft) async {
     optionsFor(draft);
-    final query = _agentsQuery;
-    if (query == null) return;
+    final answer = _agentsAnswer;
+    if (answer == null) return;
     try {
-      await readSettled(
-        _container,
-        automationAgentModelsProvider(query).future,
-      ).timeout(const Duration(seconds: 5));
+      await answer.timeout(const Duration(seconds: 5));
     } on Object {
       // Left unknown: the server decides.
     }

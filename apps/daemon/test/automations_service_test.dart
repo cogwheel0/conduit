@@ -44,24 +44,21 @@ void main() {
   late _Api api;
   late Object epoch;
   late Completer<void> modelsListed;
-  late Completer<void> agentsListed;
-  late Completer<void> agentsAsked;
-  var agentBuilds = 0;
 
   setUp(() {
-    agentsAsked = Completer<void>();
-    agentBuilds = 0;
     api = _Api();
     epoch = Object();
     modelsListed = Completer<void>()..complete();
-    agentsListed = Completer<void>()..complete();
   });
   tearDown(() => api.dispose());
 
   ProviderContainer container() {
     final container = ProviderContainer(
       overrides: [
-        apiServiceProvider.overrideWith((ref) => api),
+        apiServiceProvider.overrideWith((ref) {
+          ref.watch(openWebUiAuthSessionEpochProvider);
+          return api;
+        }),
         currentUserProvider2.overrideWith((ref) => _ava),
         isAuthenticatedProvider2.overrideWithValue(true),
         authTokenProvider3.overrideWithValue('token'),
@@ -75,19 +72,6 @@ void main() {
         channelsListProvider.overrideWith(_Channels.new),
         foldersProvider.overrideWith(_Folders.new),
         automationTerminalsProvider.overrideWith((ref) async => _benches),
-        automationAgentModelsProvider.overrideWith((ref, query) async {
-          // Asked on the account's server, as the core's lookup is.
-          ref.watch(apiServiceProvider);
-          agentBuilds++;
-          if (!agentsAsked.isCompleted) agentsAsked.complete();
-          await agentsListed.future;
-          return <core.Model>[
-            core.Model(
-              id: 'agent:${query.terminalId}:codex:gpt-test',
-              name: 'Codex · gpt-test',
-            ),
-          ];
-        }),
       ],
     );
     addTearDown(container.dispose);
@@ -99,6 +83,31 @@ void main() {
     c.invalidate(openWebUiAuthSessionEpochProvider);
   }
 
+  test("an editor's agent question still out never goes to the next "
+      "account's server", () async {
+    final c = container();
+    await c.read(activeServerProvider.future);
+    final service = AutomationsService(c);
+    addTearDown(service.dispose);
+    api.withTerminal = true;
+    final ava = api;
+    // Opening: Ava's terminal is slow to list its agents.
+    ava.agentsListed = Completer<void>();
+    final opening = service.editor(const AutomationEditorOpen(id: 't1'));
+    await ava.agentsAsked.future;
+    // Another account signs in on a server of its own; the editor closes.
+    final next = _Api();
+    addTearDown(ava.dispose);
+    api = next;
+    signInAnother(c);
+    c.read(apiServiceProvider);
+    await c.pump();
+    ava.agentsListed.complete();
+    await expectLater(opening, _accountChanged);
+    await c.pump();
+    expect(next.agentCalls, 0, reason: "Ava's task asked of the next server");
+  });
+
   test(
     'an open editor asks for no agents once another account signed in',
     () async {
@@ -108,12 +117,11 @@ void main() {
       addTearDown(service.dispose);
       api.withTerminal = true;
       final open = await service.editor(const AutomationEditorOpen(id: 't1'));
-      expect(agentBuilds, 1);
+      expect(api.agentCalls, 1);
       // Another account signs in, on a server of its own.
       signInAnother(c);
-      c.invalidate(apiServiceProvider);
       await c.pump();
-      expect(agentBuilds, 1, reason: "Ava's task asked of the next server");
+      expect(api.agentCalls, 1, reason: "Ava's task asked of the next server");
       await expectLater(
         service.terminals(
           AutomationDraftEdit(token: open.token, fields: open.fields),
@@ -137,11 +145,11 @@ void main() {
       addTearDown(service.dispose);
       api.withTerminal = true;
       // Opening: the task's terminal is slow to list its agents.
-      agentsListed = Completer<void>();
+      api.agentsListed = Completer<void>();
       final opening = service.editor(const AutomationEditorOpen(id: 't1'));
-      await agentsAsked.future;
+      await api.agentsAsked.future;
       signInAnother(c);
-      agentsListed.complete();
+      api.agentsListed.complete();
       await expectLater(opening, _accountChanged);
 
       // The terminals' list of an editor open before the switch.
@@ -150,17 +158,17 @@ void main() {
       final second = AutomationsService(c2);
       addTearDown(second.dispose);
       final open = await second.editor(const AutomationEditorOpen(id: 't1'));
-      agentsListed = Completer<void>();
-      agentsAsked = Completer<void>();
+      api.agentsListed = Completer<void>();
+      api.agentsAsked = Completer<void>();
       final listing = second.terminals(
         AutomationDraftEdit(
           token: open.token,
           fields: open.fields.copyWith(workingDirectory: '/srv/other'),
         ),
       );
-      await agentsAsked.future;
+      await api.agentsAsked.future;
       signInAnother(c2);
-      agentsListed.complete();
+      api.agentsListed.complete();
       await expectLater(listing, _accountChanged);
     });
 
@@ -170,15 +178,15 @@ void main() {
       final service = AutomationsService(c);
       addTearDown(service.dispose);
       api.withTerminal = true;
-      agentsListed = Completer<void>();
+      api.agentsListed = Completer<void>();
       final opening = service.editor(const AutomationEditorOpen(id: 't1'));
-      await agentsAsked.future;
+      await api.agentsAsked.future;
       // Eight more editors open (new tasks: no terminal to wait for), and
       // the first is the oldest.
       for (var i = 0; i < 8; i++) {
         await service.editor(const AutomationEditorOpen());
       }
-      agentsListed.complete();
+      api.agentsListed.complete();
       await expectLater(
         opening,
         throwsA(
@@ -379,6 +387,33 @@ final class _Api extends ApiService {
   /// The task runs north's coding agent on terminal north, in a folder.
   bool withTerminal = false;
 
+  /// The terminal's agents answer once [agentsListed] completes;
+  /// [agentsAsked] marks the first question, [agentCalls] counts them.
+  Completer<void> agentsListed = Completer<void>()..complete();
+  Completer<void> agentsAsked = Completer<void>();
+  var agentCalls = 0;
+
+  @override
+  Future<List<core.Model>> getTerminalAgentModels({
+    required String terminalId,
+    String? chatId,
+    String? cwd,
+    String? terminalName,
+    bool forAutomation = false,
+    String? automationId,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    agentCalls++;
+    if (!agentsAsked.isCompleted) agentsAsked.complete();
+    await agentsListed.future;
+    return <core.Model>[
+      core.Model(
+        id: 'agent:$terminalId:codex:gpt-test',
+        name: 'Codex · gpt-test',
+      ),
+    ];
+  }
+
   static const _onTerminal = Automation(
     id: 't1',
     userId: 'user-1',
@@ -468,8 +503,11 @@ final class _Api extends ApiService {
 
 final class _Config extends BackendConfigNotifier {
   @override
-  Future<BackendConfig?> build() async =>
-      const BackendConfig(serverId: 'server', enableAutomations: true);
+  Future<BackendConfig?> build() async => const BackendConfig(
+    serverId: 'server',
+    enableAutomations: true,
+    version: '0.13.3',
+  );
 }
 
 final class _Models extends Models {
