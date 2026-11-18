@@ -245,6 +245,22 @@ final class AppleModelsBridge implements ApplePccHost {
   /// The number of the last report taken from each run.
   final Map<String, int> _numbers = <String, int>{};
 
+  /// Runs whose start command has gone to their window and is not answered
+  /// yet: the window may not have it, so a `ready` that does not list one
+  /// says nothing of it.
+  final Set<String> _starting = <String>{};
+
+  /// Runs asked to stop that have not ended: a `ready` that still lists one
+  /// (its Cancel lost on the way) is told to stop it again.
+  final Set<String> _cancelling = <String>{};
+
+  /// Forgets [runId] as a run here; returns the window that ran it.
+  String? _forget(String runId) {
+    _numbers.remove(runId);
+    _cancelling.remove(runId);
+    return _owners.remove(runId);
+  }
+
   /// What the engine last said of the on-device model (for its reason).
   AppleEngineStatus? lastStatus;
 
@@ -338,6 +354,7 @@ final class AppleModelsBridge implements ApplePccHost {
       _owners[request.runId] = engine;
       _numbers[request.runId] = 0;
     }
+    _starting.add(request.runId);
     try {
       await _command(
         (id) => AppleCommand(
@@ -374,11 +391,12 @@ final class AppleModelsBridge implements ApplePccHost {
     } on Object {
       // Never started, or not known to: an engine that did start it is
       // stopped, and its reports no longer count.
-      if (_owners.remove(request.runId) case final owner?) {
-        _numbers.remove(request.runId);
+      if (_forget(request.runId) case final owner?) {
         _stopIn(owner, request.runId);
       }
       rethrow;
+    } finally {
+      _starting.remove(request.runId);
     }
   }
 
@@ -386,6 +404,7 @@ final class AppleModelsBridge implements ApplePccHost {
   Future<void> cancel(String runId) async {
     final owner = _owners[runId];
     if (owner == null) return;
+    _cancelling.add(runId);
     await _command(
       (id) => AppleCommand(id: id, kind: AppleCommandKind.cancel, runId: runId),
       to: owner,
@@ -413,8 +432,7 @@ final class AppleModelsBridge implements ApplePccHost {
   /// Ends [runId] here, failed, and stops it in the window running it: the
   /// one way out for a run whose words or tool results went astray. Once.
   void _end(String runId, {bool stop = true}) {
-    final owner = _owners.remove(runId);
-    _numbers.remove(runId);
+    final owner = _forget(runId);
     if (owner == null) return;
     _event(
       PlatformPccStreamEvent(
@@ -498,8 +516,7 @@ final class AppleModelsBridge implements ApplePccHost {
         );
       case AppleReportKind.failed:
         final runId = report.runId ?? '';
-        _owners.remove(runId);
-        _numbers.remove(runId);
+        _forget(runId);
         final unavailable = report.failure == AppleFailure.unavailable;
         _event(
           PlatformPccStreamEvent(
@@ -516,8 +533,7 @@ final class AppleModelsBridge implements ApplePccHost {
         if (unavailable) _onRecheck?.call();
       case AppleReportKind.done:
         final runId = report.runId ?? '';
-        _owners.remove(runId);
-        _numbers.remove(runId);
+        _forget(runId);
         _event(
           PlatformPccStreamEvent(runId: runId, kind: PlatformPccEventKind.done),
         );
@@ -534,10 +550,13 @@ final class AppleModelsBridge implements ApplePccHost {
     }
   }
 
-  /// Window [from] said `ready` (it connected, or said it again): it runs
-  /// commands from now on. A run it has that is not its own here (one that
-  /// ended with an earlier session, or another window's) is stopped there;
-  /// a run of its own that it no longer has ends here.
+  /// Window [from] said `ready` (it connected, or said it again after
+  /// events were lost): it runs commands from now on. It is reconciled with
+  /// only what it can have seen. A run it has that is not its own here (one
+  /// that ended with an earlier session, or another window's), or that it
+  /// was asked to stop (that Cancel may be what was lost), is stopped
+  /// there; a run of its own that it no longer has ends here, unless its
+  /// start is still on the way (the window cannot list it yet).
   void _ready(String from, AppleReport report) {
     final supported = report.supported ?? false;
     _engines
@@ -545,10 +564,16 @@ final class AppleModelsBridge implements ApplePccHost {
       ..[from] = supported;
     final kept = report.runs.toSet();
     for (final runId in kept) {
-      if (_owners[runId] != from) _stopIn(from, runId);
+      if (_owners[runId] != from || _cancelling.contains(runId)) {
+        _stopIn(from, runId);
+      }
     }
     for (final MapEntry(key: runId, value: owner) in _owners.entries.toList()) {
-      if (owner == from && !kept.contains(runId)) _end(runId, stop: false);
+      if (owner == from &&
+          !kept.contains(runId) &&
+          !_starting.contains(runId)) {
+        _end(runId, stop: false);
+      }
     }
     _onReady?.call(supported);
   }

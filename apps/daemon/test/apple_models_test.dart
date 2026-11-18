@@ -339,6 +339,64 @@ void main() {
     );
   });
 
+  test('a ready said again while a start is on its way keeps that run: the '
+      'window cannot list it yet', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Basil.'];
+    final held = window.holdStart = Completer<void>();
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Name one tender herb.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(
+      () => window.commands.any((c) => c.kind == AppleCommandKind.start),
+    );
+    // Events were lost: the window says ready with the runs it has, and it
+    // has not taken the start yet.
+    window.ready(supported: true);
+    await pumpEventQueue();
+    held.complete();
+    await done.timeout(const Duration(seconds: 2));
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+    expect(
+      events.whereType<DirectContentDelta>().map((e) => e.content).join(),
+      'Basil.',
+    );
+    expect(events.last, isA<DirectStreamDone>());
+    expect(window.cancelled, isEmpty);
+  });
+
+  test('a Cancel lost on the way is sent again when the window says ready '
+      'still holding the run', () async {
+    window.ready(supported: true);
+    window.reply = const <String>['Slowly '];
+    window.holdOpen = true;
+    final run = container
+        .read(applePccAdapterProvider)
+        .startCompletion(
+          DirectConnectionProfile.appleOnDevice(),
+          ask('Tell me a long story.'),
+        );
+    final events = <DirectStreamEvent>[];
+    final done = run.events.listen(events.add).asFuture<void>();
+    await window.until(() => events.whereType<DirectContentDelta>().isNotEmpty);
+    window.dropCancels = 1;
+    unawaited(run.cancel('stop'));
+    await window.until(() => window.lost.isNotEmpty);
+    expect(window.cancelled, isEmpty, reason: 'that Cancel never arrived');
+    // The window, after the gap, still has the run.
+    window.ready(supported: true, runs: <String>[run.id]);
+    await window.until(() => window.cancelled.isNotEmpty);
+    expect(window.cancelled, <String>[run.id]);
+    window.answerLost();
+    await done.timeout(const Duration(seconds: 2));
+    expect(events.whereType<DirectStreamError>(), isEmpty);
+  });
+
   test('with two windows, one engine runs a request: the last to say '
       'ready', () async {
     final other = _Window(bus, apple, id: 'other');
@@ -635,6 +693,23 @@ final class _Window {
 
   /// Holds status answers back until it completes.
   Completer<void>? holdStatus;
+
+  /// Holds a start back, untaken (no run, no answer), until it completes.
+  Completer<void>? holdStart;
+
+  /// Drops this many Cancel commands, as if lost on the way: they are kept
+  /// in [lost], unanswered.
+  int dropCancels = 0;
+  final lost = <AppleCommand>[];
+
+  /// Answers the dropped commands at last, so nothing waits on them.
+  void answerLost() {
+    for (final c in lost) {
+      _report(AppleReport(id: c.id));
+    }
+    lost.clear();
+  }
+
   final Map<String, Completer<void>> _toolAnswered =
       <String, Completer<void>>{};
 
@@ -692,6 +767,7 @@ final class _Window {
         _report(AppleReport(id: c.id, status: status));
       case AppleCommandKind.start:
         final runId = c.request!.runId;
+        if (holdStart case final hold?) await hold.future;
         _report(AppleReport(id: c.id));
         if (failure case final failure?) {
           _report(
@@ -741,6 +817,11 @@ final class _Window {
         );
         _report(AppleReport(kind: AppleReportKind.done, runId: runId));
       case AppleCommandKind.cancel:
+        if (dropCancels > 0) {
+          dropCancels--;
+          lost.add(c);
+          return;
+        }
         cancelled.add(c.runId!);
         _report(AppleReport(id: c.id));
         _report(AppleReport(kind: AppleReportKind.done, runId: c.runId));
