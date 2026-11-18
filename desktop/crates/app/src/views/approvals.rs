@@ -223,11 +223,11 @@ impl ApprovalsView {
             });
         }
         // Shown again: what was typed into it before it left.
+        // What was typed comes back as it was, even emptied: a default the
+        // user cleared stays cleared.
         if let Some(parked) = self.parked.remove(&top.request_id) {
-            if !parked.input.is_empty() {
-                self.input
-                    .update(cx, |i, cx| i.set_value(parked.input, window, cx));
-            }
+            self.input
+                .update(cx, |i, cx| i.set_value(parked.input, window, cx));
             self.selected = parked.selected;
             self.confirming_always = parked.confirming_always;
             self.clarify = parked.clarify;
@@ -1626,7 +1626,10 @@ mod replay_tests {
             request_id: "p".into(),
             kind: UiRequestKind::InputPrompt,
             message_code: "ui.input".into(),
-            message_args: BTreeMap::from([("title".to_string(), "Name the bed".to_string())]),
+            message_args: BTreeMap::from([
+                ("title".to_string(), "Name the bed".to_string()),
+                ("initialValue".to_string(), "Bed one".to_string()),
+            ]),
             detail: json!({}),
             timeout_ms: Some(300_000),
             default_choice: "cancel".into(),
@@ -1657,6 +1660,20 @@ mod replay_tests {
             .update(vcx, |n, cx| n.open("local:hermes_b", cx));
         draw(vcx);
         assert_eq!(value(&field, vcx), "North bed", "the typed answer was lost");
+
+        // Emptied, it comes back empty: the default the user cleared is
+        // not put back.
+        vcx.update(|window, cx| field.update(cx, |i, cx| i.set_value("", window, cx)));
+        draw(vcx);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_a", cx));
+        draw(vcx);
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open("local:hermes_b", cx));
+        draw(vcx);
+        assert_eq!(value(&field, vcx), "", "the cleared default came back");
     }
 
     #[gpui_kit::test]
