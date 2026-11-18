@@ -315,6 +315,27 @@ void main() {
     });
   });
 
+  test('a proxy cookie captured for an account is not kept once another '
+      'account is active', () async {
+    await storage.saveServerConfigs([
+      account('a'),
+      account('b', url: 'https://other.example.com'),
+    ]);
+    await storage.setActiveServerId('a');
+    final b = (await storage.getServerConfigs()).singleWhere(
+      (config) => config.id == 'b',
+    );
+
+    final kept = await storage.saveCapturedSessionHeaders(
+      b.copyWith(customHeaders: {...b.customHeaders, 'Cookie': '_gate=open'}),
+      canCommit: () => true,
+    );
+
+    check(kept).isFalse();
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    check(registry.account('b')!.capturedHeaders).isEmpty();
+  });
+
   group('adding an account', () {
     test('keeps the previous account signed in, in its vault', () async {
       await storage.saveServerConfigs([account('a')]);

@@ -2948,8 +2948,9 @@ class OptimizedStorageService {
   /// whether they were kept: not once [canCommit] fails -- asked with the
   /// storage locks held, after every read and right before the write, so a
   /// sign-out or a cancellation queued ahead of it has finished and is seen
-  /// -- nor when the account is gone or its route no longer carries
-  /// [config]'s connection (another save moved it).
+  /// -- nor when the account is gone, is not the active one any more, or
+  /// its route no longer carries [config]'s connection (another save moved
+  /// it).
   Future<bool> saveCapturedSessionHeaders(
     ServerConfig config, {
     required bool Function() canCommit,
@@ -2973,7 +2974,14 @@ class OptimizedStorageService {
             if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
         };
         if (captured.isEmpty) return false;
-        // Nothing awaited since the read: what is checked is what the write
+        // Only while the account it was captured for is the one in charge:
+        // a switch since, even between two signed-out accounts, keeps it.
+        final activeId = _effectiveActiveServerId(
+          configs: await _getServerConfigsStrictUnlocked(),
+          rawActiveServerId: _rawStoredActiveServerId(),
+        );
+        if (activeId != config.id) return false;
+        // Nothing awaited since the reads: what is checked is what the write
         // goes over.
         if (!canCommit()) return false;
         await _saveRegistryUnlocked(
