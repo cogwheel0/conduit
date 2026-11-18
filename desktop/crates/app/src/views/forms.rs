@@ -564,6 +564,28 @@ pub fn header_rows(
     on_remove: RowHandler,
     cx: &App,
 ) -> Div {
+    header_rows_locked(
+        rows,
+        name_label,
+        value_label,
+        remove_label,
+        on_remove,
+        false,
+        cx,
+    )
+}
+
+/// [`header_rows`] that take no typing, and remove nothing, while `locked`
+/// (as [`field_locked`]).
+pub fn header_rows_locked(
+    rows: &[HeaderRow],
+    name_label: SharedString,
+    value_label: SharedString,
+    remove_label: SharedString,
+    on_remove: RowHandler,
+    locked: bool,
+    cx: &App,
+) -> Div {
     let t = cx.conduit().clone();
     let h = t.metrics.control_height + 2.;
     div()
@@ -595,11 +617,9 @@ pub fn header_rows(
                                 .child(div().truncate().child(h)),
                         )
                     })
-                    .child(div().flex_1().min_w_0().child(bare_input(
-                        state,
-                        label.clone(),
-                        t.metrics.control,
-                    )))
+                    .child(div().flex_1().min_w_0().child(
+                        bare_input(state, label.clone(), t.metrics.control).disabled(locked),
+                    ))
             };
             div()
                 .flex()
@@ -614,6 +634,7 @@ pub fn header_rows(
                         remove_label.clone(),
                     )
                     .size(24., 14.)
+                    .disabled(locked)
                     .on_click(Rc::new(move |_, window, cx| remove(i, window, cx))),
                 )
         }))
@@ -690,6 +711,19 @@ pub fn pem_picker(
     on_clear: ClickHandler,
     cx: &App,
 ) -> Div {
+    pem_picker_locked(id, file, labels, on_choose, on_clear, false, cx)
+}
+
+/// [`pem_picker`] that picks and clears nothing while `locked`.
+pub fn pem_picker_locked(
+    id: &'static str,
+    file: Option<&PemFile>,
+    labels: PemLabels,
+    on_choose: ClickHandler,
+    on_clear: ClickHandler,
+    locked: bool,
+    cx: &App,
+) -> Div {
     let PemLabels {
         choose: choose_label,
         replace: replace_label,
@@ -717,6 +751,7 @@ pub fn pem_picker(
                     clear_label.clone(),
                 )
                 .ghost()
+                .disabled(locked)
                 .on_click(on_clear),
             )
         })
@@ -729,6 +764,7 @@ pub fn pem_picker(
                     choose_label
                 },
             )
+            .disabled(locked)
             .on_click(on_choose),
         )
 }

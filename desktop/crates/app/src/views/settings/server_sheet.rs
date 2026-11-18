@@ -1537,6 +1537,12 @@ impl HasAdvanced for AddressEditor {
     fn advanced_changed(&mut self) {
         self.error = None;
     }
+
+    /// Locked while Save is out: it saves the form as it found it, so
+    /// nothing can be changed after and then closed over.
+    fn locked(&self) -> bool {
+        self.busy
+    }
 }
 
 impl Render for AddressEditor {
@@ -1589,20 +1595,22 @@ impl Render for AddressEditor {
                     .gap(px(6.))
                     .child(forms::form_group(
                         vec![
-                            forms::field(
+                            forms::field_locked(
                                 l10n.accounts_address_name(),
                                 &self.label,
                                 None,
                                 None,
+                                self.busy,
                                 window,
                                 cx,
                             )
                             .into_any_element(),
-                            forms::field(
+                            forms::field_locked(
                                 l10n.desktop_server_address(),
                                 &self.url,
                                 None,
                                 None,
+                                self.busy,
                                 window,
                                 cx,
                             )
@@ -1809,6 +1817,58 @@ mod tests {
         assert!(sheet_up(vcx));
         drop(held);
         vcx.run_until_parked();
+    }
+
+    /// While an address's Save is out the editor takes no typing: Save
+    /// saves the form as it found it, and closes, so nothing typed after
+    /// may be closed over.
+    #[gpui_kit::test]
+    fn an_address_save_out_takes_no_typing(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ServersAddressesList>(seed_lab());
+        open_seed_lab(&stores, vcx);
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.edit(None, w, cx));
+        vcx.run_until_parked();
+        let editor = Rc::new(std::cell::RefCell::new(None));
+        let kept = editor.clone();
+        // The name field has the caret, as when the user is typing in it.
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| {
+            let e = s.editor.clone().expect("the editor is open");
+            e.update(cx, |e, cx| {
+                e.url
+                    .update(cx, |i, cx| i.set_value("http://127.0.0.1:20533", w, cx));
+                e.label.update(cx, |i, cx| {
+                    i.set_value("Office", w, cx);
+                    i.focus(w, cx);
+                });
+            });
+            *kept.borrow_mut() = Some(e);
+        });
+        let editor = editor.borrow().clone().expect("the editor");
+        let draw = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| {
+                if let Some(handle) = sheet::current_window(cx) {
+                    let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+                }
+            });
+            vcx.run_until_parked();
+        };
+        draw(vcx);
+        let held = daemon.hold::<methods::ServersAddressesCheck>();
+        on_sheet::<ServerSheet>(vcx, |_, w, cx| editor.update(cx, |e, cx| e.save(w, cx)));
+        vcx.run_until_parked();
+        draw(vcx);
+        let window = vcx
+            .update(|_, cx| sheet::current_window(cx))
+            .expect("the sheet's window");
+        let mut sheet_cx = VisualTestContext::from_window(window, &app);
+        sheet_cx.simulate_input(" East");
+        vcx.run_until_parked();
+        let label = vcx.update(|_, cx| forms::text(&editor.read(cx).label, cx));
+        drop(held);
+        vcx.run_until_parked();
+        assert_eq!(label, "Office", "typing went in while Save was out");
     }
 
     fn ids(v: &[&str]) -> Vec<String> {

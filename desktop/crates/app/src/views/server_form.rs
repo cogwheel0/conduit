@@ -29,8 +29,9 @@ use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
 use crate::stores::accounts::AccountChange;
 use crate::views::forms::{
-    self, HeaderError, HeaderRow, PemError, PemFile, PemLabels, field, form_buttons, form_error,
-    form_group, header_rows, headers_from_rows, normalize_url, pem_picker, pick_pem,
+    self, HeaderError, HeaderRow, PemError, PemFile, PemLabels, field, field_locked, form_buttons,
+    form_error, form_group, header_rows_locked, headers_from_rows, normalize_url,
+    pem_picker_locked, pick_pem,
 };
 
 fn labels(l10n: &L10n) -> PemLabels {
@@ -127,6 +128,12 @@ pub trait HasAdvanced: Sized + 'static {
 
     /// Anything in the Advanced settings changed.
     fn advanced_changed(&mut self) {}
+
+    /// Whether the Advanced settings take no input now: a save of the form
+    /// is out, so what it answers is the form as it stands.
+    fn locked(&self) -> bool {
+        false
+    }
 }
 
 /// Picks a certificate (or with `key`, a private key) with the open panel.
@@ -172,6 +179,7 @@ pub fn advanced_section<V: HasAdvanced>(
 ) -> AnyElement {
     let l10n = cx.l10n().clone();
     let fields = view.advanced();
+    let locked = view.locked();
     let this = cx.entity().downgrade();
     let toggle = {
         let this = this.clone();
@@ -238,6 +246,7 @@ pub fn advanced_section<V: HasAdvanced>(
                 l10n.desktop_allow_unverified_certificate(),
                 fields.self_signed,
             )
+            .disabled(locked)
             .on_click(toggle),
             cx,
         )
@@ -245,12 +254,13 @@ pub fn advanced_section<V: HasAdvanced>(
         setting_row(
             l10n.mutual_tls_select_certificate(),
             Some(l10n.desktop_client_certificate_help().into()),
-            pem_picker(
+            pem_picker_locked(
                 "mtls-certificate",
                 fields.certificate.as_ref(),
                 labels(&l10n),
                 pem(false),
                 clear(false),
+                locked,
                 cx,
             ),
             cx,
@@ -259,12 +269,13 @@ pub fn advanced_section<V: HasAdvanced>(
         setting_row(
             l10n.desktop_private_key(),
             None,
-            pem_picker(
+            pem_picker_locked(
                 "mtls-private-key",
                 fields.private_key.as_ref(),
                 labels(&l10n),
                 pem(true),
                 clear(true),
+                locked,
                 cx,
             ),
             cx,
@@ -273,11 +284,12 @@ pub fn advanced_section<V: HasAdvanced>(
     ];
     if fields.private_key.is_some() {
         rows.push(
-            field(
+            field_locked(
                 l10n.desktop_private_key_password(),
                 &fields.key_password,
                 None,
                 None,
+                locked,
                 window,
                 cx,
             )
@@ -297,18 +309,19 @@ pub fn advanced_section<V: HasAdvanced>(
                     Some(l10n.desktop_custom_headers_help().into()),
                     Button::new("add-header", l10n.desktop_add_header())
                         .icon(IconName::Plus)
-                        .disabled(fields.headers.len() >= MAX_HEADERS)
+                        .disabled(locked || fields.headers.len() >= MAX_HEADERS)
                         .on_click(add_header),
                     cx,
                 )
                 .px_0(),
             )
-            .child(header_rows(
+            .child(header_rows_locked(
                 &fields.headers,
                 l10n.desktop_header_name().into(),
                 l10n.desktop_header_value().into(),
                 l10n.desktop_remove_header().into(),
                 remove_header,
+                locked,
                 cx,
             ))
             .when_some(fields.header_error.clone(), |d, e| {
