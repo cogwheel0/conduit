@@ -36,6 +36,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use gpui_kit::base::text::RenderedText;
+
 use gpui_kit::{
     AnyElement, App, AvailableSpace, Bounds, Element, ElementId, GlobalElementId,
     InspectorElementId, IntoElement, LayoutId, Pixels, Style, TextStyle, Window, px, relative,
@@ -76,10 +78,11 @@ struct Measured {
     /// as its layout saw it: a pass that only measures rows never reaches
     /// [`ChunkPlace::held`]'s own width check.
     area: Pixels,
-    /// The committed parse the layout drew ([`committed_parse`]): the same
-    /// text parsed again (with the chat's plugins, say) can be another
-    /// height.
-    parse: usize,
+    /// The parse the layout drew, as the text state's snapshot of it
+    /// (equal only for the same view and the same parse): the same text
+    /// parsed again (with the chat's plugins, say) can be another height.
+    /// Dropped with the measurement.
+    parse: RenderedText,
 }
 
 #[derive(Default)]
@@ -139,10 +142,15 @@ impl ChunkPlace {
     /// The height to hold the chunk at this frame, if it may be held: it
     /// was measured with this typography, in an area of this width, and
     /// was far from the view.
-    fn held_height(&self, typography: &Typography, area: Pixels, parse: usize) -> Option<Pixels> {
+    fn held_height(
+        &self,
+        typography: &Typography,
+        area: Pixels,
+        parse: &RenderedText,
+    ) -> Option<Pixels> {
         let state = self.state.borrow();
         let measured = state.measured.as_ref()?;
-        if measured.typography != *typography || measured.area != area || measured.parse != parse {
+        if measured.typography != *typography || measured.area != area || measured.parse != *parse {
             return None;
         }
         let (bounds, view) = state.seen?;
@@ -155,7 +163,7 @@ impl ChunkPlace {
         &self,
         bounds: Bounds<Pixels>,
         view: Bounds<Pixels>,
-        settled: Option<(Typography, Pixels, usize)>,
+        settled: Option<(Typography, Pixels, RenderedText)>,
     ) {
         let mut state = self.state.borrow_mut();
         state.seen = Some((bounds, view));
@@ -193,7 +201,7 @@ pub struct LazyChunk {
     may_hold: bool,
     /// The committed parse of its text, once that parse has landed: only
     /// then is this layout's height kept, for that parse.
-    settled: Option<usize>,
+    settled: Option<RenderedText>,
     /// Makes the chunk's element, only when it is laid out.
     build: Option<Box<dyn FnOnce() -> AnyElement>>,
 }
@@ -211,7 +219,7 @@ impl LazyChunk {
 
     /// Whether the chunk may be held, and whether its text's parse has
     /// landed (only then is its height kept for holding).
-    pub fn holdable(mut self, may_hold: bool, settled: Option<usize>) -> Self {
+    pub fn holdable(mut self, may_hold: bool, settled: Option<RenderedText>) -> Self {
         self.may_hold = may_hold && settled.is_some();
         self.settled = settled;
         self
@@ -261,7 +269,7 @@ impl Element for LazyChunk {
         // its links and buttons stay in the accessibility tree as before.
         if self.may_hold
             && !window.is_a11y_active()
-            && let Some(parse) = self.settled
+            && let Some(parse) = &self.settled
             && let Some(height) = self.place.held_height(&typography, area, parse)
         {
             // Held: its room, as the chunk filled it.
@@ -306,6 +314,7 @@ impl Element for LazyChunk {
                 bounds,
                 view,
                 self.settled
+                    .take()
                     .map(|parse| (layout.typography.clone(), layout.area, parse)),
             );
             return Some(child);
@@ -354,10 +363,9 @@ impl Element for LazyChunk {
 /// thread), PDF cards (their first page renders later) and diagrams
 /// (drawn by the renderer web view). Such a chunk is never held.
 pub fn changes_height_later(markdown: &str) -> bool {
-    if markdown.contains("![") || markdown.contains("<img") {
-        return true;
-    }
-    if markdown.to_ascii_lowercase().contains(".pdf") {
+    // HTML tag names are case-insensitive: `<IMG …>` is a picture too.
+    let lower = markdown.to_ascii_lowercase();
+    if markdown.contains("![") || lower.contains("<img") || lower.contains(".pdf") {
         return true;
     }
     markdown.lines().any(|line| {
@@ -369,24 +377,6 @@ pub fn changes_height_later(markdown: &str) -> bool {
             super::diagrams::diagram_kind(lang).is_some()
         })
     })
-}
-
-/// The committed parse of `rendered` (its revision): a text state parses
-/// the same text again when its parse options change (the chat's plugins
-/// arrive after Find made the state, say), and a height measured from one
-/// parse does not hold for another. Until GPUI Kit exposes the revision
-/// (follow-up: an upstream accessor, or a vendored one, before the next
-/// GPUI Kit bump), this relies on the `Debug` format of GPUI Kit 0.9's
-/// `RenderedText` (`revision: N`), the only place it shows the revision;
-/// when that format no longer has it, this is None and the chunk is never
-/// held (laid out as usual: slower, never wrong).
-pub fn committed_parse(rendered: &gpui_kit::base::text::RenderedText) -> Option<usize> {
-    let debug = format!("{rendered:?}");
-    let rest = &debug[debug.find("revision: ")? + "revision: ".len()..];
-    let digits = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    rest[..digits].parse().ok()
 }
 
 /// Whether a chunk's markdown draws something Tab stops at under Full
@@ -408,6 +398,7 @@ pub fn has_keyboard_stops(markdown: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::AppContext as _;
 
     #[test]
     fn media_and_diagrams_keep_a_chunk_laid_out() {
@@ -425,6 +416,9 @@ mod tests {
         ));
         assert!(changes_height_later("```mermaid\ngraph TD; A-->B\n```"));
         assert!(changes_height_later("Intro\n\n  ~~~ chart\n{}\n~~~"));
+        assert!(changes_height_later(
+            "A chart: <IMG src=\"https://example.org/t.png\">"
+        ));
     }
 
     fn typography() -> Typography {
@@ -448,8 +442,25 @@ mod tests {
         (chunk, view)
     }
 
-    #[test]
-    fn another_text_or_width_is_laid_out_again_before_it_is_held() {
+    /// A text state of `text` and the snapshot of its committed parse.
+    fn parsed(
+        text: &str,
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> (
+        gpui_kit::Entity<gpui_kit::component::text::TextViewState>,
+        RenderedText,
+    ) {
+        let state = cx.new(|cx| gpui_kit::component::text::TextViewState::markdown(text, cx));
+        cx.run_until_parked();
+        let parse = cx.read(|cx| state.read(cx).rendered_text());
+        (state, parse)
+    }
+
+    #[gpui_kit::test]
+    fn another_text_width_or_parse_is_laid_out_again_before_it_is_held(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
         let place = ChunkPlace::default();
         let t = typography();
         let (chunk, view) = far_below();
@@ -457,31 +468,45 @@ mod tests {
         // The same length: only the text tells them apart.
         let other = "Another version of this paragraph!!!";
         assert_eq!(first.len(), other.len());
+        let (state, parse) = parsed(first, cx);
         place.text_facts(first);
-        place.laid_out(chunk, view, Some((t.clone(), px(700.), 3)));
-        assert_eq!(place.held_height(&t, px(700.), 3), Some(px(120.)));
+        place.laid_out(chunk, view, Some((t.clone(), px(700.), parse.clone())));
+        assert_eq!(place.held_height(&t, px(700.), &parse), Some(px(120.)));
         // The transcript is another width: laid out again.
-        assert_eq!(place.held_height(&t, px(640.), 3), None);
-        // The same text parsed again (another committed parse): laid out
-        // again.
-        assert_eq!(place.held_height(&t, px(700.), 4), None);
+        assert_eq!(place.held_height(&t, px(640.), &parse), None);
+        // The same text parsed again (another committed parse of the same
+        // view): laid out again.
+        state.update(cx, |s, cx| s.set_text(other, cx));
+        cx.run_until_parked();
+        state.update(cx, |s, cx| s.set_text(first, cx));
+        cx.run_until_parked();
+        let again = cx.read(|cx| state.read(cx).rendered_text());
+        assert_eq!(again.source(), first);
+        assert!(again != parse, "a new parse is another snapshot");
+        assert_eq!(place.held_height(&t, px(700.), &again), None);
+        // Nor does another view's parse of the same text count.
+        let (_, elsewhere) = parsed(first, cx);
+        assert_eq!(place.held_height(&t, px(700.), &elsewhere), None);
         // The same text keeps its height; another text drops it.
         place.text_facts(first);
-        assert_eq!(place.held_height(&t, px(700.), 3), Some(px(120.)));
+        assert_eq!(place.held_height(&t, px(700.), &parse), Some(px(120.)));
         place.text_facts(other);
-        assert_eq!(place.held_height(&t, px(700.), 3), None);
+        assert_eq!(place.held_height(&t, px(700.), &parse), None);
     }
 
-    #[test]
-    fn without_a_parse_revision_a_chunk_is_never_held() {
+    #[gpui_kit::test]
+    fn a_chunk_whose_parse_has_not_landed_is_never_held(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(gpui_kit::init);
         let place = Rc::new(ChunkPlace::default());
         let chunk = LazyChunk::new(place.clone(), || gpui_kit::div().into_any_element())
             .holdable(true, None);
-        assert!(!chunk.may_hold, "no revision: never held");
-        // Nor do its layouts leave a height to hold it at later.
+        assert!(!chunk.may_hold, "no parse to measure for: never held");
+        // Nor do its layouts leave a height to hold it at later, for any
+        // parse.
         let (bounds, view) = far_below();
         place.laid_out(bounds, view, None);
-        assert_eq!(place.held_height(&typography(), px(700.), 0), None);
+        let (_, parse) = parsed("A paragraph.", cx);
+        assert_eq!(place.held_height(&typography(), px(700.), &parse), None);
     }
 
     #[test]
