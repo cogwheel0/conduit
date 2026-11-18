@@ -114,11 +114,17 @@ fn arg(args: &[String], key: &str) -> Option<String> {
         .cloned()
 }
 
-/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`)
-/// that drives, resets and photographs its profile.
+/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
+/// or a fixture: `--fixture`, `--chat-fixture` and the rest) that drives,
+/// resets and photographs its profile, or saves settings to it (a
+/// fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
-    args.iter()
-        .any(|a| a == "--shots" || a.starts_with("--e2e") || a.starts_with("--capture"))
+    args.iter().any(|a| {
+        a == "--shots"
+            || a.starts_with("--e2e")
+            || a.starts_with("--capture")
+            || (a.starts_with("--") && a.ends_with("fixture"))
+    })
 }
 
 /// The profile a scripted run uses: the one named by `named`
@@ -1008,7 +1014,12 @@ mod harness_profile_tests {
         ])));
         assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
         assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        // A fixture saves its own settings (the shots' theme), with or
+        // without `--shots`.
+        assert!(is_scripted(&args(&["app", "--chat-fixture", "shots"])));
+        assert!(is_scripted(&args(&["app", "--fixture", "web-media"])));
         assert!(!is_scripted(&args(&["app", "--hidden"])));
+        assert!(!is_scripted(&args(&["app", "--cwd", "/tmp/fixture"])));
 
         let ordinary =
             std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");
