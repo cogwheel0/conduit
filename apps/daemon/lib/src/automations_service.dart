@@ -848,6 +848,14 @@ final class _TaskEditor {
   Future<void>? _agentsAnswer;
   bool _closed = false;
 
+  /// Numbers each agent question: only the newest one's answer is taken,
+  /// even when an older one asked the same (A, then B, then A again).
+  int _agentsTicket = 0;
+
+  /// The newest question failed (its answer is unknown, not "none"): the
+  /// next terminals' list asks again.
+  bool _agentsFailed = false;
+
   void close() {
     _retire();
     base.close();
@@ -857,6 +865,7 @@ final class _TaskEditor {
   /// Done with: an agent answer still on its way is dropped.
   void _retire() {
     _closed = true;
+    _agentsTicket++;
     _agentsQuery = null;
     _agentsValue = null;
     _agentsAnswer = null;
@@ -864,11 +873,12 @@ final class _TaskEditor {
 
   /// Asks [query]'s terminal for its agents, for the account that opened
   /// this editor only: none is asked once another account is in charge.
-  Future<void> _ask(AutomationAgentQuery query) async {
+  Future<void> _ask(AutomationAgentQuery query, int ticket) async {
     final automations = _container.read(automationsProvider.notifier);
     if (!automations.isCurrentOwner(owner)) return;
     final api = _container.read(apiServiceProvider);
     AsyncValue<List<Model>?> answer;
+    var failed = false;
     if (!_container.read(automationAgentsSupportedProvider) || api == null) {
       answer = const AsyncData<List<Model>?>(<Model>[]);
     } else {
@@ -890,25 +900,33 @@ final class _TaskEditor {
         );
         // Not read: the server decides whether the task's agent stands.
         answer = const AsyncData<List<Model>?>(null);
+        failed = true;
       }
     }
-    if (_closed || query != _agentsQuery) return;
+    if (_closed || ticket != _agentsTicket) return;
     _agentsValue = answer;
+    _agentsFailed = failed;
   }
 
   /// What [draft] can pick now ([AutomationEditorOptions.withTerminalAgents]),
   /// asking its terminal for its agents when that changed.
-  AutomationEditorOptions optionsFor(AutomationDraft draft) {
+  AutomationEditorOptions optionsFor(
+    AutomationDraft draft, {
+    bool retryFailed = false,
+  }) {
     final servers = terminals.read();
     final query = automationAgentQueryFor(
       draft,
       servers.asData?.value,
       cwd: draft.terminalCwd?.trim(),
     );
-    if (!_closed && query != _agentsQuery) {
+    final again = retryFailed && _agentsFailed && query != null;
+    if (!_closed && (query != _agentsQuery || again)) {
+      final ticket = ++_agentsTicket;
       _agentsQuery = query;
+      _agentsFailed = false;
       _agentsValue = query == null ? null : const AsyncLoading<List<Model>?>();
-      _agentsAnswer = query == null ? null : _ask(query);
+      _agentsAnswer = query == null ? null : _ask(query, ticket);
     }
     return base.read().withTerminalAgents(
       draft: draft,
@@ -920,7 +938,9 @@ final class _TaskEditor {
   /// Waits (a few seconds at most) for [draft]'s terminal to list its
   /// agents, so an answer carries them.
   Future<void> agentsSoon(AutomationDraft draft) async {
-    optionsFor(draft);
+    // A question that failed is asked again here (the terminals' list, the
+    // editor opening); a question still out is shared.
+    optionsFor(draft, retryFailed: true);
     final answer = _agentsAnswer;
     if (answer == null) return;
     try {
