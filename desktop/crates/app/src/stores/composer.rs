@@ -407,6 +407,10 @@ pub enum ComposerEvent {
     DraftSwitched,
     /// The draft for [`DraftKey`] was read: the composer shows it.
     DraftLoaded { key: DraftKey, text: String },
+    /// The draft read ended, however it ended (read, failed, given up for
+    /// typing, another chat or account): what waited for it goes on. After
+    /// [`Self::DraftLoaded`] when it was read.
+    DraftReadEnded,
 }
 
 /// One of LibreChat's composer switches.
@@ -2097,11 +2101,11 @@ impl ComposerStore {
     /// pending goes under the new key, and one already made under the New
     /// Chat key is taken back from there.
     pub fn adopt_draft(&mut self, key: DraftKey, text: &str, cx: &mut Context<Self>) {
-        let _ = cx;
         let Some(old) = self.draft.take() else {
             return;
         };
         self._draft = None;
+        self.end_draft_read(cx);
         if !self.draft_saved.is_empty() {
             self.save_now(&old, "");
         }
@@ -2187,6 +2191,14 @@ impl ComposerStore {
         self.draft_reading.is_some()
     }
 
+    /// The draft read in flight, if any, ends: said once
+    /// ([`ComposerEvent::DraftReadEnded`]), on every path that ends it.
+    fn end_draft_read(&mut self, cx: &mut Context<Self>) {
+        if self.draft_reading.take().is_some() {
+            cx.emit(ComposerEvent::DraftReadEnded);
+        }
+    }
+
     /// Another chat opened: `text` (what the composer held) is kept for the
     /// chat it held it for, and the new chat's draft is read (it arrives as
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
@@ -2233,7 +2245,7 @@ impl ComposerStore {
             self.save_now(&old, text);
         }
         self._draft = None;
-        self.draft_reading = None;
+        self.end_draft_read(cx);
         self.draft_saved = String::new();
         self.draft = key.clone();
         self.new_chat_folder = folder.clone();
@@ -2280,15 +2292,14 @@ impl ComposerStore {
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    if s.draft.as_ref() == Some(&key) && s.holds(ticket) {
+                        let text = draft.map(|d: Draft| d.text).unwrap_or_default();
+                        s.draft_saved = text.clone();
+                        cx.emit(ComposerEvent::DraftLoaded { key, text });
+                    }
                     if s.draft_reading == Some(read) {
-                        s.draft_reading = None;
+                        s.end_draft_read(cx);
                     }
-                    if s.draft.as_ref() != Some(&key) || !s.holds(ticket) {
-                        return;
-                    }
-                    let text = draft.map(|d: Draft| d.text).unwrap_or_default();
-                    s.draft_saved = text.clone();
-                    cx.emit(ComposerEvent::DraftLoaded { key, text });
                 });
             }),
         );
@@ -2299,13 +2310,15 @@ impl ComposerStore {
         let Some(key) = self.draft.clone() else {
             return;
         };
+        // Typed before the draft was read: the read is given up (the task
+        // that reads it goes), and what waited for it goes on.
         if text == self.draft_saved {
             self._draft = None;
+            self.end_draft_read(cx);
             return;
         }
         let text = text.to_string();
-        // Typed before the draft was read: the read is given up.
-        self.draft_reading = None;
+        self.end_draft_read(cx);
         self._draft = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
@@ -2323,9 +2336,8 @@ impl ComposerStore {
 
     /// The message went out: its draft goes at once.
     pub fn clear_draft(&mut self, cx: &mut Context<Self>) {
-        let _ = cx;
         self._draft = None;
-        self.draft_reading = None;
+        self.end_draft_read(cx);
         if let Some(key) = self.draft.clone()
             && !self.draft_saved.is_empty()
         {
@@ -2513,7 +2525,7 @@ impl ComposerStore {
         self.new_chat_folder = None;
         self.draft_saved = String::new();
         self._draft = None;
-        self.draft_reading = None;
+        self.end_draft_read(cx);
         self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
@@ -4923,12 +4935,22 @@ mod tests {
         });
         store.update(cx, |s, cx| s.switch_draft(Some(key(Some("a"))), "", cx));
         cx.run_until_parked();
+        // Read, then the read ended.
         assert_eq!(
-            seen.lock().unwrap().last(),
-            Some(&ComposerEvent::DraftLoaded {
-                key: key(Some("a")),
-                text: "kept".into()
-            })
+            seen.lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .take(2)
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                ComposerEvent::DraftReadEnded,
+                ComposerEvent::DraftLoaded {
+                    key: key(Some("a")),
+                    text: "kept".into()
+                },
+            ]
         );
         // Typed: kept 400 ms after the last change, once.
         store.update(cx, |s, cx| {

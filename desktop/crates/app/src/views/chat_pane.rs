@@ -97,9 +97,9 @@ pub struct ChatPane {
     approvals: Entity<ApprovalsView>,
     /// Open WebUI's question or approval in the open chat.
     pub prompt_card: Entity<crate::views::chat::prompt::PromptCard>,
-    /// Words given for an empty field while the chat's draft was still
-    /// being read, and the composition they were given to.
-    given_waiting: Option<(crate::stores::composer::CompositionTicket, String)>,
+    /// Words given while the chat's draft was still being read, in the
+    /// order given, each with the composition it was given to.
+    given_waiting: Vec<(crate::stores::composer::CompositionTicket, String)>,
     /// The open chat's task checklist shows every task.
     tasks_open: bool,
     pub composer_store: Entity<ComposerStore>,
@@ -470,20 +470,24 @@ impl ChatPane {
             }),
             // Toasts dock above the composer.
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
-            // Words that waited for the draft read: given once the draft
-            // is in the field (after the composer has put it there).
+            // Words that waited for the draft read: given once it has ended,
+            // however it ended (read: after the composer has put the draft
+            // in the field; given up for typing: with what was typed).
             cx.subscribe_in(
                 &composer_store,
                 window,
                 |this, _, event, window, cx| match event {
-                    ComposerEvent::DraftLoaded { .. } => {
-                        if let Some((ticket, text)) = this.given_waiting.take() {
+                    ComposerEvent::DraftReadEnded => {
+                        let waiting = std::mem::take(&mut this.given_waiting);
+                        if !waiting.is_empty() {
                             cx.defer_in(window, move |this, window, cx| {
-                                this.take_given_text(ticket, &text, window, cx)
+                                for (ticket, text) in waiting {
+                                    this.take_given_text(ticket, &text, window, cx);
+                                }
                             });
                         }
                     }
-                    ComposerEvent::DraftSwitched => this.given_waiting = None,
+                    ComposerEvent::DraftSwitched => this.given_waiting.clear(),
                     _ => {}
                 },
             ),
@@ -496,7 +500,9 @@ impl ChatPane {
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
                     ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // The composer shows its drafts itself.
-                    ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
+                    ComposerEvent::DraftSwitched
+                    | ComposerEvent::DraftLoaded { .. }
+                    | ComposerEvent::DraftReadEnded => return,
                 };
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
@@ -508,7 +514,7 @@ impl ChatPane {
             layout,
             approvals,
             prompt_card,
-            given_waiting: None,
+            given_waiting: Vec::new(),
             tasks_open: false,
             composer_store,
             composer,
@@ -1946,7 +1952,7 @@ impl ChatPane {
             return;
         }
         if store.draft_reading() {
-            self.given_waiting = Some((ticket, text.to_string()));
+            self.given_waiting.push((ticket, text.to_string()));
             return;
         }
         self.composer
@@ -4194,6 +4200,83 @@ mod tests {
                     );
                 }
             }
+        }
+
+        /// Typing before the saved draft is read gives the read up: the
+        /// prefill that waited for it lands then, beside what was typed.
+        #[gpui_kit::test]
+        fn a_prefill_lands_when_typing_gives_up_the_draft_read(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|_| {
+                Ok(serde_json::json!({"text": "Pea trellis plan", "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Typed first ", window, cx));
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert!(
+                text.contains("Typed first") && text.contains("/plan"),
+                "the typed text and the prefill did not both land: {text:?}"
+            );
+        }
+
+        /// A draft read that fails ends the wait as a read does: the
+        /// prefill lands.
+        #[gpui_kit::test]
+        fn a_prefill_lands_when_the_draft_read_fails(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.once::<methods::DraftsGet>(Err(conduit_daemon::protocol::error(
+                "rpc.timeout",
+                "no draft",
+            )));
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, "/plan ");
+        }
+
+        /// Two prefills given while the draft is read both land, in order.
+        #[gpui_kit::test]
+        fn every_prefill_given_while_the_draft_is_read_lands(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon
+                .on::<methods::DraftsGet>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+                p.take_given_text(ticket, "the beds", window, cx);
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, "/plan the beds");
         }
 
         #[gpui_kit::test]
