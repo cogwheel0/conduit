@@ -570,7 +570,9 @@ impl TaskEditor {
             .call::<methods::AutomationsSave>(&AutomationDraftEdit {
                 token: editor.token.clone(),
                 fields,
-                choose_kind: None,
+                // A kind chosen whose check has not answered goes with the
+                // Save: the task saved is the one chosen.
+                choose_kind: self.pending_kind.clone(),
             });
         let _ = window;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -1948,6 +1950,34 @@ mod tests {
             e.edit(|f| f.name = "Allotment digest (late)".into(), cx)
         });
         assert_eq!(kind, "weekly");
+    }
+
+    /// Weekly is chosen and Save pressed before Weekly's check answers: the
+    /// Save carries the choice, so the task saved is Weekly, never the Daily
+    /// fields from before it.
+    #[gpui_kit::test]
+    fn a_save_carries_a_pending_kind_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::AutomationsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0]["chooseKind"], "weekly",
+            "Save sent the fields from before the kind choice"
+        );
+        drop(held);
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and
