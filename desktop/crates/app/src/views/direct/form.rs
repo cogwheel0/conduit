@@ -1448,12 +1448,12 @@ pub fn lines(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// What a refused save says.
-/// Whether `value` is the OpenAI platform's own API (`https`, the default
-/// port, `api.openai.com` or a host under it): core's
+/// Whether `value`, normalized as Test and Save send it ([`normalize_url`]:
+/// no scheme means https), is the OpenAI platform's own API (`https`, the
+/// default port, `api.openai.com` or a host under it): core's
 /// `isOpenAiPlatformBaseUrl`, which the editor needs on every keystroke.
 pub fn is_openai_platform_url(value: &str) -> bool {
-    let Ok(url) = url::Url::parse(value.trim()) else {
+    let Some(url) = normalize_url(value).and_then(|n| url::Url::parse(&n).ok()) else {
         return false;
     };
     if url.scheme() != "https"
@@ -1469,6 +1469,7 @@ pub fn is_openai_platform_url(value: &str) -> bool {
     host == "api.openai.com" || host.ends_with(".api.openai.com")
 }
 
+/// What a refused save says.
 fn save_error(e: &RpcError, l10n: &L10n) -> String {
     match e.code {
         ErrorCode::Conflict => l10n.direct_connection_save_conflict(),
@@ -1709,6 +1710,9 @@ mod tests {
             " https://API.openai.com/v1/ ",
             "https://api.openai.com:443/v1",
             "https://eu.api.openai.com/v1",
+            // As Save sends them: no scheme is https.
+            "api.openai.com/v1",
+            " API.openai.com/v1 ",
         ] {
             assert!(is_openai_platform_url(yes), "{yes}");
         }
@@ -1719,6 +1723,7 @@ mod tests {
             "https://api.openai.com/v1?x=1",
             "https://api.openai.com.example.net/v1",
             "https://openrouter.ai/api/v1",
+            "openrouter.ai/api/v1",
             "",
         ] {
             assert!(!is_openai_platform_url(no), "{no}");
