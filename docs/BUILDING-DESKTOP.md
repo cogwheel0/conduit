@@ -65,8 +65,8 @@ files are missing).
 
 ## Develop
 
-All commands run from `desktop/` unless they start with `tool/` or name
-another folder.
+All commands run from `desktop/`, except those that start with `tool/`
+or `desktop/`: those run from the repository root.
 
 ### Run the dev app
 
@@ -370,8 +370,9 @@ A release is a tag `desktop-v<version>`, where the version is `X.Y.Z`
 X*1000000 + Y*10000 + Z*100 + 99        1.2.0 → 1020099   1.2.1 → 1020199
 ```
 
-so Y and Z stay below 100. A `-beta.N` version still builds locally, with N
-in place of 99 (it sorts before its release), but never ships. The app
+so Y and Z stay below 100. A `-beta.N` version, N from 1 to 98, still
+builds locally, with N in place of 99 (it sorts before its release), but
+never ships. The app
 shows both in Settings › About (`CONDUIT_VERSION` and `CONDUIT_BUILD` are
 compiled in by `bundle.sh`).
 
@@ -610,8 +611,8 @@ makes:
    `~/Library/Developer/Xcode/UserData/Provisioning Profiles/`. Find them:
 
    ```sh
-   cd ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles
-   for f in *; do printf '%s %s\n' "$f" "$(security cms -D -i "$f" | plutil -extract Entitlements.com\\.apple\\.application-identifier raw -o - -)"; done
+   (cd ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles &&
+     for f in *; do printf '%s %s\n' "$PWD/$f" "$(security cms -D -i "$f" | plutil -extract Entitlements.com\\.apple\\.application-identifier raw -o - -)"; done)
    ```
 
 4. Run the dev bundle with them:

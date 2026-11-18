@@ -53,19 +53,25 @@ reads them from a prompt or from stdin.
 
 ### 1. The Developer ID Application certificate
 
-1. In the Apple Developer account (Certificates, Identifiers & Profiles ›
+1. On the Mac you trust, make the certificate signing request: Keychain
+   Access › Certificate Assistant › Request a Certificate From a Certificate
+   Authority…, "Saved to disk". This makes the private key, in this Mac's
+   login keychain.
+2. In the Apple Developer account (Certificates, Identifiers & Profiles ›
    Certificates › +), create a **Developer ID Application** certificate
-   (only the team's Account Holder can). Use the G2 Sub-CA. Download it and
-   open it, so it lands in the login keychain with its private key.
-2. Find its SHA-1 (the identity is always named by its SHA-1 here, never by
+   (only the team's Account Holder can) with that request. Use the G2
+   Sub-CA. Download it and open it on the same Mac, so it pairs with its
+   private key in the login keychain (on another Mac it would be a
+   certificate without a key, and no signing identity).
+3. Find its SHA-1 (the identity is always named by its SHA-1 here, never by
    the name in the certificate):
 
    ```sh
    security find-identity -v -p codesigning | grep 'Developer ID Application'
    ```
 
-3. Check it locally before anything else (step 5).
-4. Export certificate and key: Keychain Access › My Certificates, select the
+4. Check it locally before anything else (step 5).
+5. Export certificate and key: Keychain Access › My Certificates, select the
    Developer ID Application certificate, File › Export Items… › `.p12`,
    with a strong export password. Then store both:
 
@@ -211,10 +217,13 @@ request that touches the desktop app.
 
 Either option A or option B is needed for notarization; with both, A is
 used. The `GITHUB_TOKEN` creates the draft release (`contents: write`, in
-that job only) and, when it is published, updates the feed. The workflow
-reads every secret only in the step that needs it, after the build, and
-fails within a minute (before building) when one is missing or when the
-Sparkle private key does not belong to `SPARKLE_PUBLIC_ED_KEY`.
+that job only) and, when it is published, updates the feed. The build
+itself (cargo, dart, cmake) gets no secret. One step reads secrets before
+it: the configuration check, which sees whether each secret is set and
+reads `SPARKLE_ED_PRIVATE_KEY` to check that it belongs to
+`SPARKLE_PUBLIC_ED_KEY`, so the run fails within a minute instead of after
+the build. Every other secret is read after the build, only in the step
+that needs it.
 
 ## Making a release
 
@@ -250,20 +259,36 @@ Sparkle private key does not belong to `SPARKLE_PUBLIC_ED_KEY`.
    (In the web UI: untick "Set as the latest release" before Publish.)
 6. **The feed goes live.** Publishing starts job *feed*: it checks that the
    draft's `appcast.xml` matches `SHA256SUMS.txt`, that its newest item is
-   this version at this release's DMG (which now downloads), and that it
-   keeps every item the live feed has; then it uploads it to the fixed
-   prerelease `desktop-appcast` (made on the first release). Installed
-   copies pick the update up on their next daily check, or at once with
-   Conduit › Check for Updates….
+   this version at this release's DMG, and that it keeps every item the
+   live feed has; it downloads that DMG from its public URL and checks it
+   against `SHA256SUMS.txt` and against the item's signed enclosure (its
+   length, and its EdDSA signature with `SPARKLE_PUBLIC_ED_KEY`), so a DMG
+   swapped on the draft never goes live. Then it puts the feed on the
+   fixed prerelease `desktop-appcast` (made on the first release):
+   uploaded as `appcast.next.xml`, then swapped in by two renames, the
+   last one kept as `appcast.previous.xml`. Installed copies pick the
+   update up on their next daily check, or at once with Conduit › Check
+   for Updates….
 
-Releases run one at a time. Publish each draft before tagging the next
-release: a draft's appcast is made from the live feed at build time, and
-the feed job refuses one that would drop a release published since.
+Publish each draft, and wait for its feed job to pass, before tagging the
+next release: a draft's appcast is made from the live feed at build time,
+and the feed job refuses one that would drop a release published since.
+Feed publications run one at a time in their own queue, which no other
+run (a mobile release, a dry run) can cancel.
+
+Turn on immutable releases for the repository (Settings › General ›
+Releases). A re-run of the build job replaces a draft's files only after
+looking the draft up again right before each one, and refuses once it is
+published; with immutable releases GitHub also refuses any change to a
+published release's files, which closes the moment between that look and
+the upload.
 
 ## What the workflow checks
 
-Before it signs anything, `bundle.sh verify --release` (and the same for a
-rehearsal) checks:
+After the app and the DMG are signed, notarized and stapled,
+`bundle.sh verify --release` (and the same for a rehearsal) checks that the
+bundle is a release build (the release bundle id, no test environment,
+this version; `bundle.sh sign --release` refuses another as well), and:
 
 - `LSMinimumSystemVersion` 14.0; every Mach-O file is **arm64 only** with a
   minimum macOS of **14.0 or lower** (Sparkle's are 12.0, conduitd's
@@ -380,9 +405,11 @@ flag. Such a bundle is never published.
   token usage and macOS 27's model errors read as a generic failure.
   `apple_models.sh sdk-gaps` lists what the active Xcode leaves out; the
   build prints it as cargo warnings, and both workflows put it on the run
-  as a warning annotation and in the job summary. The workflows pick the
-  runner image's newest Xcode, so they use Xcode 27 once the image has
-  it.
+  as a warning annotation and in the job summary. The workflows keep the
+  runner's active Xcode when it is 26 or later (they switch only from an
+  older one, to the newest installed): for the complete macOS 27 support,
+  use a runner image whose active Xcode is 27 (`DESKTOP_MACOS_RUNNER`), or
+  select it on the runner.
 
 ## Stripping and dSYMs
 
@@ -451,17 +478,36 @@ download `appcast.xml` from the previous `desktop-v*` release and run
 `desktop/packaging/macos/publish-appcast.sh appcast.xml --push` (with `gh`
 signed in). Then ship a fixed X.Y.Z+1.
 
+### A stale or missing appcast
+
 **The feed job refuses** ("the live feed has builds this appcast lacks"):
-a release was published after this draft was built. Delete this draft and
-its tag, and tag again; the new draft starts from the current feed.
+a release was published after this draft was built. The feed check runs
+after publication, so this release is already public and there is no draft
+to delete. Leave the live feed as it is (it is correct: it is the newer
+release's). Do not tag this version again: its build number is below the
+newest one in the feed, and `appcast.sh` would refuse it the same way. If
+the change still needs to ship, release a version above the newest build
+in the feed. To avoid this, wait for each release's feed job to pass before
+tagging the next one.
+
+**The feed job says the feed host exists but `appcast.xml` answers 404**:
+a publication stopped between its two renames, and installed copies cannot
+read the feed. On the `desktop-appcast` release, rename
+`appcast.previous.xml` back to `appcast.xml` (and delete a leftover
+`appcast.next.xml`), then re-run the feed job. Neither the feed job nor
+`publish-appcast.sh` ever starts an empty feed over a host that exists.
 
 ### Losing or rotating the Sparkle key
 
 Installed copies accept only updates and feeds signed with the key in their
-Info.plist. To rotate deliberately, ship one release still signed with the
-old key whose Info.plist carries the new public key; every later release
-signs with the new one. If the private key is lost, plan for installed
-copies not updating themselves any more (Sparkle's documentation on key
-rotation describes the narrow exceptions): publish a release asking people
-to download the new version by hand. Keep the private key in two places
-(the secret and an offline backup).
+Info.plist. This pipeline releases with one key pair only: the
+configuration check and `appcast.sh` refuse an app whose `SUPublicEDKey` is
+not the public half of `SPARKLE_ED_PRIVATE_KEY`. A rotation (one release
+signed with the old key that carries the new public key) cannot be made
+with it: it needs a change to the pipeline first, tested with the pinned
+Sparkle and signed feeds. Until then, keep the key, in two places (the
+secret and an offline backup).
+
+If the private key is lost, installed copies will not update themselves
+any more: set the new key pair, release, and ask people to download the new
+version by hand.

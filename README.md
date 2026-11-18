@@ -307,9 +307,11 @@ a menu-bar item.
 - No third-party analytics or advertising SDKs.
 - Diagnostic logging is local and transient. On the Mac, logs stay in
   `~/Library/Logs/Conduit` and are never uploaded. Besides your servers and
-  providers, the Mac app contacts other hosts only for the daily update check
-  (which you can turn off) and for what you ask for: a speech model you
-  download, or pictures and PDFs from other sites you choose to load.
+  providers, the Mac app contacts other hosts only for updates (the daily
+  automatic check, which you can turn off; Check for Updates when you choose
+  it; and the download of an update you accept, from GitHub Releases) and
+  for what you ask for: a speech model you download, or pictures and PDFs
+  from other sites you choose to load.
 - No developer-operated backend receives your chats or other content. Traffic
   goes from your device to the server or provider you configured. The one
   developer-operated service is for optional push notifications on the phone:
