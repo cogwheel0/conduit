@@ -95,7 +95,7 @@ void main() {
     );
   });
 
-  testWidgets('an address typed while the saved one is read stays', (
+  testWidgets('the form takes no input until the saved address is read', (
     tester,
   ) async {
     final server = (await tester.runAsync(() async {
@@ -134,11 +134,10 @@ void main() {
     read.complete();
     await tester.pumpAndSettle();
 
-    expect(find.text('https://typed.example'), findsOneWidget);
-    expect(find.text('https://chat.example'), findsNothing);
-    // The saved address is the editor's baseline now: Save is offered, and
-    // the header the form never showed while it was read is there, not
-    // taken for a deletion.
+    // Typing before the read lands nowhere; the saved address fills the
+    // form whole, its header included, and is what Save is told apart from.
+    expect(find.text('https://typed.example'), findsNothing);
+    expect(find.text('https://chat.example'), findsOneWidget);
     final save = tester.widget<ConduitButton>(
       find.widgetWithText(ConduitButton, 'Save Address'),
     );

@@ -179,6 +179,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   bool get _awaitingSavedAddress =>
       _editingRoutes && widget.endpointId != null && _editedFrom == null;
 
+  /// The route form takes no input while its address is checked, or before
+  /// the saved address it edits is read.
+  bool get _formLocked =>
+      _editingRoutes && (_isConnecting || _awaitingSavedAddress);
+
   bool get _embedded => widget.onChecked != null;
 
   /// The saved server the form was filled in from, when it was.
@@ -267,15 +272,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromRoute() async {
     final endpointId = widget.endpointId;
     if (endpointId == null) return;
-    // As for a saved server's: what the user typed while it is read stays.
-    final untouched = _routeFields();
+    // The form takes no input until this is read (_formLocked), so the
+    // saved address fills it whole and is what its save is told apart from.
     final OpenWebUiRegistry registry;
     try {
       registry = await ref
           .read(optimizedStorageServiceProvider)
           .getOpenWebUiRegistryStrict();
     } catch (error, stackTrace) {
-      // Nothing awaits this; say why the form starts empty.
+      // Nothing awaits this; say why the form stays empty.
       DebugLogger.error(
         'route-edit-prefill-failed',
         scope: 'auth/accounts',
@@ -291,67 +296,18 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final endpoint = registry
         .server(widget.routesOfServerId!)
         ?.endpoint(endpointId);
-    if (!mounted || endpoint == null) return;
-    // The saved address is what a save tells the form's changes by. A field
-    // typed into while it was read keeps what was typed; every other field
-    // takes the saved value, so nothing the form never showed is taken for
-    // a deletion.
-    final typed = _routeFields();
-    _editedFrom = endpoint;
-    if (typed.label == untouched.label) {
-      _routeLabelController.text = endpoint.label ?? '';
+    if (!mounted) return;
+    if (endpoint == null) {
+      // Removed meanwhile: there is nothing left to edit.
+      setState(() {
+        _connectionError = AppLocalizations.of(context)!.errorMessage;
+      });
+      return;
     }
-    setState(() {
-      if (typed.url == untouched.url) _urlController.text = endpoint.url;
-      if (typed.headers == untouched.headers) {
-        _customHeaders
-          ..clear()
-          ..addAll(endpoint.customHeaders);
-      }
-      if (typed.selfSigned == untouched.selfSigned) {
-        _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
-      }
-      if (!kIsWeb && typed.mutualTls == untouched.mutualTls) {
-        _mtlsCertificateChainPem = endpoint.mtlsCertificateChainPem;
-        _mtlsCertificateLabel = endpoint.mtlsCertificateLabel;
-        _mtlsPrivateKeyPem = endpoint.mtlsPrivateKeyPem;
-        _mtlsPrivateKeyLabel = endpoint.mtlsPrivateKeyLabel;
-        _mtlsPrivateKeyPasswordController.text =
-            endpoint.mtlsPrivateKeyPassword ?? '';
-      }
-      _showAdvancedSettings =
-          _showAdvancedSettings ||
-          _allowSelfSignedCertificates ||
-          _customHeaders.isNotEmpty ||
-          (!kIsWeb && _mtlsPrivateKeyPem != null);
-    });
+    _editedFrom = endpoint;
+    _routeLabelController.text = endpoint.label ?? '';
+    _applyEndpoint(endpoint);
   }
-
-  /// The route form, one entry per thing a save of it can change (the
-  /// client certificate and its key are one), each comparable with `==`.
-  ({
-    String url,
-    String label,
-    String headers,
-    bool selfSigned,
-    (String?, String?, String?, String?, String) mutualTls,
-  })
-  _routeFields() => (
-    url: _urlController.text,
-    label: _routeLabelController.text,
-    headers: [
-      for (final header in _customHeaders.entries)
-        '${header.key}\u0000${header.value}',
-    ].join('\u0001'),
-    selfSigned: _allowSelfSignedCertificates,
-    mutualTls: (
-      _mtlsCertificateChainPem,
-      _mtlsCertificateLabel,
-      _mtlsPrivateKeyPem,
-      _mtlsPrivateKeyLabel,
-      _mtlsPrivateKeyPasswordController.text,
-    ),
-  );
 
   void _applyEndpoint(OpenWebUiEndpoint endpoint) {
     setState(() {
@@ -1282,11 +1238,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 const SizedBox(height: Spacing.xl),
               ],
               // An address is saved as it was checked, and the editor then
-              // closes: an edit made during the check would be lost.
+              // closes: an edit made during the check would be lost. Nor
+              // does the form take input before the saved address is read:
+              // its save is told apart from that address, field by field.
               IgnorePointer(
-                ignoring: _editingRoutes && _isConnecting,
+                ignoring: _formLocked,
                 child: ExcludeFocus(
-                  excluding: _editingRoutes && _isConnecting,
+                  excluding: _formLocked,
                   child: cupertino
                       ? _buildCupertinoServerForm()
                       : _buildServerForm(),
