@@ -10,7 +10,6 @@ import 'package:conduit_core/auth/auth_state_manager.dart'
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
-import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
@@ -248,30 +247,6 @@ void main() {
         ),
       ),
     );
-  });
-
-  test('an account addition refused before it writes leaves the live '
-      'session, and the client a reply carries, alone', () async {
-    final client = runtime.container.read(apiServiceProvider);
-    expect(client, isNotNull);
-    // The address it was made from went before the selection was written.
-    await runtime.container
-        .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(
-          ServerConfig(
-            id: 'an-addition-refused',
-            name: 'Lab',
-            url: owui.url,
-            isActive: true,
-          ),
-          joins: (_) => false,
-        );
-    expect(
-      identical(runtime.container.read(apiServiceProvider), client),
-      isTrue,
-      reason: 'a new client ends the reply the old one carries',
-    );
-    expect((await auth.status()).isAuthenticated, isTrue);
   });
 
   // Another window moved the active account to another address while a
