@@ -514,7 +514,9 @@ final class _AddressGone implements Exception {
 /// headers and client identity whole: none of those stored goes to a host
 /// it was not given for. Null when another edit moved the address since
 /// [from] while this one moves it too, or changes how it is reached: what
-/// this one checked, and was given for, is no longer where the address goes.
+/// this one checked, and was given for, is no longer where the address goes
+/// -- unless the address stored is already this edit's result (its own
+/// move, written before its answer was lost, tried again).
 OpenWebUiEndpoint? editedAddress({
   required OpenWebUiEndpoint stored,
   required OpenWebUiEndpoint from,
@@ -538,6 +540,9 @@ OpenWebUiEndpoint? editedAddress({
   );
   final movedElsewhere = origin(stored) != origin(from);
   if (origin(edited) != origin(from)) {
+    if (origin(stored) == origin(edited) && stored.sameConnection(edited)) {
+      return named(stored);
+    }
     return movedElsewhere ? null : named(edited);
   }
   if (movedElsewhere) {
@@ -719,15 +724,6 @@ String? addressCookieOwner(
   ];
   if (accounts.contains(activeAccountId)) return activeAccountId;
   return accounts.length == 1 ? accounts.single : null;
-}
-
-/// Whether [server] keeps [route] exactly as a save of it would write it:
-/// the same address, name and connection under its id.
-bool _savedAsIs(OpenWebUiServer server, OpenWebUiEndpoint route) {
-  final stored = server.endpoint(route.id);
-  return stored != null &&
-      stored.label == route.label &&
-      stored.sameConnection(route);
 }
 
 bool _sameHeaders(Map<String, String>? a, Map<String, String> b) =>
@@ -1367,13 +1363,6 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     for (final entry in verified.customHeaders.entries)
       if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
   };
-  // Saved already, as this save would write it: an attempt whose answer was
-  // lost after it was written, tried again. Nothing is written or asked. A
-  // save that brings a proxy sign-in is judged once its account is known
-  // (below): another account keeping that cookie does not make it saved.
-  if (capturedSession.isEmpty && _savedAsIs(server, route)) {
-    return const ServerAddressSaved();
-  }
 
   ServerConfig keptCookie(Iterable<String> accountIds) => withKeptAddressCookie(
     verified,
@@ -1438,18 +1427,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
-  // Saved already, its proxy sign-in kept for the account it is for: tried
-  // again after its answer was lost (a move included, which an edit could
-  // no longer apply).
-  if (capturedSession.isNotEmpty &&
-      cookieOwner != null &&
-      _savedAsIs(server, route) &&
-      _sameHeaders(
-        registry.account(cookieOwner)?.capturedHeaders[route.id],
-        capturedSession,
-      )) {
-    return const ServerAddressSaved();
-  }
+
   // Saved, an edit of the address in use that changes how it is reached --
   // the address, or the session the account in use sends there (the cookie
   // it keeps for the address) -- moves the clients off it, ending a reply

@@ -1137,6 +1137,81 @@ void main() {
         check(await keptFor('a')).isNotNull().deepEquals({'Cookie': 'proxy=1'});
       });
 
+      // A save is judged by what storage holds when it writes, never by what
+      // was read before the address was proved: another window changing the
+      // cookie, or moving the address, meanwhile.
+      test('a save whose address and cookie were already kept writes them '
+          'again, or is refused, once another window changed them during '
+          'its check', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        Future<void> keep(String cookie) =>
+            storage.editServerEndpointsWithSession(
+              serverId,
+              (endpoints) => endpoints,
+              accountId: 'a',
+              routeId: 'lab',
+              headers: {'Cookie': cookie},
+              sessionRevision: storage.sessionRevocationRevision,
+            );
+        Future<ServerAddressSave> saveDuring(
+          Future<void> Function() meanwhile,
+        ) {
+          Future<void>? other;
+          return saveVerifiedServerAddress(
+            signedOut,
+            serverId: serverId,
+            endpointId: 'lab',
+            addedEndpointId: 'unused',
+            label: 'Lab',
+            verified: ServerConfig(
+              id: 'checked',
+              name: 'Lab',
+              url: 'https://lab.example',
+              customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+            ),
+            editedFrom: lab,
+            sessionRevision: storage.sessionRevocationRevision,
+            confirmSendingSession: (_) async => false,
+            confirmChangingInUse: () async => true,
+            stillWanted: () {
+              other ??= meanwhile();
+              return true;
+            },
+          ).then((outcome) async {
+            await other;
+            return outcome;
+          });
+        }
+
+        Future<Map<String, String>?> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders['lab'];
+
+        // Another sign-in replaced the cookie: this one is written again.
+        await keep('proxy=1');
+        check(await saveDuring(() => keep('proxy=2'))).isA<ServerAddressSaved>();
+        check(await kept()).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+
+        // The address moved elsewhere: refused, the move kept.
+        final moved = await saveDuring(
+          () => elsewhere(
+            (endpoint) => OpenWebUiEndpoint(
+              id: endpoint.id,
+              url: 'https://moved.example',
+              label: endpoint.label,
+              customHeaders: endpoint.customHeaders,
+            ),
+          ),
+        );
+        check(moved)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.url).equals('https://moved.example');
+      });
+
       // A header typed for the address checked never goes to the host
       // another window moved it to; a new name alone still lands.
       test('that changes how it is reached is refused once the address was '
