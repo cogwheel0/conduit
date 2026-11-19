@@ -2860,7 +2860,9 @@ class OptimizedStorageService {
     }
     // Already as this edit leaves it (a save tried again after its answer
     // was lost): nothing is written, so a write that fails cannot undo it.
-    if (const ListEquality<OpenWebUiEndpoint>().equals(
+    // Not while reads are fenced: only a write that lands lifts the fence.
+    if (!_serverConfigsReadSuppressed &&
+        const ListEquality<OpenWebUiEndpoint>().equals(
           endpoints,
           stored.endpoints,
         ) &&
