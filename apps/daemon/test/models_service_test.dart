@@ -830,6 +830,58 @@ void main() {
       check((await models.list()).selectedId).equals('first-model');
     });
 
+    /// New Chat's agent picked on north, north gone from the list, and the
+    /// server's own read of its terminals that [read] starts held (that one
+    /// alone) until [meanwhile] has run.
+    Future<T> readWhile<T>(
+      Future<T> Function(ModelsService models) read,
+      Future<void> Function(ModelsService models, ProviderContainer container)
+      meanwhile,
+    ) async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      _offered = [_terminals.last];
+      container.invalidate(terminalAvailableServersProvider);
+      await container.read(terminalAvailableServersProvider.future);
+      final held = _systemHeld = Completer<void>();
+      final reading = read(models);
+      await _systemAsked.future;
+      _systemHeld = null;
+      await meanwhile(models, container);
+      held.complete();
+      return reading;
+    }
+
+    test("New Chat's coding agent goes when another terminal is chosen while "
+        'the server is read, though the server still offers its own', () async {
+      final model = await readWhile((models) => models.modelFor(null), (
+        _,
+        container,
+      ) async {
+        container.read(selectedTerminalIdProvider.notifier).set('south');
+        _offered = _terminals;
+      });
+      check(model).equals('first-model');
+    });
+
+    test('a turn from New Chat carries no agent found gone while another pick '
+        'took its place', () async {
+      late ModelsService service;
+      final send = await readWhile((models) {
+        service = models;
+        return models.sending(null);
+      }, (models, _) => models.select('preferred-model'));
+      service.sent(send, toChat: 'new-chat-1', model: 'preferred-model');
+      // The chat runs with the model the turn did, not north's agent.
+      check(
+        (await service.list(const ModelListQuery(chatId: 'new-chat-1')))
+            .selectedId,
+      ).equals('preferred-model');
+      check((await service.list()).selectedId).equals('preferred-model');
+    });
+
     test("New Chat's coding agent is checked as it is read: another account's "
         'terminal reset leaves it no terminal', () async {
       final container = _agentContainer(_AgentsApi());

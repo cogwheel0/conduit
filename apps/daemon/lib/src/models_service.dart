@@ -171,18 +171,26 @@ final class ModelsService {
     final pick = _picksOf(account)[null];
     final agent = pick?.model;
     if (pick == null || terminalAgentTerminalId(agent) == null) return;
-    final gone = await agentTerminalGone(
-      agent,
-      selected: (id: _container.read(selectedTerminalIdProvider)),
-      listed: _container.read(terminalAvailableServersProvider),
-      service: _container.read(terminalServiceProvider),
-      scope: _container.read(terminalSessionScopeIdProvider),
-    );
+    final gone =
+        await agentTerminalGone(
+          agent,
+          selected: (id: _container.read(selectedTerminalIdProvider)),
+          listed: _container.read(terminalAvailableServersProvider),
+          service: _container.read(terminalServiceProvider),
+          scope: _container.read(terminalSessionScopeIdProvider),
+        ) ||
+        // Another terminal, or none, chosen while the server was read.
+        await agentTerminalGone(
+          agent,
+          selected: (id: _container.read(selectedTerminalIdProvider)),
+        );
     account.require("New Chat's coding agent is checked");
     if (!gone) return;
+    // Gone for every send that took this pick, though a newer one may have
+    // taken its place in the slot meanwhile.
+    pick.gone = true;
     final picks = _picksOf(account);
     if (!identical(picks[null], pick)) return;
-    pick.gone = true;
     picks[null] = _Pick(null, ++_revision);
     _announce();
   }
