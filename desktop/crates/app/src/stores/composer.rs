@@ -3995,7 +3995,10 @@ mod tests {
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
-            assert!(s.options_answered(), "the pinned answer's model has no options");
+            assert!(
+                s.options_answered(),
+                "the pinned answer's model has no options"
+            );
         });
     }
 

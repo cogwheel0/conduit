@@ -1259,8 +1259,12 @@ impl ChatPane {
             return;
         }
         // A new chat's first message is still on its way: keep this one in
-        // the composer rather than starting a second chat.
-        if self.chat.is_none() && self.first_send_pending(cx) {
+        // the composer rather than starting a second chat. So too before the
+        // chat's own list answers (a follow-up from its transcript): the
+        // turn would name another chat's model.
+        if (self.chat.is_none() && self.first_send_pending(cx))
+            || !self.composer_store.read(cx).can_name_model()
+        {
             self.composer.update(cx, |c, cx| {
                 // Not sent: its recordings stay with the draft too.
                 let held = c.take_sent_recordings();
@@ -3700,10 +3704,12 @@ mod tests {
 
         /// A chat saved with a coding agent, opened while another model is
         /// selected, shows "This chat used …" with Switch above the message
-        /// box, and Switch picks that agent for the chat.
+        /// box, and Switch picks that agent for the chat, which then shows
+        /// it. Until the chat's list answers, a follow-up from its
+        /// transcript waits in the field.
         #[gpui_kit::test]
         fn a_chat_saved_with_an_agent_shows_switch(cx: &mut TestAppContext) {
-            let (daemon, stores, _pane, vcx) = bench(cx);
+            let (daemon, stores, pane, vcx) = bench(cx);
             let agent = "agent:north:codex:gpt-test";
             daemon.on::<methods::ModelsList>(move |_| {
                 Ok(serde_json::json!({
@@ -3716,10 +3722,22 @@ mod tests {
             daemon.on::<methods::ModelsSelect>(move |_| {
                 Ok(serde_json::json!({
                     "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "agents": [{"id": agent, "name": "Codex · gpt-test", "pinned": false, "capabilities": []}],
                     "selectedId": agent
                 }))
             });
+            let listing = daemon.hold::<methods::ModelsList>();
             stores.navigation.update(vcx, |n, cx| n.open("c-agent", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("And the tests?".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.composer.read(cx).text(cx), "And the tests?")
+            });
+            listing.release();
             vcx.run_until_parked();
             vcx.update(|window, cx| window.draw(cx).clear(cx));
             let switch = vcx
@@ -3734,6 +3752,10 @@ mod tests {
             assert_eq!(picks[0]["chatId"], "c-agent");
             vcx.update(|window, cx| window.draw(cx).clear(cx));
             assert!(vcx.debug_bounds("chat-agent-switch").is_none());
+            pane.read_with(vcx, |p, cx| {
+                let c = p.composer_store.read(cx);
+                assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some(agent));
+            });
         }
 
         /// A handoff with a suggested model, taken while chat A is open: the

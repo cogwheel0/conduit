@@ -469,8 +469,13 @@ impl QuickAskView {
             return;
         }
         // A follow-up from the transcript while a file still uploads would
-        // go without it: it waits in the field instead.
-        if (self.chat.is_none() && self.starting) || self.composer_store.read(cx).uploading() {
+        // go without it, and one before the chat's own list answers would
+        // name another chat's model: it waits in the field instead.
+        let composer = self.composer_store.read(cx);
+        if (self.chat.is_none() && self.starting)
+            || composer.uploading()
+            || !composer.can_name_model()
+        {
             self.composer
                 .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
             return;
@@ -550,9 +555,11 @@ impl QuickAskView {
                         this.composer
                             .update(cx, |c, cx| c.give_back(&text, used, window, cx));
                         this.notice = Some(cx.l10n().desktop_action_failed());
+                        // The daemon may have picked the model just now. A
+                        // chat that opened lists itself (`follow_chat`).
+                        this.composer_store.update(cx, |m, cx| m.refresh_models(cx));
                     }
                 }
-                this.composer_store.update(cx, |m, cx| m.refresh_models(cx));
                 cx.notify();
             });
         })
@@ -894,6 +901,13 @@ mod tests {
         &mut VisualTestContext,
     ) {
         let daemon = FakeDaemon::new();
+        // Each chat's list answers with a model to name.
+        daemon.on::<methods::ModelsList>(|_| {
+            Ok(serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "selectedId": "k",
+            }))
+        });
         let scratch =
             std::env::temp_dir().join(format!("conduit-quick-ask-{}", std::process::id()));
         let stores = cx.update(|cx| {
@@ -1040,6 +1054,8 @@ mod tests {
     /// Quick Ask's first message made a chat: its composer follows that
     /// chat, so the next message names the agent the chat was started with
     /// (the daemon's answer for the chat), never New Chat's regular model.
+    /// The chat's list is asked for once, and until it answers a follow-up
+    /// from the transcript waits in the field.
     #[gpui_kit::test]
     fn a_follow_up_names_the_agent_its_chat_started_with(cx: &mut TestAppContext) {
         let (daemon, _stores, view, vcx) = bench(cx);
@@ -1080,11 +1096,26 @@ mod tests {
                 .update(cx, |c, cx| c.select_model(agent, cx))
         });
         vcx.run_until_parked();
+        let listing = daemon.hold::<methods::ModelsList>();
         view.update_in(vcx, |v, window, cx| {
             v.send_text("First".into(), vec![], window, cx)
         });
         vcx.run_until_parked();
         view.update_in(vcx, |v, window, cx| {
+            v.send_text("Then this".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::TurnsSend>().len(), 1);
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "Then this")
+        });
+        listing.release();
+        vcx.run_until_parked();
+        let lists = daemon.calls::<methods::ModelsList>();
+        let chat_lists = lists.iter().filter(|q| q["chatId"] == "chat-q").count();
+        assert_eq!(chat_lists, 1, "{lists:?}");
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| c.set_text("", window, cx));
             v.send_text("Then this".into(), vec![], window, cx)
         });
         vcx.run_until_parked();
@@ -1241,6 +1272,7 @@ mod tests {
             }))
             .unwrap(),
         );
+        vcx.run_until_parked();
         let held = daemon.hold::<methods::TurnsSend>();
         view.update_in(vcx, |v, window, cx| {
             v.send_text("First question".into(), vec![], window, cx);
