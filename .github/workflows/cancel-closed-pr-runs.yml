@@ -26,18 +26,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # A run names its commit, not its pull request (once that is
-          # closed). If another open pull request has the same head, its
-          # runs cannot be told apart from this one's: cancel nothing. The
-          # open pull requests are listed directly: a commit's own list of
-          # pull requests names only the merged one once the commit is on
-          # the default branch.
-          others="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
-            --jq ".[] | select(.number != $NUMBER and .head.sha == \"$HEAD_SHA\") | .number" | wc -l | tr -d ' ')"
-          if [ "$others" != 0 ]; then
-            echo "Another open pull request has head $HEAD_SHA: nothing cancelled."
+          # closed). If any open pull request has the same head (another
+          # one, or this one reopened meanwhile), its runs cannot be told
+          # apart from the closed one's: cancel nothing. The open pull
+          # requests are listed directly: a commit's own list of pull
+          # requests names only the merged one once the commit is on the
+          # default branch.
+          open="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | wc -l | tr -d ' ')"
+          if [ "$open" != 0 ]; then
+            echo "An open pull request has head $HEAD_SHA: nothing cancelled."
             exit 0
           fi
           for status in queued in_progress waiting pending requested; do
