@@ -7457,11 +7457,11 @@ void main() {
       final running = runnerFor(container)
           .run(chatId: chatId, payload: payload);
       await api.settingsEntered.future;
-      container.read(stopGenerationProvider)();
+      final stopping = container.read(stopGenerationSettledProvider)();
       final streamed = _Streamed(container, ids);
       api.holdSettings!.complete();
       await running;
-      await pumpEventQueue();
+      await stopping;
       streamed.close();
 
       check(streamed.ids).isEmpty();
@@ -7496,11 +7496,11 @@ void main() {
       final running = runnerFor(container)
           .run(chatId: chatId, payload: payload);
       await registered.future;
-      container.read(stopGenerationProvider)();
+      final stopping = container.read(stopGenerationSettledProvider)();
       final streamed = _Streamed(container, ids);
       read.complete();
       await running;
-      await pumpEventQueue();
+      await stopping;
       streamed.close();
 
       check(streamed.ids).isEmpty();
