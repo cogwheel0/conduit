@@ -445,15 +445,30 @@ dev_entitlements() {
   set_plist "Add :$GET_TASK_ALLOW bool true" "$2"
 }
 
-# Stops when any entitlements FILE grants GET_TASK_ALLOW, or cannot be read:
-# what bundle.sh signs a bundle with is never a debug build's.
+# Whether the entitlements FILE grants GET_TASK_ALLOW: its value, as the
+# property list holds it (comments and XML escapes read as codesign reads
+# them), is Boolean true. A value false or of another type, or none, grants
+# nothing. Stops when FILE is missing or is no property list.
+#
+#   grants_debugger FILE
+grants_debugger() {
+  [ -r "$1" ] || die "no entitlements at $1"
+  /usr/bin/plutil -lint -s "$1" >/dev/null 2>&1 || die "$1 is not a property list"
+  # plutil reads a key path, "." between keys: the entitlement's own dots
+  # are escaped.
+  /usr/bin/plutil -extract "${GET_TASK_ALLOW//./\\.}" xml1 -o - "$1" 2>/dev/null |
+    grep -Fxq '<true/>'
+}
+
+# Stops when any entitlements FILE grants GET_TASK_ALLOW ([grants_debugger]),
+# or is missing or no property list: what bundle.sh signs a bundle with is
+# never a debug build's.
 #
 #   refuse_debug_entitlements FILE...
 refuse_debug_entitlements() {
   local f
   for f in "$@"; do
-    [ -r "$f" ] || die "no entitlements at $f"
-    if grep -Fq "$GET_TASK_ALLOW" "$f"; then
+    if grants_debugger "$f"; then
       die "$f grants $GET_TASK_ALLOW: a debugger's entitlement, for sign-dev.sh's dev builds only"
     fi
   done
