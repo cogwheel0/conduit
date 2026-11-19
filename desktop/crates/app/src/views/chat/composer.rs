@@ -295,6 +295,10 @@ pub struct ChatComposer {
     /// The composition a saved recording's transcription was asked for in:
     /// its words are added only while that composition is shown.
     transcribing: Option<crate::stores::composer::CompositionTicket>,
+    /// Text given while the chat's draft was read ([`Self::give_text`]),
+    /// for the composition it was given in: it goes in, in order, after the
+    /// draft once the read has ended.
+    waiting: Vec<(crate::stores::composer::CompositionTicket, Given)>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
     /// A host chose the placeholder (Quick Ask's "Ask Conduit…"): the
@@ -337,6 +341,15 @@ impl Focusable for ChatComposer {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
     }
+}
+
+/// Text given to the field ([`ChatComposer::give_text`]).
+#[derive(Clone, Debug)]
+enum Given {
+    /// At the caret.
+    AtCaret(String),
+    /// A saved recording's words, after what the field holds.
+    Dictated(String),
 }
 
 /// What a quick pill turns on (the daemon's `QuickPillOption::kind`).
@@ -394,6 +407,8 @@ impl ChatComposer {
                 window,
                 |this, store, e: &ComposerEvent, window, cx| match e {
                     ComposerEvent::DraftSwitched => {
+                        // What waited for the last draft's read was its.
+                        this.waiting.clear();
                         this.input.update(cx, |s, cx| s.set_value("", window, cx));
                         this.menu = None;
                         // The last draft's prompt form and panel go with it:
@@ -406,13 +421,22 @@ impl ChatComposer {
                         this.sync_dictation_target(cx);
                         cx.notify();
                     }
-                    // The draft read landed: the field shows the stored
-                    // draft (it took no input meanwhile), caret at its end.
+                    // The draft read landed: the stored draft goes into the
+                    // field, which took no text meanwhile (what was given
+                    // waits), caret at its end. It never writes over text.
                     ComposerEvent::DraftLoaded { key, text }
                         if store.read(cx).draft_key() == Some(key) =>
                     {
-                        this.set_text(text, window, cx);
+                        if this.text(cx).is_empty() {
+                            this.set_text(text, window, cx);
+                        } else {
+                            this.insert_at(0, text, window, cx);
+                            this.text_changed(cx);
+                        }
                     }
+                    // However the read ended: what was given meanwhile goes
+                    // in now, after the draft.
+                    ComposerEvent::DraftReadEnded => this.give_waiting(window, cx),
                     _ => {}
                 },
             ),
@@ -519,6 +543,7 @@ impl ChatComposer {
             dictation_base: None,
             rendering: None,
             transcribing: None,
+            waiting: Vec::new(),
             placeholder: placeholder.to_string(),
             custom_placeholder: false,
             shown_placeholder: placeholder.to_string(),
@@ -632,7 +657,8 @@ impl ChatComposer {
             return;
         };
         if !store.read(cx).is_active() {
-            if self.streaming {
+            // Nothing is written while the chat's draft is read.
+            if self.streaming || self.composer.read(cx).draft_reading() {
                 return;
             }
             // A voice call has the microphone.
@@ -683,9 +709,7 @@ impl ChatComposer {
                 // Only into the composition it was asked for in.
                 match self.transcribing.take() {
                     Some(ticket) if self.composer.read(cx).holds(ticket) => {
-                        let current = self.text(cx);
-                        self.set_text(&join_dictated(&current, text), window, cx);
-                        self.focus_input(window, cx);
+                        self.give(Given::Dictated(text.clone()), window, cx);
                     }
                     _ => log::info!("dictation: a transcription for another composition; dropped"),
                 }
@@ -2675,21 +2699,52 @@ impl ChatComposer {
         self.text_changed(cx);
     }
 
-    /// Words the core gives this chat (`composer.insertText`: Hermes'
-    /// prefill), at the caret.
-    pub fn take_given_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// Text the app gives the field, at the caret: the one way in besides
+    /// typing (Ask Conduit, a prefill, a handoff's prompt, MCP Content's
+    /// Insert). While the chat's draft is read it waits, in order, and goes
+    /// in after the draft once the read has ended.
+    pub fn give_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         if text.is_empty() {
             return;
         }
-        self.insert_at_caret(text, window, cx);
+        self.give(Given::AtCaret(text.to_string()), window, cx);
+    }
+
+    /// [`Self::give_text`] for any [`Given`].
+    fn give(&mut self, given: Given, window: &mut Window, cx: &mut Context<Self>) {
+        let store = self.composer.read(cx);
+        if store.draft_reading() {
+            self.waiting.push((store.ticket(), given));
+            return;
+        }
+        self.put_given(given, window, cx);
+    }
+
+    fn put_given(&mut self, given: Given, window: &mut Window, cx: &mut Context<Self>) {
+        match given {
+            Given::AtCaret(text) => self.insert_at_caret(&text, window, cx),
+            Given::Dictated(text) => {
+                let current = self.text(cx);
+                self.set_text(&join_dictated(&current, &text), window, cx);
+                self.focus_input(window, cx);
+            }
+        }
+    }
+
+    /// What was given while the draft was read, for the composition shown.
+    fn give_waiting(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ticket = self.composer.read(cx).ticket();
+        for (given_for, given) in std::mem::take(&mut self.waiting) {
+            if given_for == ticket {
+                self.put_given(given, window, cx);
+            }
+        }
     }
 
     /// MCP Content › Insert: the prompt's or resource's text, at the caret.
     pub(crate) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let at = self.input.read(cx).cursor();
         self.panel = None;
-        self.insert_at(at, text, window, cx);
-        self.text_changed(cx);
+        self.give_text(text, window, cx);
     }
 
     pub(crate) fn close_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -4192,7 +4247,10 @@ impl Render for ChatComposer {
         let mic = dictation
             .as_ref()
             .filter(|_| !dictating && !self.streaming && !self.call_on)
-            .map(|_| dictation_view::mic_button(&me, cx));
+            .map(|_| {
+                let reading = self.composer.read(cx).draft_reading();
+                dictation_view::mic_button(&me, !reading, cx)
+            });
         let recordings = dictation
             .as_ref()
             .and_then(|d| dictation_view::recordings_list(&me, d.read(cx), cx));
@@ -5060,6 +5118,139 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(value(&view, cx), "");
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// A composer whose New Chat draft ("Old unsent words ") is read only
+    /// once `read` is released.
+    fn reading_composer(
+        cx: &mut TestAppContext,
+    ) -> (
+        Entity<ChatComposer>,
+        &mut VisualTestContext,
+        crate::stores::rpc::fake::Hold,
+    ) {
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words "})).unwrap(),
+        );
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        cx.run_until_parked();
+        (view, cx, read)
+    }
+
+    /// Text the app gives the field while the draft is read (Ask Conduit
+    /// and a prefill go through `give_text`; MCP Content's Insert through
+    /// `insert_text`) waits, and goes in after the draft once it is read.
+    #[gpui_kit::test]
+    fn text_given_during_the_draft_read_goes_in_after_the_draft(cx: &mut TestAppContext) {
+        for mcp in [false, true] {
+            let (view, cx, read) = reading_composer(cx);
+            view.update_in(cx, |c, window, cx| {
+                if mcp {
+                    c.insert_text("from a resource", window, cx);
+                } else {
+                    c.give_text("asked about this", window, cx);
+                }
+            });
+            cx.run_until_parked();
+            assert_eq!(value(&view, cx), "", "written before the draft was read");
+            read.release();
+            cx.run_until_parked();
+            let given = if mcp {
+                "from a resource"
+            } else {
+                "asked about this"
+            };
+            assert_eq!(value(&view, cx), format!("Old unsent words {given}"));
+        }
+    }
+
+    /// Dictation does not start while the draft is read.
+    #[gpui_kit::test]
+    fn dictation_cannot_start_while_the_draft_is_read(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        let (view, cx, read) = reading_composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.toggle_dictation(window, cx);
+            })
+        });
+        assert!(
+            !dictation.read_with(cx, |d, _| d.is_active()),
+            "dictation started"
+        );
+        assert!(view.read_with(cx, |c, _| c.dictation_base.is_none()));
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Old unsent words ");
+    }
+
+    /// Dictation going on when another chat opens stops before that chat's
+    /// draft is read: none of its words, nor its base, reach the draft.
+    #[gpui_kit::test]
+    fn a_chat_switch_stops_dictation_before_the_new_chats_read(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.on::<DraftsGet>(|q| {
+            let text = if q["chatId"] == "c2" {
+                "Pea trellis plan"
+            } else {
+                ""
+            };
+            Ok(serde_json::json!({"text": text}))
+        });
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let probe = daemon.clone();
+        let (view, cx, _) = composer_on(daemon, cx);
+        let chat = |id: &str| {
+            Some(crate::stores::composer::DraftKey {
+                chat_id: Some(id.into()),
+                folder_id: None,
+            })
+        };
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_draft(chat("c1"), "", cx))
+        });
+        cx.run_until_parked();
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        let read = probe.hold::<DraftsGet>();
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Dictated so far", window, cx);
+                c.toggle_dictation(window, cx);
+            })
+        });
+        assert!(dictation.read_with(cx, |d, _| d.is_active()));
+        view.update(cx, |c, cx| {
+            let text = c.text(cx);
+            c.composer
+                .update(cx, |s, cx| s.switch_draft(chat("c2"), &text, cx))
+        });
+        assert!(
+            !dictation.read_with(cx, |d, _| d.is_active()),
+            "dictation went on into the next chat"
+        );
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |c, _| c.dictation_base.is_none()));
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Pea trellis plan");
     }
 
     /// Shared text that starts a fresh composition while the chat's draft is

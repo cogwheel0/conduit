@@ -97,9 +97,6 @@ pub struct ChatPane {
     approvals: Entity<ApprovalsView>,
     /// Open WebUI's question or approval in the open chat.
     pub prompt_card: Entity<crate::views::chat::prompt::PromptCard>,
-    /// Words given while the chat's draft was still being read, in the
-    /// order given, each with the composition it was given to.
-    given_waiting: Vec<(crate::stores::composer::CompositionTicket, String)>,
     /// The open chat's task checklist shows every task.
     tasks_open: bool,
     pub composer_store: Entity<ComposerStore>,
@@ -470,27 +467,6 @@ impl ChatPane {
             }),
             // Toasts dock above the composer.
             cx.observe(&stores.toasts, |_, _, cx| cx.notify()),
-            // Words that waited for the draft read: given once it has ended,
-            // however it ended (read: after the composer has put the draft,
-            // and what was typed meanwhile, in the field).
-            cx.subscribe_in(
-                &composer_store,
-                window,
-                |this, _, event, window, cx| match event {
-                    ComposerEvent::DraftReadEnded => {
-                        let waiting = std::mem::take(&mut this.given_waiting);
-                        if !waiting.is_empty() {
-                            cx.defer_in(window, move |this, window, cx| {
-                                for (ticket, text) in waiting {
-                                    this.take_given_text(ticket, &text, window, cx);
-                                }
-                            });
-                        }
-                    }
-                    ComposerEvent::DraftSwitched => this.given_waiting.clear(),
-                    _ => {}
-                },
-            ),
             cx.subscribe(&composer_store, |this, _, event, cx| {
                 let l10n = cx.l10n().clone();
                 let text = match event {
@@ -514,7 +490,6 @@ impl ChatPane {
             layout,
             approvals,
             prompt_card,
-            given_waiting: Vec::new(),
             tasks_open: false,
             composer_store,
             composer,
@@ -722,7 +697,7 @@ impl ChatPane {
                 }
                 if let Some(prompt) = prompt {
                     this.composer
-                        .update(cx, |c, cx| c.restore(&prompt, window, cx));
+                        .update(cx, |c, cx| c.give_text(&prompt, window, cx));
                 }
                 this.composer.update(cx, |c, cx| c.focus_input(window, cx));
             });
@@ -1937,9 +1912,9 @@ impl ChatPane {
 
     /// Words the core gave this chat's composer (`composer.insertText`:
     /// Hermes' prefill), for the composition `ticket` names: nothing once it
-    /// has moved on (started over, another chat or account). They wait
-    /// while the chat's saved draft is still being read, then go in at the
-    /// caret, after the draft: a saved draft is never written over by them.
+    /// has moved on (started over, another chat or account). Given to the
+    /// composer's one way in ([`ChatComposer::give_text`]): while the chat's
+    /// draft is read they wait, then go in after it.
     pub fn take_given_text(
         &mut self,
         ticket: crate::stores::composer::CompositionTicket,
@@ -1947,16 +1922,11 @@ impl ChatPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let store = self.composer_store.read(cx);
-        if !store.holds(ticket) {
-            return;
-        }
-        if store.draft_reading() {
-            self.given_waiting.push((ticket, text.to_string()));
+        if !self.composer_store.read(cx).holds(ticket) {
             return;
         }
         self.composer
-            .update(cx, |c, cx| c.take_given_text(text, window, cx));
+            .update(cx, |c, cx| c.give_text(text, window, cx));
     }
 
     /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
@@ -2416,7 +2386,7 @@ impl ChatPane {
             return;
         };
         self.composer
-            .update(cx, |c, cx| c.insert_at_caret(&text, window, cx));
+            .update(cx, |c, cx| c.give_text(&text, window, cx));
     }
 
     /// Copy, from an answer's menu: the selected text.
