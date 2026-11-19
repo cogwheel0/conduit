@@ -852,6 +852,48 @@ void main() {
       },
     );
 
+    test(
+      'a pick that leaves or moves answers with a newer revision, never 0',
+      () {
+        fakeAsync((time) {
+          final container = _agentContainer(_AgentsApi());
+          final bus = EventBus();
+          final models = ModelsService(container, events: bus);
+          int revision(Future<ModelList> answer) {
+            final outcome = _Outcome(answer);
+            time.elapse(Duration.zero);
+            return (outcome.value! as ModelList).revision;
+          }
+
+          // New Chat's pick, taken by its first send.
+          final picked = revision(models.select('preferred-model'));
+          final changed = <String>[];
+          bus.tap((event, _, _) => changed.add(event));
+          models.sent(
+            models.sending(null),
+            toChat: 'new-chat-1',
+            model: 'preferred-model',
+          );
+          final slot = revision(models.list());
+          check(slot).isGreaterThan(picked);
+          // Every window showing New Chat (Quick Ask too) is told to list
+          // it again.
+          check(changed).contains(ConduitEvents.modelsChanged);
+          final made = revision(
+            models.list(const ModelListQuery(chatId: 'new-chat-1')),
+          );
+          check(made).isGreaterThan(picked);
+          // A chat's pick moving with its id.
+          bus.emit(
+            ConduitEventSpecs.routeRemap,
+            const RouteRemap(fromId: 'new-chat-1', toId: 'chat-9'),
+          );
+          check(revision(models.list(const ModelListQuery(chatId: 'chat-9'))))
+              .isGreaterThan(made);
+        });
+      },
+    );
+
     test("one LibreChat account's picks are never another's", () {
       fakeAsync((time) {
         final container = _agentContainer(_AgentsApi());

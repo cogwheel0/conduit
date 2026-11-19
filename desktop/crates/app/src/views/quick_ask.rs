@@ -873,6 +873,9 @@ mod tests {
         }
     }
 
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use conduit_protocol::methods;
     use gpui_kit::{TestAppContext, VisualTestContext};
 
@@ -985,6 +988,51 @@ mod tests {
         });
         vcx.run_until_parked();
         empty(&view, vcx);
+    }
+
+    /// New Chat's agent, shown in Quick Ask, taken by the main window's first
+    /// send: the daemon says the models changed, and New Chat's next list
+    /// (a newer revision, never 0) is shown, so Quick Ask no longer names
+    /// the pick that went.
+    #[gpui_kit::test]
+    fn a_new_chat_pick_taken_elsewhere_leaves_quick_ask(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        let agent = "agent:north:codex:gpt-test";
+        let list = move |selected: &str, revision: i64| {
+            serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "agents": [{"id": agent, "name": "Codex", "pinned": false, "capabilities": []}],
+                "selectedId": selected,
+                "revision": revision,
+            })
+        };
+        let taken = Arc::new(AtomicBool::new(false));
+        let seen = taken.clone();
+        daemon.on::<methods::ModelsList>(move |_| {
+            Ok(if seen.load(Ordering::SeqCst) {
+                list("k", 6)
+            } else {
+                list(agent, 4)
+            })
+        });
+        daemon.on::<methods::ComposerOptions>(|_| Ok(serde_json::json!({})));
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+        });
+        vcx.run_until_parked();
+        let next = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                v.composer_store.read(cx).next_model().map(|m| m.id.clone())
+            })
+        };
+        assert_eq!(next(&view, vcx).as_deref(), Some(agent));
+        // The main window's first send took it.
+        taken.store(true, Ordering::SeqCst);
+        view.update(vcx, |v, cx| {
+            v.on_connection(&ConnectionEvent::Daemon(Box::new(Event::ModelsChanged)), cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(next(&view, vcx).as_deref(), Some("k"));
     }
 
     /// Quick Ask's first message made a chat: its composer follows that

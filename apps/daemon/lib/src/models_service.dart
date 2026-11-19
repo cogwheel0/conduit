@@ -101,7 +101,7 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
 
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
-  ModelsService(this._container, {EventBus? events}) {
+  ModelsService(this._container, {EventBus? events}) : _events = events {
     if (events != null) {
       _announceChanges(events);
       _followRemaps(events);
@@ -117,8 +117,11 @@ final class ModelsService {
   final Map<Object, Map<String?, _Pick>> _picks =
       <Object, Map<String?, _Pick>>{};
 
-  /// The revision the newest pick was written at: every pick written takes
-  /// the next one, so a write begun earlier tells a newer pick from its own.
+  /// The revision of the newest change to any pick, for the whole process:
+  /// every change (a pick made, New Chat's taken by a send, a pick moved
+  /// with its chat) takes the next one, and it never goes back, so no
+  /// answer for a chat or New Chat ever reports an older revision than one
+  /// it reported before.
   int _revision = 0;
 
   /// The picks of [account].
@@ -159,11 +162,12 @@ final class ModelsService {
     });
   }
 
-  /// [pick] as [chatId]'s in [picks], unless a pick newer than it is there.
+  /// [pick]'s model as [chatId]'s in [picks], at the next revision, unless
+  /// a pick made after [pick] is there.
   void _land(Map<String?, _Pick> picks, String chatId, _Pick pick) {
     final there = picks[_now(chatId)];
     if (there != null && there.revision > pick.revision) return;
-    picks[_now(chatId)] = pick;
+    picks[_now(chatId)] = _Pick(pick.model, ++_revision);
   }
 
   /// A turn is about to be sent from [fromChat] (null: from New Chat): what
@@ -193,10 +197,13 @@ final class ModelsService {
     if (send._fromChat != null || !send._account.isCurrent) return;
     final picks = _picksOf(send._account);
     final slot = send._slot;
+    // New Chat's pick, taken: a record with no model, at the next revision,
+    // and every window showing New Chat (Quick Ask too) lists it again.
     if (slot != null && picks[null]?.revision == slot.revision) {
-      picks.remove(null);
+      picks[null] = _Pick(null, ++_revision);
+      _events?.emit(ConduitEventSpecs.modelsChanged, null);
     }
-    final made = slot != null && slot.model.id == model
+    final made = slot != null && slot.model != null && slot.model!.id == model
         ? slot
         : model != null && isTerminalAgentModelId(model)
         ? _Pick(
@@ -211,6 +218,9 @@ final class ModelsService {
   }
 
   final ProviderContainer _container;
+
+  /// Where `models.changed` goes (none in some tests).
+  final EventBus? _events;
 
   /// Publishes `models.changed` when the ids on offer change, or the model
   /// the next turn runs with.
@@ -1057,7 +1067,9 @@ final class ModelsService {
 final class _Pick {
   const _Pick(this.model, this.revision);
 
-  final core.Model model;
+  /// Null once the pick is gone (New Chat's, taken by its first send): the
+  /// record stays for its revision.
+  final core.Model? model;
   final int revision;
 }
 
