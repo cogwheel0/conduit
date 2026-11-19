@@ -165,6 +165,9 @@ final class NotificationsService {
     final key = account.account;
     final tail = (_mirrors[key] ?? Future<void>.value()).then((_) async {
       if (!await account.sameAccountOnceKnown()) return;
+      // Asked again with nothing awaited before the client is read: another
+      // account can take charge as the wait ends.
+      if (!account.isSameAccount) return;
       final api = _container.read(apiServiceProvider);
       await syncNotificationPrefsToServer(
         api,
