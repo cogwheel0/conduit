@@ -1265,6 +1265,7 @@ impl ChatPane {
         if (self.chat.is_none() && self.first_send_pending(cx))
             || !self.composer_store.read(cx).can_name_model()
         {
+            self.composer_store.update(cx, |c, cx| c.ask_list_again(cx));
             self.composer.update(cx, |c, cx| {
                 // Not sent: its recordings stay with the draft too.
                 let held = c.take_sent_recordings();
@@ -1855,8 +1856,7 @@ impl ChatPane {
             .as_ref()
             .is_some_and(|c| c.store.read(cx).read_only());
         let on = self.stores.call.read(cx).is_active();
-        let composer = self.composer_store.read(cx);
-        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        let ready = !on && self.composer_store.read(cx).call_ready();
         self.composer.update(cx, |c, cx| {
             if c.call_offer != offer || c.call_ready != ready || c.call_on != on {
                 c.call_offer = offer;
@@ -3755,6 +3755,43 @@ mod tests {
             pane.read_with(vcx, |p, cx| {
                 let c = p.composer_store.read(cx);
                 assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some(agent));
+            });
+        }
+
+        /// The chat's model list fails on a new daemon session: the window
+        /// says so, and Send asks for the list again, keeping its words.
+        #[gpui_kit::test]
+        fn a_failed_model_list_says_so_and_send_asks_again(cx: &mut TestAppContext) {
+            use crate::l10n::ActiveL10n as _;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            daemon.once::<methods::ModelsList>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "busy",
+            )));
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.reconnected(cx))
+            });
+            vcx.run_until_parked();
+            let failed = vcx.update(|_, cx| cx.l10n().desktop_model_not_selected());
+            let toasts: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
+                t.toasts.iter().map(|t| t.message.clone()).collect()
+            });
+            assert!(toasts.contains(&failed), "{toasts:?}");
+            let asked = daemon.calls::<methods::ModelsList>().len();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.set_text("Plan the trip", window, cx);
+                    c.submit(window, cx)
+                })
+            });
+            vcx.run_until_parked();
+            assert_eq!(daemon.calls::<methods::ModelsList>().len(), asked + 1);
+            assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.composer.read(cx).text(cx), "Plan the trip");
+                assert!(p.composer_store.read(cx).can_name_model());
             });
         }
 

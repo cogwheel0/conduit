@@ -376,8 +376,7 @@ impl QuickAskView {
 
     fn sync_call(&mut self, cx: &mut Context<Self>) {
         let on = self.stores.call.read(cx).is_active();
-        let composer = self.composer_store.read(cx);
-        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        let ready = !on && self.composer_store.read(cx).call_ready();
         self.composer.update(cx, |c, cx| {
             if c.call_ready != ready || c.call_on != on {
                 c.call_ready = ready;
@@ -495,6 +494,7 @@ impl QuickAskView {
             || composer.uploading()
             || !composer.can_name_model()
         {
+            self.composer_store.update(cx, |c, cx| c.ask_list_again(cx));
             self.composer
                 .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
             return;
@@ -1317,6 +1317,52 @@ mod tests {
             assert!(v.chat.is_none());
             assert_eq!(v.composer.read(cx).text(cx), "> Prune in late winter.");
             assert!(v.composer_store.read(cx).attachments.is_empty());
+        });
+    }
+
+    /// Its model list fails on a new daemon session: the panel says so,
+    /// and Send or the model picker asks for the list again, keeping the
+    /// words typed.
+    #[gpui_kit::test]
+    fn a_failed_model_list_says_so_and_send_asks_again(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        vcx.run_until_parked();
+        let fail = |daemon: &FakeDaemon| {
+            daemon.once::<methods::ModelsList>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "busy",
+            )));
+        };
+        fail(&daemon);
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.reconnected(cx))
+        });
+        vcx.run_until_parked();
+        let failed = vcx.update(|_, cx| cx.l10n().desktop_model_not_selected());
+        view.read_with(vcx, |v, _| {
+            assert_eq!(v.notice.as_deref(), Some(failed.as_str()))
+        });
+        let asked = || daemon.calls::<methods::ModelsList>().len();
+        let before = asked();
+        // Send while it fails again, then the picker.
+        fail(&daemon);
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| {
+                c.set_text("Pack the bags", window, cx);
+                c.submit(window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        assert_eq!(asked(), before + 1);
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| c.open_picker(window, cx))
+        });
+        vcx.run_until_parked();
+        assert_eq!(asked(), before + 2);
+        assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "Pack the bags");
+            assert!(v.composer_store.read(cx).can_name_model());
         });
     }
 

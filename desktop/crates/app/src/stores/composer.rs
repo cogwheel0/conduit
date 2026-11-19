@@ -35,6 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use conduit_daemon::RpcError;
+use conduit_daemon::protocol::{RpcErrorExt as _, codes};
 use conduit_protocol::{
     AppSettingsDto, ChatFileDto, ComposerMentionDto, ComposerOptions, ComposerSearch,
     ContextAttachmentDto, ContextSuggestion, DraftRef, DraftSave, FetchUrl, FetchedUrl,
@@ -442,6 +443,9 @@ pub struct ComposerStore {
     /// The query the list shown answered ([`Self::models`]): the chat it
     /// is for. A turn goes only once the open chat's own list answered.
     models_for: Option<conduit_protocol::ModelListQuery>,
+    /// The query whose list read failed last, with none shown for it: Send
+    /// asks for it again ([`Self::ask_list_again`]).
+    list_failed: Option<conduit_protocol::ModelListQuery>,
     /// The chat and model the options shown answered: Regenerate and the
     /// other agent-chat rules follow the options of the chat and model on
     /// screen, never another chat's or another model's.
@@ -596,6 +600,7 @@ impl ComposerStore {
             saves_without_draft: false,
             followed_chat: None,
             models_for: None,
+            list_failed: None,
             options_for: None,
             options: ComposerOptions::default(),
             librechat: LibreChatComposer::default(),
@@ -718,9 +723,24 @@ impl ComposerStore {
     /// A channel's message names no model.
     pub fn can_name_model(&self) -> bool {
         self.channel.is_some()
-            || self.mention.is_some()
-            || (self.models_for.as_ref() == Some(&self.list_query())
-                && self.selected_model().is_some())
+            || (self.list_answered() && (self.mention.is_some() || self.selected_model().is_some()))
+    }
+
+    /// Whether the list shown is the open chat's own, from this daemon
+    /// session: what every new turn waits for.
+    pub fn list_answered(&self) -> bool {
+        self.models_for.as_ref() == Some(&self.list_query())
+    }
+
+    /// Send, or a follow-up, while the open chat's list read has failed:
+    /// asks for it again. One still on its way is waited for.
+    pub fn ask_list_again(&mut self, cx: &mut Context<Self>) {
+        if self.channel.is_none()
+            && !self.list_answered()
+            && self.list_failed.as_ref() == Some(&self.list_query())
+        {
+            self.refresh_models(cx);
+        }
     }
 
     /// Whether the options shown are the answer for the chat and model on
@@ -729,6 +749,36 @@ impl ComposerStore {
     pub fn options_answered(&self) -> bool {
         self.options_for.as_ref()
             == Some(&(self.chat_id(), self.selected_model().map(|m| m.id.clone())))
+    }
+
+    /// The options shown, once answered for the chat and model on screen (a
+    /// channel's are its own): what the model offers is acted on only on
+    /// its own answer, never another chat's, model's or daemon session's.
+    pub fn answered_options(&self) -> Option<&ComposerOptions> {
+        (self.channel.is_some() || self.options_answered()).then_some(&self.options)
+    }
+
+    /// Whether a voice call can start with the model shown: its options
+    /// answered and offer one.
+    pub fn call_ready(&self) -> bool {
+        self.selected_model().is_some() && self.answered_options().is_some_and(|o| o.voice_call)
+    }
+
+    /// The selected model's reasoning effort and Fast tier, once answered
+    /// for it.
+    pub fn answered_model_options(&self) -> Option<&conduit_protocol::ModelOptionsDto> {
+        let selected = self.selected_model().map(|m| m.id.as_str());
+        self.model_options
+            .as_ref()
+            .filter(|o| selected.is_some() && o.model_id.as_deref() == selected)
+    }
+
+    /// The selected model's controls, once answered for it.
+    pub fn answered_controls(&self) -> Option<&conduit_protocol::ModelControlList> {
+        let selected = self.selected_model().map(|m| m.id.as_str());
+        self.model_controls
+            .as_ref()
+            .filter(|c| selected.is_some() && c.model_id.as_deref() == selected)
     }
 
     /// Whether the open chat is one a coding agent answers: from the options
@@ -769,21 +819,40 @@ impl ComposerStore {
     }
 
     /// A new daemon session (a restart or a reconnect): its picks and their
-    /// revisions start again, so the order of answers starts again too. The
-    /// open chat, its draft and attachments stay; what the last session was
-    /// still answering is dropped when it lands, and the chat is listed
-    /// again on the new one. Until the new session answers, the list and
-    /// options shown are not the chat's: the new daemon may have lost its
-    /// pick.
+    /// revisions start again, so the order of answers starts again too, and
+    /// the new daemon may have lost the chat's pick. Everything the last
+    /// session said about models goes ([`Self::forget_models`]), and every
+    /// answer it still owes is dropped when it lands; the open chat, its
+    /// draft and attachments stay, and the chat is listed again. A channel's
+    /// options are its own, not a model's.
     pub fn reconnected(&mut self, cx: &mut Context<Self>) {
         self.session += 1;
-        self.selecting = None;
-        self.models_for = None;
-        self.options_for = None;
-        cx.notify();
-        if self.channel.is_none() {
-            self.refresh_models(cx);
+        if self.channel.is_some() {
+            return;
         }
+        self.forget_models();
+        cx.notify();
+        self.refresh_models(cx);
+    }
+
+    /// Drops the list, the options, the model's effort and controls, and
+    /// what is still asked for them: nothing a daemon session or account
+    /// said before stays to be shown or acted on until it is answered again.
+    fn forget_models(&mut self) {
+        self.models = None;
+        self.models_for = None;
+        self.list_failed = None;
+        self._models = None;
+        self.selecting = None;
+        self._select = None;
+        self.options = ComposerOptions::default();
+        self.options_for = None;
+        self._options = None;
+        self.librechat = LibreChatComposer::default();
+        self.model_options = None;
+        self._model_options = None;
+        self.model_controls = None;
+        self._model_controls = None;
     }
 
     /// `models.list`, then `composer.options` (which depends on it).
@@ -798,15 +867,25 @@ impl ComposerStore {
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
-                    // Another account's, or another chat's: not this one's.
-                    _ if s.scope != scope || s.list_query() != query => {}
+                    // Another account's, another daemon session's, or another
+                    // chat's: not this one's.
+                    _ if s.scope != scope || s.session != session || s.list_query() != query => {}
                     // Older than the list shown.
                     Ok(list) if !s.newer_answer(&query, (session, list.revision, seq)) => {}
                     Ok(list) => {
                         s.set_models(list, query, seq, cx);
                         s.refresh_options(cx);
                     }
-                    Err(e) => log::info!("models.list: {e}"),
+                    Err(e) => {
+                        log::warn!("models.list: {e}");
+                        s.list_failed = Some(query);
+                        // With no list for the chat nothing can be sent: say
+                        // so (Send or the picker asks again). A dropped
+                        // connection asks again itself once it is back.
+                        if !s.list_answered() && !e.is(codes::DISCONNECTED) {
+                            cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
+                        }
+                    }
                 });
             }),
         );
@@ -863,7 +942,7 @@ impl ComposerStore {
     pub fn chat_agent(&self) -> Option<(String, String)> {
         // Only the open chat's own list offers it: never another chat's,
         // while the open one's is still out (or failed).
-        if self.models_for.as_ref() != Some(&self.list_query()) {
+        if !self.list_answered() {
             return None;
         }
         let list = self.models.as_ref()?;
@@ -890,10 +969,12 @@ impl ComposerStore {
                     model_id: Some(model_id.clone()),
                     chat_id: self.chat_id(),
                 });
+        let session = self.session;
         self._model_controls = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
+                    _ if s.session != session => {}
                     Ok(list) if list.model_id.as_deref() == Some(model_id.as_str()) => {
                         s.model_controls = Some(list);
                         cx.notify();
@@ -927,10 +1008,15 @@ impl ComposerStore {
                 key: key.to_string(),
                 value: Some(value.to_string()),
             });
+        let session = self.session;
         self._model_controls = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
+                    // The last daemon session's word, after a new one began.
+                    if s.session != session {
+                        return;
+                    }
                     match result {
                         Ok(list) => s.model_controls = Some(list),
                         Err(e) => {
@@ -957,10 +1043,12 @@ impl ComposerStore {
                 model_id: Some(model_id.clone()),
                 chat_id: self.chat_id(),
             });
+        let session = self.session;
         self._model_options = Some(cx.spawn(
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
+                    _ if s.session != session => {}
                     Ok(options) if options.model_id.as_deref() == Some(model_id.as_str()) => {
                         s.model_options = Some(options);
                         cx.notify();
@@ -980,7 +1068,8 @@ impl ComposerStore {
         };
         let chat_id = self.chat_id();
         let new_chat = chat_id.is_none();
-        let (scope, round, asked) = (self.scope, self.draft_round, model_id.clone());
+        let (scope, session, round, asked) =
+            (self.scope, self.session, self.draft_round, model_id.clone());
         let rev = self.params_rev;
         let call = self.rpc.call::<methods::ModelsSetReasoningEffort>(
             &conduit_protocol::SetReasoningEffort {
@@ -999,7 +1088,7 @@ impl ComposerStore {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
                     // Another draft, account or model since: not its answer.
-                    if !s.still_asking(scope, round, &asked) {
+                    if !s.still_asking(scope, session, round, &asked) {
                         return;
                     }
                     match result {
@@ -1027,7 +1116,7 @@ impl ComposerStore {
     /// Hermes' Fast tier, on or off.
     pub fn set_fast_tier(&mut self, on: bool, cx: &mut Context<Self>) {
         let model_id = self.selected_model().map(|m| m.id.clone());
-        let (scope, round) = (self.scope, self.draft_round);
+        let (scope, session, round) = (self.scope, self.session, self.draft_round);
         let asked = model_id.clone().unwrap_or_default();
         let call = self
             .rpc
@@ -1036,7 +1125,7 @@ impl ComposerStore {
             async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if !s.still_asking(scope, round, &asked) {
+                    if !s.still_asking(scope, session, round, &asked) {
                         return;
                     }
                     match result {
@@ -1054,10 +1143,12 @@ impl ComposerStore {
         ));
     }
 
-    /// Whether an answer asked in `scope` and draft `round` for `model_id`
-    /// is still this composer's: same account, same draft, same model.
-    fn still_asking(&self, scope: u64, round: u64, model_id: &str) -> bool {
+    /// Whether an answer asked in `scope`, daemon `session` and draft
+    /// `round` for `model_id` is still this composer's: same account, same
+    /// daemon session, same draft, same model.
+    fn still_asking(&self, scope: u64, session: u64, round: u64, model_id: &str) -> bool {
         self.scope == scope
+            && self.session == session
             && self.draft_round == round
             && self.selected_model().is_some_and(|m| m.id == model_id)
     }
@@ -1131,6 +1222,7 @@ impl ComposerStore {
         }
         self.models = Some(list);
         self.models_for = Some(query);
+        self.list_failed = None;
         self.follow_model_options(cx);
         cx.notify();
     }
@@ -2547,21 +2639,10 @@ impl ComposerStore {
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
         self.followed_chat = None;
-        self.models_for = None;
-        self.options_for = None;
-        self.selecting = None;
-        self._select = None;
+        self.forget_models();
         self.draft_round += 1;
         self.parked.clear();
         self._searches = [None, None, None];
-        self._options = None;
-        self._model_options = None;
-        self.model_options = None;
-        self._model_controls = None;
-        self.model_controls = None;
-        self.models = None;
-        self.options = ComposerOptions::default();
-        self.librechat = LibreChatComposer::default();
         self.prompts = None;
         self.mention_results = MentionList::default();
         self.context_results.clear();
@@ -4094,9 +4175,13 @@ mod tests {
     /// A new daemon session (a restart, in a setup with no saved account, so
     /// the account in charge never changes): its picks start again at
     /// revision 0, and the chat's fresh list and its options are shown,
-    /// never refused against the last session's revision.
+    /// never refused against the last session's revision. Until the new
+    /// session answers, nothing the last one said is used (its pick, the
+    /// model's options, effort and controls, a call), while the draft and
+    /// its files stay; the same model's new answers replace the old ones.
     #[gpui_kit::test]
     fn a_new_daemon_session_starts_the_answer_order_afresh(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicBool, Ordering};
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::DraftsGet>(Draft::default());
         daemon.once::<methods::ModelsList>(Ok(ModelList {
@@ -4106,12 +4191,27 @@ mod tests {
             ..Default::default()
         }));
         daemon.returns::<methods::ModelsList>(ModelList {
-            models: vec![model("c", "Cedar")],
-            selected_id: Some("c".into()),
+            models: vec![model("a", "Alder")],
+            selected_id: Some("a".into()),
             ..Default::default()
         });
-        daemon.on::<methods::ComposerOptions>(|q| {
-            Ok(serde_json::json!({"webSearch": q["modelId"] == "c"}))
+        // The same model on both sessions; what it offers changed.
+        let fresh = Arc::new(AtomicBool::new(false));
+        let now = move |f: &Arc<AtomicBool>| f.load(Ordering::SeqCst);
+        let f = fresh.clone();
+        daemon.on::<methods::ComposerOptions>(move |_| {
+            Ok(json!({"voiceCall": true, "webSearch": now(&f)}))
+        });
+        let f = fresh.clone();
+        daemon.on::<methods::ModelsOptions>(move |_| {
+            Ok(json!({"modelId": "a", "fastTier": now(&f)}))
+        });
+        let f = fresh.clone();
+        daemon.on::<methods::ModelsControls>(move |_| {
+            let key = if now(&f) { "effort" } else { "tier" };
+            Ok(json!({"modelId": "a", "controls": [
+                {"key": key, "label": key, "options": [{"value": "low", "label": "Low"}]}
+            ]}))
         });
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| {
@@ -4125,25 +4225,51 @@ mod tests {
             )
         });
         cx.run_until_parked();
-        // Until the new session lists the chat, its pick may be gone: the
-        // last session's list names nothing and its options answer nothing.
+        store.update(cx, |s, cx| {
+            s.adopt_attachments(
+                vec![Attachment::uploaded_for_test(0, "plan.pdf", "file-plan")],
+                cx,
+            )
+        });
+        store.read_with(cx, |s, _| {
+            assert!(s.call_ready());
+            assert_eq!(
+                s.answered_model_options().and_then(|o| o.fast_tier),
+                Some(false)
+            );
+        });
+        // Until the new session lists the chat, its pick may be gone.
+        fresh.store(true, Ordering::SeqCst);
         let listing = daemon.hold::<methods::ModelsList>();
         store.update(cx, |s, cx| s.reconnected(cx));
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert!(!s.can_name_model(), "the last session's pick was named");
             assert!(!s.options_answered(), "the last session's options held");
+            assert!(!s.call_ready(), "a call on the last session's word");
+            assert!(s.model_options.is_none(), "the last session's effort held");
+            assert!(
+                s.model_controls.is_none(),
+                "the last session's controls held"
+            );
+            assert_eq!(s.attachments.len(), 1, "the draft's file went");
         });
         listing.release();
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert!(s.can_name_model());
-            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("c"));
-            assert!(
-                s.options_answered(),
-                "the fresh model's options were not taken"
+            assert!(s.call_ready());
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("a"));
+            assert!(s.options.web_search, "the last session's options stayed");
+            assert_eq!(
+                s.answered_model_options().and_then(|o| o.fast_tier),
+                Some(true)
             );
-            assert!(s.options.web_search);
+            let keys: Vec<&str> = s
+                .answered_controls()
+                .map(|c| c.controls.iter().map(|c| c.key.as_str()).collect())
+                .unwrap_or_default();
+            assert_eq!(keys, vec!["effort"], "the last session's controls stayed");
         });
     }
 
@@ -4152,6 +4278,7 @@ mod tests {
     /// whatever its revision.
     #[gpui_kit::test]
     fn an_answer_from_the_last_daemon_session_is_dropped(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicBool, Ordering};
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::DraftsGet>(Draft::default());
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
@@ -4160,10 +4287,10 @@ mod tests {
             selected_id: Some("a".into()),
             ..Default::default()
         }));
-        // The new session's list.
+        // The new session's list: the same model.
         daemon.returns::<methods::ModelsList>(ModelList {
-            models: vec![model("c", "Cedar")],
-            selected_id: Some("c".into()),
+            models: vec![model("a", "Alder")],
+            selected_id: Some("a".into()),
             ..Default::default()
         });
         // The pick asked on the last session, answered after the new began.
@@ -4173,6 +4300,12 @@ mod tests {
             revision: 5,
             ..Default::default()
         });
+        // The model's options, as each session answers them.
+        let fresh = Arc::new(AtomicBool::new(false));
+        let f = fresh.clone();
+        daemon.on::<methods::ModelsOptions>(move |_| {
+            Ok(json!({"modelId": "a", "fastTier": f.load(Ordering::SeqCst)}))
+        });
         let store = store(&daemon, Arc::default(), cx);
         store.update(cx, |s, cx| {
             s.switch_draft(
@@ -4185,18 +4318,27 @@ mod tests {
             )
         });
         cx.run_until_parked();
+        let late_options = daemon.hold_one::<methods::ModelsOptions>(0);
+        store.update(cx, |s, cx| s.refresh_model_options(cx));
         let late = daemon.hold::<methods::ModelsSelect>();
         store.update(cx, |s, cx| s.select_model("b", cx));
         cx.run_until_parked();
+        fresh.store(true, Ordering::SeqCst);
         store.update(cx, |s, cx| s.reconnected(cx));
         cx.run_until_parked();
         late.release();
+        late_options.release();
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert_eq!(
                 s.selected_model().map(|m| m.id.as_str()),
-                Some("c"),
+                Some("a"),
                 "the last session's answer replaced the new one's"
+            );
+            assert_eq!(
+                s.model_options.as_ref().and_then(|o| o.fast_tier),
+                Some(true),
+                "the last session's options replaced the new one's"
             );
         });
     }
