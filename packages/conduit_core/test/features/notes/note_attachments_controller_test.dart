@@ -176,6 +176,20 @@ class _HeldScanStore extends NoteAudioUploadStore {
   /// While set, a read that would find a recording gone throws instead.
   bool failGoneAnswer = false;
 
+  /// While set, removing a recording waits for it.
+  Completer<void>? holdRemove;
+  final removeEntered = Completer<void>();
+
+  @override
+  Future<void> remove(PendingNoteAudioUpload item) async {
+    final hold = holdRemove;
+    if (hold != null) {
+      if (!removeEntered.isCompleted) removeEntered.complete();
+      await hold.future;
+    }
+    return super.remove(item);
+  }
+
   @override
   Future<PendingNoteAudioUpload?> loadCurrent(
     PendingNoteAudioUpload item,
@@ -444,6 +458,59 @@ void main() {
       held.holdRebind!.complete();
       await moving;
       await closing;
+      check(closed).isTrue();
+    });
+
+    test('a close a listener asks for as a removal starts waits for it',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      Future<void>? closing;
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        // The editor goes as the removal starts: its listener closes.
+        onChanged: () {
+          if (held.holdRemove != null) closing ??= controller.close();
+        },
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('four.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_4.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      final id = controller.pending.single.id;
+
+      held.holdRemove = Completer<void>();
+      final removing = controller.removePending(id);
+      await held.removeEntered.future;
+      var closed = false;
+      final done = closing!.then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      held.holdRemove!.complete();
+      await removing;
+      await done;
       check(closed).isTrue();
     });
 
