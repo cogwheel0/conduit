@@ -32,7 +32,7 @@ use gpui_kit::{
 
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
-use crate::stores::chat::{CHAT_EVENTS, ChatStore, PendingMessage, Subscribe};
+use crate::stores::chat::{CHAT_EVENTS, ChatStore, ChatStoreEvent, PendingMessage, Subscribe};
 use crate::stores::composer::{ComposerEvent, ComposerPrefs, ComposerStore};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::router::RouterEvent;
@@ -405,7 +405,12 @@ impl QuickAskView {
         });
     }
 
-    fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+    fn open_chat(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ChatStore> {
         // The composer follows the chat: its lists, options and next turns
         // are the chat's (a first send's pick moved there with it).
         self.composer_store
@@ -437,16 +442,30 @@ impl QuickAskView {
                 t
             }
         });
-        let subscriptions = vec![cx.observe(&store, |this, store, cx| {
-            let streaming = store.read(cx).is_streaming();
-            this.composer.update(cx, |c, cx| {
-                if c.streaming != streaming {
-                    c.streaming = streaming;
-                    cx.notify();
-                }
-            });
-            cx.notify();
-        })];
+        let subscriptions = vec![
+            cx.observe(&store, |this, store, cx| {
+                let streaming = store.read(cx).is_streaming();
+                this.composer.update(cx, |c, cx| {
+                    if c.streaming != streaming {
+                        c.streaming = streaming;
+                        cx.notify();
+                    }
+                });
+                cx.notify();
+            }),
+            // Words the core gave this chat's composer (Hermes' prefill):
+            // this panel's, while it holds the chat.
+            cx.subscribe_in(
+                &store,
+                window,
+                |this, _, event: &ChatStoreEvent, window, cx| {
+                    if let ChatStoreEvent::InsertText { text } = event {
+                        this.composer
+                            .update(cx, |c, cx| c.give_text(text, window, cx));
+                    }
+                },
+            ),
+        ];
         self.chat = Some(QuickChat {
             store: store.clone(),
             transcript,
@@ -543,7 +562,7 @@ impl QuickAskView {
                 this.starting = false;
                 match result {
                     Ok(accepted) => {
-                        let store = this.open_chat(accepted.chat_id.clone(), cx);
+                        let store = this.open_chat(accepted.chat_id.clone(), window, cx);
                         store.update(cx, |s, cx| {
                             s.model_hint = model;
                             s.started(pending, &accepted, false, cx)
@@ -965,7 +984,7 @@ mod tests {
         let (_daemon, stores, view, vcx) = bench(cx);
         let fill = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
             view.update_in(vcx, |v, window, cx| {
-                v.open_chat("chat-a".into(), cx);
+                v.open_chat("chat-a".into(), window, cx);
                 v.composer
                     .update(cx, |c, cx| c.set_text("draft for A", window, cx));
                 v.composer_store
@@ -1143,8 +1162,8 @@ mod tests {
         daemon.on::<methods::TurnsSend>(|_| {
             Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
         });
-        view.update(vcx, |v, cx| {
-            v.open_chat("chat-q".into(), cx);
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-q".into(), window, cx);
         });
         vcx.run_until_parked();
         let held = daemon.hold::<methods::TurnsSend>();
@@ -1291,13 +1310,40 @@ mod tests {
     fn a_services_selection_in_an_idle_panel_starts_a_fresh_exchange(cx: &mut TestAppContext) {
         let (_daemon, _stores, view, vcx) = bench(cx);
         view.update_in(vcx, |v, window, cx| {
-            v.open_chat("chat-q".into(), cx);
+            v.open_chat("chat-q".into(), window, cx);
             let _ = v.ask_about("> Prune in late winter.", window, cx);
         });
         view.read_with(vcx, |v, cx| {
             assert!(v.chat.is_none());
             assert_eq!(v.composer.read(cx).text(cx), "> Prune in late winter.");
             assert!(v.composer_store.read(cx).attachments.is_empty());
+        });
+    }
+
+    /// Words the core gives the chat Quick Ask holds (Hermes' prefill) land
+    /// in its field; another chat's do not.
+    #[gpui_kit::test]
+    fn a_prefill_for_its_chat_lands_in_the_panel(cx: &mut TestAppContext) {
+        let (_daemon, _stores, view, vcx) = bench(cx);
+        let given = |chat: &str, text: &str| {
+            ConnectionEvent::Daemon(Box::new(Event::ComposerInsertText(
+                conduit_protocol::ComposerInsertText {
+                    chat_id: chat.into(),
+                    text: text.into(),
+                },
+            )))
+        };
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-q".into(), window, cx)
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.on_connection(&given("chat-other", "/skip "), cx);
+            v.on_connection(&given("chat-q", "/plan "), cx);
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "/plan ")
         });
     }
 }
