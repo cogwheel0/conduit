@@ -369,7 +369,7 @@ pub fn changes_height_later(markdown: &str) -> bool {
         return true;
     }
     markdown.lines().any(|line| {
-        let t = line.trim_start();
+        let t = in_containers(line).trim_start();
         let fence = t.strip_prefix("```").or_else(|| t.strip_prefix("~~~"));
         fence.is_some_and(|rest| {
             let lang = rest.trim_start_matches(['`', '~']).trim();
@@ -390,9 +390,46 @@ pub fn has_keyboard_stops(markdown: &str) -> bool {
         || markdown.contains('<')
         || markdown.contains("```")
         || markdown.contains("~~~")
-        || markdown
-            .lines()
-            .any(|line| line.starts_with("    ") || line.starts_with('\t'))
+        || markdown.lines().any(|line| {
+            let content = in_containers(line);
+            [line, content]
+                .iter()
+                .any(|l| l.starts_with("    ") || l.starts_with('\t'))
+        })
+}
+
+/// `line`'s text inside the blockquote and list markers it opens with
+/// (`> `, `- `, `1. `), where a fence or indented code starts as it would
+/// at the start of a line. A line indented four or more is code already
+/// and opens no container.
+fn in_containers(line: &str) -> &str {
+    let mut rest = line;
+    loop {
+        let t = rest.trim_start_matches(' ');
+        if rest.len() - t.len() > 3 {
+            return rest;
+        }
+        let inner = if let Some(after) = t.strip_prefix('>') {
+            after.strip_prefix(' ').unwrap_or(after)
+        } else if let Some(after) = list_marker(t) {
+            after
+        } else {
+            return rest;
+        };
+        rest = inner;
+    }
+}
+
+/// The text after a list item's marker (`-`, `*`, `+`, or up to nine
+/// digits and `.` or `)`) and the one space that ends it.
+fn list_marker(t: &str) -> Option<&str> {
+    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
+    let after = match digits {
+        0 => t.strip_prefix(['-', '*', '+'])?,
+        1..=9 => t[digits..].strip_prefix(['.', ')'])?,
+        _ => return None,
+    };
+    after.strip_prefix(' ')
 }
 
 #[cfg(test)]
@@ -416,6 +453,14 @@ mod tests {
         ));
         assert!(changes_height_later("```mermaid\ngraph TD; A-->B\n```"));
         assert!(changes_height_later("Intro\n\n  ~~~ chart\n{}\n~~~"));
+        // A diagram inside a quote or a list item is still a diagram.
+        assert!(changes_height_later(
+            "> The flow:\n>\n> ```mermaid\n> graph TD; A-->B\n> ```"
+        ));
+        assert!(changes_height_later(
+            "- Step one\n- ```mermaid\n  graph TD; A-->B\n  ```"
+        ));
+        assert!(!changes_height_later("> ```rust\n> fn f() {}\n> ```"));
         assert!(changes_height_later(
             "A chart: <IMG src=\"https://example.org/t.png\">"
         ));
@@ -531,5 +576,9 @@ mod tests {
         ));
         assert!(has_keyboard_stops("```rust\nfn f() {}\n```"));
         assert!(has_keyboard_stops("Intro\n\n~~~\nplain\n~~~"));
+        // Indented code inside a quote (its Copy button).
+        assert!(has_keyboard_stops("> Try this:\n>\n>     let x = 1;"));
+        assert!(has_keyboard_stops("> > Nested:\n> >\n> >     let x = 1;"));
+        assert!(!has_keyboard_stops("> A quote, **bold**.\n> More of it."));
     }
 }

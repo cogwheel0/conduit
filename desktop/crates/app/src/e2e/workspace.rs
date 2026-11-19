@@ -243,7 +243,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= models(dir, cx).await;
     pass &= knowledge(dir, cx).await;
     pass &= tools(dir, inputs, cx).await;
-    pass &= skills(dir, cx).await;
+    pass &= skills(dir, inputs, cx).await;
     pass
 }
 
@@ -977,7 +977,7 @@ async fn tools(dir: &Path, inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
     pass
 }
 
-async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
+async fn skills(dir: &Path, inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
     let s = WorkspaceSection::Skills;
     let mut pass = ok(
         "Workspace › Skills opens and lists",
@@ -1033,18 +1033,39 @@ async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
         )
     });
     settle(cx, 300).await;
+    // The server's log, where owui.sh keeps it for the instance in use;
+    // this duplication's own request is what follows the log as it is now.
+    let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    let fake_model_log = inputs.get("FAKE_MODEL_LOG");
+    let server_log =
+        super::server_log_paths(var, inputs.env_path.as_deref(), fake_model_log.as_deref())
+            .into_iter()
+            .find(|p| p.is_file());
+    pass &= ok(
+        "the local Open WebUI's server log is found (state/server.log)",
+        server_log.is_some(),
+    );
+    let logged = || {
+        server_log
+            .as_ref()
+            .and_then(|p| std::fs::read(p).ok())
+            .unwrap_or_default()
+    };
+    let before = logged().len();
     command(s, &seeded, ItemCommand::Duplicate, cx);
     let copied = wait_until(cx, Duration::from_secs(20), |cx| {
         listed(s, "Plain English (Clone)", cx).is_some()
     })
     .await;
-    let cloned = std::env::var("CONDUIT_OWUI_DIR")
-        .ok()
-        .and_then(|d| std::fs::read_to_string(format!("{d}/state/server.log")).ok())
-        .is_some_and(|log| {
-            log.lines()
-                .any(|l| l.contains("POST /api/v1/skills/id/") && l.contains("/clone HTTP"))
-        });
+    let clone_request = format!("\"POST /api/v1/skills/id/{seeded}/clone HTTP/");
+    let cloned = server_log.is_some()
+        && wait_until(cx, Duration::from_secs(10), |_| {
+            let log = logged();
+            String::from_utf8_lossy(log.get(before..).unwrap_or_default())
+                .lines()
+                .any(|l| request_status(l, &clone_request) == Some(200))
+        })
+        .await;
     pass &= ok(
         "Duplicate has the server copy the skill (its clone, files kept)",
         copied && cloned,
@@ -1124,4 +1145,37 @@ async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
     command(s, "trail_packing", ItemCommand::Delete, cx);
     let _: Option<(PathBuf, WorkspaceDetail)> = None;
     pass
+}
+
+/// The status the server's access log gives `request` on `line`: the
+/// number after the quoted request line, which `request` begins (from its
+/// opening quote up to the protocol: `"POST /path HTTP/`), whether or not a
+/// reason phrase (`200 OK`) follows it. None for another request.
+fn request_status(line: &str, request: &str) -> Option<u16> {
+    let rest = &line[line.find(request)? + request.len()..];
+    let after = &rest[rest.find('"')? + 1..];
+    after.split_whitespace().next()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::request_status;
+
+    #[test]
+    fn a_requests_status_is_read_with_or_without_its_reason() {
+        let request = "\"POST /api/v1/skills/id/s1/clone HTTP/";
+        let line = |id: &str, tail: &str| {
+            format!(
+                "2026-11-19 10:00:00.000 | INFO     | uvicorn.protocols.http.httptools_impl:send:482 \
+                 - 127.0.0.1:50000 - \"POST /api/v1/skills/id/{id}/clone HTTP/1.1\" {tail}"
+            )
+        };
+        assert_eq!(request_status(&line("s1", "200"), request), Some(200));
+        assert_eq!(request_status(&line("s1", "200 OK"), request), Some(200));
+        assert_eq!(
+            request_status(&line("s1", "422 Unprocessable Entity"), request),
+            Some(422)
+        );
+        assert_eq!(request_status(&line("s2", "200"), request), None);
+    }
 }
