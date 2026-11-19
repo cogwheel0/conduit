@@ -103,37 +103,40 @@ final class ServersService {
     if (registry.server(id) != null && registry.account(id) == null) {
       return _rename(id, validateName(draft.name));
     }
-    final configs = await _storage.getServerConfigsStrict();
-    final index = configs.indexWhere((config) => config.id == id);
-    if (index < 0) throw _notFound(id);
-
-    final existing = configs[index];
-    final updated = existing.copyWith(
-      name: validateName(draft.name),
-      url: validateUrl(draft.url),
-      allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
-      customHeaders: draft.customHeaders ?? existing.customHeaders,
-      mtlsCertificateChainPem: draft.clearMutualTls
-          ? null
-          : (draft.mtlsCertificateChainPem ?? existing.mtlsCertificateChainPem),
-      mtlsCertificateLabel: draft.clearMutualTls
-          ? null
-          : (draft.mtlsCertificateLabel ?? existing.mtlsCertificateLabel),
-      mtlsPrivateKeyPem: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyPem ?? existing.mtlsPrivateKeyPem),
-      mtlsPrivateKeyLabel: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
-      mtlsPrivateKeyPassword: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyPassword ?? existing.mtlsPrivateKeyPassword),
-    );
-
-    final next = <ServerConfig>[...configs]..[index] = updated;
+    final name = validateName(draft.name);
+    final url = validateUrl(draft.url);
     final hadSession = await _storage.getAuthTokenStrict() != null;
     final activeBefore = await _activeConfig();
-    await _storage.saveServerConfigs(next);
+    // Onto the connection as stored when the write runs, not as read before
+    // it: what another window saved meanwhile, and the draft leaves alone,
+    // stays.
+    final updated = await _storage.editServerConfig(
+      id,
+      (existing) => existing.copyWith(
+        name: name,
+        url: url,
+        allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
+        customHeaders: draft.customHeaders ?? existing.customHeaders,
+        mtlsCertificateChainPem: draft.clearMutualTls
+            ? null
+            : (draft.mtlsCertificateChainPem ??
+                  existing.mtlsCertificateChainPem),
+        mtlsCertificateLabel: draft.clearMutualTls
+            ? null
+            : (draft.mtlsCertificateLabel ?? existing.mtlsCertificateLabel),
+        mtlsPrivateKeyPem: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyPem ?? existing.mtlsPrivateKeyPem),
+        mtlsPrivateKeyLabel: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
+        mtlsPrivateKeyPassword: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyPassword ??
+                  existing.mtlsPrivateKeyPassword),
+      ),
+    );
+    if (updated == null) throw _notFound(id);
     await _endSessionIfMoved(hadSession: hadSession);
     await _publishSaved(activeBefore);
     _changed(registry.account(id)?.serverId);

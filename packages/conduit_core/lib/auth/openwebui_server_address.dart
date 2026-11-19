@@ -429,7 +429,9 @@ ServerAddressFailure classifyServerConnectionError(
       );
   }
   if (errorText.contains('This does not appear to be an Open-WebUI server')) {
-    return const ServerAddressProblemFailure(ServerAddressProblem.notOpenWebUi);
+    return const ServerAddressProblemFailure(
+      ServerAddressProblem.notOpenWebUi,
+    );
   }
   return clean;
 }
