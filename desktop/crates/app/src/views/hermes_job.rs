@@ -20,8 +20,8 @@ use conduit_protocol::{
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncApp, Context, ElementId, Entity, FontWeight, Role, SharedString,
-    Subscription, WeakEntity, Window, div, px, relative,
+    AnyElement, App, AsyncApp, AsyncWindowContext, Context, ElementId, Entity, FontWeight, Role,
+    SharedString, Subscription, WeakEntity, Window, div, px, relative,
 };
 
 use crate::l10n::{ActiveL10n as _, L10n};
@@ -78,6 +78,10 @@ pub struct HermesJobSheet {
     pub options: Option<HermesDeliveryOptions>,
     initial: (String, String, String, usize, Vec<String>),
     pub show_errors: bool,
+    /// Counts the Saves refused, here or by the daemon: the one attempt
+    /// every live region of the sheet takes, so each refusal is heard, even
+    /// in the words of the one before.
+    refusals: u64,
     /// The daemon refused a field: which, and why.
     pub refused: Option<(String, FieldError)>,
     pub busy: bool,
@@ -167,6 +171,7 @@ impl HermesJobSheet {
             deliver,
             options: None,
             show_errors: false,
+            refusals: 0,
             refused: None,
             busy: false,
             error: None,
@@ -263,16 +268,15 @@ impl HermesJobSheet {
         )
     }
 
-    pub fn save(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        if self.errors(cx).iter().any(Option::is_some) {
-            self.show_errors = true;
-            cx.notify();
+        if self.refuse_fields(window, cx) {
             return;
         }
         if self.made_unnamed {
+            self.refusals += 1;
             self.error = Some(cx.l10n().notification_targets_stale());
             cx.notify();
             return;
@@ -285,6 +289,7 @@ impl HermesJobSheet {
             .or_else(|| self.saved_id.clone());
         let editing = id.is_some();
         if !admin.still_in_use(&self.opened) {
+            self.refusals += 1;
             let l = cx.l10n();
             self.error = Some(if editing {
                 l.hermes_job_update_failed()
@@ -333,72 +338,98 @@ impl HermesJobSheet {
         self.busy = true;
         self.error = None;
         cx.notify();
-        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            let result = call.await;
-            let _ = this.update(cx, |s, cx| {
-                s.busy = false;
-                let l = cx.l10n().clone();
-                match result {
-                    Ok(jobs) => {
-                        // What was sent is saved; a new job is edited from
-                        // now on (by the id the answer names), so a later
-                        // Save changes it. A made job the answer does not
-                        // name could only be made again: Save stops there.
-                        if !editing {
-                            match &jobs.saved_id {
-                                Some(id) => {
-                                    s.saved_id = Some(id.clone());
-                                    s.job = jobs.jobs.iter().find(|j| &j.id == id).cloned();
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+                let result = call.await;
+                let _ = this.update_in(cx, |s, window, cx| {
+                    s.busy = false;
+                    let l = cx.l10n().clone();
+                    match result {
+                        Ok(jobs) => {
+                            // What was sent is saved; a new job is edited from
+                            // now on (by the id the answer names), so a later
+                            // Save changes it. A made job the answer does not
+                            // name could only be made again: Save stops there.
+                            if !editing {
+                                match &jobs.saved_id {
+                                    Some(id) => {
+                                        s.saved_id = Some(id.clone());
+                                        s.job = jobs.jobs.iter().find(|j| &j.id == id).cloned();
+                                    }
+                                    None => s.made_unnamed = true,
                                 }
-                                None => s.made_unnamed = true,
+                            }
+                            s.initial = sent;
+                            s.stores.hermes_admin.update(cx, |a, cx| {
+                                a.answer_jobs(ticket, jobs, cx);
+                            });
+                            let text = if editing {
+                                l.hermes_job_updated()
+                            } else {
+                                l.hermes_job_created()
+                            };
+                            s.stores
+                                .toasts
+                                .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
+                            // Words typed while the Save was out stay.
+                            if !s.dirty(cx) {
+                                sheet::dismiss(cx);
+                            } else if s.made_unnamed {
+                                s.error = Some(l.notification_targets_stale());
                             }
                         }
-                        s.initial = sent;
-                        s.stores.hermes_admin.update(cx, |a, cx| {
-                            a.answer_jobs(ticket, jobs, cx);
-                        });
-                        let text = if editing {
-                            l.hermes_job_updated()
-                        } else {
-                            l.hermes_job_created()
-                        };
-                        s.stores
-                            .toasts
-                            .update(cx, |t, cx| t.show(NoticeLevel::Success, text, cx));
-                        // Words typed while the Save was out stay.
-                        if !s.dirty(cx) {
-                            sheet::dismiss(cx);
-                        } else if s.made_unnamed {
-                            s.error = Some(l.notification_targets_stale());
-                        }
+                        Err(e) => match (e.args.get("field"), e.args.get("reason")) {
+                            (Some(field), Some(reason)) => {
+                                let error = match reason.as_str() {
+                                    "invalidSchedule" => FieldError::InvalidSchedule,
+                                    "tooLong" => FieldError::TooLong(match field.as_str() {
+                                        "name" => MAX_NAME,
+                                        "prompt" => MAX_PROMPT,
+                                        _ => MAX_SCHEDULE,
+                                    }),
+                                    _ => FieldError::Required,
+                                };
+                                s.refused = Some((field.clone(), error));
+                                // As a refusal here: heard, and the field takes
+                                // the focus.
+                                s.refuse_fields(window, cx);
+                            }
+                            _ => {
+                                log::info!("hermes.saveJob: {e}");
+                                s.refusals += 1;
+                                s.error = Some(if editing {
+                                    l.hermes_job_update_failed()
+                                } else {
+                                    l.hermes_job_create_failed()
+                                });
+                            }
+                        },
                     }
-                    Err(e) => match (e.args.get("field"), e.args.get("reason")) {
-                        (Some(field), Some(reason)) => {
-                            let error = match reason.as_str() {
-                                "invalidSchedule" => FieldError::InvalidSchedule,
-                                "tooLong" => FieldError::TooLong(match field.as_str() {
-                                    "name" => MAX_NAME,
-                                    "prompt" => MAX_PROMPT,
-                                    _ => MAX_SCHEDULE,
-                                }),
-                                _ => FieldError::Required,
-                            };
-                            s.refused = Some((field.clone(), error));
-                        }
-                        _ => {
-                            log::info!("hermes.saveJob: {e}");
-                            s.error = Some(if editing {
-                                l.hermes_job_update_failed()
-                            } else {
-                                l.hermes_job_create_failed()
-                            });
-                        }
-                    },
-                }
-                cx.notify();
-            });
-        })
+                    cx.notify();
+                });
+            },
+        )
         .detach();
+    }
+
+    /// Save refused for a field (checked here, or refused by the daemon):
+    /// the errors show, the refusal is counted so it is heard, and the first
+    /// field in error takes the focus, as the phone's form moves to it.
+    /// Whether one was.
+    fn refuse_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(first) = self.errors(cx).iter().position(Option::is_some) else {
+            return false;
+        };
+        self.show_errors = true;
+        self.refusals += 1;
+        match first {
+            0 => self.name.update(cx, |i, cx| i.focus(window, cx)),
+            1 => self.prompt.update(cx, |i, cx| i.focus(window, cx)),
+            _ => self.schedule.update(cx, |i, cx| i.focus(window, cx)),
+        }
+        cx.notify();
+        true
     }
 
     /// The job's stored routes could be read: only then are they shown and
@@ -729,7 +760,16 @@ impl Render for HermesJobSheet {
                         .text_size(px(t.metrics.small))
                         .text_color(t.roles.danger)
                         .child(e.clone())
-                        .child(live_text("live", Some(e), Priority::High)),
+                        // Said with the field's name: the Prompt has no
+                        // row label of its own around the error.
+                        .child(
+                            live_text(
+                                "live",
+                                Some(format!("{}, {e}", l.hermes_job_prompt_label()).into()),
+                                Priority::High,
+                            )
+                            .attempt(self.refusals),
+                        ),
                 )
             });
         let mut body = vec![
@@ -743,11 +783,15 @@ impl Render for HermesJobSheet {
             grouped_section(
                 None,
                 vec![
-                    forms::field(
+                    forms::field_answered(
                         l.name(),
                         &self.name,
                         None,
-                        self.error_text(name_error, &l),
+                        forms::Answer {
+                            error: self.error_text(name_error, &l),
+                            attempt: self.refusals,
+                        },
+                        false,
                         window,
                         cx,
                     )
@@ -761,11 +805,15 @@ impl Render for HermesJobSheet {
             grouped_section(
                 None,
                 vec![
-                    forms::field(
+                    forms::field_answered(
                         l.hermes_job_schedule_label(),
                         &self.schedule,
                         Some(l.hermes_job_schedule_help().into()),
-                        self.error_text(schedule_error, &l),
+                        forms::Answer {
+                            error: self.error_text(schedule_error, &l),
+                            attempt: self.refusals,
+                        },
+                        false,
                         window,
                         cx,
                     )
@@ -801,7 +849,12 @@ impl Render for HermesJobSheet {
             }))
             .children(body)
             .when_some(self.error.clone(), |d, e| {
-                d.child(forms::form_error("hermes-job-error", e, cx))
+                d.child(forms::form_error_answered(
+                    "hermes-job-error",
+                    e,
+                    self.refusals,
+                    cx,
+                ))
             })
             .child(
                 div()
@@ -887,6 +940,99 @@ mod tests {
             })
         });
         vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the prompt"));
+    }
+
+    /// Save with the Prompt empty: the Prompt takes the focus, and its error
+    /// is said with the field's name.
+    #[gpui_kit::test]
+    fn an_empty_prompt_is_named_and_focused(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use gpui_kit::Focusable as _;
+        let (_daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        use_connection(&stores, vcx, "a");
+        let sheet = open_job(&stores, vcx);
+        let l = L10n::new("en");
+        let named = format!(
+            "{}, {}",
+            l.hermes_job_prompt_label(),
+            l.required_field_helper()
+        );
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.prompt.update(cx, |i, cx| i.set_value("", w, cx))
+        });
+        // Saved twice with nothing changed, the focus moved away between:
+        // each refusal is heard, and each takes the focus to the Prompt.
+        for round in 1..=2 {
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                s.name.update(cx, |i, cx| i.focus(w, cx));
+                s.save(w, cx);
+            });
+            vcx.update(|_, cx| {
+                if let Some(handle) = sheet::current_window(cx) {
+                    let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+                }
+            });
+            vcx.run_until_parked();
+            let heard = vcx.update(|_, cx| {
+                AnnouncementLog::texts(cx)
+                    .iter()
+                    .filter(|t| t.as_ref() == named)
+                    .count()
+            });
+            assert_eq!(heard, round, "Save {round} was not heard");
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                assert!(
+                    s.prompt.read(cx).focus_handle(cx).is_focused(w),
+                    "Save {round} did not take the focus to the Prompt"
+                );
+            });
+        }
+    }
+
+    /// Save refused by the daemon for a field: that field takes the focus,
+    /// as a refusal here does, and each refusal is heard.
+    #[gpui_kit::test]
+    fn a_field_the_daemon_refuses_takes_the_focus(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use gpui_kit::Focusable as _;
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        use_connection(&stores, vcx, "a");
+        daemon.on::<methods::HermesSaveJob>(|_| {
+            let mut e = conduit_daemon::RpcError::internal("the schedule is not one");
+            e.args.insert("field".into(), "schedule".into());
+            e.args.insert("reason".into(), "invalidSchedule".into());
+            Err(e)
+        });
+        let sheet = open_job(&stores, vcx);
+        let refused = L10n::new("en").hermes_job_schedule_invalid();
+        for round in 1..=2 {
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                s.name.update(cx, |i, cx| i.focus(w, cx));
+                s.save(w, cx);
+            });
+            vcx.run_until_parked();
+            vcx.update(|_, cx| {
+                if let Some(handle) = sheet::current_window(cx) {
+                    let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+                }
+            });
+            vcx.run_until_parked();
+            on_sheet(vcx, &sheet, |s, w, cx| {
+                assert!(
+                    s.schedule.read(cx).focus_handle(cx).is_focused(w),
+                    "refusal {round} did not take the focus to the schedule"
+                );
+            });
+            let heard = vcx.update(|_, cx| {
+                AnnouncementLog::texts(cx)
+                    .iter()
+                    .filter(|t| t.as_ref() == refused)
+                    .count()
+            });
+            assert_eq!(heard, round, "refusal {round} was not heard");
+        }
     }
 
     /// Words typed while a Save is out stay in the editor, still to save.

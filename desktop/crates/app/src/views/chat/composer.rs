@@ -1368,7 +1368,7 @@ impl ChatComposer {
                 "up" | "down" => {
                     picker.highlighted = menu_step(key, picker.highlighted, len);
                     if let Some(m) = models.get(picker.highlighted) {
-                        let label = crate::stores::composer::model_label(m);
+                        let label = crate::stores::composer::picker_row_name(m);
                         crate::views::a11y::announce_row(&label, picker.highlighted, len, cx);
                     }
                 }
@@ -3756,15 +3756,12 @@ impl ChatComposer {
         // A coding agent says where it runs: its terminal, as on the phone.
         let provider = if apple {
             l10n.desktop_apple_on_this_mac()
-        } else if let Some(agent) = &model.agent {
-            agent
-                .terminal_name
-                .clone()
-                .unwrap_or_else(|| format!("{}/{}", agent.agent, agent.model))
+        } else if let Some(place) = crate::stores::composer::agent_place(model) {
+            place
         } else {
             model.connection.clone().unwrap_or_default()
         };
-        let label = model_label(model);
+        let spoken = crate::stores::composer::picker_row_name(model);
         let group = SharedString::from(format!("model-row-{}", model.id));
         let pinned = model.pinned;
         let pin_label = if pinned {
@@ -3781,7 +3778,7 @@ impl ChatComposer {
             .id(ElementId::Name(format!("model-{}", model.id).into()))
             .group(group.clone())
             .role(Role::ListBoxOption)
-            .aria_label(SharedString::from(label))
+            .aria_label(SharedString::from(spoken))
             .aria_selected(hot)
             .aria_toggled(if on {
                 gpui_kit::Toggled::True

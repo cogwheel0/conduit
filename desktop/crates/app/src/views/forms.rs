@@ -296,6 +296,30 @@ pub fn field(
     field_hinted(label, state, hint, help, error, window, cx)
 }
 
+/// A field's error that answers a request (a Save, a Test), with the
+/// sheet's count of answered requests: the one attempt its other live
+/// regions take too, so each answer is heard, even in the words of the one
+/// before (see [`conduit_components::announce::LiveText::attempt`]).
+pub struct Answer {
+    pub error: Option<SharedString>,
+    pub attempt: u64,
+}
+
+/// [`field_locked`] whose error is an [`Answer`].
+pub fn field_answered(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    help: Option<SharedString>,
+    answer: Answer,
+    locked: bool,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    let hint = hint(state, cx);
+    let Answer { error, attempt } = answer;
+    field_with(label, state, hint, help, error, locked, attempt, window, cx)
+}
+
 /// [`field`] that takes no typing while `locked`: a form whose save or test
 /// is out, so what it answers is the form as it stands (nothing typed
 /// meanwhile is closed over or judged by an older answer).
@@ -309,7 +333,7 @@ pub fn field_locked(
     cx: &App,
 ) -> Div {
     let hint = hint(state, cx);
-    field_with(label, state, hint, help, error, locked, window, cx)
+    field_with(label, state, hint, help, error, locked, 0, window, cx)
 }
 
 /// [`field`] with its placeholder given here (one input that serves two
@@ -323,7 +347,7 @@ pub fn field_hinted(
     window: &Window,
     cx: &App,
 ) -> Div {
-    field_with(label, state, hint, help, error, false, window, cx)
+    field_with(label, state, hint, help, error, false, 0, window, cx)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -334,6 +358,7 @@ fn field_with(
     help: Option<SharedString>,
     error: Option<SharedString>,
     locked: bool,
+    attempt: u64,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -363,7 +388,7 @@ fn field_with(
                     .id(help_id)
                     .when(error.is_some(), |d| d.role(Role::Alert))
                     // Heard when it appears, as the phone's field errors.
-                    .child(live_text("live", error.clone(), Priority::High))
+                    .child(live_text("live", error.clone(), Priority::High).attempt(attempt))
                     .text_size(px(m.small))
                     .line_height(relative(1.35))
                     .text_color(if error.is_some() {
@@ -391,6 +416,17 @@ fn field_with(
 pub fn form_error(
     id: &'static str,
     message: impl Into<SharedString>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    form_error_answered(id, message, 0, cx)
+}
+
+/// [`form_error`] answering a request: heard again for each `attempt` (see
+/// [`field_answered`]).
+pub fn form_error_answered(
+    id: &'static str,
+    message: impl Into<SharedString>,
+    attempt: u64,
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
     let t = cx.conduit().clone();
@@ -422,12 +458,23 @@ pub fn form_error(
         )
         // Wraps rather than running past the form's edge.
         .child(div().flex_1().min_w_0().child(message.clone()))
-        .child(live_text("live", Some(message), Priority::High))
+        .child(live_text("live", Some(message), Priority::High).attempt(attempt))
 }
 
 /// A status line under a form (a test result, "Saved"), announced when it
 /// appears or changes.
 pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_kit::Stateful<Div> {
+    form_note_answered(message, ok, 0, cx)
+}
+
+/// [`form_note`] answering a request: heard again for each `attempt` (see
+/// [`field_answered`]).
+pub fn form_note_answered(
+    message: impl Into<SharedString>,
+    ok: bool,
+    attempt: u64,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
     let t = cx.conduit().clone();
     let r = t.roles;
     let color = if ok {
@@ -446,7 +493,7 @@ pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_k
         .text_color(color)
         .when(ok, |d| d.child(icon(IconName::CircleCheck, 13., color)))
         .child(message.clone())
-        .child(live_text("live", Some(message), Priority::Medium))
+        .child(live_text("live", Some(message), Priority::Medium).attempt(attempt))
 }
 
 /// The URL a user typed, as the daemon takes it: an absolute http(s) URL

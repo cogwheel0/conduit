@@ -258,11 +258,11 @@ impl SpeechStore {
     /// reading that speaks pauses (the bar keeps Play) and one still
     /// loading stops.
     pub fn yield_to_dictation(&mut self, cx: &mut Context<Self>) {
+        // Nothing asked before is said once the microphone listens (a
+        // Resume still out would say "Reading resumed" into it).
+        self.say = None;
         match yield_for_dictation(self.progress.status) {
-            Some(DictationYield::Pause) => {
-                self.say = None;
-                self.pause_quietly(cx)
-            }
+            Some(DictationYield::Pause) => self.pause_quietly(cx),
             Some(DictationYield::Stop) => self.stop(cx),
             None => {}
         }
@@ -722,6 +722,44 @@ mod tests {
         ] {
             assert_eq!(yield_for_dictation(left), None, "{left:?}");
         }
+    }
+
+    /// Dictation starts while a Resume is still out: the reading that
+    /// speaks after says nothing into the microphone.
+    #[gpui_kit::test]
+    fn nothing_asked_before_dictation_is_said_into_it(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-speech-yield-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            super::super::Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let paused = |status| SpeechProgress {
+            status,
+            reading: 3,
+            message_id: Some("answer-1".into()),
+            ..Default::default()
+        };
+        stores.speech.update(cx, |s, cx| {
+            s.progress = paused(SpeechStatus::Paused);
+            s.sentences_of = 3;
+            // Resume asked; the voice has not answered yet.
+            s.expect(Said::Resumed);
+            s.yield_to_dictation(cx);
+            s.apply_progress(paused(SpeechStatus::Speaking), cx);
+        });
+        cx.update(|cx| {
+            assert_eq!(
+                AnnouncementLog::texts(cx),
+                Vec::<gpui_kit::SharedString>::new(),
+                "said into the dictation"
+            )
+        });
     }
 
     /// A restarted daemon numbers its readings from 0 again: the reading

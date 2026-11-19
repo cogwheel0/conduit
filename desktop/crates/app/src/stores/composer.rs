@@ -2912,6 +2912,28 @@ pub fn model_label(model: &ModelSummary) -> String {
     }
 }
 
+/// Where a coding agent runs, as its picker row says under its name: its
+/// terminal, else `agent/model`. None for a model that is no agent.
+pub fn agent_place(model: &ModelSummary) -> Option<String> {
+    let agent = model.agent.as_ref()?;
+    Some(
+        agent
+            .terminal_name
+            .clone()
+            .unwrap_or_else(|| format!("{}/{}", agent.agent, agent.model)),
+    )
+}
+
+/// What VoiceOver calls a picker row: its name on screen, and for a coding
+/// agent where it runs, so two agents of one model on different terminals
+/// are told apart.
+pub fn picker_row_name(model: &ModelSummary) -> String {
+    match agent_place(model) {
+        Some(place) => format!("{} \u{b7} {place}", model_label(model)),
+        None => model_label(model),
+    }
+}
+
 /// Whether `model` is Apple's on-device model: a Direct model the daemon's
 /// Apple adapter lists (`apple_on_device` among its capabilities).
 pub fn is_apple_on_device(model: &ModelSummary) -> bool {
@@ -3428,6 +3450,20 @@ mod tests {
         // A server's model cannot claim to be Apple's: it has no connection.
         apple.connection = None;
         assert!(!is_apple_on_device(&apple));
+        // A coding agent's row is called by where it runs too: its
+        // terminal, else agent/model.
+        assert_eq!(picker_row_name(&direct), "Llama \u{b7} Local");
+        let mut agent = model("agent:t1:codex:gpt-5", "gpt-5");
+        agent.agent = Some(conduit_protocol::TerminalAgentDto {
+            terminal_id: "t1".into(),
+            terminal_name: Some("Greenhouse".into()),
+            agent: "codex".into(),
+            agent_name: "Codex".into(),
+            model: "gpt-5".into(),
+        });
+        assert_eq!(picker_row_name(&agent), "gpt-5 \u{b7} Greenhouse");
+        agent.agent.as_mut().unwrap().terminal_name = None;
+        assert_eq!(picker_row_name(&agent), "gpt-5 \u{b7} codex/gpt-5");
 
         let prompts = vec![
             prompt("/translate", "Summarize in French"),
