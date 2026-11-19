@@ -972,12 +972,13 @@ void main() {
     // The move is written; the answer then fails (here, as the change is
     // announced).
     var failing = true;
-    events.tap((event, _, _) {
+    final untap = events.tap((event, _, _) {
       if (event == ConduitEvents.serversChanged && failing) {
         failing = false;
         throw StateError('the answer could not be put together');
       }
     });
+    addTearDown(untap);
     final request = ServerAddressSaveRequest(
       checkId: found.checkId!,
       sendSessionConfirmed: true,
