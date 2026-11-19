@@ -1643,12 +1643,13 @@ class AuthStateManager extends _$AuthStateManager {
   }) async {
     bool stopped() =>
         _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
-    final ownership = await _captureLoginServerOwnership(
-      storage,
-      api,
+    // None once the account moved to another address since [api] was read:
+    // nothing is exchanged yet, so the grant is tried there.
+    final ownership = await storage.captureServerSessionOwnership(
+      validatedConfig: api.serverConfig,
       requireActive: true,
     );
-    if (stopped()) return false;
+    if (ownership == null || stopped()) return false;
 
     final BrowserSignInAnswer answer;
     try {

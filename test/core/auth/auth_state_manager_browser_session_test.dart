@@ -366,17 +366,24 @@ void main() {
       check(rig.storage.committedToken).equals(_issued);
     });
 
-    test('a commit lost to the account moving to another address is tried '
-        'once more there, with the same grant', () async {
-      final rig = await _Rig.start();
-      rig.storage.refusedCommits = 1;
+    // Lost as it is committed, or as it takes the account's ownership,
+    // before anything is exchanged.
+    for (final (lost, refuse, exchanges) in [
+      ('A commit', (_Storage storage) => storage.refusedCommits = 1, 2),
+      ('An ownership', (_Storage storage) => storage.refusedOwnerships = 1, 1),
+    ]) {
+      test('$lost lost to the account moving to another address is tried '
+          'once more there, with the same grant', () async {
+        final rig = await _Rig.start();
+        refuse(rig.storage);
 
-      check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
+        check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
 
-      check(rig.service.authorizeCalls).length.equals(1);
-      check(rig.service.exchanges).length.equals(2);
-      check(rig.storage.committedToken).equals(_issued);
-    });
+        check(rig.service.authorizeCalls).length.equals(1);
+        check(rig.service.exchanges).length.equals(exchanges);
+        check(rig.storage.committedToken).equals(_issued);
+      });
+    }
 
     test('a commit lost twice is a failure to try again', () async {
       final rig = await _Rig.start();
@@ -1427,6 +1434,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
   /// Commits refused, as a move of the account to another address refuses
   /// one taken before it.
   int refusedCommits = 0;
+
+  /// Ownerships refused, as a move of the account to another address
+  /// refuses the client of the address it left.
+  int refusedOwnerships = 0;
   String? committedToken;
   Map<String, String>? remembered;
   Map<String, String>? expected;
@@ -1445,6 +1456,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
     required ServerConfig validatedConfig,
     required bool requireActive,
   }) async {
+    if (refusedOwnerships > 0) {
+      refusedOwnerships--;
+      return null;
+    }
     ownershipConfigs.add(validatedConfig);
     return (
       revision: 1,
