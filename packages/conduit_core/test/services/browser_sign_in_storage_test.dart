@@ -822,20 +822,33 @@ void main() {
       check(await storedSession('a')).isNull();
     });
 
-    test('when a sign-out cut short is finished at startup', () async {
-      await saveAccounts(['a', 'b']);
-      final sessionA = await signInWithBrowser('a');
-      final sessionB = await signInWithBrowser('b');
+    // Each one deleted is told of, even when another cannot be deleted.
+    for (final undeletable in [null, 'a']) {
+      test('when a sign-out cut short is finished at startup'
+          '${undeletable == null ? '' : ', but for one it cannot delete'}',
+          () async {
+        await saveAccounts(['a', 'b']);
+        final sessionA = await signInWithBrowser('a');
+        final sessionB = await signInWithBrowser('b');
+        secure.undeletableKey = undeletable == null
+            ? null
+            : 'browser_sign_in_session_v1:$undeletable';
 
-      final dropped = await droppedBy(storage.clearAuthData);
+        final dropped = await droppedBy(() async {
+          try {
+            await storage.clearAuthData();
+          } on StateError {
+            // The session it could not delete; the others are gone.
+          }
+        });
 
-      check(dropped).unorderedEquals([
-        (accountId: 'a', session: sessionA),
-        (accountId: 'b', session: sessionB),
-      ]);
-      check(await storedSession('a')).isNull();
-      check(await storedSession('b')).isNull();
-    });
+        check(dropped).unorderedEquals([
+          if (undeletable == null) (accountId: 'a', session: sessionA),
+          (accountId: 'b', session: sessionB),
+        ]);
+        check(await storedSession('b')).isNull();
+      });
+    }
 
     test('never for a sign-out, which revokes its own', () async {
       await saveAccounts(['a', 'b']);
