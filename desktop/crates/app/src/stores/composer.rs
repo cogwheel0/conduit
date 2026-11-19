@@ -531,10 +531,13 @@ pub struct ComposerStore {
     /// Numbers each request answered with the chat's list (`models.list`,
     /// `models.select`, `models.setPinned`), in the order they were sent.
     list_seq: u64,
-    /// The list shown, ordered: the revision of the chat's pick it was put
-    /// together with ([`ModelList::revision`]), then its request's number.
-    /// An answer for the chat is shown only when it is ordered after it.
-    shown_order: (i64, u64),
+    /// The daemon session answers come from ([`Self::reconnected`]).
+    session: u64,
+    /// The list shown, ordered: the daemon session it came from, the
+    /// revision of the chat's pick it was put together with
+    /// ([`ModelList::revision`]), then its request's number. An answer for
+    /// the chat is shown only when it is ordered after it.
+    shown_order: (u64, i64, u64),
     /// The newest pick still out (its request's number), and the chat it is
     /// for, following its id when it moves: its answer is that chat's,
     /// whatever id it has now.
@@ -618,7 +621,8 @@ impl ComposerStore {
             _models: None,
             _select: None,
             list_seq: 0,
-            shown_order: (0, 0),
+            session: 0,
+            shown_order: (0, 0, 0),
             selecting: None,
             _options: None,
             _searches: [None, None, None],
@@ -722,18 +726,39 @@ impl ComposerStore {
         self.list_seq
     }
 
-    /// Whether an answer for `query`, ordered `(revision, number)`, is newer
-    /// than the list shown: the first answer for the chat shown, else one
-    /// with a newer pick, or the same pick and asked later. Older answers
-    /// (a pick's answer put together before a list that came later, a list
-    /// asked before the pick was made) are dropped.
-    fn newer_answer(&self, query: &conduit_protocol::ModelListQuery, order: (i64, u64)) -> bool {
-        self.models_for.as_ref() != Some(query) || order > self.shown_order
+    /// Whether an answer for `query`, ordered `(session, revision, number)`,
+    /// is newer than the list shown. One asked on an earlier daemon session
+    /// is not: its picks and revisions are gone. Of this session's, the
+    /// first answer for the chat shown, else one with a newer pick, or the
+    /// same pick and asked later (a list shown from an earlier session is
+    /// older than any of them). Older answers (a pick's answer put together
+    /// before a list that came later, a list asked before the pick was
+    /// made) are dropped.
+    fn newer_answer(
+        &self,
+        query: &conduit_protocol::ModelListQuery,
+        order: (u64, i64, u64),
+    ) -> bool {
+        order.0 == self.session
+            && (self.models_for.as_ref() != Some(query) || order > self.shown_order)
     }
 
     /// The model the next message goes to: the `@` one, else the selected.
     pub fn next_model(&self) -> Option<&ModelSummary> {
         self.mention.as_ref().or_else(|| self.selected_model())
+    }
+
+    /// A new daemon session (a restart or a reconnect): its picks and their
+    /// revisions start again, so the order of answers starts again too. The
+    /// open chat, its draft and attachments stay; what the last session was
+    /// still answering is dropped when it lands, and the chat is listed
+    /// again on the new one.
+    pub fn reconnected(&mut self, cx: &mut Context<Self>) {
+        self.session += 1;
+        self.selecting = None;
+        if self.channel.is_none() {
+            self.refresh_models(cx);
+        }
     }
 
     /// `models.list`, then `composer.options` (which depends on it).
@@ -742,6 +767,7 @@ impl ComposerStore {
         let query = self.list_query();
         let call = self.rpc.call::<methods::ModelsList>(&query);
         let scope = self.scope;
+        let session = self.session;
         let seq = self.next_list_seq();
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -750,7 +776,7 @@ impl ComposerStore {
                     // Another account's, or another chat's: not this one's.
                     _ if s.scope != scope || s.list_query() != query => {}
                     // Older than the list shown.
-                    Ok(list) if !s.newer_answer(&query, (list.revision, seq)) => {}
+                    Ok(list) if !s.newer_answer(&query, (session, list.revision, seq)) => {}
                     Ok(list) => {
                         s.set_models(list, query, seq, cx);
                         s.refresh_options(cx);
@@ -1028,6 +1054,7 @@ impl ComposerStore {
                 chat_id: self.chat_id(),
             });
         let query = self.list_query();
+        let session = self.session;
         let seq = self.next_list_seq();
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -1037,7 +1064,7 @@ impl ComposerStore {
                     // chat is (when newer than the list shown), read again
                     // otherwise.
                     Ok(list) if s.list_query() == query => {
-                        if s.newer_answer(&query, (list.revision, seq)) {
+                        if s.newer_answer(&query, (session, list.revision, seq)) {
                             s.set_models(list, query, seq, cx);
                         }
                     }
@@ -1058,7 +1085,7 @@ impl ComposerStore {
         seq: u64,
         cx: &mut Context<Self>,
     ) {
-        self.shown_order = (list.revision, seq);
+        self.shown_order = (self.session, list.revision, seq);
         // A temporary chat offers no coding agent (none can answer there),
         // whichever answer the list came with (a pick's answer is for a
         // chat that is not temporary): a selected agent is then hidden, and
@@ -1116,6 +1143,7 @@ impl ComposerStore {
         // Its answer is the chat's, under whatever id it has by then, and is
         // shown when it is ordered after the list shown then (its pick is
         // newer, or as new and asked later).
+        let session = self.session;
         let seq = self.next_list_seq();
         self.selecting = Some((seq, self.list_query()));
         self._select = Some(
@@ -1133,7 +1161,7 @@ impl ComposerStore {
                     }
                     match result {
                         Ok(list) => {
-                            if s.newer_answer(&query, (list.revision, seq)) {
+                            if s.newer_answer(&query, (session, list.revision, seq)) {
                                 s.set_models(list, query, seq, cx);
                                 s.refresh_options(cx);
                             }
@@ -1164,6 +1192,7 @@ impl ComposerStore {
                     model_id: model_id.clone(),
                 });
         let scope = self.scope;
+        let session = self.session;
         let chat = self.chat_id();
         let answers = (chat.clone(), model_id.clone());
         let librechat = self
@@ -1176,8 +1205,10 @@ impl ComposerStore {
                     let _ = this.update(cx, |s, cx| {
                         // Another account's answers, another chat's, or
                         // another model's (picked away from while they were
-                        // out), never fill this one's nor clear anything.
+                        // out), or the last daemon session's, never fill
+                        // this one's nor clear anything.
                         if s.scope != scope
+                            || s.session != session
                             || (s.chat_id(), s.selected_model().map(|m| m.id.clone())) != answers
                         {
                             return;
@@ -3897,6 +3928,106 @@ mod tests {
             assert!(
                 !s.agent_chat(),
                 "a regular model's chat taken for an agent's"
+            );
+        });
+    }
+
+    /// A new daemon session (a restart, in a setup with no saved account, so
+    /// the account in charge never changes): its picks start again at
+    /// revision 0, and the chat's fresh list and its options are shown,
+    /// never refused against the last session's revision.
+    #[gpui_kit::test]
+    fn a_new_daemon_session_starts_the_answer_order_afresh(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.once::<methods::ModelsList>(Ok(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("a".into()),
+            revision: 3,
+            ..Default::default()
+        }));
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("c", "Cedar")],
+            selected_id: Some("c".into()),
+            ..Default::default()
+        });
+        daemon.on::<methods::ComposerOptions>(|q| {
+            Ok(serde_json::json!({"webSearch": q["modelId"] == "c"}))
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("plain-chat".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.reconnected(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("c"));
+            assert!(
+                s.options_answered(),
+                "the fresh model's options were not taken"
+            );
+            assert!(s.options.web_search);
+        });
+    }
+
+    /// An answer asked on the last daemon session that lands after a new
+    /// one began (a pick's, which a refresh does not replace) is dropped,
+    /// whatever its revision.
+    #[gpui_kit::test]
+    fn an_answer_from_the_last_daemon_session_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        daemon.once::<methods::ModelsList>(Ok(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("a".into()),
+            ..Default::default()
+        }));
+        // The new session's list.
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("c", "Cedar")],
+            selected_id: Some("c".into()),
+            ..Default::default()
+        });
+        // The pick asked on the last session, answered after the new began.
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("b".into()),
+            revision: 5,
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("plain-chat".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let late = daemon.hold::<methods::ModelsSelect>();
+        store.update(cx, |s, cx| s.select_model("b", cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.reconnected(cx));
+        cx.run_until_parked();
+        late.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.selected_model().map(|m| m.id.as_str()),
+                Some("c"),
+                "the last session's answer replaced the new one's"
             );
         });
     }

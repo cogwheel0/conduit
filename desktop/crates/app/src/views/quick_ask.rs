@@ -348,7 +348,9 @@ impl QuickAskView {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: the order of model answers starts
+                // again (the open chat, draft and attachments stay).
+                self.composer_store.update(cx, |c, cx| c.reconnected(cx));
             }
             ConnectionEvent::Gap => {
                 if let Some(chat) = &self.chat {

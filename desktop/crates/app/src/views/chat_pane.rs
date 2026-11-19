@@ -1140,7 +1140,9 @@ impl ChatPane {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: the order of model answers starts
+                // again (the open chat, draft and attachments stay).
+                self.composer_store.update(cx, |c, cx| c.reconnected(cx));
                 // A new daemon session: handles and the Computer offer anew.
                 crate::views::terminal::chat::forget_handles(cx);
                 self.computer_revision += 1;
