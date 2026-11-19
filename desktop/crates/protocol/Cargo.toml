@@ -1,0 +1,16 @@
+[package]
+name = "conduit-protocol"
+description = "The Conduit daemon's wire contract: serde types, method and event tables, generated from packages/conduit_protocol"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+# Plain data: no GPUI, no async runtime, so every platform builds it.
+[dependencies]
+base64 = "0.22"
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

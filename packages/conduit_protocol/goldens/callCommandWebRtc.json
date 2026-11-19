@@ -1,0 +1,7 @@
+{
+  "id": 6,
+  "kind": "webRtcStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-8"
+}

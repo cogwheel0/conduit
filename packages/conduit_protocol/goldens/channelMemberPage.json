@@ -1,0 +1,19 @@
+{
+  "channelId": "c1",
+  "query": "",
+  "phase": "ready",
+  "members": [
+    {
+      "id": "u2",
+      "name": "Grace",
+      "active": false,
+      "me": false
+    }
+  ],
+  "total": 31,
+  "hasMore": true,
+  "loadMoreFailed": false,
+  "canManage": true,
+  "allowUsers": true,
+  "allowGroups": false
+}

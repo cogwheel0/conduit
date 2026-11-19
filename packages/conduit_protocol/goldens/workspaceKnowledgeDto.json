@@ -2,5 +2,8 @@
   "id": "k1",
   "name": "Docs",
   "description": "Manuals",
-  "fileCount": 4
+  "fileCount": 4,
+  "external": true,
+  "maxFileCount": 20,
+  "maxFileSize": 5
 }

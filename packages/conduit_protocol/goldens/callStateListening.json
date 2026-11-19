@@ -1,0 +1,17 @@
+{
+  "phase": "listening",
+  "call": 2,
+  "mode": "standard",
+  "chatId": "chat-harbour",
+  "modelId": "fake-model",
+  "modelName": "Kestrel 8B",
+  "transcript": "When does the tide turn",
+  "reply": "",
+  "level": 0.5,
+  "muted": false,
+  "canPause": true,
+  "canResume": false,
+  "startedAtMs": 1767225600000,
+  "noticeCount": 0,
+  "standardReason": "standardChosen"
+}

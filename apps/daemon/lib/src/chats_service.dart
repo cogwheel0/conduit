@@ -1,6 +1,48 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show
+        archiveConversation,
+        copyLibreChatConversation,
+        deleteLibreChatConversation,
+        pinConversation,
+        renameLibreChatConversation,
+        captureChatMutationOwner,
+        chatActionAvailability,
+        chatMenuAvailability,
+        deleteConversationShareLink,
+        exportOpenWebUiChat,
+        exportOpenWebUiChatTranscript,
+        forkChatAtMessage,
+        isReasoningEffortRejection,
+        markConversationUnread,
+        openWebUiChatActionAllowedProvider,
+        selectChatBranch,
+        shareConversationLink;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatCapabilitiesProvider;
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
+import 'package:conduit_core/features/chat/providers/conversation_title_generation.dart';
+import 'package:conduit_core/features/chat/services/chat_branch_service.dart'
+    show ChatBranchException, ChatBranchFailure;
+import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
+import 'package:conduit_core/features/chat/utils/chat_export_file_name.dart';
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directContextLengthOverridesProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show directModelAdvertisedContextLength;
+import 'package:conduit_core/features/sharing/models/resource_access.dart';
+import 'package:conduit_core/features/sharing/providers/resource_access_controller.dart';
+import 'package:conduit_core/features/workspace/models/workspace_common.dart'
+    show
+        WorkspaceAccessGrantInput,
+        WorkspaceGrantPermission,
+        WorkspacePrincipalType;
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as mutations;
@@ -8,6 +50,9 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
     show currentUserProvider2;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/folder_icons.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart'
+    show kChatParamSystem;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart'
     show connectivityPortProvider;
@@ -15,14 +60,30 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart'
     show kMessageRatingMetadataKey;
 import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
+import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatFileBaseUrlProvider;
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/usage_summary.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesApiServiceProvider;
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart'
+    show isNativeHermesConversation;
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesTransport;
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
+import 'chat_settings_service.dart';
 import 'event_bus.dart';
 import 'message_blocks.dart';
+import 'queued_completions_service.dart';
 import 'settled.dart';
 import 'temporary_chats.dart';
 import 'hermes_service.dart';
@@ -33,9 +94,14 @@ import 'hermes_service.dart';
 /// Another user's chat, reached through a folder shared with this account,
 /// is read-only, as the core decides it for a phone
 /// ([isReadOnlySharedConversation]): the server refuses every write to it.
+///
+/// [menu] is what its menus offer (the core's `chatMenuAvailability`); a
+/// caller without a container leaves them all off.
 ChatSummary chatSummaryOf(
   Conversation conversation, {
   required String? currentUserId,
+  bool generating = false,
+  ChatMenuAbilities menu = const ChatMenuAbilities(),
 }) => ChatSummary(
   id: conversation.id,
   title: conversation.title,
@@ -49,7 +115,49 @@ ChatSummary chatSummaryOf(
   // needs to show a badge.
   shared: (conversation.shareId ?? '').isNotEmpty,
   readOnly: isReadOnlySharedConversation(conversation, currentUserId),
+  unread: isConversationUnread(conversation, generating: generating),
+  menu: menu,
 );
+
+/// [conversation]'s menus, by the core's rule for its backend
+/// ([chatMenuAvailability]); all off when it cannot be read.
+ChatMenuAbilities chatMenuAbilitiesOf(
+  ProviderContainer container,
+  Conversation conversation,
+) {
+  try {
+    final offered = chatMenuAvailability(container, conversation);
+    return ChatMenuAbilities(
+      share: offered.share,
+      duplicate: offered.duplicate,
+      move: offered.move,
+      markUnread: offered.markUnread,
+      generateTitle: offered.generateTitle,
+      export: offered.export,
+    );
+  } on Object {
+    return const ChatMenuAbilities();
+  }
+}
+
+/// What a chat's answers are doing, as the turns service knows it: which
+/// chats are answering (no unread dot while they are), whether one is, or
+/// is merging, and a way to let go of an idle chat's scope after its stored
+/// copy changed under it.
+abstract interface class ChatTurns {
+  Iterable<String> get activeChatIds;
+  bool isRunning(String chatId);
+  bool mergeRunning(String chatId);
+  void forgetIdle(String chatId);
+
+  /// Waits (briefly) for [chatId]'s last answer to reach the stored copy, so
+  /// nothing it pulls lands over a change made after.
+  Future<void> settled(String chatId);
+
+  /// The messages of [chatId]'s open scope, as its turns left them; null
+  /// when it has none.
+  List<core.ChatMessage>? openMessages(String chatId);
+}
 
 /// [folder] as the sidebar shows it, with whose it is when it is another
 /// user's folder shared with this account (issue #710), and whether chats
@@ -62,6 +170,9 @@ FolderSummary folderSummaryOf(Folder folder) => FolderSummary(
   shared: folder.shared,
   ownerName: folder.shared ? folder.ownerName : null,
   canWrite: folder.canWrite,
+  // A curated icon, or any shortcode Open WebUI knows (one chosen on the
+  // web, such as `fire`).
+  icon: folderIconEmoji(folder.meta?['icon']?.toString()),
 );
 
 /// [rootId] and every folder under it, at any depth: what deleting it
@@ -91,11 +202,13 @@ List<ChatSummary> folderChatSummaries(
   Iterable<Conversation> chats, {
   required String folderId,
   required String? currentUserId,
+  ChatMenuAbilities Function(Conversation chat)? menu,
 }) => <ChatSummary>[
   for (final chat in chats)
     chatSummaryOf(
       chat.folderId == null ? chat.copyWith(folderId: folderId) : chat,
       currentUserId: currentUserId,
+      menu: menu?.call(chat) ?? const ChatMenuAbilities(),
     ),
 ];
 
@@ -114,8 +227,10 @@ final class ChatsService {
     TemporaryChats? temporary,
     HermesService? hermes,
     MessageBlocks? blocks,
+    QueuedCompletionsService? queued,
   }) : _events = events,
        _hermes = hermes,
+       _queued = queued,
        blocks = blocks ?? MessageBlocks(),
        _now = now ?? DateTime.now,
        _temporary = temporary ?? TemporaryChats() {
@@ -128,7 +243,13 @@ final class ChatsService {
   }
 
   /// Hermes sessions, which open as chats.
+  /// Answers waiting in the outbox, shown on the messages they fill.
+  final QueuedCompletionsService? _queued;
+
   final HermesService? _hermes;
+
+  /// The turns service, once the daemon has made it.
+  ChatTurns? turns;
 
   /// Each assistant message's display blocks, kept between `chats.get`s.
   final MessageBlocks blocks;
@@ -236,6 +357,35 @@ final class ChatsService {
         _events?.emit(ConduitEventSpecs.chatsChanged, const ChatsChanged());
       });
     });
+    // What each chat's menus offer reads the account's permissions and
+    // LibreChat's capabilities as loaded when it is listed: list again
+    // when they change (a permission that loads after the list did).
+    void relist() {
+      pending?.cancel();
+      pending = Timer(const Duration(milliseconds: 250), () {
+        _events?.emit(ConduitEventSpecs.chatsChanged, const ChatsChanged());
+      });
+    }
+
+    void follow<T>(ProviderListenable<T> provider) {
+      try {
+        _container.listen<T>(provider, (previous, next) {
+          if (previous != next) relist();
+        });
+      } on Object catch (error) {
+        DebugLogger.error(
+          'chat-menu-follow-failed',
+          scope: 'daemon/chats',
+          error: error,
+        );
+      }
+    }
+
+    follow(openWebUiChatActionAllowedProvider('export'));
+    follow(libreChatCapabilitiesProvider);
+    follow(chatMarkUnreadSupportedProvider);
+    follow(foldersAvailableProvider);
+    follow(isOnlineProvider);
   }
 
   final ProviderContainer _container;
@@ -350,9 +500,9 @@ final class ChatsService {
   /// the local list is then simply what there is.
   Future<void> _pull(String reason) async {
     try {
-      await _container
-          .read(syncEngineProvider.notifier)
-          .requestPull(reason: reason);
+      // The account that owns the chats: Open WebUI's engine, or the
+      // LibreChat account's.
+      await _container.read(primarySyncProvider).requestPull(reason: reason);
     } on Object catch (error) {
       DebugLogger.error('pull-failed', scope: 'daemon/chats', error: error);
     }
@@ -372,7 +522,15 @@ final class ChatsService {
     // A Hermes session: its transcript is Hermes's, not the database's.
     if (hermesSessionOf(id) case final sessionId? when _hermes != null) {
       final hermes = _hermes;
-      final messages = await hermes.transcript(sessionId);
+      // While its scope is open (a window follows its agent's work there,
+      // or a turn just ran), the chat is what the scope holds: an answer a
+      // turn, with all it showed, under the names the scope answers to.
+      // Hermes's record has a row a tool step, which a turn's last row
+      // only partly says.
+      final open = turns?.openMessages(id);
+      final messages = open != null && open.isNotEmpty
+          ? open
+          : await hermes.transcript(sessionId);
       return ChatDetail(
         summary: ChatSummary(
           id: id,
@@ -383,7 +541,11 @@ final class ChatsService {
                   : messages.first.content.split('\n').first),
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
-        messages: messages.map(_message).toList(growable: false),
+        messages: _messages(messages),
+        // Its history's actions, its agent's work, and its context
+        // window and usage.
+        abilities: hermes.abilities(sessionId),
+        hermes: hermes.chatState(sessionId),
       );
     }
     // Never in the database, so never in the list. The transcript lives
@@ -392,15 +554,26 @@ final class ChatsService {
     // WebUI also carries -- and that one *is* in the database.
     if (_temporary.contains(id)) {
       final messages = _temporary.transcript(id);
+      final now = DateTime.now();
+      final title = messages.isEmpty
+          ? ''
+          : messages.first.content.split('\n').first;
+      final conversation = Conversation(
+        id: id,
+        title: title,
+        createdAt: now,
+        updatedAt: now,
+        messages: messages,
+      );
       return ChatDetail(
         summary: ChatSummary(
           id: id,
-          title: messages.isEmpty
-              ? ''
-              : messages.first.content.split('\n').first,
-          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+          title: title,
+          updatedAtMs: now.millisecondsSinceEpoch,
         ),
-        messages: messages.map(_message).toList(growable: false),
+        messages: _messages(messages, conversation: conversation),
+        temporary: true,
+        abilities: await _abilities(conversation, temporary: true),
       );
     }
     final conversations = await readSettled(
@@ -440,14 +613,82 @@ final class ChatsService {
     final conversation = full ?? summary;
     if (conversation == null) return null;
 
-    final prompt = conversation.systemPrompt?.trim();
+    // The chat's own prompt: `params.system` when set, an empty one
+    // included (it replaces every other prompt, as a turn sends it), else
+    // the legacy `chat.system` (what mobile's request sends ahead of the
+    // user's own).
+    final saved = conversation.chatParams[kChatParamSystem];
+    final prompt = saved is String
+        ? saved.trim()
+        : conversation.systemPrompt?.trim();
     final opened = _summarize(conversation);
+    final shareId = conversation.shareId;
+    final queued =
+        await _queued?.forChat(id) ?? const <String, QueuedCompletionDto>{};
     return ChatDetail(
       summary: opened,
-      messages: conversation.messages.map(_message).toList(growable: false),
+      messages: _messages(
+        conversation.messages,
+        conversation: conversation,
+        queued: queued,
+      ),
       systemPrompt: prompt == null || prompt.isEmpty ? null : prompt,
       readOnly: opened.readOnly,
+      abilities: await _abilities(conversation),
+      shareId: shareId == null || shareId.isEmpty ? null : shareId,
+      tasks: chatTaskDtos(conversation.metadata),
     );
+  }
+
+  /// What [conversation] offers, as the core decides it for a phone; none
+  /// when that cannot be read.
+  Future<ChatAbilities> _abilities(
+    Conversation conversation, {
+    bool temporary = false,
+  }) async {
+    // A Hermes chat (or an Open WebUI chat a Hermes turn ran in): its
+    // agent's work can be watched; a Hermes session's own context read.
+    final hermes = _container.read(hermesApiServiceProvider) != null;
+    final native = isNativeHermesConversation(conversation);
+    final hermesWork =
+        hermes &&
+        (native ||
+            conversation.messages.any(
+              (m) => m.metadata?['transport'] == kHermesTransport,
+            ));
+    final hermesContext = hermes && native;
+    try {
+      final offered = await chatActionAvailability(
+        _container,
+        conversation,
+        temporary: temporary,
+        mergeRunning: turns?.mergeRunning(conversation.id) ?? false,
+      );
+      return ChatAbilities(
+        fork: offered.fork,
+        export: offered.export,
+        merge: offered.merge,
+        branch: offered.branch,
+        deleteMessages: offered.deleteMessages,
+        markUnread: offered.markUnread,
+        generateTitle: offered.generateTitle,
+        share: offered.share,
+        saveTemporary: offered.saveTemporary,
+        compare: offered.compare,
+        hermesWork: hermesWork,
+        hermesContext: hermesContext,
+      );
+    } on Object catch (error) {
+      DebugLogger.error(
+        'chat-abilities-failed',
+        scope: 'daemon/chats',
+        error: error,
+      );
+      return ChatAbilities(
+        hermesWork: hermesWork,
+        hermesContext: hermesContext,
+      );
+    }
   }
 
   /// Full-text search over titles and message bodies.
@@ -470,7 +711,17 @@ final class ChatsService {
       return _searchByTag(trimmed.substring(4).trim(), limit: query.limit);
     }
 
-    final database = _container.read(appDatabaseProvider);
+    // The account in charge's: LibreChat's own database while it owns the
+    // chats.
+    final libreChat =
+        _container.read(primaryAccountKindProvider) ==
+        PrimaryAccountKind.libreChat;
+    final database = libreChat
+        ? _container
+              .read(chatDatabaseRepositoryProvider)
+              .libreChatLocation
+              ?.database
+        : _container.read(appDatabaseProvider);
     if (database == null) {
       // No local database yet -- the account has not been certified. Falling
       // back to a title scan of the loaded page would be worse than saying
@@ -484,9 +735,12 @@ final class ChatsService {
       // Incomplete until a full sync has succeeded at least once, and while
       // one is running. The watermark is only set by a successful cycle, so
       // its absence means the index has never been known complete.
+      // LibreChat's list is whole once its sync has pulled it, which the
+      // list answering already waited for.
       complete:
-          sync.phase == SyncPhase.idle &&
-          sync.lastSuccessUpdatedAtWatermark != null,
+          libreChat ||
+          (sync.phase == SyncPhase.idle &&
+              sync.lastSuccessUpdatedAtWatermark != null),
       hits: hits
           .map(
             (hit) => ChatSearchHit(
@@ -561,7 +815,7 @@ final class ChatsService {
   /// copy.
   Future<void> _afterEnvelopeChange(String chatId) async {
     try {
-      await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+      await _container.read(primarySyncProvider).pullChatNow(chatId);
     } on Object catch (error) {
       DebugLogger.error(
         'envelope-pull-failed',
@@ -608,6 +862,12 @@ final class ChatsService {
       await mutations.renameDirectLocalConversation(_container, id, trimmed);
       return _refresh();
     }
+    if (_isLibreChat(id)) {
+      // Written here at once, and to the server through LibreChat's own
+      // outbox, as the phone renames one.
+      await renameLibreChatConversation(_container, id, trimmed);
+      return _refresh();
+    }
     await _api.updateConversation(id, title: trimmed);
     await _afterEnvelopeChange(id);
     return _refresh();
@@ -616,6 +876,8 @@ final class ChatsService {
   Future<ChatList> setPinned(String id, {required bool value}) async {
     if (_isDirectLocal(id)) {
       await mutations.pinConversation(_container, id, value);
+    } else if (_isLibreChat(id)) {
+      await pinConversation(_container, _libreChatScoped(id), value);
     } else {
       await _api.pinConversation(id, value);
     }
@@ -627,9 +889,49 @@ final class ChatsService {
     return _refresh();
   }
 
-  Future<void> _archive(String id, bool value) => _isDirectLocal(id)
-      ? mutations.archiveConversation(_container, id, value)
-      : _api.archiveConversation(id, value);
+  /// Direct's local chats and LibreChat's are archived where they are kept;
+  /// the rest on the server.
+  Future<void> _archive(String id, bool value) {
+    if (_isDirectLocal(id)) {
+      return mutations.archiveConversation(_container, id, value);
+    }
+    if (_isLibreChat(id)) {
+      return archiveConversation(_container, _libreChatScoped(id), value);
+    }
+    return _api.archiveConversation(id, value);
+  }
+
+  /// Whether chat [id] is one of the LibreChat account's: its changes go
+  /// through the core's LibreChat mutations, which write the account's own
+  /// database and queue the server write, never to Open WebUI.
+  bool _isLibreChat(String id) {
+    final identity = ChatStorageIdentity.parse(id);
+    if (identity.storage == ChatStorageKind.libreChat) return true;
+    final listed = _container
+        .read(conversationsProvider)
+        .value
+        ?.where((conversation) => conversation.id == id)
+        .firstOrNull;
+    if (listed != null) return isLibreChatConversation(listed);
+    // Not listed yet (a copy just made, say): a server chat is the account
+    // in charge's.
+    return identity.storage == null &&
+        !id.startsWith('local:') &&
+        _container.read(primaryAccountKindProvider) ==
+            PrimaryAccountKind.libreChat;
+  }
+
+  /// [id] as the core's mutations know a LibreChat chat whether or not the
+  /// list holds it yet (a copy just made): a bare server id they would
+  /// otherwise take for Open WebUI's.
+  static String _libreChatScoped(String id) {
+    final identity = ChatStorageIdentity.parse(id);
+    if (identity.storage != null) return id;
+    return ChatStorageIdentity(
+      rawId: identity.rawId,
+      storage: ChatStorageKind.libreChat,
+    ).scopedId;
+  }
 
   Future<ChatList> delete(String id) async {
     // Never on the server: forgetting it here is the whole delete.
@@ -640,6 +942,11 @@ final class ChatsService {
     }
     if (_isDirectLocal(id)) {
       await mutations.deleteDirectLocalConversation(_container, id);
+      return _refresh();
+    }
+    if (_isLibreChat(id)) {
+      await deleteLibreChatConversation(_container, id);
+      _conversations.removeConversation(id);
       return _refresh();
     }
     await _api.deleteConversation(id);
@@ -668,6 +975,9 @@ final class ChatsService {
             await _archive(id, false);
           case BulkChatAction.delete when _isDirectLocal(id):
             await mutations.deleteDirectLocalConversation(_container, id);
+          case BulkChatAction.delete when _isLibreChat(id):
+            await deleteLibreChatConversation(_container, id);
+            _conversations.removeConversation(id);
           case BulkChatAction.delete:
             await _api.deleteConversation(id);
             _conversations.removeConversation(id);
@@ -717,55 +1027,317 @@ final class ChatsService {
 
   /// Shows the branch through [ChatCurrent.messageId].
   ///
-  /// Follows the newest reply down from there to the end of the branch --
-  /// choosing an old question should show where that line of conversation
-  /// ended up, not stop halfway -- and makes that the chat's current
-  /// message on the server, as Open WebUI's own client does. The flat
-  /// message list older clients read is rewritten to match.
+  /// The core's own branch switch, as a phone's version pager and version
+  /// list make it: the newest reply down from there becomes the chat's
+  /// current message, stored and queued for the server under the chat's lock,
+  /// then sent. With [ChatCurrent.alternativeTo] the message must be another
+  /// answer to the same message in the same role (Continue from This
+  /// Response). Refused while the chat is answering.
   Future<ChatDetail?> setCurrent(ChatCurrent request) async {
-    final raw = await _api.getChatRaw(request.chatId);
-    final chat = raw?['chat'];
-    final history = chat is Map ? chat['history'] : null;
-    final messages = history is Map ? history['messages'] : null;
-    if (chat is! Map || history is! Map || messages is! Map) {
-      throw RpcError(
-        code: ConduitErrorCodes.notFound,
-        debugMessage: 'no chat ${request.chatId}',
-      );
-    }
-    if (messages[request.messageId] is! Map) {
-      throw RpcError(
-        code: ConduitErrorCodes.notFound,
-        debugMessage: 'no message ${request.messageId}',
-      );
-    }
-
-    var leaf = request.messageId;
-    final seen = <String>{};
-    while (seen.add(leaf)) {
-      final children = (messages[leaf] as Map)['childrenIds'];
-      final next = children is List
-          ? children.map((id) => '$id').where(messages.containsKey).lastOrNull
-          : null;
-      if (next == null) break;
-      leaf = next;
+    _refuseWhileAnswering(request.chatId);
+    // The last answer's own pulls first: one that read the server before
+    // this change and lands after it would put the old branch back. And a
+    // scope left from that answer holds the branch it showed.
+    await turns?.settled(request.chatId);
+    turns?.forgetIdle(request.chatId);
+    final conversation = await _load(request.chatId);
+    Future<String> select() async {
+      try {
+        return (await selectChatBranch(
+          _container,
+          conversation: conversation,
+          messageId: request.messageId,
+          alternativeTo: request.alternativeTo,
+        )).leafId;
+      } on ChatBranchException catch (error) {
+        throw branchError(error);
+      }
     }
 
-    final path = <Object?>[];
-    String? id = leaf;
-    final walked = <String>{};
-    while (id != null && walked.add(id) && messages[id] is Map) {
-      final message = messages[id] as Map;
-      path.insert(0, message);
-      id = message['parentId']?.toString();
-    }
-
-    final updated = Map<String, dynamic>.from(chat)
-      ..['history'] = (Map<String, dynamic>.from(history)..['currentId'] = leaf)
-      ..['messages'] = path;
-    await _api.updateChatRaw(request.chatId, updated);
-    await _afterEnvelopeChange(request.chatId);
+    final leaf = await select();
+    // Sent now, so the server's copy (and another device) has it before the
+    // window reads the chat again.
+    await _drain();
+    await _confirmBranch(request.chatId, leaf, select);
+    turns?.forgetIdle(request.chatId);
+    _container.invalidate(loadConversationProvider(request.chatId));
+    _events?.emit(
+      ConduitEventSpecs.chatsChanged,
+      ChatsChanged(chatId: request.chatId),
+    );
     return get(request.chatId);
+  }
+
+  /// Makes sure the server kept [leaf] as [chatId]'s current message.
+  ///
+  /// Open WebUI finishes writing an answer a moment after its stream ends,
+  /// and that write can put the branch back to the answer just written; a
+  /// pull that read the server before the switch can do the same here. So
+  /// the server is asked, and the switch made again from what it now has,
+  /// a few times at most.
+  Future<void> _confirmBranch(
+    String chatId,
+    String leaf,
+    Future<String> Function() select,
+  ) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      try {
+        final raw = await _api.getChatRaw(chatId);
+        final chat = raw?['chat'];
+        final history = chat is Map ? chat['history'] : null;
+        if (history is! Map || history['currentId'] == leaf) return;
+      } on Object catch (error) {
+        DebugLogger.error(
+          'branch-check-failed',
+          scope: 'daemon/chats',
+          error: error,
+        );
+        return;
+      }
+      try {
+        await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
+      } on Object catch (error) {
+        DebugLogger.error('pull-failed', scope: 'daemon/chats', error: error);
+      }
+      await select();
+      await _drain();
+    }
+  }
+
+  /// Sends what this account has queued for the server, for at most a few
+  /// seconds; a slow server gets it with the next sync.
+  Future<void> _drain() async {
+    final database = _container.read(appDatabaseProvider);
+    if (database == null) return;
+    try {
+      await _container
+          .read(syncEngineProvider.notifier)
+          .drainNowForDatabase(database)
+          .timeout(const Duration(seconds: 5));
+    } on Object catch (error) {
+      DebugLogger.error('drain-failed', scope: 'daemon/chats', error: error);
+    }
+  }
+
+  /// The text of answer [messageId] in [chatId] (or of the version with
+  /// that id), with the model that wrote it: what Read Aloud reads. Read
+  /// where `chats.get` reads it: a Hermes session's transcript is Hermes's,
+  /// a temporary chat's is in this daemon's memory.
+  Future<({String content, String? model})> answerFor(
+    String chatId,
+    String messageId,
+  ) async {
+    final List<core.ChatMessage> messages;
+    if (hermesSessionOf(chatId) case final sessionId? when _hermes != null) {
+      messages = await _hermes.transcript(sessionId);
+    } else if (_temporary.contains(chatId)) {
+      messages = _temporary.transcript(chatId);
+    } else {
+      messages = (await _load(chatId)).messages;
+    }
+    for (final message in messages) {
+      if (message.id == messageId) {
+        return (content: message.content, model: message.model);
+      }
+      for (final version in message.versions) {
+        if (version.id == messageId) {
+          return (content: version.content, model: version.model);
+        }
+      }
+    }
+    throw RpcError(
+      code: ConduitErrorCodes.notFound,
+      args: <String, String>{'messageId': messageId},
+      debugMessage: 'no such message in that chat',
+    );
+  }
+
+  /// The model [chatId] answers with.
+  Future<String?> modelOf(String chatId) async => (await _load(chatId)).model;
+
+  /// [chatId] as the core loads it, or not found.
+  Future<Conversation> _load(String chatId) async {
+    try {
+      return await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+    } on Object catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        args: <String, String>{'chatId': chatId},
+        debugMessage: 'could not open that chat: $error',
+      );
+    }
+  }
+
+  void _refuseWhileAnswering(String chatId) {
+    if (turns?.isRunning(chatId) ?? false) {
+      throw RpcError(
+        code: ConduitErrorCodes.conflict,
+        args: const <String, String>{'reason': 'responseRunning'},
+        debugMessage: 'that chat is still answering',
+      );
+    }
+  }
+
+  /// A branch operation the core refused, as the windows read it: the core's
+  /// reason in `args.reason`.
+  static RpcError branchError(ChatBranchException error) => RpcError(
+    code: switch (error.reason) {
+      ChatBranchFailure.responseRunning ||
+      ChatBranchFailure.forkConflict => ConduitErrorCodes.conflict,
+      ChatBranchFailure.messageNotFound ||
+      ChatBranchFailure.notAnAlternative ||
+      ChatBranchFailure.forkSourceMissing => ConduitErrorCodes.notFound,
+      ChatBranchFailure.offline => ConduitErrorCodes.offline,
+      ChatBranchFailure.ownerChanged => ConduitErrorCodes.sessionExpired,
+      ChatBranchFailure.forkForbidden => ConduitErrorCodes.unauthorized,
+      ChatBranchFailure.unavailable ||
+      ChatBranchFailure.forkUnsupported => ConduitErrorCodes.unsupported,
+      ChatBranchFailure.forkFailed => ConduitErrorCodes.serverError,
+    },
+    args: <String, String>{'reason': error.reason.name},
+    debugMessage: 'the branch operation was refused: ${error.reason.name}',
+  );
+
+  // -----------------------------------------------------------------------
+  // Fork, export, title, read state
+  // -----------------------------------------------------------------------
+
+  /// A new chat from the start of [ForkChat.chatId] to its message
+  /// [ForkChat.messageId]: Open WebUI's fork, through the core, stored here
+  /// as the server made it. Every window's sidebar lists it.
+  Future<ChatForked> fork(ForkChat request) async {
+    _refuseWhileAnswering(request.chatId);
+    if (_isLibreChat(request.chatId)) {
+      // LibreChat's fork: the chat up to that message, copied on its
+      // server, as the phone's Branch in New Chat does.
+      final copy = await copyLibreChatConversation(
+        _container,
+        request.chatId,
+        upToMessageId: request.messageId,
+      );
+      _events?.emit(ConduitEventSpecs.chatsChanged, const ChatsChanged());
+      return ChatForked(chatId: copy.id);
+    }
+    final conversation = await _load(request.chatId);
+    final ({String chatId, bool opened}) outcome;
+    try {
+      outcome = await forkChatAtMessage(
+        _container,
+        conversation: conversation,
+        messageId: request.messageId,
+      );
+    } on ChatBranchException catch (error) {
+      throw branchError(error);
+    }
+    _events?.emit(ConduitEventSpecs.chatsChanged, const ChatsChanged());
+    return ChatForked(chatId: outcome.chatId);
+  }
+
+  /// [ExportChat.chatId] as a file: the JSON backup Open WebUI imports, every
+  /// branch, or the shown branch as Markdown, read from the stored copy.
+  Future<ChatExportFile> export(ExportChat request) async {
+    final conversation = await _load(request.chatId);
+    final owner = captureChatMutationOwner(_container, conversation);
+    final now = _now();
+    try {
+      switch (request.format) {
+        case ChatExportFormat.json:
+          final export = await exportOpenWebUiChat(
+            _container,
+            conversation: conversation,
+            owner: owner,
+          );
+          return ChatExportFile(
+            fileName: chatExportFileName(
+              export.title.isEmpty ? conversation.title : export.title,
+              now,
+              'json',
+            ),
+            content: export.toJson(),
+            mimeType: 'application/json',
+            hasUnsyncedChanges: export.hasUnsyncedChanges,
+          );
+        case ChatExportFormat.markdown:
+          final markdown = await exportOpenWebUiChatTranscript(
+            _container,
+            conversation: conversation,
+            owner: owner,
+          );
+          return ChatExportFile(
+            fileName: chatExportFileName(conversation.title, now, 'md'),
+            content: markdown,
+            mimeType: 'text/markdown',
+          );
+      }
+    } on ChatBranchException catch (error) {
+      throw branchError(error);
+    }
+  }
+
+  final Set<String> _titlesBeingGenerated = <String>{};
+
+  /// Asks the server's model for a title, as the phone's Generate Title
+  /// does, and saves it unless the chat was renamed meanwhile.
+  Future<GeneratedTitle> generateTitle(String chatId) async {
+    if (!_titlesBeingGenerated.add(chatId)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.conflict,
+        debugMessage: 'a title is already being made for that chat',
+      );
+    }
+    try {
+      final GeneratedConversationTitle generated;
+      try {
+        generated = await generateConversationTitle(_container, chatId);
+      } on RpcError {
+        rethrow;
+      } on Object catch (error) {
+        throw RpcError(
+          code: ConduitErrorCodes.serverError,
+          debugMessage: 'the title could not be made: $error',
+        );
+      }
+      if (generated.outcome == ConversationTitleOutcome.saved) {
+        await _afterEnvelopeChange(chatId);
+      }
+      return GeneratedTitle(
+        outcome: switch (generated.outcome) {
+          ConversationTitleOutcome.saved => GenerateTitleOutcome.saved,
+          ConversationTitleOutcome.none => GenerateTitleOutcome.none,
+          ConversationTitleOutcome.unchanged ||
+          ConversationTitleOutcome.kept => GenerateTitleOutcome.unchanged,
+        },
+        title: generated.title,
+      );
+    } finally {
+      _titlesBeingGenerated.remove(chatId);
+    }
+  }
+
+  /// Marks [MarkUnread.chatId] unread, as the web sidebar's Mark as Unread
+  /// does, or read, as opening it does.
+  Future<ChatList> markUnread(MarkUnread request) async {
+    if (request.unread) {
+      try {
+        await markConversationUnread(_container, request.chatId);
+      } on Object catch (error) {
+        throw RpcError(
+          code: ConduitErrorCodes.serverError,
+          debugMessage: 'the chat could not be marked unread: $error',
+        );
+      }
+    } else {
+      markConversationRead(_container, request.chatId);
+    }
+    _events?.emit(
+      ConduitEventSpecs.chatsChanged,
+      ChatsChanged(chatId: request.chatId),
+    );
+    return list();
   }
 
   /// A message on one line, without its reasoning and tool-call markup,
@@ -807,6 +1379,7 @@ final class ChatsService {
         chats,
         folderId: folderId,
         currentUserId: _container.read(currentUserProvider2)?.id,
+        menu: (chat) => chatMenuAbilitiesOf(_container, chat),
       ),
     );
   }
@@ -815,13 +1388,30 @@ final class ChatsService {
   /// WebUI merges the chat's top-level keys, so sending `system` alone
   /// leaves the transcript as it was.
   Future<ChatDetail?> setSystemPrompt(ChatSystemPrompt request) async {
-    await _api.updateConversation(
-      request.chatId,
-      systemPrompt: request.prompt.trim(),
-    );
-    await _afterEnvelopeChange(request.chatId);
+    final settings = _chatSettings;
+    if (settings == null) {
+      // No settings service (tests): the legacy field, as before.
+      await _api.updateConversation(
+        request.chatId,
+        systemPrompt: request.prompt.trim(),
+      );
+      await _afterEnvelopeChange(request.chatId);
+      return get(request.chatId);
+    }
+    // The chat's own prompt is `params.system`, as mobile's Chat Settings
+    // and Open WebUI's web client save it; the legacy `chat.system` still
+    // reads back when no params prompt is set.
+    if (await settings.setSystemPrompt(request.chatId, request.prompt)) {
+      // The legacy prompt was cleared on the server: this device's copy
+      // follows before the chat is read back.
+      await _afterEnvelopeChange(request.chatId);
+    }
     return get(request.chatId);
   }
+
+  /// `chats.setSystemPrompt` writes through it once the daemon wires it.
+  ChatSettingsService? _chatSettings;
+  set chatSettings(ChatSettingsService? value) => _chatSettings = value;
 
   // -----------------------------------------------------------------------
   // Folders
@@ -994,15 +1584,134 @@ final class ChatsService {
     return _refresh();
   }
 
-  Future<ChatShare> share(String id) async {
-    final shareId = await _api.shareConversation(id);
-    await _afterEnvelopeChange(id);
-    await _refresh();
-    return ChatShare(chatId: id, shareId: shareId);
+  /// The chat's link: made, or updated to the chat as it is now
+  /// ([ShareChat.publish]), or only read; and who may open it, set when
+  /// [ShareChat.audience] says (the core's access grants for the chat).
+  Future<ChatShare> share(ShareChat request) async {
+    final id = request.id;
+    String? shareId;
+    String? url;
+    if (request.publish) {
+      try {
+        final link = await shareConversationLink(_container, id);
+        shareId = link.shareId;
+        url = link.url;
+      } on Object catch (error) {
+        throw RpcError(
+          code: ConduitErrorCodes.serverError,
+          debugMessage: 'the link could not be made: $error',
+        );
+      }
+      await _afterEnvelopeChange(id);
+      await _refresh();
+    } else {
+      final conversation = await _load(id);
+      shareId = conversation.shareId;
+      if (shareId != null && shareId.isEmpty) shareId = null;
+      url = shareId == null ? null : _shareUrl(shareId);
+    }
+    ShareAudience? audience;
+    final access = ResourceAccessController.open(
+      _container,
+      kind: ResourceKind.chat,
+      resourceId: id,
+    );
+    if (access != null) {
+      try {
+        var snapshot = await access.load();
+        if (request.audience case final wanted?
+            when _audienceOf(snapshot.audience) != wanted) {
+          snapshot = await access.save(
+            snapshot,
+            _grantsFor(snapshot, wanted),
+            audience: _resourceAudience(wanted),
+          );
+        }
+        audience = _audienceOf(snapshot.audience);
+      } on Object catch (error) {
+        if (request.audience != null) {
+          throw RpcError(
+            code: ConduitErrorCodes.serverError,
+            debugMessage: 'who may open the chat could not be changed: $error',
+          );
+        }
+        DebugLogger.error(
+          'share-audience-unread',
+          scope: 'daemon/chats',
+          error: error,
+        );
+      }
+    }
+    return ChatShare(
+      chatId: id,
+      shareId: shareId,
+      url: url,
+      audience: audience,
+    );
   }
 
+  /// The link for [shareId] on the account's server, as the core builds it.
+  String? _shareUrl(String shareId) {
+    // A LibreChat chat's link is under its web app, as the core builds it
+    // when sharing.
+    final libreChat = _container.read(libreChatFileBaseUrlProvider);
+    if (libreChat != null) {
+      final base = libreChat.endsWith('/')
+          ? libreChat.substring(0, libreChat.length - 1)
+          : libreChat;
+      return '$base/share/$shareId';
+    }
+    final server = _container.read(apiServiceProvider)?.serverConfig.url;
+    if (server == null) return null;
+    try {
+      return buildChatShareUrl(serverUrl: server, shareId: shareId);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  static ShareAudience _audienceOf(ResourceAudience audience) =>
+      switch (audience) {
+        ResourceAudience.private => ShareAudience.private,
+        ResourceAudience.public => ShareAudience.public,
+        ResourceAudience.open => ShareAudience.open,
+      };
+
+  static ResourceAudience _resourceAudience(ShareAudience audience) =>
+      switch (audience) {
+        ShareAudience.private => ResourceAudience.private,
+        ShareAudience.public => ResourceAudience.public,
+        ShareAudience.open => ResourceAudience.open,
+      };
+
+  /// The people and groups given access, kept, with the one wildcard read
+  /// grant that makes the chat [ShareAudience.public] (Open WebUI's web
+  /// editor's `setVisibility`; Open's `anyone` grant is added by the core).
+  static List<WorkspaceAccessGrantInput> _grantsFor(
+    ResourceAccessSnapshot snapshot,
+    ShareAudience audience,
+  ) => <WorkspaceAccessGrantInput>[
+    for (final grant in snapshot.editableGrants)
+      if (!(grant.principalType == WorkspacePrincipalType.user &&
+          grant.principalId == '*'))
+        grant,
+    if (audience == ShareAudience.public)
+      const WorkspaceAccessGrantInput(
+        principalType: WorkspacePrincipalType.user,
+        principalId: '*',
+        permission: WorkspaceGrantPermission.read,
+      ),
+  ];
+
   Future<ChatShare> unshare(String id) async {
-    await _api.deleteSharedConversation(id);
+    try {
+      await deleteConversationShareLink(_container, id);
+    } on Object catch (error) {
+      throw RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the link could not be deleted: $error',
+      );
+    }
     await _afterEnvelopeChange(id);
     await _refresh();
     return ChatShare(chatId: id);
@@ -1055,47 +1764,196 @@ final class ChatsService {
   ChatSummary _summarize(Conversation conversation) => chatSummaryOf(
     conversation,
     currentUserId: _container.read(currentUserProvider2)?.id,
+    generating: turns?.isRunning(conversation.id) ?? false,
+    menu: chatMenuAbilitiesOf(_container, conversation),
   );
 
-  ChatMessageDto _message(core.ChatMessage message) => ChatMessageDto(
-    id: message.id,
-    role: message.role,
-    content: message.content,
-    timestampMs: message.timestamp.millisecondsSinceEpoch,
-    model: message.model,
-    streaming: message.isStreaming,
-    errorCode: message.error == null ? null : ConduitErrorCodes.serverError,
-    versions: <ChatMessageVersionDto>[
-      for (final version in message.versions)
-        ChatMessageVersionDto(
-          id: version.id,
-          content: version.content,
-          timestampMs: version.timestamp.millisecondsSinceEpoch,
-          model: version.model,
-          sources: chatSourceDtos(version.sources),
-          usage: _usage(version.usage),
-          blocks: message.role == 'assistant'
-              ? blocks.forVersion(message, version)
-              : const <MessageBlockDto>[],
+  /// [messages] as the windows draw them. [conversation], when given, is the
+  /// chat they belong to, which decides whether a failed answer offers Retry
+  /// Without Reasoning Effort. [queued] holds the answers waiting to go out,
+  /// by id.
+  List<ChatMessageDto> _messages(
+    List<core.ChatMessage> messages, {
+    Conversation? conversation,
+    Map<String, QueuedCompletionDto> queued =
+        const <String, QueuedCompletionDto>{},
+  }) {
+    final byId = <String, core.ChatMessage>{
+      for (final message in messages) message.id: message,
+    };
+    final models = _modelsById();
+    return <ChatMessageDto>[
+      for (final message in messages)
+        _message(
+          message,
+          parent: byId[message.metadata?['parentId']?.toString()],
+          conversation: conversation,
+          models: models,
+          queued: queued[message.id],
         ),
-    ],
-    sources: chatSourceDtos(message.sources),
-    usage: _usage(message.usage),
-    rating: switch (message.metadata?[kMessageRatingMetadataKey]) {
-      final int rating => rating,
-      _ => null,
-    },
-    files: chatFileDtos(message.files),
-    blocks: blocks.forMessage(message),
-  );
+    ];
+  }
+
+  /// The models on offer, by id, as the account last listed them.
+  Map<String, Model> _modelsById() {
+    try {
+      final models = _container.read(modelsProvider).value ?? const <Model>[];
+      return <String, Model>{for (final model in models) model.id: model};
+    } on Object {
+      return const <String, Model>{};
+    }
+  }
+
+  /// The context window of [modelId], as the phone's usage card reads it:
+  /// the one the model advertises, else the one set for a Direct model.
+  int? _contextLength(String? modelId, Map<String, Model> models) {
+    final model = models[modelId?.trim()];
+    if (model == null) return null;
+    try {
+      return directModelAdvertisedContextLength(model) ??
+          _container.read(directContextLengthOverridesProvider)[model.id];
+    } on Object {
+      return null;
+    }
+  }
+
+  ChatMessageDto _message(
+    core.ChatMessage message, {
+    core.ChatMessage? parent,
+    Conversation? conversation,
+    Map<String, Model> models = const <String, Model>{},
+    QueuedCompletionDto? queued,
+  }) {
+    final assistant = message.role == 'assistant';
+    // A question more than one model answered: its answers, by column.
+    final group = assistant && message.versions.isNotEmpty
+        ? ChatComparisonGroup.fromMessage(message)
+        : null;
+    final compared = group != null && group.isComparison;
+    final unfinished = <String>{
+      ...?(message.metadata?[kMessageUnfinishedAnswersMetadataKey] as List?)
+          ?.whereType<String>(),
+    };
+    final merged = message.mergedResponse?.content.trim();
+    return ChatMessageDto(
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      timestampMs: message.timestamp.millisecondsSinceEpoch,
+      model: message.model,
+      modelName: answerModelNameOf(message),
+      streaming: message.isStreaming,
+      errorCode: message.error == null ? null : ConduitErrorCodes.serverError,
+      versions: <ChatMessageVersionDto>[
+        for (final version in message.versions)
+          ChatMessageVersionDto(
+            id: version.id,
+            content: version.content,
+            timestampMs: version.timestamp.millisecondsSinceEpoch,
+            model: version.model,
+            modelName: _nonEmpty(version.modelName),
+            sources: chatSourceDtos(version.sources),
+            usage: _usage(
+              version.usage,
+              contextLength: _contextLength(version.model, models),
+            ),
+            blocks: assistant
+                ? blocks.forVersion(message, version)
+                : const <MessageBlockDto>[],
+            slot: compared ? (version.modelIdx ?? 0) : null,
+            merged: _mergedText(version.merged),
+            streaming: unfinished.contains(version.id),
+            errorCode: version.error == null
+                ? null
+                : ConduitErrorCodes.serverError,
+          ),
+      ],
+      sources: chatSourceDtos(message.sources),
+      usage: _usage(
+        message.usage,
+        contextLength: _contextLength(message.model, models),
+      ),
+      rating: switch (message.metadata?[kMessageRatingMetadataKey]) {
+        final int rating => rating,
+        _ => null,
+      },
+      files: chatFileDtos(message.files),
+      blocks: blocks.forMessage(message),
+      parentId: message.metadata?['parentId']?.toString(),
+      slot: compared ? message.modelSlot : null,
+      merged: merged == null || merged.isEmpty ? null : merged,
+      retryWithoutEffort: _retryWithoutEffort(message, conversation, models),
+      comparison: !compared
+          ? const <ComparisonSlotDto>[]
+          : <ComparisonSlotDto>[
+              for (final slot in group.slots)
+                ComparisonSlotDto(
+                  index: slot.index,
+                  answerIds: <String>[
+                    for (final answer in slot.answers) answer.messageId,
+                  ],
+                  model: slot.current.model,
+                ),
+            ],
+      mergeableIds: !compared
+          ? const <String>[]
+          : <String>[
+              for (final answer in group.mergeableAnswers(shownId: message.id))
+                answer.messageId,
+            ],
+      siblingIds: siblingIdsOf(message, parent),
+      queued: assistant ? queued : null,
+    );
+  }
+
+  /// A saved merge's text, from Open WebUI's `{status, content}`.
+  static String? _mergedText(Map<String, dynamic>? raw) {
+    final text = ChatMergedResponse.tryFrom(raw)?.content.trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  /// Whether [message], a failed answer of [conversation], was refused over
+  /// the reasoning effort the chat or the picker sent (the core's
+  /// [isReasoningEffortRejection], as a phone's footer asks it).
+  bool _retryWithoutEffort(
+    core.ChatMessage message,
+    Conversation? conversation,
+    Map<String, Model> models,
+  ) {
+    if (message.role != 'assistant' || conversation == null) return false;
+    final error = message.error?.content;
+    final content = message.content;
+    final failed =
+        error != null ||
+        content.contains('⚠️') ||
+        content.contains('Error') ||
+        content.contains('timeout') ||
+        content.contains('retry options');
+    if (!failed) return false;
+    try {
+      return isReasoningEffortRejection(
+        _ConversationReader(_container, conversation),
+        errorText: '${error ?? ''}\n$content',
+        retryModel: models[message.model],
+      );
+    } on Object {
+      return false;
+    }
+  }
 
   /// The core's reading of whatever shape the provider reported in; null
   /// when it reported nothing usable.
-  static ChatUsageDto? _usage(Map<String, dynamic>? usage) {
+  static ChatUsageDto? _usage(
+    Map<String, dynamic>? usage, {
+    int? contextLength,
+  }) {
     if (usage == null) return null;
     final summary = UsageSummary.fromUsage(usage);
     if (summary.isEmpty) return null;
     return ChatUsageDto(
+      contextLength: contextLength,
+      contextTokens: summary.contextTokens,
+      incomplete: summary.incomplete,
       generationPerSecond: summary.generationPerSecond,
       generationTokens: summary.generationTokens,
       promptPerSecond: summary.promptPerSecond,
@@ -1107,4 +1965,56 @@ final class ChatsService {
       loadSeconds: summary.loadSeconds,
     );
   }
+}
+
+/// The name [message]'s model went by when it answered, as the stored
+/// answer keeps it (`modelName`, or `model_name` as some servers write it);
+/// null when it kept none. The phone's header falls back to it when the
+/// model is not among those on offer (a Hermes answer's agent id after a
+/// confirmed model switch), and a window does the same.
+String? answerModelNameOf(core.ChatMessage message) => _nonEmpty(
+  (message.metadata?['modelName'] ?? message.metadata?['model_name'])
+      ?.toString(),
+);
+
+String? _nonEmpty(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
+}
+
+/// [message] and its versions, by id, in the order the server keeps them:
+/// its parent's `childrenIds`, then any the parent does not list (the
+/// versions, then the message, oldest first). Empty without versions.
+List<String> siblingIdsOf(core.ChatMessage message, core.ChatMessage? parent) {
+  if (message.versions.isEmpty) return const <String>[];
+  final own = <String>[for (final version in message.versions) version.id];
+  own.add(message.id);
+  final wanted = own.toSet();
+  final ordered = <String>[];
+  final children = parent?.metadata?['childrenIds'];
+  if (children is List) {
+    for (final child in children) {
+      final id = '$child';
+      if (wanted.contains(id) && !ordered.contains(id)) ordered.add(id);
+    }
+  }
+  for (final id in own) {
+    if (!ordered.contains(id)) ordered.add(id);
+  }
+  return ordered;
+}
+
+/// A reader that answers [activeConversationProvider] with one chat and
+/// everything else from the account's container: how the daemon asks a
+/// core rule written for the open chat about any chat.
+final class _ConversationReader {
+  _ConversationReader(this._container, this._conversation);
+
+  final ProviderContainer _container;
+  final Conversation _conversation;
+
+  T read<T>(ProviderListenable<T> provider) =>
+      identical(provider, activeConversationProvider)
+      ? _conversation as T
+      : _container.read(provider);
 }

@@ -1,0 +1,18 @@
+{
+  "text": "Plan the week",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [],
+  "temporary": false,
+  "folderId": "folder-1",
+  "chatParams": {
+    "seed": 42
+  }
+}

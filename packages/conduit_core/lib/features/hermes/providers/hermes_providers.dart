@@ -3720,6 +3720,16 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     }
   }
 
+  /// Job [id] as the gateway holds it now: read again for a change that
+  /// merges with what the job stores (its delivery), never taken from a list
+  /// read before, which another device may have changed since. A read that
+  /// fails fails it; a job no longer listed is [HermesJobNotFoundException].
+  Future<HermesJob> current(String id) async {
+    final jobs = await _load(_service);
+    return jobs.where((job) => job.id == id).firstOrNull ??
+        (throw const HermesJobNotFoundException());
+  }
+
   /// Creates a job and answers it as the server returned it, or null when
   /// the answer named no job. [deliver] and [catchUp] apply on the Desktop
   /// Gateway; the API server keeps its default (`local`, Hermes' catch-up

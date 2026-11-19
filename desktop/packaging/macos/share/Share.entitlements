@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ConduitShare.appex, signed with the hardened runtime. share/build.sh
+  replaces @APP_BUNDLE_ID@.
+
+  Every app extension runs in the App Sandbox. The one folder outside its
+  container it may write is the inbox Conduit reads shares from
+  (~/Library/Caches/<app id>.share-inbox/, ShareInbox.swift).
+
+  Why a temporary exception and not an App Group: an App Group container
+  needs a team ID prefix (or a provisioning profile) since macOS 15, else
+  the system asks the user before the app may read it. An ad-hoc build has
+  no team ID; a home-relative exception works for ad-hoc and Developer ID
+  builds alike (the Mac App Store would refuse it; Conduit is not sold
+  there). With a Developer ID team, a `<TEAM>.app.cogwheel.conduit` group
+  could replace it.
+
+  No network: the extension only copies what the host app hands it.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/Library/Caches/@APP_BUNDLE_ID@.share-inbox/</string>
+	</array>
+</dict>
+</plist>

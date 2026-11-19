@@ -1,0 +1,20 @@
+{
+  "available": true,
+  "canCreate": true,
+  "seatable": [
+    "fern",
+    "moss"
+  ],
+  "rooms": [
+    {
+      "id": "room-1",
+      "name": "Greenhouse crew",
+      "members": [],
+      "unread": false,
+      "working": false,
+      "needsYou": false
+    }
+  ],
+  "failed": true,
+  "connection": "run1:2"
+}

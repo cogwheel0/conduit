@@ -1,0 +1,5 @@
+{
+  "name": "garden_lookup",
+  "description": "Looks up a plant in the garden notebook.",
+  "inputSchemaJson": "{}"
+}

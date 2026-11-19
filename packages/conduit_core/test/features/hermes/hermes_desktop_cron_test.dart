@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
@@ -294,6 +295,84 @@ void main() {
       'catch_up': false,
     });
     check(adapter.requests.last.query).deepEquals({'profile': 'ops'});
+  });
+
+  test('a change merged with a job reads it again, never from the list '
+      'read before', () async {
+    Map<String, Object?> job(String deliver) => {
+      'id': 'job-1',
+      'name': 'Digest',
+      'prompt': 'Summarize the notes',
+      'schedule': '0 7 * * *',
+      'enabled': true,
+      'deliver': deliver,
+    };
+    final adapter = _RoutesAdapter({
+      'GET /api/cron/jobs': (200, [job('local')]),
+    });
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_service(adapter)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesJobsProvider, (_, _) {});
+    final listed = await container.read(hermesJobsProvider.future);
+    check(listed.single.deliveryTarget).equals('local');
+    final jobs = container.read(hermesJobsProvider.notifier);
+
+    // Another device turned Notify Me on since the list was read.
+    adapter.routes['GET /api/cron/jobs'] = (200, [job('local,conduit')]);
+    check((await jobs.current('job-1')).deliveryTarget).equals('local,conduit');
+
+    adapter.routes['GET /api/cron/jobs'] = (200, <Object>[]);
+    await check(jobs.current('job-1')).throws<HermesJobNotFoundException>();
+
+    adapter.routes['GET /api/cron/jobs'] = (500, {'detail': 'busy'});
+    await check(jobs.current('job-1')).throws<DioException>(
+      (e) => e.has((e) => e.response?.statusCode, 'status').equals(500),
+    );
+    check(adapter.requests.where((r) => r.method != 'GET')).isEmpty();
+  });
+
+  test('an install Hermes accepted is made even when the reload after it '
+      'fails; a refused one is not', () async {
+    final adapter = _RoutesAdapter({
+      'POST /api/mcp/catalog/install': (200, {'background': true}),
+    });
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+      ),
+      dio: Dio()..httpClientAdapter = adapter,
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) =>
+            throw StateError('No gateway in this test.'),
+      ),
+    );
+    addTearDown(service.close);
+    const entry = HermesMcpCatalogEntry(
+      name: 'tide_charts',
+      description: 'Tide tables',
+      installed: false,
+      fromDashboard: true,
+    );
+
+    check(await service.addMcpCatalogEntry(entry)).isTrue();
+
+    // Made at once: made, with nothing still installing.
+    adapter.routes['POST /api/mcp/catalog/install'] = (200, {'ok': true});
+    check(await service.addMcpCatalogEntry(entry)).isFalse();
+
+    // Refused by Hermes: an Add that failed.
+    adapter.routes['POST /api/mcp/catalog/install'] = (
+      400,
+      {'detail': 'unknown entry'},
+    );
+    await check(service.addMcpCatalogEntry(entry)).throws<Object>();
   });
 
   test('an edit sends only the delivery and policy it changes', () async {

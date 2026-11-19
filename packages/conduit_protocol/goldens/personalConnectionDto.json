@@ -1,0 +1,16 @@
+{
+  "kind": "toolServer",
+  "identity": "conduit-0a1b",
+  "name": "Buoy Readings",
+  "endpoint": "http://127.0.0.1:19341/personal",
+  "enabled": true,
+  "editable": true,
+  "description": "Synthetic buoy data.",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "bearer",
+  "hasKey": true,
+  "fingerprint": ""
+}

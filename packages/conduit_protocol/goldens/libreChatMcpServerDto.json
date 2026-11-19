@@ -1,0 +1,6 @@
+{
+  "name": "ledger_sync",
+  "toolId": "librechat:mcp:ledger_sync",
+  "toolCount": 1,
+  "needsConnection": true
+}

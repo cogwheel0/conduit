@@ -1,14 +1,25 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:collection/collection.dart';
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
+import 'package:conduit_core/features/chat/utils/openwebui_tasks.dart';
 import 'package:conduit_core/features/chat/views/chat_status_display.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart'
+    show hermesDesktopModel;
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
+import 'package:conduit_core/services/chat_completion_transport.dart'
+    show isHeldReplyUnresolvedError;
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/source_reference_helper.dart';
 import 'package:conduit_markdown/conduit_markdown.dart' as md;
 import 'package:conduit_protocol/conduit_protocol.dart';
+
+import 'apple_models_service.dart' show appleErrorType;
 
 /// Assistant messages as wire blocks: the core's display blocks
 /// ([assistantMessageBlocks]) put into [MessageBlockDto]s, with the blocks
@@ -88,10 +99,9 @@ final class MessageBlocks {
       kind: MessageBlockKind.files,
       files: chatFileDtos(files),
     ),
-    // No embed block on the wire yet: an embed shows as nothing.
-    AssistantEmbedsBlock() => MessageBlockDto(
-      kind: MessageBlockKind.text,
-      markdown: '',
+    AssistantEmbedsBlock(:final embeds) => MessageBlockDto(
+      kind: MessageBlockKind.embeds,
+      embeds: embedDtos(embeds),
     ),
     AssistantStatusBlock() => MessageBlockDto(
       kind: MessageBlockKind.status,
@@ -101,6 +111,17 @@ final class MessageBlocks {
         for (final line in block.lines)
           MessageStatusDto(
             description: line.description,
+            phrase: switch (line.phrase) {
+              null => null,
+              ChatStatusPhrase.knowledgeSearch => StatusPhrase.knowledgeSearch,
+              ChatStatusPhrase.searching => StatusPhrase.searching,
+              ChatStatusPhrase.querying => StatusPhrase.querying,
+              ChatStatusPhrase.sourcesRetrieved =>
+                StatusPhrase.sourcesRetrieved,
+              ChatStatusPhrase.processing => StatusPhrase.processing,
+            },
+            count: line.count,
+            query: line.query,
             action: line.action,
             done: line.done,
             queries: line.queries,
@@ -124,7 +145,21 @@ final class MessageBlocks {
     AssistantErrorBlock() => MessageBlockDto(
       kind: MessageBlockKind.error,
       error: block.text,
-      type: block.toolsUnsupported ? 'directToolsUnsupported' : null,
+      type: block.toolsUnsupported
+          ? 'directToolsUnsupported'
+          : isHeldReplyUnresolvedError(block.text)
+          // A polling-only server's reply Conduit stopped waiting for: the
+          // core keeps its words in English; the window says it its way.
+          ? 'heldReplyStillRunning'
+          : appleErrorType(block.text),
+      hermesError: switch (block.hermes) {
+        final surface? => hermesErrorDto(surface),
+        null => null,
+      },
+    ),
+    AssistantChangedFilesBlock(:final files) => MessageBlockDto(
+      kind: MessageBlockKind.changedFiles,
+      changedFiles: changedFileDtos(files),
     ),
     AssistantCodeExecutionBlock(:final execution) => MessageBlockDto(
       kind: MessageBlockKind.codeExecution,
@@ -143,12 +178,6 @@ final class MessageBlocks {
           <String, dynamic>{'name': ?file.name, 'url': ?file.url},
       ]),
     ),
-    // No changed-files block on the wire yet: a Hermes answer's changed
-    // files show as nothing.
-    AssistantChangedFilesBlock() => MessageBlockDto(
-      kind: MessageBlockKind.text,
-      markdown: '',
-    ),
     AssistantSourcesBlock(:final sources) => MessageBlockDto(
       kind: MessageBlockKind.sources,
       sources: chatSourceDtos(sources),
@@ -164,9 +193,9 @@ final class MessageBlocks {
       kind: MessageBlockKind.text,
       markdown: markdown,
     ),
-    // No alert block on the wire yet: an alert reads as its text.
-    md.AlertMessageBlock(:final markdown) => MessageBlockDto(
-      kind: MessageBlockKind.text,
+    md.AlertMessageBlock(:final type, :final markdown) => MessageBlockDto(
+      kind: MessageBlockKind.alert,
+      type: type,
       markdown: markdown,
     ),
     md.ReasoningMessageBlock() => _reasoningDto(block),
@@ -185,6 +214,9 @@ final class MessageBlocks {
             isError: call.isError,
             files: call.files,
             embeds: call.embeds,
+            shownEmbeds: embedDtos(
+              assistantEmbeds(call.embeds, argsText: call.arguments),
+            ),
           ),
       ],
     ),
@@ -249,6 +281,7 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
   message.metadata?['responseDone'],
   message.metadata?['openwebuiRecoverableError'],
   _deep.hash(message.files),
+  _deep.hash(message.embeds),
   _deep.hash(displayedChatFiles(message.output)),
   _deep.hash(message.attachmentIds),
   _deep.hash(message.statusHistory),
@@ -256,10 +289,13 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
   _deep.hash(message.codeExecutions),
   _deep.hash(message.sources),
   _deep.hash(message.followUps),
+  // A Hermes failure's card.
+  _deep.hash(message.metadata?[kHermesErrorSurfaceMeta]),
 );
 
 int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(
   _deep.hash(version.files),
+  _deep.hash(version.embeds),
   _deep.hash(displayedChatFiles(version.output)),
   version.error,
   _deep.hash(version.codeExecutions),
@@ -270,6 +306,10 @@ int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(
 /// Labels and links as the mobile app shows them, from the helper both
 /// apps share: Open WebUI nests a source's name differently for web
 /// results, files and knowledge bases.
+///
+/// An inline citation reads as the mobile app's badge does: the source's
+/// site ([ChatSourceDto.inlineLabel]), or with "show citation titles" its
+/// own title ([ChatSourceDto.inlineTitle]), shortened the same way.
 List<ChatSourceDto> chatSourceDtos(List<core.ChatSourceReference> sources) =>
     <ChatSourceDto>[
       for (var i = 0; i < sources.length; i++)
@@ -277,8 +317,50 @@ List<ChatSourceDto> chatSourceDtos(List<core.ChatSourceReference> sources) =>
           label: SourceReferenceHelper.getSourceLabel(sources[i], i),
           url: SourceReferenceHelper.getSourceUrl(sources[i]),
           snippet: sources[i].snippet,
+          inlineLabel: SourceReferenceHelper.formatDisplayTitle(
+            SourceReferenceHelper.getInlineSourceLabel(sources[i], i),
+          ),
+          inlineTitle: SourceReferenceHelper.formatDisplayTitle(
+            SourceReferenceHelper.getInlineSourceLabel(
+              sources[i],
+              i,
+              preferTitle: true,
+            ),
+          ),
+          type: (sources[i].type?.trim().isNotEmpty ?? false)
+              ? sources[i].type!.trim()
+              : null,
         ),
     ];
+
+/// The core's embeds, as the wire carries them.
+List<EmbedDto> embedDtos(List<AssistantEmbed> embeds) => <EmbedDto>[
+  for (final embed in embeds)
+    switch (embed.kind) {
+      AssistantEmbedKind.html => EmbedDto(
+        kind: EmbedKind.html,
+        source: embed.source,
+        argsText: embed.argsText,
+      ),
+      AssistantEmbedKind.url => EmbedDto(
+        kind: EmbedKind.url,
+        source: embed.source,
+      ),
+      AssistantEmbedKind.mcpApp => EmbedDto(
+        kind: EmbedKind.mcpApp,
+        app: mcpAppDto(embed.app!),
+      ),
+    },
+];
+
+/// [app] as the wire carries it: its input and result as JSON text.
+McpAppDto mcpAppDto(OpenWebUiMcpApp app) => McpAppDto(
+  serverId: app.serverId,
+  toolName: app.toolName,
+  binding: app.binding,
+  arguments: jsonEncode(app.arguments),
+  result: jsonEncode(app.result),
+);
 
 /// Open WebUI's file descriptors, reduced to what the window draws.
 ///
@@ -331,3 +413,71 @@ ChatFileDto? chatFileDto(Map<String, dynamic> file) {
     dataUrl: dataUrl,
   );
 }
+
+/// Open WebUI's task checklist in a conversation's [metadata], as the wire
+/// carries it.
+List<ChatTaskDto> chatTaskDtos(Map<String, dynamic>? metadata) => <ChatTaskDto>[
+  for (final task in openWebUiTasksOf(metadata))
+    ChatTaskDto(id: task.id, content: task.content, status: task.status),
+];
+
+/// A Hermes failure's card, as [now] sees it: the fixes the desktop can
+/// perform, best first (Use Credits is left to a phone or the web, so the
+/// next fix shows instead, as mobile does where it cannot perform one).
+HermesErrorDto hermesErrorDto(HermesErrorSurface surface, {DateTime? now}) {
+  final at = now ?? DateTime.now();
+  final suggestion = surface.suggestions.firstOrNull;
+  return HermesErrorDto(
+    kind: surface.kind.name,
+    blocking: surface.severityAt(at) == HermesErrorSeverity.blocking,
+    message: surface.message,
+    provider: surface.providerName,
+    model: surface.model,
+    resetsAtMs: surface.resetsAt?.millisecondsSinceEpoch,
+    partial: surface.partial,
+    actions: <String>[
+      for (final action in surface.actionsAt(at))
+        if (action != HermesErrorAction.useCredits) action.name,
+    ],
+    switchTo: suggestion == null
+        ? null
+        : HermesModelChoiceDto(
+            modelId: hermesDesktopModel(
+              modelId: suggestion.model,
+              name: suggestion.label,
+              provider: suggestion.provider,
+            ).id,
+            label: suggestion.label,
+          ),
+    billingUrl: surface.billingPageUrl,
+    providerSettingsUrl: surface.providerSettingsUrl,
+  );
+}
+
+/// The files a Hermes reply changed, each with its lines, under the full
+/// path Hermes sent (the window shortens it against the chat's working
+/// directory, `HermesWork.workingDirectory`).
+List<ChangedFileDto> changedFileDtos(List<HermesDiffFile> files) =>
+    <ChangedFileDto>[
+      for (final file in files)
+        ChangedFileDto(
+          path: file.path,
+          added: file.added,
+          removed: file.removed,
+          lines: <DiffLineDto>[
+            for (final line in file.lines)
+              DiffLineDto(
+                kind: switch (line.kind) {
+                  HermesDiffLineKind.context => DiffLineKind.context,
+                  HermesDiffLineKind.added => DiffLineKind.added,
+                  HermesDiffLineKind.removed => DiffLineKind.removed,
+                  HermesDiffLineKind.hunk => DiffLineKind.hunk,
+                  HermesDiffLineKind.note => DiffLineKind.note,
+                },
+                text: line.text,
+                oldNumber: line.oldNumber,
+                newNumber: line.newNumber,
+              ),
+          ],
+        ),
+    ];

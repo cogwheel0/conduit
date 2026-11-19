@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "kind": "toolCall",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "callId": "call-1",
+  "toolName": "garden_lookup",
+  "argumentsJson": "{}"
+}

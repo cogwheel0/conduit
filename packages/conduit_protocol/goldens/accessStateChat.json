@@ -1,0 +1,19 @@
+{
+  "kind": "chat",
+  "id": "chat-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": "Rowan Vale"
+    }
+  ],
+  "audience": "open",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": false,
+  "allowPublic": true,
+  "allowOpen": true
+}

@@ -1,0 +1,33 @@
+{
+  "summary": {
+    "id": "task-agent",
+    "name": "Nightly tidy",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "modelName": "Codex · gpt-5.1",
+  "target": "chat",
+  "terminal": true,
+  "terminalId": "buildbox",
+  "terminalName": "Build box",
+  "workingDirectory": "/home/demo/sketches",
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "",
+    "model": "gpt-5.1"
+  },
+  "nextRuns": []
+}

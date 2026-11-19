@@ -1,0 +1,16 @@
+{
+  "baseUrl": "https://chat.example.org",
+  "title": "Harbour LibreChat",
+  "passwordSignIn": true,
+  "ldap": false,
+  "ldapUsesUsername": false,
+  "ssoProviders": [
+    {
+      "kind": "openid",
+      "label": "Harbour ID"
+    },
+    {
+      "kind": "github"
+    }
+  ]
+}

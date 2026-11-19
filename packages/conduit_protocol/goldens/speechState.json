@@ -1,0 +1,20 @@
+{
+  "progress": {
+    "status": "paused",
+    "reading": 4,
+    "chatId": "chat-harbour",
+    "messageId": "answer-harbour",
+    "engine": "server",
+    "sentence": 0,
+    "wordsReported": false,
+    "elapsedMs": 1200,
+    "durationMs": 5300,
+    "canSeek": true,
+    "canSeekSentences": true,
+    "seeking": false
+  },
+  "sentences": [
+    "The harbour lights come on.",
+    "A boat drifts by."
+  ]
+}

@@ -13,8 +13,8 @@ import '../../../l10n/app_localizations.dart';
 String personalConnectionSaveError(AppLocalizations l10n, Object error) {
   return switch (error) {
     PersonalConnectionEditException(:final failure) => switch (failure) {
-      PersonalConnectionEditFailure.notFound =>
-        l10n.personalConnectionsNotFound,
+      PersonalConnectionEditFailure.notFound ||
+      PersonalConnectionEditFailure.changed => l10n.personalConnectionsNotFound,
       PersonalConnectionEditFailure.duplicate =>
         l10n.personalConnectionsDuplicate,
       PersonalConnectionEditFailure.invalid =>

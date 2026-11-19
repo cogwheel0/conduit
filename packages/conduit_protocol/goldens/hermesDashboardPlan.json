@@ -1,0 +1,5 @@
+{
+  "loginUrl": "https://agent.example.test/login",
+  "origin": "https://agent.example.test",
+  "supported": false
+}

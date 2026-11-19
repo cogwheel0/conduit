@@ -1,0 +1,30 @@
+{
+  "access": "allowed",
+  "owner": "p1",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [],
+  "terminals": [
+    {
+      "kind": "terminal",
+      "identity": "http://127.0.0.1:9100",
+      "name": "Dock Shell",
+      "endpoint": "",
+      "enabled": false,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false,
+      "fingerprint": ""
+    }
+  ],
+  "cleared": [
+    "Old Gauge"
+  ],
+  "failed": false,
+  "savedForPreviousAccount": false
+}

@@ -17,12 +17,47 @@ part 'capabilities.g.dart';
 @freezed
 abstract class Capabilities with _$Capabilities {
   const factory Capabilities({
-    // Sidebar sections. Each gates a whole navigation entry.
+    // Sidebar sections. Each gates a whole navigation entry, by the rule
+    // the phone's tab bar follows (`isSidebarTabVisible` in the core).
+    /// Some workspace section can be managed: the Workspace section. Which
+    /// ones are the `workspace*` flags below.
     @Default(false) bool workspace,
     @Default(false) bool notes,
     @Default(false) bool channels,
+
+    /// Hermes's sessions: Hermes is on (or the only backend).
     @Default(false) bool hermes,
     @Default(false) bool terminal,
+    @Default(false) bool calendar,
+
+    /// Scheduled tasks.
+    @Default(false) bool automations,
+
+    /// Scheduled tasks are offered as a destination: [automations], and
+    /// Settings' Advanced is on (as the phone shows them).
+    @Default(false) bool scheduledTasks,
+
+    /// Hermes is the only backend: its sessions take the chats' place, and
+    /// Open WebUI's own sections are hidden.
+    @Default(false) bool hermesOnly,
+
+    // The workspace sections the account may manage.
+    @Default(false) bool workspaceModels,
+    @Default(false) bool workspaceKnowledge,
+    @Default(false) bool workspacePrompts,
+    @Default(false) bool workspaceTools,
+    @Default(false) bool workspaceSkills,
+
+    // Open WebUI account features, for any model.
+    /// Folders can be listed and made.
+    @Default(false) bool folders,
+
+    /// Webhook destinations for notifications.
+    @Default(false) bool webhooks,
+    @Default(false) bool memories,
+    @Default(false) bool codeInterpreter,
+    @Default(false) bool imageGeneration,
+    @Default(false) bool webSearch,
 
     // Connection kinds.
     @Default(false) bool directConnections,
@@ -47,6 +82,10 @@ abstract class Capabilities with _$Capabilities {
     @Default(false) bool messageRating,
     @Default(false) bool tags,
     @Default(false) bool bulkSelection,
+
+    /// A LibreChat account owns the chats, and what its role may use there.
+    /// Null otherwise.
+    LibreChatFeatures? libreChat,
   }) = _Capabilities;
 
   factory Capabilities.fromJson(Map<String, dynamic> json) =>
@@ -55,4 +94,28 @@ abstract class Capabilities with _$Capabilities {
   /// Everything off. The state a fresh daemon reports before a server is
   /// selected, and the safe default if a capability probe fails.
   static const Capabilities none = Capabilities();
+}
+
+/// What the signed-in LibreChat user may use: the server's interface
+/// switches, the role's permissions and the agents endpoint's capabilities
+/// (the core's `LibreChatCapabilities`).
+@freezed
+abstract class LibreChatFeatures with _$LibreChatFeatures {
+  const factory LibreChatFeatures({
+    @Default(false) bool prompts,
+    @Default(false) bool memories,
+    @Default(false) bool createMemories,
+    @Default(false) bool updateMemories,
+    @Default(false) bool optOutMemories,
+    @Default(false) bool webSearch,
+    @Default(false) bool codeInterpreter,
+    @Default(false) bool fileSearch,
+    @Default(false) bool mcpServers,
+    @Default(false) bool agents,
+    @Default(false) bool sharedLinks,
+    @Default(false) bool temporaryChat,
+  }) = _LibreChatFeatures;
+
+  factory LibreChatFeatures.fromJson(Map<String, dynamic> json) =>
+      _$LibreChatFeaturesFromJson(json);
 }

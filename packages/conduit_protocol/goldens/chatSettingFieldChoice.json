@@ -1,0 +1,12 @@
+{
+  "key": "reasoning_effort",
+  "kind": "choice",
+  "mode": "modelDefault",
+  "text": "",
+  "choices": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true
+}

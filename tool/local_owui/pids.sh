@@ -12,20 +12,60 @@ pid_identity() {
   ps -ww -p "$1" -o lstart=,command= 2>/dev/null || true
 }
 
-# Records PID, just started, in FILE. Waits (a few seconds at most) for a
-# `nohup` in front of it to hand over to the program, whose command line is
-# the one to remember. Writes nothing if the process is already gone.
+# Records PID, just started, in FILE. Waits (a few seconds at most) for what
+# runs first to hand over to the program, whose command line is the one to
+# remember: the shell's own copy before it runs the command, a `nohup` in
+# front of it, a launcher script such as Homebrew's `dart`, which runs the
+# Dart VM in its place. The command line counts as settled once three reads
+# a tenth of a second apart agree. Writes nothing if the process is gone. A
+# launcher slower than that is caught by pid_refresh once the program serves.
 pid_record() {
-  local file=$1 pid=$2 command identity
+  local file=$1 pid=$2 command previous= same=0 identity
+  # Whatever an earlier run left is not this process.
+  rm -f "$file"
   for _ in $(seq 1 50); do
     command=$(ps -ww -p "$pid" -o command= 2>/dev/null || true)
+    [ -n "$command" ] || return 0
     case "$command" in
-      nohup\ *) sleep 0.1 ;;
-      *) break ;;
+      nohup\ *) same=0 ;;
+      *)
+        if [ "$command" = "$previous" ]; then
+          same=$((same + 1))
+          [ "$same" -ge 2 ] && break
+        else
+          same=0
+        fi
+        ;;
     esac
+    previous=$command
+    sleep 0.1
   done
   identity=$(pid_identity "$pid")
   [ -n "$identity" ] || return 0
+  printf '%s\n%s\n' "$pid" "$identity" > "$file"
+}
+
+# Records again, from what `ps` says now, the process FILE names, for a
+# program that may have been started through a launcher: once it answers on
+# its port, the launcher has handed over, however slow it was. A hand-over
+# keeps the pid and its start time and changes only the command line, so the
+# record is rewritten only while the start time is still the recorded one: a
+# pid that another process has taken since is never adopted.
+pid_refresh() {
+  local file=$1 pid saved started identity
+  [ -f "$file" ] || return 0
+  pid=$(sed -n 1p "$file")
+  saved=$(sed -n 2p "$file")
+  [ -n "$pid" ] && [ -n "$saved" ] || return 0
+  # One read, so the start time checked belongs to the identity written
+  # (`lstart`, its first 24 characters, is fixed-width).
+  identity=$(pid_identity "$pid")
+  [ -n "$identity" ] || return 0
+  started=${identity:0:24}
+  case "$saved" in
+    "$started"*) ;;
+    *) return 0 ;;
+  esac
   printf '%s\n%s\n' "$pid" "$identity" > "$file"
 }
 

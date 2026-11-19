@@ -1,0 +1,16 @@
+{
+  "owner": "p1",
+  "kind": "terminal",
+  "draft": {
+    "name": "",
+    "description": "",
+    "url": "http://127.0.0.1:9100",
+    "specType": "url",
+    "path": "",
+    "spec": "",
+    "authType": "bearer",
+    "key": "",
+    "keyMode": "replace",
+    "enabled": true
+  }
+}

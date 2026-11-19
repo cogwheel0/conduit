@@ -1,0 +1,22 @@
+{
+  "id": "room-1",
+  "name": "Greenhouse crew",
+  "members": [
+    {
+      "memberId": "fern",
+      "profile": "fern",
+      "handle": "fern",
+      "name": "Fern"
+    },
+    {
+      "memberId": "moss",
+      "profile": "moss",
+      "handle": "moss",
+      "name": "Moss"
+    }
+  ],
+  "updatedAtMs": 1767225600000,
+  "unread": true,
+  "working": true,
+  "needsYou": true
+}

@@ -1,0 +1,33 @@
+[package]
+name = "conduit-daemon"
+description = "Conduit Desktop's link to conduitd: supervisor, JSON-RPC client and HTTP client (no GPUI)"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+conduit-protocol = { path = "../protocol" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process"] }
+tokio-tungstenite = "0.28"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Loopback HTTP only: no TLS and no system proxy (a proxy must never see the
+# session token).
+reqwest = { version = "0.13", default-features = false, features = ["stream"] }
+bytes = "1"
+base64 = "0.22"
+rand = "0.9"
+percent-encoding = "2"
+libc = "0.2"
+log = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+
+[dev-dependencies]
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "test-util"] }
+
+[lints]
+workspace = true

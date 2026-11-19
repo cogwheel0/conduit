@@ -1,0 +1,10 @@
+{
+  "name": "shop",
+  "url": "http://127.0.0.1:9000/mcp",
+  "command": "python3",
+  "args": [
+    "server.py",
+    "--demo"
+  ],
+  "apiKey": "demo-key"
+}

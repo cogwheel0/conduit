@@ -3,5 +3,9 @@
   "chatId": "local:hermes_s1",
   "title": "Plan the trip",
   "preview": "Where to?",
-  "updatedAtMs": 1767225600000
+  "updatedAtMs": 1767225600000,
+  "pinned": true,
+  "archived": false,
+  "hidden": false,
+  "running": false
 }

@@ -1,0 +1,8 @@
+{
+  "id": "saved:msg-assistant-1:call_a1",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "toolApproval",
+  "title": "tide_table",
+  "message": "{}",
+  "questions": []
+}

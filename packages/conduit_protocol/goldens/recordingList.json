@@ -1,0 +1,11 @@
+{
+  "stored": true,
+  "recordings": [
+    {
+      "id": "rec-1",
+      "createdAt": 0,
+      "byteCount": 32000,
+      "durationMs": 0
+    }
+  ]
+}

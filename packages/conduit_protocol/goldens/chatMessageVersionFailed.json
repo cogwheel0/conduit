@@ -1,0 +1,11 @@
+{
+  "id": "msg-b2",
+  "content": "",
+  "timestampMs": 1758412800000,
+  "sources": [],
+  "blocks": [],
+  "slot": 1,
+  "merged": "Merged.",
+  "streaming": false,
+  "errorCode": "rpc.serverError"
+}

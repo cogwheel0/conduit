@@ -3,7 +3,24 @@
     {
       "id": "s2",
       "chatId": "local:hermes_s2",
-      "title": ""
+      "title": "",
+      "pinned": false,
+      "archived": false,
+      "hidden": false,
+      "running": false
     }
-  ]
+  ],
+  "archived": [
+    {
+      "id": "s3",
+      "chatId": "local:hermes_s3",
+      "title": "",
+      "pinned": false,
+      "archived": true,
+      "hidden": false,
+      "running": false
+    }
+  ],
+  "archivedFailed": false,
+  "hiddenScheduledRuns": 4
 }

@@ -8,8 +8,9 @@
 // the platform UI seam, the package boundaries and the ARB checks when their
 // inputs changed; the analyzer for each workspace member that changed and for
 // every member that depends on one; the test files beside the changed files,
-// or the whole suite of a member whose tests sit beside no source file; and
-// the relay's format and lint checks.
+// or the whole suite of a member whose tests sit beside no source file; the
+// protocol's generated Rust; and the format and build checks of the relay and
+// of the desktop app's Cargo workspace.
 //
 // CI still runs the full test suites and the jobs listed at the end of the
 // summary. Steps run one at a time: analyzers started together race to build
@@ -25,6 +26,22 @@ const String appMember = '.';
 /// source file. Any change in one runs its whole suite, which takes seconds.
 const Set<String> wholeSuiteMembers = {'packages/conduit_protocol'};
 
+/// The paths that start the Desktop workflow (.github/workflows/desktop.yml).
+const List<String> desktopWorkflowPaths = [
+  'desktop/',
+  'packages/conduit_protocol/',
+  // The app's strings are generated from the ARBs, and its bundle carries
+  // conduitd, built from the core and markdown packages.
+  'lib/l10n/',
+  'apps/daemon/',
+  'packages/conduit_core/lib/',
+  'packages/conduit_core/pubspec.yaml',
+  'packages/conduit_markdown/lib/',
+  'packages/conduit_markdown/pubspec.yaml',
+  '.github/workflows/desktop.yml',
+  '.github/workflows/release-desktop.yml',
+];
+
 /// One command of the plan.
 class Step {
   const Step(
@@ -32,6 +49,8 @@ class Step {
     this.command, {
     this.directory = '.',
     this.optional = false,
+    this.needs,
+    this.needsIn = '.',
   });
 
   final String name;
@@ -43,6 +62,14 @@ class Step {
   /// Whether the step is skipped, not failed, when its program is missing.
   /// Only for a toolchain a Flutter checkout can do without.
   final bool optional;
+
+  /// Another program the command runs, such as the generator's rustfmt. An
+  /// [optional] step is skipped when it is missing too.
+  final String? needs;
+
+  /// Where [needs] is probed: the generator runs rustfmt in `desktop/`,
+  /// where the pinned toolchain applies.
+  final String needsIn;
 
   @override
   String toString() =>
@@ -329,6 +356,43 @@ Plan planChecks(
       );
   }
 
+  if (any(
+    (path) =>
+        path.startsWith('packages/conduit_protocol/') ||
+        path == 'desktop/crates/protocol/src/generated.rs',
+  )) {
+    steps.add(
+      const Step(
+        'Protocol Rust types',
+        ['dart', 'run', 'tool/generate_rust.dart', '--check'],
+        directory: 'packages/conduit_protocol',
+        optional: true,
+        needs: 'rustfmt',
+        needsIn: 'desktop',
+      ),
+    );
+  }
+
+  if (any((path) => path.startsWith('desktop/'))) {
+    steps
+      ..add(
+        const Step(
+          'Desktop format',
+          ['cargo', 'fmt', '--all', '--check'],
+          directory: 'desktop',
+          optional: true,
+        ),
+      )
+      ..add(
+        const Step(
+          'Desktop build',
+          ['cargo', 'check', '--workspace', '--all-targets', '--locked'],
+          directory: 'desktop',
+          optional: true,
+        ),
+      );
+  }
+
   return Plan(steps, [
     // A fixture or a helper under test/ can change what any test does.
     if (affected.isNotEmpty ||
@@ -342,7 +406,7 @@ Plan planChecks(
       'the full Dart test suites',
     if (any((path) => path.startsWith('packages/conduit_markdown/')))
       'Web-safe packages (conduit_markdown compiled to JS and run)',
-    // Mirrors the android-changes job in .github/workflows/ci.yml.
+    // Mirrors the changes job's `android` output in .github/workflows/ci.yml.
     if (any(
       (path) =>
           path.startsWith('android/') ||
@@ -372,6 +436,8 @@ Plan planChecks(
           path.startsWith('assets/computer/'),
     ))
       'Computer viewer (npm test, build and the shipped bundle)',
+    if (any((path) => desktopWorkflowPaths.any(path.startsWith)))
+      'Desktop workflow (cargo tests, builds and the generated Rust)',
   ]);
 }
 
@@ -487,7 +553,7 @@ Future<void> main(List<String> args) async {
   for (final (step, outcome, elapsed) in results) {
     stdout.writeln(
       '${outcome.padRight(4)}  ${step.name}  ${elapsed.inSeconds}s'
-      '${outcome == 'skip' ? '  (${step.command.first} is not installed)' : ''}',
+      '${outcome == 'skip' ? '  (${step.needs ?? step.command.first} is not installed)' : ''}',
     );
   }
   _printLeftToCi(plan);
@@ -502,6 +568,12 @@ void _printLeftToCi(Plan plan) {
 /// `pass` or `FAIL`. A step whose program is not installed fails too, unless
 /// it is [Step.optional], which gives `skip`.
 Future<String> _run(Step step) async {
+  final needs = step.needs;
+  if (step.optional &&
+      needs != null &&
+      !await _installed(needs, step.needsIn)) {
+    return 'skip';
+  }
   try {
     final process = await Process.start(
       step.command.first,
@@ -523,6 +595,20 @@ Future<String> _run(Step step) async {
     if (step.optional && error.errorCode == 2) return 'skip';
     stderr.writeln('Cannot start ${step.command.first}. Is it installed?');
     return 'FAIL';
+  }
+}
+
+/// Whether [program] runs in [directory] (`--version` exits 0). A rustup
+/// proxy without the pinned toolchain or component starts but fails.
+Future<bool> _installed(String program, String directory) async {
+  try {
+    final result = await Process.run(program, const [
+      '--version',
+    ], workingDirectory: directory);
+    return result.exitCode == 0;
+  } on ProcessException catch (error) {
+    // Missing (2); any other start error is the step's to report.
+    return error.errorCode != 2;
   }
 }
 

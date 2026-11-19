@@ -1,0 +1,9 @@
+{
+  "currentVersion": "0.9.0-beta.4",
+  "languageCode": "zh",
+  "scriptCode": "Hant",
+  "catalogs": {
+    "en": "{}",
+    "zh_Hant": "{}"
+  }
+}

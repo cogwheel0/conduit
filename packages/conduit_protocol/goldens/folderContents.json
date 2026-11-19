@@ -15,7 +15,16 @@
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     }
   ]
 }

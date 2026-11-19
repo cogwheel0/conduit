@@ -3,7 +3,10 @@ import 'package:conduit_core/features/direct_connections/models/openwebui_direct
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_thinking.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -29,7 +32,7 @@ final class DirectService {
       directConnectionProfilesProvider.future,
     );
     await _settleAccountSources();
-    final account = await _openWebUi();
+    final (snapshot: account, failed: accountFailed) = await _openWebUi();
     return DirectConnectionList(
       connections: <DirectConnectionSummary>[
         for (final profile in profiles)
@@ -50,13 +53,107 @@ final class DirectService {
       ),
       preferred:
           _container.read(preferredBackendProvider) == PreferredBackend.direct,
-      usable: profiles.any(
+      usable: await _usable(profiles),
+      openWebUiLoadFailed: accountFailed,
+    );
+  }
+
+  /// Whether Direct can carry the app, as the core decides it when the
+  /// last Open WebUI account signs out (`_fallBackWithoutOpenWebUi`): any
+  /// effective profile usable -- Apple's on-device one too, while the Mac
+  /// offers it -- so a window the core handed over to Direct is a Direct
+  /// window. The stored connections alone when that list cannot be read.
+  Future<bool> _usable(List<DirectConnectionProfile> stored) async {
+    try {
+      final effective = await readSettled(
+        _container,
+        effectiveDirectConnectionProfilesFutureProvider.future,
+      );
+      return effective.any((profile) => profile.isUsable);
+    } on Object {
+      return stored.any(
         (profile) =>
             profile.isUsable &&
             (profile.adapterKey == kOpenAiCompatibleAdapterKey ||
                 profile.adapterKey == kOllamaAdapterKey),
-      ),
+      );
+    }
+  }
+
+  /// The Open WebUI account's connections read again, as mobile does when
+  /// its page opens, then the list.
+  Future<DirectConnectionList> reload() async {
+    if (_container.read(openWebUiDirectConnectionsAvailableProvider)) {
+      try {
+        await _container
+            .read(openWebUiDirectConnectionsProvider.notifier)
+            .reload();
+      } on Object {
+        // The list says so; the last connections read stay listed.
+      }
+    }
+    return list();
+  }
+
+  /// What applies to every connection's models: images per request, and
+  /// the context limits of the models that report no window of their own
+  /// (mobile's Context Compaction).
+  Future<DirectOptions> options() async {
+    List<Model> models;
+    try {
+      models = (await readSettled(
+        _container,
+        directModelDiscoveryProvider.future,
+      )).models;
+    } on Object {
+      // No models listed now; the images setting still applies.
+      models = const <Model>[];
+    }
+    final overrides = _container.read(directContextLengthOverridesProvider);
+    return DirectOptions(
+      imagesPerRequest: _container.read(directMaxImagesPerRequestProvider),
+      imagesPerRequestChoices: kDirectMaxImagesPerRequestOptions,
+      contextModels: <DirectContextModel>[
+        for (final model in models)
+          if (directModelAdvertisedContextLength(model) == null)
+            DirectContextModel(
+              id: model.id,
+              name: model.name,
+              connection: model.metadata?['profileName'] as String?,
+              limit: overrides[model.id] ?? kDefaultDirectContextLength,
+              ollama: model.metadata?['adapterKey'] == kOllamaAdapterKey,
+              logo: directModelLogoAvatarUrl(model)
+                  ?.substring(kModelLogoUrlScheme.length),
+            ),
+      ],
+      contextLimitChoices: kDirectContextLengthOptions,
     );
+  }
+
+  Future<DirectOptions> setImagesPerRequest(int count) async {
+    if (!kDirectMaxImagesPerRequestOptions.contains(count)) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: '$count is not one of the choices',
+      );
+    }
+    await _container
+        .read(directMaxImagesPerRequestProvider.notifier)
+        .set(count);
+    return options();
+  }
+
+  Future<DirectOptions> setContextLimit(DirectContextLimit request) async {
+    if (request.modelId.trim().isEmpty || request.tokens <= 0) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        debugMessage: 'a model and a positive limit',
+      );
+    }
+    await _container
+        .read(directContextLengthOverridesProvider.notifier)
+        .set(request.modelId, request.tokens);
+    return options();
   }
 
   /// Waits for what decides whether the account can hold connections: the
@@ -90,26 +187,37 @@ final class DirectService {
   }
 
   /// The connections kept in the Open WebUI account, when the server
-  /// allows them and they could be read.
-  Future<OpenWebUiDirectConnectionsSnapshot?> _openWebUi() async {
+  /// allows them and they could be read, with whether this read of them
+  /// [failed]: the two go together, so another read meanwhile (another
+  /// window's, another account's) never lends a list its own outcome.
+  Future<({OpenWebUiDirectConnectionsSnapshot? snapshot, bool failed})>
+  _openWebUi() async {
     if (!_container.read(openWebUiDirectConnectionsAvailableProvider)) {
-      return null;
+      return (snapshot: null, failed: false);
     }
     try {
-      return await readSettled(
+      final snapshot = await readSettled(
         _container,
         openWebUiDirectConnectionsProvider.future,
+      );
+      // A failed reload keeps the last snapshot as data, with the error.
+      return (
+        snapshot: snapshot,
+        failed: _container.read(openWebUiDirectConnectionsProvider).hasError,
       );
     } on Object {
       // Unreadable account settings should not hide this computer's own
       // connections.
-      return null;
+      return (
+        snapshot: _container.read(openWebUiDirectConnectionsProvider).value,
+        failed: true,
+      );
     }
   }
 
   /// [id]'s record in the Open WebUI account, if it is one of those.
   Future<OpenWebUiDirectConnectionRecord?> _accountRecord(String? id) async =>
-      id == null ? null : (await _openWebUi())?.recordByProfileId(id);
+      id == null ? null : (await _openWebUi()).snapshot?.recordByProfileId(id);
 
   Future<DirectConnectionList> save(DirectConnectionEdit edit) async {
     final record = await _accountRecord(edit.id);
@@ -177,10 +285,12 @@ final class DirectService {
       if (record == null) {
         await controller.add(profile);
       } else {
+        // The sign-in the form chose: Open WebUI keeps a key only under
+        // bearer.
         await controller.updateConnection(
           record,
           profile,
-          authType: record.authType,
+          authType: openWebUiAuthType(named, record.authType),
         );
       }
     } on StateError catch (error) {
@@ -289,6 +399,11 @@ final class DirectService {
             loaded: loaded?.contains(model.id),
             keepAlive: profile.ollamaKeepAliveFor(model.id),
             thinking: profile.ollamaThinkingFor(model.id)?.storageValue,
+            logo: installedModelLogoCatalog?.logoFor(
+              remoteModelId: model.id,
+              baseHost: Uri.tryParse(profile.baseUrl)?.host,
+              adapterKey: profile.adapterKey,
+            ),
           ),
       ],
     );
@@ -403,11 +518,20 @@ final class DirectService {
     return found;
   }
 
+  /// The Open WebUI `auth_type` to store for an account connection [edit]
+  /// changes, [stored] before it.
+  static String openWebUiAuthType(DirectConnectionEdit edit, String stored) =>
+      switch (edit.apiKey) {
+        null => stored,
+        final key when key.trim().isEmpty => 'none',
+        _ => 'bearer',
+      };
+
   /// Whether [edit] typed the key or the headers again, which is what lets
   /// them move with a URL to a new origin. A client certificate typed for
   /// the new place is not: the core keeps no TLS setting across origins.
   static bool _secretsConfirmed(DirectConnectionEdit edit) =>
-      edit.apiKey != null || (edit.customHeaders?.isNotEmpty ?? false);
+      edit.apiKey != null || typesHeaders(edit.customHeaders);
 
   /// [edit] over [previous], or a new profile. Secrets follow the servers
   /// rule: null keeps, empty clears.
@@ -423,9 +547,17 @@ final class DirectService {
   ) {
     final applied = _apply(edit, previous);
     if (previous == null) return applied;
+    // Somewhere else, only what was typed again goes along: a header typed
+    // again takes no saved key, and a key no saved header.
+    final moved = previous.origin != applied.origin
+        ? applied.copyWith(
+            apiKey: edit.apiKey == null ? null : applied.apiKey,
+            customHeaders: mergeCustomHeaders(edit.customHeaders, null),
+          )
+        : applied;
     return DirectConnectionProfile.secureUpdate(
       previous: previous,
-      next: applied,
+      next: moved,
       secretsConfirmedForNewOrigin: _secretsConfirmed(edit),
     );
   }
@@ -470,7 +602,7 @@ final class DirectService {
         modelIdPrefix: edit.modelIdPrefix,
         enabled: edit.enabled,
         apiKey: key(edit.apiKey, null),
-        customHeaders: edit.customHeaders ?? const <String, String>{},
+        customHeaders: mergeCustomHeaders(edit.customHeaders, null),
         manualModelIds: edit.manualModelIds,
         allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
         tags: tags,
@@ -499,7 +631,10 @@ final class DirectService {
       modelIdPrefix: edit.modelIdPrefix,
       enabled: edit.enabled,
       apiKey: key(edit.apiKey, previous.apiKey),
-      customHeaders: edit.customHeaders ?? previous.customHeaders,
+      customHeaders: mergeCustomHeaders(
+        edit.customHeaders,
+        previous.customHeaders,
+      ),
       manualModelIds: edit.manualModelIds,
       allowSelfSignedCertificates: edit.allowSelfSignedCertificates,
       tags: tags,
@@ -556,3 +691,26 @@ final class DirectService {
         ollamaCloud: profile.isOllamaCloud,
       );
 }
+
+/// Custom headers as an edit gives them over [stored]: the window knows
+/// saved headers by name only, so null keeps them, an empty set clears them,
+/// and otherwise each header given replaces the saved one of its name (in
+/// any case), an empty value taking it away.
+Map<String, String> mergeCustomHeaders(
+  Map<String, String>? given,
+  Map<String, String>? stored,
+) {
+  if (given == null) return stored ?? const <String, String>{};
+  if (given.isEmpty) return const <String, String>{};
+  final out = <String, String>{...?stored};
+  for (final MapEntry(:key, :value) in given.entries) {
+    out.removeWhere((name, _) => name.toLowerCase() == key.toLowerCase());
+    if (value.trim().isNotEmpty) out[key] = value;
+  }
+  return out;
+}
+
+/// Whether [headers] types a header value again (an empty set, or only
+/// headers taken away, types none).
+bool typesHeaders(Map<String, String>? headers) =>
+    headers?.values.any((value) => value.trim().isNotEmpty) ?? false;

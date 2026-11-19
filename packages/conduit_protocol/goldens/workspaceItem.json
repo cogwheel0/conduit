@@ -10,5 +10,8 @@
   "updatedAtMs": 1767225600000,
   "tags": [
     "writing"
-  ]
+  ],
+  "external": false,
+  "hidden": true,
+  "functionCount": 2
 }

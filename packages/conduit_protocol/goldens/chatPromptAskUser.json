@@ -1,0 +1,26 @@
+{
+  "id": "live:42",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "askUser",
+  "title": "",
+  "message": "",
+  "questions": [
+    {
+      "id": "when",
+      "header": "Departure",
+      "question": "When should the boat leave?",
+      "options": [
+        {
+          "label": "Morning",
+          "description": ""
+        },
+        {
+          "label": "Evening",
+          "description": ""
+        }
+      ],
+      "allowOther": true
+    }
+  ],
+  "expiresAtMs": 1758412920000
+}

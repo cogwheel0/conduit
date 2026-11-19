@@ -1,0 +1,13 @@
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "public"
+}

@@ -1,0 +1,16 @@
+{
+  "options": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": "",
+      "targetId": ""
+    },
+    {
+      "id": "weather",
+      "kind": "tool",
+      "name": "Weather",
+      "targetId": "weather"
+    }
+  ]
+}

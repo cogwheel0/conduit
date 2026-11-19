@@ -1,0 +1,5 @@
+{
+  "outcome": "needsConfirmation",
+  "confirmation": "sendSession",
+  "host": "chat.home.example.net:8080"
+}

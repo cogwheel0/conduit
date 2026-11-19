@@ -1,0 +1,7 @@
+{
+  "id": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+  "baseUrl": "https://chat.example.org/chat",
+  "title": "chat.example.org",
+  "isActive": false,
+  "hasSession": false
+}

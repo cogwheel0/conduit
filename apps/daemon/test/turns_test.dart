@@ -6,13 +6,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatSessionRegistryProvider;
+    show
+        chatMessagesProvider,
+        chatSessionRegistryProvider,
+        isChatStreamingProvider;
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
+    show chatDraftQueueAdmissionWaitProvider;
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show terminalDisplayFileProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/chat_prompts_service.dart';
 import 'package:test/test.dart';
 
 import 'support/null_sink.dart';
@@ -31,6 +37,7 @@ void main() {
   late TurnsService turns;
   late ChatsService chats;
   late UiRequestsService ui;
+  late ChatPromptsService prompts;
   late String model;
   final windows = <String, List<EventEnvelope>>{};
   final previousLinger = TurnsService.lingerAfterTurn;
@@ -93,7 +100,13 @@ void main() {
     model = DirectModelId.encode(saved.connections.single.id, 'scripted-model');
     events = EventBus();
     ui = UiRequestsService(events);
-    turns = TurnsService(runtime.container, events, uiRequests: ui);
+    prompts = ChatPromptsService(events);
+    turns = TurnsService(
+      runtime.container,
+      events,
+      uiRequests: ui,
+      chatPrompts: prompts,
+    );
     chats = ChatsService(runtime.container, events: events);
   });
 
@@ -246,6 +259,57 @@ void main() {
     await turns.stop(accepted.chatId);
     provider.release('stop');
   });
+
+  test(
+    'Stop ends an answer left generating with nothing behind it, and the '
+    'chat takes the next message',
+    () async {
+      open('stranded');
+      final first = await turns.send(SendTurn(model: model, text: 'brief'));
+      subscribeWindow(events, turns, 'stranded', <String>[first.chatId]);
+      await until(() => ended('stranded', first.assistantMessageId));
+      // What an earlier build could leave (a request that never went out):
+      // the answer still marked as generating, with no run behind it.
+      final scope = await turns.holdScope(first.chatId);
+      var held = true;
+      addTearDown(() {
+        if (held) turns.releaseScope(first.chatId);
+      });
+      scope
+          .read(chatMessagesProvider.notifier)
+          .updateLastMessageWithFunction((m) => m.copyWith(isStreaming: true));
+      expect(scope.read(isChatStreamingProvider), isTrue);
+      expect(turns.activeChatIds, isNot(contains(first.chatId)));
+      await expectLater(
+        turns.send(
+          SendTurn(model: model, chatId: first.chatId, text: 'still there?'),
+        ),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.conflict,
+          ),
+        ),
+      );
+      final heard = of('stranded', ConduitEvents.chatsChanged).length;
+
+      await turns.stop(first.chatId);
+      expect(scope.read(isChatStreamingProvider), isFalse);
+      expect(scope.read(chatMessagesProvider).last.isStreaming, isFalse);
+      // The windows read the chat again: Send is back.
+      expect(
+        of('stranded', ConduitEvents.chatsChanged).length,
+        greaterThan(heard),
+      );
+      held = false;
+      turns.releaseScope(first.chatId);
+      final next = await turns.send(
+        SendTurn(model: model, chatId: first.chatId, text: 'still there?'),
+      );
+      await until(() => ended('stranded', next.assistantMessageId));
+    },
+  );
 
   test('a second turn in a busy chat is refused', () async {
     final accepted = await turns.send(
@@ -458,15 +522,39 @@ void main() {
           },
           acknowledge: (response) => acknowledged = response,
         );
-    await until(() => of('prompted', ConduitEvents.uiRequest).isNotEmpty);
-    final asked = UiRequest.fromJson(
-      of('prompted', ConduitEvents.uiRequest).single.payload,
+    // It docks in its chat (`chatPrompts.changed`), not as a `ui.request`.
+    await until(
+      () => of('prompted', ConduitEvents.chatPromptsChanged).isNotEmpty,
     );
-    expect(asked.kind, UiRequestKind.confirm);
-    expect(asked.messageArgs['title'], 'Delete the draft?');
-    ui.respond(UiResponse(requestId: asked.requestId, choice: 'allow'));
+    final asked = ChatPromptState.fromJson(
+      of('prompted', ConduitEvents.chatPromptsChanged).last.payload,
+    ).prompt!;
+    expect(asked.kind, ChatPromptKind.confirmation);
+    expect(asked.title, 'Delete the draft?');
+    expect(asked.message, 'It cannot return.');
+    expect(of('prompted', ConduitEvents.uiRequest), isEmpty);
+    expect(
+      (await prompts.get(ChatPromptRef(chatId: accepted.chatId))).prompt?.id,
+      asked.id,
+    );
+    final decided = await prompts.decide(
+      ChatPromptDecision(
+        chatId: accepted.chatId,
+        promptId: asked.id,
+        approved: true,
+      ),
+    );
+    expect(decided.accepted, isTrue);
     await until(() => acknowledged != null);
     expect(acknowledged, isTrue);
+    // Answered, its card goes from every window.
+    await until(
+      () =>
+          ChatPromptState.fromJson(
+            of('prompted', ConduitEvents.chatPromptsChanged).last.payload,
+          ).prompt ==
+          null,
+    );
 
     // A file the model's terminal tool asked to show.
     scope.container.read(terminalDisplayFileProvider.notifier).handleEvent(
@@ -496,6 +584,133 @@ void main() {
       SendTurn(model: model, chatId: accepted.chatId, text: 'again'),
     );
     await until(() => ended('linger', next.assistantMessageId));
+  });
+
+  test('a temporary chat being saved takes no second save and no turn',
+      () async {
+    open('saving');
+    final chat = await turns.send(
+      SendTurn(model: model, text: 'keep me', temporary: true),
+    );
+    subscribeWindow(events, turns, 'saving', <String>[chat.chatId]);
+    await until(() => ended('saving', chat.assistantMessageId));
+    final first = turns.saveTemporary(chat.chatId);
+    final second = turns.saveTemporary(chat.chatId);
+    final sending = turns.send(
+      SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
+    );
+    final conflict = throwsA(
+      isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
+    );
+    await expectLater(second, conflict);
+    await expectLater(sending, conflict);
+    // This account has no Open WebUI server to save to.
+    await expectLater(first, throwsA(isA<RpcError>()));
+  });
+
+  test('a chat whose messages are being deleted takes no turn meanwhile',
+      () async {
+    open('deleting');
+    final chat = await turns.send(SendTurn(model: model, text: 'drop this'));
+    subscribeWindow(events, turns, 'deleting', <String>[chat.chatId]);
+    await until(() => ended('deleting', chat.assistantMessageId));
+    final deleting = turns.deleteMessages(
+      DeleteMessages(
+        chatId: chat.chatId,
+        messageIds: <String>[chat.assistantMessageId],
+      ),
+    );
+    final sending = turns.send(
+      SendTurn(model: model, chatId: chat.chatId, text: 'and this'),
+    );
+    await expectLater(
+      sending,
+      throwsA(
+        isA<RpcError>().having((e) => e.code, 'code', ConduitErrorCodes.conflict),
+      ),
+    );
+    await deleting;
+  });
+
+  // The queue's batch is the core's own send: it can come while a delete
+  // is out, and a delete the server refuses puts the transcript back as it
+  // was before, without the batch. So the core's admission wait holds the
+  // batch until the delete is done (the send itself needs an Open WebUI
+  // outbox, which this harness has not).
+  test('a queued batch waits for a delete that is out', () async {
+    // Queued drafts keep a chat's scope open; this test queues none, so its
+    // scope stays for the batch's settle.
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = const Duration(seconds: 10);
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    open('deleting-queue');
+    final chat = await turns.send(SendTurn(model: model, text: 'drop this'));
+    subscribeWindow(events, turns, 'deleting-queue', <String>[chat.chatId]);
+    await until(() => ended('deleting-queue', chat.assistantMessageId));
+    final scope = runtime.container
+        .read(chatSessionRegistryProvider)
+        .scopes
+        .lastWhere((s) => s.conversation?.id == chat.chatId);
+    var deleted = false;
+    final deleting = turns
+        .deleteMessages(
+          DeleteMessages(
+            chatId: chat.chatId,
+            messageIds: <String>[chat.assistantMessageId],
+          ),
+        )
+        .whenComplete(() => deleted = true);
+    // The delete is admitted, and waits for a quiet transcript (at least
+    // half a second) when the batch asks to go.
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    var deletedFirst = false;
+    final admitted = scope.container
+        .read(chatDraftQueueAdmissionWaitProvider)()!
+        .then((_) => deletedFirst = deleted);
+    expect(await deleting, 1);
+    await admitted;
+    expect(deletedFirst, isTrue, reason: 'the batch went while the delete was out');
+  });
+
+  test('a merge naming one answer twice is refused', () async {
+    await expectLater(
+      turns.merge(
+        const MergeTurn(
+          chatId: 'any-chat',
+          messageId: 'answer-a',
+          targetId: 'answer-a',
+          sourceIds: <String>['answer-a', 'answer-a'],
+        ),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.invalidParams,
+        ),
+      ),
+    );
+  });
+
+  test('a comparison is judged by its own models, not `model`', () async {
+    // The models compared are what count; this direct chat cannot compare,
+    // and says so, rather than refusing a `model` it never runs.
+    await expectLater(
+      turns.send(
+        SendTurn(
+          model: DirectModelId.encode('missing', 'model'),
+          compareModels: <String>[model, model],
+          text: 'compare these',
+        ),
+      ),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.unsupported,
+        ),
+      ),
+    );
   });
 
   test('an unknown model is refused rather than guessed', () async {

@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.57.0",
+  "protocolVersion": "1.72.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.57.0",
+  "protocolVersion": "1.72.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -25,6 +25,21 @@ const Map<String, String> protocolGoldens = <String, String>{
     "channels": true,
     "hermes": false,
     "terminal": false,
+    "calendar": false,
+    "automations": false,
+    "scheduledTasks": false,
+    "hermesOnly": false,
+    "workspaceModels": false,
+    "workspaceKnowledge": false,
+    "workspacePrompts": false,
+    "workspaceTools": false,
+    "workspaceSkills": false,
+    "folders": false,
+    "webhooks": false,
+    "memories": false,
+    "codeInterpreter": false,
+    "imageGeneration": false,
+    "webSearch": false,
     "directConnections": false,
     "mcp": false,
     "serverStt": true,
@@ -56,6 +71,93 @@ const Map<String, String> protocolGoldens = <String, String>{
   "channels": false,
   "hermes": false,
   "terminal": false,
+  "calendar": false,
+  "automations": false,
+  "scheduledTasks": false,
+  "hermesOnly": false,
+  "workspaceModels": false,
+  "workspaceKnowledge": false,
+  "workspacePrompts": false,
+  "workspaceTools": false,
+  "workspaceSkills": false,
+  "folders": false,
+  "webhooks": false,
+  "memories": false,
+  "codeInterpreter": false,
+  "imageGeneration": false,
+  "webSearch": false,
+  "directConnections": false,
+  "mcp": false,
+  "serverStt": false,
+  "onDeviceStt": false,
+  "serverTts": false,
+  "deviceTts": false,
+  "appleOnDeviceModels": false,
+  "applePcc": false,
+  "branchNavigation": false,
+  "messageRating": false,
+  "tags": false,
+  "bulkSelection": false
+}''',
+
+  'capabilitiesOpenWebUi': r'''
+{
+  "workspace": true,
+  "notes": true,
+  "channels": true,
+  "hermes": false,
+  "terminal": true,
+  "calendar": true,
+  "automations": true,
+  "scheduledTasks": true,
+  "hermesOnly": false,
+  "workspaceModels": false,
+  "workspaceKnowledge": true,
+  "workspacePrompts": true,
+  "workspaceTools": false,
+  "workspaceSkills": false,
+  "folders": true,
+  "webhooks": false,
+  "memories": true,
+  "codeInterpreter": false,
+  "imageGeneration": true,
+  "webSearch": true,
+  "directConnections": false,
+  "mcp": false,
+  "serverStt": false,
+  "onDeviceStt": false,
+  "serverTts": false,
+  "deviceTts": false,
+  "appleOnDeviceModels": false,
+  "applePcc": false,
+  "branchNavigation": false,
+  "messageRating": false,
+  "tags": false,
+  "bulkSelection": true
+}''',
+
+  'capabilitiesHermesOnly': r'''
+{
+  "workspace": false,
+  "notes": false,
+  "channels": false,
+  "hermes": true,
+  "terminal": false,
+  "calendar": false,
+  "automations": false,
+  "scheduledTasks": false,
+  "hermesOnly": true,
+  "workspaceModels": false,
+  "workspaceKnowledge": false,
+  "workspacePrompts": false,
+  "workspaceTools": false,
+  "workspaceSkills": false,
+  "folders": false,
+  "webhooks": false,
+  "memories": false,
+  "codeInterpreter": false,
+  "imageGeneration": false,
+  "webSearch": false,
   "directConnections": false,
   "mcp": false,
   "serverStt": false,
@@ -247,6 +349,165 @@ const Map<String, String> protocolGoldens = <String, String>{
   }
 }''',
 
+  'serverAddressDto': r'''
+{
+  "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "url": "https://chat.example.com",
+  "label": "Home network",
+  "inUse": true,
+  "allowSelfSignedCertificates": true,
+  "customHeaderNames": [
+    "X-Conduit-Tenant"
+  ],
+  "hasMutualTlsCredentials": true,
+  "mtlsCertificateLabel": "home-client.pem",
+  "mtlsPrivateKeyLabel": "home-client-key.pem",
+  "hasPrivateKeyPassword": true
+}''',
+
+  'serverAddresses': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "name": "Home",
+  "addresses": [
+    {
+      "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+      "url": "https://chat.example.com",
+      "inUse": true,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    },
+    {
+      "id": "0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f",
+      "url": "http://chat.home.example.net:8080",
+      "label": "Tailnet",
+      "inUse": false,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    }
+  ],
+  "removable": true
+}''',
+
+  'serverRef': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d"
+}''',
+
+  'serverAddressHeader': r'''
+{
+  "name": "X-Conduit-Tenant",
+  "value": "acme"
+}''',
+
+  'serverAddressForm': r'''
+{
+  "url": "chat.home.example.net:8080",
+  "label": "Tailnet",
+  "allowSelfSignedCertificates": true,
+  "headers": [
+    {
+      "name": "X-Conduit-Tenant"
+    },
+    {
+      "name": "X-Region",
+      "value": "north"
+    }
+  ],
+  "mtlsCertificateLabel": "home-client.pem",
+  "clearMutualTls": true
+}''',
+
+  'serverAddressCheckRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "endpointId": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "form": {
+    "url": "https://chat.example.com",
+    "label": "",
+    "allowSelfSignedCertificates": false,
+    "headers": [],
+    "clearMutualTls": false
+  }
+}''',
+
+  'serverAddressCheckAnswered': r'''
+{
+  "outcome": "answered",
+  "checkId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+  "url": "http://chat.home.example.net:8080"
+}''',
+
+  'serverAddressCheckUnusable': r'''
+{
+  "outcome": "unusable",
+  "problem": "headerNameReserved",
+  "headerName": "Authorization"
+}''',
+
+  'serverAddressSaveRequest': r'''
+{
+  "checkId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+  "sendSessionConfirmed": true,
+  "stopReplies": true,
+  "proxy": {
+    "origin": "https://chat.example.com",
+    "cookies": {
+      "_oauth2_proxy": "synthetic-cookie"
+    }
+  }
+}''',
+
+  'serverAddressSaveAsks': r'''
+{
+  "outcome": "needsConfirmation",
+  "confirmation": "sendSession",
+  "host": "chat.home.example.net:8080"
+}''',
+
+  'serverAddressSaveRefused': r'''
+{
+  "outcome": "notSaved",
+  "problem": "differentServer"
+}''',
+
+  'serverAddressRemoveRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "endpointId": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "stopReplies": true
+}''',
+
+  'serverAddressReorderRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "order": [
+    "0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f",
+    "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f"
+  ]
+}''',
+
+  'serverAddressEditResult': r'''
+{
+  "outcome": "needsConfirmation",
+  "confirmation": "replyInProgress",
+  "addresses": {
+    "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+    "name": "Home",
+    "addresses": [],
+    "removable": false
+  }
+}''',
+
+  'serversChanged': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d"
+}''',
+
   'accountUser': r'''
 {
   "name": "Ada Lovelace",
@@ -317,7 +578,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "activeAccountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
-  "addingAccount": true
+  "addingAccount": true,
+  "libreChatAccounts": [],
+  "primary": "openWebUi",
+  "libreChatSession": "none"
 }''',
 
   'addAccount': r'''
@@ -331,10 +595,29 @@ const Map<String, String> protocolGoldens = <String, String>{
   "force": true
 }''',
 
+  'addAccountOnServer': r'''
+{
+  "server": {
+    "name": "Home",
+    "url": "https://chat.example.com",
+    "allowSelfSignedCertificates": false,
+    "clearMutualTls": false
+  },
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "force": false
+}''',
+
   'accountRef': r'''
 {
   "accountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
   "force": false
+}''',
+
+  'accountRefAskedOver': r'''
+{
+  "accountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
+  "force": true,
+  "askedOver": "3e9d2c1b-0a8f-4e7d-9c6b-5a4f3e2d1c0b"
 }''',
 
   'accountSignOut': r'''
@@ -347,7 +630,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "outcome": "blockedByActiveReply",
   "accounts": {
     "accounts": [],
-    "addingAccount": false
+    "addingAccount": false,
+    "libreChatAccounts": [],
+    "primary": "openWebUi",
+    "libreChatSession": "none"
   }
 }''',
 
@@ -363,7 +649,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "isLoading": false,
   "hasToken": false,
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotSignedIn': r'''
@@ -380,7 +667,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "avatarUrl": "/api/v1/users/c3a1b2d4/avatar"
   },
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotError': r'''
@@ -393,13 +681,77 @@ const Map<String, String> protocolGoldens = <String, String>{
   "errorArgs": {
     "attempt": "3"
   },
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotTwoStep': r'''
+{
+  "phase": "unauthenticated",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "twoStep": {
+    "stage": "verify",
+    "account": "ada@example.com",
+    "expiresInSeconds": 300,
+    "recoveryCodes": []
+  },
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotConnectionIssue': r'''
+{
+  "phase": "error",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": true,
+  "errorCode": "net.connectionFailed",
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "canRenewProxy": true
 }''',
 
   'authUser': r'''
 {
   "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
   "name": "Ada Lovelace"
+}''',
+
+  'twoStepChallengeCodes': r'''
+{
+  "stage": "recoveryCodes",
+  "account": "ada@example.com",
+  "expiresInSeconds": 0,
+  "recoveryCodes": [
+    "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+  ]
+}''',
+
+  'twoStepSetup': r'''
+{
+  "manualKey": "MFRGGZDFMZTWQ2LK",
+  "qrSvg": "<svg></svg>",
+  "authenticatorUri": "otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI"
+}''',
+
+  'twoStepCode': r'''
+{
+  "code": "123456",
+  "recovery": false
+}''',
+
+  'twoStepRecoveryCode': r'''
+{
+  "code": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "recovery": true
+}''',
+
+  'twoStepResetToken': r'''
+{
+  "resetToken": "not-a-real-recovery-token"
 }''',
 
   'passwordLogin': r'''
@@ -448,10 +800,17 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "llama3",
       "pinned": false,
       "capabilities": [],
-      "connection": "Home Ollama"
+      "connection": "Home Ollama",
+      "logo": "meta"
     }
   ],
-  "selectedId": "gpt-4o"
+  "selectedId": "gpt-4o",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'selectModel': r'''
@@ -477,7 +836,63 @@ const Map<String, String> protocolGoldens = <String, String>{
   "imageGeneration": false,
   "codeInterpreter": false,
   "fileIds": [],
+  "context": [
+    {
+      "id": "ctx-1",
+      "kind": "web",
+      "name": "Outbox notes",
+      "url": "https://docs.example.test/outbox",
+      "content": "Writes drain in order."
+    }
+  ],
+  "mentions": [
+    {
+      "start": 0,
+      "end": 6,
+      "id": "user-1",
+      "label": "Riley",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "filterIds": [
+    "tidy"
+  ],
+  "compareModels": [],
   "temporary": false
+}''',
+
+  'sendTurnCompare': r'''
+{
+  "text": "Which is faster?",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [
+    "gpt-4o",
+    "llama3.2:1b"
+  ],
+  "temporary": false
+}''',
+
+  'steerTurn': r'''
+{
+  "chatId": "local:hermes_7c1f",
+  "text": "Use the smaller dataset",
+  "mentions": [],
+  "steer": false
+}''',
+
+  'steerResult': r'''
+{
+  "accepted": false,
+  "uncertain": true
 }''',
 
   'sendTurnAccepted': r'''
@@ -491,7 +906,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
-  "model": "gpt-4o"
+  "model": "gpt-4o",
+  "companionIds": []
 }''',
 
   'turnDelta': r'''
@@ -541,6 +957,13 @@ const Map<String, String> protocolGoldens = <String, String>{
       "kind": "text",
       "markdown": "The outbox"
     }
+  ],
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "pending"
+    }
   ]
 }''',
 
@@ -548,7 +971,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
-  "ok": true
+  "ok": true,
+  "queued": false
 }''',
 
   'turnFinishedFailed': r'''
@@ -556,7 +980,16 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
   "ok": false,
-  "code": "net.serverError"
+  "code": "net.serverError",
+  "queued": false
+}''',
+
+  'turnFinishedQueued': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "ok": true,
+  "queued": true
 }''',
 
   'stopTurn': r'''
@@ -589,14 +1022,26 @@ const Map<String, String> protocolGoldens = <String, String>{
   "totalTokens": 115,
   "totalSeconds": 2.25,
   "queueSeconds": 0.02,
-  "loadSeconds": 1.0
+  "loadSeconds": 1.0,
+  "incomplete": false
 }''',
 
   'chatSource': r'''
 {
   "label": "dart.dev",
   "url": "https://dart.dev/overview",
-  "snippet": "Dart is a client-optimized language"
+  "snippet": "Dart is a client-optimized language",
+  "inlineLabel": "dart.dev",
+  "inlineTitle": "Dart overview"
+}''',
+
+  'chatSourceFile': r'''
+{
+  "label": "tide-notes.pdf",
+  "snippet": "Spring tides follow a full moon.",
+  "inlineLabel": "tide-notes.pdf",
+  "inlineTitle": "tide-notes.pdf",
+  "type": "file"
 }''',
 
   'directConnectionSummary': r'''
@@ -668,7 +1113,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "localHistory": true,
   "openWebUiAvailable": true,
   "preferred": true,
-  "usable": true
+  "usable": true,
+  "openWebUiLoadFailed": true
 }''',
 
   'directPreferred': r'''
@@ -728,7 +1174,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "llama3.2:1b",
   "name": "llama3.2:1b",
   "loaded": true,
-  "keepAlive": "30m"
+  "keepAlive": "30m",
+  "logo": "meta"
 }''',
 
   'ollamaModelList': r'''
@@ -751,6 +1198,96 @@ const Map<String, String> protocolGoldens = <String, String>{
   "value": "-1"
 }''',
 
+  'directContextModel': r'''
+{
+  "id": "ollama/llama3.2:1b",
+  "name": "llama3.2:1b",
+  "connection": "Home Ollama",
+  "limit": 8192,
+  "ollama": true,
+  "logo": "meta"
+}''',
+
+  'directOptions': r'''
+{
+  "imagesPerRequest": 4,
+  "imagesPerRequestChoices": [
+    1,
+    2,
+    4,
+    10
+  ],
+  "contextModels": [
+    {
+      "id": "gateway/tiny",
+      "name": "tiny",
+      "limit": 4096,
+      "ollama": false
+    }
+  ],
+  "contextLimitChoices": [
+    4096,
+    8192,
+    16384
+  ]
+}''',
+
+  'directImagesPerRequest': r'''
+{
+  "count": 4
+}''',
+
+  'directContextLimit': r'''
+{
+  "modelId": "gateway/tiny",
+  "tokens": 16384
+}''',
+
+  'webSearchEngineDto': r'''
+{
+  "id": "duckduckgo",
+  "name": "DuckDuckGo"
+}''',
+
+  'webSearchRegionDto': r'''
+{
+  "code": "de-de",
+  "name": "Deutschland"
+}''',
+
+  'webSearchSettings': r'''
+{
+  "engine": "brave",
+  "engines": [
+    {
+      "id": "auto",
+      "name": ""
+    },
+    {
+      "id": "brave",
+      "name": "Brave"
+    }
+  ],
+  "safeSearch": "strict",
+  "region": "fr-fr",
+  "effectiveRegion": "fr-fr",
+  "regions": [
+    {
+      "code": "wt-wt",
+      "name": ""
+    },
+    {
+      "code": "fr-fr",
+      "name": "France"
+    }
+  ]
+}''',
+
+  'webSearchSettingsPatch': r'''
+{
+  "region": "auto"
+}''',
+
   'mcpApprovalSummary': r'''
 {
   "digest": "sha256:1f2e",
@@ -770,6 +1307,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     "X-Team"
   ],
   "oauthConnected": true,
+  "oauthIssuerHost": "auth.example.com",
+  "oauthScopes": [
+    "tools.read"
+  ],
   "allowInsecureCredentials": false,
   "approvals": [
     {
@@ -792,6 +1333,7 @@ const Map<String, String> protocolGoldens = <String, String>{
       "hasBearerToken": false,
       "customHeaderNames": [],
       "oauthConnected": false,
+      "oauthScopes": [],
       "allowInsecureCredentials": false,
       "approvals": []
     }
@@ -845,7 +1387,26 @@ const Map<String, String> protocolGoldens = <String, String>{
   "updatedAtMs": 1790000000000,
   "pinned": true,
   "preview": "- milk",
-  "conflictCopy": false
+  "conflictCopy": false,
+  "section": "yesterday",
+  "canEdit": true,
+  "accessUnverified": false,
+  "canShare": true
+}''',
+
+  'noteSummaryShared': r'''
+{
+  "id": "n4",
+  "title": "Allotment rota",
+  "updatedAtMs": 1790000000002,
+  "pinned": false,
+  "preview": "",
+  "conflictCopy": false,
+  "section": "older",
+  "canEdit": false,
+  "accessUnverified": false,
+  "canShare": false,
+  "owner": "Wren Okafor"
 }''',
 
   'noteList': r'''
@@ -857,7 +1418,11 @@ const Map<String, String> protocolGoldens = <String, String>{
       "updatedAtMs": 1790000000001,
       "pinned": false,
       "preview": "",
-      "conflictCopy": true
+      "conflictCopy": true,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     }
   ]
 }''',
@@ -875,7 +1440,11 @@ const Map<String, String> protocolGoldens = <String, String>{
     "updatedAtMs": 1,
     "pinned": false,
     "preview": "",
-    "conflictCopy": false
+    "conflictCopy": false,
+    "section": "older",
+    "canEdit": true,
+    "accessUnverified": false,
+    "canShare": false
   },
   "ops": [
     {
@@ -894,7 +1463,10 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "list.pdf",
       "contentType": "application/pdf"
     }
-  ]
+  ],
+  "pages": [],
+  "pageId": "main",
+  "markdown": ""
 }''',
 
   'noteSave': r'''
@@ -905,6 +1477,110 @@ const Map<String, String> protocolGoldens = <String, String>{
       "insert": "Hello"
     }
   ]
+}''',
+
+  'noteSavePage': r'''
+{
+  "id": "n1",
+  "title": "Garden plan",
+  "ops": [
+    {
+      "insert": "Sow beans"
+    }
+  ],
+  "pageId": "p2",
+  "baseOps": [
+    {
+      "insert": "Sow peas"
+    }
+  ],
+  "accountId": "account-1"
+}''',
+
+  'noteDetailPaged': r'''
+{
+  "summary": {
+    "id": "n2",
+    "title": "Garden plan",
+    "updatedAtMs": 2,
+    "pinned": false,
+    "preview": "",
+    "conflictCopy": false,
+    "section": "older",
+    "canEdit": true,
+    "accessUnverified": false,
+    "canShare": false
+  },
+  "ops": [],
+  "files": [],
+  "pages": [
+    {
+      "id": "main",
+      "title": "Garden plan",
+      "path": "Garden plan",
+      "depth": 0
+    },
+    {
+      "id": "p2",
+      "title": "Beds",
+      "path": "Garden plan / Beds",
+      "depth": 1
+    }
+  ],
+  "pageId": "p2",
+  "markdown": "- [ ] Sow beans",
+  "recoveredFrom": "n0"
+}''',
+
+  'noteOpen': r'''
+{
+  "id": "n2",
+  "pageId": "p2"
+}''',
+
+  'notePage': r'''
+{
+  "id": "p2",
+  "title": "Beds",
+  "path": "",
+  "depth": 0
+}''',
+
+  'noteRecordingDto': r'''
+{
+  "id": "r1",
+  "name": "recording_1790000000000.wav",
+  "state": "failed",
+  "size": 64044,
+  "createdAtMs": 1790000000000,
+  "pageId": "p2"
+}''',
+
+  'noteRecordings': r'''
+{
+  "noteId": "n2",
+  "recordings": [
+    {
+      "id": "r2",
+      "name": "recording_2.wav",
+      "state": "waiting",
+      "size": 0,
+      "createdAtMs": 0
+    }
+  ]
+}''',
+
+  'noteRecordingAdd': r'''
+{
+  "noteId": "n2",
+  "path": "/tmp/conduit/recording.wav",
+  "pageId": "p2"
+}''',
+
+  'noteRecordingRef': r'''
+{
+  "noteId": "n2",
+  "id": "r1"
 }''',
 
   'noteRef': r'''
@@ -928,7 +1604,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "lastMessageAtMs": 1790000000000,
   "manager": true,
   "canPost": true,
-  "userCount": 12
+  "userCount": 12,
+  "kind": "standard",
+  "title": "",
+  "muted": false,
+  "canDelete": false,
+  "canLeave": false
 }''',
 
   'channelList': r'''
@@ -940,10 +1621,16 @@ const Map<String, String> protocolGoldens = <String, String>{
       "private": true,
       "unread": 0,
       "manager": false,
-      "canPost": false
+      "canPost": false,
+      "kind": "standard",
+      "title": "",
+      "muted": false,
+      "canDelete": false,
+      "canLeave": false
     }
   ],
-  "enabled": true
+  "enabled": true,
+  "canCreate": false
 }''',
 
   'channelUser': r'''
@@ -956,7 +1643,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "name": "👍",
   "count": 2,
-  "mine": true
+  "mine": true,
+  "names": []
 }''',
 
   'channelMessageDto': r'''
@@ -976,10 +1664,15 @@ const Map<String, String> protocolGoldens = <String, String>{
     {
       "name": "🎉",
       "count": 1,
-      "mine": false
+      "mine": false,
+      "names": []
     }
   ],
-  "mine": true
+  "mine": true,
+  "senderKey": "",
+  "senderKind": "user",
+  "display": "",
+  "files": []
 }''',
 
   'channelMessagesQuery': r'''
@@ -1002,7 +1695,11 @@ const Map<String, String> protocolGoldens = <String, String>{
       "replyCount": 0,
       "createdAtMs": 1,
       "reactions": [],
-      "mine": false
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
     }
   ],
   "hasOlder": true
@@ -1012,7 +1709,9 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "channelId": "c1",
   "content": "Hi",
-  "parentId": "m1"
+  "parentId": "m1",
+  "mentions": [],
+  "files": []
 }''',
 
   'channelMessageRef': r'''
@@ -1072,7 +1771,10 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'channelMessagesChanged': r'''
 {
-  "channelId": "c1"
+  "channelId": "c1",
+  "upserts": [],
+  "removed": [],
+  "full": false
 }''',
 
   'channelMembers': r'''
@@ -1083,6 +1785,373 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Ada"
     }
   ]
+}''',
+
+  'channelSummaryDm': r'''
+{
+  "id": "c3",
+  "name": "",
+  "private": false,
+  "unread": 0,
+  "manager": false,
+  "canPost": true,
+  "kind": "dm",
+  "title": "Ada, Grace",
+  "muted": true,
+  "canDelete": false,
+  "canLeave": true
+}''',
+
+  'channelListCreate': r'''
+{
+  "channels": [
+    {
+      "id": "c4",
+      "name": "garden",
+      "private": false,
+      "unread": 0,
+      "manager": false,
+      "canPost": true,
+      "kind": "group",
+      "title": "garden",
+      "muted": false,
+      "canDelete": true,
+      "canLeave": true
+    }
+  ],
+  "enabled": true,
+  "canCreate": true
+}''',
+
+  'channelReactionNames': r'''
+{
+  "name": "🎉",
+  "count": 2,
+  "mine": false,
+  "names": [
+    "Ada",
+    "Grace"
+  ]
+}''',
+
+  'channelFileDto': r'''
+{
+  "id": "f1",
+  "name": "plan.pdf",
+  "image": false,
+  "size": 2048,
+  "contentType": "application/pdf"
+}''',
+
+  'channelReplyPreview': r'''
+{
+  "name": "Ada",
+  "text": "Deploy is done"
+}''',
+
+  'channelAppFieldDto': r'''
+{
+  "name": "Status",
+  "value": "Green",
+  "inline": true
+}''',
+
+  'channelAppEmbedDto': r'''
+{
+  "title": "Build 42",
+  "description": "All checks passed",
+  "url": "https://example.com/builds/42",
+  "color": 3066993,
+  "authorName": "Builder",
+  "footerText": "Today",
+  "fields": [
+    {
+      "name": "Status",
+      "value": "Green",
+      "inline": true
+    }
+  ]
+}''',
+
+  'channelAppActionDto': r'''
+{
+  "label": "Approve",
+  "actionId": "approve"
+}''',
+
+  'channelAppContentDto': r'''
+{
+  "appId": "a1",
+  "embeds": [
+    {
+      "title": "Build 42",
+      "description": "",
+      "fields": []
+    }
+  ],
+  "actions": [
+    {
+      "label": "Open",
+      "url": "https://example.com"
+    }
+  ]
+}''',
+
+  'channelMessageDtoApp': r'''
+{
+  "id": "m3",
+  "channelId": "c1",
+  "user": {
+    "id": "app:a1",
+    "name": "Builder"
+  },
+  "content": "Build ready",
+  "pinned": false,
+  "replyCount": 0,
+  "createdAtMs": 1790000000000,
+  "reactions": [],
+  "mine": false,
+  "senderKey": "app:a1",
+  "senderKind": "app",
+  "display": "Build ready",
+  "files": [
+    {
+      "id": "f2",
+      "name": "a.png",
+      "image": true
+    }
+  ],
+  "app": {
+    "appId": "a1",
+    "embeds": [],
+    "actions": []
+  },
+  "replyToId": "m1",
+  "replyTo": {
+    "name": "Ada",
+    "text": "Ship it"
+  },
+  "latestReplyAtMs": 1790000002000
+}''',
+
+  'channelPostFiles': r'''
+{
+  "channelId": "c1",
+  "content": "",
+  "mentions": [
+    {
+      "start": 0,
+      "end": 4,
+      "id": "u1",
+      "label": "Ada",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "files": [
+    {
+      "id": "f1",
+      "name": "plan.pdf",
+      "image": false
+    }
+  ],
+  "replyToId": "m1"
+}''',
+
+  'channelMessagesChangedDelta': r'''
+{
+  "channelId": "c1",
+  "parentId": "m1",
+  "upserts": [
+    {
+      "id": "m4",
+      "channelId": "c1",
+      "content": "",
+      "pinned": false,
+      "replyCount": 0,
+      "createdAtMs": 2,
+      "reactions": [],
+      "mine": false,
+      "senderKey": "",
+      "senderKind": "user",
+      "display": "",
+      "files": []
+    }
+  ],
+  "removed": [
+    "m2"
+  ],
+  "full": false,
+  "hasOlder": false
+}''',
+
+  'channelAppReplyDto': r'''
+{
+  "kind": "download",
+  "title": "Report",
+  "content": "Done",
+  "filename": "report.md",
+  "embeds": [],
+  "actions": []
+}''',
+
+  'channelAppReplyEvent': r'''
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "appId": "a1",
+  "appName": "Builder",
+  "reply": {
+    "kind": "message",
+    "title": "Thanks",
+    "content": "",
+    "filename": "report.md",
+    "embeds": [],
+    "actions": []
+  }
+}''',
+
+  'channelAppAction': r'''
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "actionId": "approve",
+  "parentId": "m1"
+}''',
+
+  'channelAppActionResult': r'''
+{
+  "reply": {
+    "channelId": "c1",
+    "messageId": "m3",
+    "appId": "a1",
+    "reply": {
+      "kind": "error",
+      "title": "",
+      "content": "",
+      "filename": "report.md",
+      "embeds": [],
+      "actions": []
+    }
+  }
+}''',
+
+  'channelDetails': r'''
+{
+  "channel": {
+    "id": "c4",
+    "name": "garden",
+    "private": false,
+    "unread": 0,
+    "manager": false,
+    "canPost": true,
+    "kind": "group",
+    "title": "",
+    "muted": false,
+    "canDelete": false,
+    "canLeave": false
+  },
+  "canManageMembers": true,
+  "moderator": true
+}''',
+
+  'channelFocus': r'''
+{
+  "id": "c1"
+}''',
+
+  'channelMute': r'''
+{
+  "id": "c1",
+  "muted": true
+}''',
+
+  'channelMentionQuery': r'''
+{
+  "channelId": "c1",
+  "query": "ad"
+}''',
+
+  'channelMemberDto': r'''
+{
+  "id": "u1",
+  "name": "Ada",
+  "email": "ada@example.com",
+  "role": "admin",
+  "active": true,
+  "me": true
+}''',
+
+  'channelMemberQuery': r'''
+{
+  "channelId": "c1",
+  "query": "gr",
+  "more": true
+}''',
+
+  'channelMemberPage': r'''
+{
+  "channelId": "c1",
+  "query": "",
+  "phase": "ready",
+  "members": [
+    {
+      "id": "u2",
+      "name": "Grace",
+      "active": false,
+      "me": false
+    }
+  ],
+  "total": 31,
+  "hasMore": true,
+  "loadMoreFailed": false,
+  "canManage": true,
+  "allowUsers": true,
+  "allowGroups": false
+}''',
+
+  'channelMembersAdd': r'''
+{
+  "channelId": "c1",
+  "userIds": [
+    "u2"
+  ],
+  "groupIds": [
+    "g1"
+  ]
+}''',
+
+  'channelMemberRemove': r'''
+{
+  "channelId": "c1",
+  "userId": "u2"
+}''',
+
+  'channelMemberChange': r'''
+{
+  "result": "denied",
+  "page": {
+    "channelId": "c1",
+    "query": "",
+    "phase": "failed",
+    "members": [],
+    "hasMore": false,
+    "loadMoreFailed": false,
+    "canManage": false,
+    "allowUsers": false,
+    "allowGroups": false
+  }
+}''',
+
+  'channelPosted': r'''
+{
+  "channelId": "c1",
+  "messageId": "m5",
+  "author": "Grace",
+  "channelTitle": "garden",
+  "kind": "group",
+  "alert": true,
+  "mention": true
 }''',
 
   'workspaceSectionAccess': r'''
@@ -1155,7 +2224,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "updatedAtMs": 1767225600000,
   "tags": [
     "writing"
-  ]
+  ],
+  "external": false,
+  "hidden": true,
+  "functionCount": 2
 }''',
 
   'workspaceQuery': r'''
@@ -1177,7 +2249,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "name": "Web",
       "writeAccess": false,
       "public": false,
-      "tags": []
+      "tags": [],
+      "external": false,
+      "hidden": false
     }
   ],
   "total": 3,
@@ -1203,6 +2277,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Helper",
   "baseModelId": "gemma3:1b",
   "description": "Answers briefly",
+  "imageSource": "inline",
   "tags": [
     "short"
   ],
@@ -1243,6 +2318,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "ttsVoice": "alloy",
   "terminalId": "http://127.0.0.1:8000",
+  "builtinTools": {
+    "time": true,
+    "memory": false
+  },
   "active": true,
   "hidden": true,
   "params": {
@@ -1255,7 +2334,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "k1",
   "name": "Docs",
   "description": "Manuals",
-  "fileCount": 4
+  "fileCount": 4,
+  "external": true,
+  "maxFileCount": 20,
+  "maxFileSize": 5
 }''',
 
   'workspacePromptDto': r'''
@@ -1284,6 +2366,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "hasValves": true,
   "hasUserValves": false,
+  "active": true,
   "requiresServerVersion": "0.9.0"
 }''',
 
@@ -1326,7 +2409,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "",
       "name": "Docs",
       "description": "",
-      "fileCount": 0
+      "fileCount": 0,
+      "external": false
     },
     "grants": [],
     "writeAccess": true
@@ -1521,7 +2605,28 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "values": {
     "limit": 5
-  }
+  },
+  "fields": [
+    {
+      "key": "limit",
+      "title": "Limit",
+      "type": "integer",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": false,
+      "hasDefault": true,
+      "text": "5",
+      "seed": "3"
+    }
+  ],
+  "edits": [
+    {
+      "key": "limit",
+      "isDefault": false,
+      "text": "6"
+    }
+  ]
 }''',
 
   'workspaceUrl': r'''
@@ -1594,7 +2699,28 @@ const Map<String, String> protocolGoldens = <String, String>{
   "fileIds": [
     "f1",
     "f2"
-  ]
+  ],
+  "uploaded": true
+}''',
+
+  'workspaceTextFile': r'''
+{
+  "knowledgeId": "k1",
+  "directoryId": "d1",
+  "filename": "notes",
+  "content": "Plant beans in May."
+}''',
+
+  'workspaceMarkdown': r'''
+{
+  "text": "Pack water first."
+}''',
+
+  'workspaceDuplicate': r'''
+{
+  "kind": "prompts",
+  "id": "p1",
+  "suffix": "(copy)"
 }''',
 
   'workspaceFileAction': r'''
@@ -1737,7 +2863,10 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'terminalPreview': r'''
 {
-  "url": "http://127.0.0.1:41234/k1"
+  "url": "http://127.0.0.1:41234/k1",
+  "scripts": [
+    "addEventListener(1)"
+  ]
 }''',
 
   'hermesSettings': r'''
@@ -1801,7 +2930,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   },
   "details": {
     "active_sessions": 2
-  }
+  },
+  "connection": "run1:2"
+}''',
+
+  'hermesChanged': r'''
+{
+  "connection": "run1:2"
 }''',
 
   'hermesSessionDto': r'''
@@ -1810,7 +2945,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "local:hermes_s1",
   "title": "Plan the trip",
   "preview": "Where to?",
-  "updatedAtMs": 1767225600000
+  "updatedAtMs": 1767225600000,
+  "pinned": true,
+  "archived": false,
+  "hidden": false,
+  "running": false
 }''',
 
   'hermesSessions': r'''
@@ -1819,9 +2958,57 @@ const Map<String, String> protocolGoldens = <String, String>{
     {
       "id": "s2",
       "chatId": "local:hermes_s2",
-      "title": ""
+      "title": "",
+      "pinned": false,
+      "archived": false,
+      "hidden": false,
+      "running": false
     }
-  ]
+  ],
+  "archived": [
+    {
+      "id": "s3",
+      "chatId": "local:hermes_s3",
+      "title": "",
+      "pinned": false,
+      "archived": true,
+      "hidden": false,
+      "running": false
+    }
+  ],
+  "archivedFailed": false,
+  "hiddenScheduledRuns": 4
+}''',
+
+  'hermesSessionsSetAside': r'''
+{
+  "sessions": [
+    {
+      "id": "s4",
+      "chatId": "local:hermes_s4",
+      "title": "Garden notes",
+      "pinned": false,
+      "archived": false,
+      "hidden": false,
+      "source": "cli",
+      "running": true
+    }
+  ],
+  "archived": [],
+  "archivedFailed": true,
+  "hiddenScheduledRuns": 0
+}''',
+
+  'hermesHiddenSession': r'''
+{
+  "id": "s5",
+  "chatId": "local:hermes_s5",
+  "title": "Gift ideas",
+  "pinned": false,
+  "archived": false,
+  "hidden": true,
+  "source": "api_server",
+  "running": false
 }''',
 
   'hermesRef': r'''
@@ -1835,18 +3022,467 @@ const Map<String, String> protocolGoldens = <String, String>{
   "title": "Trip"
 }''',
 
+  'hermesSessionUpdate': r'''
+{
+  "id": "s1",
+  "archived": true
+}''',
+
+  'hermesSessionUpdatePin': r'''
+{
+  "id": "s1",
+  "pinned": false,
+  "hidden": true
+}''',
+
+  'hermesContinue': r'''
+{
+  "chatId": "local:hermes_s4",
+  "copy": false
+}''',
+
+  'hermesContinueCopy': r'''
+{
+  "chatId": "local:hermes_s4",
+  "copy": true
+}''',
+
+  'hermesBranch': r'''
+{
+  "chatId": "local:hermes_s1",
+  "messageId": "msg-2"
+}''',
+
+  'hermesChatDto': r'''
+{
+  "sessionId": "s4",
+  "readOnly": true,
+  "owner": "Hermes CLI"
+}''',
+
+  'hermesChatDtoBot': r'''
+{
+  "sessionId": "bc-7",
+  "readOnly": false,
+  "owner": "",
+  "bot": {
+    "name": "fern",
+    "title": "Fern",
+    "hasAvatar": false,
+    "shape": "cloud",
+    "color": "#8b5cf6"
+  }
+}''',
+
+  'hermesBotDto': r'''
+{
+  "name": "fern",
+  "title": "Fern",
+  "description": "Keeps the greenhouse log",
+  "preview": "Watered the tomatoes",
+  "sessionId": "bc-7",
+  "hasAvatar": true,
+  "shape": "hexagon",
+  "color": "#0ea5e9",
+  "lastActiveMs": 1767225600000
+}''',
+
+  'hermesBots': r'''
+{
+  "available": true,
+  "bots": [
+    {
+      "name": "fern",
+      "title": "Fern",
+      "hasAvatar": false,
+      "shape": "squircle",
+      "color": "#8b5cf6"
+    },
+    {
+      "name": "moss",
+      "title": "Moss",
+      "hasAvatar": false,
+      "shape": "drop",
+      "color": "#8b5cf6"
+    }
+  ]
+}''',
+
+  'hermesBotsEmpty': r'''
+{
+  "available": false,
+  "bots": []
+}''',
+
+  'hermesBotRef': r'''
+{
+  "name": "fern"
+}''',
+
+  'hermesBotAvatar': r'''
+{
+  "name": "fern",
+  "image": "data:image/png;base64,iVBORw0KGgo="
+}''',
+
+  'hermesRoomMemberDto': r'''
+{
+  "memberId": "fern",
+  "profile": "fern",
+  "handle": "fern",
+  "name": "Fern"
+}''',
+
+  'hermesRoomDto': r'''
+{
+  "id": "room-1",
+  "name": "Greenhouse crew",
+  "members": [
+    {
+      "memberId": "fern",
+      "profile": "fern",
+      "handle": "fern",
+      "name": "Fern"
+    },
+    {
+      "memberId": "moss",
+      "profile": "moss",
+      "handle": "moss",
+      "name": "Moss"
+    }
+  ],
+  "updatedAtMs": 1767225600000,
+  "unread": true,
+  "working": true,
+  "needsYou": true
+}''',
+
+  'hermesRooms': r'''
+{
+  "available": true,
+  "canCreate": true,
+  "seatable": [
+    "fern",
+    "moss"
+  ],
+  "rooms": [
+    {
+      "id": "room-1",
+      "name": "Greenhouse crew",
+      "members": [],
+      "unread": false,
+      "working": false,
+      "needsYou": false
+    }
+  ],
+  "failed": true,
+  "connection": "run1:2"
+}''',
+
+  'hermesRoomsEmpty': r'''
+{
+  "available": false,
+  "canCreate": false,
+  "seatable": [],
+  "rooms": [],
+  "failed": false
+}''',
+
+  'hermesRoomRef': r'''
+{
+  "roomId": "room-1",
+  "connection": "run1:2"
+}''',
+
+  'hermesRoomCreate': r'''
+{
+  "name": "Greenhouse crew",
+  "bots": [
+    "fern",
+    "moss"
+  ]
+}''',
+
+  'hermesRoomRename': r'''
+{
+  "roomId": "room-1",
+  "name": "Seed swap"
+}''',
+
+  'hermesRoomContextDto': r'''
+{
+  "purpose": "Plan the spring beds",
+  "notes": "Tomatoes go by the south wall.",
+  "routing": "lead",
+  "leadMemberId": "fern"
+}''',
+
+  'hermesRoomContextEmpty': r'''
+{
+  "purpose": "",
+  "notes": ""
+}''',
+
+  'hermesRoomContextEdit': r'''
+{
+  "roomId": "room-1",
+  "context": {
+    "purpose": "Plan the spring beds",
+    "notes": "",
+    "routing": "auto"
+  }
+}''',
+
+  'hermesRoomMessage': r'''
+{
+  "roomId": "room-1",
+  "text": "@fern how many seed trays?",
+  "connection": "run1:2"
+}''',
+
+  'hermesRoomSendResult': r'''
+{
+  "sent": true,
+  "refused": false
+}''',
+
+  'hermesRoomSendRefused': r'''
+{
+  "sent": false,
+  "refused": true,
+  "detail": "room is busy"
+}''',
+
+  'hermesRoomStopped': r'''
+{
+  "stopped": 2
+}''',
+
+  'hermesRoomContinue': r'''
+{
+  "roomId": "room-1",
+  "discussionEventId": "user:ab12"
+}''',
+
+  'hermesRoomAnswer': r'''
+{
+  "roomId": "room-1",
+  "taskId": "t-9",
+  "executionGeneration": 1,
+  "choice": "once"
+}''',
+
+  'hermesRoomRetry': r'''
+{
+  "roomId": "room-1",
+  "taskId": "t-9",
+  "executionGeneration": 2
+}''',
+
+  'hermesRoomItemMessage': r'''
+{
+  "kind": "message",
+  "key": "message:4",
+  "seq": 4,
+  "own": false,
+  "scheduled": false,
+  "author": "Fern",
+  "memberId": "fern",
+  "text": "Twelve trays should do.",
+  "continued": true,
+  "createdAtMs": 1767225600000,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemOwn': r'''
+{
+  "kind": "message",
+  "key": "message:3",
+  "seq": 3,
+  "own": true,
+  "scheduled": false,
+  "author": "",
+  "text": "@fern how many seed trays?",
+  "continued": false,
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemNotice': r'''
+{
+  "kind": "notice",
+  "key": "notice:6",
+  "seq": 6,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "memberId": "moss",
+  "text": "",
+  "continued": false,
+  "notice": "turnFailed",
+  "memberName": "Moss",
+  "detail": "rate limited",
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemRoute': r'''
+{
+  "kind": "route",
+  "key": "route:5:handoff:moss",
+  "seq": 5,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "text": "",
+  "continued": false,
+  "route": "handoff",
+  "names": [
+    "Moss"
+  ],
+  "lead": "Fern",
+  "messageCount": 0,
+  "actionable": false
+}''',
+
+  'hermesRoomItemPause': r'''
+{
+  "kind": "pause",
+  "key": "pause:9",
+  "seq": 9,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "text": "",
+  "continued": false,
+  "names": [],
+  "discussionEventId": "user:ab12",
+  "messageCount": 10,
+  "actionable": true
+}''',
+
+  'hermesRoomMemberStatusDto': r'''
+{
+  "memberId": "fern",
+  "state": "working",
+  "elapsedMs": 45000,
+  "tool": "web_search"
+}''',
+
+  'hermesRoomActionDto': r'''
+{
+  "kind": "approval",
+  "memberId": "moss",
+  "taskId": "t-9",
+  "executionGeneration": 1,
+  "summary": "rm -rf build",
+  "choices": [
+    "once",
+    "deny"
+  ]
+}''',
+
+  'hermesRoomView': r'''
+{
+  "roomId": "room-1",
+  "loaded": true,
+  "room": {
+    "id": "room-1",
+    "name": "Greenhouse crew",
+    "members": [],
+    "unread": false,
+    "working": false,
+    "needsYou": false
+  },
+  "context": {
+    "purpose": "Plan the spring beds",
+    "notes": ""
+  },
+  "gone": false,
+  "readFailed": true,
+  "running": true,
+  "working": true,
+  "sending": true,
+  "unsentText": "Are the trays in?",
+  "routingModes": [
+    "everyone",
+    "lead"
+  ],
+  "items": [
+    {
+      "kind": "route",
+      "key": "route:2:continued",
+      "seq": 2,
+      "own": false,
+      "scheduled": false,
+      "author": "",
+      "text": "",
+      "continued": false,
+      "route": "continued",
+      "names": [],
+      "messageCount": 0,
+      "actionable": false
+    }
+  ],
+  "members": [
+    {
+      "memberId": "moss",
+      "state": "queued"
+    }
+  ],
+  "actions": [
+    {
+      "kind": "retry",
+      "memberId": "moss",
+      "taskId": "t-3",
+      "executionGeneration": 2,
+      "choices": []
+    }
+  ],
+  "connection": "run1:2"
+}''',
+
+  'hermesRoomViewGone': r'''
+{
+  "roomId": "room-2",
+  "loaded": false,
+  "gone": true,
+  "readFailed": false,
+  "running": false,
+  "working": false,
+  "sending": false,
+  "routingModes": [],
+  "items": [],
+  "members": [],
+  "actions": []
+}''',
+
   'hermesJobDto': r'''
 {
   "id": "j1",
   "name": "Morning brief",
   "prompt": "Summarise the news",
   "schedule": "0 8 * * *",
-  "scheduleText": "At 08:00",
+  "scheduleText": "Every day at 8:00 AM",
+  "cadence": {
+    "kind": "daily",
+    "hour": 8,
+    "minute": 0
+  },
   "enabled": false,
   "lastStatus": "ok",
   "lastError": "none",
   "lastRunAtMs": 1767225600000,
-  "nextRunAtMs": 1767312000000
+  "nextRunAtMs": 1767312000000,
+  "deliver": [],
+  "catchUp": "default",
+  "running": false,
+  "stopping": false,
+  "deliveryKnown": true
 }''',
 
   'hermesJobs': r'''
@@ -1856,9 +3492,44 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "j2",
       "prompt": "",
       "schedule": "",
-      "enabled": true
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": false,
+      "stopping": false,
+      "deliveryKnown": true
     }
-  ]
+  ],
+  "writable": true,
+  "scheduling": false,
+  "notices": [],
+  "savedId": "j2",
+  "listFailed": false
+}''',
+
+  'hermesJobsListFailed': r'''
+{
+  "jobs": [],
+  "writable": true,
+  "scheduling": false,
+  "notices": [],
+  "savedId": "j3",
+  "listFailed": true
+}''',
+
+  'hermesCadenceDto': r'''
+{
+  "kind": "everyHours",
+  "every": 6,
+  "minute": 30
+}''',
+
+  'hermesCadenceDtoWeekly': r'''
+{
+  "kind": "weekly",
+  "hour": 17,
+  "minute": 45,
+  "weekday": 4
 }''',
 
   'hermesJobEdit': r'''
@@ -1873,6 +3544,17 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "j1",
   "enabled": true
+}''',
+
+  'hermesJobRef': r'''
+{
+  "id": "j1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesSignInRequest': r'''
+{
+  "connection": "0a1b2c3d:2"
 }''',
 
   'hermesSkillDto': r'''
@@ -1907,6 +3589,417 @@ const Map<String, String> protocolGoldens = <String, String>{
       "enabled": true,
       "tools": []
     }
+  ],
+  "commands": [
+    {
+      "name": "packing-list",
+      "description": "Packs a bag"
+    }
+  ]
+}''',
+
+  'hermesJobDtoScheduled': r'''
+{
+  "id": "j3",
+  "name": "Standup",
+  "prompt": "Write a standup summary",
+  "schedule": "0 9 * * 1-5",
+  "enabled": true,
+  "state": "scheduled",
+  "deliver": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    },
+    {
+      "target": "bot-chat:helper",
+      "kind": "botChat",
+      "name": "Helper",
+      "available": true
+    }
+  ],
+  "lastDeliveryError": "no home channel",
+  "catchUp": "runOnce",
+  "running": true,
+  "stopping": true,
+  "lastCancelReason": "Stopped by the user",
+  "deliveryKnown": true
+}''',
+
+  'hermesJobsScheduling': r'''
+{
+  "jobs": [
+    {
+      "id": "j3",
+      "prompt": "",
+      "schedule": "",
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": true,
+      "stopping": false,
+      "deliveryKnown": true
+    }
+  ],
+  "writable": false,
+  "scheduling": true,
+  "notices": [
+    {
+      "jobId": "j3",
+      "kind": "stopped"
+    }
+  ],
+  "listFailed": false
+}''',
+
+  'hermesJobEditDelivery': r'''
+{
+  "prompt": "Summarise",
+  "schedule": "every 2h",
+  "deliver": "local,telegram",
+  "catchUp": "skip"
+}''',
+
+  'hermesDeliveryTargetDto': r'''
+{
+  "target": "telegram",
+  "kind": "platform",
+  "name": "Telegram",
+  "available": false
+}''',
+
+  'hermesDeliveryOptions': r'''
+{
+  "available": true,
+  "options": [
+    {
+      "target": "local",
+      "kind": "local",
+      "name": "",
+      "available": true
+    }
+  ]
+}''',
+
+  'hermesJobNotice': r'''
+{
+  "jobId": "j1",
+  "kind": "runFailed"
+}''',
+
+  'hermesConnectionDto': r'''
+{
+  "id": "9d2f7c1e-0a4b-4c3d-8e5f-6a7b8c9d0e1f",
+  "name": "Studio agent",
+  "baseUrl": "http://127.0.0.1:19303",
+  "mode": "desktop",
+  "desktopAuthKind": "nativePkce",
+  "desktopProfile": "writer",
+  "allowSelfSignedCertificates": true,
+  "active": true,
+  "plainHttp": true,
+  "hasApiKey": true,
+  "hasLegacyToken": true,
+  "desktopSignedIn": true,
+  "accessHeaderNames": [
+    "CF-Access-Client-Id",
+    "CF-Access-Client-Secret"
+  ],
+  "hasMemoryKey": true,
+  "dashboardSignedIn": true
+}''',
+
+  'hermesConnections': r'''
+{
+  "enabled": true,
+  "activeId": "c1",
+  "connections": [
+    {
+      "id": "c1",
+      "name": "Home",
+      "baseUrl": "",
+      "mode": "responses",
+      "desktopAuthKind": "legacyToken",
+      "desktopProfile": "default",
+      "allowSelfSignedCertificates": false,
+      "active": false,
+      "plainHttp": false,
+      "hasApiKey": false,
+      "hasLegacyToken": false,
+      "desktopSignedIn": false,
+      "accessHeaderNames": [],
+      "hasMemoryKey": false,
+      "dashboardSignedIn": false
+    }
+  ],
+  "canAdd": false,
+  "savedId": "c1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesConnectionEdit': r'''
+{
+  "id": "c1",
+  "name": "Home",
+  "baseUrl": "https://agent.example.test",
+  "mode": "desktop",
+  "desktopAuthKind": "legacyToken",
+  "desktopProfile": "default",
+  "apiKey": "sk-demo",
+  "legacyToken": "demo-token",
+  "allowSelfSignedCertificates": true,
+  "allowPlainHttp": true,
+  "accessHeaders": [
+    {
+      "name": "CF-Access-Client-Id",
+      "value": "demo.access"
+    },
+    {
+      "name": "X-Gate",
+      "savedName": "X-Old-Gate"
+    }
+  ],
+  "memoryKey": "demo-memory"
+}''',
+
+  'hermesAccessHeaderEdit': r'''
+{
+  "name": "X-Gate",
+  "value": "demo-value",
+  "savedName": "X-Old-Gate"
+}''',
+
+  'hermesProfiles': r'''
+{
+  "profiles": [
+    "default",
+    "writer"
+  ],
+  "selected": "writer",
+  "issue": "signInFirst"
+}''',
+
+  'hermesToolsetToggle': r'''
+{
+  "name": "web",
+  "enabled": false,
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesConnectionRef': r'''
+{
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardStart': r'''
+{
+  "id": "c1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardPlan': r'''
+{
+  "loginUrl": "https://agent.example.test/login",
+  "origin": "https://agent.example.test",
+  "supported": false
+}''',
+
+  'hermesCookieDto': r'''
+{
+  "name": "hermes_session_at",
+  "value": "demo-session",
+  "domain": "agent.example.test",
+  "path": "/",
+  "secure": true,
+  "httpOnly": true,
+  "expiresMs": 1794490018000
+}''',
+
+  'hermesDashboardCookies': r'''
+{
+  "id": "c1",
+  "cookies": [
+    {
+      "name": "hermes_session_rt",
+      "value": "r",
+      "domain": ".example.test",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    }
+  ],
+  "connection": "0a1b2c3d:2",
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardCancel': r'''
+{
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardResult': r'''
+{
+  "signedIn": true,
+  "connections": {
+    "enabled": false,
+    "activeId": "c1",
+    "connections": [],
+    "canAdd": true
+  }
+}''',
+
+  'hermesConnectionTestResult': r'''
+{
+  "ok": true,
+  "reason": "unauthorized",
+  "suggestedName": "Studio agent"
+}''',
+
+  'hermesToggle': r'''
+{
+  "enabled": false
+}''',
+
+  'hermesMcpServerDto': r'''
+{
+  "name": "notes",
+  "description": "http://127.0.0.1:9000/mcp",
+  "enabled": false,
+  "auth": "oauth",
+  "tools": [
+    "search",
+    "fetch"
+  ],
+  "toolFilter": "only search"
+}''',
+
+  'hermesMcpServers': r'''
+{
+  "available": true,
+  "servers": [
+    {
+      "name": "notes",
+      "description": "",
+      "enabled": true,
+      "tools": []
+    }
+  ],
+  "canSetApiKey": true,
+  "listFailed": false
+}''',
+
+  'hermesMcpCatalogEntryDto': r'''
+{
+  "name": "calendar",
+  "description": "Events from a calendar",
+  "authType": "api_key",
+  "credentials": [
+    {
+      "name": "CALENDAR_TOKEN",
+      "prompt": "Calendar access token",
+      "required": true
+    },
+    {
+      "name": "CALENDAR_REGION",
+      "required": false
+    }
+  ],
+  "canAdd": true,
+  "fromDashboard": true,
+  "oauth": false
+}''',
+
+  'hermesMcpCatalogCredentialDto': r'''
+{
+  "name": "CALENDAR_TOKEN",
+  "prompt": "Calendar access token",
+  "required": true
+}''',
+
+  'hermesMcpCatalogAdd': r'''
+{
+  "name": "calendar",
+  "credentials": {
+    "CALENDAR_TOKEN": "demo-token"
+  },
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesMcpCatalogAdded': r'''
+{
+  "servers": {
+    "available": true,
+    "servers": [
+      {
+        "name": "calendar",
+        "description": "",
+        "enabled": true,
+        "tools": []
+      }
+    ],
+    "canSetApiKey": false,
+    "listFailed": false
+  },
+  "stillInstalling": false,
+  "signIn": true
+}''',
+
+  'hermesMcpCatalog': r'''
+{
+  "entries": [
+    {
+      "name": "calendar",
+      "description": "",
+      "credentials": [],
+      "canAdd": true,
+      "fromDashboard": false,
+      "oauth": false
+    }
+  ]
+}''',
+
+  'hermesMcpAdd': r'''
+{
+  "name": "shop",
+  "url": "http://127.0.0.1:9000/mcp",
+  "command": "python3",
+  "args": [
+    "server.py",
+    "--demo"
+  ],
+  "apiKey": "demo-key"
+}''',
+
+  'hermesMcpRef': r'''
+{
+  "name": "shop",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesMcpApiKey': r'''
+{
+  "name": "shop",
+  "apiKey": "demo-key"
+}''',
+
+  'hermesMcpToggle': r'''
+{
+  "name": "shop",
+  "enabled": true
+}''',
+
+  'hermesMcpTestResultDto': r'''
+{
+  "ok": true,
+  "tools": 2,
+  "resources": 1,
+  "prompts": 3,
+  "error": "none",
+  "toolNames": [
+    "search",
+    "fetch"
   ]
 }''',
 
@@ -2008,10 +4101,516 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "tiny.en"
 }''',
 
+  'dictationTarget': r'''
+{
+  "modelId": "fake-model"
+}''',
+
+  'dictationStatus': r'''
+{
+  "engine": "server",
+  "serverAvailable": true,
+  "serverSource": "openWebUi",
+  "localAvailable": true,
+  "localReady": false,
+  "localModel": "tiny.en",
+  "language": "de",
+  "silenceMs": 1500
+}''',
+
+  'recordingTarget': r'''
+{
+  "folderId": "folder-1"
+}''',
+
+  'recordingDto': r'''
+{
+  "id": "rec-1",
+  "createdAt": 1767225600000,
+  "byteCount": 96000,
+  "durationMs": 3000
+}''',
+
+  'recordingList': r'''
+{
+  "stored": true,
+  "recordings": [
+    {
+      "id": "rec-1",
+      "createdAt": 0,
+      "byteCount": 32000,
+      "durationMs": 0
+    }
+  ]
+}''',
+
+  'recordingStarted': r'''
+{
+  "id": "rec-2",
+  "stored": true
+}''',
+
+  'recordingChunk': r'''
+{
+  "id": "rec-2",
+  "pcm": "AAABAAIA"
+}''',
+
+  'recordingSaved': r'''
+{
+  "id": "rec-2",
+  "savedBytes": 32000,
+  "discarded": false
+}''',
+
+  'recordingRef': r'''
+{
+  "id": "rec-1",
+  "chatId": "chat-1"
+}''',
+
+  'recordingTranscribe': r'''
+{
+  "id": "rec-1",
+  "chatId": "chat-1",
+  "engine": "local",
+  "modelId": "fake-model"
+}''',
+
+  'libreChatAccountList': r'''
+{
+  "accounts": [],
+  "addingAccount": false,
+  "libreChatAccounts": [
+    {
+      "id": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+      "baseUrl": "https://chat.example.org",
+      "title": "Harbour LibreChat",
+      "user": {
+        "name": "Rowan Vale",
+        "email": "rowan@example.test"
+      },
+      "isActive": true,
+      "hasSession": true,
+      "lastUsedMs": 1767225600000
+    }
+  ],
+  "primary": "libreChat",
+  "activeLibreChatAccountId": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+  "libreChatSession": "signedIn"
+}''',
+
+  'libreChatAccountSummary': r'''
+{
+  "id": "librechat:0f9d1c2e4b6a4d8f9a1b2c3d4e5f6071",
+  "baseUrl": "https://chat.example.org/chat",
+  "title": "chat.example.org",
+  "isActive": false,
+  "hasSession": false
+}''',
+
+  'libreChatFeatures': r'''
+{
+  "prompts": true,
+  "memories": true,
+  "createMemories": true,
+  "updateMemories": false,
+  "optOutMemories": false,
+  "webSearch": true,
+  "codeInterpreter": false,
+  "fileSearch": false,
+  "mcpServers": false,
+  "agents": false,
+  "sharedLinks": true,
+  "temporaryChat": false
+}''',
+
+  'libreChatSsoProviderDto': r'''
+{
+  "kind": "openid",
+  "label": "Harbour ID"
+}''',
+
+  'libreChatServerDto': r'''
+{
+  "baseUrl": "https://chat.example.org",
+  "title": "Harbour LibreChat",
+  "passwordSignIn": true,
+  "ldap": false,
+  "ldapUsesUsername": false,
+  "ssoProviders": [
+    {
+      "kind": "openid",
+      "label": "Harbour ID"
+    },
+    {
+      "kind": "github"
+    }
+  ]
+}''',
+
+  'libreChatProbe': r'''
+{
+  "url": "chat.example.org"
+}''',
+
+  'libreChatProbeResult': r'''
+{
+  "outcome": "found",
+  "server": {
+    "baseUrl": "https://chat.example.org",
+    "title": "Harbour LibreChat",
+    "passwordSignIn": true,
+    "ldap": true,
+    "ldapUsesUsername": true,
+    "ssoProviders": []
+  }
+}''',
+
+  'libreChatSignIn': r'''
+{
+  "url": "https://chat.example.org",
+  "email": "rowan@example.test",
+  "password": "pw",
+  "force": false
+}''',
+
+  'libreChatVerify': r'''
+{
+  "flowId": "flow-1",
+  "code": "246810",
+  "backupCode": false,
+  "force": true
+}''',
+
+  'libreChatSsoStart': r'''
+{
+  "url": "https://chat.example.org",
+  "provider": "openid"
+}''',
+
+  'libreChatSsoPlan': r'''
+{
+  "startUrl": "https://chat.example.org/oauth/openid",
+  "cookieUrl": "https://chat.example.org/",
+  "serverOrigins": [
+    "https://chat.example.org"
+  ],
+  "basePath": "",
+  "startId": "sso-start-1"
+}''',
+
+  'libreChatSsoCompletion': r'''
+{
+  "url": "https://chat.example.org",
+  "cookies": {
+    "refreshToken": "r1",
+    "token_provider": "openid"
+  },
+  "force": false,
+  "startId": "sso-start-1"
+}''',
+
+  'libreChatSignInResult': r'''
+{
+  "outcome": "twoFactorRequired",
+  "flowId": "flow-1"
+}''',
+
+  'libreChatComposerTarget': r'''
+{
+  "modelId": "librechat-model-1"
+}''',
+
+  'libreChatMcpServerDto': r'''
+{
+  "name": "ledger_sync",
+  "toolId": "librechat:mcp:ledger_sync",
+  "toolCount": 1,
+  "needsConnection": true
+}''',
+
+  'libreChatComposer': r'''
+{
+  "libreChat": true,
+  "webSearchToolId": "librechat:web_search",
+  "mcpServers": [
+    {
+      "name": "harbour_docs",
+      "toolId": "librechat:mcp:harbour_docs",
+      "toolCount": 1,
+      "needsConnection": false
+    }
+  ],
+  "prompts": true,
+  "webUrl": "https://chat.example.org"
+}''',
+
+  'libreChatMemoryDto': r'''
+{
+  "key": "favourite_tea",
+  "value": "Smoky lapsang, no sugar",
+  "tokenCount": 4,
+  "updatedMs": 1767225600000
+}''',
+
+  'libreChatMemories': r'''
+{
+  "enabled": true,
+  "memories": [
+    {
+      "key": "home_harbour",
+      "value": "Port Wren",
+      "tokenCount": 0
+    }
+  ],
+  "totalTokens": 12,
+  "tokenLimit": 2000,
+  "usagePercent": 1,
+  "canCreate": true,
+  "canUpdate": true,
+  "canOptOut": true
+}''',
+
+  'libreChatMemoryEdit': r'''
+{
+  "originalKey": "home_harbour",
+  "key": "home_port",
+  "value": "Port Wren"
+}''',
+
+  'libreChatMemoryRef': r'''
+{
+  "key": "home_port"
+}''',
+
+  'libreChatMemoryToggle': r'''
+{
+  "enabled": false
+}''',
+
+  'intentAsk': r'''
+{
+  "text": "Name three hardy herbs for a windowsill.",
+  "model": "fake-model",
+  "timeoutMs": 90000
+}''',
+
+  'intentAnswer': r'''
+{
+  "chatId": "chat-1",
+  "messageId": "msg-2",
+  "outcome": "answered",
+  "text": "Thyme, chives and mint.",
+  "title": "Windowsill herbs"
+}''',
+
+  'intentAnswerTimedOut': r'''
+{
+  "chatId": "chat-1",
+  "messageId": "msg-2",
+  "outcome": "timedOut",
+  "text": "Thyme,"
+}''',
+
+  'intentChatsQuery': r'''
+{
+  "ids": [
+    "chat-1"
+  ],
+  "query": "herbs",
+  "limit": 10
+}''',
+
+  'intentChat': r'''
+{
+  "id": "chat-2",
+  "title": "Bread starter",
+  "updatedAtMs": 0,
+  "pinned": false
+}''',
+
+  'intentChats': r'''
+{
+  "chats": [
+    {
+      "id": "chat-1",
+      "title": "Windowsill herbs",
+      "updatedAtMs": 1767225600000,
+      "pinned": true
+    }
+  ]
+}''',
+
+  'intentLink': r'''
+{
+  "url": "https://example.com/tide-tables"
+}''',
+
+  'intentLinkResult': r'''
+{
+  "url": "https://example.com/tide-tables",
+  "youtube": false,
+  "attachment": {
+    "id": "ctx-7",
+    "kind": "web",
+    "name": "Tide tables for Port Wren",
+    "url": "https://example.com/tide-tables",
+    "content": "High water at 06:12 and 18:40."
+  }
+}''',
+
+  'intentLinkResultFailed': r'''
+{
+  "url": "https://youtu.be/abc123",
+  "youtube": true,
+  "error": "noContent"
+}''',
+
+  'locationCommand': r'''
+{
+  "id": 5,
+  "kind": "currentPosition"
+}''',
+
+  'locationReportStatus': r'''
+{
+  "id": 4,
+  "ok": true,
+  "servicesEnabled": true,
+  "permission": "whileInUse"
+}''',
+
+  'locationReportFix': r'''
+{
+  "id": 5,
+  "ok": true,
+  "latitude": 51.5014,
+  "longitude": -0.1419
+}''',
+
+  'locationReportFailed': r'''
+{
+  "id": 6,
+  "ok": false,
+  "error": "no fix"
+}''',
+
   'terminalDisplayFile': r'''
 {
   "chatId": "c1",
   "path": "/home/user/report.md"
+}''',
+
+  'terminalDisplayFilePage': r'''
+{
+  "chatId": "c1",
+  "path": "/home/user/guide.pdf",
+  "page": 3
+}''',
+
+  'terminalWatch': r'''
+{
+  "handle": "h1",
+  "path": "/home/ada/"
+}''',
+
+  'terminalWatching': r'''
+{
+  "live": true
+}''',
+
+  'terminalChanged': r'''
+{
+  "handle": "h1",
+  "files": true,
+  "ports": [
+    {
+      "port": 5173,
+      "pid": 7,
+      "process": "vite"
+    }
+  ]
+}''',
+
+  'computerScope': r'''
+{
+  "chatId": "c1"
+}''',
+
+  'computerStatus': r'''
+{
+  "enabled": true,
+  "desktop": true,
+  "browser": false
+}''',
+
+  'computerOpen': r'''
+{
+  "chatId": "c1",
+  "surface": "browser",
+  "tabId": "tab-2",
+  "newTab": false
+}''',
+
+  'computerView': r'''
+{
+  "surface": "desktop",
+  "state": "live",
+  "handle": "v1",
+  "streamUrl": "ws://127.0.0.1:41235/s1/stream",
+  "transport": "vnc",
+  "audio": true,
+  "title": "",
+  "url": ""
+}''',
+
+  'computerViewInactive': r'''
+{
+  "surface": "browser",
+  "state": "inactive",
+  "transport": "frames",
+  "audio": false,
+  "tabId": "tab-2",
+  "title": "Docs",
+  "url": "https://example.com/docs"
+}''',
+
+  'computerTab': r'''
+{
+  "id": "tab-2",
+  "title": "Docs",
+  "url": "https://example.com/docs",
+  "selected": true
+}''',
+
+  'computerTabs': r'''
+{
+  "tabs": [
+    {
+      "id": "tab-1",
+      "title": "",
+      "url": "",
+      "selected": false
+    }
+  ]
+}''',
+
+  'computerTabRef': r'''
+{
+  "chatId": "c1",
+  "tabId": "tab-2"
+}''',
+
+  'computerShortcut': r'''
+{
+  "handle": "v1",
+  "key": "ctrl+c"
+}''',
+
+  'computerHandleRef': r'''
+{
+  "handle": "v1"
 }''',
 
   'noteFile': r'''
@@ -2246,7 +4845,284 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "local_mcp:mcp-1",
       "name": "Docs"
     }
+  ],
+  "filters": [
+    {
+      "id": "tidy",
+      "name": "Tidy Up",
+      "description": "Fix spacing"
+    }
+  ],
+  "filterDefaults": [
+    "tidy"
+  ],
+  "codeInterpreter": true,
+  "codeInterpreterBlock": "unsupportedEngine",
+  "attachments": {
+    "files": true,
+    "serverFiles": true,
+    "images": true,
+    "webPage": true,
+    "mcpContent": false
+  },
+  "skills": true,
+  "context": true,
+  "notes": true,
+  "mentions": true,
+  "steer": false,
+  "imageConversions": [
+    ".heic",
+    ".bmp"
+  ],
+  "compareModels": true,
+  "quickPills": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": "",
+      "targetId": ""
+    },
+    {
+      "id": "filter:tidy",
+      "kind": "filter",
+      "name": "Tidy Up",
+      "targetId": "tidy"
+    }
+  ],
+  "voiceCall": true,
+  "agentChat": false,
+  "ownEffortControl": false
+}''',
+
+  'attachmentAvailability': r'''
+{
+  "files": true,
+  "serverFiles": false,
+  "images": false,
+  "webPage": false,
+  "mcpContent": true
+}''',
+
+  'composerSearch': r'''
+{
+  "query": "ril"
+}''',
+
+  'mentionTarget': r'''
+{
+  "id": "user-1",
+  "name": "Riley Example",
+  "detail": "riley@example.test"
+}''',
+
+  'mentionList': r'''
+{
+  "users": [
+    {
+      "id": "user-1",
+      "name": "Riley"
+    }
+  ],
+  "channels": [
+    {
+      "id": "ch-1",
+      "name": "garden",
+      "detail": "Raised beds"
+    }
   ]
+}''',
+
+  'skillSummary': r'''
+{
+  "id": "skill-1",
+  "name": "Plain English",
+  "description": "Short sentences"
+}''',
+
+  'skillList': r'''
+{
+  "items": [
+    {
+      "id": "skill-1",
+      "name": "Plain English"
+    }
+  ]
+}''',
+
+  'contextSuggestion': r'''
+{
+  "kind": "knowledgeFile",
+  "id": "file-1",
+  "name": "pricing.md",
+  "subtitle": "Handbook",
+  "collectionName": "Handbook"
+}''',
+
+  'contextSuggestions': r'''
+{
+  "items": [
+    {
+      "kind": "note",
+      "id": "note-1",
+      "name": "Garden plan"
+    }
+  ]
+}''',
+
+  'contextAttachmentDto': r'''
+{
+  "id": "ctx-2",
+  "kind": "knowledge",
+  "name": "pricing.md",
+  "collectionName": "Handbook",
+  "fileId": "file-1"
+}''',
+
+  'fetchUrl': r'''
+{
+  "url": "https://youtu.be/example"
+}''',
+
+  'fetchedUrl': r'''
+{
+  "attachment": {
+    "id": "ctx-3",
+    "kind": "youtube",
+    "name": "Potting soil basics",
+    "url": "https://youtu.be/example",
+    "content": "Mix compost with grit."
+  }
+}''',
+
+  'fetchedUrlError': r'''
+{
+  "error": "noContent"
+}''',
+
+  'serverFile': r'''
+{
+  "id": "file-2",
+  "name": "budget.csv",
+  "size": 2048,
+  "contentType": "text/csv",
+  "updatedAtMs": 1758412800000
+}''',
+
+  'serverFileList': r'''
+{
+  "items": [
+    {
+      "id": "file-2",
+      "name": "budget.csv"
+    }
+  ]
+}''',
+
+  'composerMentionDto': r'''
+{
+  "start": 4,
+  "end": 17,
+  "id": "skill-1",
+  "label": "Plain English",
+  "idType": "M",
+  "kind": "skill"
+}''',
+
+  'draftRef': r'''
+{
+  "folderId": "folder-1"
+}''',
+
+  'draftSave': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "Half a thought"
+}''',
+
+  'draft': r'''
+{
+  "text": "Half a thought",
+  "stored": true
+}''',
+
+  'draftUnstored': r'''
+{
+  "text": "",
+  "stored": false
+}''',
+
+  'queuedDraftDto': r'''
+{
+  "id": "draft-1",
+  "text": "And the north side?",
+  "files": [
+    {
+      "id": "file-2",
+      "name": "budget.csv",
+      "image": false
+    }
+  ],
+  "context": [],
+  "frozen": true
+}''',
+
+  'composerInsertText': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "Summarise the packing list"
+}''',
+
+  'queueState': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "drafts": [
+    {
+      "id": "draft-1",
+      "text": "And the north side?",
+      "files": [],
+      "context": [],
+      "frozen": false
+    }
+  ],
+  "phase": "admitting",
+  "admissionFailed": true,
+  "offer": true
+}''',
+
+  'queueAdd': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "And the north side?",
+  "mentions": [],
+  "fileIds": [
+    "file-2"
+  ],
+  "context": []
+}''',
+
+  'queueDraftRef': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "draftId": "draft-1"
+}''',
+
+  'queueEdit': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "draftId": "draft-1",
+  "text": "And the south side?"
+}''',
+
+  'queueSendNowResult': r'''
+{
+  "outcome": "admitted",
+  "queue": {
+    "chatId": "chat-7c1f0b2a",
+    "drafts": [],
+    "phase": "idle",
+    "admissionFailed": false,
+    "offer": false
+  }
 }''',
 
   'syncState': r'''
@@ -2281,13 +5157,15 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The first answer.",
   "timestampMs": 1758412800000,
   "model": "llama3.2:1b",
+  "modelName": "Llama 3.2 1B",
   "sources": [],
   "blocks": [
     {
       "kind": "text",
       "markdown": "The first answer."
     }
-  ]
+  ],
+  "streaming": false
 }''',
 
   'messageBlockText': r'''
@@ -2320,7 +5198,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "pending": false,
       "status": "completed",
       "isError": false,
-      "files": "[]"
+      "files": "[]",
+      "shownEmbeds": []
     },
     {
       "id": "call_a2",
@@ -2330,7 +5209,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "done": false,
       "pending": true,
       "status": "pending",
-      "isError": false
+      "isError": false,
+      "shownEmbeds": []
     }
   ]
 }''',
@@ -2481,14 +5361,29 @@ const Map<String, String> protocolGoldens = <String, String>{
   "done": true,
   "pending": false,
   "status": "failed",
-  "isError": true
+  "isError": true,
+  "shownEmbeds": []
 }''',
 
   'messageStatus': r'''
 {
-  "description": "Searching Knowledge",
+  "description": "Searching Knowledge for “tide tables”",
+  "phrase": "knowledgeSearch",
+  "query": "tide tables",
   "action": "knowledge_search",
   "done": false,
+  "queries": [],
+  "links": [],
+  "details": []
+}''',
+
+  'messageStatusSources': r'''
+{
+  "description": "Retrieved 3 sources",
+  "phrase": "sourcesRetrieved",
+  "count": 3,
+  "action": "sources_retrieved",
+  "done": true,
   "queries": [],
   "links": [],
   "details": []
@@ -2606,7 +5501,16 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     }
   ]
 }''',
@@ -2708,7 +5612,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-2f9d4c17",
-  "model": "llama3.2:1b"
+  "model": "llama3.2:1b",
+  "withoutReasoningEffort": false
 }''',
 
   'chatSummary': r'''
@@ -2724,7 +5629,47 @@ const Map<String, String> protocolGoldens = <String, String>{
     "architecture"
   ],
   "shared": true,
-  "readOnly": true
+  "readOnly": true,
+  "unread": false,
+  "menu": {
+    "share": false,
+    "duplicate": false,
+    "move": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "export": false
+  }
+}''',
+
+  'chatSummaryMenu': r'''
+{
+  "id": "chat-4e2a9b10",
+  "title": "Harbour tide tables",
+  "updatedAtMs": 1758412900000,
+  "pinned": false,
+  "archived": false,
+  "tags": [],
+  "shared": false,
+  "readOnly": false,
+  "unread": false,
+  "menu": {
+    "share": true,
+    "duplicate": false,
+    "move": true,
+    "markUnread": true,
+    "generateTitle": true,
+    "export": true
+  }
+}''',
+
+  'chatMenuAbilities': r'''
+{
+  "share": true,
+  "duplicate": true,
+  "move": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "export": true
 }''',
 
   'chatList': r'''
@@ -2738,7 +5683,16 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     }
   ],
   "hasMore": true,
@@ -2755,6 +5709,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The outbox drains oldest-first.",
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
+  "modelName": "GPT-4o",
   "streaming": true,
   "versions": [],
   "sources": [
@@ -2765,7 +5720,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "usage": {
     "generationTokens": 7,
-    "totalSeconds": 0.5
+    "totalSeconds": 0.5,
+    "incomplete": false
   },
   "rating": 1,
   "files": [],
@@ -2783,7 +5739,16 @@ const Map<String, String> protocolGoldens = <String, String>{
         }
       ]
     }
-  ]
+  ],
+  "retryWithoutEffort": false,
+  "comparison": [],
+  "mergeableIds": [],
+  "siblingIds": [],
+  "queued": {
+    "failed": false,
+    "offline": true,
+    "reasoningEffortRejected": false
+  }
 }''',
 
   'chatDetail': r'''
@@ -2796,7 +5761,16 @@ const Map<String, String> protocolGoldens = <String, String>{
     "archived": false,
     "tags": [],
     "shared": false,
-    "readOnly": true
+    "readOnly": true,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
   },
   "messages": [
     {
@@ -2808,10 +5782,43 @@ const Map<String, String> protocolGoldens = <String, String>{
       "versions": [],
       "sources": [],
       "files": [],
-      "blocks": []
+      "blocks": [],
+      "retryWithoutEffort": false,
+      "comparison": [],
+      "mergeableIds": [],
+      "siblingIds": []
     }
   ],
-  "readOnly": true
+  "readOnly": true,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "completed"
+    },
+    {
+      "id": "2",
+      "content": "Draw the order",
+      "status": "in_progress"
+    }
+  ]
 }''',
 
   'chatRef': r'''
@@ -2876,6 +5883,21 @@ const Map<String, String> protocolGoldens = <String, String>{
     "channels": false,
     "hermes": false,
     "terminal": false,
+    "calendar": false,
+    "automations": false,
+    "scheduledTasks": false,
+    "hermesOnly": false,
+    "workspaceModels": false,
+    "workspaceKnowledge": false,
+    "workspacePrompts": false,
+    "workspaceTools": false,
+    "workspaceSkills": false,
+    "folders": false,
+    "webhooks": false,
+    "memories": false,
+    "codeInterpreter": false,
+    "imageGeneration": false,
+    "webSearch": false,
     "directConnections": false,
     "mcp": false,
     "serverStt": false,
@@ -2903,6 +5925,21 @@ const Map<String, String> protocolGoldens = <String, String>{
     "channels": true,
     "hermes": false,
     "terminal": false,
+    "calendar": false,
+    "automations": false,
+    "scheduledTasks": false,
+    "hermesOnly": false,
+    "workspaceModels": false,
+    "workspaceKnowledge": false,
+    "workspacePrompts": false,
+    "workspaceTools": false,
+    "workspaceSkills": false,
+    "folders": false,
+    "webhooks": false,
+    "memories": false,
+    "codeInterpreter": false,
+    "imageGeneration": false,
+    "webSearch": false,
     "directConnections": false,
     "mcp": false,
     "serverStt": true,
@@ -2931,6 +5968,21 @@ const Map<String, String> protocolGoldens = <String, String>{
     "channels": false,
     "hermes": false,
     "terminal": false,
+    "calendar": false,
+    "automations": false,
+    "scheduledTasks": false,
+    "hermesOnly": false,
+    "workspaceModels": false,
+    "workspaceKnowledge": false,
+    "workspacePrompts": false,
+    "workspaceTools": false,
+    "workspaceSkills": false,
+    "folders": false,
+    "webhooks": false,
+    "memories": false,
+    "codeInterpreter": false,
+    "imageGeneration": false,
+    "webSearch": false,
     "directConnections": false,
     "mcp": false,
     "serverStt": false,
@@ -2959,6 +6011,21 @@ const Map<String, String> protocolGoldens = <String, String>{
     "channels": false,
     "hermes": false,
     "terminal": false,
+    "calendar": false,
+    "automations": false,
+    "scheduledTasks": false,
+    "hermesOnly": false,
+    "workspaceModels": false,
+    "workspaceKnowledge": false,
+    "workspacePrompts": false,
+    "workspaceTools": false,
+    "workspaceSkills": false,
+    "folders": false,
+    "webhooks": false,
+    "memories": false,
+    "codeInterpreter": false,
+    "imageGeneration": false,
+    "webSearch": false,
     "directConnections": false,
     "mcp": false,
     "serverStt": false,
@@ -3042,11 +6109,38 @@ const Map<String, String> protocolGoldens = <String, String>{
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     },
     "messages": [],
     "systemPrompt": "Answer briefly.",
-    "readOnly": false
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false,
+      "branchFromHere": false,
+      "undoLastTurn": false,
+      "hermesWork": false,
+      "hermesContext": false
+    },
+    "temporary": false,
+    "tasks": []
   }
 }''',
 
@@ -3074,10 +6168,17 @@ const Map<String, String> protocolGoldens = <String, String>{
       "updatedAtMs": 2,
       "pinned": false,
       "preview": "",
-      "conflictCopy": false
+      "conflictCopy": false,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     },
     "ops": [],
-    "files": []
+    "files": [],
+    "pages": [],
+    "pageId": "main",
+    "markdown": ""
   }
 }''',
 
@@ -3094,6 +6195,3627 @@ const Map<String, String> protocolGoldens = <String, String>{
   'cancelledResult': r'''
 {
   "cancelled": true
+}''',
+
+  'directVoiceProviderDto': r'''
+{
+  "profileId": "dc-lantern",
+  "transcriptionModel": "whisper-1",
+  "speechModel": "tts-1",
+  "speechVoice": "alloy",
+  "realtimeModel": "gpt-realtime-mini",
+  "realtimeVoice": "marin",
+  "realtimeInstructions": "Speak slowly."
+}''',
+
+  'appSettingsDto': r'''
+{
+  "computerEnabled": false,
+  "quickPills": [
+    "web",
+    "filter:translate"
+  ],
+  "inlineMessageActions": [
+    "copy",
+    "regenerate"
+  ],
+  "sendOnEnter": true,
+  "showComposerNotesButton": false,
+  "showModelNameInComposer": true,
+  "temporaryChatByDefault": true,
+  "citationShowTitles": true,
+  "citationBackground": false,
+  "advancedFeaturesEnabled": true,
+  "defaultModel": "fake-model",
+  "openRouterImageGenerationModel": "openai/gpt-5-image",
+  "socketTransportMode": "polling",
+  "voiceCallMode": "standard",
+  "sttPreference": "serverOnly",
+  "voiceLocaleId": "en_US",
+  "sttLanguageCode": "de",
+  "voiceSilenceDuration": 1500,
+  "voiceBargeInEnabled": true,
+  "ttsEngine": "server",
+  "ttsVoice": "com.apple.voice.compact.en-US.Samantha",
+  "ttsVoiceName": "Samantha",
+  "ttsServerVoiceId": "alloy",
+  "ttsServerVoiceName": "Alloy",
+  "ttsSpeed": 1.25,
+  "directVoiceProvider": {
+    "profileId": "dc-lantern"
+  },
+  "hermesShowScheduledSessions": false,
+  "messageActions": [
+    "copy",
+    "tts",
+    "regenerate",
+    "delete"
+  ],
+  "defaultInlineMessageActions": [
+    "copy",
+    "tts",
+    "regenerate"
+  ]
+}''',
+
+  'appSettingsPatch': r'''
+{
+  "quickPills": [
+    "image"
+  ],
+  "sendOnEnter": true,
+  "showModelNameInComposer": false,
+  "ttsSpeed": 1.5,
+  "hermesShowScheduledSessions": false,
+  "clear": [
+    "defaultModel",
+    "inlineMessageActions"
+  ]
+}''',
+
+  'accountSettingsDto': r'''
+{
+  "available": true,
+  "systemPrompt": "Keep answers short."
+}''',
+
+  'accountSettingsPatch': r'''
+{
+  "systemPrompt": "Answer in plain words."
+}''',
+
+  'modelPromptRef': r'''
+{
+  "modelId": "fake-model"
+}''',
+
+  'modelPrompt': r'''
+{
+  "modelId": "fake-model",
+  "editable": true,
+  "writable": true,
+  "prompt": "You are a patient tutor."
+}''',
+
+  'modelPromptEdit': r'''
+{
+  "modelId": "fake-model",
+  "prompt": "You are a terse reviewer."
+}''',
+
+  'quickPillOption': r'''
+{
+  "id": "filter:translate",
+  "kind": "filter",
+  "name": "Translate",
+  "targetId": "translate"
+}''',
+
+  'quickPillOptions': r'''
+{
+  "options": [
+    {
+      "id": "web",
+      "kind": "web",
+      "name": "",
+      "targetId": ""
+    },
+    {
+      "id": "weather",
+      "kind": "tool",
+      "name": "Weather",
+      "targetId": "weather"
+    }
+  ]
+}''',
+
+  'voiceProviderOption': r'''
+{
+  "id": "dc-lantern",
+  "name": "Lantern Labs"
+}''',
+
+  'voiceProviderOptions': r'''
+{
+  "connections": [
+    {
+      "id": "dc-lantern",
+      "name": ""
+    }
+  ]
+}''',
+
+  'aboutInfo': r'''
+{
+  "server": true,
+  "serverName": "Harbor Notes",
+  "serverVersion": "0.13.2",
+  "latestVersion": "0.13.3",
+  "repositoryUrl": "https://github.com/cogwheel0/conduit",
+  "buyMeACoffeeUrl": "https://www.buymeacoffee.com/cogwheel0",
+  "githubSponsorsUrl": "https://github.com/sponsors/cogwheel0"
+}''',
+
+  'profileDto': r'''
+{
+  "id": "u-ada",
+  "name": "Ada Example",
+  "email": "ada@example.com",
+  "role": "admin",
+  "username": "ada",
+  "image": "data:image/png;base64,iVBORw0KGgo=",
+  "bio": "Grows tomatoes on the balcony.",
+  "gender": "gardener",
+  "dateOfBirth": "1990-04-12",
+  "statusEmoji": "🌱",
+  "statusMessage": "Planting",
+  "isActive": true,
+  "passwordChangeAllowed": false
+}''',
+
+  'profileEdit': r'''
+{
+  "name": "Ada Example",
+  "gender": "female",
+  "clear": [
+    "bio"
+  ]
+}''',
+
+  'profileImageEdit': r'''
+{
+  "path": "/tmp/portrait.png",
+  "initials": false
+}''',
+
+  'passwordChange': r'''
+{
+  "currentPassword": "old-secret-1",
+  "newPassword": "new-secret-2"
+}''',
+
+  'passwordChangeResult': r'''
+{
+  "failure": "wrongPassword"
+}''',
+
+  'signOutAll': r'''
+{
+  "force": true
+}''',
+
+  'memoryDto': r'''
+{
+  "id": "m1",
+  "content": "Prefers metric units.",
+  "type": "user",
+  "path": "preferences/units",
+  "updatedAt": 1762790400
+}''',
+
+  'memoryList': r'''
+{
+  "available": true,
+  "enabled": true,
+  "items": [
+    {
+      "id": "m2",
+      "content": "Has a cat named Pip.",
+      "updatedAt": 0
+    }
+  ]
+}''',
+
+  'memoryEdit': r'''
+{
+  "id": "m1",
+  "content": "Prefers metric units and 24-hour time.",
+  "path": ""
+}''',
+
+  'memoryRef': r'''
+{
+  "id": "m1"
+}''',
+
+  'memoryToggle': r'''
+{
+  "enabled": false
+}''',
+
+  'notificationSettingsDto': r'''
+{
+  "enabled": true,
+  "sound": true,
+  "soundAlways": true,
+  "inAppBanner": true,
+  "system": true,
+  "answers": true,
+  "channels": true,
+  "mentionsOnly": true,
+  "synced": true
+}''',
+
+  'notificationSettingsPatch': r'''
+{
+  "inAppBanner": false,
+  "channels": true
+}''',
+
+  'notificationRouteParams': r'''
+{
+  "kind": "channelMessage",
+  "foreground": true,
+  "viewing": false,
+  "alert": true,
+  "mention": true,
+  "direct": false
+}''',
+
+  'notificationRoute': r'''
+{
+  "surface": "banner",
+  "cue": true,
+  "systemSound": false
+}''',
+
+  'answerNotice': r'''
+{
+  "chatId": "tide-tables",
+  "messageId": "reply-7",
+  "title": "Tide tables"
+}''',
+
+  'webhookDto': r'''
+{
+  "id": "harbour-hooks",
+  "enabled": true,
+  "isDefault": true,
+  "events": [
+    "chat.finished",
+    "channel.message"
+  ],
+  "delivery": "always",
+  "maskedUrl": "http://127.0.0.1:19341/...ook"
+}''',
+
+  'webhookEventDto': r'''
+{
+  "event": "chat.finished",
+  "label": "Chat finished",
+  "description": "A response finished."
+}''',
+
+  'webhookList': r'''
+{
+  "available": true,
+  "owner": "w1",
+  "items": [
+    {
+      "id": "ferry-desk",
+      "enabled": false,
+      "isDefault": false,
+      "events": [],
+      "delivery": "away"
+    }
+  ],
+  "events": [
+    {
+      "event": "channel.message",
+      "label": "Channel message"
+    }
+  ],
+  "stale": true,
+  "failed": false
+}''',
+
+  'webhookCreate': r'''
+{
+  "owner": "w1",
+  "url": "https://hooks.example.org/tide",
+  "name": "tide-board",
+  "enabled": true,
+  "events": [
+    "chat.finished"
+  ],
+  "delivery": "away"
+}''',
+
+  'webhookUpdate': r'''
+{
+  "owner": "w1",
+  "id": "tide-board",
+  "enabled": false,
+  "delivery": "always"
+}''',
+
+  'webhookRef': r'''
+{
+  "owner": "w1",
+  "id": "tide-board"
+}''',
+
+  'personalConnectionDto': r'''
+{
+  "kind": "toolServer",
+  "identity": "conduit-0a1b",
+  "name": "Buoy Readings",
+  "endpoint": "http://127.0.0.1:19341/personal",
+  "enabled": true,
+  "editable": true,
+  "description": "Synthetic buoy data.",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "bearer",
+  "hasKey": true,
+  "fingerprint": ""
+}''',
+
+  'personalConnections': r'''
+{
+  "access": "allowed",
+  "owner": "p1",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [],
+  "terminals": [
+    {
+      "kind": "terminal",
+      "identity": "http://127.0.0.1:9100",
+      "name": "Dock Shell",
+      "endpoint": "",
+      "enabled": false,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false,
+      "fingerprint": ""
+    }
+  ],
+  "cleared": [
+    "Old Gauge"
+  ],
+  "failed": false,
+  "savedForPreviousAccount": false
+}''',
+
+  'personalConnectionDraft': r'''
+{
+  "name": "Buoy Readings",
+  "description": "",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "none",
+  "key": "",
+  "keyMode": "keep",
+  "enabled": true
+}''',
+
+  'personalConnectionSave': r'''
+{
+  "owner": "p1",
+  "kind": "toolServer",
+  "op": "setEnabled",
+  "identity": "conduit-0a1b",
+  "enabled": false
+}''',
+
+  'personalConnectionTest': r'''
+{
+  "owner": "p1",
+  "kind": "terminal",
+  "draft": {
+    "name": "",
+    "description": "",
+    "url": "http://127.0.0.1:9100",
+    "specType": "url",
+    "path": "",
+    "spec": "",
+    "authType": "bearer",
+    "key": "",
+    "keyMode": "replace",
+    "enabled": true
+  }
+}''',
+
+  'personalConnectionTestResult': r'''
+{
+  "ok": false,
+  "failure": "unauthorized"
+}''',
+
+  'releaseNoteBullet': r'''
+{
+  "text": "Settings has every page the phone has.",
+  "icon": "polish"
+}''',
+
+  'releaseNoteDto': r'''
+{
+  "version": "0.9.0",
+  "title": "What is new",
+  "intro": "A first look.",
+  "bullets": [
+    {
+      "text": "Release notes."
+    }
+  ]
+}''',
+
+  'releaseNotesQuery': r'''
+{
+  "currentVersion": "0.9.0-beta.4",
+  "languageCode": "zh",
+  "scriptCode": "Hant",
+  "catalogs": {
+    "en": "{}",
+    "zh_Hant": "{}"
+  }
+}''',
+
+  'releaseNotesState': r'''
+{
+  "currentVersion": "0.9.0",
+  "banner": true,
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "",
+      "intro": "",
+      "bullets": []
+    }
+  ]
+}''',
+
+  'chatDataSummary': r'''
+{
+  "available": true,
+  "serverChats": 40,
+  "localOnly": 2,
+  "unsent": 1,
+  "running": 0,
+  "canExport": true,
+  "canImport": true,
+  "canDelete": false
+}''',
+
+  'dataExportRequest': r'''
+{
+  "path": "/tmp/chat-export.json"
+}''',
+
+  'dataImportRequest': r'''
+{
+  "path": "/tmp/chat-export.json"
+}''',
+
+  'dataDeleteAll': r'''
+{
+  "discardUnsent": true
+}''',
+
+  'dataActionResult': r'''
+{
+  "failure": "unrecognizedChat",
+  "count": 3,
+  "stored": 2,
+  "messages": 12,
+  "index": 1
+}''',
+
+  'messageBlockAlert': r'''
+{
+  "kind": "alert",
+  "markdown": "Check the **tide table** before you sail.",
+  "type": "warning"
+}''',
+
+  'messageBlockEmbeds': r'''
+{
+  "kind": "embeds",
+  "embeds": [
+    {
+      "kind": "html",
+      "source": "<h1>Tide board</h1>",
+      "argsText": ""
+    },
+    {
+      "kind": "url",
+      "source": "https://example.com/tides",
+      "argsText": ""
+    },
+    {
+      "kind": "mcpApp",
+      "argsText": "",
+      "app": {
+        "serverId": "harbour",
+        "toolName": "show_tides",
+        "binding": "b1nd1ng",
+        "arguments": "{}",
+        "result": "{}"
+      }
+    }
+  ]
+}''',
+
+  'toolCallWithEmbeds': r'''
+{
+  "id": "call_b1",
+  "name": "tide_board",
+  "arguments": "{}",
+  "result": "Shown",
+  "done": true,
+  "pending": false,
+  "isError": false,
+  "shownEmbeds": [
+    {
+      "kind": "html",
+      "source": "<p>Board</p>",
+      "argsText": "{}"
+    }
+  ]
+}''',
+
+  'embed': r'''
+{
+  "kind": "url",
+  "source": "https://example.com/harbour-cam",
+  "argsText": ""
+}''',
+
+  'queuedCompletion': r'''
+{
+  "failed": true,
+  "offline": false,
+  "error": "reasoning_effort is not supported",
+  "reasoningEffortRejected": true
+}''',
+
+  'chatTask': r'''
+{
+  "id": "3",
+  "content": "Check the harbour",
+  "status": "cancelled"
+}''',
+
+  'queuedTurnRef': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "messageId": "msg-assistant-1",
+  "withoutReasoningEffort": true
+}''',
+
+  'chatPromptOption': r'''
+{
+  "label": "Morning",
+  "description": "Before the tide turns"
+}''',
+
+  'chatPromptQuestion': r'''
+{
+  "id": "when",
+  "header": "Departure",
+  "question": "When should the boat leave?",
+  "options": [
+    {
+      "label": "Morning",
+      "description": "Before the tide"
+    },
+    {
+      "label": "Evening",
+      "description": "After the wind"
+    }
+  ],
+  "allowOther": false
+}''',
+
+  'chatPromptAskUser': r'''
+{
+  "id": "live:42",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "askUser",
+  "title": "",
+  "message": "",
+  "questions": [
+    {
+      "id": "when",
+      "header": "Departure",
+      "question": "When should the boat leave?",
+      "options": [
+        {
+          "label": "Morning",
+          "description": ""
+        },
+        {
+          "label": "Evening",
+          "description": ""
+        }
+      ],
+      "allowOther": true
+    }
+  ],
+  "expiresAtMs": 1758412920000
+}''',
+
+  'chatPromptToolApproval': r'''
+{
+  "id": "saved:msg-assistant-1:call_a1",
+  "chatId": "chat-7c1f0b2a",
+  "kind": "toolApproval",
+  "title": "tide_table",
+  "message": "{}",
+  "questions": []
+}''',
+
+  'chatPromptRef': r'''
+{
+  "chatId": "chat-7c1f0b2a"
+}''',
+
+  'chatPromptState': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "prompt": {
+    "id": "live:43",
+    "chatId": "chat-7c1f0b2a",
+    "kind": "confirmation",
+    "title": "Overwrite the plan?",
+    "message": "The agent wants to replace plan.md.",
+    "questions": []
+  }
+}''',
+
+  'chatPromptStateEmpty': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "prompt": null
+}''',
+
+  'chatPromptAnswerItem': r'''
+{
+  "questionId": "when",
+  "optionIndex": 1
+}''',
+
+  'chatPromptAnswer': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "promptId": "live:42",
+  "answers": [
+    {
+      "questionId": "when",
+      "text": "At noon"
+    }
+  ]
+}''',
+
+  'chatPromptDecision': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "promptId": "saved:msg-assistant-1:call_a1",
+  "approved": true
+}''',
+
+  'mcpApp': r'''
+{
+  "serverId": "harbour",
+  "toolName": "show_tides",
+  "binding": "b1nd1ng",
+  "arguments": "{}",
+  "result": "{}"
+}''',
+
+  'mcpAppOpen': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "app": {
+    "serverId": "harbour",
+    "toolName": "show_tides",
+    "binding": "b",
+    "arguments": "{}",
+    "result": "{}"
+  },
+  "theme": "dark",
+  "locale": "de",
+  "width": 640.0
+}''',
+
+  'mcpAppSession': r'''
+{
+  "appId": "app-1",
+  "document": "<p>Tides</p>",
+  "connectDomains": [
+    "https://api.example.com"
+  ],
+  "resourceDomains": [
+    "https://cdn.example.com"
+  ],
+  "frameDomains": []
+}''',
+
+  'mcpAppMessage': r'''
+{
+  "appId": "app-1",
+  "payload": "{}"
+}''',
+
+  'mcpAppContext': r'''
+{
+  "appId": "app-1",
+  "theme": "light"
+}''',
+
+  'mcpAppRef': r'''
+{
+  "appId": "app-1"
+}''',
+
+  'mcpAppEvent': r'''
+{
+  "appId": "app-1",
+  "kind": "resize",
+  "height": 320.0
+}''',
+
+  'uiRequestMcpAppToolCall': r'''
+{
+  "requestId": "req-mcp-app-1",
+  "kind": "mcpAppToolCall",
+  "messageCode": "mcpApp.toolCall",
+  "messageArgs": {
+    "serverName": "harbour",
+    "toolName": "refresh_tides"
+  },
+  "detail": {},
+  "defaultChoice": "deny"
+}''',
+
+  'connectionHealth': r'''
+{
+  "available": true,
+  "connected": true,
+  "transport": "websocket",
+  "latencyMs": 42,
+  "quality": "excellent",
+  "lastHeartbeatMs": 1762790400000,
+  "reconnects": 1,
+  "allowPolling": false,
+  "allowWebsocket": true
+}''',
+
+  'chatSettingsQuery': r'''
+{
+  "chatId": "chat-1",
+  "modelId": "fake-model",
+  "draft": {}
+}''',
+
+  'chatSettingsQueryDraft': r'''
+{
+  "draft": {
+    "temperature": 0.4
+  }
+}''',
+
+  'chatSettingField': r'''
+{
+  "key": "temperature",
+  "kind": "decimal",
+  "mode": "custom",
+  "text": "0.4",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 2.0
+}''',
+
+  'chatSettingFieldError': r'''
+{
+  "key": "top_k",
+  "kind": "integer",
+  "mode": "custom",
+  "text": "1.5",
+  "choices": [],
+  "allowsCustom": false,
+  "min": 0.0,
+  "max": 1000.0,
+  "error": "notAWholeNumber"
+}''',
+
+  'chatSettingFieldChoice': r'''
+{
+  "key": "reasoning_effort",
+  "kind": "choice",
+  "mode": "modelDefault",
+  "text": "",
+  "choices": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true
+}''',
+
+  'chatSettingApplied': r'''
+{
+  "key": "temperature",
+  "value": "0.4"
+}''',
+
+  'chatSettingsState': r'''
+{
+  "chatId": "chat-1",
+  "entry": "editor",
+  "advanced": true,
+  "canEditSystemPrompt": true,
+  "canEditParameters": true,
+  "systemPrompt": {
+    "key": "system",
+    "kind": "text",
+    "mode": "custom",
+    "text": "Answer in haiku.",
+    "choices": [],
+    "allowsCustom": false
+  },
+  "parameters": [
+    {
+      "key": "seed",
+      "kind": "integer",
+      "mode": "inherit",
+      "text": "",
+      "choices": [],
+      "allowsCustom": false
+    }
+  ],
+  "otherKept": false,
+  "applied": [
+    {
+      "key": "system",
+      "value": "Answer in haiku."
+    }
+  ],
+  "params": {
+    "system": "Answer in haiku."
+  },
+  "dirty": false,
+  "hasErrors": false,
+  "saved": true
+}''',
+
+  'chatSettingFieldEdit': r'''
+{
+  "key": "seed",
+  "mode": "custom",
+  "text": "42"
+}''',
+
+  'chatSettingsEdit': r'''
+{
+  "chatId": "chat-1",
+  "draft": {},
+  "fields": [
+    {
+      "key": "system",
+      "mode": "inherit",
+      "text": ""
+    }
+  ]
+}''',
+
+  'valveTarget': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather"
+}''',
+
+  'valveTargetsQuery': r'''
+{
+  "modelId": "fake-model",
+  "toolIds": [
+    "tool-weather"
+  ],
+  "filterIds": []
+}''',
+
+  'valveTargets': r'''
+{
+  "targets": [
+    {
+      "kind": "function",
+      "id": "filter-1",
+      "label": ""
+    }
+  ],
+  "advanced": true
+}''',
+
+  'valvesRef': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather"
+}''',
+
+  'valveField': r'''
+{
+  "key": "units",
+  "title": "Units",
+  "description": "Metric or imperial",
+  "type": "choice",
+  "isRequired": true,
+  "password": false,
+  "options": [
+    "metric",
+    "imperial"
+  ],
+  "isDefault": false,
+  "hasDefault": true,
+  "text": "metric",
+  "seed": "metric"
+}''',
+
+  'valvesDocument': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather",
+  "phase": "ready",
+  "fields": [
+    {
+      "key": "verbose",
+      "title": "Verbose",
+      "type": "boolean",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": true,
+      "hasDefault": false,
+      "text": "",
+      "seed": ""
+    }
+  ]
+}''',
+
+  'valvesDocumentUnavailable': r'''
+{
+  "kind": "function",
+  "id": "filter-1",
+  "label": "",
+  "phase": "unavailable",
+  "fields": []
+}''',
+
+  'valveEdit': r'''
+{
+  "key": "units",
+  "isDefault": false,
+  "text": "metric"
+}''',
+
+  'valvesSave': r'''
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "",
+  "values": [
+    {
+      "key": "verbose",
+      "isDefault": true,
+      "text": ""
+    }
+  ]
+}''',
+
+  'accessRef': r'''
+{
+  "kind": "folder",
+  "id": "folder-1"
+}''',
+
+  'accessGrantDto': r'''
+{
+  "principalType": "user",
+  "principalId": "user-2",
+  "write": true,
+  "name": "Rowan Vale",
+  "email": "rowan@example.test"
+}''',
+
+  'accessState': r'''
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "group",
+      "principalId": "group-1",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "private",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": true,
+  "allowPublic": true,
+  "allowOpen": false,
+  "ownerName": "Ada Example"
+}''',
+
+  'accessStateChat': r'''
+{
+  "kind": "chat",
+  "id": "chat-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": "Rowan Vale"
+    }
+  ],
+  "audience": "open",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": false,
+  "allowPublic": true,
+  "allowOpen": true
+}''',
+
+  'accessEdit': r'''
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "user",
+      "principalId": "user-2",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "public"
+}''',
+
+  'accessPrincipal': r'''
+{
+  "type": "user",
+  "id": "user-2",
+  "name": "Rowan Vale"
+}''',
+
+  'accessPrincipalQuery': r'''
+{
+  "query": "row"
+}''',
+
+  'accessPrincipals': r'''
+{
+  "items": [
+    {
+      "type": "group",
+      "id": "group-1",
+      "name": "Gardeners"
+    }
+  ]
+}''',
+
+  'modelListFeatured': r'''
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": true,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "fake-model",
+  "featuredIds": [
+    "fake-model"
+  ],
+  "moreSections": [
+    {
+      "label": "",
+      "ids": [
+        "fake-other"
+      ]
+    }
+  ],
+  "canPin": true,
+  "defaultId": "fake-model",
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
+}''',
+
+  'modelSection': r'''
+{
+  "label": "Agents",
+  "ids": [
+    "agent-1"
+  ]
+}''',
+
+  'setModelPinned': r'''
+{
+  "id": "fake-model",
+  "pinned": true,
+  "chatId": "chat-1"
+}''',
+
+  'modelOptionsQuery': r'''
+{
+  "modelId": "fake-model",
+  "chatId": "chat-1"
+}''',
+
+  'reasoningOptions': r'''
+{
+  "visible": true,
+  "options": [
+    "automatic",
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true,
+  "current": "high",
+  "ollama": false
+}''',
+
+  'modelOptionsDto': r'''
+{
+  "modelId": "fake-model",
+  "reasoning": {
+    "visible": true,
+    "options": [],
+    "allowsCustom": false,
+    "current": "low",
+    "ollama": false
+  },
+  "fastTier": false,
+  "draft": {
+    "reasoning_effort": "low"
+  }
+}''',
+
+  'setReasoningEffort': r'''
+{
+  "modelId": "fake-model",
+  "chatId": "chat-1",
+  "draft": {},
+  "effort": "high"
+}''',
+
+  'setFastTier': r'''
+{
+  "modelId": "hermes-agent",
+  "on": true
+}''',
+
+  'folderIconChoice': r'''
+{
+  "alias": "books",
+  "emoji": "B"
+}''',
+
+  'folderKnowledgeItem': r'''
+{
+  "type": "collection",
+  "id": "kb-1",
+  "name": "Garden guides",
+  "missing": false
+}''',
+
+  'folderSettings': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "briefcase",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [
+    "fake-model"
+  ],
+  "knowledge": [
+    {
+      "type": "file",
+      "id": "file-1",
+      "name": "notes.txt",
+      "missing": true
+    }
+  ],
+  "shared": false,
+  "canRename": true,
+  "canWrite": true,
+  "canEditSystemPrompt": false,
+  "canShare": true,
+  "iconChoices": [
+    {
+      "alias": "memo",
+      "emoji": "M"
+    }
+  ],
+  "modelChoices": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B"
+    }
+  ]
+}''',
+
+  'folderModelChoice': r'''
+{
+  "id": "fake-model",
+  "name": "Kestrel 8B"
+}''',
+
+  'folderSettingsShared': r'''
+{
+  "id": "folder-9",
+  "name": "Club",
+  "systemPrompt": "",
+  "modelIds": [],
+  "knowledge": [],
+  "shared": true,
+  "ownerName": "Rowan Vale",
+  "canRename": false,
+  "canWrite": false,
+  "canEditSystemPrompt": false,
+  "canShare": false,
+  "iconChoices": [],
+  "modelChoices": []
+}''',
+
+  'folderUpdate': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "icon": "",
+  "systemPrompt": "Keep answers short.",
+  "modelIds": [],
+  "knowledge": [
+    {
+      "type": "note",
+      "id": "note-1",
+      "name": "Plan",
+      "missing": false
+    }
+  ]
+}''',
+
+  'folderDraftModel': r'''
+{
+  "folderId": "folder-1",
+  "modelIds": [
+    "fake-model"
+  ],
+  "missing": false
+}''',
+
+  'folderDraftModelMissing': r'''
+{
+  "folderId": "folder-1",
+  "modelIds": [],
+  "missing": true
+}''',
+
+  'sendTurnInFolder': r'''
+{
+  "text": "Plan the week",
+  "toolIds": [],
+  "knowledge": [],
+  "webSearch": false,
+  "imageGeneration": false,
+  "codeInterpreter": false,
+  "fileIds": [],
+  "context": [],
+  "mentions": [],
+  "filterIds": [],
+  "compareModels": [],
+  "temporary": false,
+  "folderId": "folder-1",
+  "chatParams": {
+    "seed": 42
+  }
+}''',
+
+  'folderSummaryIcon': r'''
+{
+  "id": "folder-1",
+  "name": "Work",
+  "expanded": false,
+  "shared": false,
+  "canWrite": true,
+  "icon": "W"
+}''',
+
+  'chatSummaryUnread': r'''
+{
+  "id": "chat-9a2e4d1b",
+  "title": "Pond liner sizes",
+  "updatedAtMs": 1758412900000,
+  "pinned": false,
+  "archived": false,
+  "tags": [],
+  "shared": false,
+  "readOnly": false,
+  "unread": true,
+  "menu": {
+    "share": false,
+    "duplicate": false,
+    "move": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "export": false
+  }
+}''',
+
+  'comparisonSlotDto': r'''
+{
+  "index": 1,
+  "answerIds": [
+    "msg-b1",
+    "msg-b2"
+  ],
+  "model": "fake-model-b"
+}''',
+
+  'chatMessageCompared': r'''
+{
+  "id": "msg-a1",
+  "role": "assistant",
+  "content": "Two coats are enough.",
+  "timestampMs": 1758412800000,
+  "model": "fake-model",
+  "streaming": false,
+  "versions": [
+    {
+      "id": "msg-b1",
+      "content": "Three thin coats.",
+      "timestampMs": 1758412800000,
+      "model": "fake-model-b",
+      "sources": [],
+      "blocks": [],
+      "slot": 1,
+      "streaming": true
+    }
+  ],
+  "sources": [],
+  "usage": {
+    "totalTokens": 15,
+    "contextLength": 8192,
+    "contextTokens": 15,
+    "incomplete": true
+  },
+  "files": [],
+  "blocks": [],
+  "parentId": "msg-q1",
+  "slot": 0,
+  "merged": "Two coats, a day apart.",
+  "retryWithoutEffort": true,
+  "comparison": [
+    {
+      "index": 0,
+      "answerIds": [
+        "msg-a1"
+      ],
+      "model": "fake-model"
+    },
+    {
+      "index": 1,
+      "answerIds": [
+        "msg-b1"
+      ],
+      "model": "fake-model-b"
+    }
+  ],
+  "mergeableIds": [
+    "msg-a1"
+  ],
+  "siblingIds": [
+    "msg-a1",
+    "msg-b1"
+  ]
+}''',
+
+  'chatMessageVersionFailed': r'''
+{
+  "id": "msg-b2",
+  "content": "",
+  "timestampMs": 1758412800000,
+  "sources": [],
+  "blocks": [],
+  "slot": 1,
+  "merged": "Merged.",
+  "streaming": false,
+  "errorCode": "rpc.serverError"
+}''',
+
+  'chatAbilities': r'''
+{
+  "fork": true,
+  "export": true,
+  "merge": true,
+  "branch": true,
+  "deleteMessages": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "share": true,
+  "saveTemporary": true,
+  "compare": true,
+  "branchFromHere": true,
+  "undoLastTurn": true,
+  "hermesWork": false,
+  "hermesContext": false
+}''',
+
+  'chatDetailHermes': r'''
+{
+  "summary": {
+    "id": "local:hermes_s4",
+    "title": "Garden notes",
+    "updatedAtMs": 1758413000000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": false,
+    "readOnly": false,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": true,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "tasks": [],
+  "hermes": {
+    "sessionId": "s4",
+    "readOnly": false,
+    "owner": ""
+  }
+}''',
+
+  'chatDetailActions': r'''
+{
+  "summary": {
+    "id": "chat-9a2e4d1b",
+    "title": "Pond liner sizes",
+    "updatedAtMs": 1758412900000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": true,
+    "readOnly": false,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": true,
+    "export": true,
+    "merge": false,
+    "branch": true,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "tasks": []
+}''',
+
+  'chatCurrentAlternative': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-b1",
+  "alternativeTo": "msg-a1"
+}''',
+
+  'shareChat': r'''
+{
+  "id": "chat-9a2e4d1b",
+  "publish": false,
+  "audience": "open"
+}''',
+
+  'chatShareLinked': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "url": "http://127.0.0.1:19060/s/b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "audience": "public"
+}''',
+
+  'forkChat': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1"
+}''',
+
+  'chatForked': r'''
+{
+  "chatId": "chat-3c4d5e6f"
+}''',
+
+  'exportChat': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "format": "markdown"
+}''',
+
+  'chatExportFile': r'''
+{
+  "fileName": "Pond liner sizes-1758412900000.md",
+  "content": "# Pond liner sizes",
+  "mimeType": "text/markdown",
+  "hasUnsyncedChanges": true
+}''',
+
+  'generatedTitle': r'''
+{
+  "outcome": "saved",
+  "title": "Pond liner sizes"
+}''',
+
+  'generatedTitleNone': r'''
+{
+  "outcome": "none"
+}''',
+
+  'markUnread': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "unread": false
+}''',
+
+  'deleteMessages': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageIds": [
+    "msg-q1"
+  ],
+  "dryRun": true
+}''',
+
+  'messagesDeletedDryRun': r'''
+{
+  "count": 2,
+  "chat": null
+}''',
+
+  'messagesDeleted': r'''
+{
+  "count": 2,
+  "chat": {
+    "summary": {
+      "id": "chat-9a2e4d1b",
+      "title": "Pond liner sizes",
+      "updatedAtMs": 1758412900000,
+      "pinned": false,
+      "archived": false,
+      "tags": [],
+      "shared": false,
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
+    },
+    "messages": [],
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false,
+      "branchFromHere": false,
+      "undoLastTurn": false,
+      "hermesWork": false,
+      "hermesContext": false
+    },
+    "temporary": false,
+    "tasks": []
+  }
+}''',
+
+  'mergeTurn': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "sourceIds": [
+    "msg-a1",
+    "msg-b1"
+  ],
+  "stop": false
+}''',
+
+  'mergeStarted': r'''
+{
+  "targetId": "msg-a1"
+}''',
+
+  'mergeProgress': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "text": "Two coats",
+  "running": true
+}''',
+
+  'mergeProgressFailed': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "targetId": "msg-a1",
+  "text": "",
+  "running": false,
+  "error": "unavailable"
+}''',
+
+  'regenerateWithoutEffort': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "withoutReasoningEffort": true
+}''',
+
+  'turnStartedCompared': r'''
+{
+  "chatId": "chat-9a2e4d1b",
+  "messageId": "msg-a1",
+  "model": "fake-model",
+  "companionIds": [
+    "msg-b1"
+  ]
+}''',
+
+  'handoffRequest': r'''
+{
+  "requestId": "handoff-1",
+  "chatId": "chat-9a2e4d1b",
+  "modelId": "fake-model-b",
+  "modelName": "Fake Model B",
+  "prompt": "Carry on with the pond plan."
+}''',
+
+  'handoffAnswer': r'''
+{
+  "requestId": "handoff-1",
+  "accept": true
+}''',
+
+  'handoffAnswered': r'''
+{
+  "open": true,
+  "modelId": "fake-model-b",
+  "prompt": "Carry on with the pond plan."
+}''',
+
+  'handoffSettled': r'''
+{
+  "requestId": "handoff-1"
+}''',
+
+  'voiceSpeakInChat': r'''
+{
+  "text": "The tide turns at noon.",
+  "chatId": "chat-harbour"
+}''',
+
+  'speechProgress': r'''
+{
+  "status": "speaking",
+  "reading": 3,
+  "chatId": "chat-harbour",
+  "messageId": "answer-harbour",
+  "engine": "device",
+  "sentence": 1,
+  "wordStart": 4,
+  "wordEnd": 9,
+  "wordsReported": true,
+  "elapsedMs": 2400,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": true,
+  "seeking": false
+}''',
+
+  'speechProgressIdle': r'''
+{
+  "status": "idle",
+  "reading": 0,
+  "sentence": -1,
+  "wordsReported": false,
+  "elapsedMs": 0,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": false,
+  "seeking": false
+}''',
+
+  'speechState': r'''
+{
+  "progress": {
+    "status": "paused",
+    "reading": 4,
+    "chatId": "chat-harbour",
+    "messageId": "answer-harbour",
+    "engine": "server",
+    "sentence": 0,
+    "wordsReported": false,
+    "elapsedMs": 1200,
+    "durationMs": 5300,
+    "canSeek": true,
+    "canSeekSentences": true,
+    "seeking": false
+  },
+  "sentences": [
+    "The harbour lights come on.",
+    "A boat drifts by."
+  ]
+}''',
+
+  'speechToggle': r'''
+{
+  "chatId": "chat-harbour",
+  "messageId": "answer-harbour"
+}''',
+
+  'speechSeek': r'''
+{
+  "by": -1
+}''',
+
+  'speechSeekSentence': r'''
+{
+  "sentence": 2
+}''',
+
+  'speechPreview': r'''
+{
+  "text": "This is how I sound."
+}''',
+
+  'speechCommandSpeak': r'''
+{
+  "id": 7,
+  "kind": "deviceSpeak",
+  "text": "The harbour lights come on.",
+  "voice": "com.apple.voice.compact.en-US.Samantha",
+  "rate": 0.5,
+  "pitch": 1.0,
+  "volume": 1.0,
+  "utterance": 2,
+  "clips": []
+}''',
+
+  'speechCommandPlayer': r'''
+{
+  "id": 8,
+  "kind": "playerSet",
+  "utterance": 0,
+  "clips": [
+    "/tts/tts-1a2b"
+  ],
+  "index": 0,
+  "positionMs": 0
+}''',
+
+  'speechVoice': r'''
+{
+  "id": "com.apple.voice.compact.en-GB.Daniel",
+  "name": "Daniel",
+  "language": "en-GB"
+}''',
+
+  'speechReportAnswer': r'''
+{
+  "id": 9,
+  "ok": true,
+  "durationMs": 5300,
+  "voices": [
+    {
+      "id": "com.apple.voice.compact.en-GB.Daniel",
+      "name": "",
+      "language": ""
+    }
+  ],
+  "utterance": 0,
+  "playing": false
+}''',
+
+  'speechReportWord': r'''
+{
+  "ok": true,
+  "voices": [],
+  "kind": "progress",
+  "utterance": 2,
+  "start": 4,
+  "end": 9,
+  "playing": false
+}''',
+
+  'speechReportPlayer': r'''
+{
+  "ok": true,
+  "voices": [],
+  "kind": "player",
+  "utterance": 0,
+  "playing": true,
+  "state": "ready",
+  "index": 1,
+  "positionMs": 800
+}''',
+
+  'appleEngineStatus': r'''
+{
+  "availability": "available",
+  "contextSize": 4096,
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModelStatus': r'''
+{
+  "model": "onDevice",
+  "availability": "unavailable",
+  "reason": "modelNotReady",
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModels': r'''
+{
+  "models": [
+    {
+      "model": "onDevice",
+      "availability": "available",
+      "contextSize": 4096,
+      "supportsCurrentLocale": true
+    }
+  ]
+}''',
+
+  'appleMessage': r'''
+{
+  "role": "user",
+  "content": "Name three hardy herbs for a windowsill."
+}''',
+
+  'appleToolDefinition': r'''
+{
+  "name": "garden_lookup",
+  "description": "Looks up a plant in the garden notebook.",
+  "inputSchemaJson": "{}"
+}''',
+
+  'appleGeneration': r'''
+{
+  "runId": "run-5c1e",
+  "model": "onDevice",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Name three hardy herbs for a windowsill."
+    }
+  ],
+  "tools": [],
+  "temperature": 0.4,
+  "maximumResponseTokens": 512
+}''',
+
+  'appleCommandStart': r'''
+{
+  "id": 3,
+  "kind": "start",
+  "request": {
+    "runId": "run-5c1e",
+    "model": "onDevice",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Is thyme hardy?"
+      }
+    ],
+    "tools": []
+  },
+  "toolCancelled": false
+}''',
+
+  'appleCommandToolResult': r'''
+{
+  "id": 4,
+  "kind": "toolResult",
+  "runId": "run-5c1e",
+  "callId": "call-1",
+  "toolContent": "Thyme survives frost.",
+  "toolCancelled": false
+}''',
+
+  'appleReportStatus': r'''
+{
+  "id": 2,
+  "ok": true,
+  "runs": [],
+  "status": {
+    "availability": "unavailable",
+    "reason": "appleIntelligenceNotEnabled"
+  }
+}''',
+
+  'appleReportReady': r'''
+{
+  "ok": true,
+  "kind": "ready",
+  "supported": true,
+  "runs": [
+    "run-5c1e"
+  ]
+}''',
+
+  'appleReportContent': r'''
+{
+  "ok": true,
+  "kind": "content",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "content": "Thyme, rosemary and sage."
+}''',
+
+  'appleReportFailed': r'''
+{
+  "ok": true,
+  "kind": "failed",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 2,
+  "failure": "contextExceeded"
+}''',
+
+  'appleReportToolCall': r'''
+{
+  "ok": true,
+  "kind": "toolCall",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "callId": "call-1",
+  "toolName": "garden_lookup",
+  "argumentsJson": "{}"
+}''',
+
+  'hermesWorkWatch': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-2"
+}''',
+
+  'hermesWork': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "loaded": true,
+  "subagents": [
+    {
+      "id": "sa-1",
+      "goal": "Survey the tide tables for next week",
+      "depth": 0,
+      "model": "demo-model",
+      "startedAtMs": 1762850000000,
+      "status": "running",
+      "running": true,
+      "toolCount": 3,
+      "lastTool": "web_search",
+      "acceptingSteer": true
+    },
+    {
+      "id": "sa-2",
+      "goal": "Draft the harbour notice",
+      "parentId": "sa-1",
+      "depth": 1,
+      "status": "completed",
+      "running": false,
+      "toolCount": 0,
+      "acceptingSteer": false
+    }
+  ],
+  "processes": [
+    {
+      "id": "proc-9",
+      "command": "python -m http.server 8765",
+      "running": true,
+      "startedAtMs": 1762850010000,
+      "output": "Serving HTTP on 127.0.0.1 port 8765"
+    }
+  ],
+  "plan": {
+    "items": [
+      {
+        "id": "1",
+        "content": "Read the tide tables",
+        "status": "completed",
+        "depth": 0
+      },
+      {
+        "id": "2",
+        "content": "Draft the notice",
+        "status": "in_progress",
+        "depth": 0
+      },
+      {
+        "id": "3",
+        "content": "Check the wording",
+        "status": "pending",
+        "depth": 1
+      }
+    ],
+    "done": 1,
+    "active": true,
+    "currentId": "2",
+    "revision": 4
+  },
+  "output": {
+    "subagentId": "sa-2",
+    "loaded": true,
+    "failed": false,
+    "available": true,
+    "text": "Notice drafted: the pier closes at six.",
+    "truncated": true
+  },
+  "workingDirectory": "/home/u/projects/harbour"
+}''',
+
+  'hermesWorkEmpty': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "loaded": false,
+  "subagents": [],
+  "processes": []
+}''',
+
+  'hermesSubagent': r'''
+{
+  "id": "sa-3",
+  "goal": "",
+  "depth": 0,
+  "running": true,
+  "toolCount": 0,
+  "acceptingSteer": true
+}''',
+
+  'hermesProcess': r'''
+{
+  "id": "proc-2",
+  "command": "sleep 120",
+  "running": false,
+  "exitCode": 0
+}''',
+
+  'hermesPlan': r'''
+{
+  "items": [],
+  "done": 0,
+  "active": false,
+  "revision": 0
+}''',
+
+  'hermesPlanItem': r'''
+{
+  "id": "7",
+  "content": "Tidy up",
+  "status": "pending",
+  "depth": 0
+}''',
+
+  'hermesSubagentOutput': r'''
+{
+  "subagentId": "sa-3",
+  "loaded": true,
+  "failed": true,
+  "available": false,
+  "text": "",
+  "truncated": false
+}''',
+
+  'hermesContextCategory': r'''
+{
+  "id": "conversation",
+  "label": "",
+  "tokens": 640
+}''',
+
+  'hermesTokenTotals': r'''
+{
+  "input": 300,
+  "output": 40,
+  "costEstimated": false
+}''',
+
+  'hermesPlanGauge': r'''
+{
+  "id": "week",
+  "usedFraction": 0.75
+}''',
+
+  'hermesUsageBar': r'''
+{
+  "kind": "topup",
+  "fill": 1.0
+}''',
+
+  'hermesUsageBars': r'''
+{
+  "planName": "Harbour plan"
+}''',
+
+  'hermesProviderPlan': r'''
+{
+  "gauges": [
+    {
+      "id": "month",
+      "usedFraction": 0.1
+    }
+  ],
+  "rateLimited": false
+}''',
+
+  'hermesWorkChat': r'''
+{
+  "chatId": "local:hermes_s-4f2a"
+}''',
+
+  'hermesSteerSubagent': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-1",
+  "text": "Only the north pier"
+}''',
+
+  'hermesSubagentRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "subagentId": "sa-1"
+}''',
+
+  'hermesProcessRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "processId": "proc-9"
+}''',
+
+  'hermesProcessKill': r'''
+{
+  "status": "killed",
+  "output": "Keyboard interrupt received, exiting."
+}''',
+
+  'hermesProcessKillFailed': r'''
+{
+  "status": "failed",
+  "error": "permission denied"
+}''',
+
+  'hermesContextRef': r'''
+{
+  "chatId": "local:hermes_s-4f2a"
+}''',
+
+  'hermesContextReport': r'''
+{
+  "model": "demo-model",
+  "contextUsed": 18400,
+  "contextMax": 131072,
+  "contextEstimated": false,
+  "estimatedTotal": 18900,
+  "categories": [
+    {
+      "id": "system_prompt",
+      "label": "System prompt",
+      "tokens": 2100
+    },
+    {
+      "id": "tool_definitions",
+      "label": "Tool definitions",
+      "tokens": 9300
+    },
+    {
+      "id": "subagent_definitions",
+      "label": "Subagent definitions",
+      "tokens": 800
+    },
+    {
+      "id": "conversation",
+      "label": "Conversation",
+      "tokens": 6200
+    }
+  ],
+  "totals": {
+    "input": 52000,
+    "output": 4100,
+    "reasoning": 900,
+    "cacheRead": 30000,
+    "cacheWrite": 12000,
+    "cacheHitPercent": 58,
+    "total": 56100,
+    "calls": 7,
+    "compressions": 1,
+    "costUsd": 0.42,
+    "costEstimated": true
+  },
+  "planGauges": [
+    {
+      "id": "day",
+      "usedFraction": 0.25,
+      "resetsAtMs": 1762905600000
+    },
+    {
+      "id": "surge",
+      "title": "Surge pool",
+      "usedFraction": 0.5
+    }
+  ],
+  "creditsLines": [
+    "12 credits left this month"
+  ],
+  "usageBars": {
+    "planName": "Harbour plan",
+    "renews": "Renews 1 Dec",
+    "plan": {
+      "kind": "plan",
+      "fill": 0.3,
+      "remaining": "$14.00",
+      "total": "$20.00",
+      "usedPercent": 30
+    },
+    "totalSpendable": "$14.00"
+  },
+  "providerPlan": {
+    "provider": "custom",
+    "planName": "Local",
+    "gauges": [],
+    "rateLimited": true,
+    "rateLimitedUntilMs": 1762851000000,
+    "usageLevel": "low"
+  },
+  "canCompact": true,
+  "compacting": false
+}''',
+
+  'hermesContextReportEmpty': r'''
+{
+  "contextEstimated": false,
+  "categories": [],
+  "totals": {
+    "costEstimated": false
+  },
+  "planGauges": [],
+  "creditsLines": [],
+  "canCompact": false,
+  "compacting": false
+}''',
+
+  'hermesCompact': r'''
+{
+  "chatId": "local:hermes_s-4f2a",
+  "focus": "the pier schedule"
+}''',
+
+  'hermesCompactResult': r'''
+{
+  "outcome": "compacted",
+  "beforeTokens": 18400,
+  "afterTokens": 6100,
+  "beforeMessages": 24,
+  "afterMessages": 6
+}''',
+
+  'hermesDecisionAnswerForm': r'''
+{
+  "requestId": "ui-41",
+  "answers": [
+    {
+      "questionId": "colour",
+      "answer": "Teal"
+    },
+    {
+      "questionId": "pages"
+    }
+  ]
+}''',
+
+  'hermesDecisionAnswerValue': r'''
+{
+  "requestId": "ui-42",
+  "answers": [],
+  "value": "synthetic-value"
+}''',
+
+  'hermesClarifyAnswer': r'''
+{
+  "questionId": "pages",
+  "answer": "About"
+}''',
+
+  'hermesDecisionResult': r'''
+{
+  "status": "answered"
+}''',
+
+  'changedFile': r'''
+{
+  "path": "/home/u/projects/harbour/notes/pier.md",
+  "added": 2,
+  "removed": 1,
+  "lines": [
+    {
+      "kind": "hunk",
+      "text": "@@ -1,2 +1,3 @@"
+    },
+    {
+      "kind": "context",
+      "text": "# Pier",
+      "oldNumber": 1,
+      "newNumber": 1
+    },
+    {
+      "kind": "removed",
+      "text": "Open until five",
+      "oldNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Open until six",
+      "newNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Closed on Mondays",
+      "newNumber": 3
+    }
+  ]
+}''',
+
+  'diffLine': r'''
+{
+  "kind": "note",
+  "text": "3 more lines"
+}''',
+
+  'messageBlockChangedFiles': r'''
+{
+  "kind": "changedFiles",
+  "changedFiles": [
+    {
+      "path": "pier.md",
+      "added": 1,
+      "removed": 0,
+      "lines": []
+    }
+  ]
+}''',
+
+  'hermesError': r'''
+{
+  "kind": "rateLimit",
+  "blocking": false,
+  "message": "The provider is rate limiting this key.",
+  "provider": "Custom",
+  "model": "demo-model",
+  "resetsAtMs": 1762851000000,
+  "partial": false,
+  "actions": [
+    "retry"
+  ]
+}''',
+
+  'messageBlockHermesError': r'''
+{
+  "kind": "error",
+  "error": "HTTP 429",
+  "hermesError": {
+    "kind": "contextOverflow",
+    "blocking": true,
+    "partial": false,
+    "actions": [
+      "compact",
+      "newChat"
+    ]
+  }
+}''',
+
+  'hermesModelChoice': r'''
+{
+  "modelId": "hermes:agent:demo-model-mini",
+  "label": "Demo Mini"
+}''',
+
+  'uiRequestHermesClarify': r'''
+{
+  "requestId": "ui-41",
+  "kind": "hermesClarify",
+  "messageCode": "hermes.clarify",
+  "messageArgs": {
+    "prompt": "A few details first"
+  },
+  "detail": {
+    "chatId": "local:hermes_s-4f2a",
+    "questions": [
+      {
+        "id": "colour",
+        "text": "Which colour?",
+        "choices": [
+          {
+            "value": "Teal",
+            "label": "Teal",
+            "recommended": true
+          }
+        ],
+        "multiSelect": false,
+        "locked": false
+      }
+    ]
+  },
+  "timeoutMs": 290000,
+  "defaultChoice": "deny"
+}''',
+
+  'uiRequestHermesSecret': r'''
+{
+  "requestId": "ui-42",
+  "kind": "hermesSecret",
+  "messageCode": "hermes.secret",
+  "messageArgs": {
+    "prompt": "Paste the tide service key"
+  },
+  "detail": {
+    "chatId": "local:hermes_s-4f2a"
+  },
+  "timeoutMs": 290000,
+  "defaultChoice": "deny"
+}''',
+
+  'uiRequestHermesModelSwitch': r'''
+{
+  "requestId": "ui-43",
+  "kind": "hermesModelSwitch",
+  "messageCode": "hermes.modelSwitch",
+  "messageArgs": {
+    "model": "Heron Large",
+    "reason": "Heron Large costs more per message."
+  },
+  "detail": {
+    "chatId": "local:hermes_s-1"
+  },
+  "timeoutMs": 300000,
+  "defaultChoice": "cancel"
+}''',
+
+  'callStateListening': r'''
+{
+  "phase": "listening",
+  "call": 2,
+  "mode": "standard",
+  "chatId": "chat-harbour",
+  "modelId": "fake-model",
+  "modelName": "Kestrel 8B",
+  "transcript": "When does the tide turn",
+  "reply": "",
+  "level": 0.5,
+  "muted": false,
+  "canPause": true,
+  "canResume": false,
+  "startedAtMs": 1767225600000,
+  "noticeCount": 0,
+  "standardReason": "standardChosen"
+}''',
+
+  'callStateError': r'''
+{
+  "phase": "error",
+  "call": 3,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Call permission denied",
+  "notice": "replyIncomplete",
+  "noticeCount": 1
+}''',
+
+  'callStateRefused': r'''
+{
+  "phase": "error",
+  "call": 0,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Sign in to start a voice call.",
+  "noticeCount": 0,
+  "refusal": "signInRequired"
+}''',
+
+  'callStateIdle': r'''
+{
+  "phase": "idle",
+  "call": 0,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "noticeCount": 0
+}''',
+
+  'callStart': r'''
+{
+  "chatId": "chat-harbour",
+  "temporary": false
+}''',
+
+  'callStartNew': r'''
+{
+  "model": "fake-model",
+  "folderId": "folder-tides",
+  "temporary": true
+}''',
+
+  'callCommandListen': r'''
+{
+  "id": 4,
+  "kind": "listen",
+  "listen": 2,
+  "continuous": true,
+  "modelId": "fake-model"
+}''',
+
+  'callCommandAudio': r'''
+{
+  "id": 5,
+  "kind": "audioStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-7"
+}''',
+
+  'callCommandWebRtc': r'''
+{
+  "id": 6,
+  "kind": "webRtcStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-8"
+}''',
+
+  'callReportWords': r'''
+{
+  "ok": true,
+  "kind": "words",
+  "listen": 2,
+  "text": "When does the tide turn",
+  "done": true
+}''',
+
+  'callReportAnswer': r'''
+{
+  "id": 4,
+  "ok": true,
+  "value": true,
+  "listen": 0,
+  "done": false
+}''',
+
+  'callReportFailed': r'''
+{
+  "ok": true,
+  "kind": "failed",
+  "listen": 2,
+  "done": false,
+  "failure": "serverUnavailable"
+}''',
+
+  'calendarWallTime': r'''
+{
+  "year": 2026,
+  "month": 11,
+  "day": 12,
+  "hour": 9,
+  "minute": 30
+}''',
+
+  'calendarDto': r'''
+{
+  "id": "cal-garden",
+  "name": "Garden club",
+  "color": "#22c55e",
+  "isDefault": true,
+  "scheduled": false,
+  "owned": true,
+  "writable": true,
+  "canMakeDefault": false,
+  "visible": true
+}''',
+
+  'calendarRowTime': r'''
+{
+  "kind": "range",
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  }
+}''',
+
+  'calendarItem': r'''
+{
+  "key": "ev-seed|ev-seed_1762938000000000000",
+  "kind": "event",
+  "id": "ev-seed",
+  "calendarId": "cal-garden",
+  "title": "Seed swap",
+  "location": "Community hall",
+  "color": "#22c55e",
+  "recurring": true,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  },
+  "lastDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 0,
+    "minute": 0
+  },
+  "time": {
+    "kind": "range",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "end": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 10,
+      "minute": 0
+    }
+  },
+  "invited": true,
+  "answer": "tentative",
+  "editable": true
+}''',
+
+  'calendarScheduledItem': r'''
+{
+  "key": "run_r1|",
+  "kind": "scheduled",
+  "id": "run_r1",
+  "calendarId": "__scheduled_tasks__",
+  "title": "Morning digest",
+  "recurring": false,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 8,
+    "minute": 0
+  },
+  "time": {
+    "kind": "at",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 11,
+      "hour": 8,
+      "minute": 0
+    }
+  },
+  "invited": false,
+  "editable": false,
+  "automationId": "task-digest",
+  "runId": "r1",
+  "resultChatId": "chat-digest-1",
+  "scheduledState": "finished"
+}''',
+
+  'calendarAgendaDay': r'''
+{
+  "day": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 0,
+    "minute": 0
+  },
+  "items": []
+}''',
+
+  'calendarAgenda': r'''
+{
+  "available": true,
+  "stale": false,
+  "firstDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "endDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 25,
+    "hour": 0,
+    "minute": 0
+  },
+  "dayCount": 14,
+  "today": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 0,
+    "minute": 0
+  },
+  "calendars": [
+    {
+      "id": "cal-garden",
+      "name": "Garden club",
+      "isDefault": false,
+      "scheduled": false,
+      "owned": true,
+      "writable": false,
+      "canMakeDefault": false,
+      "visible": true
+    }
+  ],
+  "filterable": true,
+  "scheduledTasks": true,
+  "canCreate": true,
+  "days": []
+}''',
+
+  'calendarAgendaQuery': r'''
+{
+  "shift": 1,
+  "today": false,
+  "refresh": true
+}''',
+
+  'calendarVisibility': r'''
+{
+  "calendarId": "cal-garden",
+  "visible": false
+}''',
+
+  'calendarRef': r'''
+{
+  "calendarId": "cal-garden"
+}''',
+
+  'calendarCreate': r'''
+{
+  "name": "Hikes",
+  "color": "#3b82f6"
+}''',
+
+  'calendarItemRef': r'''
+{
+  "key": "ev-seed|"
+}''',
+
+  'calendarEventDetail': r'''
+{
+  "item": {
+    "key": "ev-seed|",
+    "kind": "event",
+    "id": "ev-seed",
+    "calendarId": "",
+    "title": "Seed swap",
+    "recurring": false,
+    "allDay": false,
+    "cancelled": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "time": {
+      "kind": "allDay"
+    },
+    "invited": false,
+    "editable": false
+  },
+  "description": "Bring labelled envelopes.",
+  "calendarName": "Garden club",
+  "repeat": "weekly",
+  "organizer": "Riley Park",
+  "attendeeCount": 2,
+  "canEdit": true,
+  "status": "fresh"
+}''',
+
+  'calendarRsvpEdit': r'''
+{
+  "key": "ev-seed|",
+  "answer": "accepted"
+}''',
+
+  'calendarAttendee': r'''
+{
+  "userId": "user-riley",
+  "name": "Riley Park"
+}''',
+
+  'calendarEventFields': r'''
+{
+  "title": "Seed swap",
+  "description": "",
+  "location": "",
+  "calendarId": "cal-garden",
+  "allDay": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  },
+  "repeat": "weekdays",
+  "attendees": [
+    {
+      "userId": "user-riley"
+    }
+  ]
+}''',
+
+  'calendarEditorOpen': r'''
+{
+  "day": {
+    "year": 2026,
+    "month": 11,
+    "day": 13,
+    "hour": 0,
+    "minute": 0
+  }
+}''',
+
+  'calendarEditor': r'''
+{
+  "token": "ed-1",
+  "isNew": false,
+  "series": true,
+  "rule": "FREQ=WEEKLY;INTERVAL=2",
+  "fields": {
+    "title": "Seed swap",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "custom",
+    "attendees": []
+  },
+  "calendars": []
+}''',
+
+  'calendarDraftEdit': r'''
+{
+  "token": "ed-1",
+  "fields": {
+    "title": "",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "none",
+    "attendees": []
+  },
+  "movedStart": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 11,
+    "minute": 0
+  }
+}''',
+
+  'calendarDraftState': r'''
+{
+  "fields": {
+    "title": "",
+    "description": "",
+    "location": "",
+    "calendarId": "",
+    "allDay": false,
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "repeat": "none",
+    "attendees": []
+  },
+  "issues": [
+    "titleRequired"
+  ],
+  "changed": true,
+  "saved": false
+}''',
+
+  'automationSchedule': r'''
+{
+  "kind": "weekly",
+  "year": 0,
+  "month": 0,
+  "day": 0,
+  "hour": 8,
+  "minute": 0,
+  "days": [
+    "MO",
+    "TH"
+  ],
+  "rrule": "RRULE:FREQ=WEEKLY;BYDAY=MO,TH;BYHOUR=8;BYMINUTE=0"
+}''',
+
+  'automationSummary': r'''
+{
+  "id": "task-digest",
+  "name": "Morning digest",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 8,
+    "minute": 0,
+    "days": [],
+    "rrule": "RRULE:FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
+  },
+  "nextRunAt": 1762934400000,
+  "lastRunAt": 1762848000000,
+  "lastRunFailed": true
+}''',
+
+  'automationList': r'''
+{
+  "available": true,
+  "stale": false,
+  "query": "digest",
+  "status": "active",
+  "items": [],
+  "total": 3,
+  "hasMore": true
+}''',
+
+  'automationQuery': r'''
+{
+  "query": "digest",
+  "status": "paused",
+  "refresh": false
+}''',
+
+  'automationRef': r'''
+{
+  "id": "task-digest"
+}''',
+
+  'automationRun': r'''
+{
+  "id": "run-1",
+  "status": "success",
+  "succeeded": true,
+  "createdAt": 1762848000000,
+  "resultChannelId": "trail-crew"
+}''',
+
+  'automationDetail': r'''
+{
+  "summary": {
+    "id": "task-digest",
+    "name": "Morning digest",
+    "active": false,
+    "schedule": {
+      "kind": "custom",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 0,
+      "minute": 0,
+      "days": [],
+      "rrule": "FREQ=MONTHLY"
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "modelName": "Fake Model",
+  "target": "channel",
+  "channelId": "trail-crew",
+  "channelName": "trail-crew",
+  "terminal": true,
+  "nextRuns": [
+    1762934400000
+  ]
+}''',
+
+  'automationRunsQuery': r'''
+{
+  "id": "task-digest",
+  "skip": 50
+}''',
+
+  'automationRuns': r'''
+{
+  "items": [
+    {
+      "id": "run-2",
+      "status": "error",
+      "succeeded": false,
+      "error": "Model offline"
+    }
+  ],
+  "hasMore": true
+}''',
+
+  'automationToggle': r'''
+{
+  "id": "task-digest",
+  "active": false
+}''',
+
+  'automationRunProgress': r'''
+{
+  "id": "task-digest",
+  "phase": "finished",
+  "run": {
+    "id": "run-3",
+    "status": "",
+    "succeeded": true,
+    "resultChatId": "c-9"
+  }
+}''',
+
+  'automationFields': r'''
+{
+  "name": "Morning digest",
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "active": true,
+  "schedule": {
+    "kind": "once",
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 7,
+    "minute": 45,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "folderId": "folder-garden"
+}''',
+
+  'automationOption': r'''
+{
+  "id": "fake-model",
+  "name": "Fake",
+  "agent": false
+}''',
+
+  'automationEditorOpen': r'''
+{
+  "id": "task-digest"
+}''',
+
+  'automationEditor': r'''
+{
+  "token": "te-1",
+  "isNew": false,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "",
+      "agent": false
+    }
+  ],
+  "terminal": true,
+  "agentsUnknown": false
+}''',
+
+  'automationDraftEdit': r'''
+{
+  "token": "te-1",
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "chooseKind": "weekly"
+}''',
+
+  'automationDraftState': r'''
+{
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 9,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat"
+  },
+  "issues": [
+    "nameRequired",
+    "channelNoWrite"
+  ],
+  "changed": true,
+  "saved": false,
+  "failure": "Schedule too frequent."
+}''',
+
+  'modelListAgents': r'''
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": false,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "agent:buildbox:codex:gpt-5.1",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "pinned": false,
+      "capabilities": [],
+      "agent": {
+        "terminalId": "buildbox",
+        "terminalName": "Build box",
+        "agent": "codex",
+        "agentName": "Codex",
+        "model": "gpt-5.1"
+      }
+    }
+  ],
+  "agentNames": {
+    "agent:buildbox:pi:default": "Pi · default"
+  },
+  "chatAgent": "agent:buildbox:pi:default",
+  "revision": 0
+}''',
+
+  'terminalAgent': r'''
+{
+  "terminalId": "buildbox",
+  "agent": "claude-code",
+  "agentName": "",
+  "model": "sonnet"
+}''',
+
+  'modelListQuery': r'''
+{
+  "chatId": "chat-1",
+  "temporary": true
+}''',
+
+  'selectModelInChat': r'''
+{
+  "id": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1"
+}''',
+
+  'modelControlOption': r'''
+{
+  "value": "high",
+  "label": "High"
+}''',
+
+  'modelControl': r'''
+{
+  "key": "service_tier",
+  "label": "Service tier",
+  "description": "How fast the agent answers.",
+  "options": [
+    {
+      "value": "flex",
+      "label": "Flex"
+    },
+    {
+      "value": "priority",
+      "label": "Priority"
+    }
+  ],
+  "defaultValue": "flex",
+  "value": "priority"
+}''',
+
+  'modelControlsQuery': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1"
+}''',
+
+  'modelControlList': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "controls": [
+    {
+      "key": "reasoning_effort",
+      "label": "",
+      "options": [
+        {
+          "value": "low",
+          "label": ""
+        }
+      ]
+    }
+  ]
+}''',
+
+  'setModelControl': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "key": "reasoning_effort",
+  "value": "high"
+}''',
+
+  'composerOptionsQuery': r'''
+{
+  "chatId": "chat-1",
+  "modelId": "fake-model"
+}''',
+
+  'composerOptionsAgent': r'''
+{
+  "webSearch": false,
+  "imageGeneration": false,
+  "tools": [],
+  "mcpTools": [],
+  "filters": [],
+  "filterDefaults": [],
+  "codeInterpreter": false,
+  "attachments": {
+    "files": true,
+    "serverFiles": false,
+    "images": true,
+    "webPage": false,
+    "mcpContent": false
+  },
+  "skills": false,
+  "context": false,
+  "notes": false,
+  "mentions": false,
+  "steer": false,
+  "imageConversions": [],
+  "compareModels": false,
+  "quickPills": [],
+  "voiceCall": false,
+  "agentChat": true,
+  "ownEffortControl": true
+}''',
+
+  'automationSummaryAgent': r'''
+{
+  "id": "task-agent",
+  "name": "Nightly tidy",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "lastRunFailed": false,
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "Codex",
+    "model": "gpt-5.1"
+  }
+}''',
+
+  'automationDetailTerminal': r'''
+{
+  "summary": {
+    "id": "task-agent",
+    "name": "Nightly tidy",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "modelName": "Codex · gpt-5.1",
+  "target": "chat",
+  "terminal": true,
+  "terminalId": "buildbox",
+  "terminalName": "Build box",
+  "workingDirectory": "/home/demo/sketches",
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "",
+    "model": "gpt-5.1"
+  },
+  "nextRuns": []
+}''',
+
+  'automationFieldsTerminal': r'''
+{
+  "name": "Nightly tidy",
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "terminalId": "buildbox",
+  "workingDirectory": "/home/demo/sketches"
+}''',
+
+  'automationEditorTerminals': r'''
+{
+  "token": "te-2",
+  "isNew": true,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat",
+    "terminalId": "buildbox"
+  },
+  "terminal": false,
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "agentsUnknown": true,
+  "agentName": "Codex · gpt-5.1"
+}''',
+
+  'automationTerminals': r'''
+{
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "agent": false
+    },
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "detail": "Build box",
+      "agent": true
+    }
+  ],
+  "agentsUnknown": false
 }''',
 
 };

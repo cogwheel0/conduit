@@ -1,0 +1,8 @@
+{
+  "kind": "channelMessage",
+  "foreground": true,
+  "viewing": false,
+  "alert": true,
+  "mention": true,
+  "direct": false
+}

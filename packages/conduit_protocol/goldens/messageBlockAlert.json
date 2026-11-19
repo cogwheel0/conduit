@@ -1,0 +1,5 @@
+{
+  "kind": "alert",
+  "markdown": "Check the **tide table** before you sail.",
+  "type": "warning"
+}

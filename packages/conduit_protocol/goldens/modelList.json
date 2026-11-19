@@ -11,8 +11,15 @@
       "name": "llama3",
       "pinned": false,
       "capabilities": [],
-      "connection": "Home Ollama"
+      "connection": "Home Ollama",
+      "logo": "meta"
     }
   ],
-  "selectedId": "gpt-4o"
+  "selectedId": "gpt-4o",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }

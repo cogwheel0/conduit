@@ -11,5 +11,26 @@
   },
   "values": {
     "limit": 5
-  }
+  },
+  "fields": [
+    {
+      "key": "limit",
+      "title": "Limit",
+      "type": "integer",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": false,
+      "hasDefault": true,
+      "text": "5",
+      "seed": "3"
+    }
+  ],
+  "edits": [
+    {
+      "key": "limit",
+      "isDefault": false,
+      "text": "6"
+    }
+  ]
 }

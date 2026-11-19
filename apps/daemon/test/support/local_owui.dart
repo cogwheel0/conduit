@@ -20,6 +20,9 @@ class LocalOwui {
   /// The fake model every turn runs on.
   String get model => values['OWUI_MODEL'] ?? 'fake-model';
 
+  /// A second fake model, whose answers start "B: ".
+  String get secondModel => values['OWUI_SECOND_MODEL'] ?? 'fake-model-b';
+
   /// A model the server offers and its provider refuses with a 400.
   String get refusedModel => values['OWUI_REFUSED_MODEL'] ?? 'fake-refused';
 

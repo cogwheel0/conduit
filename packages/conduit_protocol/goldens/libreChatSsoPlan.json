@@ -1,0 +1,9 @@
+{
+  "startUrl": "https://chat.example.org/oauth/openid",
+  "cookieUrl": "https://chat.example.org/",
+  "serverOrigins": [
+    "https://chat.example.org"
+  ],
+  "basePath": "",
+  "startId": "sso-start-1"
+}

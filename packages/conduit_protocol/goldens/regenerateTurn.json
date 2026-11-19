@@ -1,5 +1,6 @@
 {
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-2f9d4c17",
-  "model": "llama3.2:1b"
+  "model": "llama3.2:1b",
+  "withoutReasoningEffort": false
 }

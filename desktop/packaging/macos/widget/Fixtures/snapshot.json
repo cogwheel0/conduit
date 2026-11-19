@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "signedIn": true,
+  "locale": "en",
+  "chats": [
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000001",
+      "title": "Weekend hike in the Alps",
+      "updatedAtMs": 1794408480000
+    },
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000002",
+      "title": "Sourdough starter schedule",
+      "updatedAtMs": 1794396000000
+    },
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000003",
+      "title": "Explain quantum tunnelling simply",
+      "updatedAtMs": 1794315600000
+    },
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000004",
+      "title": "Draft a polite follow-up email",
+      "updatedAtMs": 1794150000000
+    },
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000005",
+      "title": "Plan a small vegetable garden",
+      "updatedAtMs": 1793372400000
+    },
+    {
+      "id": "c0ffee00-0000-4000-8000-000000000006",
+      "title": "Rust lifetimes, explained with examples",
+      "updatedAtMs": 1759849200000
+    }
+  ]
+}

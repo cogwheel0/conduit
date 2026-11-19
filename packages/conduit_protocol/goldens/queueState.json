@@ -1,0 +1,15 @@
+{
+  "chatId": "chat-7c1f0b2a",
+  "drafts": [
+    {
+      "id": "draft-1",
+      "text": "And the north side?",
+      "files": [],
+      "context": [],
+      "frozen": false
+    }
+  ],
+  "phase": "admitting",
+  "admissionFailed": true,
+  "offer": true
+}

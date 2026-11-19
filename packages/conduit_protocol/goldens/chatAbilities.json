@@ -1,0 +1,16 @@
+{
+  "fork": true,
+  "export": true,
+  "merge": true,
+  "branch": true,
+  "deleteMessages": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "share": true,
+  "saveTemporary": true,
+  "compare": true,
+  "branchFromHere": true,
+  "undoLastTurn": true,
+  "hermesWork": false,
+  "hermesContext": false
+}

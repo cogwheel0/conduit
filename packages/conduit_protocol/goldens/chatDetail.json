@@ -7,7 +7,16 @@
     "archived": false,
     "tags": [],
     "shared": false,
-    "readOnly": true
+    "readOnly": true,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
   },
   "messages": [
     {
@@ -19,8 +28,41 @@
       "versions": [],
       "sources": [],
       "files": [],
-      "blocks": []
+      "blocks": [],
+      "retryWithoutEffort": false,
+      "comparison": [],
+      "mergeableIds": [],
+      "siblingIds": []
     }
   ],
-  "readOnly": true
+  "readOnly": true,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "completed"
+    },
+    {
+      "id": "2",
+      "content": "Draw the order",
+      "status": "in_progress"
+    }
+  ]
 }

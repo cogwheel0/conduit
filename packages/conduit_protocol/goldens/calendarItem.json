@@ -1,0 +1,53 @@
+{
+  "key": "ev-seed|ev-seed_1762938000000000000",
+  "kind": "event",
+  "id": "ev-seed",
+  "calendarId": "cal-garden",
+  "title": "Seed swap",
+  "location": "Community hall",
+  "color": "#22c55e",
+  "recurring": true,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 9,
+    "minute": 0
+  },
+  "end": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 10,
+    "minute": 0
+  },
+  "lastDay": {
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 0,
+    "minute": 0
+  },
+  "time": {
+    "kind": "range",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 9,
+      "minute": 0
+    },
+    "end": {
+      "year": 2026,
+      "month": 11,
+      "day": 12,
+      "hour": 10,
+      "minute": 0
+    }
+  },
+  "invited": true,
+  "answer": "tentative",
+  "editable": true
+}

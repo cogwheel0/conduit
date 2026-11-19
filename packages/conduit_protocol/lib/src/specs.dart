@@ -1,24 +1,54 @@
+import 'access.dart';
 import 'accounts.dart';
 import 'auth.dart';
+import 'automations.dart';
+import 'calendar.dart';
 import 'capabilities.dart';
+import 'chat_prompts.dart';
 import 'channels.dart';
+import 'chat_settings.dart';
 import 'chats.dart';
 import 'composer.dart';
+import 'computer.dart';
+import 'data.dart';
+import 'dictation.dart';
 import 'direct.dart';
 import 'events.dart';
+import 'handoff.dart';
 import 'handshake.dart';
 import 'hermes.dart';
+import 'hermes_admin.dart';
+import 'hermes_rooms.dart';
+import 'hermes_work.dart';
+import 'intents.dart';
+import 'integrations.dart';
+import 'librechat.dart';
 import 'mcp.dart';
+import 'mcp_apps.dart';
+import 'memories.dart';
+import 'messages.dart';
 import 'methods.dart';
 import 'models.dart';
 import 'notes.dart';
+import 'notifications.dart';
+import 'profile.dart';
 import 'prompts.dart';
+import 'release_notes.dart';
+import 'queue.dart';
+import 'recordings.dart';
 import 'servers.dart';
 import 'settings.dart';
 import 'system.dart';
 import 'terminal.dart';
 import 'turns.dart';
+import 'valves.dart';
+import 'speech.dart';
+import 'apple.dart';
+import 'location.dart';
+import 'calls.dart';
 import 'voice.dart';
+import 'web_search.dart';
+import 'webhooks.dart';
 import 'workspace.dart';
 
 /// Decodes a JSON object into a DTO: a `fromJson` factory.
@@ -166,6 +196,36 @@ abstract final class ConduitMethodSpecs {
     params: ServerDraft.fromJson,
     result: ServerSummary.fromJson,
   );
+  static const serversAddressesList =
+      ConduitMethodSpec<ServerRef, ServerAddresses>(
+        ConduitMethods.serversAddressesList,
+        params: ServerRef.fromJson,
+        result: ServerAddresses.fromJson,
+      );
+  static const serversAddressesCheck =
+      ConduitMethodSpec<ServerAddressCheckRequest, ServerAddressCheckResult>(
+        ConduitMethods.serversAddressesCheck,
+        params: ServerAddressCheckRequest.fromJson,
+        result: ServerAddressCheckResult.fromJson,
+      );
+  static const serversAddressesSave =
+      ConduitMethodSpec<ServerAddressSaveRequest, ServerAddressSaveResult>(
+        ConduitMethods.serversAddressesSave,
+        params: ServerAddressSaveRequest.fromJson,
+        result: ServerAddressSaveResult.fromJson,
+      );
+  static const serversAddressesRemove =
+      ConduitMethodSpec<ServerAddressRemoveRequest, ServerAddressEditResult>(
+        ConduitMethods.serversAddressesRemove,
+        params: ServerAddressRemoveRequest.fromJson,
+        result: ServerAddressEditResult.fromJson,
+      );
+  static const serversAddressesReorder =
+      ConduitMethodSpec<ServerAddressReorderRequest, ServerAddressEditResult>(
+        ConduitMethods.serversAddressesReorder,
+        params: ServerAddressReorderRequest.fromJson,
+        result: ServerAddressEditResult.fromJson,
+      );
   static const serversStatus = ConduitMethodSpec<void, ServerStatus>(
     ConduitMethods.serversStatus,
     result: ServerStatus.fromJson,
@@ -213,6 +273,39 @@ abstract final class ConduitMethodSpecs {
         params: ReviewerMode.fromJson,
         result: AuthSnapshot.fromJson,
       );
+  static const authTwoStepSetup = ConduitMethodSpec<void, TwoStepSetup>(
+    ConduitMethods.authTwoStepSetup,
+    result: TwoStepSetup.fromJson,
+  );
+  static const authTwoStepVerify = ConduitMethodSpec<TwoStepCode, AuthSnapshot>(
+    ConduitMethods.authTwoStepVerify,
+    params: TwoStepCode.fromJson,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authTwoStepRedeem =
+      ConduitMethodSpec<TwoStepResetToken, AuthSnapshot>(
+        ConduitMethods.authTwoStepRedeem,
+        params: TwoStepResetToken.fromJson,
+        result: AuthSnapshot.fromJson,
+      );
+  static const authTwoStepFinish = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authTwoStepFinish,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authTwoStepCancel = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authTwoStepCancel,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authRetry = ConduitMethodSpec<void, AuthSnapshot>(
+    ConduitMethods.authRetry,
+    result: AuthSnapshot.fromJson,
+  );
+  static const authRenewProxy =
+      ConduitMethodSpec<ExternalAuthCompletion, AuthSnapshot>(
+        ConduitMethods.authRenewProxy,
+        params: ExternalAuthCompletion.fromJson,
+        result: AuthSnapshot.fromJson,
+      );
 
   // settings.*
 
@@ -226,6 +319,268 @@ abstract final class ConduitMethodSpecs {
         params: AppPreferencesPatch.fromJson,
         result: AppPreferences.fromJson,
       );
+  static const settingsGet = ConduitMethodSpec<void, AppSettingsDto>(
+    ConduitMethods.settingsGet,
+    result: AppSettingsDto.fromJson,
+  );
+  static const settingsSet =
+      ConduitMethodSpec<AppSettingsPatch, AppSettingsDto>(
+        ConduitMethods.settingsSet,
+        params: AppSettingsPatch.fromJson,
+        result: AppSettingsDto.fromJson,
+      );
+  static const settingsGetAccount = ConduitMethodSpec<void, AccountSettingsDto>(
+    ConduitMethods.settingsGetAccount,
+    result: AccountSettingsDto.fromJson,
+  );
+  static const settingsSetAccount =
+      ConduitMethodSpec<AccountSettingsPatch, AccountSettingsDto>(
+        ConduitMethods.settingsSetAccount,
+        params: AccountSettingsPatch.fromJson,
+        result: AccountSettingsDto.fromJson,
+      );
+  static const settingsModelPrompt =
+      ConduitMethodSpec<ModelPromptRef, ModelPrompt>(
+        ConduitMethods.settingsModelPrompt,
+        params: ModelPromptRef.fromJson,
+        result: ModelPrompt.fromJson,
+      );
+  static const settingsSetModelPrompt =
+      ConduitMethodSpec<ModelPromptEdit, ModelPrompt>(
+        ConduitMethods.settingsSetModelPrompt,
+        params: ModelPromptEdit.fromJson,
+        result: ModelPrompt.fromJson,
+      );
+
+  static const settingsQuickPills = ConduitMethodSpec<void, QuickPillOptions>(
+    ConduitMethods.settingsQuickPills,
+    result: QuickPillOptions.fromJson,
+  );
+  static const settingsVoiceProviders =
+      ConduitMethodSpec<void, VoiceProviderOptions>(
+        ConduitMethods.settingsVoiceProviders,
+        result: VoiceProviderOptions.fromJson,
+      );
+  static const settingsAbout = ConduitMethodSpec<void, AboutInfo>(
+    ConduitMethods.settingsAbout,
+    result: AboutInfo.fromJson,
+  );
+
+  // profile.*
+
+  static const profileGet = ConduitMethodSpec<void, ProfileDto>(
+    ConduitMethods.profileGet,
+    result: ProfileDto.fromJson,
+  );
+  static const profileUpdate = ConduitMethodSpec<ProfileEdit, ProfileDto>(
+    ConduitMethods.profileUpdate,
+    params: ProfileEdit.fromJson,
+    result: ProfileDto.fromJson,
+  );
+  static const profileSetImage =
+      ConduitMethodSpec<ProfileImageEdit, ProfileDto>(
+        ConduitMethods.profileSetImage,
+        params: ProfileImageEdit.fromJson,
+        result: ProfileDto.fromJson,
+      );
+  static const profileRemoveImage = ConduitMethodSpec<void, ProfileDto>(
+    ConduitMethods.profileRemoveImage,
+    result: ProfileDto.fromJson,
+  );
+  static const profileChangePassword =
+      ConduitMethodSpec<PasswordChange, PasswordChangeResult>(
+        ConduitMethods.profileChangePassword,
+        params: PasswordChange.fromJson,
+        result: PasswordChangeResult.fromJson,
+      );
+
+  static const profileSignOutAll =
+      ConduitMethodSpec<SignOutAll, AccountChangeResult>(
+        ConduitMethods.profileSignOutAll,
+        params: SignOutAll.fromJson,
+        result: AccountChangeResult.fromJson,
+      );
+
+  // memories.*
+
+  static const memoriesList = ConduitMethodSpec<void, MemoryList>(
+    ConduitMethods.memoriesList,
+    result: MemoryList.fromJson,
+  );
+  static const memoriesAdd = ConduitMethodSpec<MemoryEdit, MemoryList>(
+    ConduitMethods.memoriesAdd,
+    params: MemoryEdit.fromJson,
+    result: MemoryList.fromJson,
+  );
+  static const memoriesUpdate = ConduitMethodSpec<MemoryEdit, MemoryList>(
+    ConduitMethods.memoriesUpdate,
+    params: MemoryEdit.fromJson,
+    result: MemoryList.fromJson,
+  );
+  static const memoriesDelete = ConduitMethodSpec<MemoryRef, MemoryList>(
+    ConduitMethods.memoriesDelete,
+    params: MemoryRef.fromJson,
+    result: MemoryList.fromJson,
+  );
+  static const memoriesClear = ConduitMethodSpec<void, MemoryList>(
+    ConduitMethods.memoriesClear,
+    result: MemoryList.fromJson,
+  );
+  static const memoriesSetEnabled = ConduitMethodSpec<MemoryToggle, MemoryList>(
+    ConduitMethods.memoriesSetEnabled,
+    params: MemoryToggle.fromJson,
+    result: MemoryList.fromJson,
+  );
+
+  // notifications.*
+
+  static const notificationsGet =
+      ConduitMethodSpec<void, NotificationSettingsDto>(
+        ConduitMethods.notificationsGet,
+        result: NotificationSettingsDto.fromJson,
+      );
+  static const notificationsSet =
+      ConduitMethodSpec<NotificationSettingsPatch, NotificationSettingsDto>(
+        ConduitMethods.notificationsSet,
+        params: NotificationSettingsPatch.fromJson,
+        result: NotificationSettingsDto.fromJson,
+      );
+  static const notificationsRoute =
+      ConduitMethodSpec<NotificationRouteParams, NotificationRoute>(
+        ConduitMethods.notificationsRoute,
+        params: NotificationRouteParams.fromJson,
+        result: NotificationRoute.fromJson,
+      );
+
+  // webhooks.*
+
+  static const webhooksList = ConduitMethodSpec<void, WebhookList>(
+    ConduitMethods.webhooksList,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksCreate = ConduitMethodSpec<WebhookCreate, WebhookList>(
+    ConduitMethods.webhooksCreate,
+    params: WebhookCreate.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksUpdate = ConduitMethodSpec<WebhookUpdate, WebhookList>(
+    ConduitMethods.webhooksUpdate,
+    params: WebhookUpdate.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksMakeDefault = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksMakeDefault,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksTest = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksTest,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
+  static const webhooksDelete = ConduitMethodSpec<WebhookRef, WebhookList>(
+    ConduitMethods.webhooksDelete,
+    params: WebhookRef.fromJson,
+    result: WebhookList.fromJson,
+  );
+
+  // integrations.*
+
+  static const integrationsList = ConduitMethodSpec<void, PersonalConnections>(
+    ConduitMethods.integrationsList,
+    result: PersonalConnections.fromJson,
+  );
+  static const integrationsSave =
+      ConduitMethodSpec<PersonalConnectionSave, PersonalConnections>(
+        ConduitMethods.integrationsSave,
+        params: PersonalConnectionSave.fromJson,
+        result: PersonalConnections.fromJson,
+      );
+  static const integrationsTest =
+      ConduitMethodSpec<PersonalConnectionTest, PersonalConnectionTestResult>(
+        ConduitMethods.integrationsTest,
+        params: PersonalConnectionTest.fromJson,
+        result: PersonalConnectionTestResult.fromJson,
+      );
+  static const integrationsClearNotice =
+      ConduitMethodSpec<void, PersonalConnections>(
+        ConduitMethods.integrationsClearNotice,
+        result: PersonalConnections.fromJson,
+      );
+
+  // releaseNotes.*
+
+  static const releaseNotesCheck =
+      ConduitMethodSpec<ReleaseNotesQuery, ReleaseNotesState>(
+        ConduitMethods.releaseNotesCheck,
+        params: ReleaseNotesQuery.fromJson,
+        result: ReleaseNotesState.fromJson,
+      );
+  static const releaseNotesLatest =
+      ConduitMethodSpec<ReleaseNotesQuery, ReleaseNotesState>(
+        ConduitMethods.releaseNotesLatest,
+        params: ReleaseNotesQuery.fromJson,
+        result: ReleaseNotesState.fromJson,
+      );
+  static const releaseNotesDismiss = ConduitMethodSpec<void, OkResult>(
+    ConduitMethods.releaseNotesDismiss,
+    result: OkResult.fromJson,
+  );
+
+  // data.*
+
+  static const dataSummary = ConduitMethodSpec<void, ChatDataSummary>(
+    ConduitMethods.dataSummary,
+    result: ChatDataSummary.fromJson,
+  );
+  static const dataExport =
+      ConduitMethodSpec<DataExportRequest, DataActionResult>(
+        ConduitMethods.dataExport,
+        params: DataExportRequest.fromJson,
+        result: DataActionResult.fromJson,
+      );
+  static const dataPreviewImport =
+      ConduitMethodSpec<DataImportRequest, DataActionResult>(
+        ConduitMethods.dataPreviewImport,
+        params: DataImportRequest.fromJson,
+        result: DataActionResult.fromJson,
+      );
+  static const dataSync = ConduitMethodSpec<void, ChatDataSummary>(
+    ConduitMethods.dataSync,
+    result: ChatDataSummary.fromJson,
+  );
+  static const dataImport =
+      ConduitMethodSpec<DataImportRequest, DataActionResult>(
+        ConduitMethods.dataImport,
+        params: DataImportRequest.fromJson,
+        result: DataActionResult.fromJson,
+      );
+  static const dataArchiveAll = ConduitMethodSpec<void, DataActionResult>(
+    ConduitMethods.dataArchiveAll,
+    result: DataActionResult.fromJson,
+  );
+  static const dataUnarchiveAll = ConduitMethodSpec<void, DataActionResult>(
+    ConduitMethods.dataUnarchiveAll,
+    result: DataActionResult.fromJson,
+  );
+  static const dataUnshareAll = ConduitMethodSpec<void, DataActionResult>(
+    ConduitMethods.dataUnshareAll,
+    result: DataActionResult.fromJson,
+  );
+  static const dataDeleteAll =
+      ConduitMethodSpec<DataDeleteAll, DataActionResult>(
+        ConduitMethods.dataDeleteAll,
+        params: DataDeleteAll.fromJson,
+        result: DataActionResult.fromJson,
+      );
+  static const dataConnection = ConduitMethodSpec<void, ConnectionHealth>(
+    ConduitMethods.dataConnection,
+    result: ConnectionHealth.fromJson,
+  );
+  static const dataReconnect = ConduitMethodSpec<void, ConnectionHealth>(
+    ConduitMethods.dataReconnect,
+    result: ConnectionHealth.fromJson,
+  );
 
   // chats.*, sync.*
 
@@ -313,6 +668,22 @@ abstract final class ConduitMethodSpecs {
     params: FolderRef.fromJson,
     result: ChatList.fromJson,
   );
+  static const foldersGet = ConduitMethodSpec<FolderRef, FolderSettings>(
+    ConduitMethods.foldersGet,
+    params: FolderRef.fromJson,
+    result: FolderSettings.fromJson,
+  );
+  static const foldersUpdate = ConduitMethodSpec<FolderUpdate, FolderSettings>(
+    ConduitMethods.foldersUpdate,
+    params: FolderUpdate.fromJson,
+    result: FolderSettings.fromJson,
+  );
+  static const foldersDraftModel =
+      ConduitMethodSpec<FolderRef, FolderDraftModel>(
+        ConduitMethods.foldersDraftModel,
+        params: FolderRef.fromJson,
+        result: FolderDraftModel.fromJson,
+      );
   static const chatsSetPinned = ConduitMethodSpec<SetChatFlag, ChatList>(
     ConduitMethods.chatsSetPinned,
     params: SetChatFlag.fromJson,
@@ -338,9 +709,9 @@ abstract final class ConduitMethodSpecs {
         params: ArchivedVisibility.fromJson,
         result: ChatList.fromJson,
       );
-  static const chatsShare = ConduitMethodSpec<ChatRef, ChatShare>(
+  static const chatsShare = ConduitMethodSpec<ShareChat, ChatShare>(
     ConduitMethods.chatsShare,
-    params: ChatRef.fromJson,
+    params: ShareChat.fromJson,
     result: ChatShare.fromJson,
   );
   static const chatsUnshare = ConduitMethodSpec<ChatRef, ChatShare>(
@@ -348,11 +719,46 @@ abstract final class ConduitMethodSpecs {
     params: ChatRef.fromJson,
     result: ChatShare.fromJson,
   );
+  static const chatsFork = ConduitMethodSpec<ForkChat, ChatForked>(
+    ConduitMethods.chatsFork,
+    params: ForkChat.fromJson,
+    result: ChatForked.fromJson,
+  );
+  static const chatsExport = ConduitMethodSpec<ExportChat, ChatExportFile>(
+    ConduitMethods.chatsExport,
+    params: ExportChat.fromJson,
+    result: ChatExportFile.fromJson,
+  );
+  static const chatsGenerateTitle = ConduitMethodSpec<ChatRef, GeneratedTitle>(
+    ConduitMethods.chatsGenerateTitle,
+    params: ChatRef.fromJson,
+    result: GeneratedTitle.fromJson,
+  );
+  static const chatsMarkUnread = ConduitMethodSpec<MarkUnread, ChatList>(
+    ConduitMethods.chatsMarkUnread,
+    params: MarkUnread.fromJson,
+    result: ChatList.fromJson,
+  );
+  static const chatsSaveTemporary = ConduitMethodSpec<ChatRef, ChatForked>(
+    ConduitMethods.chatsSaveTemporary,
+    params: ChatRef.fromJson,
+    result: ChatForked.fromJson,
+  );
+
+  // messages.*
+
+  static const messagesDelete =
+      ConduitMethodSpec<DeleteMessages, MessagesDeleted>(
+        ConduitMethods.messagesDelete,
+        params: DeleteMessages.fromJson,
+        result: MessagesDeleted.fromJson,
+      );
 
   // models.*, composer.*, prompts.*
 
-  static const modelsList = ConduitMethodSpec<void, ModelList>(
+  static const modelsList = ConduitMethodSpec<ModelListQuery, ModelList>(
     ConduitMethods.modelsList,
+    params: ModelListQuery.fromJson,
     result: ModelList.fromJson,
   );
   static const modelsSelect = ConduitMethodSpec<SelectModel, ModelList>(
@@ -360,16 +766,176 @@ abstract final class ConduitMethodSpecs {
     params: SelectModel.fromJson,
     result: ModelList.fromJson,
   );
-  static const composerOptions = ConduitMethodSpec<void, ComposerOptions>(
-    ConduitMethods.composerOptions,
-    result: ComposerOptions.fromJson,
+  static const modelsSetPinned = ConduitMethodSpec<SetModelPinned, ModelList>(
+    ConduitMethods.modelsSetPinned,
+    params: SetModelPinned.fromJson,
+    result: ModelList.fromJson,
   );
+  static const modelsOptions =
+      ConduitMethodSpec<ModelOptionsQuery, ModelOptionsDto>(
+        ConduitMethods.modelsOptions,
+        params: ModelOptionsQuery.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+  static const modelsSetReasoningEffort =
+      ConduitMethodSpec<SetReasoningEffort, ModelOptionsDto>(
+        ConduitMethods.modelsSetReasoningEffort,
+        params: SetReasoningEffort.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+  static const modelsSetFastTier =
+      ConduitMethodSpec<SetFastTier, ModelOptionsDto>(
+        ConduitMethods.modelsSetFastTier,
+        params: SetFastTier.fromJson,
+        result: ModelOptionsDto.fromJson,
+      );
+  static const modelsControls =
+      ConduitMethodSpec<ModelControlsQuery, ModelControlList>(
+        ConduitMethods.modelsControls,
+        params: ModelControlsQuery.fromJson,
+        result: ModelControlList.fromJson,
+      );
+  static const modelsSetControl =
+      ConduitMethodSpec<SetModelControl, ModelControlList>(
+        ConduitMethods.modelsSetControl,
+        params: SetModelControl.fromJson,
+        result: ModelControlList.fromJson,
+      );
+
+  // chatSettings.*, valves.*, access.*
+
+  static const chatSettingsGet =
+      ConduitMethodSpec<ChatSettingsQuery, ChatSettingsState>(
+        ConduitMethods.chatSettingsGet,
+        params: ChatSettingsQuery.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const chatSettingsCheck =
+      ConduitMethodSpec<ChatSettingsEdit, ChatSettingsState>(
+        ConduitMethods.chatSettingsCheck,
+        params: ChatSettingsEdit.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const chatSettingsSave =
+      ConduitMethodSpec<ChatSettingsEdit, ChatSettingsState>(
+        ConduitMethods.chatSettingsSave,
+        params: ChatSettingsEdit.fromJson,
+        result: ChatSettingsState.fromJson,
+      );
+  static const valvesTargets =
+      ConduitMethodSpec<ValveTargetsQuery, ValveTargets>(
+        ConduitMethods.valvesTargets,
+        params: ValveTargetsQuery.fromJson,
+        result: ValveTargets.fromJson,
+      );
+  static const valvesGet = ConduitMethodSpec<ValvesRef, ValvesDocument>(
+    ConduitMethods.valvesGet,
+    params: ValvesRef.fromJson,
+    result: ValvesDocument.fromJson,
+  );
+  static const valvesSave = ConduitMethodSpec<ValvesSave, ValvesDocument>(
+    ConduitMethods.valvesSave,
+    params: ValvesSave.fromJson,
+    result: ValvesDocument.fromJson,
+  );
+  static const accessGet = ConduitMethodSpec<AccessRef, AccessState>(
+    ConduitMethods.accessGet,
+    params: AccessRef.fromJson,
+    result: AccessState.fromJson,
+  );
+  static const accessSet = ConduitMethodSpec<AccessEdit, AccessState>(
+    ConduitMethods.accessSet,
+    params: AccessEdit.fromJson,
+    result: AccessState.fromJson,
+  );
+  static const accessPrincipals =
+      ConduitMethodSpec<AccessPrincipalQuery, AccessPrincipals>(
+        ConduitMethods.accessPrincipals,
+        params: AccessPrincipalQuery.fromJson,
+        result: AccessPrincipals.fromJson,
+      );
+  static const composerOptions =
+      ConduitMethodSpec<ComposerOptionsQuery, ComposerOptions>(
+        ConduitMethods.composerOptions,
+        params: ComposerOptionsQuery.fromJson,
+        result: ComposerOptions.fromJson,
+      );
   static const composerKnowledge =
       ConduitMethodSpec<KnowledgeQuery, KnowledgeList>(
         ConduitMethods.composerKnowledge,
         params: KnowledgeQuery.fromJson,
         result: KnowledgeList.fromJson,
       );
+  // drafts.*, queue.*, mentions.*, skills.*, context.*, files.*
+
+  static const draftsGet = ConduitMethodSpec<DraftRef, Draft>(
+    ConduitMethods.draftsGet,
+    params: DraftRef.fromJson,
+    result: Draft.fromJson,
+  );
+  static const draftsSave = ConduitMethodSpec<DraftSave, Draft>(
+    ConduitMethods.draftsSave,
+    params: DraftSave.fromJson,
+    result: Draft.fromJson,
+  );
+  static const queueGet = ConduitMethodSpec<ChatRef, QueueState>(
+    ConduitMethods.queueGet,
+    params: ChatRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueAdd = ConduitMethodSpec<QueueAdd, QueueState>(
+    ConduitMethods.queueAdd,
+    params: QueueAdd.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueEdit = ConduitMethodSpec<QueueEdit, QueueState>(
+    ConduitMethods.queueEdit,
+    params: QueueEdit.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueRemove = ConduitMethodSpec<QueueDraftRef, QueueState>(
+    ConduitMethods.queueRemove,
+    params: QueueDraftRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const queueSendNow =
+      ConduitMethodSpec<QueueDraftRef, QueueSendNowResult>(
+        ConduitMethods.queueSendNow,
+        params: QueueDraftRef.fromJson,
+        result: QueueSendNowResult.fromJson,
+      );
+  static const queueRetry = ConduitMethodSpec<ChatRef, QueueState>(
+    ConduitMethods.queueRetry,
+    params: ChatRef.fromJson,
+    result: QueueState.fromJson,
+  );
+  static const mentionsSearch = ConduitMethodSpec<ComposerSearch, MentionList>(
+    ConduitMethods.mentionsSearch,
+    params: ComposerSearch.fromJson,
+    result: MentionList.fromJson,
+  );
+  static const skillsSearch = ConduitMethodSpec<ComposerSearch, SkillList>(
+    ConduitMethods.skillsSearch,
+    params: ComposerSearch.fromJson,
+    result: SkillList.fromJson,
+  );
+  static const contextSearch =
+      ConduitMethodSpec<ComposerSearch, ContextSuggestions>(
+        ConduitMethods.contextSearch,
+        params: ComposerSearch.fromJson,
+        result: ContextSuggestions.fromJson,
+      );
+  static const contextFetchUrl = ConduitMethodSpec<FetchUrl, FetchedUrl>(
+    ConduitMethods.contextFetchUrl,
+    params: FetchUrl.fromJson,
+    result: FetchedUrl.fromJson,
+  );
+  static const filesList = ConduitMethodSpec<ComposerSearch, ServerFileList>(
+    ConduitMethods.filesList,
+    params: ComposerSearch.fromJson,
+    result: ServerFileList.fromJson,
+  );
+
   static const promptsList = ConduitMethodSpec<void, PromptList>(
     ConduitMethods.promptsList,
     result: PromptList.fromJson,
@@ -452,6 +1018,26 @@ abstract final class ConduitMethodSpecs {
         params: OllamaModelAction.fromJson,
         result: OllamaModelList.fromJson,
       );
+  static const directReload = ConduitMethodSpec<void, DirectConnectionList>(
+    ConduitMethods.directReload,
+    result: DirectConnectionList.fromJson,
+  );
+  static const directOptions = ConduitMethodSpec<void, DirectOptions>(
+    ConduitMethods.directOptions,
+    result: DirectOptions.fromJson,
+  );
+  static const directSetImagesPerRequest =
+      ConduitMethodSpec<DirectImagesPerRequest, DirectOptions>(
+        ConduitMethods.directSetImagesPerRequest,
+        params: DirectImagesPerRequest.fromJson,
+        result: DirectOptions.fromJson,
+      );
+  static const directSetContextLimit =
+      ConduitMethodSpec<DirectContextLimit, DirectOptions>(
+        ConduitMethods.directSetContextLimit,
+        params: DirectContextLimit.fromJson,
+        result: DirectOptions.fromJson,
+      );
 
   // mcp.*
 
@@ -518,6 +1104,19 @@ abstract final class ConduitMethodSpecs {
         result: McpContentPreview.fromJson,
       );
 
+  // webSearch.*
+
+  static const webSearchGet = ConduitMethodSpec<void, WebSearchSettings>(
+    ConduitMethods.webSearchGet,
+    result: WebSearchSettings.fromJson,
+  );
+  static const webSearchSet =
+      ConduitMethodSpec<WebSearchSettingsPatch, WebSearchSettings>(
+        ConduitMethods.webSearchSet,
+        params: WebSearchSettingsPatch.fromJson,
+        result: WebSearchSettings.fromJson,
+      );
+
   // turns.*
 
   static const turnsSend = ConduitMethodSpec<SendTurn, SendTurnAccepted>(
@@ -541,11 +1140,319 @@ abstract final class ConduitMethodSpecs {
     params: EditTurn.fromJson,
     result: SendTurnAccepted.fromJson,
   );
+  static const turnsSteer = ConduitMethodSpec<SteerTurn, SteerResult>(
+    ConduitMethods.turnsSteer,
+    params: SteerTurn.fromJson,
+    result: SteerResult.fromJson,
+  );
   static const turnsRate = ConduitMethodSpec<RateTurn, RatedResult>(
     ConduitMethods.turnsRate,
     params: RateTurn.fromJson,
     result: RatedResult.fromJson,
   );
+  static const turnsMerge = ConduitMethodSpec<MergeTurn, MergeStarted>(
+    ConduitMethods.turnsMerge,
+    params: MergeTurn.fromJson,
+    result: MergeStarted.fromJson,
+  );
+
+  // handoff.*
+
+  static const handoffAnswer =
+      ConduitMethodSpec<HandoffAnswer, HandoffAnswered>(
+        ConduitMethods.handoffAnswer,
+        params: HandoffAnswer.fromJson,
+        result: HandoffAnswered.fromJson,
+      );
+  static const turnsRetryQueued = ConduitMethodSpec<QueuedTurnRef, OkResult>(
+    ConduitMethods.turnsRetryQueued,
+    params: QueuedTurnRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const turnsRemoveQueued = ConduitMethodSpec<QueuedTurnRef, OkResult>(
+    ConduitMethods.turnsRemoveQueued,
+    params: QueuedTurnRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // chatPrompts.*
+
+  static const chatPromptsGet =
+      ConduitMethodSpec<ChatPromptRef, ChatPromptState>(
+        ConduitMethods.chatPromptsGet,
+        params: ChatPromptRef.fromJson,
+        result: ChatPromptState.fromJson,
+      );
+  static const chatPromptsAnswer =
+      ConduitMethodSpec<ChatPromptAnswer, AcceptedResult>(
+        ConduitMethods.chatPromptsAnswer,
+        params: ChatPromptAnswer.fromJson,
+        result: AcceptedResult.fromJson,
+      );
+  static const chatPromptsDecide =
+      ConduitMethodSpec<ChatPromptDecision, AcceptedResult>(
+        ConduitMethods.chatPromptsDecide,
+        params: ChatPromptDecision.fromJson,
+        result: AcceptedResult.fromJson,
+      );
+
+  // mcpApps.*
+
+  static const mcpAppsOpen = ConduitMethodSpec<McpAppOpen, McpAppSession>(
+    ConduitMethods.mcpAppsOpen,
+    params: McpAppOpen.fromJson,
+    result: McpAppSession.fromJson,
+  );
+  static const mcpAppsMessage = ConduitMethodSpec<McpAppMessage, OkResult>(
+    ConduitMethods.mcpAppsMessage,
+    params: McpAppMessage.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const mcpAppsContext = ConduitMethodSpec<McpAppContext, OkResult>(
+    ConduitMethods.mcpAppsContext,
+    params: McpAppContext.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const mcpAppsClose = ConduitMethodSpec<McpAppRef, OkResult>(
+    ConduitMethods.mcpAppsClose,
+    params: McpAppRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // speech.*
+
+  static const speechGet = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechGet,
+    result: SpeechState.fromJson,
+  );
+  static const speechToggle = ConduitMethodSpec<SpeechToggle, SpeechState>(
+    ConduitMethods.speechToggle,
+    params: SpeechToggle.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechPause = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechPause,
+    result: SpeechState.fromJson,
+  );
+  static const speechResume = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechResume,
+    result: SpeechState.fromJson,
+  );
+  static const speechStop = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechStop,
+    result: SpeechState.fromJson,
+  );
+  static const speechRetry = ConduitMethodSpec<void, SpeechState>(
+    ConduitMethods.speechRetry,
+    result: SpeechState.fromJson,
+  );
+  static const speechSeek = ConduitMethodSpec<SpeechSeek, SpeechState>(
+    ConduitMethods.speechSeek,
+    params: SpeechSeek.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechPreview = ConduitMethodSpec<SpeechPreview, SpeechState>(
+    ConduitMethods.speechPreview,
+    params: SpeechPreview.fromJson,
+    result: SpeechState.fromJson,
+  );
+  static const speechReport = ConduitMethodSpec<SpeechReport, OkResult>(
+    ConduitMethods.speechReport,
+    params: SpeechReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // calls.*
+
+  static const callsGet = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsGet,
+    result: CallState.fromJson,
+  );
+  static const callsStart = ConduitMethodSpec<CallStart, CallState>(
+    ConduitMethods.callsStart,
+    params: CallStart.fromJson,
+    result: CallState.fromJson,
+  );
+  static const callsEnd = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsEnd,
+    result: CallState.fromJson,
+  );
+  static const callsPause = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsPause,
+    result: CallState.fromJson,
+  );
+  static const callsResume = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsResume,
+    result: CallState.fromJson,
+  );
+  static const callsMute = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsMute,
+    result: CallState.fromJson,
+  );
+  static const callsSkip = ConduitMethodSpec<void, CallState>(
+    ConduitMethods.callsSkip,
+    result: CallState.fromJson,
+  );
+  // apple.*
+
+  static const appleStatus = ConduitMethodSpec<void, AppleModels>(
+    ConduitMethods.appleStatus,
+    result: AppleModels.fromJson,
+  );
+  static const appleRefresh = ConduitMethodSpec<void, AppleModels>(
+    ConduitMethods.appleRefresh,
+    result: AppleModels.fromJson,
+  );
+  static const appleChoose = ConduitMethodSpec<void, AppleModelStatus>(
+    ConduitMethods.appleChoose,
+    result: AppleModelStatus.fromJson,
+  );
+  static const appleReport = ConduitMethodSpec<AppleReport, OkResult>(
+    ConduitMethods.appleReport,
+    params: AppleReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  static const callsReport = ConduitMethodSpec<CallReport, OkResult>(
+    ConduitMethods.callsReport,
+    params: CallReport.fromJson,
+    result: OkResult.fromJson,
+  );
+  // calendar.*
+
+  static const calendarAgenda =
+      ConduitMethodSpec<CalendarAgendaQuery, CalendarAgenda>(
+        ConduitMethods.calendarAgenda,
+        params: CalendarAgendaQuery.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarSetVisible =
+      ConduitMethodSpec<CalendarVisibility, CalendarAgenda>(
+        ConduitMethods.calendarSetVisible,
+        params: CalendarVisibility.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarMakeDefault =
+      ConduitMethodSpec<CalendarRef, CalendarAgenda>(
+        ConduitMethods.calendarMakeDefault,
+        params: CalendarRef.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarCreateCalendar =
+      ConduitMethodSpec<CalendarCreate, CalendarDto>(
+        ConduitMethods.calendarCreateCalendar,
+        params: CalendarCreate.fromJson,
+        result: CalendarDto.fromJson,
+      );
+  static const calendarEvent =
+      ConduitMethodSpec<CalendarItemRef, CalendarEventDetail>(
+        ConduitMethods.calendarEvent,
+        params: CalendarItemRef.fromJson,
+        result: CalendarEventDetail.fromJson,
+      );
+  static const calendarDeleteEvent =
+      ConduitMethodSpec<CalendarItemRef, CalendarAgenda>(
+        ConduitMethods.calendarDeleteEvent,
+        params: CalendarItemRef.fromJson,
+        result: CalendarAgenda.fromJson,
+      );
+  static const calendarRespond =
+      ConduitMethodSpec<CalendarRsvpEdit, CalendarEventDetail>(
+        ConduitMethods.calendarRespond,
+        params: CalendarRsvpEdit.fromJson,
+        result: CalendarEventDetail.fromJson,
+      );
+  static const calendarEditor =
+      ConduitMethodSpec<CalendarEditorOpen, CalendarEditor>(
+        ConduitMethods.calendarEditor,
+        params: CalendarEditorOpen.fromJson,
+        result: CalendarEditor.fromJson,
+      );
+  static const calendarCheckDraft =
+      ConduitMethodSpec<CalendarDraftEdit, CalendarDraftState>(
+        ConduitMethods.calendarCheckDraft,
+        params: CalendarDraftEdit.fromJson,
+        result: CalendarDraftState.fromJson,
+      );
+  static const calendarSave =
+      ConduitMethodSpec<CalendarDraftEdit, CalendarDraftState>(
+        ConduitMethods.calendarSave,
+        params: CalendarDraftEdit.fromJson,
+        result: CalendarDraftState.fromJson,
+      );
+
+  // automations.*
+
+  static const automationsList =
+      ConduitMethodSpec<AutomationQuery, AutomationList>(
+        ConduitMethods.automationsList,
+        params: AutomationQuery.fromJson,
+        result: AutomationList.fromJson,
+      );
+  static const automationsLoadMore = ConduitMethodSpec<void, AutomationList>(
+    ConduitMethods.automationsLoadMore,
+    result: AutomationList.fromJson,
+  );
+  static const automationsGet =
+      ConduitMethodSpec<AutomationRef, AutomationDetail>(
+        ConduitMethods.automationsGet,
+        params: AutomationRef.fromJson,
+        result: AutomationDetail.fromJson,
+      );
+  static const automationsRuns =
+      ConduitMethodSpec<AutomationRunsQuery, AutomationRuns>(
+        ConduitMethods.automationsRuns,
+        params: AutomationRunsQuery.fromJson,
+        result: AutomationRuns.fromJson,
+      );
+  static const automationsSetActive =
+      ConduitMethodSpec<AutomationToggle, AutomationDetail>(
+        ConduitMethods.automationsSetActive,
+        params: AutomationToggle.fromJson,
+        result: AutomationDetail.fromJson,
+      );
+  static const automationsRun =
+      ConduitMethodSpec<AutomationRef, AutomationRunProgress>(
+        ConduitMethods.automationsRun,
+        params: AutomationRef.fromJson,
+        result: AutomationRunProgress.fromJson,
+      );
+  static const automationsRunState =
+      ConduitMethodSpec<AutomationRef, AutomationRunProgress>(
+        ConduitMethods.automationsRunState,
+        params: AutomationRef.fromJson,
+        result: AutomationRunProgress.fromJson,
+      );
+  static const automationsDelete =
+      ConduitMethodSpec<AutomationRef, AutomationList>(
+        ConduitMethods.automationsDelete,
+        params: AutomationRef.fromJson,
+        result: AutomationList.fromJson,
+      );
+  static const automationsEditor =
+      ConduitMethodSpec<AutomationEditorOpen, AutomationEditor>(
+        ConduitMethods.automationsEditor,
+        params: AutomationEditorOpen.fromJson,
+        result: AutomationEditor.fromJson,
+      );
+  static const automationsCheckDraft =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationDraftState>(
+        ConduitMethods.automationsCheckDraft,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationDraftState.fromJson,
+      );
+  static const automationsSave =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationDraftState>(
+        ConduitMethods.automationsSave,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationDraftState.fromJson,
+      );
+  static const automationsTerminals =
+      ConduitMethodSpec<AutomationDraftEdit, AutomationTerminals>(
+        ConduitMethods.automationsTerminals,
+        params: AutomationDraftEdit.fromJson,
+        result: AutomationTerminals.fromJson,
+      );
 
   // notes.*
 
@@ -554,9 +1461,9 @@ abstract final class ConduitMethodSpecs {
     params: NoteQuery.fromJson,
     result: NoteList.fromJson,
   );
-  static const notesGet = ConduitMethodSpec<NoteRef, NoteResult>(
+  static const notesGet = ConduitMethodSpec<NoteOpen, NoteResult>(
     ConduitMethods.notesGet,
-    params: NoteRef.fromJson,
+    params: NoteOpen.fromJson,
     result: NoteResult.fromJson,
   );
   static const notesSave = ConduitMethodSpec<NoteSave, NoteDetail>(
@@ -594,6 +1501,29 @@ abstract final class ConduitMethodSpecs {
     params: NoteDetach.fromJson,
     result: NoteDetail.fromJson,
   );
+  static const notesRecordings = ConduitMethodSpec<NoteRef, NoteRecordings>(
+    ConduitMethods.notesRecordings,
+    params: NoteRef.fromJson,
+    result: NoteRecordings.fromJson,
+  );
+  static const notesAddRecording =
+      ConduitMethodSpec<NoteRecordingAdd, NoteRecordings>(
+        ConduitMethods.notesAddRecording,
+        params: NoteRecordingAdd.fromJson,
+        result: NoteRecordings.fromJson,
+      );
+  static const notesRetryRecording =
+      ConduitMethodSpec<NoteRecordingRef, NoteRecordings>(
+        ConduitMethods.notesRetryRecording,
+        params: NoteRecordingRef.fromJson,
+        result: NoteRecordings.fromJson,
+      );
+  static const notesRemoveRecording =
+      ConduitMethodSpec<NoteRecordingRef, NoteRecordings>(
+        ConduitMethods.notesRemoveRecording,
+        params: NoteRecordingRef.fromJson,
+        result: NoteRecordings.fromJson,
+      );
 
   // channels.*
 
@@ -664,6 +1594,51 @@ abstract final class ConduitMethodSpecs {
     params: ChannelRef.fromJson,
     result: ChannelMembers.fromJson,
   );
+  static const channelsOpen = ConduitMethodSpec<ChannelRef, ChannelDetails>(
+    ConduitMethods.channelsOpen,
+    params: ChannelRef.fromJson,
+    result: ChannelDetails.fromJson,
+  );
+  static const channelsFocus = ConduitMethodSpec<ChannelFocus, OkResult>(
+    ConduitMethods.channelsFocus,
+    params: ChannelFocus.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const channelsSetMuted = ConduitMethodSpec<ChannelMute, ChannelList>(
+    ConduitMethods.channelsSetMuted,
+    params: ChannelMute.fromJson,
+    result: ChannelList.fromJson,
+  );
+  static const channelsMentions =
+      ConduitMethodSpec<ChannelMentionQuery, MentionList>(
+        ConduitMethods.channelsMentions,
+        params: ChannelMentionQuery.fromJson,
+        result: MentionList.fromJson,
+      );
+  static const channelsMemberPage =
+      ConduitMethodSpec<ChannelMemberQuery, ChannelMemberPage>(
+        ConduitMethods.channelsMemberPage,
+        params: ChannelMemberQuery.fromJson,
+        result: ChannelMemberPage.fromJson,
+      );
+  static const channelsAddMembers =
+      ConduitMethodSpec<ChannelMembersAdd, ChannelMemberChange>(
+        ConduitMethods.channelsAddMembers,
+        params: ChannelMembersAdd.fromJson,
+        result: ChannelMemberChange.fromJson,
+      );
+  static const channelsRemoveMember =
+      ConduitMethodSpec<ChannelMemberRemove, ChannelMemberChange>(
+        ConduitMethods.channelsRemoveMember,
+        params: ChannelMemberRemove.fromJson,
+        result: ChannelMemberChange.fromJson,
+      );
+  static const channelsAppAction =
+      ConduitMethodSpec<ChannelAppAction, ChannelAppActionResult>(
+        ConduitMethods.channelsAppAction,
+        params: ChannelAppAction.fromJson,
+        result: ChannelAppActionResult.fromJson,
+      );
 
   // workspace.*
 
@@ -804,6 +1779,24 @@ abstract final class ConduitMethodSpecs {
         params: WorkspaceRef.fromJson,
         result: WorkspaceFiles.fromJson,
       );
+  static const workspaceDuplicate =
+      ConduitMethodSpec<WorkspaceDuplicate, WorkspaceDetail>(
+        ConduitMethods.workspaceDuplicate,
+        params: WorkspaceDuplicate.fromJson,
+        result: WorkspaceDetail.fromJson,
+      );
+  static const workspaceAddText =
+      ConduitMethodSpec<WorkspaceTextFile, WorkspaceFiles>(
+        ConduitMethods.workspaceAddText,
+        params: WorkspaceTextFile.fromJson,
+        result: WorkspaceFiles.fromJson,
+      );
+  static const workspaceSkillFromMarkdown =
+      ConduitMethodSpec<WorkspaceMarkdown, WorkspaceSkillDto>(
+        ConduitMethods.workspaceSkillFromMarkdown,
+        params: WorkspaceMarkdown.fromJson,
+        result: WorkspaceSkillDto.fromJson,
+      );
 
   // hermes.*
 
@@ -827,10 +1820,12 @@ abstract final class ConduitMethodSpecs {
     ConduitMethods.hermesStatus,
     result: HermesStatus.fromJson,
   );
-  static const hermesSignIn = ConduitMethodSpec<void, HermesSettings>(
-    ConduitMethods.hermesSignIn,
-    result: HermesSettings.fromJson,
-  );
+  static const hermesSignIn =
+      ConduitMethodSpec<HermesSignInRequest, HermesSettings>(
+        ConduitMethods.hermesSignIn,
+        params: HermesSignInRequest.fromJson,
+        result: HermesSettings.fromJson,
+      );
   static const hermesSignOut = ConduitMethodSpec<void, HermesSettings>(
     ConduitMethods.hermesSignOut,
     result: HermesSettings.fromJson,
@@ -857,6 +1852,33 @@ abstract final class ConduitMethodSpecs {
         params: HermesRef.fromJson,
         result: HermesSessionDto.fromJson,
       );
+  static const hermesSessionsUpdate =
+      ConduitMethodSpec<HermesSessionUpdate, HermesSessions>(
+        ConduitMethods.hermesSessionsUpdate,
+        params: HermesSessionUpdate.fromJson,
+        result: HermesSessions.fromJson,
+      );
+  static const hermesSessionsContinue =
+      ConduitMethodSpec<HermesContinue, HermesSessionDto>(
+        ConduitMethods.hermesSessionsContinue,
+        params: HermesContinue.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesHiddenList = ConduitMethodSpec<void, HermesSessions>(
+    ConduitMethods.hermesHiddenList,
+    result: HermesSessions.fromJson,
+  );
+  static const hermesHistoryBranch =
+      ConduitMethodSpec<HermesBranch, HermesSessionDto>(
+        ConduitMethods.hermesHistoryBranch,
+        params: HermesBranch.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesHistoryUndo = ConduitMethodSpec<ChatRef, OkResult>(
+    ConduitMethods.hermesHistoryUndo,
+    params: ChatRef.fromJson,
+    result: OkResult.fromJson,
+  );
   static const hermesJobs = ConduitMethodSpec<void, HermesJobs>(
     ConduitMethods.hermesJobs,
     result: HermesJobs.fromJson,
@@ -872,19 +1894,295 @@ abstract final class ConduitMethodSpecs {
         params: HermesJobToggle.fromJson,
         result: HermesJobs.fromJson,
       );
-  static const hermesRunJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesRunJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesRunJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
-  static const hermesDeleteJob = ConduitMethodSpec<HermesRef, HermesJobs>(
+  static const hermesDeleteJob = ConduitMethodSpec<HermesJobRef, HermesJobs>(
     ConduitMethods.hermesDeleteJob,
-    params: HermesRef.fromJson,
+    params: HermesJobRef.fromJson,
     result: HermesJobs.fromJson,
   );
   static const hermesCatalog = ConduitMethodSpec<void, HermesCatalog>(
     ConduitMethods.hermesCatalog,
     result: HermesCatalog.fromJson,
+  );
+  static const hermesJobsRuns = ConduitMethodSpec<HermesJobRef, HermesSessions>(
+    ConduitMethods.hermesJobsRuns,
+    params: HermesJobRef.fromJson,
+    result: HermesSessions.fromJson,
+  );
+  static const hermesJobsStop = ConduitMethodSpec<HermesJobRef, HermesJobs>(
+    ConduitMethods.hermesJobsStop,
+    params: HermesJobRef.fromJson,
+    result: HermesJobs.fromJson,
+  );
+  static const hermesJobsDelivery =
+      ConduitMethodSpec<void, HermesDeliveryOptions>(
+        ConduitMethods.hermesJobsDelivery,
+        result: HermesDeliveryOptions.fromJson,
+      );
+
+  // hermes.connections.*
+
+  static const hermesConnectionsList =
+      ConduitMethodSpec<void, HermesConnections>(
+        ConduitMethods.hermesConnectionsList,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsSave =
+      ConduitMethodSpec<HermesConnectionEdit, HermesConnections>(
+        ConduitMethods.hermesConnectionsSave,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsTest =
+      ConduitMethodSpec<HermesConnectionEdit, HermesConnectionTestResult>(
+        ConduitMethods.hermesConnectionsTest,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesConnectionTestResult.fromJson,
+      );
+  static const hermesConnectionsActivate =
+      ConduitMethodSpec<HermesRef, HermesConnections>(
+        ConduitMethods.hermesConnectionsActivate,
+        params: HermesRef.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsDelete =
+      ConduitMethodSpec<HermesRef, HermesConnections>(
+        ConduitMethods.hermesConnectionsDelete,
+        params: HermesRef.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsSetEnabled =
+      ConduitMethodSpec<HermesToggle, HermesConnections>(
+        ConduitMethods.hermesConnectionsSetEnabled,
+        params: HermesToggle.fromJson,
+        result: HermesConnections.fromJson,
+      );
+  static const hermesConnectionsProfiles =
+      ConduitMethodSpec<HermesConnectionEdit, HermesProfiles>(
+        ConduitMethods.hermesConnectionsProfiles,
+        params: HermesConnectionEdit.fromJson,
+        result: HermesProfiles.fromJson,
+      );
+
+  // hermes.toolsets.*, hermes.skills.*
+
+  static const hermesToolsetsSet =
+      ConduitMethodSpec<HermesToolsetToggle, HermesCatalog>(
+        ConduitMethods.hermesToolsetsSet,
+        params: HermesToolsetToggle.fromJson,
+        result: HermesCatalog.fromJson,
+      );
+  static const hermesSkillsReload =
+      ConduitMethodSpec<HermesConnectionRef, HermesCatalog>(
+        ConduitMethods.hermesSkillsReload,
+        params: HermesConnectionRef.fromJson,
+        result: HermesCatalog.fromJson,
+      );
+
+  // hermes.dashboard.*
+
+  static const hermesDashboardStart =
+      ConduitMethodSpec<HermesDashboardStart, HermesDashboardPlan>(
+        ConduitMethods.hermesDashboardStart,
+        params: HermesDashboardStart.fromJson,
+        result: HermesDashboardPlan.fromJson,
+      );
+  static const hermesDashboardComplete =
+      ConduitMethodSpec<HermesDashboardCookies, HermesDashboardResult>(
+        ConduitMethods.hermesDashboardComplete,
+        params: HermesDashboardCookies.fromJson,
+        result: HermesDashboardResult.fromJson,
+      );
+  static const hermesDashboardCancel =
+      ConduitMethodSpec<HermesDashboardCancel, CancelledResult>(
+        ConduitMethods.hermesDashboardCancel,
+        params: HermesDashboardCancel.fromJson,
+        result: CancelledResult.fromJson,
+      );
+
+  // hermes.mcp.*
+
+  static const hermesMcpList = ConduitMethodSpec<void, HermesMcpServers>(
+    ConduitMethods.hermesMcpList,
+    result: HermesMcpServers.fromJson,
+  );
+  static const hermesMcpCatalog = ConduitMethodSpec<void, HermesMcpCatalog>(
+    ConduitMethods.hermesMcpCatalog,
+    result: HermesMcpCatalog.fromJson,
+  );
+  static const hermesMcpAdd = ConduitMethodSpec<HermesMcpAdd, HermesMcpServers>(
+    ConduitMethods.hermesMcpAdd,
+    params: HermesMcpAdd.fromJson,
+    result: HermesMcpServers.fromJson,
+  );
+  static const hermesMcpAddFromCatalog =
+      ConduitMethodSpec<HermesMcpCatalogAdd, HermesMcpCatalogAdded>(
+        ConduitMethods.hermesMcpAddFromCatalog,
+        params: HermesMcpCatalogAdd.fromJson,
+        result: HermesMcpCatalogAdded.fromJson,
+      );
+  static const hermesMcpSetApiKey =
+      ConduitMethodSpec<HermesMcpApiKey, HermesMcpServers>(
+        ConduitMethods.hermesMcpSetApiKey,
+        params: HermesMcpApiKey.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpRemove =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+        ConduitMethods.hermesMcpRemove,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpTest =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpTestResultDto>(
+        ConduitMethods.hermesMcpTest,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpTestResultDto.fromJson,
+      );
+  static const hermesMcpSetEnabled =
+      ConduitMethodSpec<HermesMcpToggle, HermesMcpServers>(
+        ConduitMethods.hermesMcpSetEnabled,
+        params: HermesMcpToggle.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+  static const hermesMcpAuthenticate =
+      ConduitMethodSpec<HermesMcpRef, HermesMcpServers>(
+        ConduitMethods.hermesMcpAuthenticate,
+        params: HermesMcpRef.fromJson,
+        result: HermesMcpServers.fromJson,
+      );
+
+  // hermes.work.*, hermes.context.*, hermes.decisions.*
+
+  static const hermesWorkWatch = ConduitMethodSpec<HermesWorkWatch, HermesWork>(
+    ConduitMethods.hermesWorkWatch,
+    params: HermesWorkWatch.fromJson,
+    result: HermesWork.fromJson,
+  );
+  static const hermesWorkUnwatch = ConduitMethodSpec<HermesWorkChat, OkResult>(
+    ConduitMethods.hermesWorkUnwatch,
+    params: HermesWorkChat.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesWorkSteer =
+      ConduitMethodSpec<HermesSteerSubagent, OkResult>(
+        ConduitMethods.hermesWorkSteer,
+        params: HermesSteerSubagent.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesWorkStop = ConduitMethodSpec<HermesSubagentRef, OkResult>(
+    ConduitMethods.hermesWorkStop,
+    params: HermesSubagentRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesWorkKill =
+      ConduitMethodSpec<HermesProcessRef, HermesProcessKill>(
+        ConduitMethods.hermesWorkKill,
+        params: HermesProcessRef.fromJson,
+        result: HermesProcessKill.fromJson,
+      );
+  static const hermesContextGet =
+      ConduitMethodSpec<HermesContextRef, HermesContextReportDto>(
+        ConduitMethods.hermesContextGet,
+        params: HermesContextRef.fromJson,
+        result: HermesContextReportDto.fromJson,
+      );
+  static const hermesContextCompact =
+      ConduitMethodSpec<HermesCompact, HermesCompactResultDto>(
+        ConduitMethods.hermesContextCompact,
+        params: HermesCompact.fromJson,
+        result: HermesCompactResultDto.fromJson,
+      );
+  static const hermesDecisionsAnswer =
+      ConduitMethodSpec<HermesDecisionAnswer, HermesDecisionResult>(
+        ConduitMethods.hermesDecisionsAnswer,
+        params: HermesDecisionAnswer.fromJson,
+        result: HermesDecisionResult.fromJson,
+      );
+
+  // hermes.bots.*, hermes.rooms.*
+
+  static const hermesBotsList = ConduitMethodSpec<void, HermesBots>(
+    ConduitMethods.hermesBotsList,
+    result: HermesBots.fromJson,
+  );
+  static const hermesBotsAvatar =
+      ConduitMethodSpec<HermesBotRef, HermesBotAvatar>(
+        ConduitMethods.hermesBotsAvatar,
+        params: HermesBotRef.fromJson,
+        result: HermesBotAvatar.fromJson,
+      );
+  static const hermesBotsOpen =
+      ConduitMethodSpec<HermesBotRef, HermesSessionDto>(
+        ConduitMethods.hermesBotsOpen,
+        params: HermesBotRef.fromJson,
+        result: HermesSessionDto.fromJson,
+      );
+  static const hermesRoomsList = ConduitMethodSpec<void, HermesRooms>(
+    ConduitMethods.hermesRoomsList,
+    result: HermesRooms.fromJson,
+  );
+  static const hermesRoomsCreate =
+      ConduitMethodSpec<HermesRoomCreate, HermesRoomDto>(
+        ConduitMethods.hermesRoomsCreate,
+        params: HermesRoomCreate.fromJson,
+        result: HermesRoomDto.fromJson,
+      );
+  static const hermesRoomsWatch =
+      ConduitMethodSpec<HermesRoomRef, HermesRoomView>(
+        ConduitMethods.hermesRoomsWatch,
+        params: HermesRoomRef.fromJson,
+        result: HermesRoomView.fromJson,
+      );
+  static const hermesRoomsUnwatch = ConduitMethodSpec<HermesRoomRef, OkResult>(
+    ConduitMethods.hermesRoomsUnwatch,
+    params: HermesRoomRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const hermesRoomsSend =
+      ConduitMethodSpec<HermesRoomMessage, HermesRoomSendResult>(
+        ConduitMethods.hermesRoomsSend,
+        params: HermesRoomMessage.fromJson,
+        result: HermesRoomSendResult.fromJson,
+      );
+  static const hermesRoomsStop =
+      ConduitMethodSpec<HermesRoomRef, HermesRoomStopped>(
+        ConduitMethods.hermesRoomsStop,
+        params: HermesRoomRef.fromJson,
+        result: HermesRoomStopped.fromJson,
+      );
+  static const hermesRoomsContinue =
+      ConduitMethodSpec<HermesRoomContinue, OkResult>(
+        ConduitMethods.hermesRoomsContinue,
+        params: HermesRoomContinue.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesRoomsAnswer =
+      ConduitMethodSpec<HermesRoomAnswer, OkResult>(
+        ConduitMethods.hermesRoomsAnswer,
+        params: HermesRoomAnswer.fromJson,
+        result: OkResult.fromJson,
+      );
+  static const hermesRoomsRename =
+      ConduitMethodSpec<HermesRoomRename, HermesRoomDto>(
+        ConduitMethods.hermesRoomsRename,
+        params: HermesRoomRename.fromJson,
+        result: HermesRoomDto.fromJson,
+      );
+  static const hermesRoomsSaveContext =
+      ConduitMethodSpec<HermesRoomContextEdit, HermesRoomContextDto>(
+        ConduitMethods.hermesRoomsSaveContext,
+        params: HermesRoomContextEdit.fromJson,
+        result: HermesRoomContextDto.fromJson,
+      );
+  static const hermesRoomsDisband = ConduitMethodSpec<HermesRoomRef, OkResult>(
+    ConduitMethods.hermesRoomsDisband,
+    params: HermesRoomRef.fromJson,
+    result: OkResult.fromJson,
   );
 
   // terminal.*
@@ -942,6 +2240,51 @@ abstract final class ConduitMethodSpecs {
         params: TerminalPortRef.fromJson,
         result: TerminalPreview.fromJson,
       );
+  static const terminalWatch =
+      ConduitMethodSpec<TerminalWatch, TerminalWatching>(
+        ConduitMethods.terminalWatch,
+        params: TerminalWatch.fromJson,
+        result: TerminalWatching.fromJson,
+      );
+  static const terminalDetach = ConduitMethodSpec<TerminalHandleRef, OkResult>(
+    ConduitMethods.terminalDetach,
+    params: TerminalHandleRef.fromJson,
+    result: OkResult.fromJson,
+  );
+
+  // computer.*
+
+  static const computerStatus =
+      ConduitMethodSpec<ComputerScope, ComputerStatus>(
+        ConduitMethods.computerStatus,
+        params: ComputerScope.fromJson,
+        result: ComputerStatus.fromJson,
+      );
+  static const computerOpen = ConduitMethodSpec<ComputerOpen, ComputerView>(
+    ConduitMethods.computerOpen,
+    params: ComputerOpen.fromJson,
+    result: ComputerView.fromJson,
+  );
+  static const computerTabs = ConduitMethodSpec<ComputerScope, ComputerTabs>(
+    ConduitMethods.computerTabs,
+    params: ComputerScope.fromJson,
+    result: ComputerTabs.fromJson,
+  );
+  static const computerCloseTab = ConduitMethodSpec<ComputerTabRef, OkResult>(
+    ConduitMethods.computerCloseTab,
+    params: ComputerTabRef.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const computerShortcut = ConduitMethodSpec<ComputerShortcut, OkResult>(
+    ConduitMethods.computerShortcut,
+    params: ComputerShortcut.fromJson,
+    result: OkResult.fromJson,
+  );
+  static const computerClose = ConduitMethodSpec<ComputerHandleRef, OkResult>(
+    ConduitMethods.computerClose,
+    params: ComputerHandleRef.fromJson,
+    result: OkResult.fromJson,
+  );
 
   // voice.*
 
@@ -980,6 +2323,144 @@ abstract final class ConduitMethodSpecs {
     result: VoiceModels.fromJson,
   );
 
+  // dictation.*
+  static const dictationStatus =
+      ConduitMethodSpec<DictationTarget, DictationStatus>(
+        ConduitMethods.dictationStatus,
+        params: DictationTarget.fromJson,
+        result: DictationStatus.fromJson,
+      );
+
+  // recordings.*
+  static const recordingsList =
+      ConduitMethodSpec<RecordingTarget, RecordingList>(
+        ConduitMethods.recordingsList,
+        params: RecordingTarget.fromJson,
+        result: RecordingList.fromJson,
+      );
+  static const recordingsBegin =
+      ConduitMethodSpec<RecordingTarget, RecordingStarted>(
+        ConduitMethods.recordingsBegin,
+        params: RecordingTarget.fromJson,
+        result: RecordingStarted.fromJson,
+      );
+  static const recordingsAppend =
+      ConduitMethodSpec<RecordingChunk, RecordingSaved>(
+        ConduitMethods.recordingsAppend,
+        params: RecordingChunk.fromJson,
+        result: RecordingSaved.fromJson,
+      );
+  static const recordingsClose =
+      ConduitMethodSpec<RecordingRef, RecordingSaved>(
+        ConduitMethods.recordingsClose,
+        params: RecordingRef.fromJson,
+        result: RecordingSaved.fromJson,
+      );
+  static const recordingsDiscard =
+      ConduitMethodSpec<RecordingRef, RecordingList>(
+        ConduitMethods.recordingsDiscard,
+        params: RecordingRef.fromJson,
+        result: RecordingList.fromJson,
+      );
+  static const recordingsTranscribe =
+      ConduitMethodSpec<RecordingTranscribe, VoiceTranscript>(
+        ConduitMethods.recordingsTranscribe,
+        params: RecordingTranscribe.fromJson,
+        result: VoiceTranscript.fromJson,
+      );
+
+  // librechat.*
+
+  static const librechatProbe =
+      ConduitMethodSpec<LibreChatProbe, LibreChatProbeResult>(
+        ConduitMethods.librechatProbe,
+        params: LibreChatProbe.fromJson,
+        result: LibreChatProbeResult.fromJson,
+      );
+  static const librechatSignIn =
+      ConduitMethodSpec<LibreChatSignIn, LibreChatSignInResult>(
+        ConduitMethods.librechatSignIn,
+        params: LibreChatSignIn.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatVerify =
+      ConduitMethodSpec<LibreChatVerify, LibreChatSignInResult>(
+        ConduitMethods.librechatVerify,
+        params: LibreChatVerify.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatSsoStart =
+      ConduitMethodSpec<LibreChatSsoStart, LibreChatSsoPlan>(
+        ConduitMethods.librechatSsoStart,
+        params: LibreChatSsoStart.fromJson,
+        result: LibreChatSsoPlan.fromJson,
+      );
+  static const librechatCompleteSso =
+      ConduitMethodSpec<LibreChatSsoCompletion, LibreChatSignInResult>(
+        ConduitMethods.librechatCompleteSso,
+        params: LibreChatSsoCompletion.fromJson,
+        result: LibreChatSignInResult.fromJson,
+      );
+  static const librechatComposer =
+      ConduitMethodSpec<LibreChatComposerTarget, LibreChatComposer>(
+        ConduitMethods.librechatComposer,
+        params: LibreChatComposerTarget.fromJson,
+        result: LibreChatComposer.fromJson,
+      );
+  static const librechatMemoriesList =
+      ConduitMethodSpec<void, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesList,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesSave =
+      ConduitMethodSpec<LibreChatMemoryEdit, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesSave,
+        params: LibreChatMemoryEdit.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesDelete =
+      ConduitMethodSpec<LibreChatMemoryRef, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesDelete,
+        params: LibreChatMemoryRef.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatMemoriesSetEnabled =
+      ConduitMethodSpec<LibreChatMemoryToggle, LibreChatMemories>(
+        ConduitMethods.librechatMemoriesSetEnabled,
+        params: LibreChatMemoryToggle.fromJson,
+        result: LibreChatMemories.fromJson,
+      );
+  static const librechatDuplicate = ConduitMethodSpec<ChatRef, ChatForked>(
+    ConduitMethods.librechatDuplicate,
+    params: ChatRef.fromJson,
+    result: ChatForked.fromJson,
+  );
+
+  // intents.*
+  static const intentsAsk = ConduitMethodSpec<IntentAsk, IntentAnswer>(
+    ConduitMethods.intentsAsk,
+    params: IntentAsk.fromJson,
+    result: IntentAnswer.fromJson,
+  );
+  static const intentsChats = ConduitMethodSpec<IntentChatsQuery, IntentChats>(
+    ConduitMethods.intentsChats,
+    params: IntentChatsQuery.fromJson,
+    result: IntentChats.fromJson,
+  );
+  static const intentsSendLink =
+      ConduitMethodSpec<IntentLink, IntentLinkResult>(
+        ConduitMethods.intentsSendLink,
+        params: IntentLink.fromJson,
+        result: IntentLinkResult.fromJson,
+      );
+
+  // location.*
+  static const locationReport = ConduitMethodSpec<LocationReport, OkResult>(
+    ConduitMethods.locationReport,
+    params: LocationReport.fromJson,
+    result: OkResult.fromJson,
+  );
+
   /// Every method, once.
   static const List<ConduitMethodSpec<Object?, Object?>> all =
       <ConduitMethodSpec<Object?, Object?>>[
@@ -998,6 +2479,11 @@ abstract final class ConduitMethodSpecs {
         accountsRemove,
         accountsSignOut,
         serversUpdate,
+        serversAddressesList,
+        serversAddressesCheck,
+        serversAddressesSave,
+        serversAddressesRemove,
+        serversAddressesReorder,
         serversStatus,
         authStatus,
         authLoginWithPassword,
@@ -1007,8 +2493,63 @@ abstract final class ConduitMethodSpecs {
         authCompleteExternal,
         authHasSavedCredentials,
         authSetReviewerMode,
+        authTwoStepSetup,
+        authTwoStepVerify,
+        authTwoStepRedeem,
+        authTwoStepFinish,
+        authTwoStepCancel,
+        authRetry,
+        authRenewProxy,
         settingsGetApp,
         settingsSetApp,
+        settingsGet,
+        settingsSet,
+        settingsGetAccount,
+        settingsSetAccount,
+        settingsModelPrompt,
+        settingsSetModelPrompt,
+        settingsQuickPills,
+        settingsVoiceProviders,
+        settingsAbout,
+        profileGet,
+        profileUpdate,
+        profileSetImage,
+        profileRemoveImage,
+        profileChangePassword,
+        profileSignOutAll,
+        memoriesList,
+        memoriesAdd,
+        memoriesUpdate,
+        memoriesDelete,
+        memoriesClear,
+        memoriesSetEnabled,
+        notificationsGet,
+        notificationsSet,
+        notificationsRoute,
+        webhooksList,
+        webhooksCreate,
+        webhooksUpdate,
+        webhooksMakeDefault,
+        webhooksTest,
+        webhooksDelete,
+        integrationsList,
+        integrationsSave,
+        integrationsTest,
+        integrationsClearNotice,
+        releaseNotesCheck,
+        releaseNotesLatest,
+        releaseNotesDismiss,
+        dataSummary,
+        dataExport,
+        dataPreviewImport,
+        dataImport,
+        dataSync,
+        dataArchiveAll,
+        dataUnarchiveAll,
+        dataUnshareAll,
+        dataDeleteAll,
+        dataConnection,
+        dataReconnect,
         chatsList,
         chatsLoadMore,
         chatsGet,
@@ -1026,6 +2567,9 @@ abstract final class ConduitMethodSpecs {
         foldersCreate,
         foldersRename,
         foldersDelete,
+        foldersGet,
+        foldersUpdate,
+        foldersDraftModel,
         chatsSetPinned,
         chatsSetArchived,
         chatsDelete,
@@ -1033,10 +2577,44 @@ abstract final class ConduitMethodSpecs {
         chatsSetArchivedVisible,
         chatsShare,
         chatsUnshare,
+        chatsFork,
+        chatsExport,
+        chatsGenerateTitle,
+        chatsMarkUnread,
+        chatsSaveTemporary,
+        messagesDelete,
         modelsList,
         modelsSelect,
+        modelsSetPinned,
+        modelsOptions,
+        modelsSetReasoningEffort,
+        modelsSetFastTier,
+        modelsControls,
+        modelsSetControl,
+        chatSettingsGet,
+        chatSettingsCheck,
+        chatSettingsSave,
+        valvesTargets,
+        valvesGet,
+        valvesSave,
+        accessGet,
+        accessSet,
+        accessPrincipals,
         composerOptions,
         composerKnowledge,
+        draftsGet,
+        draftsSave,
+        queueGet,
+        queueAdd,
+        queueEdit,
+        queueRemove,
+        queueSendNow,
+        queueRetry,
+        mentionsSearch,
+        skillsSearch,
+        contextSearch,
+        contextFetchUrl,
+        filesList,
         promptsList,
         promptsRender,
         directList,
@@ -1051,6 +2629,10 @@ abstract final class ConduitMethodSpecs {
         directOllamaUnload,
         directOllamaKeepAlive,
         directOllamaThinking,
+        directReload,
+        directOptions,
+        directSetImagesPerRequest,
+        directSetContextLimit,
         mcpList,
         mcpSave,
         mcpRemove,
@@ -1063,11 +2645,68 @@ abstract final class ConduitMethodSpecs {
         mcpContent,
         mcpGetPrompt,
         mcpReadResource,
+        webSearchGet,
+        webSearchSet,
         turnsSend,
         turnsStop,
         turnsRegenerate,
         turnsEdit,
+        turnsSteer,
         turnsRate,
+        turnsMerge,
+        handoffAnswer,
+        turnsRetryQueued,
+        turnsRemoveQueued,
+        chatPromptsGet,
+        chatPromptsAnswer,
+        chatPromptsDecide,
+        mcpAppsOpen,
+        mcpAppsMessage,
+        mcpAppsContext,
+        mcpAppsClose,
+        speechGet,
+        speechToggle,
+        speechPause,
+        speechResume,
+        speechStop,
+        speechRetry,
+        speechSeek,
+        speechPreview,
+        speechReport,
+        callsGet,
+        callsStart,
+        callsEnd,
+        callsPause,
+        callsResume,
+        callsMute,
+        callsSkip,
+        callsReport,
+        calendarAgenda,
+        calendarSetVisible,
+        calendarMakeDefault,
+        calendarCreateCalendar,
+        calendarEvent,
+        calendarDeleteEvent,
+        calendarRespond,
+        calendarEditor,
+        calendarCheckDraft,
+        calendarSave,
+        automationsList,
+        automationsLoadMore,
+        automationsGet,
+        automationsRuns,
+        automationsSetActive,
+        automationsRun,
+        automationsRunState,
+        automationsDelete,
+        automationsEditor,
+        automationsCheckDraft,
+        automationsSave,
+        automationsTerminals,
+        appleStatus,
+        appleRefresh,
+        appleChoose,
+        appleReport,
         notesList,
         notesGet,
         notesSave,
@@ -1077,6 +2716,10 @@ abstract final class ConduitMethodSpecs {
         notesEnhance,
         notesAttach,
         notesDetach,
+        notesRecordings,
+        notesAddRecording,
+        notesRetryRecording,
+        notesRemoveRecording,
         channelsList,
         channelsSave,
         channelsDelete,
@@ -1090,6 +2733,14 @@ abstract final class ConduitMethodSpecs {
         channelsTyping,
         channelsMarkRead,
         channelsMembers,
+        channelsOpen,
+        channelsFocus,
+        channelsSetMuted,
+        channelsMentions,
+        channelsMemberPage,
+        channelsAddMembers,
+        channelsRemoveMember,
+        channelsAppAction,
         workspaceCapabilities,
         workspaceList,
         workspaceGet,
@@ -1114,6 +2765,9 @@ abstract final class ConduitMethodSpecs {
         workspaceDirectoryAction,
         workspaceKnowledgeReset,
         workspaceKnowledgeCleanup,
+        workspaceDuplicate,
+        workspaceAddText,
+        workspaceSkillFromMarkdown,
         hermesSettings,
         hermesSaveSettings,
         hermesTest,
@@ -1124,12 +2778,63 @@ abstract final class ConduitMethodSpecs {
         hermesRenameSession,
         hermesDeleteSession,
         hermesForkSession,
+        hermesSessionsUpdate,
+        hermesSessionsContinue,
+        hermesHiddenList,
+        hermesHistoryBranch,
+        hermesHistoryUndo,
         hermesJobs,
         hermesSaveJob,
         hermesSetJobEnabled,
         hermesRunJob,
         hermesDeleteJob,
         hermesCatalog,
+        hermesJobsRuns,
+        hermesJobsStop,
+        hermesJobsDelivery,
+        hermesConnectionsList,
+        hermesConnectionsSave,
+        hermesConnectionsTest,
+        hermesConnectionsActivate,
+        hermesConnectionsDelete,
+        hermesConnectionsSetEnabled,
+        hermesConnectionsProfiles,
+        hermesToolsetsSet,
+        hermesSkillsReload,
+        hermesDashboardStart,
+        hermesDashboardComplete,
+        hermesDashboardCancel,
+        hermesMcpList,
+        hermesMcpCatalog,
+        hermesMcpAdd,
+        hermesMcpAddFromCatalog,
+        hermesMcpSetApiKey,
+        hermesMcpRemove,
+        hermesMcpTest,
+        hermesMcpSetEnabled,
+        hermesMcpAuthenticate,
+        hermesWorkWatch,
+        hermesWorkUnwatch,
+        hermesWorkSteer,
+        hermesWorkStop,
+        hermesWorkKill,
+        hermesContextGet,
+        hermesContextCompact,
+        hermesDecisionsAnswer,
+        hermesBotsList,
+        hermesBotsAvatar,
+        hermesBotsOpen,
+        hermesRoomsList,
+        hermesRoomsCreate,
+        hermesRoomsWatch,
+        hermesRoomsUnwatch,
+        hermesRoomsSend,
+        hermesRoomsStop,
+        hermesRoomsContinue,
+        hermesRoomsAnswer,
+        hermesRoomsRename,
+        hermesRoomsSaveContext,
+        hermesRoomsDisband,
         terminalServers,
         terminalSelect,
         terminalAttach,
@@ -1139,6 +2844,14 @@ abstract final class ConduitMethodSpecs {
         terminalFileAction,
         terminalPorts,
         terminalPreviewPort,
+        terminalWatch,
+        terminalDetach,
+        computerStatus,
+        computerOpen,
+        computerTabs,
+        computerCloseTab,
+        computerShortcut,
+        computerClose,
         voiceSettings,
         voiceSaveSettings,
         voiceVoices,
@@ -1146,6 +2859,28 @@ abstract final class ConduitMethodSpecs {
         voiceModels,
         voiceDownloadModel,
         voiceDeleteModel,
+        dictationStatus,
+        recordingsList,
+        recordingsBegin,
+        recordingsAppend,
+        recordingsClose,
+        recordingsDiscard,
+        recordingsTranscribe,
+        librechatProbe,
+        librechatSignIn,
+        librechatVerify,
+        librechatSsoStart,
+        librechatCompleteSso,
+        librechatComposer,
+        librechatMemoriesList,
+        librechatMemoriesSave,
+        librechatMemoriesDelete,
+        librechatMemoriesSetEnabled,
+        librechatDuplicate,
+        intentsAsk,
+        intentsChats,
+        intentsSendLink,
+        locationReport,
       ];
 
   static final Map<String, ConduitMethodSpec<Object?, Object?>> _byName =
@@ -1204,6 +2939,11 @@ abstract final class ConduitEventSpecs {
     payload: AccountsChanged.fromJson,
     scoped: false,
   );
+  static const serversChanged = ConduitEventSpec<ServersChanged>(
+    ConduitEvents.serversChanged,
+    payload: ServersChanged.fromJson,
+    scoped: false,
+  );
   static const notesChanged = ConduitEventSpec<NotesChanged>(
     ConduitEvents.notesChanged,
     payload: NotesChanged.fromJson,
@@ -1221,6 +2961,16 @@ abstract final class ConduitEventSpecs {
   );
   static const channelsChanged = ConduitEventSpec<void>(
     ConduitEvents.channelsChanged,
+    scoped: false,
+  );
+  static const channelsAppReply = ConduitEventSpec<ChannelAppReplyEvent>(
+    ConduitEvents.channelsAppReply,
+    payload: ChannelAppReplyEvent.fromJson,
+    scoped: true,
+  );
+  static const channelsPosted = ConduitEventSpec<ChannelPosted>(
+    ConduitEvents.channelsPosted,
+    payload: ChannelPosted.fromJson,
     scoped: false,
   );
   static const syncStatus = ConduitEventSpec<SyncState>(
@@ -1255,7 +3005,9 @@ abstract final class ConduitEventSpecs {
     scoped: false,
   );
 
-  /// Reserved; not published yet. A window refetches `system.capabilities`.
+  /// What the active account can use changed: another account, a server
+  /// whose features or permissions changed, Hermes switched on or off. A
+  /// window refetches `system.capabilities`.
   static const capabilitiesChanged = ConduitEventSpec<void>(
     ConduitEvents.capabilitiesChanged,
     scoped: false,
@@ -1274,8 +3026,13 @@ abstract final class ConduitEventSpecs {
     payload: WorkspaceChanged.fromJson,
     scoped: false,
   );
-  static const hermesChanged = ConduitEventSpec<void>(
+  static const hermesChanged = ConduitEventSpec<HermesChanged>(
     ConduitEvents.hermesChanged,
+    payload: HermesChanged.fromJson,
+    scoped: false,
+  );
+  static const authChanged = ConduitEventSpec<void>(
+    ConduitEvents.authChanged,
     scoped: false,
   );
   static const voiceChanged = ConduitEventSpec<VoiceModels>(
@@ -1287,6 +3044,124 @@ abstract final class ConduitEventSpecs {
     ConduitEvents.terminalDisplayFile,
     payload: TerminalDisplayFile.fromJson,
     scoped: true,
+  );
+  static const terminalChanged = ConduitEventSpec<TerminalChanged>(
+    ConduitEvents.terminalChanged,
+    payload: TerminalChanged.fromJson,
+    scoped: false,
+  );
+  static const settingsChanged = ConduitEventSpec<void>(
+    ConduitEvents.settingsChanged,
+    scoped: false,
+  );
+  static const notificationsChanged = ConduitEventSpec<void>(
+    ConduitEvents.notificationsChanged,
+    scoped: false,
+  );
+  static const notificationsAnswered = ConduitEventSpec<AnswerNotice>(
+    ConduitEvents.notificationsAnswered,
+    payload: AnswerNotice.fromJson,
+    scoped: false,
+  );
+
+  static const queueChanged = ConduitEventSpec<QueueState>(
+    ConduitEvents.queueChanged,
+    payload: QueueState.fromJson,
+    scoped: true,
+  );
+  static const messagesMerge = ConduitEventSpec<MergeProgress>(
+    ConduitEvents.messagesMerge,
+    payload: MergeProgress.fromJson,
+    scoped: true,
+  );
+  static const handoffRequested = ConduitEventSpec<HandoffRequest>(
+    ConduitEvents.handoffRequested,
+    payload: HandoffRequest.fromJson,
+    scoped: false,
+  );
+  static const handoffSettled = ConduitEventSpec<HandoffSettled>(
+    ConduitEvents.handoffSettled,
+    payload: HandoffSettled.fromJson,
+    scoped: false,
+  );
+
+  static const chatPromptsChanged = ConduitEventSpec<ChatPromptState>(
+    ConduitEvents.chatPromptsChanged,
+    payload: ChatPromptState.fromJson,
+    scoped: true,
+  );
+
+  static const mcpAppsEvent = ConduitEventSpec<McpAppEvent>(
+    ConduitEvents.mcpAppsEvent,
+    payload: McpAppEvent.fromJson,
+    scoped: true,
+  );
+
+  static const speechChanged = ConduitEventSpec<SpeechProgress>(
+    ConduitEvents.speechChanged,
+    payload: SpeechProgress.fromJson,
+    scoped: false,
+  );
+  static const speechCommand = ConduitEventSpec<SpeechCommand>(
+    ConduitEvents.speechCommand,
+    payload: SpeechCommand.fromJson,
+    scoped: false,
+  );
+  static const callsChanged = ConduitEventSpec<CallState>(
+    ConduitEvents.callsChanged,
+    payload: CallState.fromJson,
+    scoped: false,
+  );
+  static const appleCommand = ConduitEventSpec<AppleCommand>(
+    ConduitEvents.appleCommand,
+    payload: AppleCommand.fromJson,
+    scoped: false,
+  );
+  static const locationCommand = ConduitEventSpec<LocationCommand>(
+    ConduitEvents.locationCommand,
+    payload: LocationCommand.fromJson,
+    scoped: false,
+  );
+  static const composerInsertText = ConduitEventSpec<ComposerInsertText>(
+    ConduitEvents.composerInsertText,
+    payload: ComposerInsertText.fromJson,
+    scoped: true,
+  );
+  static const callsCommand = ConduitEventSpec<CallCommand>(
+    ConduitEvents.callsCommand,
+    payload: CallCommand.fromJson,
+    scoped: false,
+  );
+
+  static const hermesWorkChanged = ConduitEventSpec<HermesWork>(
+    ConduitEvents.hermesWorkChanged,
+    payload: HermesWork.fromJson,
+    scoped: true,
+  );
+
+  static const calendarChanged = ConduitEventSpec<void>(
+    ConduitEvents.calendarChanged,
+    scoped: false,
+  );
+  static const automationsChanged = ConduitEventSpec<void>(
+    ConduitEvents.automationsChanged,
+    scoped: false,
+  );
+  static const automationsRunProgress = ConduitEventSpec<AutomationRunProgress>(
+    ConduitEvents.automationsRunProgress,
+    payload: AutomationRunProgress.fromJson,
+    scoped: false,
+  );
+
+  static const hermesRoomsChanged = ConduitEventSpec<HermesRoomView>(
+    ConduitEvents.hermesRoomsChanged,
+    payload: HermesRoomView.fromJson,
+    scoped: true,
+  );
+  static const hermesRoomsListChanged = ConduitEventSpec<HermesRooms>(
+    ConduitEvents.hermesRoomsListChanged,
+    payload: HermesRooms.fromJson,
+    scoped: false,
   );
 
   /// Every event, once.
@@ -1300,10 +3175,13 @@ abstract final class ConduitEventSpecs {
         turnFinished,
         chatsChanged,
         accountsChanged,
+        serversChanged,
         notesChanged,
         channelsMessage,
         channelsTyping,
         channelsChanged,
+        channelsAppReply,
+        channelsPosted,
         syncStatus,
         socketHealth,
         notifyShow,
@@ -1315,8 +3193,32 @@ abstract final class ConduitEventSpecs {
         openUrl,
         workspaceChanged,
         hermesChanged,
+        authChanged,
         voiceChanged,
         terminalDisplayFile,
+        terminalChanged,
+        settingsChanged,
+        notificationsChanged,
+        notificationsAnswered,
+        queueChanged,
+        messagesMerge,
+        handoffRequested,
+        handoffSettled,
+        chatPromptsChanged,
+        mcpAppsEvent,
+        speechChanged,
+        speechCommand,
+        hermesWorkChanged,
+        callsChanged,
+        callsCommand,
+        calendarChanged,
+        automationsChanged,
+        automationsRunProgress,
+        hermesRoomsChanged,
+        hermesRoomsListChanged,
+        appleCommand,
+        locationCommand,
+        composerInsertText,
       ];
 
   static final Map<String, ConduitEventSpec<Object?>> _byName =

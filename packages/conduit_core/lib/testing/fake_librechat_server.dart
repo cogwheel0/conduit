@@ -152,6 +152,10 @@ final class FakeLibreChatServer implements HttpClientAdapter {
   /// server holds mid-sequence.
   void Function(FakeLibreChatRequest request)? onRequest;
 
+  /// Awaited with each request before it is answered, to hold one at a
+  /// point a test chooses.
+  Future<void> Function(FakeLibreChatRequest request)? beforeAnswer;
+
   /// Calls to `/api/auth/refresh` that reached the session check.
   int refreshCalls = 0;
 
@@ -299,6 +303,7 @@ final class FakeLibreChatServer implements HttpClientAdapter {
     );
     requests.add(request);
     onRequest?.call(request);
+    await beforeAnswer?.call(request);
 
     final basePath = Uri.parse(baseUrl).path;
     final path = uri.path.startsWith(basePath)

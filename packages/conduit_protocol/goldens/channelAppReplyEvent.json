@@ -1,0 +1,14 @@
+{
+  "channelId": "c1",
+  "messageId": "m3",
+  "appId": "a1",
+  "appName": "Builder",
+  "reply": {
+    "kind": "message",
+    "title": "Thanks",
+    "content": "",
+    "filename": "report.md",
+    "embeds": [],
+    "actions": []
+  }
+}

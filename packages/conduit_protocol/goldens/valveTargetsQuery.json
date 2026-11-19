@@ -1,0 +1,7 @@
+{
+  "modelId": "fake-model",
+  "toolIds": [
+    "tool-weather"
+  ],
+  "filterIds": []
+}

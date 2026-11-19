@@ -1,0 +1,9 @@
+{
+  "profileId": "dc-lantern",
+  "transcriptionModel": "whisper-1",
+  "speechModel": "tts-1",
+  "speechVoice": "alloy",
+  "realtimeModel": "gpt-realtime-mini",
+  "realtimeVoice": "marin",
+  "realtimeInstructions": "Speak slowly."
+}

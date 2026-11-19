@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "Neuigkeiten",
+      "intro": "Conduit läuft jetzt als Mac-App – mit den Einstellungen der Telefon-App in einem eigenen Fenster.",
+      "bullets": [
+        {
+          "text": "Die Einstellungen enthalten die Seiten vom Telefon: Profil, Personalisierung, Daten & Verbindung, Chat, Audio und Datenkontrolle.",
+          "icon": "polish"
+        },
+        {
+          "text": "Dein System-Prompt, deine Erinnerungen und Schnellaktionen sind die deines Open-WebUI-Kontos und stimmen so auf jedem Gerät überein.",
+          "icon": "local"
+        },
+        {
+          "text": "Hinweise wie diese erscheinen nach jedem Update, und unter Über › Neuigkeiten findest du sie wieder.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

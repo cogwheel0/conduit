@@ -1,0 +1,16 @@
+{
+  "key": "units",
+  "title": "Units",
+  "description": "Metric or imperial",
+  "type": "choice",
+  "isRequired": true,
+  "password": false,
+  "options": [
+    "metric",
+    "imperial"
+  ],
+  "isDefault": false,
+  "hasDefault": true,
+  "text": "metric",
+  "seed": "metric"
+}

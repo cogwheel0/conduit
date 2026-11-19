@@ -1,0 +1,11 @@
+{
+  "appId": "app-1",
+  "document": "<p>Tides</p>",
+  "connectDomains": [
+    "https://api.example.com"
+  ],
+  "resourceDomains": [
+    "https://cdn.example.com"
+  ],
+  "frameDomains": []
+}

@@ -1,0 +1,92 @@
+[package]
+name = "conduit-desktop"
+description = "Conduit Desktop: the native macOS app over conduitd"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+
+[lib]
+name = "conduit_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "conduit-desktop"
+path = "src/main.rs"
+
+[dependencies]
+conduit-daemon = { path = "../daemon" }
+conduit-protocol = { path = "../protocol" }
+anyhow.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+futures = "0.3"
+conduit-components.workspace = true
+gpui-kit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+intl_pluralrules = "7"
+unic-langid = "0.9"
+url = "2"
+# Word and character steps in the note editor (GPUI Kit uses the same).
+unicode-segmentation = "1"
+log = "0.4"
+tokio = { version = "1.54", features = ["sync", "rt", "macros"] }
+base64 = "0.22"
+bytes = "1"
+# Frames for the dark-mode chart redraw (`views::chat::diagram`): the copy
+# GPUI decodes with.
+image = { version = "0.25", default-features = false }
+# The terminal's emulator (Apache-2.0; parser, grid, scrollback, selection,
+# search). Its PTY and event loop go unused: the shell is a socket.
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation = { workspace = true, features = ["NSLocale", "NSError", "NSBundle", "NSDictionary", "NSValue", "NSAppleEventDescriptor", "NSAppleEventManager", "NSSet", "NSDate", "NSDateFormatter", "NSFormatter", "NSURL", "NSRange"] }
+objc2-app-kit = { workspace = true, features = ["NSAlert", "NSButton", "NSControl", "NSTextField", "NSActionCell", "NSCell", "NSDatePicker", "NSDatePickerCell", "NSPanel", "NSEvent", "NSRunningApplication", "NSSharingService", "NSSound", "NSWorkspace", "NSPasteboard", "block2"] }
+# SSO: a WKWebView window with a non-persistent store (exact pins: the
+# versions it was checked against).
+gpui-webview = "=0.9.0"
+wry = { package = "lb-wry", version = "=0.53.3" }
+# The app's own script handler and UI delegate on wry's web views, and the
+# terminal's port previews and Computer viewer: Back/Forward state, and a
+# page loaded with the 127.0.0.1 origin mobile's viewer has (the version and
+# features wry already uses).
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKFrameInfo", "WKNavigation", "WKOpenPanelParameters", "WKScriptMessage", "WKScriptMessageHandler", "WKSecurityOrigin", "WKUIDelegate", "WKUserContentController", "WKWebView", "WKWebViewConfiguration"] }
+block2 = "0.6"
+raw-window-handle.workspace = true
+# The Mac extras: the menu-bar item and the Quick Ask hotkey (exact pins:
+# the versions they were checked against); answer notifications through
+# UNUserNotificationCenter.
+tray-icon = { version = "=0.26.1", default-features = false }
+global-hotkey = "=0.9.0"
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+
+# Launch at login (SMAppService.mainApp).
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
+
+[features]
+# The test harness: the `--e2e` passes, the `--capture` screenshots,
+# `--probe` and the `--fixture` runs, with their modules. Dev and test
+# builds turn it on (crates/app/run.sh, perf.sh, hc-capture.sh, and
+# `cargo test` through the dev-dependency below); release bundles leave it
+# off (packaging/macos/bundle.sh), and a build without it refuses those
+# flags.
+harness = []
+
+[build-dependencies]
+# Placeholders keep the order the ARB declares them in, which is the order
+# of the generated accessors' parameters.
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+# The integration tests run the binary's fixtures, and some unit tests
+# build stores the fixtures' way: tests always build with the harness.
+conduit-desktop = { path = ".", features = ["harness"] }
+# The vendored mermaid's pin check (views/chat/preview.rs).
+sha2 = "0.10"
+
+[lints]
+workspace = true

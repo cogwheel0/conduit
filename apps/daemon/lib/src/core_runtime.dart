@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart'
+    show chatHandoffCoordinatorProvider;
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider;
@@ -11,7 +13,11 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
         effectiveDirectConnectionProfilesFutureProvider,
         openWebUiDirectCompletionSocketRelayProvider;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
-    show hermesConfigProvider;
+    show
+        hermesConfigProvider,
+        hermesModelSwitchPromptProvider,
+        hostHermesDashboardBridgeFactoryProvider,
+        hostHermesDashboardSignOutProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -26,19 +32,36 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
+import 'package:conduit_core/services/settings_service.dart'
+    show AppSettingsHostDefaults, appSettingsHostDefaultsProvider;
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
+import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
+    show readAloudLiveDeviceSpeechProvider;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 import 'package:path/path.dart' as p;
+import 'package:conduit_core/features/chat/read_aloud/text_to_speech_controller.dart'
+    show textToSpeechServiceProvider;
+import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart'
+    show realtimePcmAudioFactoryProvider, realtimeWebRtcMediaFactoryProvider;
+import 'package:conduit_core/features/chat/voice_mode/voice_mode_ports.dart'
+    show voiceModeInputProvider, voiceModeSpeechProvider;
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 
 import 'bootstrap.dart';
 import 'daemon_paths.dart';
+import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart' show hermesAwaitsSignIn;
 import 'log.dart';
+import 'apple_models_service.dart' show AppleModelsBridge, appleModelsOverrides;
+import 'location_bridge.dart';
+import 'calls_service.dart' show CallPorts;
+import 'ports/handoff.dart';
 import 'ports/connectivity.dart';
 import 'ports/database_opener.dart';
 import 'ports/key_value_store.dart';
@@ -67,6 +90,11 @@ final class CoreRuntime {
     required DaemonConnectivity connectivity,
     required this.openUrl,
     required this.uiRequests,
+    required this.handoff,
+    required this.calls,
+    required this.apple,
+    required this.dashboardCookies,
+    required this.location,
     required List<Box<dynamic>> boxes,
   }) : _connectivity = connectivity,
        _boxes = boxes;
@@ -82,6 +110,25 @@ final class CoreRuntime {
   /// How the core asks the user something mid-turn; the server attaches its
   /// broker once there is one.
   final DaemonUiRequestPort uiRequests;
+
+  /// How a server's `chat:handoff` is put to the user; the server attaches
+  /// its handoff service once there is one.
+  final DaemonHandoffPort handoff;
+
+  /// A voice call's microphone and realtime audio: the window, through the
+  /// calls service, which attaches once there is one.
+  final CallPorts calls;
+
+  /// The window's Foundation Models engine, as the core's Apple host: the
+  /// Apple service binds it to the event bus once there is one.
+  final AppleModelsBridge apple;
+
+  /// The Hermes dashboard sessions the window's sign-in handed over, and
+  /// the core's cookie store ([DaemonHermesDashboardCookies]).
+  final DaemonHermesDashboardCookies dashboardCookies;
+  /// The window's location services, as the core's location port: the
+  /// server binds it to the event bus once there is one.
+  final WindowLocationBridge location;
 
   /// Takes a window's view of the network, which arrives as an event where
   /// the port can only poll.
@@ -221,6 +268,13 @@ final class CoreRuntime {
     connectivity.start();
     final openUrl = DaemonOpenUrlPort();
     final uiRequests = DaemonUiRequestPort();
+    final handoff = DaemonHandoffPort();
+    final calls = CallPorts();
+    final apple = AppleModelsBridge();
+    final dashboardCookies = await DaemonHermesDashboardCookies.open(
+      secureStore,
+    );
+    final location = WindowLocationBridge();
 
     final container = ProviderContainer(
       observers: observers,
@@ -233,6 +287,14 @@ final class CoreRuntime {
         connectivityPortProvider.overrideWithValue(connectivity),
         openExternalUrlProvider.overrideWithValue(openUrl),
         uiRequestPortProvider.overrideWithValue(uiRequests),
+        // Hermes holding a switch to another model asks the windows, as a
+        // phone asks its screen (`hermesModelSwitch`).
+        hermesModelSwitchPromptProvider.overrideWithValue(
+          uiRequests.confirmHermesModelSwitch,
+        ),
+        // A server's `chat:handoff` is asked of the windows, which open the
+        // new chat themselves; a phone's coordinator asks its screen.
+        chatHandoffCoordinatorProvider.overrideWith(handoff.coordinator),
         // The outbox runs a queued Open WebUI completion through the chat
         // library, as on mobile: live into the chat scope that has the chat
         // open, headless otherwise. The core leaves this seam to its host
@@ -249,6 +311,78 @@ final class CoreRuntime {
         hostPostCertificationSyncProvider.overrideWithValue(
           () => unawaited(_pullAfterCertification()),
         ),
+        // A Mac always has a hardware keyboard: Enter sends until the user
+        // turns Send with Enter off (mobile's default stays off). A Mac app
+        // asks for notification permission the first time one would show,
+        // so notifications start on (the phone asks when they are turned
+        // on, so its default stays off).
+        appSettingsHostDefaultsProvider.overrideWithValue(
+          const AppSettingsHostDefaults(
+            sendOnEnter: true,
+            notificationsEnabled: true,
+          ),
+        ),
+        // The Mac's voices read aloud live, reporting each word, and the
+        // reading moves from sentence to sentence (the phone renders clips).
+        readAloudLiveDeviceSpeechProvider.overrideWithValue(true),
+        // A voice call listens through the window (dictation's engines),
+        // speaks through the read-aloud engine as the phone's does, and for
+        // a realtime voice runs the window's echo-cancelled audio, or its
+        // WebRTC peer for Hermes GPT-Live.
+        voiceModeInputProvider.overrideWithValue(calls.input),
+        voiceModeSpeechProvider.overrideWith(
+          (ref) => ref.watch(textToSpeechServiceProvider),
+        ),
+        realtimePcmAudioFactoryProvider.overrideWithValue(
+          calls.newRealtimeAudio,
+        ),
+        realtimeWebRtcMediaFactoryProvider.overrideWithValue(
+          calls.newWebRtcMedia,
+        ),
+        // Apple's on-device model runs in the window (Foundation Models is a
+        // Swift API); the core's Apple adapter reaches it through this host,
+        // as the phone's reaches its Swift bridge. Private Cloud Compute is
+        // never offered: this build has no entitlement for it.
+        ...appleModelsOverrides(apple),
+        // A Desktop Gateway's dashboard sign-in runs in the window's browser
+        // window, which hands the cookies over; the daemon then holds them
+        // as a phone's WebView does, and sends the dashboard's requests with
+        // them (the phone sends them from a hidden WebView page). Its store
+        // holds only those: Open WebUI's sign-in windows keep nothing.
+        cookieJarProvider.overrideWithValue(dashboardCookies),
+        hostHermesDashboardBridgeFactoryProvider.overrideWith(
+          (ref) =>
+              ({
+                required Uri root,
+                required Map<String, String> accessHeaders,
+              }) => dashboardCookies.bridge(
+                root: root,
+                accessHeaders: accessHeaders,
+                httpClient: hermesDashboardHttpClientFor(
+                  root,
+                  ref.read(hermesConfigProvider),
+                ),
+              ),
+        ),
+        hostHermesDashboardSignOutProvider.overrideWith(
+          (ref) =>
+              ({
+                required Uri root,
+                required Map<String, String> accessHeaders,
+              }) => dashboardCookies.signOut(
+                root: root,
+                accessHeaders: accessHeaders,
+                httpClient: hermesDashboardHttpClientFor(
+                  root,
+                  ref.read(hermesConfigProvider),
+                ),
+              ),
+        ),
+        // `{{USER_LOCATION}}` from the window's location services, asked
+        // only for a request or a prompt template that names it, and only
+        // while the account's location setting is on (the phone asks for
+        // every request while it is on).
+        ...windowLocationOverrides(location),
         // The remaining ports keep the core's own defaults, and each is a
         // deliberate choice rather than an omission:
         //
@@ -260,8 +394,6 @@ final class CoreRuntime {
         //   defaults are the correct degenerate case.
         // * `clipboardPortProvider` -- the clipboard belongs to the
         //   renderer's process, not this one, so it crosses as RPC.
-        // * `cookieJarProvider` -- filled in by external sign-in, where
-        //   the desktop app's sign-in windows are what actually hold cookies.
       ],
     );
 
@@ -310,6 +442,15 @@ final class CoreRuntime {
     // The same for the account's database, which the same checks compare:
     // read cold, the first answer and the next could differ.
     container.listen<Object?>(appDatabaseProvider, (_, _) {});
+    // The connection coming back sends what the outbox holds: a message
+    // sent while the server was out of reach, and the chat's changes before
+    // it. On mobile `syncTriggers` does this; the daemon does not run those
+    // triggers (they also pull on a timer and on app lifecycle), so it
+    // takes this one alone. Nothing else drains the outbox then: an op that
+    // failed as the connection went would wait for the next send.
+    container.listen<bool>(isOnlineProvider, (previous, next) {
+      if (previous == false && next) unawaited(_drainAfterReconnect());
+    });
     log.info('core runtime ready');
     return CoreRuntime._(
       container: container,
@@ -317,6 +458,11 @@ final class CoreRuntime {
       connectivity: connectivity,
       openUrl: openUrl,
       uiRequests: uiRequests,
+      handoff: handoff,
+      calls: calls,
+      apple: apple,
+      dashboardCookies: dashboardCookies,
+      location: location,
       boxes: boxes.all,
     );
   }
@@ -342,6 +488,21 @@ final class CoreRuntime {
     } on Object catch (error) {
       DebugLogger.error(
         'post-certification-pull-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+    }
+  }
+
+  static Future<void> _drainAfterReconnect() async {
+    final container = _containerForSync;
+    if (container == null) return;
+    try {
+      // Resets the pending ops' backoff, then drains.
+      await container.read(syncEngineProvider.notifier).drainNow();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'reconnect-drain-failed',
         scope: 'daemon/runtime',
         error: error,
       );

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -236,21 +237,68 @@ final class VoiceService {
         debugMessage: 'nothing to say',
       );
     }
-    _api();
     final voice = switch (request.voice?.trim()) {
       final String chosen when chosen.isNotEmpty => chosen,
       _ =>
         _container.read(appSettingsProvider).ttsServerVoiceId ??
             (await _config())?.ttsVoice,
     };
-    final id =
-        'tts-${_random.nextInt(1 << 32).toRadixString(16)}'
-        '${_random.nextInt(1 << 32).toRadixString(16)}';
-    _jobs[id] = _SpeechJob(text, voice, session);
-    while (_jobs.length > _maxJobs) {
-      _jobs.remove(_jobs.keys.first);
+    final chatId = request.chatId;
+    final speech = chatId == null ? null : await _speechOfChat?.call(chatId);
+    if (chatId != null && (speech == null || !speech.canSynthesize)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: "that chat's backend does not speak",
+      );
     }
+    // Only the Open WebUI server's own speech needs its account; a chat's
+    // provider (Direct, Hermes, LibreChat) speaks without one.
+    final api = speech == null ? _api() : null;
+    final id = _newJobId();
+    _jobs[id] = _SpeechJob(
+      api != null
+          ? () => api.generateSpeech(text: text, voice: voice)
+          : () => speech!.synthesize(
+              text,
+              preferredVoice: speech.offersVoiceChoice ? voice : null,
+            ),
+      session,
+    );
+    _trim();
     return VoiceSpeech(jobId: id);
+  }
+
+  /// The speech backend of a chat's model; set once chats are up.
+  Future<ServerSpeechProvider?> Function(String chatId)? _speechOfChat;
+
+  set speechOfChat(Future<ServerSpeechProvider?> Function(String chatId) f) =>
+      _speechOfChat = f;
+
+  /// Keeps audio already made (a reading's sentence) as a job, until
+  /// [forget]: it is not one of the [_maxJobs] kept for replay.
+  String keep(Uint8List bytes, String mimeType) {
+    final id = _newJobId();
+    _jobs[id] = _SpeechJob.ready(
+      bytes,
+      mimeType,
+      _container.read(openWebUiAuthSessionEpochProvider),
+    );
+    return id;
+  }
+
+  /// Lets go of job [id].
+  void forget(String id) => _jobs.remove(id);
+
+  String _newJobId() =>
+      'tts-${_random.nextInt(1 << 32).toRadixString(16)}'
+      '${_random.nextInt(1 << 32).toRadixString(16)}';
+
+  void _trim() {
+    final made = _jobs.entries.where((e) => !e.value.kept).toList();
+    if (made.length <= _maxJobs) return;
+    for (final entry in made.take(made.length - _maxJobs)) {
+      _jobs.remove(entry.key);
+    }
   }
 
   /// The audio for job [id], generated on first request.
@@ -273,12 +321,8 @@ final class VoiceService {
         debugMessage: 'no such speech job',
       );
     }
-    final api = _api();
     try {
-      final result = await (job.audio ??= api.generateSpeech(
-        text: job.text,
-        voice: job.voice,
-      ));
+      final result = await (job.audio ??= job.make());
       return (bytes: result.bytes, contentType: result.mimeType);
     } on DioException catch (error) {
       // A failure is not kept: playing it again asks again.
@@ -422,6 +466,36 @@ final class VoiceService {
     }
   }
 
+  // What dictation (`dictation.*`, `recordings.*`) asks of the local
+  // engine; the window chooses the engine, and the server's side is the
+  // chat's own backend there.
+
+  /// `server`, or `local` for whisper on this computer.
+  String get sttEngine => _engine;
+
+  /// Whether this build has the whisper library.
+  bool get localAvailable => _library != null;
+
+  /// Whether whisper can transcribe now: the library and the chosen model.
+  bool get localReady => _readyModel != null;
+
+  /// The whisper model chosen, by id.
+  String? get localModelId => _chosenModel?.id;
+
+  /// Whether the account's Open WebUI server transcribes (its STT engine is
+  /// not the browser's).
+  Future<bool> openWebUiTranscribes() async {
+    final config = await _config();
+    return config != null && transcribes(config);
+  }
+
+  /// [bytes] (16 kHz WAV), transcribed by whisper on this computer.
+  Future<VoiceTranscript> transcribeHere(Uint8List bytes, String type) =>
+      _transcribeLocally(bytes, type);
+
+  /// How a server's refusal reads on the wire.
+  static RpcError rpcErrorFromDio(DioException error) => _fromDio(error);
+
   ApiService _api() {
     final api = _container.read(apiServiceProvider);
     if (api == null) {
@@ -459,10 +533,19 @@ final class VoiceService {
 }
 
 final class _SpeechJob {
-  _SpeechJob(this.text, this.voice, this.session);
+  _SpeechJob(this.make, this.session) : kept = false;
 
-  final String text;
-  final String? voice;
+  _SpeechJob.ready(Uint8List bytes, String mimeType, this.session)
+    : make = (() => Future.value((bytes: bytes, mimeType: mimeType))),
+      kept = true {
+    audio = make();
+  }
+
+  /// Asks for the audio; again after a failure.
+  final Future<({Uint8List bytes, String mimeType})> Function() make;
+
+  /// Audio a reading made, kept until it lets go.
+  final bool kept;
 
   /// The account session it was made under.
   final Object session;

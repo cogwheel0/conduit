@@ -1,0 +1,15 @@
+{
+  "phase": "unauthenticated",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "twoStep": {
+    "stage": "verify",
+    "account": "ada@example.com",
+    "expiresInSeconds": 300,
+    "recoveryCodes": []
+  },
+  "canRenewProxy": false
+}

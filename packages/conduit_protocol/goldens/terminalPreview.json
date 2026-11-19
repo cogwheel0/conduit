@@ -1,3 +1,6 @@
 {
-  "url": "http://127.0.0.1:41234/k1"
+  "url": "http://127.0.0.1:41234/k1",
+  "scripts": [
+    "addEventListener(1)"
+  ]
 }

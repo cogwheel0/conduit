@@ -1,0 +1,14 @@
+{
+  "result": "denied",
+  "page": {
+    "channelId": "c1",
+    "query": "",
+    "phase": "failed",
+    "members": [],
+    "hasMore": false,
+    "loadMoreFailed": false,
+    "canManage": false,
+    "allowUsers": false,
+    "allowGroups": false
+  }
+}

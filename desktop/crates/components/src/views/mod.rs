@@ -1,0 +1,20 @@
+//! Reusable views.
+
+pub mod approval;
+pub mod blocks;
+pub mod composer;
+pub mod focus;
+pub mod kit;
+pub mod markdown;
+pub mod menu;
+pub mod message;
+pub mod model;
+pub mod model_picker;
+pub mod onboarding;
+pub mod overlays;
+pub mod palette;
+pub mod quick_ask;
+pub mod settings;
+pub mod shell;
+pub mod shortcut_field;
+pub mod sidebar;

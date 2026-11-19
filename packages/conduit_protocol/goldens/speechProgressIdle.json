@@ -1,0 +1,11 @@
+{
+  "status": "idle",
+  "reading": 0,
+  "sentence": -1,
+  "wordsReported": false,
+  "elapsedMs": 0,
+  "durationMs": 0,
+  "canSeek": false,
+  "canSeekSentences": false,
+  "seeking": false
+}

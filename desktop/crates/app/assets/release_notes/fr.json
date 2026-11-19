@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "Nouveautés",
+      "intro": "Conduit fonctionne désormais comme une app Mac, avec les réglages du téléphone dans leur propre fenêtre.",
+      "bullets": [
+        {
+          "text": "Les réglages reprennent les pages du téléphone : Profil, Personnalisation, Données et connexion, Discussion, Audio et Contrôle des données.",
+          "icon": "polish"
+        },
+        {
+          "text": "Votre prompt système, vos mémoires et vos actions rapides sont ceux de votre compte Open WebUI : ils sont donc identiques sur tous vos appareils.",
+          "icon": "local"
+        },
+        {
+          "text": "Des notes comme celles-ci s’affichent après chaque mise à jour, et À propos › Nouveautés les affiche à nouveau.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

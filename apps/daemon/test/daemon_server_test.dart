@@ -200,6 +200,20 @@ void main() {
       final response = await unknown.close();
       await response.drain<void>();
       expect(response.statusCode, isNot(HttpStatus.ok));
+
+      // A saved recording (Export, transcribing it on this computer).
+      final recording = Uri.parse(
+        'http://127.0.0.1:$port${ConduitHttpRoutes.recording('rec-1')}',
+      );
+      expect(
+        (await (await client.getUrl(recording)).close()).statusCode,
+        HttpStatus.unauthorized,
+      );
+      final missing = await client.getUrl(recording);
+      missing.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_token');
+      final answer = await missing.close();
+      await answer.drain<void>();
+      expect(answer.statusCode, isNot(HttpStatus.ok));
     });
 
     test('HTTP endpoints reject a wrong bearer token', () async {

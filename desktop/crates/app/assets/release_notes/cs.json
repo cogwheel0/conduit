@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "Novinky",
+      "intro": "Conduit teď běží jako aplikace pro Mac a nastavení z telefonu má vlastní okno.",
+      "bullets": [
+        {
+          "text": "Nastavení obsahuje stránky z telefonu: Profil, Personalizace, Data a připojení, Chat, Zvuk a Správa dat.",
+          "icon": "polish"
+        },
+        {
+          "text": "Systémový prompt, paměti a rychlé akce jsou ty, které uchovává váš účet Open WebUI, takže jsou stejné na všech zařízeních.",
+          "icon": "local"
+        },
+        {
+          "text": "Poznámky jako tyto se zobrazí po každé aktualizaci a znovu je najdete v O aplikaci › Novinky.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Nightly tidy",
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "terminalId": "buildbox",
+  "workingDirectory": "/home/demo/sketches"
+}

@@ -1,0 +1,42 @@
+# Conduit Desktop: the native macOS app on GPUI (via GPUI Kit) over the Dart
+# daemon `conduitd`. See the docs in crates/*/src/lib.rs and the design
+# gallery (crates/gallery).
+[workspace]
+resolver = "2"
+members = ["crates/components", "crates/gallery", "crates/protocol", "crates/daemon", "crates/app"]
+# Patched dependencies, not members (see [patch.crates-io] below).
+exclude = ["vendor"]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.0"
+publish = false
+rust-version = "1.99.1"
+
+[workspace.dependencies]
+# Exact pins: GPUI Kit publishes gpui-pre snapshots, so an upgrade is a
+# deliberate change of its own, checked across the app.
+gpui-kit = { version = "=0.9.0" }
+ratex-gpui = { version = "=0.4.1", default-features = false }
+ratex-parser = "=0.1.15"
+ratex-layout = "=0.1.15"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+raw-window-handle = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry", "NSArray", "NSObjCRuntime", "NSProcessInfo", "NSThread"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSVisualEffectView", "NSApplication", "NSAppearance", "NSResponder", "NSColor", "NSColorSpace", "NSGraphics", "NSScreen", "objc2-core-foundation"] }
+conduit-components = { path = "crates/components" }
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+# One-line fix to gpui-pre 0.3.11 (vendor/gpui-pre/PATCHES.md): a file
+# dropped onto the window right after typing switches GPUI to pointer input,
+# so the composer's `on_drop` fires. Same version, so
+# GPUI Kit's exact `=0.3.11` pin resolves to it. Drop this when upstream
+# carries the fix.
+[patch.crates-io]
+gpui-pre = { path = "vendor/gpui-pre" }

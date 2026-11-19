@@ -6,9 +6,16 @@
       "updatedAtMs": 2,
       "pinned": false,
       "preview": "",
-      "conflictCopy": false
+      "conflictCopy": false,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     },
     "ops": [],
-    "files": []
+    "files": [],
+    "pages": [],
+    "pageId": "main",
+    "markdown": ""
   }
 }

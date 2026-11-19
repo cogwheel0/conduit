@@ -82,6 +82,70 @@ void main() {
     expect(reset.models.last.keepAlive, isNull);
   });
 
+  test('models with no context window are offered a limit', () async {
+    final options = await direct.options();
+    expect(options.imagesPerRequest, 10);
+    expect(options.imagesPerRequestChoices, contains(10));
+    expect(options.contextLimitChoices.first, 4096);
+    final tiny = options.contextModels.firstWhere((m) => m.name == 'tiny:1b');
+    expect(tiny.limit, 4096);
+    expect(tiny.connection, 'Home');
+    expect(tiny.ollama, isTrue);
+
+    final changed = await direct.setContextLimit(
+      DirectContextLimit(modelId: tiny.id, tokens: 32768),
+    );
+    expect(
+      changed.contextModels.firstWhere((m) => m.id == tiny.id).limit,
+      32768,
+    );
+    // Loading the model now carries it as the window Ollama loads.
+    await direct.ollamaLoad(OllamaModelAction(id: id, model: 'tiny:1b'));
+    expect(ollama.contexts.last, 32768);
+  });
+
+  test('images per request takes one of its choices', () async {
+    expect((await direct.setImagesPerRequest(4)).imagesPerRequest, 4);
+    expect(
+      direct.setImagesPerRequest(7),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.invalidParams,
+        ),
+      ),
+    );
+    expect((await direct.options()).imagesPerRequest, 4);
+  });
+
+  test('a direct model is named after its maker by the logo catalog', () async {
+    final dir = Directory('${temporary.path}/logos')..createSync();
+    File('${dir.path}/catalog.json').writeAsStringSync(
+      jsonEncode(<String, Object>{
+        'logos': <String, String>{'ollama-cloud': 'Ollama'},
+      }),
+    );
+    expect(
+      installModelLogoCatalog(
+        environment: <String, String>{'CONDUIT_MODEL_LOGOS': dir.path},
+      ),
+      isTrue,
+    );
+    final models = await ModelsService(runtime.container).list();
+    final tiny = models.models.firstWhere((m) => m.name == 'tiny:1b');
+    // Neither maker is known: the provider's (any Ollama server's) logo.
+    expect(tiny.logo, 'ollama-cloud');
+    // The Direct lists name it the same way.
+    expect((await direct.ollamaModels(id)).models.first.logo, 'ollama-cloud');
+    expect(
+      (await direct.options()).contextModels
+          .firstWhere((m) => m.name == 'tiny:1b')
+          .logo,
+      'ollama-cloud',
+    );
+  });
+
   test('a nonsense keep-alive is refused', () {
     expect(
       direct.ollamaKeepAlive(
@@ -106,6 +170,7 @@ final class _FakeOllama {
   final HttpServer _server;
   final Set<String> running = <String>{};
   final List<Object?> keepAlives = <Object?>[];
+  final List<int?> contexts = <int?>[];
 
   String get baseUrl => 'http://127.0.0.1:${_server.port}';
 
@@ -147,6 +212,9 @@ final class _FakeOllama {
       case '/api/chat':
         final model = body['model'] as String;
         keepAlives.add(body['keep_alive']);
+        contexts.add(
+          (body['options'] as Map<String, dynamic>?)?['num_ctx'] as int?,
+        );
         if (body['keep_alive'] == 0) {
           running.remove(model);
         } else {

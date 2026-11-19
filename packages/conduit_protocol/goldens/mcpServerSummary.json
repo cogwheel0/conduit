@@ -9,6 +9,10 @@
     "X-Team"
   ],
   "oauthConnected": true,
+  "oauthIssuerHost": "auth.example.com",
+  "oauthScopes": [
+    "tools.read"
+  ],
   "allowInsecureCredentials": false,
   "approvals": [
     {

@@ -19,6 +19,14 @@ final class ScriptedOpenAi {
   final List<List<Map<String, dynamic>>> requests =
       <List<Map<String, dynamic>>>[];
   final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
+  final List<(String, Completer<void>)> _asked = <(String, Completer<void>)>[];
+
+  /// Completes once a question starting with [prefix] is asked from now on.
+  Future<void> asked(String prefix) {
+    final asked = Completer<void>();
+    _asked.add((prefix, asked));
+    return asked.future;
+  }
 
   String get baseUrl => 'http://127.0.0.1:${_server.port}/v1';
 
@@ -64,6 +72,12 @@ final class ScriptedOpenAi {
     final question = _text(
       messages.lastWhere((m) => m['role'] == 'user')['content'],
     ).trim();
+    _asked.removeWhere((waiter) {
+      final (prefix, asked) = waiter;
+      if (!question.startsWith(prefix)) return false;
+      asked.complete();
+      return true;
+    });
 
     if (question == 'fail') {
       response

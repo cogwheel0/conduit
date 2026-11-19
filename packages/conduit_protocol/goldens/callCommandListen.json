@@ -1,0 +1,7 @@
+{
+  "id": 4,
+  "kind": "listen",
+  "listen": 2,
+  "continuous": true,
+  "modelId": "fake-model"
+}
