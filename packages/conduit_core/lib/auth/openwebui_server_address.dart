@@ -19,6 +19,7 @@ import '../providers/openwebui_route_resolver.dart'
         openWebUiRouteResolverProvider,
         reloadAfterRoutesEdited;
 import '../services/api_service.dart';
+import '../services/optimized_storage_service.dart' show ServerConnectionTaken;
 import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import '../utils/sensitive_value_utils.dart';
@@ -1505,6 +1506,10 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     );
   } on _AddressGone {
     return const ServerAddressNotSaved(ServerAddressProblem.serverMissing);
+  } on ServerConnectionTaken {
+    // Another saved server is reached exactly so: the address is that
+    // server's, and saved here too it would make the two one.
+    return const ServerAddressNotSaved(ServerAddressProblem.differentServer);
   }
   // Not saved: the proxy sign-in that lets requests through was revoked;
   // signing in through the proxy again captures a new one.

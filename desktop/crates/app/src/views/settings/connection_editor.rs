@@ -10,7 +10,7 @@
 //! change: a URL on another scheme, host or port removes it unless a new
 //! key is typed. The daemon decides that against the entry as stored when
 //! it saves (or tests), so the editor sends Keep unless asked to replace or
-//! remove the key; the form only says so ([`key_moves`]). Test Connection reads the
+//! remove the key; the form only says so ([`key_goes`]). Test Connection reads the
 //! document (or checks the terminal) with the form as it stands, without
 //! saving. A connection the editor cannot read (another auth mode) shows
 //! what it can and can still be switched or deleted. The drafts, checks and
@@ -375,15 +375,23 @@ impl ConnectionEditorSheet {
     }
 
     /// What the form says happens to the saved key: the form's mode, except
-    /// that a kept key goes once the URL leaves the origin the editor opened
-    /// with. Only shown: Save and Test send the form's own mode, and the
-    /// daemon removes a kept key against the entry as stored then (another
-    /// client may have moved it since this editor opened).
+    /// that a kept key goes when the save takes the connection, or where
+    /// its OpenAPI document is fetched from, to another origin
+    /// ([`key_goes`], the core's `mergePersonalConnectionEdit` rule). Only
+    /// shown: Save and Test send the form's own mode, and the daemon
+    /// removes a kept key against the entry as stored then. That is the
+    /// entry this editor holds whenever a save lands: one another client
+    /// changed since is refused, and the form fills from it again.
     fn key_mode_now(&self, cx: &App) -> PersonalKeyMode {
         match &self.entry {
             Some(e)
                 if self.key_mode == PersonalKeyMode::Keep
-                    && key_moves(&e.url, &forms::raw(&self.url, cx)) =>
+                    && key_goes(
+                        e,
+                        &forms::raw(&self.url, cx),
+                        &self.spec_type,
+                        &forms::raw(&self.path, cx),
+                    ) =>
             {
                 PersonalKeyMode::Clear
             }
@@ -1215,6 +1223,31 @@ fn auth_type_of(e: &PersonalConnectionDto) -> &'static str {
     }
 }
 
+/// Whether a kept key goes when `saved` is saved with the URL, document
+/// source (`spec_type`) and document `path` the form now has: as the core's
+/// `mergePersonalConnectionEdit` decides, when the URL, or where the OpenAPI
+/// document is fetched from, moves to another origin ([`key_moves`]).
+pub fn key_goes(saved: &PersonalConnectionDto, url: &str, spec_type: &str, path: &str) -> bool {
+    key_moves(&saved.url, url)
+        || key_moves(
+            document_location(&saved.url, &saved.spec_type, &saved.path),
+            document_location(url, spec_type, path),
+        )
+}
+
+/// Where a connection's key goes for its OpenAPI document, as the core's
+/// `_documentLocation` says: for a document it fetches (any source but
+/// `json`), an absolute `path` itself, else the connection's URL (a relative
+/// path stays on its origin). An inline document is fetched from nowhere.
+fn document_location<'a>(url: &'a str, spec_type: &str, path: &'a str) -> &'a str {
+    let path = path.trim();
+    if spec_type.trim() != "json" && path.contains("://") {
+        path
+    } else {
+        url
+    }
+}
+
 /// Whether a saved key would reach another origin: `url` names another
 /// scheme, host or port than `saved` (an unreadable URL counts as another
 /// one unless it is the saved text itself).
@@ -1355,6 +1388,40 @@ mod tests {
         daemon.returns::<methods::IntegrationsSave>(listed(entry(true, true)));
         daemon.returns::<methods::IntegrationsTest>(Default::default());
         let sheet = open(&stores, Some(entry(true, true)), vcx);
+        // The URL kept, the document fetched from another origin: the key
+        // goes too, as the save decides. Fetched from the same origin, or
+        // pasted inline (fetched from nowhere), it stays.
+        for (spec_type, path, mode) in [
+            (
+                "url",
+                "https://elsewhere.example.org/openapi.json",
+                super::PersonalKeyMode::Clear,
+            ),
+            (
+                "url",
+                "https://tools.example.com/v2/openapi.json",
+                super::PersonalKeyMode::Keep,
+            ),
+            (
+                "json",
+                "https://elsewhere.example.org/openapi.json",
+                super::PersonalKeyMode::Keep,
+            ),
+        ] {
+            sheet.update(vcx, |s, cx| {
+                s.spec_type = spec_type.into();
+                cx.notify();
+            });
+            type_into(&sheet, |s| s.path.clone(), path, vcx);
+            sheet.read_with(vcx, |s, cx| {
+                assert_eq!(s.key_mode_now(cx), mode, "{spec_type} {path}");
+            });
+        }
+        sheet.update(vcx, |s, cx| {
+            s.spec_type = "url".into();
+            cx.notify();
+        });
+        type_into(&sheet, |s| s.path.clone(), "openapi.json", vcx);
         for url in [
             "https://tools.example.com/v2",
             "https://elsewhere.example.org/v2",

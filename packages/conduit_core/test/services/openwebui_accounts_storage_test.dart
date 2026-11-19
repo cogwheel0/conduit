@@ -1936,6 +1936,57 @@ void main() {
       });
     });
 
+    // Two saved servers never reach Open WebUI the same way: an account
+    // added on one would be filed under the first that matches.
+    test('a route is never saved with another server\'s connection', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b', url: 'https://lab.example.com'),
+      ]);
+      final before = await storage.getOpenWebUiRegistryStrict();
+      final home = before.server(before.account('a')!.serverId)!;
+      final lab = before.server(before.account('b')!.serverId)!;
+      final homeRoute = home.endpoints.single;
+      final labRoute = lab.endpoints.single;
+      final edits = <List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>)>[
+        // An edit of the lab's address to the home server's.
+        (_) => [labRoute.withConnectionOf(homeRoute)],
+        // An address added with the home server's connection.
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(id: 'twin', url: homeRoute.url, label: 'Twin'),
+        ],
+      ];
+      for (final edit in edits) {
+        await check(storage.editServerEndpoints(lab.id, edit))
+            .throws<ServerConnectionTaken>(
+              (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+            );
+      }
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // A header of its own makes it another connection: saved.
+      await storage.editServerEndpoints(
+        lab.id,
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(
+            id: 'twin',
+            url: homeRoute.url,
+            customHeaders: const {'X-Lab': 'annex'},
+          ),
+        ],
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict())
+            .server(lab.id)!
+            .endpoints
+            .map((endpoint) => endpoint.id),
+      ).deepEquals([labRoute.id, 'twin']);
+    });
+
     test('edits made from the same list both land', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');

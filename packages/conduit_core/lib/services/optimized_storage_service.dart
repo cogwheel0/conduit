@@ -147,6 +147,22 @@ final class OptimizedStorageDatabaseHandle {
 typedef StoredAtWrite =
     void Function(OpenWebUiRegistry registry, String? activeAccountId);
 
+/// Thrown by a save of a server's routes that would give one of them the
+/// connection of a route of [serverId], another saved server: the same URL,
+/// headers, certificate policy and client identity
+/// ([OpenWebUiEndpoint.sameConnection]). Two saved servers never reach Open
+/// WebUI the same way, or an account added on one of them would be filed
+/// under whichever matched first. Nothing is saved.
+final class ServerConnectionTaken implements Exception {
+  const ServerConnectionTaken(this.serverId);
+
+  /// The saved server whose connection it is.
+  final String serverId;
+
+  @override
+  String toString() => 'ServerConnectionTaken($serverId)';
+}
+
 /// Optimized storage service backed by Hive for non-sensitive data and
 /// SecureKeyValueStore for credentials.
 class OptimizedStorageService {
@@ -2866,6 +2882,11 @@ class OptimizedStorageService {
   }
 
   /// Saves [server], keeping [session]'s headers on its route when given.
+  ///
+  /// Throws [ServerConnectionTaken], saving nothing, when a route it adds,
+  /// or changes how it is reached, has another saved server's connection.
+  /// Routes it leaves as they are never count, so a rename, reorder or
+  /// removal still saves.
   Future<void> _saveServerUnlocked(
     OpenWebUiServer server, {
     _RouteSession? session,
@@ -2875,6 +2896,17 @@ class OptimizedStorageService {
     final stored = registry.server(server.id);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
+    }
+    for (final endpoint in server.endpoints) {
+      if (stored.endpoint(endpoint.id)?.sameConnection(endpoint) ?? false) {
+        continue;
+      }
+      for (final other in registry.servers) {
+        if (other.id != server.id &&
+            other.endpoints.any(endpoint.sameConnection)) {
+          throw ServerConnectionTaken(other.id);
+        }
+      }
     }
     final routes = {for (final endpoint in server.endpoints) endpoint.id};
     // An edited route keeps its id. Its cookies were issued to the old
