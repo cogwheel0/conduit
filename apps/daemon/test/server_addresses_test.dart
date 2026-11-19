@@ -963,6 +963,172 @@ void main() {
     );
   });
 
+  /// Saves [found] with its account check held: [meanwhile] runs while the
+  /// save waits on the server's answer, as another window's edit would.
+  Future<ServerAddressSaveResult> saveWhileChecked(
+    ServerAddressCheckResult found,
+    Future<void> Function() meanwhile, {
+    bool stopReplies = false,
+  }) async {
+    final hold = Completer<void>();
+    owui
+      ..sessionChecked = Completer<void>()
+      ..holdSessionCheck = hold;
+    addTearDown(() {
+      owui.holdSessionCheck = null;
+      if (!hold.isCompleted) hold.complete();
+    });
+    final saving = servers.save(
+      ServerAddressSaveRequest(
+        checkId: found.checkId!,
+        sendSessionConfirmed: true,
+        stopReplies: stopReplies,
+      ),
+    );
+    await owui.sessionChecked.future;
+    await meanwhile();
+    hold.complete();
+    return saving;
+  }
+
+  /// Saves the address in use with [headers], before an edit of it.
+  Future<ServerAddressDto> gateInUse(Map<String, String> headers) async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .editServerEndpoints(
+          serverId,
+          (endpoints) => [
+            for (final e in endpoints)
+              e.id == inUse.id
+                  ? OpenWebUiEndpoint(
+                      id: e.id,
+                      url: e.url,
+                      customHeaders: headers,
+                    )
+                  : e,
+          ],
+        );
+    return (await list()).addresses.singleWhere((a) => a.inUse);
+  }
+
+  /// Another saved server at this server's address, with [headers].
+  Future<void> annexAt(Map<String, String> headers) async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.saveServerConfigs([
+      ...await storage.getServerConfigs(),
+      ServerConfig(
+        id: 'annex-account',
+        name: 'Annex',
+        url: owui.url,
+        customHeaders: headers,
+      ),
+    ]);
+  }
+
+  /// Adds [header] to the address [id] as another window's save would.
+  Future<void> addHeaderElsewhere(String id, MapEntry<String, String> header) =>
+      runtime.container
+          .read(optimizedStorageServiceProvider)
+          .editServerEndpoints(
+            serverId,
+            (endpoints) => [
+              for (final e in endpoints)
+                e.id == id
+                    ? e.withConnectionOf(
+                        OpenWebUiEndpoint(
+                          id: e.id,
+                          url: e.url,
+                          customHeaders: {
+                            ...e.customHeaders,
+                            header.key: header.value,
+                          },
+                        ),
+                      )
+                    : e,
+            ],
+          );
+
+  // The address checked for being another saved server's is the one the
+  // write saves: the edit onto the address as stored when it saves, with
+  // what another window saved meanwhile.
+  test('a header saved during the check makes an in-use edit another '
+      'server\'s: refused, and no reply is stopped', () async {
+    final inUse = await gateInUse(const {'X-Gate': 'one'});
+    await annexAt(const {'X-Gate': 'two', 'X-Extra': 'present'});
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        headers: const [ServerAddressHeader(name: 'X-Gate', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    replies.answering = true;
+    addTearDown(() => replies.answering = false);
+    final saved = await saveWhileChecked(
+      found,
+      () => addHeaderElsewhere(inUse.id, const MapEntry('X-Extra', 'present')),
+      stopReplies: true,
+    );
+    expect(replies.stopped, 0, reason: 'a reply was stopped for nothing');
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.differentServer);
+  });
+
+  test('a header saved during the check keeps an in-use edit its own: '
+      'saved', () async {
+    final inUse = await gateInUse(const {'X-Gate': 'one'});
+    await annexAt(const {'X-Gate': 'two'});
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        headers: const [ServerAddressHeader(name: 'X-Gate', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await saveWhileChecked(
+      found,
+      () => addHeaderElsewhere(inUse.id, const MapEntry('X-Extra', 'present')),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(registry.server(serverId)!.endpoint(inUse.id)!.customHeaders, {
+      'X-Gate': 'two',
+      'X-Extra': 'present',
+    });
+  });
+
+  test('an address removed during the check answers that it is gone', () async {
+    final second = await addSecond();
+    final found = await check(
+      ServerAddressForm(
+        url: second.url,
+        label: 'Renamed route',
+        headers: const [ServerAddressHeader(name: 'X-Lab')],
+      ),
+      endpointId: second.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await saveWhileChecked(
+      found,
+      () => runtime.container
+          .read(optimizedStorageServiceProvider)
+          .editServerEndpoints(
+            serverId,
+            (endpoints) => [
+              for (final e in endpoints)
+                if (e.id != second.id) e,
+            ],
+          ),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.serverMissing);
+  });
+
   test('a save that fails before it is known to be written can be tried '
       'again', () async {
     final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
