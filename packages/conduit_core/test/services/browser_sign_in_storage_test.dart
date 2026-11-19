@@ -826,6 +826,21 @@ void main() {
       check(await storedSession('a')).isNull();
     });
 
+    test('when a sign-out cut short is finished at startup', () async {
+      await saveAccounts(['a', 'b']);
+      final sessionA = await signInWithBrowser('a');
+      final sessionB = await signInWithBrowser('b');
+
+      final dropped = await droppedBy(storage.clearAuthData);
+
+      check(dropped).unorderedEquals([
+        (accountId: 'a', session: sessionA),
+        (accountId: 'b', session: sessionB),
+      ]);
+      check(await storedSession('a')).isNull();
+      check(await storedSession('b')).isNull();
+    });
+
     test('but not when a sign-out clears it, which revokes its own', () async {
       await saveAccounts(['a']);
       await signInWithBrowser('a');

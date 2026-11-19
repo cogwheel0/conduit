@@ -5063,8 +5063,17 @@ class OptimizedStorageService {
   /// mTLS client identity are prerequisites for reaching the sign-in page at
   /// all. Session credentials embedded in configs (the legacy apiKey bearer
   /// and captured proxy Cookie headers) are deliberately revoked.
+  ///
+  /// The browser sign-in sessions it deletes are told of on
+  /// [droppedBrowserSessions], to be revoked: it finishes a sign-out that was
+  /// cut short before it could revoke them.
   Future<void> clearAuthData() async {
-    await _authStateLock.synchronized(_clearAuthDataUnlocked);
+    final dropped = <StoredBrowserSignInSession>[];
+    try {
+      await _authStateLock.synchronized(() => _clearAuthDataUnlocked(dropped));
+    } finally {
+      _notifyBrowserSessionsDropped(dropped);
+    }
 
     DebugLogger.log(
       'Auth data cleared (non-auth server settings preserved)',
@@ -5077,11 +5086,17 @@ class OptimizedStorageService {
   /// the race where a logout observes a loading login, then deletes the new
   /// token immediately after that login commits.
   Future<bool> clearAuthDataIf({required bool Function() canClear}) async {
-    final cleared = await _authStateLock.synchronized(() async {
-      if (!canClear()) return false;
-      await _clearAuthDataUnlocked();
-      return true;
-    });
+    final dropped = <StoredBrowserSignInSession>[];
+    final bool cleared;
+    try {
+      cleared = await _authStateLock.synchronized(() async {
+        if (!canClear()) return false;
+        await _clearAuthDataUnlocked(dropped);
+        return true;
+      });
+    } finally {
+      _notifyBrowserSessionsDropped(dropped);
+    }
     if (cleared) {
       DebugLogger.log(
         'Auth data conditionally cleared',
@@ -5217,7 +5232,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> _clearAuthDataUnlocked() async {
+  /// Adds the browser sign-in sessions it deletes to [droppedBrowserSessions].
+  Future<void> _clearAuthDataUnlocked(
+    List<StoredBrowserSignInSession> droppedBrowserSessions,
+  ) async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -5243,7 +5261,28 @@ class OptimizedStorageService {
       // has to say so.
       await attempt(_secureCredentialStorage.deleteAllServerTokens);
       await attempt(_secureCredentialStorage.deleteAllServerCredentials);
-      await attempt(_secureCredentialStorage.deleteAllBrowserSignInSessions);
+      // Read first, to be revoked once deleted. Unread, they are deleted all
+      // the same.
+      var browserSessions = const <String, String>{};
+      try {
+        browserSessions = await _secureCredentialStorage
+            .browserSignInSessions();
+      } catch (error) {
+        DebugLogger.warning(
+          'browser-sessions-unread-before-clear',
+          scope: 'storage/optimized',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      await attempt(() async {
+        await _secureCredentialStorage.deleteAllBrowserSignInSessions();
+        droppedBrowserSessions.addAll([
+          for (final MapEntry(key: accountId, value: payload)
+              in browserSessions.entries)
+            if (BrowserSignInSession.tryDecode(payload) case final session?)
+              (accountId: accountId, session: session),
+        ]);
+      });
       await attempt(_scrubServerConfigAuthArtifactsUnlocked);
       _stagedServerConfigCandidate = null;
     });
