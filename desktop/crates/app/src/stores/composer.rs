@@ -772,10 +772,15 @@ impl ComposerStore {
     /// revisions start again, so the order of answers starts again too. The
     /// open chat, its draft and attachments stay; what the last session was
     /// still answering is dropped when it lands, and the chat is listed
-    /// again on the new one.
+    /// again on the new one. Until the new session answers, the list and
+    /// options shown are not the chat's: the new daemon may have lost its
+    /// pick.
     pub fn reconnected(&mut self, cx: &mut Context<Self>) {
         self.session += 1;
         self.selecting = None;
+        self.models_for = None;
+        self.options_for = None;
+        cx.notify();
         if self.channel.is_none() {
             self.refresh_models(cx);
         }
@@ -1086,6 +1091,11 @@ impl ComposerStore {
                     Ok(list) if s.list_query() == query => {
                         if s.newer_answer(&query, (session, list.revision, seq)) {
                             s.set_models(list, query, seq, cx);
+                            // It can show a pick whose own answer it
+                            // overtook, which then never asks for options.
+                            if !s.options_answered() {
+                                s.refresh_options(cx);
+                            }
                         }
                     }
                     Ok(_) => s.refresh_models(cx),
@@ -3936,7 +3946,9 @@ mod tests {
 
     /// A pick in chat A whose answer is held while the models are read again
     /// (the daemon says they changed before it answers): the read shows
-    /// what the daemon keeps for A, and A shows and sends its agent.
+    /// what the daemon keeps for A, and A shows and sends its agent. A pin
+    /// answered before the next pick's answer shows that pick, and its
+    /// model's options are asked for.
     #[gpui_kit::test]
     fn a_pick_shows_through_a_read_before_its_answer(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
@@ -3973,6 +3985,17 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
             assert_eq!(s.turn_options(vec![]).model.as_deref(), Some(agent));
+        });
+        daemon.returns::<methods::ModelsSetPinned>(list("k"));
+        let held = daemon.hold::<methods::ModelsSelect>();
+        store.update(cx, |s, cx| s.select_model("k", cx));
+        store.update(cx, |s, cx| s.set_pinned("k", true, cx));
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("k"));
+            assert!(s.options_answered(), "the pinned answer's model has no options");
         });
     }
 
@@ -4099,9 +4122,19 @@ mod tests {
             )
         });
         cx.run_until_parked();
+        // Until the new session lists the chat, its pick may be gone: the
+        // last session's list names nothing and its options answer nothing.
+        let listing = daemon.hold::<methods::ModelsList>();
         store.update(cx, |s, cx| s.reconnected(cx));
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
+            assert!(!s.can_name_model(), "the last session's pick was named");
+            assert!(!s.options_answered(), "the last session's options held");
+        });
+        listing.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.can_name_model());
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("c"));
             assert!(
                 s.options_answered(),
