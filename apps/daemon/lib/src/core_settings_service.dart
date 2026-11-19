@@ -94,6 +94,7 @@ final class CoreSettingsService {
         : List<String>.of(settings.inlineMessageActions!),
     sendOnEnter: settings.sendOnEnter,
     showComposerNotesButton: settings.showComposerNotesButton,
+    showModelNameInComposer: settings.showModelNameInComposer,
     temporaryChatByDefault: settings.temporaryChatByDefault,
     citationShowTitles: settings.citationShowTitles,
     citationBackground: settings.citationBackground,
@@ -174,6 +175,9 @@ final class CoreSettingsService {
     if (patch.sendOnEnter case final v?) await n().setSendOnEnter(v);
     if (patch.showComposerNotesButton case final v?) {
       await n().setShowComposerNotesButton(v);
+    }
+    if (patch.showModelNameInComposer case final v?) {
+      await n().setShowModelNameInComposer(v);
     }
     if (patch.temporaryChatByDefault case final v?) {
       await n().setTemporaryChatByDefault(v);

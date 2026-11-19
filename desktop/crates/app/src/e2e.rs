@@ -102,6 +102,7 @@
 
 mod a11y_sweep;
 mod actions;
+mod agents;
 mod apple;
 mod apps_leftovers;
 mod calendar;
@@ -855,6 +856,7 @@ pub async fn run(inputs: E2eInputs, dir: PathBuf, cx: &mut AsyncApp) -> bool {
         "workspace" => workspace::run(&inputs, &dir, cx).await,
         "calendar" => calendar::run(&inputs, &dir, cx).await,
         "tasks" => tasks::run(&inputs, &dir, cx).await,
+        "agents" => agents::run(&inputs, &dir, cx).await,
         "widget" => widget::run(&inputs, &dir, cx).await,
         "intents" => intents::run(&inputs, &dir, cx).await,
         "mac-extras-2" => mac_extras::run(&inputs, &dir, cx).await,

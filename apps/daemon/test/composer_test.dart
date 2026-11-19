@@ -5,9 +5,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show PrimaryAccountKind;
 import 'package:conduit_core/providers/primary_account_providers.dart'
@@ -47,6 +51,89 @@ void main() {
       expect(video.attachment, isNull);
     },
   );
+
+  test("the composer's options never read a chat once another account took "
+      'charge', () async {
+    var primary = const PrimaryAccountRef(
+      PrimaryAccountKind.openWebUi,
+      'server-ada',
+    );
+    final listed = Completer<void>();
+    final asked = Completer<void>();
+    final reads = <String>[];
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        primaryAccountProvider.overrideWith((ref) => primary),
+        secureStorageProvider.overrideWithValue(
+          _HeldSecureStore(asked, listed.future),
+        ),
+        loadConversationProvider.overrideWith((ref, id) async {
+          reads.add(id);
+          throw StateError('not kept here');
+        }),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final options = ComposerService(container)
+        .options(const ComposerOptionsQuery(chatId: 'chat-ada'));
+    // The MCP servers are still being read when another account takes
+    // charge.
+    await asked.future;
+    primary = const PrimaryAccountRef(
+      PrimaryAccountKind.openWebUi,
+      'server-bo',
+    );
+    container.invalidate(primaryAccountProvider);
+    container.read(primaryAccountProvider);
+    listed.complete();
+    await expectLater(
+      options,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    expect(reads, isEmpty, reason: "Ada's chat was read for Bo");
+  });
+
+  test('a search never answers once another account took charge', () async {
+    var primary = const PrimaryAccountRef(
+      PrimaryAccountKind.openWebUi,
+      'server-ada',
+    );
+    final api = _HeldKnowledgeApi();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        primaryAccountProvider.overrideWith((ref) => primary),
+      ],
+    );
+    addTearDown(container.dispose);
+    final found = ComposerService(container).knowledge('tide');
+    await api.asked.future;
+    primary = const PrimaryAccountRef(
+      PrimaryAccountKind.openWebUi,
+      'server-bo',
+    );
+    container.invalidate(primaryAccountProvider);
+    container.read(primaryAccountProvider);
+    api.answered.complete();
+    await expectLater(
+      found,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+  });
 
   test(
     'Send Link never answers once another account took charge while it read',
@@ -212,6 +299,34 @@ void main() {
       temporary.deleteSync(recursive: true);
     });
 
+    test("a coding agent's composer offers no Compare and no effort of its "
+        'own', () async {
+      runtime.container
+          .read(selectedModelProvider.notifier)
+          .set(
+            const core.Model(id: 'agent:bench:codex:gpt-5.1', name: 'Codex'),
+            allowHidden: true,
+          );
+      addTearDown(() => ModelsService(runtime.container).select(modelId));
+      final agent = await ComposerService(runtime.container).options();
+      expect(agent.agentChat, isTrue);
+      expect(agent.ownEffortControl, isTrue);
+      expect(agent.compareModels, isFalse);
+
+      // A composer that shows another model (a temporary chat, where no
+      // agent answers) is offered that model's options, as its turn goes
+      // to it.
+      final shown = await ComposerService(runtime.container)
+          .options(ComposerOptionsQuery(modelId: modelId));
+      expect(shown.agentChat, isFalse);
+      expect(shown.ownEffortControl, isFalse);
+
+      await ModelsService(runtime.container).select(modelId);
+      final plain = await ComposerService(runtime.container).options();
+      expect(plain.agentChat, isFalse);
+      expect(plain.ownEffortControl, isFalse);
+    });
+
     test('a draft is kept per chat, and a new chat\'s per folder', () async {
       // A chat kept on this computer, to keep a draft under.
       final turns = TurnsService(runtime.container, EventBus());
@@ -292,4 +407,50 @@ void main() {
       },
     );
   });
+}
+
+/// A secure store whose reads (the MCP servers' list among them) wait for
+/// [listed]; [asked] marks the first read.
+final class _HeldSecureStore extends InMemorySecureKeyValueStore {
+  _HeldSecureStore(this.asked, this.listed);
+
+  final Completer<void> asked;
+  final Future<void> listed;
+
+  @override
+  Future<String?> read({required String key}) async {
+    if (!asked.isCompleted) asked.complete();
+    await listed;
+    return super.read(key: key);
+  }
+}
+
+/// Ada's server, whose knowledge search answers once [answered] completes;
+/// [asked] marks the search reaching it.
+final class _HeldKnowledgeApi extends ApiService {
+  _HeldKnowledgeApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server-ada',
+          name: 'Ada server',
+          url: 'https://ada.invalid',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final asked = Completer<void>();
+  final answered = Completer<void>();
+
+  @override
+  Future<List<Map<String, dynamic>>> searchKnowledgeBases({
+    String? query,
+    String? viewOption,
+    int? page,
+  }) async {
+    if (!asked.isCompleted) asked.complete();
+    await answered.future;
+    return const <Map<String, dynamic>>[
+      {'id': 'kb-ada', 'name': 'Tide tables'},
+    ];
+  }
 }

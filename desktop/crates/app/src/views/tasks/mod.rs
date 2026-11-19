@@ -55,6 +55,16 @@ const MORE_HEIGHT: f32 = 44.;
 const STATUSES: [&str; 3] = ["all", "active", "paused"];
 
 /// A task's schedule in words, as the phone's list says it.
+/// A coding agent as the picker names it ("Codex · gpt-5.1").
+pub fn agent_label(agent: &conduit_protocol::TerminalAgentDto) -> String {
+    let name = if agent.agent_name.trim().is_empty() {
+        &agent.agent
+    } else {
+        &agent.agent_name
+    };
+    format!("{name} \u{b7} {}", agent.model)
+}
+
 pub fn schedule_summary(schedule: &AutomationScheduleDto, l: &L10n) -> String {
     let clock = |hour: i64, minute: i64| {
         let wall = conduit_protocol::CalendarWallTime {
@@ -551,6 +561,9 @@ impl TasksPane {
             .map(|ms| l.scheduled_task_next_run(&when(ms, &l)))
             .unwrap_or_else(|| l.scheduled_task_no_next_run());
         let detail = format!("{schedule} · {next}");
+        // A task a coding agent runs names the agent, not a model the
+        // account does not have (one made on the web, say).
+        let agent = task.agent.as_ref().map(agent_label);
         let status = if task.active {
             l.scheduled_task_status_active()
         } else {
@@ -559,6 +572,7 @@ impl TasksPane {
         let label = [
             Some(task.name.clone()),
             Some(status),
+            agent.clone(),
             task.last_run_failed
                 .then(|| l.scheduled_task_last_run_failed()),
             Some(detail.clone()),
@@ -628,6 +642,27 @@ impl TasksPane {
                                                 .child(SharedString::from(
                                                     l.scheduled_task_status_paused(),
                                                 )),
+                                        )
+                                    })
+                                    .when_some(agent, |d, agent| {
+                                        d.child(
+                                            div()
+                                                .id(ElementId::NamedInteger(
+                                                    "tasks-row-agent".into(),
+                                                    index as u64,
+                                                ))
+                                                .min_w_0()
+                                                .flex()
+                                                .items_center()
+                                                .gap(px(3.))
+                                                .text_size(px(t.metrics.small))
+                                                .text_color(sub)
+                                                .child(icon(IconName::SquareTerminal, 11., sub))
+                                                .child(
+                                                    div()
+                                                        .truncate()
+                                                        .child(SharedString::from(agent)),
+                                                ),
                                         )
                                     }),
                             )
@@ -1037,9 +1072,7 @@ impl TasksPane {
                         .child(SharedString::from(detail.prompt.clone()))
                         .into_any_element(),
                 ],
-                detail
-                    .terminal
-                    .then(|| SharedString::from(l.scheduled_task_terminal_kept())),
+                None,
                 cx,
             )
             .into_any_element(),
@@ -1134,6 +1167,22 @@ impl TasksPane {
                 .into_any_element(),
                 setting_row(l.scheduled_task_model_label(), None, value(model), cx)
                     .into_any_element(),
+            ]
+            .into_iter()
+            .chain(detail.terminal_id.clone().map(|id| {
+                let name = detail.terminal_name.clone().unwrap_or(id);
+                setting_row(l.terminal(), None, value(name), cx).into_any_element()
+            }))
+            .chain(detail.working_directory.clone().map(|folder| {
+                setting_row(
+                    l.scheduled_task_working_folder_label(),
+                    None,
+                    value(folder),
+                    cx,
+                )
+                .into_any_element()
+            }))
+            .chain([
                 setting_row(
                     l.scheduled_task_destination_label(),
                     None,
@@ -1142,7 +1191,8 @@ impl TasksPane {
                 )
                 .into_any_element(),
                 setting_row(l.desktop_tasks_last_run(), None, value(last), cx).into_any_element(),
-            ],
+            ])
+            .collect(),
             Some(l.scheduled_task_timezone_note().into()),
             cx,
         )

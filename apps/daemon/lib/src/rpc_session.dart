@@ -842,7 +842,20 @@ class RpcSession {
   }
 
   void _registerTurns() {
-    _on(ConduitMethodSpecs.turnsSend, (r) => _requireTurns().send(r));
+    _on(ConduitMethodSpecs.turnsSend, (r) async {
+      final models = _models;
+      // What the turn's landing may move is captured before any wait.
+      final sending = models?.sending(r.chatId);
+      // A turn that names no model runs with its own chat's (its pick, its
+      // saved agent, else the account's default), never the account's
+      // selection of the moment, which may be another chat's agent.
+      final model = r.model ?? await models?.modelFor(r.chatId);
+      final accepted = await _requireTurns().send(r.copyWith(model: model));
+      if (sending != null) {
+        models!.sent(sending, toChat: accepted.chatId, model: model);
+      }
+      return accepted;
+    });
     _on(
       ConduitMethodSpecs.turnsRegenerate,
       (r) => _requireTurns().regenerate(r),
@@ -921,6 +934,10 @@ class RpcSession {
       (r) => _need(_automations).checkDraft(r),
     );
     _on(ConduitMethodSpecs.automationsSave, (r) => _need(_automations).save(r));
+    _on(
+      ConduitMethodSpecs.automationsTerminals,
+      (r) => _need(_automations).terminals(r),
+    );
 
     _on(
       ConduitMethodSpecs.turnsRetryQueued,
@@ -981,7 +998,7 @@ class RpcSession {
   }
 
   void _registerModels() {
-    _on(ConduitMethodSpecs.composerOptions, (_) {
+    _on(ConduitMethodSpecs.composerOptions, (query) {
       final composer = _composer;
       if (composer == null) {
         throw const RpcError(
@@ -989,7 +1006,7 @@ class RpcSession {
           debugMessage: 'the core is not up yet',
         );
       }
-      return composer.options();
+      return composer.options(query);
     });
     // drafts.*, mentions.*, skills.*, context.*, files.*: what the composer
     // holds and draws on.
@@ -1721,8 +1738,16 @@ class RpcSession {
     // prompts.*, models.*.
     _on(ConduitMethodSpecs.promptsList, (_) => _requirePrompts().list());
     _on(ConduitMethodSpecs.promptsRender, (r) => _requirePrompts().render(r));
-    _on(ConduitMethodSpecs.modelsList, (_) => _requireModels().list());
-    _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
+    _on(ConduitMethodSpecs.modelsList, (q) => _requireModels().list(q));
+    _on(
+      ConduitMethodSpecs.modelsSelect,
+      (r) => _requireModels().select(r.id, chatId: r.chatId),
+    );
+    _on(ConduitMethodSpecs.modelsControls, (q) => _requireModels().controls(q));
+    _on(
+      ConduitMethodSpecs.modelsSetControl,
+      (r) => _requireModels().setControl(r),
+    );
     _on(
       ConduitMethodSpecs.modelsSetPinned,
       (r) => _requireModels().setPinned(r),

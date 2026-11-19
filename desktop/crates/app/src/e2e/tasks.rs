@@ -417,7 +417,181 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     })
     .await;
     pass &= ok("Delete… (confirmed) removes the task", deleted);
+    pass &= terminal_task(dir, cx).await;
     settle(cx, 400).await;
     shoot_main(dir, "tasks-after", cx).await;
+    pass
+}
+
+const TERMINAL: &str = "buildbox";
+const CODEX: &str = "agent:buildbox:codex:gpt-5.1";
+const FOLDER: &str = "/home/demo/sketches";
+
+/// A task on the Build box (the seeded server's fake Open Terminal) run by
+/// its Codex agent in a working folder (Open WebUI 0.13.3): the editor
+/// offers the terminal, then its agents; the three fields are saved, shown
+/// on the task's page and in the list, and read back by the editor. Moving
+/// the task off its terminal drops the agent and the folder.
+async fn terminal_task(dir: &Path, cx: &mut AsyncApp) -> bool {
+    let name = "Nightly sketch tidy";
+    in_pane(cx, |p, window, cx| p.new_task(window, cx));
+    let offered = wait_until(cx, Duration::from_secs(30), |cx| {
+        editor(cx).is_some_and(|e| {
+            e.read(cx).editor.as_ref().is_some_and(|ed| {
+                ed.terminals
+                    .as_ref()
+                    .is_some_and(|t| t.iter().any(|t| t.id == TERMINAL && t.name == "Build box"))
+            })
+        })
+    })
+    .await;
+    let mut pass = ok(
+        "the editor offers the Build box as the task's terminal",
+        offered,
+    );
+    in_editor(cx, |e, window, cx| {
+        e.type_text(name, "Tidy the sketch folder", window, cx);
+        e.on_choice(
+            &SettingsChoice {
+                menu: "task-terminal".into(),
+                value: TERMINAL.into(),
+            },
+            cx,
+        );
+    });
+    let agents = wait_until(cx, Duration::from_secs(30), |cx| {
+        editor(cx).is_some_and(|e| {
+            let e = e.read(cx);
+            !e.agents_loading
+                && e.editor.as_ref().is_some_and(|ed| {
+                    ed.models.as_ref().is_some_and(|m| {
+                        m.iter()
+                            .any(|m| m.id == CODEX && m.agent && m.name == "Codex · gpt-5.1")
+                    })
+                })
+        })
+    })
+    .await;
+    pass &= ok(
+        "with the Build box chosen, its agents follow the models",
+        agents,
+    );
+    in_editor(cx, |e, window, cx| {
+        e.type_folder(FOLDER, window, cx);
+        e.on_choice(
+            &SettingsChoice {
+                menu: "task-model".into(),
+                value: CODEX.into(),
+            },
+            cx,
+        );
+    });
+    let ready = wait_until(cx, Duration::from_secs(20), |cx| {
+        editor(cx).is_some_and(|e| {
+            let e = e.read(cx);
+            !e.agents_loading
+                && e.fields.as_ref().is_some_and(|f| {
+                    f.model_id == CODEX
+                        && f.terminal_id.as_deref() == Some(TERMINAL)
+                        && f.working_directory.as_deref() == Some(FOLDER)
+                })
+                && !e
+                    .issues
+                    .iter()
+                    .any(|i| i.starts_with("model") || i == "terminalRequired")
+        })
+    })
+    .await;
+    pass &= ok("Codex in the folder is a task the server takes", ready);
+    settle(cx, 600).await;
+    shoot_main(dir, "tasks-agent-editor", cx).await;
+    if let Some(handle) = cx.update(|cx| sheet::current_window(cx)) {
+        let controls = ax(handle, "tasks-agent-editor", dir, cx).await;
+        pass &= ok(
+            "the terminal and folder are labelled",
+            has(&controls, "ComboBox", "Terminal") && has(&controls, "TextInput", "Working Folder"),
+        );
+    }
+    // An agent posts only to a new chat.
+    in_editor(cx, |e, _, cx| e.set_target(true, cx));
+    in_editor(cx, |e, window, cx| e.save(window, cx));
+    let refused = wait_until(cx, Duration::from_secs(10), |cx| {
+        editor(cx).is_some_and(|e| e.read(cx).issues.iter().any(|i| i == "agentNeedsChat"))
+    })
+    .await;
+    pass &= ok("an agent's results may not go to a channel", refused);
+    in_editor(cx, |e, _, cx| e.set_target(false, cx));
+    settle(cx, 500).await;
+    in_editor(cx, |e, window, cx| e.save(window, cx));
+    let closed = wait_until(cx, Duration::from_secs(20), |cx| !sheet::is_open(cx)).await;
+    pass &= ok("the agent task saves", closed);
+    let shown = wait_until(cx, Duration::from_secs(20), move |cx| {
+        detail(cx).is_some_and(|d| {
+            d.summary.name == name
+                && d.terminal_id.as_deref() == Some(TERMINAL)
+                && d.terminal_name.as_deref() == Some("Build box")
+                && d.working_directory.as_deref() == Some(FOLDER)
+                && d.model_name.as_deref() == Some("Codex · gpt-5.1")
+                && d.agent.as_ref().is_some_and(|a| a.agent == "codex")
+        }) && list(cx).is_some_and(|l| {
+            l.items
+                .iter()
+                .any(|t| t.name == name && t.agent.as_ref().is_some_and(|a| a.model == "gpt-5.1"))
+        })
+    })
+    .await;
+    pass &= ok(
+        "its page shows the terminal, folder and agent, and the list the agent",
+        shown,
+    );
+    settle(cx, 500).await;
+    shoot_main(dir, "tasks-agent-detail", cx).await;
+    let Some(id) = cx.update(|cx| task_id(name, cx)) else {
+        return ok("the agent task's id", false);
+    };
+    let edit_id = id.clone();
+    in_pane(cx, move |p, window, cx| p.edit(&edit_id, window, cx));
+    let read_back = wait_until(cx, Duration::from_secs(20), |cx| {
+        editor(cx).is_some_and(|e| {
+            let e = e.read(cx);
+            e.editor
+                .as_ref()
+                .is_some_and(|ed| !ed.is_new && ed.agent_name.as_deref() == Some("Codex · gpt-5.1"))
+                && e.fields.as_ref().is_some_and(|f| {
+                    f.model_id == CODEX
+                        && f.terminal_id.as_deref() == Some(TERMINAL)
+                        && f.working_directory.as_deref() == Some(FOLDER)
+                })
+        })
+    })
+    .await;
+    pass &= ok("Edit… reads the terminal, folder and agent back", read_back);
+    in_editor(cx, |e, _, cx| {
+        e.on_choice(
+            &SettingsChoice {
+                menu: "task-terminal".into(),
+                value: String::new(),
+            },
+            cx,
+        )
+    });
+    let dropped = wait_until(cx, Duration::from_secs(20), |cx| {
+        editor(cx).is_some_and(|e| {
+            e.read(cx).fields.as_ref().is_some_and(|f| {
+                f.terminal_id.is_none() && f.model_id.is_empty() && f.working_directory.is_none()
+            })
+        })
+    })
+    .await;
+    pass &= ok("no terminal: the agent and the folder go with it", dropped);
+    cx.update(sheet::dismiss);
+    settle(cx, 500).await;
+    let delete_id = id.clone();
+    in_pane(cx, move |p, window, cx| p.delete(&delete_id, window, cx));
+    let deleted = wait_until(cx, Duration::from_secs(20), move |cx| {
+        list(cx).is_some_and(|l| !l.items.iter().any(|t| t.id == id))
+    })
+    .await;
+    pass &= ok("the agent task is deleted", deleted);
     pass
 }

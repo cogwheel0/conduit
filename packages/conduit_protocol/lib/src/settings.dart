@@ -123,6 +123,10 @@ abstract class AppSettingsDto with _$AppSettingsDto {
 
     /// The composer's Save as Note button shows.
     @Default(true) bool showComposerNotesButton,
+
+    /// The empty message box names the selected model ("Ask Codex · gpt-5.1")
+    /// instead of the app's own words.
+    @Default(false) bool showModelNameInComposer,
     @Default(false) bool temporaryChatByDefault,
 
     /// Inline citations show the source's title, not only its number.
@@ -198,6 +202,7 @@ abstract class AppSettingsPatch with _$AppSettingsPatch {
     List<String>? inlineMessageActions,
     bool? sendOnEnter,
     bool? showComposerNotesButton,
+    bool? showModelNameInComposer,
     bool? temporaryChatByDefault,
     bool? citationShowTitles,
     bool? citationBackground,

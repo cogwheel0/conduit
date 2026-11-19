@@ -221,6 +221,8 @@ pub enum PickerAction {
     CustomEffort,
     /// Pin or unpin a model.
     Pin(String, bool),
+    /// An option of the selected model's control: `(key, value)`.
+    Control(String, String),
 }
 
 pub struct ChatComposer {
@@ -292,6 +294,11 @@ pub struct ChatComposer {
     transcribing: Option<crate::stores::composer::CompositionTicket>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
+    /// A host chose the placeholder (Quick Ask's "Ask Conduit…"): the
+    /// selected model never names it.
+    custom_placeholder: bool,
+    /// The placeholder the field shows now (not "Listening…").
+    shown_placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
     window_handle: gpui_kit::AnyWindowHandle,
     /// A channel's composer: `@` is the only menu, and a model chosen there
@@ -355,7 +362,7 @@ impl ChatComposer {
                 .submit_on_enter(send_on_enter)
         });
         let weak = cx.entity().downgrade();
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe_in(
                 &input,
                 window,
@@ -472,6 +479,10 @@ impl ChatComposer {
                 }
             }),
         ];
+        // The placeholder names the selected model when Settings say so.
+        subscriptions.push(cx.observe_in(&composer, window, |this, _, window, cx| {
+            this.sync_placeholder(window, cx)
+        }));
         Self {
             composer,
             input,
@@ -504,6 +515,8 @@ impl ChatComposer {
             dictation_base: None,
             transcribing: None,
             placeholder: placeholder.to_string(),
+            custom_placeholder: false,
+            shown_placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
             channel_mode: false,
             _dictation: vec![],
@@ -524,9 +537,45 @@ impl ChatComposer {
     /// The text field's placeholder (Quick Ask says "Ask Conduit…").
     pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.placeholder = text.to_string();
+        self.custom_placeholder = true;
+        self.shown_placeholder = text.to_string();
         let text = text.to_string();
         self.input
             .update(cx, |s, cx| s.set_placeholder(text, window, cx));
+    }
+
+    /// What the empty field says: with Settings › Chats › Show Model Name
+    /// in Message Box on, "Ask" and the selected model's name (mobile's
+    /// `chatComposerPlaceholder`); else the app's own words.
+    fn placeholder_now(&self, cx: &App) -> String {
+        let store = self.composer.read(cx);
+        if self.custom_placeholder || self.channel_mode || !store.prefs.show_model_name {
+            return self.placeholder.clone();
+        }
+        store
+            .selected_model()
+            .and_then(|m| crate::stores::composer::placeholder_model_name(&m.name))
+            .map(|name| cx.l10n().message_hint_text_for_model(&name))
+            .unwrap_or_else(|| self.placeholder.clone())
+    }
+
+    /// Puts [`Self::placeholder_now`] in the field when it changed (not
+    /// while dictation says "Listening…").
+    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dictation_base.is_some() {
+            return;
+        }
+        let now = self.placeholder_now(cx);
+        if now != self.shown_placeholder {
+            self.shown_placeholder = now.clone();
+            self.input
+                .update(cx, |s, cx| s.set_placeholder(now, window, cx));
+        }
+    }
+
+    /// The placeholder the field shows (the E2E pass reads it).
+    pub fn shown_placeholder(&self) -> &str {
+        &self.shown_placeholder
     }
 
     // ── Dictation ──────────────────────────────────────────────────────
@@ -637,7 +686,7 @@ impl ChatComposer {
                 }
             }
             DictationEvent::Heard => {
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
             }
@@ -647,7 +696,8 @@ impl ChatComposer {
                 {
                     self.set_text(&base, window, cx);
                 }
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
+                self.shown_placeholder = placeholder.clone();
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
                 self.focus_input(window, cx);
@@ -839,8 +889,16 @@ impl ChatComposer {
         !self.streaming && self.ready(cx)
     }
 
-    /// Something to send, and nothing holding it back but a running answer.
+    /// A new turn to start: something to send, a model the open chat's own
+    /// list names, and nothing holding it back but a running answer.
     fn ready(&self, cx: &App) -> bool {
+        self.has_message(cx) && self.composer.read(cx).can_name_model()
+    }
+
+    /// Something to send now, the connection up and no file still being
+    /// read. Queue, Steer and Send Next need no more: they go to the turn
+    /// or chat already running, not to a model the list names.
+    fn has_message(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
         let has_text = !self.text(cx).trim().is_empty();
         !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
@@ -866,7 +924,7 @@ impl ChatComposer {
         // The queue is offered behind a running answer, and behind one that
         // waits in the outbox (nothing streams, Send shows).
         if !(self.streaming || self.queue_offer)
-            || !self.ready(cx)
+            || !self.has_message(cx)
             || self.text(cx).trim().is_empty()
         {
             return None;
@@ -1748,7 +1806,12 @@ impl ChatComposer {
         let Some(list) = &self.composer.read(cx).models else {
             return vec![];
         };
-        crate::stores::composer::picker_rows(list, &query, picker.more)
+        crate::stores::composer::picker_rows(
+            list,
+            &query,
+            picker.more,
+            &cx.l10n().model_picker_coding_agents(),
+        )
     }
 
     /// The models the arrows step through, in the order drawn.
@@ -1808,6 +1871,34 @@ impl ChatComposer {
         menu.show(window.mouse_position(), window, cx);
     }
 
+    /// A control's menu (a native menu): its options, the one in force
+    /// checked, as mobile's selection sheet lists them.
+    fn show_control_menu(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::component::native_menu::NativeMenu;
+        let Some(control) = self
+            .composer
+            .read(cx)
+            .model_controls
+            .as_ref()
+            .and_then(|l| l.controls.iter().find(|c| c.key == key).cloned())
+        else {
+            return;
+        };
+        let l10n = cx.l10n().clone();
+        let mut menu = NativeMenu::new();
+        for option in &control.options {
+            menu = menu.menu_with_check(
+                model_control_option_label(&control, Some(&option.value), &l10n),
+                control.value.as_deref() == Some(option.value.as_str()),
+                Box::new(PickerAction::Control(
+                    control.key.clone(),
+                    option.value.clone(),
+                )),
+            );
+        }
+        menu.show(window.mouse_position(), window, cx);
+    }
+
     fn on_picker_action(
         &mut self,
         action: &PickerAction,
@@ -1828,6 +1919,11 @@ impl ChatComposer {
                 let (id, pinned) = (id.clone(), *pinned);
                 self.composer
                     .update(cx, |c, cx| c.set_pinned(&id, pinned, cx));
+            }
+            PickerAction::Control(key, value) => {
+                let (key, value) = (key.clone(), value.clone());
+                self.composer
+                    .update(cx, |c, cx| c.set_model_control(&key, &value, cx));
             }
         }
         cx.notify();
@@ -3322,6 +3418,16 @@ impl ChatComposer {
             .as_ref()
             .is_some_and(crate::stores::composer::has_more_models);
         let options = store.model_options.clone();
+        // A model with an effort control of its own (a coding agent's)
+        // takes it from that control, below; the app's would contradict it.
+        // Unknown until the options for the chat and model on screen answer.
+        let own_effort = !store.options_answered() || store.options.own_effort_control;
+        let controls = store
+            .model_controls
+            .as_ref()
+            .filter(|c| c.model_id == selected)
+            .map(|c| c.controls.clone())
+            .unwrap_or_default();
         let total = rows
             .iter()
             .filter(|r| matches!(r, PickerRow::Model(_)))
@@ -3379,7 +3485,7 @@ impl ChatComposer {
             ));
         }
         if let Some(options) = options.as_ref() {
-            if options.reasoning.visible {
+            if options.reasoning.visible && !own_effort {
                 let label = if options.reasoning.ollama {
                     l10n.desktop_thinking()
                 } else {
@@ -3448,6 +3554,23 @@ impl ChatComposer {
                         .into_any_element(),
                 );
             }
+        }
+        // The model's own controls, one row each, as mobile's sheet lists
+        // them under its models.
+        for control in controls {
+            let key = control.key.clone();
+            footer.push(self.picker_footer_row(
+                SharedString::from(format!("model-menu-control-{}", control.key)),
+                model_control_title(&control, &l10n),
+                Some(model_control_option_label(
+                    &control,
+                    control.value.as_deref(),
+                    &l10n,
+                )),
+                IconName::ChevronsUpDown,
+                t,
+                cx.listener(move |this, _, window, cx| this.show_control_menu(&key, window, cx)),
+            ));
         }
         Some(
             div()
@@ -3555,8 +3678,14 @@ impl ChatComposer {
         let id = model.id.clone();
         // Apple's model says where it runs, as on the phone.
         let apple = crate::stores::composer::is_apple_on_device(model);
+        // A coding agent says where it runs: its terminal, as on the phone.
         let provider = if apple {
             l10n.desktop_apple_on_this_mac()
+        } else if let Some(agent) = &model.agent {
+            agent
+                .terminal_name
+                .clone()
+                .unwrap_or_else(|| format!("{}/{}", agent.agent, agent.model))
         } else {
             model.connection.clone().unwrap_or_default()
         };
@@ -3608,6 +3737,8 @@ impl ChatComposer {
                     None => icon(
                         if pinned {
                             IconName::Pin
+                        } else if model.agent.is_some() {
+                            IconName::SquareTerminal
                         } else if apple {
                             IconName::Cpu
                         } else {
@@ -3698,7 +3829,7 @@ impl ChatComposer {
     /// A row under the picker's list: a label, its value, a trailing glyph.
     fn picker_footer_row(
         &self,
-        id: &'static str,
+        id: impl Into<ElementId>,
         label: String,
         value: Option<String>,
         glyph: IconName,
@@ -3742,6 +3873,45 @@ impl ChatComposer {
             .child(icon(glyph, 13., r.text_subtle))
             .on_click(on_click)
             .into_any_element()
+    }
+}
+
+/// A model control's name, in the app's language for the two Open WebUI's
+/// coding agents use (mobile's `modelControlTitle`); any other keeps the
+/// server's.
+pub fn model_control_title(
+    control: &conduit_protocol::ModelControlDto,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    match control.key.as_str() {
+        "reasoning_effort" => l10n.desktop_reasoning_effort(),
+        "service_tier" => l10n.model_control_service_tier(),
+        _ if control.label.trim().is_empty() => control.key.clone(),
+        _ => control.label.clone(),
+    }
+}
+
+/// The option `value` of `control` (mobile's `modelControlOptionLabel`): a
+/// reasoning effort the app names in its own language, else the server's
+/// label; "Default" when nothing is picked and the control has no default.
+pub fn model_control_option_label(
+    control: &conduit_protocol::ModelControlDto,
+    value: Option<&str>,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    let Some(option) = value.and_then(|v| control.options.iter().find(|o| o.value == v)) else {
+        return l10n.default_label();
+    };
+    if control.key == "reasoning_effort" {
+        let known = crate::views::chat_settings::effort_label(&option.value, l10n);
+        if known != option.value {
+            return known;
+        }
+    }
+    if option.label.trim().is_empty() {
+        option.value.clone()
+    } else {
+        option.label.clone()
     }
 }
 
@@ -3801,6 +3971,9 @@ impl Render for ChatComposer {
             .selected_model()
             .map(model_label)
             .unwrap_or_else(|| l10n.desktop_shortcut_focus_model_picker());
+        // The coding agent this chat was saved with, when another model is
+        // selected: offered, never chosen for the user.
+        let chat_agent = store.chat_agent();
 
         let frame = conduit_components::views::composer::composer_frame(&t);
         // In Quick Ask the panel is itself raised, so its composer sits a
@@ -3888,7 +4061,7 @@ impl Render for ChatComposer {
                 .items_center()
                 .gap(px(6.))
                 .children(busy_buttons)
-                .child(stop)
+                .child(div().debug_selector(|| "composer-stop".into()).child(stop))
                 .into_any_element()
         } else if self.offers_call(cx) {
             // Nothing to send: a voice call, as on the phone.
@@ -4273,6 +4446,7 @@ impl Render for ChatComposer {
             .children(form)
             .children(panel)
             .children(notice)
+            .children(chat_agent.map(|(id, name)| chat_agent_offer(&composer, id, name, cx)))
             .children(recordings)
             .child(
                 div()
@@ -4442,6 +4616,58 @@ impl Render for ChatComposer {
     }
 }
 
+/// "This chat used <agent>" with Switch, above the message box of a chat
+/// saved with a coding agent while another model is selected. Switch picks
+/// it (`models.select`), as choosing it in the picker would.
+fn chat_agent_offer(
+    composer: &Entity<ComposerStore>,
+    id: String,
+    name: String,
+    cx: &mut Context<ChatComposer>,
+) -> AnyElement {
+    let l10n = cx.l10n().clone();
+    let t = cx.conduit().clone();
+    let r = t.roles;
+    let m = t.metrics;
+    let words = l10n.desktop_chat_used_agent(&name);
+    let composer = composer.clone();
+    div()
+        .id("chat-agent-offer")
+        .debug_selector(|| "chat-agent-offer".into())
+        .role(Role::Group)
+        .aria_label(SharedString::from(words.clone()))
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(t.card_radius())
+        .border_1()
+        .border_color(r.border)
+        .bg(conduit_components::views::kit::on_raised_fill(&t))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(SharedString::from(words)),
+        )
+        .child(
+            div().debug_selector(|| "chat-agent-switch".into()).child(
+                conduit_components::views::kit::Button::new(
+                    "chat-agent-switch",
+                    l10n.desktop_settings_switch_server(),
+                )
+                .on_click(Rc::new(move |_, _, cx| {
+                    composer.update(cx, |s, cx| s.switch_to_chat_agent(&id, cx))
+                })),
+            ),
+        )
+        .into_any_element()
+}
+
 /// `content` without the bytes in `cut` (a trigger word): the tokens after
 /// it move back, one inside it goes, the rest stay tokens.
 fn cut_content(content: &InputContent, cut: std::ops::Range<usize>) -> InputContent {
@@ -4534,10 +4760,15 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        // The composer's own list has answered: it has a model to name.
+        lists_a_model(&daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
@@ -4551,6 +4782,24 @@ mod tests {
             window.draw(cx).clear(cx);
         });
         (view, vcx, seen)
+    }
+
+    /// [daemon] answers `models.list` with one model to name.
+    fn lists_a_model(daemon: &FakeDaemon) {
+        daemon.returns::<conduit_protocol::methods::ModelsList>(conduit_protocol::ModelList {
+            models: vec![conduit_protocol::ModelSummary {
+                id: "k".into(),
+                name: "Kestrel".into(),
+                description: None,
+                pinned: false,
+                capabilities: vec![],
+                connection: None,
+                logo: None,
+                agent: None,
+            }],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
     }
 
     fn value(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> String {
@@ -4905,7 +5154,10 @@ mod tests {
             serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
         );
         let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        lists_a_model(&daemon);
         let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
         view.update(cx, |c, _| c.composer = store);
         cx.simulate_input("Hello");
         view.update_in(cx, |c, window, cx| {
@@ -5178,10 +5430,14 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        lists_a_model(daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
@@ -5209,6 +5465,56 @@ mod tests {
                 cx.notify()
             })
         });
+    }
+
+    /// The open chat's model list failed while an answer is written: only
+    /// a new turn needs it. The queue still takes the message, and Stop
+    /// still stops.
+    #[gpui_kit::test]
+    fn a_failed_model_list_leaves_the_queue_and_stop(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::DraftsGet>(Default::default());
+        let (view, cx, seen) = composer_with(&daemon, cx);
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        daemon.once::<conduit_protocol::methods::ModelsList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "busy",
+        )));
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.switch_draft(
+                    Some(crate::stores::composer::DraftKey {
+                        chat_id: Some("chat-9".into()),
+                        folder_id: None,
+                    }),
+                    "",
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        assert!(
+            !store.read_with(cx, |s, _| s.can_name_model()),
+            "the chat's list did not fail"
+        );
+        view.update(cx, |c, _| {
+            c.streaming = true;
+            c.queue_offer = true;
+        });
+        cx.simulate_input("And the north side?");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the north side?".into(),
+                mentions: vec![],
+            }]
+        );
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let stop = cx.debug_bounds("composer-stop").expect("Stop is offered");
+        cx.simulate_click(stop.center(), gpui_kit::Modifiers::none());
+        assert_eq!(*seen.borrow(), vec![ChatComposerEvent::Stop]);
     }
 
     #[gpui_kit::test]

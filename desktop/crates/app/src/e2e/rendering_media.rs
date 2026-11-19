@@ -597,6 +597,38 @@ async fn pdf_cards(log: &Path, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass
 }
 
+/// Clicks the [role] control named [label] in a settings pane once it is
+/// on screen, scrolling the pane down until it is (the Chats pane is taller
+/// than the window).
+async fn click_in_view(
+    handle: gpui_kit::AnyWindowHandle,
+    role: &str,
+    label: &str,
+    cx: &mut AsyncApp,
+) -> bool {
+    let height = cx.update(|cx| {
+        handle
+            .update(cx, |_, window, _| f32::from(window.viewport_size().height))
+            .unwrap_or(600.)
+    });
+    for _ in 0..12 {
+        let nodes = drive::nodes(handle, cx).await;
+        let at = drive::find(&nodes, role, |l| l == label)
+            .filter(|n| {
+                n.bounds
+                    .is_some_and(|b| f32::from(b.top()) > 8. && f32::from(b.bottom()) < height - 8.)
+            })
+            .and_then(drive::Node::center);
+        if let Some(at) = at {
+            drive::click(handle, at, cx).await;
+            return true;
+        }
+        drive::scroll(handle, point(px(420.), px(height / 2.)), 240., cx);
+        settle(cx, 300).await;
+    }
+    false
+}
+
 async fn chats_settings(dir: &Path, cx: &mut AsyncApp) -> bool {
     let Some(handle) = settings_tab(Tab::Chats, dir, "media-settings-chats", cx).await else {
         return ok("Settings › Chats opens", false);
@@ -614,12 +646,7 @@ async fn chats_settings(dir: &Path, cx: &mut AsyncApp) -> bool {
             .settings()
             .citation_background
     });
-    let nodes = drive::nodes(handle, cx).await;
-    if let Some(at) =
-        drive::find(&nodes, "Switch", |l| l == "Highlight Citations").and_then(drive::Node::center)
-    {
-        drive::click(handle, at, cx).await;
-    }
+    click_in_view(handle, "Switch", "Highlight Citations", cx).await;
     let switched = wait_until(cx, Duration::from_secs(5), move |cx| {
         cx.global::<AppState>()
             .stores
@@ -632,12 +659,7 @@ async fn chats_settings(dir: &Path, cx: &mut AsyncApp) -> bool {
     .await;
     pass &= ok("Highlight Citations switches the setting", switched);
     // Back as it was.
-    let nodes = drive::nodes(handle, cx).await;
-    if let Some(at) =
-        drive::find(&nodes, "Switch", |l| l == "Highlight Citations").and_then(drive::Node::center)
-    {
-        drive::click(handle, at, cx).await;
-    }
+    click_in_view(handle, "Switch", "Highlight Citations", cx).await;
     settle(cx, 500).await;
 
     // Remote Content lists the allowed site; Remove takes it off.

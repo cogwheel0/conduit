@@ -56,5 +56,7 @@
       "targetId": "tidy"
     }
   ],
-  "voiceCall": true
+  "voiceCall": true,
+  "agentChat": false,
+  "ownEffortControl": false
 }

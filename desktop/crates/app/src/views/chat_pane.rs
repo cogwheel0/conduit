@@ -397,6 +397,10 @@ impl ChatPane {
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                // The composer's own state for that chat moves too, whether
+                // or not it is the chat shown.
+                this.composer_store
+                    .update(cx, |c, cx| c.rekey_chat(from, to, cx));
             }),
             cx.subscribe_in(
                 &composer,
@@ -470,6 +474,7 @@ impl ChatPane {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // The composer shows its drafts itself.
                     ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
                 };
@@ -677,15 +682,17 @@ impl ChatPane {
         self.stores
             .navigation
             .update(cx, |n, cx| n.new_chat(false, cx));
-        if let Some(model) = model {
-            self.composer_store
-                .update(cx, |c, cx| c.select_model(&model, cx));
-        }
-        // Once the new chat's draft has taken the field (the switch, which
-        // empties it, follows this update), the suggested message goes in.
+        // Once the composer is on the new chat (the switch, which empties
+        // the field, follows this update): the suggested model is picked for
+        // it (never for the chat open before), and the suggested message
+        // goes in.
         let prompt = prompt.filter(|p| !p.is_empty());
         cx.spawn_in(window, async move |this, cx| {
             let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(model) = model {
+                    this.composer_store
+                        .update(cx, |c, cx| c.select_model(&model, cx));
+                }
                 if let Some(prompt) = prompt {
                     this.composer
                         .update(cx, |c, cx| c.restore(&prompt, window, cx));
@@ -785,12 +792,8 @@ impl ChatPane {
                     }
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
-                        self.composer_store.update(cx, |c, _| {
-                            c.rekey_draft(DraftKey {
-                                chat_id: Some(id.clone()),
-                                folder_id: None,
-                            })
-                        });
+                        self.composer_store
+                            .update(cx, |c, cx| c.rekey_chat(&current, &id, cx));
                         return;
                     }
                 }
@@ -1139,7 +1142,9 @@ impl ChatPane {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: the order of model answers starts
+                // again (the open chat, draft and attachments stay).
+                self.composer_store.update(cx, |c, cx| c.reconnected(cx));
                 // A new daemon session: handles and the Computer offer anew.
                 crate::views::terminal::chat::forget_handles(cx);
                 self.computer_revision += 1;
@@ -1884,8 +1889,17 @@ impl ChatPane {
         cx.notify();
     }
 
+    /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
+    /// no answer is run again and no message edited.
+    pub fn agent_chat(&self, cx: &App) -> bool {
+        self.composer_store.read(cx).agent_chat()
+    }
+
     /// Chat › Regenerate: the newest answer again.
     pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
+        if self.agent_chat(cx) {
+            return;
+        }
         if let Some(chat) = &self.chat {
             chat.store.update(cx, |s, cx| {
                 if let Some(id) = s.last_answer_id() {
@@ -3594,6 +3608,21 @@ mod tests {
             cx: &mut TestAppContext,
         ) -> (FakeDaemon, Stores, Entity<ChatPane>, &mut VisualTestContext) {
             let daemon = FakeDaemon::new();
+            // Each chat's list answers with a model to name.
+            daemon.returns::<methods::ModelsList>(conduit_protocol::ModelList {
+                models: vec![conduit_protocol::ModelSummary {
+                    id: "k".into(),
+                    name: "Kestrel".into(),
+                    description: None,
+                    pinned: false,
+                    capabilities: vec![],
+                    connection: None,
+                    logo: None,
+                    agent: None,
+                }],
+                selected_id: Some("k".into()),
+                ..Default::default()
+            });
             let scratch = std::env::temp_dir().join(format!("conduit-pane-{}", std::process::id()));
             let stores = cx.update(|cx| {
                 crate::views::test_globals(cx);
@@ -3624,6 +3653,88 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// A chat saved with a coding agent, opened while another model is
+        /// selected, shows "This chat used …" with Switch above the message
+        /// box, and Switch picks that agent for the chat.
+        #[gpui_kit::test]
+        fn a_chat_saved_with_an_agent_shows_switch(cx: &mut TestAppContext) {
+            let (daemon, stores, _pane, vcx) = bench(cx);
+            let agent = "agent:north:codex:gpt-test";
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "selectedId": "k",
+                    "agentNames": {agent: "Codex · gpt-test"},
+                    "chatAgent": agent
+                }))
+            });
+            daemon.on::<methods::ModelsSelect>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "selectedId": agent
+                }))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c-agent", cx));
+            vcx.run_until_parked();
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            let switch = vcx
+                .debug_bounds("chat-agent-switch")
+                .expect("Switch is offered for the chat's agent");
+            assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
+            vcx.simulate_click(switch.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1);
+            assert_eq!(picks[0]["id"], agent);
+            assert_eq!(picks[0]["chatId"], "c-agent");
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(vcx.debug_bounds("chat-agent-switch").is_none());
+        }
+
+        /// A handoff with a suggested model, taken while chat A is open: the
+        /// model is picked for the new chat (New Chat, no chat id) once the
+        /// composer is on it, never for chat A, and the new chat shows it.
+        #[gpui_kit::test]
+        fn a_handoffs_model_is_picked_for_the_new_chat_not_the_open_one(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            let summary = |id: &str| serde_json::json!({"id": id, "name": id, "pinned": false, "capabilities": []});
+            daemon.on::<methods::ModelsSelect>(move |q| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": q["id"],
+                    "revision": 1,
+                }))
+            });
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": "k",
+                }))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.open_handoff(
+                    Some("suggested".into()),
+                    Some("Carry on from here".into()),
+                    window,
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1, "{picks:?}");
+            assert_eq!(picks[0]["id"], "suggested");
+            assert!(
+                picks[0].get("chatId").is_none_or(|c| c.is_null()),
+                "the handoff's model was picked for chat A: {picks:?}"
+            );
+            pane.read_with(vcx, |p, cx| {
+                let c = p.composer_store.read(cx);
+                assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some("suggested"));
+            });
         }
 
         /// A link handled right after a new chat's in the same batch

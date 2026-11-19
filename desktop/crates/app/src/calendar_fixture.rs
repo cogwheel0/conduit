@@ -164,6 +164,7 @@ fn tasks() -> AutomationList {
                 next_run_at: (i % 6 != 0).then_some(base + i as i64 * 3_600_000),
                 last_run_at: Some(base - i as i64 * 3_600_000),
                 last_run_failed: i % 9 == 0,
+                agent: None,
             })
             .collect(),
     }

@@ -323,6 +323,14 @@ abstract final class ConduitMethods {
   /// Turns Hermes' Fast tier on or off.
   static const String modelsSetFastTier = 'models.setFastTier';
 
+  /// One model's controls (Open WebUI's `model_controls`: a coding agent's
+  /// reasoning effort or service tier), with the option that applies now.
+  static const String modelsControls = 'models.controls';
+
+  /// Picks an option of a model's control, or clears the pick, in the
+  /// account's Open WebUI settings.
+  static const String modelsSetControl = 'models.setControl';
+
   // ---------------------------------------------------------------------
   // chatSettings.* -- a chat's own system prompt and parameters (Open
   // WebUI's `chat.params`), as mobile's Chat Settings sheet edits them.
@@ -932,6 +940,11 @@ abstract final class ConduitMethods {
 
   /// Creates the draft's task, or replaces the task with it.
   static const String automationsSave = 'automations.save';
+
+  /// The server terminals a task may run with, and the models the editor
+  /// offers with the draft's terminal and working folder (its coding
+  /// agents among them).
+  static const String automationsTerminals = 'automations.terminals';
 
   static const String applePrefix = 'apple.';
 

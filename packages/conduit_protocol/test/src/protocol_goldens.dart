@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.70.0",
+  "protocolVersion": "1.71.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.70.0",
+  "protocolVersion": "1.71.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -807,7 +807,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   "selectedId": "gpt-4o",
   "featuredIds": [],
   "moreSections": [],
-  "canPin": false
+  "canPin": false,
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'selectModel': r'''
@@ -4830,7 +4833,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "targetId": "tidy"
     }
   ],
-  "voiceCall": true
+  "voiceCall": true,
+  "agentChat": false,
+  "ownEffortControl": false
 }''',
 
   'attachmentAvailability': r'''
@@ -6152,6 +6157,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "sendOnEnter": true,
   "showComposerNotesButton": false,
+  "showModelNameInComposer": true,
   "temporaryChatByDefault": true,
   "citationShowTitles": true,
   "citationBackground": false,
@@ -6193,6 +6199,7 @@ const Map<String, String> protocolGoldens = <String, String>{
     "image"
   ],
   "sendOnEnter": true,
+  "showModelNameInComposer": false,
   "ttsSpeed": 1.5,
   "clear": [
     "defaultModel",
@@ -7281,7 +7288,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "canPin": true,
-  "defaultId": "fake-model"
+  "defaultId": "fake-model",
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'modelSection': r'''
@@ -7295,7 +7305,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'setModelPinned': r'''
 {
   "id": "fake-model",
-  "pinned": true
+  "pinned": true,
+  "chatId": "chat-1"
 }''',
 
   'modelOptionsQuery': r'''
@@ -9348,7 +9359,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'automationOption': r'''
 {
   "id": "fake-model",
-  "name": "Fake"
+  "name": "Fake",
+  "agent": false
 }''',
 
   'automationEditorOpen': r'''
@@ -9380,10 +9392,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "models": [
     {
       "id": "fake-model",
-      "name": ""
+      "name": "",
+      "agent": false
     }
   ],
-  "terminal": true
+  "terminal": true,
+  "agentsUnknown": false
 }''',
 
   'automationDraftEdit': r'''
@@ -9435,6 +9449,291 @@ const Map<String, String> protocolGoldens = <String, String>{
   "changed": true,
   "saved": false,
   "failure": "Schedule too frequent."
+}''',
+
+  'modelListAgents': r'''
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": false,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "agent:buildbox:codex:gpt-5.1",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "pinned": false,
+      "capabilities": [],
+      "agent": {
+        "terminalId": "buildbox",
+        "terminalName": "Build box",
+        "agent": "codex",
+        "agentName": "Codex",
+        "model": "gpt-5.1"
+      }
+    }
+  ],
+  "agentNames": {
+    "agent:buildbox:pi:default": "Pi · default"
+  },
+  "chatAgent": "agent:buildbox:pi:default",
+  "revision": 0
+}''',
+
+  'terminalAgent': r'''
+{
+  "terminalId": "buildbox",
+  "agent": "claude-code",
+  "agentName": "",
+  "model": "sonnet"
+}''',
+
+  'modelListQuery': r'''
+{
+  "chatId": "chat-1",
+  "temporary": true
+}''',
+
+  'selectModelInChat': r'''
+{
+  "id": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1"
+}''',
+
+  'modelControlOption': r'''
+{
+  "value": "high",
+  "label": "High"
+}''',
+
+  'modelControl': r'''
+{
+  "key": "service_tier",
+  "label": "Service tier",
+  "description": "How fast the agent answers.",
+  "options": [
+    {
+      "value": "flex",
+      "label": "Flex"
+    },
+    {
+      "value": "priority",
+      "label": "Priority"
+    }
+  ],
+  "defaultValue": "flex",
+  "value": "priority"
+}''',
+
+  'modelControlsQuery': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1"
+}''',
+
+  'modelControlList': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "controls": [
+    {
+      "key": "reasoning_effort",
+      "label": "",
+      "options": [
+        {
+          "value": "low",
+          "label": ""
+        }
+      ]
+    }
+  ]
+}''',
+
+  'setModelControl': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "key": "reasoning_effort",
+  "value": "high"
+}''',
+
+  'composerOptionsQuery': r'''
+{
+  "chatId": "chat-1",
+  "modelId": "fake-model"
+}''',
+
+  'composerOptionsAgent': r'''
+{
+  "webSearch": false,
+  "imageGeneration": false,
+  "tools": [],
+  "mcpTools": [],
+  "filters": [],
+  "filterDefaults": [],
+  "codeInterpreter": false,
+  "attachments": {
+    "files": true,
+    "serverFiles": false,
+    "images": true,
+    "webPage": false,
+    "mcpContent": false
+  },
+  "skills": false,
+  "context": false,
+  "notes": false,
+  "mentions": false,
+  "steer": false,
+  "imageConversions": [],
+  "compareModels": false,
+  "quickPills": [],
+  "voiceCall": false,
+  "agentChat": true,
+  "ownEffortControl": true
+}''',
+
+  'automationSummaryAgent': r'''
+{
+  "id": "task-agent",
+  "name": "Nightly tidy",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "lastRunFailed": false,
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "Codex",
+    "model": "gpt-5.1"
+  }
+}''',
+
+  'automationDetailTerminal': r'''
+{
+  "summary": {
+    "id": "task-agent",
+    "name": "Nightly tidy",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "modelName": "Codex · gpt-5.1",
+  "target": "chat",
+  "terminal": true,
+  "terminalId": "buildbox",
+  "terminalName": "Build box",
+  "workingDirectory": "/home/demo/sketches",
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "",
+    "model": "gpt-5.1"
+  },
+  "nextRuns": []
+}''',
+
+  'automationFieldsTerminal': r'''
+{
+  "name": "Nightly tidy",
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "terminalId": "buildbox",
+  "workingDirectory": "/home/demo/sketches"
+}''',
+
+  'automationEditorTerminals': r'''
+{
+  "token": "te-2",
+  "isNew": true,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat",
+    "terminalId": "buildbox"
+  },
+  "terminal": false,
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "agentsUnknown": true,
+  "agentName": "Codex · gpt-5.1"
+}''',
+
+  'automationTerminals': r'''
+{
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "agent": false
+    },
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "detail": "Build box",
+      "agent": true
+    }
+  ],
+  "agentsUnknown": false
 }''',
 
 };
