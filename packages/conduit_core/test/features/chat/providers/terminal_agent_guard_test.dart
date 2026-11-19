@@ -13,8 +13,9 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
+import 'package:riverpod/riverpod.dart';
+import 'package:test/test.dart';
 
 const _agent = Model(id: 'agent:t1:codex:gpt-5.1', name: 'Codex · gpt-5.1');
 
@@ -53,12 +54,13 @@ class _Terminals extends TerminalService {
 
 /// A selected agent, the guard listening, the chat's terminal list [servers]
 /// and the server's own list [system], then each of [terminals] selected in
-/// turn. Returns whether the default model was put back.
-Future<bool> _restoredAfter(
+/// turn, on fake time, settled after each step. Returns whether the default
+/// model was put back.
+bool _restoredAfter(
   FutureOr<List<TerminalServerInfo>> Function() servers, {
   FutureOr<List<TerminalServerInfo>> Function()? system,
   List<String?> terminals = const [],
-}) async {
+}) => fakeAsync((time) {
   final container = ProviderContainer(
     overrides: [
       terminalAvailableServersProvider.overrideWith((ref) => servers()),
@@ -72,59 +74,47 @@ Future<bool> _restoredAfter(
       defaultModelProvider.overrideWith((ref) async => null),
     ],
   );
-  addTearDown(container.dispose);
   container.read(isManualModelSelectionProvider.notifier).set(true);
-  final guard = container.listen(
-    terminalAgentSelectionGuardProvider,
-    (_, _) {},
-  );
-  addTearDown(guard.close);
-  final listed = container.listen(terminalAvailableServersProvider, (_, _) {});
-  addTearDown(listed.close);
-  await container
-      .read(terminalAvailableServersProvider.future)
-      .then((_) {}, onError: (_) {});
+  container.listen(terminalAgentSelectionGuardProvider, (_, _) {});
+  container.listen(terminalAvailableServersProvider, (_, _) {});
+  time.flushMicrotasks();
   for (final terminal in terminals) {
     container.read(selectedTerminalIdProvider.notifier).set(terminal);
-  }
-  for (var i = 0; i < 5; i++) {
-    await Future<void>.delayed(Duration.zero);
+    time.flushMicrotasks();
   }
   // A restore starts by marking the selection as no longer the user's own.
-  return !container.read(isManualModelSelectionProvider);
-}
+  final restored = !container.read(isManualModelSelectionProvider);
+  container.dispose();
+  return restored;
+});
 
 void main() {
   test('an agent whose terminal the server no longer offers gives way to the '
-      'default model', () async {
-    check(await _restoredAfter(() => [_system('t2')])).isTrue();
+      'default model', () {
+    check(_restoredAfter(() => [_system('t2')])).isTrue();
   });
 
-  test('an agent whose terminal is still offered stays', () async {
-    check(await _restoredAfter(() => [_system('t1')])).isFalse();
+  test('an agent whose terminal is still offered stays', () {
+    check(_restoredAfter(() => [_system('t1')])).isFalse();
   });
 
-  test('an agent gives way once another terminal, or none, is selected',
-      () async {
+  test('an agent gives way once another terminal, or none, is selected', () {
     final offered = [_system('t1'), _system('t2')];
-    check(await _restoredAfter(() => offered, terminals: ['t1'])).isFalse();
-    check(await _restoredAfter(() => offered, terminals: ['t1', 't2']))
-        .isTrue();
-    check(await _restoredAfter(() => offered, terminals: ['t1', null]))
-        .isTrue();
+    check(_restoredAfter(() => offered, terminals: ['t1'])).isFalse();
+    check(_restoredAfter(() => offered, terminals: ['t1', 't2'])).isTrue();
+    check(_restoredAfter(() => offered, terminals: ['t1', null])).isTrue();
   });
 
-  test('a terminal list that cannot be read changes nothing', () async {
-    check(await _restoredAfter(() => Future.error(StateError('offline'))))
-        .isFalse();
+  test('a terminal list that cannot be read changes nothing', () {
+    check(_restoredAfter(() => Future.error(StateError('offline')))).isFalse();
   });
 
   test('a list without the server\'s terminals, from a failed read of them, '
-      'changes nothing', () async {
+      'changes nothing', () {
     // getAvailableServers keeps a user's own terminals when the server's
     // list fails, so the combined list arrives without the agent's.
     check(
-      await _restoredAfter(
+      _restoredAfter(
         () => const <TerminalServerInfo>[],
         system: () => Future.error(StateError('offline')),
       ),
