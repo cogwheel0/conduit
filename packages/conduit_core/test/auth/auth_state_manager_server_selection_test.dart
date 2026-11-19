@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
@@ -14,6 +15,7 @@ import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:drift/native.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
@@ -217,13 +219,18 @@ void main() {
   group('a proxy sign-in staged for an account', () {
     late Directory tempDir;
     late WorkerManager workers;
+    late AppDatabase database;
     late OptimizedStorageService storage;
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('proxy-staged-test');
       Hive.init(tempDir.path);
       workers = WorkerManager(maxConcurrentTasks: 1);
+      // The account's cache (its user), written at once: without one,
+      // storage waits out its retries for a database to appear.
+      database = AppDatabase(NativeDatabase.memory());
       storage = OptimizedStorageService(
+        database: () => database,
         secureStorage: InMemorySecureKeyValueStore(),
         boxes: HiveBoxes(
           preferences: await Hive.openBox<dynamic>(HiveBoxNames.preferences),
@@ -239,6 +246,7 @@ void main() {
 
     tearDown(() async {
       workers.dispose();
+      await database.close();
       await Hive.close();
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
