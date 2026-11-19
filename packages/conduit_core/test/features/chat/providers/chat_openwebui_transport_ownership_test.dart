@@ -7473,6 +7473,42 @@ void main() {
       await pumpEventQueue();
     });
 
+    test('a Stop while the last check before a comparison\'s request reads '
+        'its op sends no request, and no answer streams again', () async {
+      final (:api, :socket, :container) = await open();
+      final (:ids, :payload) = await claimed(container);
+      final wire = _HeldCompletionAdapter();
+      api.sendOverWire(wire);
+      // Taken as the answers' send is registered, right before the check
+      // reads the op: the read waits behind it, and Stop's write behind that.
+      final locks = container.read(chatLocksProvider);
+      final read = Completer<void>();
+      final registered = Completer<void>();
+      api.onBeginSend = (_) {
+        if (registered.isCompleted) return;
+        registered.complete();
+        unawaited(locks.runExclusive(chatId, () => read.future));
+      };
+
+      final running = runnerFor(container)
+          .run(chatId: chatId, payload: payload);
+      await registered.future;
+      container.read(stopGenerationProvider)();
+      read.complete();
+      await running;
+      await pumpEventQueue();
+
+      check(wire.entered.isCompleted).isFalse();
+      final shown = {
+        for (final message in container.read(chatMessagesProvider))
+          message.id: message,
+      };
+      for (final id in ids) {
+        check(shown[id]!.isStreaming).isFalse();
+        check((await storedAnswerOf(id))['isStreaming']).equals(false);
+      }
+    });
+
     test('a Stop while a comparison\'s request is on its way aborts it, and '
         'every answer ends stopped, none of them answered', () async {
       final (:api, :socket, :container) = await open();
@@ -11698,6 +11734,15 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     _wire = adapter;
     dio.httpClientAdapter = adapter;
     dio.interceptors.clear();
+  }
+
+  /// Runs as an answer's send is registered ([beginSend]).
+  void Function(String messageId)? onBeginSend;
+
+  @override
+  void beginSend(String messageId, {bool adopt = false}) {
+    super.beginSend(messageId, adopt: adopt);
+    onBeginSend?.call(messageId);
   }
 
   /// When set, an attached file's info is answered only once this completes,

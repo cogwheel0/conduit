@@ -143,7 +143,8 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     // resumed after a restart has no send registered in memory, so a Stop
     // before this is only on the op. The answers' send is registered, then
     // the op is read under the chat lock, behind any Stop's write already
-    // asked for: a Stop is found in one or the other.
+    // asked for. A Stop while it is read is only in memory, its write queued
+    // behind the read: both are asked.
     Future<bool> settledIfStopped(Iterable<String> answers) async {
       final api = owner.api;
       if (api is ApiService) {
@@ -151,14 +152,16 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
           api.beginSend(id, adopt: true);
         }
       }
-      final stopped = await _ref
+      final marked = await _ref
           .read(chatLocksProvider)
           .runExclusive(
             chatId,
             () => db.outboxDao.completionStopped(chatId, assistantMessageId),
           );
       requireCurrentConversationOwner();
-      if (!stopped) return false;
+      if (!marked && !(api is ApiService && answers.any(api.sendStopped))) {
+        return false;
+      }
       await settleStoppedOpenWebUiCompletion(
         _ref,
         api: api,
