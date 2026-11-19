@@ -8,6 +8,7 @@ import 'package:conduit_core/models/browser_sign_in_session.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
@@ -695,6 +696,45 @@ void main() {
 
       check(dropped).deepEquals([(accountId: 'a', session: session)]);
       check(await storedSession('a')).isNull();
+    });
+
+    test('when the saved sign-in of an account no longer saved is deleted, '
+        'even if forgetting it as the active one then fails', () async {
+      const session = BrowserSignInSession(
+        serverId: 'server-gone',
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: 'https://id.example.com',
+        tokenEndpoint: 'https://id.example.com/token',
+        refreshToken: 'refresh-gone',
+        owuiUserId: 'user-gone',
+      );
+      await secure.write(
+        key: 'browser_sign_in_session_v1:gone',
+        value: session.encode(),
+      );
+      await storage.saveCredentials(
+        serverId: 'gone',
+        username: 'jwt_user',
+        password: 'jwt-gone',
+        authType: AuthTypes.ssoBrowser,
+      );
+      PreferencesStore.debugOverride(
+        InMemoryKeyValueStore({PreferenceKeys.activeServerId: 'gone'}),
+        writeInterceptor: (_, key, value) async =>
+            key == PreferenceKeys.activeServerId ? false : null,
+      );
+
+      final dropped = await droppedBy(() async {
+        await check(
+          storage.deleteSavedCredentialsIfMatchesAndServerMissing(
+            browserSignIn('gone'),
+          ),
+        ).throws<StateError>();
+      });
+
+      check(dropped).deepEquals([(accountId: 'gone', session: session)]);
+      check(await storedSession('gone')).isNull();
     });
 
     test('when choosing the account to sign in to afresh', () async {

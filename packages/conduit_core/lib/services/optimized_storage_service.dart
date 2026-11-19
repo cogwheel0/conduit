@@ -1378,27 +1378,33 @@ class OptimizedStorageService {
     Map<String, String> expected,
   ) async {
     StoredBrowserSignInSession? dropped;
-    final deleted = await _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(() async {
-        final serverId = expected['serverId'];
-        if (serverId == null) return false;
-        final configs = await _getServerConfigsStrictUnlocked();
-        if (configs.any((config) => config.id == serverId)) return false;
+    try {
+      return await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          final serverId = expected['serverId'];
+          if (serverId == null) return false;
+          final configs = await _getServerConfigsStrictUnlocked();
+          if (configs.any((config) => config.id == serverId)) return false;
 
-        final payload = await _secureCredentialStorage
-            .getSavedCredentialsPayloadStrict();
-        if (!_savedCredentialsPayloadMatches(payload, expected)) return false;
+          final payload = await _secureCredentialStorage
+              .getSavedCredentialsPayloadStrict();
+          if (!_savedCredentialsPayloadMatches(payload, expected)) {
+            return false;
+          }
 
-        await _deleteSavedCredentialsUnlocked();
-        dropped = await _takeBrowserSessionUnlocked(serverId);
-        if (_rawStoredActiveServerId(bypassReadSuppression: true) == serverId) {
-          await _writeActiveServerIdWithoutConfigSync(null);
-        }
-        return true;
-      }),
-    );
-    _notifyBrowserSessionsDropped([?dropped]);
-    return deleted;
+          await _deleteSavedCredentialsUnlocked();
+          dropped = await _takeBrowserSessionUnlocked(serverId);
+          if (_rawStoredActiveServerId(bypassReadSuppression: true) ==
+              serverId) {
+            await _writeActiveServerIdWithoutConfigSync(null);
+          }
+          return true;
+        }),
+      );
+    } finally {
+      // Gone for good once taken, whatever the write after it does.
+      _notifyBrowserSessionsDropped([?dropped]);
+    }
   }
 
   Future<bool> hasCredentials() async {
