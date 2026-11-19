@@ -353,12 +353,19 @@ var _offered = _terminals;
 /// A fresh read of the server's own terminals fails while this is set.
 var _systemUnreadable = false;
 
+/// A fresh read of the server's own terminals waits for this while it is
+/// set; [_systemAsked] completes as one starts.
+Completer<void>? _systemHeld;
+Completer<void> _systemAsked = Completer<void>();
+
 /// The server's own terminals, read afresh: [_offered].
 final class _SystemTerminals extends TerminalService {
   _SystemTerminals(super.api);
 
   @override
   Future<List<TerminalServerInfo>> getSystemTerminalServers() async {
+    if (!_systemAsked.isCompleted) _systemAsked.complete();
+    await _systemHeld?.future;
     if (_systemUnreadable) throw StateError('the terminals are unreadable');
     return _offered;
   }
@@ -382,6 +389,8 @@ ProviderContainer _agentContainer(
   _terminalsUnreadable = false;
   _offered = _terminals;
   _systemUnreadable = false;
+  _systemHeld = null;
+  _systemAsked = Completer<void>();
   _defaultHeld = null;
   _chatAsked = Completer<void>();
   final container = ProviderContainer(
@@ -829,6 +838,59 @@ void main() {
       _switchTo(container, _home);
       check((await models.list()).selectedId).equals('first-model');
       check(await models.modelFor(null)).equals('first-model');
+    });
+
+    /// New Chat's agent picked under the home account, its terminal gone
+    /// from the list; [read] starts, and another signed-in Open WebUI
+    /// account takes over while the server's own read of its terminals,
+    /// which confirms that, waits.
+    Future<Object?> readWhileAnotherTakesOver(
+      Future<Object?> Function(ModelsService models) read,
+    ) async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      _offered = [_terminals.last];
+      container.invalidate(terminalAvailableServersProvider);
+      await container.read(terminalAvailableServersProvider.future);
+      _systemHeld = Completer<void>();
+      final reading = read(models);
+      await _systemAsked.future;
+      _session = Object();
+      _switchTo(
+        container,
+        const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'away'),
+      );
+      _systemHeld!.complete();
+      return reading;
+    }
+
+    test("New Chat's coding agent is not the model a turn runs with for an "
+        'account that takes over while its terminal is checked', () async {
+      await expectLater(
+        readWhileAnotherTakesOver((models) => models.modelFor(null)),
+        refused(ConduitErrorCodes.sessionExpired),
+      );
+    });
+
+    test("New Chat's coding agent's controls are not answered for an account "
+        'that takes over while its terminal is checked', () async {
+      await expectLater(
+        readWhileAnotherTakesOver(
+          (models) =>
+              models.controls(const ModelControlsQuery(modelId: _northAgent)),
+        ),
+        refused(ConduitErrorCodes.sessionExpired),
+      );
+    });
+
+    test("New Chat's list for an account that takes over while its terminal "
+        "is checked is that account's, without the last one's agent", () async {
+      final list = await readWhileAnotherTakesOver(
+        (models) => models.list(),
+      ) as ModelList;
+      check(list.selectedId).equals('first-model');
     });
 
     test("goes from New Chat to the chat its first message makes", () async {

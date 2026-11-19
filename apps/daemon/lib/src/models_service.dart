@@ -161,8 +161,13 @@ final class ModelsService {
   /// or once the server confirms its terminal is gone. Its slot is cleared
   /// then, at the next revision, and every window showing New Chat lists it
   /// again. A chat's own agent stays: it runs on its own terminal.
+  ///
+  /// Every reader of New Chat's pick checks through this, and it refuses
+  /// ([AccountScope.require]) once another account is in charge, before the
+  /// check and after its wait: the pick is [account]'s, and the request
+  /// would otherwise answer the next account with it.
   Future<void> _checkNewChat(AccountScope account) async {
-    if (!account.isCurrent) return;
+    account.require("New Chat's coding agent is checked");
     final pick = _picksOf(account)[null];
     final agent = pick?.model;
     if (pick == null || terminalAgentTerminalId(agent) == null) return;
@@ -173,7 +178,8 @@ final class ModelsService {
       service: _container.read(terminalServiceProvider),
       scope: _container.read(terminalSessionScopeIdProvider),
     );
-    if (!gone || !account.isCurrent) return;
+    account.require("New Chat's coding agent is checked");
+    if (!gone) return;
     final picks = _picksOf(account);
     if (!identical(picks[null], pick)) return;
     pick.gone = true;
@@ -243,11 +249,7 @@ final class ModelsService {
     final made = taken != null
         // A coding agent New Chat picked, as New Chat's terminal offered it:
         // the chat knows it by its id alone, its controls asked of its own.
-        ? _Pick(
-            taken,
-            slot!.revision,
-            idOnly: isTerminalAgentModelId(taken.id),
-          )
+        ? _Pick(taken, slot!.revision, idOnly: isTerminalAgentModelId(taken.id))
         : model != null && isTerminalAgentModelId(model)
         ? _Pick(
             core.Model(
