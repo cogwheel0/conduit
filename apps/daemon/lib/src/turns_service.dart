@@ -290,24 +290,47 @@ final class TurnsService implements ChatTurns, AddressReplies {
   @override
   bool get addressAnswering => _sessions.any(_answersThroughAddress);
 
-  /// Stops the answers [addressAnswering] counts. A send of one not yet
-  /// started is let start first, then stopped with the rest.
+  /// Stops the answers [addressAnswering] counts: the running ones, and at
+  /// once each send of one not yet started, dropped as Stop drops one
+  /// ([_dropSend]) rather than waited out (with no socket, Open WebUI
+  /// answers such a request only once its whole reply is written). Once
+  /// those sends have settled, an answer one of them started meanwhile is
+  /// stopped too.
   @override
   Future<void> stopAddressAnswers() async {
+    bool counted(_Turn turn) => answersThroughAddress(
+      running: true,
+      sending: false,
+      transport: turn.transport,
+    );
     await Future.wait(<Future<void>>[
-      for (final session in _sessions)
+      _stopRunning(where: counted),
+      for (final session in List<_ChatSession>.of(_sessions))
         if (session.pending case final pending?
             when !pending.started.isCompleted &&
                 _answersThroughAddress(session))
-          pending.started.future.then<void>((_) {}, onError: (_) {}),
+          _dropSend(session, pending),
     ]);
-    await _stopRunning(
-      where: (turn) => answersThroughAddress(
-        running: true,
-        sending: false,
-        transport: turn.transport,
-      ),
-    );
+    await _stopRunning(where: counted);
+  }
+
+  /// Drops [pending], a send not yet started, as the phone's Stop does: the
+  /// core's stop in its chat drops the request still on its way, and the
+  /// send then settles. Completes once it has.
+  Future<void> _dropSend(_ChatSession session, _PendingTurn pending) async {
+    if (!session.scope.isDisposed) {
+      try {
+        await session.scope.container.read(stopGenerationSettledProvider)();
+      } on Object catch (error, stackTrace) {
+        DebugLogger.error(
+          'turn-send-stop-failed',
+          scope: 'daemon/turns',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    await pending.started.future.then<void>((_) {}, onError: (_) {});
   }
 
   bool _answersThroughAddress(_ChatSession session) {
@@ -320,10 +343,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
       );
     }
     final pending = session.pending;
-    final id = pending?.assistantMessageId;
-    final answer = id == null
+    final answer = pending == null
         ? null
-        : _find(session, session.scope.messages, id);
+        : _pendingAnswer(session, pending, session.scope.messages);
     return answersThroughAddress(
       running: false,
       sending: pending != null && !pending.started.isCompleted,
@@ -1489,6 +1511,20 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final session = _sessionOf(chatId);
     final turn = session?.turn;
     if (session == null || turn == null || turn.finished) {
+      // A send whose answer comes through the address, not yet started:
+      // dropped now, not once the server answers (with no socket, only
+      // when the whole reply is written).
+      final pending = session?.pending;
+      if (session != null &&
+          pending != null &&
+          !pending.started.isCompleted &&
+          _answersThroughAddress(session)) {
+        await _dropSend(session, pending);
+        if (session.turn case final started? when !started.finished) {
+          await _stopTurn(session, started);
+        }
+        return;
+      }
       await _stopStranded(chatId, session, account);
       return;
     }
@@ -2477,26 +2513,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _PendingTurn pending,
     List<ChatMessage> messages,
   ) {
-    ChatMessage? answer;
-    final expected = pending.assistantMessageId;
-    if (expected != null) {
-      answer = _find(session, messages, expected);
-    } else {
-      // The answer now streaming at the end of the transcript. A regenerate
-      // may stream into the answer it replaces, keeping its id and moving
-      // the old text into its versions, as the core does for a direct chat.
-      final tail = messages.where((m) => m.role == 'assistant').lastOrNull;
-      if (tail != null &&
-          tail.isStreaming &&
-          !(pending.baseline[tail.id]?.isStreaming ?? false)) {
-        answer = tail;
-      } else if (tail != null &&
-          pending.sendSettled &&
-          _changed(pending.baseline[tail.id], tail)) {
-        // Over before it was seen streaming: a quick provider.
-        answer = tail;
-      }
-    }
+    final answer = _pendingAnswer(session, pending, messages);
     if (answer == null) {
       if (pending.sendSettled && pending.sendError == null) {
         pending.started.completeError(
@@ -2532,7 +2549,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         (asked == null ? null : _currentId(session, asked)) ??
         messages
             .take(index < 0 ? 0 : index)
-            .lastWhere((m) => m.role == 'user', orElse: () => answer!)
+            .lastWhere((m) => m.role == 'user', orElse: () => answer)
             .id;
     final turn =
         _Turn(
@@ -4307,6 +4324,23 @@ final class TurnsService implements ChatTurns, AddressReplies {
     return messages.where((m) => m.id == current).lastOrNull;
   }
 
+  /// The answer [pending] is writing in [messages], as its turn takes it:
+  /// the one it named, else the one [sentAnswerAtTail] finds.
+  static ChatMessage? _pendingAnswer(
+    _ChatSession session,
+    _PendingTurn pending,
+    List<ChatMessage> messages,
+  ) {
+    final expected = pending.assistantMessageId;
+    return expected != null
+        ? _find(session, messages, expected)
+        : sentAnswerAtTail(
+            messages,
+            before: pending.baseline,
+            settled: pending.sendSettled,
+          );
+  }
+
   static String _currentId(_ChatSession session, String id) =>
       session.scope.isDisposed
       ? id
@@ -4455,6 +4489,27 @@ final class _NotQuietYet implements Exception {
 /// itself, or a LibreChat one, which its own server writes. [transport] is
 /// the answer's; a send whose answer is not there yet has none, and counts,
 /// so a change waits the moment it takes to show.
+/// The answer a send that named none is writing, as its turn takes it: the
+/// one streaming at the end of [messages] that was not streaming before the
+/// send ([before]), or, once the send has returned ([settled]), the last
+/// answer it changed (a quick provider's, over before it was seen
+/// streaming). A regenerate may stream into the answer it replaces, keeping
+/// its id and moving the old text into its versions, as the core does for a
+/// direct chat.
+ChatMessage? sentAnswerAtTail(
+  List<ChatMessage> messages, {
+  required Map<String, ChatMessage> before,
+  required bool settled,
+}) {
+  final tail = messages.where((m) => m.role == 'assistant').lastOrNull;
+  if (tail == null) return null;
+  if (tail.isStreaming && !(before[tail.id]?.isStreaming ?? false)) {
+    return tail;
+  }
+  if (settled && TurnsService._changed(before[tail.id], tail)) return tail;
+  return null;
+}
+
 bool answersThroughAddress({
   required bool running,
   required bool sending,

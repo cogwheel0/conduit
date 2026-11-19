@@ -1,12 +1,24 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:conduit_core/database/database_provider.dart'
+    show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
+
+import 'support/fake_owui_auth_server.dart';
+import 'support/null_sink.dart';
 
 /// The answers an address change waits for or stops: the Open WebUI ones,
 /// which arrive through the active account's address.
@@ -63,4 +75,190 @@ void main() {
       );
     });
   }
+
+  test('a LibreChat regenerate not yet started does not count: its send '
+      'names no answer, and the one streaming at the end is LibreChat\'s', () {
+    final asked = ChatMessage(
+      id: 'question',
+      role: 'user',
+      content: 'Name a kitchen tool.',
+      timestamp: DateTime.utc(2026, 11, 20),
+    );
+    final before = ChatMessage(
+      id: 'answer',
+      role: 'assistant',
+      content: 'A whisk.',
+      timestamp: DateTime.utc(2026, 11, 20),
+      metadata: const {'transport': kLibreChatTransport},
+    );
+    // The regenerate streams into the answer it replaces.
+    final again = before.copyWith(content: '', isStreaming: true);
+    final answer = sentAnswerAtTail(
+      [asked, again],
+      before: {before.id: before},
+      settled: false,
+    );
+    expect(answer?.id, 'answer');
+    expect(
+      answersThroughAddress(
+        running: false,
+        sending: true,
+        transport: answer?.metadata?['transport'],
+      ),
+      isFalse,
+    );
+  });
+
+  group('against a fake Open WebUI', () {
+    late FakeOwuiAuthServer owui;
+    late EventBus events;
+    late TurnsService turns;
+
+    setUp(() async {
+      final temporary = Directory.systemTemp.createTempSync('turns-address');
+      addTearDown(() => temporary.deleteSync(recursive: true));
+      final runtime = await CoreRuntime.start(
+        config: BootstrapConfig(
+          sessionToken: 'a' * 43,
+          masterKey: base64.encode(List<int>.generate(32, (i) => i)),
+          userDataDir: temporary.path,
+        ),
+        directories: DaemonDirectories.create(temporary.path),
+        log: DaemonLog(level: 'error', sink: NullSink()),
+      );
+      addTearDown(runtime.dispose);
+      owui =
+          await FakeOwuiAuthServer.start(
+              users: const {
+                'ada@example.com': (
+                  id: 'user-ada',
+                  name: 'Ada',
+                  password: 'pw-ada',
+                ),
+              },
+            )
+            ..models = const ['kettle-model'];
+      addTearDown(owui.close);
+      events = EventBus();
+      final accounts = AccountsService(runtime.container, events: events);
+      addTearDown(accounts.dispose);
+      final auth = AuthService(runtime.container);
+      addTearDown(auth.dispose);
+      final added = await accounts.add(
+        AddAccount(
+          server: ServerDraft(name: 'Lab', url: owui.url),
+          force: true,
+        ),
+      );
+      final accountId = added.accounts.activeAccountId!;
+      await auth.loginWithPassword(
+        const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+      );
+      await runtime.container.read(activeServerProvider.future);
+      // Chats already on the server are opened as the account's once its
+      // user is bound, which the core does after the sign-in's database is
+      // certified.
+      final storage = runtime.container.read(optimizedStorageServiceProvider);
+      final certified = Completer<void>();
+      final watch = runtime.container.listen<Object?>(
+        openWebUiCertifiedDatabaseServerProvider,
+        (_, _) {
+          if (!certified.isCompleted) certified.complete();
+        },
+      );
+      addTearDown(watch.close);
+      if ((await storage.getOpenWebUiRegistryStrict())
+              .account(accountId)
+              ?.userId ==
+          null) {
+        await certified.future;
+        expect(
+          (await storage.getOpenWebUiRegistryStrict())
+              .account(accountId)
+              ?.userId,
+          isNotNull,
+        );
+      }
+      turns = TurnsService(runtime.container, events);
+      addTearDown(turns.dispose);
+    });
+
+    /// Two chats already on the server: one answering, held after its
+    /// first word, and the other's send taken by the server with its reply
+    /// held (as Open WebUI holds it until the whole reply is written, with
+    /// no socket to send it on). Returns the answering chat's id and the
+    /// held send.
+    Future<({String answering, Future<SendTurnAccepted> held})>
+    answeringAndHeld() async {
+      final chats = owui.chats
+        ..seed('chat-garden', userId: 'user-ada')
+        ..seed('chat-kitchen', userId: 'user-ada')
+        ..holdStream = Completer<void>();
+      final answering = await turns.send(
+        const SendTurn(
+          chatId: 'chat-garden',
+          model: 'kettle-model',
+          text: 'Water the beans',
+        ),
+      );
+      expect(turns.isRunning(answering.chatId), isTrue);
+      chats
+        ..admissionAsked = Completer<void>()
+        ..holdAdmission = Completer<void>();
+      final held = turns.send(
+        const SendTurn(
+          chatId: 'chat-kitchen',
+          model: 'kettle-model',
+          text: 'Milk?',
+        ),
+      )..ignore();
+      await chats.admissionAsked.future;
+      expect(turns.addressAnswering, isTrue);
+      return (answering: answering.chatId, held: held);
+    }
+
+    test('an address change stops the answers through it while a send\'s '
+        'reply is still held: the send is dropped, not waited out', () async {
+      final (:answering, :held) = await answeringAndHeld();
+
+      await turns.stopAddressAnswers();
+
+      expect(owui.chats.holdAdmission!.isCompleted, isFalse);
+      expect(owui.chats.stopped, hasLength(1));
+      expect(turns.isRunning(answering), isFalse);
+      expect(turns.addressAnswering, isFalse);
+      // It settles, its answer stopped or never started.
+      await held.then((_) {}, onError: (_) {});
+      expect(turns.addressAnswering, isFalse);
+    });
+
+    test('a send refused while an address change waits for it ends the '
+        'wait, and the answers through the address are stopped', () async {
+      final (:answering, :held) = await answeringAndHeld();
+      owui.chats.refusal = const {'detail': 'The model is busy.'};
+
+      final changing = turns.stopAddressAnswers();
+      owui.chats.holdAdmission!.complete();
+      await changing;
+
+      expect(owui.chats.stopped, hasLength(1));
+      expect(turns.isRunning(answering), isFalse);
+      expect(turns.addressAnswering, isFalse);
+      // It settles, its answer stopped or never started.
+      await held.then((_) {}, onError: (_) {});
+      expect(turns.addressAnswering, isFalse);
+    });
+
+    test('Stop on a send whose reply is held drops it then', () async {
+      final (answering: _, :held) = await answeringAndHeld();
+      const chatId = 'chat-kitchen';
+
+      await turns.stop(chatId);
+
+      expect(owui.chats.holdAdmission!.isCompleted, isFalse);
+      expect(turns.isRunning(chatId), isFalse);
+      // It settles, its answer stopped or never started.
+      await held.then((_) {}, onError: (_) {});
+    });
+  });
 }
