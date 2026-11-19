@@ -242,9 +242,10 @@ class OutboxDrainer {
 
   /// Whether a Stop marked [op] while its attempt ran (it failed or was
   /// deferred meanwhile): the runner settles its answer as stopped from the
-  /// mark, and the op is done. A settle that fails leaves the op to be
-  /// retried, which, marked, still never sends.
-  Future<bool> _settledAsStopped(OutboxOp op) async {
+  /// mark, and the op is done. A marked op never sends again, so a settle
+  /// that fails is deferred: retried without spending a send's attempts, and
+  /// never parked behind the failure of the attempt the Stop ended.
+  Future<bool> _handledAsStopped(OutboxOp op) async {
     final stored = await _db.outboxDao.opBySeq(op.seq);
     final chatId = op.chatId;
     if (stored == null || chatId == null) return false;
@@ -260,7 +261,12 @@ class OutboxDrainer {
         stackTrace: stack,
         data: {'seq': op.seq},
       );
-      return false;
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: error.toString(),
+        nextAttemptAt: _clock.nowEpochSeconds() + 1,
+      );
+      return true;
     }
     await _db.outboxDao.markDone(op.seq);
     return true;
@@ -312,8 +318,7 @@ class OutboxDrainer {
     Object error,
     StackTrace stack,
   ) async {
-    if (kind == OutboxKind.requestCompletion &&
-        await _settledAsStopped(op)) {
+    if (kind == OutboxKind.requestCompletion && await _handledAsStopped(op)) {
       return;
     }
     final message = error.toString();
