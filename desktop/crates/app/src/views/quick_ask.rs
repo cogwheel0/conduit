@@ -166,6 +166,9 @@ impl QuickAskView {
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                // The composer follows the chat under its new id.
+                this.composer_store
+                    .update(cx, |c, cx| c.rekey_chat(from, to, cx));
             }),
             cx.subscribe_in(
                 &composer,
@@ -267,7 +270,10 @@ impl QuickAskView {
     /// draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
-        self.composer_store.update(cx, |c, cx| c.start_over(cx));
+        self.composer_store.update(cx, |c, cx| {
+            c.start_over(cx);
+            c.follow_chat(None, cx);
+        });
         self.composer.update(cx, |c, cx| c.focus_input(window, cx));
     }
 
@@ -396,6 +402,10 @@ impl QuickAskView {
     }
 
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+        // The composer follows the chat: its lists, options and next turns
+        // are the chat's (a first send's pick moved there with it).
+        self.composer_store
+            .update(cx, |c, cx| c.follow_chat(Some(id.clone()), cx));
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
@@ -973,6 +983,66 @@ mod tests {
         });
         vcx.run_until_parked();
         empty(&view, vcx);
+    }
+
+    /// Quick Ask's first message made a chat: its composer follows that
+    /// chat, so the next message names the agent the chat was started with
+    /// (the daemon's answer for the chat), never New Chat's regular model.
+    #[gpui_kit::test]
+    fn a_follow_up_names_the_agent_its_chat_started_with(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        let agent = "agent:north:codex:gpt-test";
+        let list = move |selected: &str| {
+            serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "agents": [{"id": agent, "name": "Codex", "pinned": false, "capabilities": []}],
+                "selectedId": selected,
+            })
+        };
+        // New Chat's pick went to the chat the first message made.
+        daemon.on::<methods::ModelsList>(move |q| {
+            Ok(list(if q["chatId"] == "chat-q" { agent } else { "k" }))
+        });
+        daemon.on::<methods::ModelsSelect>(move |_| Ok(list(agent)));
+        daemon.on::<methods::ComposerOptions>(|_| Ok(serde_json::json!({})));
+        daemon.returns::<methods::ChatsGet>(
+            serde_json::from_value(serde_json::json!({"chat": {
+                "summary": {"id": "chat-q", "title": "Quick", "updatedAtMs": 1,
+                    "pinned": false, "archived": false, "tags": [], "shared": false,
+                    "readOnly": false},
+                "messages": [], "readOnly": false
+            }}))
+            .unwrap(),
+        );
+        daemon.on::<methods::TurnsSend>(|_| {
+            Ok(serde_json::json!({
+                "chatId": "chat-q", "userMessageId": "u1", "assistantMessageId": "a1"
+            }))
+        });
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.composer_store
+                .update(cx, |c, cx| c.select_model(agent, cx))
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("First".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("Then this".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        let sends = daemon.calls::<methods::TurnsSend>();
+        assert_eq!(sends.len(), 2, "{sends:?}");
+        assert_eq!(sends[0]["model"], agent);
+        assert_eq!(
+            sends[1]["model"], agent,
+            "the follow-up left the chat's agent"
+        );
     }
 
     #[gpui_kit::test]

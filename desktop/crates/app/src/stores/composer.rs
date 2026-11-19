@@ -432,6 +432,9 @@ pub struct ComposerStore {
     /// Keeps no draft, yet sends ordinary saved chats (Quick Ask): not a
     /// temporary chat, so its list offers coding agents.
     pub saves_without_draft: bool,
+    /// The chat a composer that keeps no draft follows once its first
+    /// message made one ([`Self::follow_chat`]).
+    followed_chat: Option<String>,
     /// The query the list shown answered ([`Self::models`]): the chat it
     /// is for. A turn goes only once the open chat's own list answered.
     models_for: Option<conduit_protocol::ModelListQuery>,
@@ -572,6 +575,7 @@ impl ComposerStore {
             prefs: ComposerPrefs::default(),
             models: None,
             saves_without_draft: false,
+            followed_chat: None,
             models_for: None,
             options_for: None,
             options: ComposerOptions::default(),
@@ -758,9 +762,26 @@ impl ComposerStore {
     }
 
     /// The open chat (None for a new or temporary chat): a reasoning pick
-    /// is saved on it.
+    /// is saved on it. A composer that keeps no draft (Quick Ask) has the
+    /// chat it follows ([`Self::follow_chat`]).
     fn chat_id(&self) -> Option<String> {
-        self.draft.as_ref().and_then(|k| k.chat_id.clone())
+        match &self.draft {
+            Some(key) => key.chat_id.clone(),
+            None => self.followed_chat.clone(),
+        }
+    }
+
+    /// A composer that keeps no draft (Quick Ask) follows `chat_id`, the
+    /// chat its first message made (None: a new one again): its lists,
+    /// options and next turns are that chat's, never New Chat's.
+    pub fn follow_chat(&mut self, chat_id: Option<String>, cx: &mut Context<Self>) {
+        if self.followed_chat == chat_id {
+            return;
+        }
+        self.followed_chat = chat_id;
+        if self.channel.is_none() {
+            self.refresh_models(cx);
+        }
     }
 
     /// What `models.list` lists for: the open chat, or a new one (a chat
@@ -1153,9 +1174,12 @@ impl ComposerStore {
                 let (options, librechat) = futures::join!(call, librechat);
                 if let Ok(options) = options {
                     let _ = this.update(cx, |s, cx| {
-                        // Another account's answers, or another chat's,
-                        // never fill this one's.
-                        if s.scope != scope || s.chat_id() != chat {
+                        // Another account's answers, another chat's, or
+                        // another model's (picked away from while they were
+                        // out), never fill this one's nor clear anything.
+                        if s.scope != scope
+                            || (s.chat_id(), s.selected_model().map(|m| m.id.clone())) != answers
+                        {
                             return;
                         }
                         // A daemon without LibreChat answers as none.
@@ -2055,6 +2079,15 @@ impl ComposerStore {
     /// follows it, and its list is read again under the new id (the daemon
     /// moved the chat's pick with it).
     pub fn rekey_chat(&mut self, from: &str, to: &str, cx: &mut Context<Self>) {
+        // A followed chat (Quick Ask's) moves the same way.
+        if self.draft.is_none() && self.followed_chat.as_deref() == Some(from) {
+            self.followed_chat = Some(to.to_string());
+            self.follow_moved_queries(from, to);
+            if self.channel.is_none() {
+                self.refresh_models(cx);
+            }
+            return;
+        }
         let Some(draft) = &self.draft else {
             return;
         };
@@ -2065,8 +2098,15 @@ impl ComposerStore {
             chat_id: Some(to.to_string()),
             folder_id: draft.folder_id.clone(),
         });
-        // The list shown and a pick still out are the chat's: under its new
-        // id, answers keep their order against them.
+        self.follow_moved_queries(from, to);
+        if self.channel.is_none() {
+            self.refresh_models(cx);
+        }
+    }
+
+    /// The list shown and a pick still out are the chat's: under its new
+    /// id, answers keep their order against them.
+    fn follow_moved_queries(&mut self, from: &str, to: &str) {
         for query in self
             .models_for
             .iter_mut()
@@ -2075,9 +2115,6 @@ impl ComposerStore {
             if query.chat_id.as_deref() == Some(from) {
                 query.chat_id = Some(to.to_string());
             }
-        }
-        if self.channel.is_none() {
-            self.refresh_models(cx);
         }
     }
 
@@ -2387,6 +2424,7 @@ impl ComposerStore {
     /// asked are dropped when they arrive.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.scope += 1;
+        self.followed_chat = None;
         self.models_for = None;
         self.options_for = None;
         self.selecting = None;
@@ -3861,6 +3899,60 @@ mod tests {
                 "a regular model's chat taken for an agent's"
             );
         });
+    }
+
+    /// An options answer for a model no longer on screen (picked away from
+    /// while the answer was out) is dropped: it never turns off a switch
+    /// the model shown keeps.
+    #[gpui_kit::test]
+    fn a_late_options_answer_for_another_model_changes_nothing(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("a".into()),
+            ..Default::default()
+        });
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("b".into()),
+            revision: 1,
+            ..Default::default()
+        });
+        // Alder offers no web search; Birch does.
+        daemon.on::<methods::ComposerOptions>(|q| {
+            Ok(serde_json::json!({"webSearch": q["modelId"] == "b"}))
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        let alders = daemon.hold::<methods::ComposerOptions>();
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("plain-chat".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let pick = daemon.hold::<methods::ModelsSelect>();
+        store.update(cx, |s, cx| {
+            s.select_model("b", cx);
+            s.web_search = true;
+        });
+        cx.run_until_parked();
+        alders.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.web_search,
+                "Alder's options turned off Birch's web search"
+            )
+        });
+        pick.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert!(s.web_search));
     }
 
     /// A pick's answer that lands after a newer list for the chat (asked
