@@ -463,6 +463,9 @@ ApiService buildAddressCheckApi(
 /// flagged active or the only one saved; its session is the live one, not
 /// one kept for an inactive account. Returns what the check found and that
 /// account's id. Throws when storage cannot be read.
+///
+/// With [onlyAccountId], only that account's session is tried
+/// ([checkOpenWebUiAddress]).
 Future<({OpenWebUiAddressCheckResult found, String? activeAccountId})>
 checkSavedServerAddress(
   ProviderContainer container, {
@@ -471,6 +474,7 @@ checkSavedServerAddress(
   required String address,
   required Future<bool> Function(Uri address) confirmSendingSession,
   required Future<String> Function(String accountId, String token) userAt,
+  String? onlyAccountId,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   final activeAccountId = await storage.getEffectiveActiveServerId();
@@ -479,6 +483,7 @@ checkSavedServerAddress(
     serverId: serverId,
     address: address,
     activeAccountId: activeAccountId,
+    onlyAccountId: onlyAccountId,
     liveToken: container.read(authTokenProvider3),
     keptTokenFor: storage.vaultedTokenFor,
     accountsWithSession: await storage.accountIdsWithSession(),
@@ -488,11 +493,128 @@ checkSavedServerAddress(
   return (found: found, activeAccountId: activeAccountId);
 }
 
+/// Thrown inside the write of an edited address that is no longer stored as
+/// the edit began from it -- removed since, or moved by another edit while
+/// this one changes how it is reached ([editedAddress]) -- or whose edit
+/// never said what it began from.
+final class _AddressGone implements Exception {
+  const _AddressGone();
+}
+
+/// What an edit of an address saves onto [stored], the address as stored
+/// when the write runs: each field [edited] changes from [from] -- the
+/// address as the edit began from it -- and every other field as stored, so
+/// a header another window changed or added since is kept. A client
+/// certificate and its key are one field.
+///
+/// Header names are one name in any case ([_headerKey]), as the form
+/// checks them: two spellings of one header never both stay.
+///
+/// An edit that moves the address to another origin takes [edited]'s
+/// headers and client identity whole: none of those stored goes to a host
+/// it was not given for. Null when another edit moved the address since
+/// [from] while this one moves it too, or changes how it is reached: what
+/// this one checked, and was given for, is no longer where the address goes.
+OpenWebUiEndpoint? editedAddress({
+  required OpenWebUiEndpoint stored,
+  required OpenWebUiEndpoint from,
+  required OpenWebUiEndpoint edited,
+}) {
+  T pick<T>(T Function(OpenWebUiEndpoint) field) =>
+      field(edited) != field(from) ? field(edited) : field(stored);
+  final label = pick((e) => e.label);
+  String origin(OpenWebUiEndpoint e) => openWebUiServerIdentityUrl(e.url);
+  OpenWebUiEndpoint named(OpenWebUiEndpoint connection) => OpenWebUiEndpoint(
+    id: stored.id,
+    url: connection.url,
+    label: label,
+    customHeaders: connection.customHeaders,
+    allowSelfSignedCertificates: connection.allowSelfSignedCertificates,
+    mtlsCertificateChainPem: connection.mtlsCertificateChainPem,
+    mtlsCertificateLabel: connection.mtlsCertificateLabel,
+    mtlsPrivateKeyPem: connection.mtlsPrivateKeyPem,
+    mtlsPrivateKeyLabel: connection.mtlsPrivateKeyLabel,
+    mtlsPrivateKeyPassword: connection.mtlsPrivateKeyPassword,
+  );
+  final movedElsewhere = origin(stored) != origin(from);
+  if (origin(edited) != origin(from)) {
+    return movedElsewhere ? null : named(edited);
+  }
+  if (movedElsewhere) {
+    return edited.sameConnection(from) ? named(stored) : null;
+  }
+  Object identity(OpenWebUiEndpoint e) => (
+    e.mtlsCertificateChainPem,
+    e.mtlsCertificateLabel,
+    e.mtlsPrivateKeyPem,
+    e.mtlsPrivateKeyLabel,
+    e.mtlsPrivateKeyPassword,
+  );
+  final tls = identity(edited) != identity(from) ? edited : stored;
+  final began = {
+    for (final entry in from.customHeaders.entries)
+      _headerKey(entry.key): entry.value,
+  };
+  final kept = {
+    for (final name in edited.customHeaders.keys) _headerKey(name),
+  };
+  final headers = <String, MapEntry<String, String>>{
+    for (final entry in stored.customHeaders.entries)
+      if (!began.containsKey(_headerKey(entry.key)) ||
+          kept.contains(_headerKey(entry.key)))
+        _headerKey(entry.key): entry,
+    for (final entry in edited.customHeaders.entries)
+      if (began[_headerKey(entry.key)] != entry.value)
+        _headerKey(entry.key): entry,
+  };
+  return OpenWebUiEndpoint(
+    id: stored.id,
+    url: pick((e) => e.url),
+    label: label,
+    customHeaders: Map.fromEntries(headers.values),
+    allowSelfSignedCertificates: pick((e) => e.allowSelfSignedCertificates),
+    mtlsCertificateChainPem: tls.mtlsCertificateChainPem,
+    mtlsCertificateLabel: tls.mtlsCertificateLabel,
+    mtlsPrivateKeyPem: tls.mtlsPrivateKeyPem,
+    mtlsPrivateKeyLabel: tls.mtlsPrivateKeyLabel,
+    mtlsPrivateKeyPassword: tls.mtlsPrivateKeyPassword,
+  );
+}
+
+/// [edited] as it is saved onto [endpoints], in place of the address of its
+/// id: what it changes from [editedFrom] ([editedAddress]). Throws
+/// [_AddressGone] once that address is no longer stored as the edit began,
+/// or -- when the save [keepsSession], a proxy cookie captured for [edited]
+/// -- once what is saved no longer reaches the destination that cookie was
+/// issued for ([OpenWebUiEndpoint.sameSessionOwner]). Without [editedFrom]
+/// it throws too: the form would be written over the address whole, and
+/// what it never read of it lost.
+OpenWebUiEndpoint _savedEdit(
+  List<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint edited, {
+  required OpenWebUiEndpoint? editedFrom,
+  required bool keepsSession,
+}) {
+  final stored = endpoints.where((e) => e.id == edited.id).firstOrNull;
+  if (stored == null || editedFrom == null) throw const _AddressGone();
+  final saving =
+      editedAddress(stored: stored, from: editedFrom, edited: edited) ??
+      (throw const _AddressGone());
+  if (keepsSession && !saving.sameSessionOwner(edited)) {
+    throw const _AddressGone();
+  }
+  return saving;
+}
+
 /// Saves [route], an address of the server [serverId] that has just been
 /// checked -- in place of the address of its id, or as a new one when
 /// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
 /// account whose session proved it (see
 /// `OptimizedStorageService.editServerEndpointsWithSession`).
+///
+/// An edit saves only what it changes from [editedFrom], the address as it
+/// began from it ([editedAddress]); one without it, or of an address no
+/// longer stored as it began, throws [_AddressGone], saving nothing.
 ///
 /// The address and its cookie are saved together: saved without it, an
 /// address behind a proxy would be refused. When the cookie cannot be kept
@@ -508,19 +630,31 @@ Future<bool> saveCheckedAddress(
   required String? cookieOwner,
   required Map<String, String> headers,
   required int sessionRevision,
-  void Function(List<OpenWebUiEndpoint> stored)? beforeWrite,
+  OpenWebUiEndpoint? editedFrom,
+  void Function(List<OpenWebUiEndpoint> stored, OpenWebUiEndpoint saving)?
+  beforeWrite,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   // Onto the routes as stored now, not as read before the check, which can
   // take a while; an address removed meanwhile stays removed. [beforeWrite]
   // runs right before the write, nothing awaited between: what it checks
   // (and throws on) holds for what is written.
+  final keepsSession = headers.keys.any(isCapturedSessionHeader);
   List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) {
-    beforeWrite?.call(endpoints);
-    return withEditedRoute(endpoints, route, adding: adding);
+    final saving = adding
+        ? route
+        : _savedEdit(
+            endpoints,
+            route,
+            editedFrom: editedFrom,
+            keepsSession: keepsSession,
+          );
+    beforeWrite?.call(endpoints, saving);
+    return withEditedRoute(endpoints, saving, adding: adding);
   }
+
   final bool saved;
-  if (headers.keys.any(isCapturedSessionHeader)) {
+  if (keepsSession) {
     saved =
         cookieOwner != null &&
         await storage.editServerEndpointsWithSession(
@@ -547,13 +681,19 @@ Future<bool> saveCheckedAddress(
 /// prove -- the active account when it is one of the server's, else the
 /// server's only account. None when it could be any of several.
 ///
+/// A sign-in whose window named the account it was for ([capturedFor]) is
+/// that account's only once its own session proved the address: no other
+/// account, and no fallback, ever keeps it.
+///
 /// Accounts still being signed in to are not counted: none is a user yet.
 String? addressCookieOwner(
   OpenWebUiRegistry registry, {
   required String serverId,
   required String? provedBy,
   required String? activeAccountId,
+  String? capturedFor,
 }) {
+  if (capturedFor != null) return provedBy == capturedFor ? provedBy : null;
   if (provedBy != null) return provedBy;
   final accounts = [
     for (final account in registry.accountsOn(serverId))
@@ -628,12 +768,14 @@ final class ServerAddressDraft {
     this.privateKeyPem,
     this.privateKeyLabel,
     this.privateKeyPassword = '',
+    this.from,
   }) : headers = {...?headers};
 
   /// The draft of [endpoint] as saved, its session headers left out: they
   /// belong to the accounts, and stay with the address.
   factory ServerAddressDraft.of(OpenWebUiEndpoint endpoint) =>
       ServerAddressDraft(
+        from: endpoint,
         url: endpoint.url,
         label: endpoint.label ?? '',
         headers: {
@@ -647,6 +789,10 @@ final class ServerAddressDraft {
         privateKeyLabel: endpoint.mtlsPrivateKeyLabel,
         privateKeyPassword: endpoint.mtlsPrivateKeyPassword ?? '',
       );
+
+  /// The saved address this draft began from, which its save tells its
+  /// changes by ([saveVerifiedServerAddress]); none for a new address.
+  final OpenWebUiEndpoint? from;
 
   String url;
   String label;
@@ -833,6 +979,9 @@ ServerAddressProblem? validateServerAddressHeaderValue(String value) {
   return null;
 }
 
+/// [name] as header names compare: in any case, `x-gate` is `X-Gate`.
+String _headerKey(String name) => name.toLowerCase();
+
 /// What is wrong with adding header [name] with [value] to [headers], or
 /// null when it can be added.
 ServerAddressProblem? validateServerAddressHeader(
@@ -847,9 +996,8 @@ ServerAddressProblem? validateServerAddressHeader(
       validateServerAddressHeaderName(name) ??
       validateServerAddressHeaderValue(value);
   if (problem != null) return problem;
-  // Header names are case-insensitive: `x-gate` is `X-Gate` again.
-  final lower = name.toLowerCase();
-  if (headers.keys.any((added) => added.toLowerCase() == lower)) {
+  final key = _headerKey(name);
+  if (headers.keys.any((added) => _headerKey(added) == key)) {
     return ServerAddressProblem.headerAlreadyAdded;
   }
   if (headers.length >= maxServerAddressHeaders) {
@@ -1133,6 +1281,17 @@ final class ServerAddressNotSaved extends ServerAddressSave {
 /// and so is changing the address in use while a reply arrives through it
 /// ([confirmChangingInUse]). An editor left while the address was checked
 /// abandons the edit ([stillWanted]): the address stays as it was.
+///
+/// An edit saves what it changes from [editedFrom], the address as the
+/// editor began from it, onto the address as stored when the write runs
+/// ([editedAddress]). An edit without one, or of an address removed since,
+/// or moved elsewhere while the edit changes how it is reached, is not
+/// saved: [ServerAddressProblem.serverMissing].
+///
+/// A proxy sign-in in [verified] whose window named the account it was for
+/// ([sessionAccount]) is kept for that account alone, once its own session
+/// proved the address: else the address is not saved
+/// ([ServerAddressProblem.needsSignIn]).
 Future<ServerAddressSave> saveVerifiedServerAddress(
   ProviderContainer container, {
   required String serverId,
@@ -1140,6 +1299,8 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   required String addedEndpointId,
   required String label,
   required ServerConfig verified,
+  required OpenWebUiEndpoint? editedFrom,
+  String? sessionAccount,
   required int sessionRevision,
   required Future<bool> Function(Uri address) confirmSendingSession,
   required Future<bool> Function() confirmChangingInUse,
@@ -1165,6 +1326,9 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     registry: registry,
     serverId: server.id,
     address: verified.url,
+    // A sign-in captured for one account is proved by that account alone:
+    // another one's session proving the address says nothing about it.
+    onlyAccountId: sessionAccount,
     confirmSendingSession: confirmSendingSession,
     userAt: (accountId, token) async {
       // Each account's token travels with its own proxy cookie only.
@@ -1221,6 +1385,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     serverId: server.id,
     provedBy: provedBy,
     activeAccountId: activeAccountId,
+    capturedFor: sessionAccount,
   );
   if (cookieOwner == null &&
       verified.customHeaders.keys.any(isCapturedSessionHeader)) {
@@ -1231,11 +1396,14 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   // Saved, an edit of the address in use that changes how it is reached
   // moves the clients off it, ending a reply arriving through them; that is
   // asked first. A name (label) alone changes no connection: never asked.
-  bool changesInUseConnection(List<OpenWebUiEndpoint> stored) {
+  bool changesInUseConnection(
+    List<OpenWebUiEndpoint> stored,
+    OpenWebUiEndpoint saving,
+  ) {
     if (endpointId == null) return false;
     final before = stored.where((e) => e.id == endpointId).firstOrNull;
     return before != null &&
-        !before.sameConnection(route) &&
+        !before.sameConnection(saving) &&
         isServerAddressInUse(
           container.read(openWebUiRouteResolverProvider),
           serverId: server.id,
@@ -1243,29 +1411,45 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
         );
   }
 
-  if (changesInUseConnection(server.endpoints) &&
-      !await confirmChangingInUse()) {
-    return const ServerAddressNotSaved();
+  final bool kept;
+  try {
+    final saving = endpointId == null
+        ? route
+        : _savedEdit(
+            server.endpoints,
+            route,
+            editedFrom: editedFrom,
+            keepsSession: verified.customHeaders.keys.any(
+              isCapturedSessionHeader,
+            ),
+          );
+    if (changesInUseConnection(server.endpoints, saving) &&
+        !await confirmChangingInUse()) {
+      return const ServerAddressNotSaved();
+    }
+    if (!stillWanted()) return const ServerAddressNotSaved();
+    kept = await saveCheckedAddress(
+      container,
+      serverId: server.id,
+      route: route,
+      adding: endpointId == null,
+      cookieOwner: cookieOwner,
+      headers: verified.customHeaders,
+      sessionRevision: sessionRevision,
+      editedFrom: editedFrom,
+      // Asked again inside the write, about the address as stored then: a
+      // reply that started since the question is never cut off unasked.
+      beforeWrite: replyArrives == null
+          ? null
+          : (stored, saving) {
+              if (changesInUseConnection(stored, saving) && replyArrives()) {
+                throw const ServerAddressReplyArriving();
+              }
+            },
+    );
+  } on _AddressGone {
+    return const ServerAddressNotSaved(ServerAddressProblem.serverMissing);
   }
-  if (!stillWanted()) return const ServerAddressNotSaved();
-  final kept = await saveCheckedAddress(
-    container,
-    serverId: server.id,
-    route: route,
-    adding: endpointId == null,
-    cookieOwner: cookieOwner,
-    headers: verified.customHeaders,
-    sessionRevision: sessionRevision,
-    // Asked again inside the write, about the address as stored then: a
-    // reply that started since the question is never cut off unasked.
-    beforeWrite: replyArrives == null
-        ? null
-        : (stored) {
-            if (changesInUseConnection(stored) && replyArrives()) {
-              throw const ServerAddressReplyArriving();
-            }
-          },
-  );
   // Not saved: the proxy sign-in that lets requests through was revoked;
   // signing in through the proxy again captures a new one.
   return kept

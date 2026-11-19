@@ -367,6 +367,7 @@ void main() {
         serverId: server.id,
         route: route,
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: 'a',
         headers: const {'X-Gate': 'g', 'Cookie': 'proxy=1'},
         sessionRevision: storage.sessionRevocationRevision,
@@ -410,15 +411,19 @@ void main() {
         await container.read(activeServerProvider.future);
         var changes = 0;
         container.listen(activeServerProvider, (_, _) => changes++);
-        Future<bool> save(String routeId, String url) => saveCheckedAddress(
-          container,
-          serverId: stored.id,
-          route: OpenWebUiEndpoint(id: routeId, url: url),
-          adding: false,
-          cookieOwner: null,
-          headers: const {},
-          sessionRevision: storage.sessionRevocationRevision,
-        );
+        Future<bool> save(String routeId, String url) async =>
+            saveCheckedAddress(
+              container,
+              serverId: stored.id,
+              route: OpenWebUiEndpoint(id: routeId, url: url),
+              adding: false,
+              editedFrom: (await storage.getOpenWebUiRegistryStrict())
+                  .server(stored.id)!
+                  .endpoint(routeId),
+              cookieOwner: null,
+              headers: const {},
+              sessionRevision: storage.sessionRevocationRevision,
+            );
 
         check(await save('away', 'https://moved-away.example')).isTrue();
         await Future<void>.delayed(Duration.zero);
@@ -461,6 +466,7 @@ void main() {
             url: 'https://moved.example',
           ),
           adding: false,
+          editedFrom: server.endpoints.single,
           cookieOwner: 'a',
           headers: const {'Cookie': 'proxy=1'},
           sessionRevision: storage.sessionRevocationRevision,
@@ -493,6 +499,7 @@ void main() {
           url: 'https://moved.example',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: null,
         headers: const {'Cookie': 'proxy=1'},
         sessionRevision: storage.sessionRevocationRevision,
@@ -524,12 +531,27 @@ void main() {
         OpenWebUiRegistry registry, {
         String? provedBy,
         String? active,
+        String? capturedFor,
       }) => addressCookieOwner(
         registry,
         serverId: chat.id,
         provedBy: provedBy,
         activeAccountId: active,
+        capturedFor: capturedFor,
       );
+
+      // Its window named the account: only that account's session proving
+      // the address keeps it, never a fallback to the account in charge.
+      test('is only the account its window was for, once that one proved '
+          'the address', () {
+        final registry = registryWith([
+          OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+          OpenWebUiAccount(id: 'b', serverId: 'chat', userId: 'user-b'),
+        ]);
+        check(ownerOf(registry, provedBy: 'b', capturedFor: 'b')).equals('b');
+        check(ownerOf(registry, provedBy: 'a', capturedFor: 'b')).isNull();
+        check(ownerOf(registry, active: 'b', capturedFor: 'b')).isNull();
+      });
 
       test('is the one whose session proved the address', () {
         final registry = registryWith([
@@ -601,6 +623,7 @@ void main() {
           url: 'https://moved.example',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: 'a',
         headers: const {'Cookie': 'proxy=1'},
         sessionRevision: revision,
@@ -612,6 +635,330 @@ void main() {
           .equals('https://chat.example');
       check(await shown()).equals('https://chat.example');
       check(_Routes.reasons).isEmpty();
+    });
+
+    group('an edit of an address saved since its check', () {
+      late ProviderContainer signedOut;
+      late String serverId;
+      late OpenWebUiEndpoint lab;
+
+      setUp(() async {
+        await storage.saveServerConfigs([
+          const ServerConfig(
+            id: 'a',
+            name: 'Chat',
+            url: 'https://chat.example',
+          ),
+        ]);
+        final stored =
+            (await storage.getOpenWebUiRegistryStrict()).servers.single;
+        serverId = stored.id;
+        lab = OpenWebUiEndpoint(
+          id: 'lab',
+          url: 'https://lab.example',
+          label: 'Lab',
+          customHeaders: const {'X-Lab': 'one', 'X-Gate': 'g1'},
+        );
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: stored.id,
+            name: stored.name,
+            endpoints: [...stored.endpoints, lab],
+          ),
+        );
+        // No account holds a session: nothing to prove the address with.
+        signedOut = ProviderContainer(
+          overrides: [
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            openWebUiRouteResolverProvider.overrideWith(_Routes.new),
+            authTokenProvider3.overrideWithValue(null),
+          ],
+        );
+        addTearDown(signedOut.dispose);
+      });
+
+      Future<OpenWebUiEndpoint?> stored() async =>
+          (await storage.getOpenWebUiRegistryStrict())
+              .server(serverId)
+              ?.endpoint('lab');
+
+      /// Another window's save of the address, made after this edit's check.
+      Future<void> elsewhere(
+        OpenWebUiEndpoint? Function(OpenWebUiEndpoint stored) edit,
+      ) => storage.editServerEndpoints(
+        serverId,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id == 'lab') ?edit(endpoint) else endpoint,
+        ],
+      );
+
+      Future<ServerAddressSave> save(
+        String label,
+        Map<String, String> headers, {
+        String url = 'https://lab.example',
+      }) => saveVerifiedServerAddress(
+        signedOut,
+        serverId: serverId,
+        endpointId: 'lab',
+        addedEndpointId: 'unused',
+        label: label,
+        verified: ServerConfig(
+          id: 'checked',
+          name: 'Lab',
+          url: url,
+          customHeaders: headers,
+        ),
+        editedFrom: lab,
+        sessionRevision: storage.sessionRevocationRevision,
+        confirmSendingSession: (_) async => false,
+        confirmChangingInUse: () async => true,
+        stillWanted: () => true,
+      );
+
+      test('saves only what its form changed onto the address as stored '
+          'when it writes', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: endpoint.url,
+            label: endpoint.label,
+            customHeaders: const {'X-Lab': 'two', 'X-Gate': 'g1', 'X-New': 'n'},
+          ),
+        );
+
+        // The form renamed the address and typed a new gate value; it left
+        // X-Lab as it was when the check began.
+        final outcome = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g2',
+        });
+
+        check(outcome).isA<ServerAddressSaved>();
+        final now = (await stored())!;
+        check(now.label).equals('Lab renamed');
+        check(now.customHeaders)
+            .deepEquals({'X-Lab': 'two', 'X-Gate': 'g2', 'X-New': 'n'});
+      });
+
+      // Two windows each move the address: the one saved first stays.
+      test('that moves it is refused once another window moved it '
+          'elsewhere', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: 'https://moved.example',
+            label: endpoint.label,
+          ),
+        );
+
+        final outcome = await save('Lab', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        }, url: 'https://other.example');
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.url).equals('https://moved.example');
+      });
+
+      // Header names are one name in any case: X-Extra added here and
+      // x-extra in another window leave one header, this form's.
+      test(
+        'keeps one header that two windows added in different case',
+        () async {
+          await elsewhere(
+            (endpoint) => OpenWebUiEndpoint(
+              id: endpoint.id,
+              url: endpoint.url,
+              label: endpoint.label,
+              customHeaders: {...endpoint.customHeaders, 'x-extra': 'theirs'},
+            ),
+          );
+
+          final outcome = await save('Lab', const {
+            'X-Lab': 'one',
+            'X-Gate': 'g1',
+            'X-Extra': 'ours',
+          });
+
+          check(outcome).isA<ServerAddressSaved>();
+          check((await stored())!.customHeaders)
+              .deepEquals({'X-Lab': 'one', 'X-Gate': 'g1', 'X-Extra': 'ours'});
+        },
+      );
+
+      // The proxy cookie was captured for the address this edit checked; a
+      // stale edit never files it on the destination another window gave
+      // the address since.
+      for (final (what, moved) in [
+        (
+          'another host',
+          (OpenWebUiEndpoint e) => OpenWebUiEndpoint(
+            id: e.id,
+            url: 'https://moved.example',
+            label: e.label,
+            customHeaders: e.customHeaders,
+          ),
+        ),
+        (
+          'another client identity',
+          (OpenWebUiEndpoint e) => OpenWebUiEndpoint(
+            id: e.id,
+            url: e.url,
+            label: e.label,
+            customHeaders: e.customHeaders,
+            mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nlab\n',
+            mtlsPrivateKeyPem: '-----BEGIN PRIVATE KEY-----\nlab\n',
+          ),
+        ),
+      ]) {
+        test('keeps no proxy sign-in once another window gave the address '
+            '$what', () async {
+          await storage.setActiveServerId('a');
+          await storage.bindAccountUser('a', 'user-a');
+          await elsewhere(moved);
+
+          final outcome = await save('Lab renamed', {
+            ...lab.customHeaders,
+            'Cookie': 'proxy=1',
+          });
+
+          check(outcome)
+              .isA<ServerAddressNotSaved>()
+              .has((n) => n.problem, 'problem')
+              .equals(ServerAddressProblem.serverMissing);
+          check(
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders,
+          ).isEmpty();
+          check((await stored())!.label).equals('Lab');
+        });
+      }
+
+      // An editor that never read the address saved would write the form
+      // over it whole, its unread headers and certificate lost.
+      test('that does not say what it began from is refused', () async {
+        final outcome = await saveVerifiedServerAddress(
+          signedOut,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: 'Lab renamed',
+          verified: const ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+          ),
+          editedFrom: null,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async => true,
+          stillWanted: () => true,
+        );
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        final now = (await stored())!;
+        check(now.label).equals('Lab');
+        check(now.customHeaders).deepEquals(lab.customHeaders);
+      });
+
+      test('is refused as gone once the address was removed', () async {
+        await elsewhere((_) => null);
+
+        final outcome = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        });
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check(await stored()).isNull();
+      });
+
+      // The window named the account its proxy sign-in is for: the cookie
+      // is that account's once its session proves the address, else
+      // nobody's. With no session here, neither account proves it.
+      test('keeps a proxy sign-in for no account its session has not '
+          'proved', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        Future<ServerAddressSave> signedInFor(String account) =>
+            saveVerifiedServerAddress(
+              signedOut,
+              serverId: serverId,
+              endpointId: 'lab',
+              addedEndpointId: 'unused',
+              label: 'Lab',
+              verified: ServerConfig(
+                id: 'checked',
+                name: 'Lab',
+                url: 'https://lab.example',
+                customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+              ),
+              editedFrom: lab,
+              sessionAccount: account,
+              sessionRevision: storage.sessionRevocationRevision,
+              confirmSendingSession: (_) async => false,
+              confirmChangingInUse: () async => true,
+              stillWanted: () => true,
+            );
+        Future<Map<String, Map<String, String>>> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders;
+
+        check(await signedInFor('b'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await kept()).isEmpty();
+
+        check(await signedInFor('a'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await kept()).isEmpty();
+      });
+
+      // A header typed for the address checked never goes to the host
+      // another window moved it to; a new name alone still lands.
+      test('that changes how it is reached is refused once the address was '
+          'moved to another host', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: 'https://moved.example',
+            label: endpoint.label,
+            customHeaders: const {'X-Moved': 'm'},
+          ),
+        );
+
+        final typed = await save('Lab', const {'X-Lab': 'one', 'X-Gate': 'g2'});
+        check(typed)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.customHeaders).deepEquals({'X-Moved': 'm'});
+
+        final renamed = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        });
+        check(renamed).isA<ServerAddressSaved>();
+        final now = (await stored())!;
+        check(now.url).equals('https://moved.example');
+        check(now.label).equals('Lab renamed');
+        check(now.customHeaders).deepEquals({'X-Moved': 'm'});
+      });
     });
 
     // The only account saved is active with no id kept for it. Looked for

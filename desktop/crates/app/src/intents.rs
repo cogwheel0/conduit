@@ -760,8 +760,8 @@ async fn ask(prompt: String, open: bool, cx: &mut AsyncApp) -> Result<Response, 
     };
     cx.update(|cx| {
         let due = cx.default_global::<HeldNotifications>().end(answered);
-        for finished in &due {
-            desktop::notify_turn_finished(finished, cx);
+        for (finished, asked) in due {
+            desktop::notify_turn_finished(&finished, asked, cx);
         }
     });
     let answer = answer.map_err(|e| {
@@ -779,12 +779,13 @@ async fn ask(prompt: String, open: bool, cx: &mut AsyncApp) -> Result<Response, 
 
 /// Answer notifications while Ask Conduit waits. `turn.finished` can come
 /// before the ask's reply names its chat, so every answer that finishes
-/// meanwhile is held; once no ask waits, those of chats a shortcut was
-/// given are dropped and the rest are posted.
+/// meanwhile is held, with the account in charge when it finished; once no
+/// ask waits, those of chats a shortcut was given are dropped and the rest
+/// are posted, each only while its account is still in charge.
 #[derive(Debug, Default)]
 pub struct HeldNotifications {
     asking: usize,
-    held: Vec<TurnFinished>,
+    held: Vec<(TurnFinished, Option<String>)>,
     answered: BTreeSet<String>,
 }
 
@@ -795,18 +796,20 @@ impl HeldNotifications {
         self.asking += 1;
     }
 
-    /// Holds `finished` while an ask waits; false when none does.
-    pub fn hold(&mut self, finished: &TurnFinished) -> bool {
+    /// Holds `finished`, which finished while `asked` was the account in
+    /// charge, while an ask waits; false when none does.
+    pub fn hold(&mut self, finished: &TurnFinished, asked: Option<String>) -> bool {
         if self.asking == 0 {
             return false;
         }
-        self.held.push(finished.clone());
+        self.held.push((finished.clone(), asked));
         true
     }
 
     /// An ask ended (`answered`: the chat whose answer the shortcut got).
-    /// What to notify now: nothing until the last waiting ask ends.
-    pub fn end(&mut self, answered: Option<String>) -> Vec<TurnFinished> {
+    /// What to notify now, each with its account: nothing until the last
+    /// waiting ask ends.
+    pub fn end(&mut self, answered: Option<String>) -> Vec<(TurnFinished, Option<String>)> {
         self.asking = self.asking.saturating_sub(1);
         self.answered.extend(answered);
         if self.asking > 0 {
@@ -815,16 +818,17 @@ impl HeldNotifications {
         let answered = std::mem::take(&mut self.answered);
         std::mem::take(&mut self.held)
             .into_iter()
-            .filter(|f| !answered.contains(&f.chat_id))
+            .filter(|(f, _)| !answered.contains(&f.chat_id))
             .collect()
     }
 }
 
-/// Whether the answer notification for `finished` waits for an ask
-/// ([`HeldNotifications`]); [`desktop`] asks before posting one.
-pub fn hold_notification(finished: &TurnFinished, cx: &mut App) -> bool {
+/// Whether the answer notification for `finished`, raised while `asked`
+/// was in charge, waits for an ask ([`HeldNotifications`]); [`desktop`] asks
+/// before posting one.
+pub fn hold_notification(finished: &TurnFinished, asked: Option<String>, cx: &mut App) -> bool {
     cx.try_global::<HeldNotifications>().is_some()
-        && cx.global_mut::<HeldNotifications>().hold(finished)
+        && cx.global_mut::<HeldNotifications>().hold(finished, asked)
 }
 
 /// Open Chat's list, by id, search or recency.
@@ -1524,25 +1528,26 @@ mod tests {
     #[test]
     fn a_shortcuts_answer_gets_no_notification_and_others_still_do() {
         let mut held = HeldNotifications::default();
+        let avery = || Some("a".to_string());
         // No ask waiting: nothing is held.
-        assert!(!held.hold(&finished("before")));
+        assert!(!held.hold(&finished("before"), avery()));
 
         held.begin();
         held.begin();
         // Two asks wait; answers finish before either reply.
-        assert!(held.hold(&finished("asked-1")));
-        assert!(held.hold(&finished("typed")));
-        assert!(held.hold(&finished("asked-2")));
+        assert!(held.hold(&finished("asked-1"), avery()));
+        assert!(held.hold(&finished("typed"), avery()));
+        assert!(held.hold(&finished("asked-2"), avery()));
         // The first ask ends: still one waiting, nothing posted yet.
         assert!(held.end(Some("asked-1".into())).is_empty());
         // The second ends: the typed chat's answer is posted, the asked ones
         // not.
         let due = held.end(Some("asked-2".into()));
-        assert_eq!(due, vec![finished("typed")]);
+        assert_eq!(due, vec![(finished("typed"), avery())]);
         // A timed-out ask (no chat given) leaves its later answer alone.
         held.begin();
         assert!(held.end(None).is_empty());
-        assert!(!held.hold(&finished("slow")));
+        assert!(!held.hold(&finished("slow"), avery()));
     }
 
     #[test]

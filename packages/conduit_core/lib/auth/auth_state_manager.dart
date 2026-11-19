@@ -2358,7 +2358,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// when a newer auth attempt begins. So it does when [joins] says no
   /// about the saved servers as they are written over (see
   /// `OptimizedStorageService.selectUnauthenticatedServerConfig`).
-  Future<void> selectUnauthenticatedServerConfig(
+  ///
+  /// Returns whether [config] was made active: false when it was declined,
+  /// or put back after a newer attempt or [canCommit] overtook it.
+  Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     bool Function()? canCommit,
     bool Function(OpenWebUiRegistry stored)? joins,
@@ -2461,6 +2464,7 @@ class AuthStateManager extends _$AuthStateManager {
           previousState: previousState,
         );
       }
+      return selected;
     } catch (error, stackTrace) {
       final claimed = attemptRevision;
       if (error is! ServerConfigSessionRollbackException && claimed != null) {
@@ -2613,7 +2617,8 @@ class AuthStateManager extends _$AuthStateManager {
     final storage = ref.read(optimizedStorageServiceProvider);
     // Stopped by the caller rather than by a newer attempt, this one still
     // owns the state it set loading, and settles it back.
-    void settleStopped() => _restorePrevalidatedProxyAttemptState(
+    Future<void> settleStopped() => _restorePrevalidatedProxyAttemptState(
+      storage: storage,
       attemptRevision: attemptRevision,
       capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
       previousState: previousState,
@@ -2621,7 +2626,7 @@ class AuthStateManager extends _$AuthStateManager {
     ServerConfigCandidateSnapshot? candidateSnapshot;
     try {
       if (superseded()) {
-        settleStopped();
+        await settleStopped();
         return false;
       }
       final ServerConfigCandidateSnapshot snapshot;
@@ -2635,7 +2640,7 @@ class AuthStateManager extends _$AuthStateManager {
       } on ServerConfigsChangedException {
         // Saved over since the caller read it: nothing is staged, and the
         // caller signs in again.
-        settleStopped();
+        await settleStopped();
         return false;
       }
       candidateSnapshot = snapshot;
@@ -2645,7 +2650,7 @@ class AuthStateManager extends _$AuthStateManager {
           candidate: serverConfig,
           snapshot: snapshot,
         );
-        settleStopped();
+        await settleStopped();
         return false;
       }
 
@@ -2680,11 +2685,7 @@ class AuthStateManager extends _$AuthStateManager {
           candidate: serverConfig,
           snapshot: snapshot,
         );
-        _restorePrevalidatedProxyAttemptState(
-          attemptRevision: attemptRevision,
-          capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
-          previousState: previousState,
-        );
+        await settleStopped();
       }
       return committed;
     } catch (error, stackTrace) {
@@ -2704,13 +2705,7 @@ class AuthStateManager extends _$AuthStateManager {
           snapshot: snapshot,
         );
       }
-      if (!rollbackUncertain) {
-        _restorePrevalidatedProxyAttemptState(
-          attemptRevision: attemptRevision,
-          capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
-          previousState: previousState,
-        );
-      }
+      if (!rollbackUncertain) await settleStopped();
       final failureMessage = _safeLoginFailureMessage(error);
       _logAuthenticationFailure(
         'prevalidated-proxy-session-commit-failed',
@@ -2721,21 +2716,36 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  void _restorePrevalidatedProxyAttemptState({
+  Future<void> _restorePrevalidatedProxyAttemptState({
+    required OptimizedStorageService storage,
     required int attemptRevision,
     required int capturedSessionSafetyEpoch,
     required AuthState previousState,
-  }) {
+  }) async {
+    // A save while the attempt ran can have ended the session [previousState]
+    // holds: an edit that moves the active account to another address drops
+    // its saved token, and changes neither revision checked below. That
+    // session is not put back, nor handed to the client the edit rebuilds.
+    final held = previousState.hasValidToken ? previousState.token : null;
+    var stillSaved = true;
+    if (held != null) {
+      try {
+        stillSaved = await storage.getAuthTokenStrict() == held;
+      } catch (_) {
+        stillSaved = false;
+      }
+    }
     if (!ref.mounted || _authAttemptRevision != attemptRevision) return;
-    if (capturedSessionSafetyEpoch == _sessionSafetyEpoch) {
+    if (stillSaved && capturedSessionSafetyEpoch == _sessionSafetyEpoch) {
       _set(previousState);
       _restoreApiServiceTokenToCurrent();
       return;
     }
 
     // Another overlapping proxy attempt encountered an incomplete durable
-    // rollback. This attempt's captured previousState may contain the poisoned
-    // token, so it must settle tokenless if it cannot publish a fresh session.
+    // rollback, or the session was ended under it. This attempt's captured
+    // previousState may hold that token, so it must settle tokenless if it
+    // cannot publish a fresh session.
     _set(const AuthState(status: AuthStatus.unauthenticated, isLoading: false));
     _updateApiServiceToken(null);
     ref.invalidate(apiServiceProvider);
