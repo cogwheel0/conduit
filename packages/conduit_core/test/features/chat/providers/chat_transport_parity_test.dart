@@ -1293,6 +1293,28 @@ void main() {
       check(abortCalled).isTrue();
     });
 
+    test('stop drops a request still on its way, before any transport', () {
+      final api = _buildFakeApi();
+      var abortCalled = false;
+      api.registerLegacyCancelActionForTest('msg-sent', () async {
+        abortCalled = true;
+      });
+
+      // With no socket, Open WebUI answers the request only once the whole
+      // reply is written: until then no transport is attached.
+      final message = ChatMessage(
+        id: 'msg-sent',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.now(),
+        isStreaming: true,
+      );
+
+      stopActiveTransport(message, api);
+
+      check(abortCalled).isTrue();
+    });
+
     // -------------------------------------------------------------------
     // 4. Stop cancels taskSocket using task id
     // -------------------------------------------------------------------
