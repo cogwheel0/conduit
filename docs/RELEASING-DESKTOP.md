@@ -198,8 +198,9 @@ rehearsal: ad-hoc signature, a test bundle id, a throwaway Sparkle key, no
 secrets, nothing published. It is the cheapest way to find out whether the
 runner image (Xcode 26+), the disk and the time limit hold before a real
 tag. `desktop.yml`'s bundle job runs the same rehearsal on every push to
-`main` that touches the desktop app, and on a pull request that changes the
-packaging (see [BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) for which).
+`main` that touches the desktop app, and on a pull request into `main` that
+changes the packaging (see [BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) for
+which). A stacked pull request skips it unless it has the `full-ci` label.
 
 ## Secrets and variables
 
