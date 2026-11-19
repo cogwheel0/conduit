@@ -462,11 +462,13 @@ Future<void> durableSend(
     assistantMessageId: assistantMessageId,
     mutationOwner: sendMutationOwner,
   );
+  // A Stop from here on, while admission reads settings, stays with the send
+  // and is written into its operation ([RequestCompletionPayload.stopped]).
+  final admissionApi = sendMutationOwner.openWebUiApi is ApiService
+      ? sendMutationOwner.openWebUiApi as ApiService
+      : null;
+  admissionApi?.beginSend(assistantMessageId);
   onAssistantPlaceholderCreated?.call(sendHandle);
-  // A Stop from here on, while admission reads settings, stays with the send.
-  if (sendMutationOwner.openWebUiApi case final ApiService api) {
-    api.beginSend(assistantMessageId);
-  }
 
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];
@@ -539,6 +541,7 @@ Future<void> durableSend(
         globals: admissionGlobals,
         legacyChatSystem: legacyChatSystem,
       ),
+      stopped: admissionApi?.sendStopped(assistantMessageId) ?? false,
     );
 
     var activeConversation = activeAtSendStart;

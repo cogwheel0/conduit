@@ -123,6 +123,19 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
 
     requireCurrentConversationOwner();
 
+    if (decoded.stopped) {
+      await settleStoppedOpenWebUiCompletion(
+        _ref,
+        api: owner.api,
+        owner: owner,
+        assistantMessageIds: <String>{
+          assistantMessageId,
+          ...?decoded.comparison?.slots.map((slot) => slot.assistantMessageId),
+        },
+      );
+      return;
+    }
+
     // Streaming-conflict guard (R5): if a LIVE interactive stream owns this
     // exact chat, unsent work defers so it can never clobber that stream. The
     // answers of one comparison own their turn together, so a stream that is

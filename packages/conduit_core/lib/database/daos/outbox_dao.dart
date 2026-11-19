@@ -73,6 +73,7 @@ class RequestCompletionPayload {
     this.sessionIdOverride,
     this.chatSettings,
     this.comparison,
+    this.stopped = false,
   });
 
   /// The placeholder assistant message id — the SAME id used for the in-memory
@@ -109,6 +110,11 @@ class RequestCompletionPayload {
   /// groups still finds the primary answer.
   final ComparisonGroupSnapshot? comparison;
 
+  /// A Stop reached this turn before its request went out (at admission, or
+  /// while an attempt prepared it): it never sends, on any attempt, retry or
+  /// later run of the app, and its answer is settled as stopped instead.
+  final bool stopped;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'assistantMessageId': assistantMessageId,
     'model': model,
@@ -122,6 +128,7 @@ class RequestCompletionPayload {
     if (sessionIdOverride != null) 'sessionIdOverride': sessionIdOverride,
     if (chatSettings != null) 'chatSettings': chatSettings!.toJson(),
     if (comparison != null) 'comparison': comparison!.toJson(),
+    if (stopped) 'stopped': true,
   };
 
   static RequestCompletionPayload fromJson(Map<String, dynamic> json) {
@@ -148,6 +155,7 @@ class RequestCompletionPayload {
       comparison: json.containsKey('comparison')
           ? ComparisonGroupSnapshot.fromJson(json['comparison'])
           : null,
+      stopped: json['stopped'] == true,
     );
   }
 
@@ -372,6 +380,10 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
 
   /// Removes a completed op (A2 — no terminal history, mirrors the lean
   /// legacy queue). Success implicitly resets backoff (the row is gone).
+  /// The op [seq] as it is stored now, or null once it is gone.
+  Future<OutboxOp?> opBySeq(int seq) =>
+      (select(outboxOps)..where((t) => t.seq.equals(seq))).getSingleOrNull();
+
   Future<void> markDone(int seq) {
     return (delete(outboxOps)..where((t) => t.seq.equals(seq))).go();
   }

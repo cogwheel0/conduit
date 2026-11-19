@@ -190,6 +190,21 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       legacyPendingTurnPersisted = true;
     }
 
+    // A legacy server's pending-turn save runs without the request's cancel
+    // token: one that fails after a Stop is that Stop, not a retry.
+    Future<void> ensureLegacyPendingTurnPersistedUnlessStopped() async {
+      try {
+        await ensureLegacyPendingTurnPersisted();
+      } on Object {
+        if (stopped) {
+          throw ChatCompletionStopped(
+            RequestOptions(path: '/api/chat/completions'),
+          );
+        }
+        rethrow;
+      }
+    }
+
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
@@ -287,7 +302,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     var metadataFormat =
         _chatRequestMetadataFormat ?? _ChatRequestMetadataFormat.modernV09;
     if (metadataFormat == _ChatRequestMetadataFormat.legacyPreV09) {
-      await ensureLegacyPendingTurnPersisted();
+      await ensureLegacyPendingTurnPersistedUnlessStopped();
     }
     final firstResponse = await post(metadataFormat);
     if (firstResponse == null) return readSavedReply();
@@ -319,7 +334,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
       metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
       _chatRequestMetadataFormat = metadataFormat;
-      await ensureLegacyPendingTurnPersisted();
+      await ensureLegacyPendingTurnPersistedUnlessStopped();
       final retryResponse = await post(metadataFormat);
       if (retryResponse == null) return readSavedReply();
       resp = retryResponse;

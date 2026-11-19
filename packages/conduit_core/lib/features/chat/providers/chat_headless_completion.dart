@@ -130,12 +130,13 @@ Future<void> runQueuedCompletion(
   );
   requireActiveOwner();
 
-  if (await _stoppedBeforeRequest(
-    ref,
-    api: api,
-    owner: owner,
-    assistantMessageId: assistantMessageId,
-  )) {
+  if (api.sendStopped(assistantMessageId)) {
+    await settleStoppedOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      assistantMessageIds: [assistantMessageId],
+    );
     return;
   }
 
@@ -234,12 +235,13 @@ Future<void> runQueuedCompletion(
       messageId: assistantMessageId,
       admitted: admittedToolServers,
     );
-    if (await _stoppedBeforeRequest(
-      ref,
-      api: api,
-      owner: owner,
-      assistantMessageId: assistantMessageId,
-    )) {
+    if (api.sendStopped(assistantMessageId)) {
+      await settleStoppedOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        assistantMessageIds: [assistantMessageId],
+      );
       return;
     }
     final ChatCompletionSession session;
@@ -270,11 +272,11 @@ Future<void> runQueuedCompletion(
         files: _extractTopLevelRequestFiles(parentMsgMap),
       );
     } on ChatCompletionStopped {
-      await _settleStoppedOpenWebUiCompletion(
+      await settleStoppedOpenWebUiCompletion(
         ref,
         api: api,
         owner: owner,
-        assistantMessageId: assistantMessageId,
+        assistantMessageIds: [assistantMessageId],
       );
       return;
     } on ChatCompletionHttpException catch (refusal) {
@@ -566,12 +568,13 @@ Future<void> runHeadlessCompletion(
     messageId: assistantMessageId,
     admitted: admittedToolServers,
   );
-  if (await _stoppedBeforeRequest(
-    ref,
-    api: api,
-    owner: owner,
-    assistantMessageId: assistantMessageId,
-  )) {
+  if (api.sendStopped(assistantMessageId)) {
+    await settleStoppedOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      assistantMessageIds: [assistantMessageId],
+    );
     return;
   }
   final ChatCompletionSession session;
@@ -602,11 +605,11 @@ Future<void> runHeadlessCompletion(
       files: _extractTopLevelRequestFiles(parentMsgMap),
     );
   } on ChatCompletionStopped {
-    await _settleStoppedOpenWebUiCompletion(
+    await settleStoppedOpenWebUiCompletion(
       ref,
       api: api,
       owner: owner,
-      assistantMessageId: assistantMessageId,
+      assistantMessageIds: [assistantMessageId],
     );
     return;
   } on ChatCompletionHttpException catch (refusal) {
@@ -640,56 +643,39 @@ Future<void> runHeadlessCompletion(
 /// screen: the answer shows the server's words, its stored row is marked
 /// refused, and [SyncTerminalException] parks the op.
 ///
-/// Whether a Stop reached this admitted send before its request went out
-/// ([ApiService.beginSend]), while it read settings or readied its socket:
-/// its answer is then settled as stopped ([_settleStoppedOpenWebUiCompletion])
-/// and nothing is sent.
-Future<bool> _stoppedBeforeRequest(
+/// Ends the answers whose request a Stop kept from going out: stored as
+/// done, as the Stop left them on screen. The Stop is let go only once that
+/// is written: a write that fails throws, the operation is not counted done,
+/// and its retry still finds the Stop and still does not send.
+Future<void> settleStoppedOpenWebUiCompletion(
   dynamic ref, {
-  required ApiService api,
+  required Object? api,
   required OpenWebUiCompletionOwner owner,
-  required String assistantMessageId,
+  required Iterable<String> assistantMessageIds,
 }) async {
-  if (!api.sendStopped(assistantMessageId)) return false;
-  await _settleStoppedOpenWebUiCompletion(
-    ref,
-    api: api,
-    owner: owner,
-    assistantMessageId: assistantMessageId,
-  );
-  return true;
-}
-
-/// Ends an answer whose request a Stop kept from going out: stored as done,
-/// as the Stop left it on screen, and the outbox counts the operation done,
-/// so it is never sent later.
-Future<void> _settleStoppedOpenWebUiCompletion(
-  dynamic ref, {
-  required ApiService api,
-  required OpenWebUiCompletionOwner owner,
-  required String assistantMessageId,
-}) async {
-  api.endSend(assistantMessageId);
   DebugLogger.log(
     'queued-completion-stopped',
     scope: 'chat/completion',
-    data: {'chatId': owner.chatId, 'assistantMessageId': assistantMessageId},
+    data: {
+      'chatId': owner.chatId,
+      'assistantMessageIds': assistantMessageIds.toList(),
+    },
   );
-  try {
-    final locks = ref.read(chatLocksProvider) as ChatLocks;
-    await locks.runExclusive(owner.chatId, () async {
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
+  await locks.runExclusive(owner.chatId, () async {
+    for (final id in assistantMessageIds) {
+      // False only when the answer's row is gone: nothing is left that
+      // could show it streaming.
       await owner.database?.messagesDao.markAssistantStopped(
         chatId: owner.chatId,
-        messageId: assistantMessageId,
+        messageId: id,
       );
-    });
-  } catch (cause, stackTrace) {
-    DebugLogger.error(
-      'stopped-completion-marker-failed',
-      scope: 'chat/completion',
-      error: cause,
-      stackTrace: stackTrace,
-    );
+    }
+  });
+  if (api is ApiService) {
+    for (final id in assistantMessageIds) {
+      api.endSend(id);
+    }
   }
 }
 
