@@ -985,6 +985,39 @@ void main() {
     );
   });
 
+  test('a save that fails before it is known to be written can be tried '
+      'again', () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        label: 'Desk',
+        headers: const [ServerAddressHeader(name: 'X-Desk', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    // Save asks first, then the write fails while it asks again.
+    replies.next.add(false);
+    replies.fails = 1;
+    addTearDown(replies.reset);
+    final failed = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(failed.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(failed.problem, ServerAddressProblemCode.serverError);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      registry.server(serverId)!.endpoint(inUse.id)!.customHeaders['X-Desk'],
+      'two',
+    );
+  });
+
   test('a reply started after removing was asked about is asked about '
       'before the address goes', () async {
     await addSecond();
@@ -1378,13 +1411,24 @@ final class _Replies implements AddressReplies {
     answering = false;
     stopped = 0;
     next.clear();
+    fails = 0;
   }
 
   /// What the next asks answer, first to last, before [answering] does.
   final List<bool> next = <bool>[];
 
+  /// How many asks fail, after [next] is used up, before they answer again.
+  int fails = 0;
+
   @override
-  bool get addressAnswering => next.isNotEmpty ? next.removeAt(0) : answering;
+  bool get addressAnswering {
+    if (next.isNotEmpty) return next.removeAt(0);
+    if (fails > 0) {
+      fails--;
+      throw StateError('the answers could not be read');
+    }
+    return answering;
+  }
 
   @override
   Future<void> stopAddressAnswers() async {

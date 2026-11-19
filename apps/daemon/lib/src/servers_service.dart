@@ -548,7 +548,9 @@ final class ServersService {
         error: error,
         stackTrace: stackTrace,
       );
-      _checked.remove(request.checkId);
+      // Whether the address was written is unknown: the check stays, so
+      // Save can be tried again (by its ids it writes the same address, or
+      // finds it written).
       return ServerAddressSaveResult(
         outcome: ServerAddressChangeOutcome.notSaved,
         problem: ServerAddressProblemCode.serverError,
@@ -557,11 +559,14 @@ final class ServersService {
     }
     switch (outcome) {
       case core.ServerAddressSaved():
-        _checked.remove(request.checkId);
         _changed(checked.serverId);
+        final addresses = await _addressesNow(checked.serverId);
+        // Used up once the answer is ready: until then a Save tried again
+        // finds the address written.
+        _checked.remove(request.checkId);
         return ServerAddressSaveResult(
           outcome: ServerAddressChangeOutcome.done,
-          addresses: await _addressesNow(checked.serverId),
+          addresses: addresses,
         );
       case core.ServerAddressNotSaved(:final problem):
         final question = asked;
