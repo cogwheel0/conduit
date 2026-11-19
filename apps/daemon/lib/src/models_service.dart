@@ -218,8 +218,15 @@ final class ModelsService {
       picks[null] = _Pick(null, ++_revision);
       _announce();
     }
-    final made = slot?.model != null
-        ? slot
+    final taken = slot?.model;
+    final made = taken != null
+        // A coding agent New Chat picked, as New Chat's terminal offered it:
+        // the chat knows it by its id alone, its controls asked of its own.
+        ? _Pick(
+            taken,
+            slot!.revision,
+            idOnly: isTerminalAgentModelId(taken.id),
+          )
         : model != null && isTerminalAgentModelId(model)
         ? _Pick(
             core.Model(

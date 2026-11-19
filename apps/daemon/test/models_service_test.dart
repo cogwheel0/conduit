@@ -720,6 +720,14 @@ void main() {
         await models.select(_northAgent, chatId: 'agent-chat');
         await models.select(_northAgent);
         check(await efforts()).deepEquals(_chatEfforts);
+        // New Chat's pick, taken to the chat its first send made: the agent as
+        // that chat's terminal offers it, not as New Chat's did.
+        models.sent(
+          models.sending(null),
+          toChat: 'agent-chat',
+          model: _northAgent,
+        );
+        check(await efforts()).deepEquals(_chatEfforts);
       },
     );
 
