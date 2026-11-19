@@ -822,26 +822,25 @@ void main() {
       check(await storedSession('a')).isNull();
     });
 
-    // Each one deleted is told of, even when another cannot be deleted, and
-    // one deleted only at the second try.
-    for (final (refusal, aDeleted) in [
-      ('', true),
-      (', but for one it cannot delete', false),
-      (', one at the second try', true),
+    // Each one deleted is told of: at the first try or the second, and
+    // whatever becomes of another.
+    for (final (name, once, always, told) in [
+      ('', null, null, {'a', 'b'}),
+      (', but for one it cannot delete', null, 'a', {'b'}),
+      (', one at the second try', 'a', null, {'a', 'b'}),
+      (', one at the second try and not another', 'a', 'b', {'a'}),
     ]) {
-      test('when a sign-out cut short is finished at startup$refusal',
-          () async {
+      test('when a sign-out cut short is finished at startup$name', () async {
         await saveAccounts(['a', 'b']);
-        final sessionA = await signInWithBrowser('a');
-        final sessionB = await signInWithBrowser('b');
-        const keyA = 'browser_sign_in_session_v1:a';
-        if (refusal.isNotEmpty) {
-          if (aDeleted) {
-            secure.undeletableOnceKey = keyA;
-          } else {
-            secure.undeletableKey = keyA;
-          }
-        }
+        final sessions = {
+          'a': await signInWithBrowser('a'),
+          'b': await signInWithBrowser('b'),
+        };
+        String? key(String? id) =>
+            id == null ? null : 'browser_sign_in_session_v1:$id';
+        secure
+          ..undeletableOnceKey = key(once)
+          ..undeletableKey = key(always);
 
         final dropped = await droppedBy(() async {
           try {
@@ -852,10 +851,11 @@ void main() {
         });
 
         check(dropped).unorderedEquals([
-          if (aDeleted) (accountId: 'a', session: sessionA),
-          (accountId: 'b', session: sessionB),
+          for (final id in told) (accountId: id, session: sessions[id]!),
         ]);
-        check(await storedSession('b')).isNull();
+        for (final id in told) {
+          check(await storedSession(id)).isNull();
+        }
       });
     }
 

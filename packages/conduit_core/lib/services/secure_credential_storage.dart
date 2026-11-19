@@ -474,12 +474,28 @@ class SecureCredentialStorage {
     };
   }
 
-  Future<void> deleteAllBrowserSignInSessions() async {
+  /// Deletes every stored browser sign-in session, telling [onDeleted] the
+  /// account id of each as it goes. One that cannot be deleted does not stop
+  /// the others: the first failure is thrown once all were tried.
+  Future<void> deleteAllBrowserSignInSessions({
+    void Function(String accountId)? onDeleted,
+  }) async {
     final all = await _secureStorage.readAll();
+    Object? firstError;
+    StackTrace? firstStackTrace;
     for (final key in all.keys) {
-      if (key.startsWith(_browserSignInSessionPrefix)) {
+      if (!key.startsWith(_browserSignInSessionPrefix)) continue;
+      try {
         await _secureStorage.delete(key: key);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+        continue;
       }
+      onDeleted?.call(key.substring(_browserSignInSessionPrefix.length));
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
     }
   }
 
