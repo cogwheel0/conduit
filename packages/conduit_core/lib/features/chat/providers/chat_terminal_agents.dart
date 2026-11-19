@@ -49,6 +49,17 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
   return _agentScopeOn(terminalId, chat, servers);
 }
 
+/// The terminals a chat can use: for a saved chat ([chatId]), the server's
+/// own as it offers them to that chat, read afresh
+/// ([terminalSystemServersForChatProvider]); a host holding no chat as the
+/// active one has the sidebar's list, which leaves out a terminal that needs
+/// a saved chat. For a new chat (null), the account's list.
+Future<List<TerminalServerInfo>> _terminalsFor(dynamic ref, String? chatId) =>
+    (chatId == null
+            ? ref.read(terminalAvailableServersProvider.future)
+            : ref.refresh(terminalSystemServersForChatProvider(chatId).future))
+        as Future<List<TerminalServerInfo>>;
+
 /// The scope on [terminalId] for [chat], when [servers] lists it as one of
 /// the server's own terminals.
 TerminalAgentScope? _agentScopeOn(
@@ -90,17 +101,8 @@ Future<TerminalAgentScope?> terminalAgentScopeFor(
   List<TerminalServerInfo>? servers;
   try {
     // Without a terminal service the list stays loading: a host asking for
-    // a picker gives up rather than wait on it. A saved chat reads the
-    // terminals offered to it: the host's own list is the sidebar's, which
-    // leaves out one that needs a saved chat.
-    servers =
-        await (ref.read(
-                  chat == null
-                      ? terminalAvailableServersProvider.future
-                      : terminalSystemServersForChatProvider(chat.id).future,
-                )
-                as Future<List<TerminalServerInfo>>)
-            .timeout(timeout);
+    // a picker gives up rather than wait on it.
+    servers = await _terminalsFor(ref, chat?.id).timeout(timeout);
   } catch (_) {
     return null;
   }
@@ -206,10 +208,7 @@ Future<Model?> resolveTerminalAgentModel(
   if (ref.read(terminalAgentsSupportedProvider) != true) return null;
   final api = ref.read(apiServiceProvider) as ApiService?;
   if (api == null) return null;
-  final servers = await bounded(
-    ref.read(terminalAvailableServersProvider.future)
-        as Future<List<TerminalServerInfo>>,
-  );
+  final servers = await bounded(_terminalsFor(ref, chatId));
   final server = servers
       .where(
         (server) => server.isSystem && server.selectionId == agent.terminalId,

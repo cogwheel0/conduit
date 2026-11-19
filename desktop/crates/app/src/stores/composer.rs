@@ -935,6 +935,9 @@ impl ComposerStore {
             return;
         }
         self.set_mention(None, cx);
+        // A coding agent answers alone (the list may not offer it, so
+        // `select_model` cannot tell).
+        self.compare_with = None;
         self.select_model(id, cx);
     }
 
@@ -1180,8 +1183,9 @@ impl ComposerStore {
                 let _ = this.update(cx, |s, cx| match result {
                     // The pin answers with the chat's list: shown while that
                     // chat is (when newer than the list shown), read again
-                    // otherwise.
-                    Ok(list) if s.list_query() == query => {
+                    // otherwise. A temporary chat's is read again too: the
+                    // pin's answer is New Chat's.
+                    Ok(list) if s.list_query() == query && !query.temporary => {
                         if s.newer_answer(&query, (session, list.revision, seq)) {
                             s.set_models(list, query, seq, cx);
                             // It can show a pick whose own answer it
@@ -3666,9 +3670,16 @@ mod tests {
             .expect("options");
         assert_eq!(options["modelId"], "k");
         assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
-        // A one-message model is set; then Switch.
-        store.update(cx, |s, cx| s.set_mention(Some(model("k", "Kestrel")), cx));
+        // A one-message model and a comparison are set; then Switch, to an
+        // agent this list does not offer.
+        store.update(cx, |s, cx| {
+            s.set_mention(Some(model("k", "Kestrel")), cx);
+            s.set_compare_with(Some(model("b", "B")), cx);
+        });
         store.update(cx, |s, cx| s.switch_to_chat_agent(agent, cx));
+        store.read_with(cx, |s, _| {
+            assert!(s.compare_with.is_none(), "the comparison outlived Switch");
+        });
         cx.run_until_parked();
         let picks = daemon.calls::<methods::ModelsSelect>();
         assert_eq!(picks.len(), 1);
@@ -3720,6 +3731,30 @@ mod tests {
             daemon.calls::<methods::ModelsSelect>()[0]["temporary"],
             true
         );
+        // A pin answers with New Chat's list (it carries no temporary): the
+        // temporary chat's list is read again, never replaced by it.
+        daemon.returns::<methods::ModelsSetPinned>(ModelList {
+            models: vec![model("k", "Kestrel"), model("n", "Nuthatch")],
+            selected_id: Some("n".into()),
+            ..Default::default()
+        });
+        let lists = daemon.calls::<methods::ModelsList>().len();
+        store.update(cx, |s, cx| s.set_pinned("k", true, cx));
+        cx.run_until_parked();
+        let asked = daemon.calls::<methods::ModelsList>();
+        assert_eq!(
+            asked.len(),
+            lists + 1,
+            "the temporary list was not read again"
+        );
+        assert_eq!(asked.last().expect("a list")["temporary"], true);
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.selected_model().map(|m| m.id.as_str()),
+                Some("k"),
+                "New Chat's pick replaced the temporary chat's"
+            );
+        });
     }
 
     /// A chat shows the selection the daemon keeps for it: its agent, which

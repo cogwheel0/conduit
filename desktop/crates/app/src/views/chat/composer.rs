@@ -2722,6 +2722,13 @@ impl ChatComposer {
                     .to_string();
                 let next = join_dictated(&base, text);
                 self.set_text(&join_dictated(&next, &heard), window, cx);
+                // As every insertion: the field has the focus, the caret
+                // right after what went in.
+                let caret = next.trim_end().len();
+                self.input.update(cx, |s, cx| {
+                    s.set_selected_range(caret..caret, cx);
+                    s.focus(window, cx);
+                });
                 self.dictation_base = Some(next);
                 return;
             }
@@ -4977,8 +4984,18 @@ mod tests {
         assert_eq!(value(&view, cx), "Draft: plant the beans");
         // Text given while words are heard (a prefill, Insert) goes in
         // ahead of them, and the next words keep it.
-        cx.update(|window, cx| view.update(cx, |c, cx| c.insert_at_caret("Note:", window, cx)));
+        cx.update(|window, cx| {
+            window.blur(cx);
+            view.update(cx, |c, cx| c.insert_at_caret("Note:", window, cx))
+        });
         assert_eq!(value(&view, cx), "Draft: Note: plant the beans");
+        // As every insertion: the field has the focus, and the caret is
+        // right after what went in.
+        cx.update(|window, cx| {
+            let input = view.read(cx).input.clone();
+            assert!(input.read(cx).focus_handle(cx).is_focused(window));
+            assert_eq!(input.read(cx).cursor(), "Draft: Note:".len());
+        });
         emit(
             DictationEvent::Text {
                 text: "plant the beans deep".into(),

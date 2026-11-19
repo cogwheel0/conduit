@@ -117,6 +117,8 @@ void main() {
         requiresSavedChatContext: true,
       );
       final asked = <String>[];
+      // Not granted to the chat yet when it is first listed.
+      var granted = <TerminalServerInfo>[];
       final c = ProviderContainer(
         overrides: [
           reviewerModeProvider.overrideWith(_ReviewerOff.new),
@@ -125,17 +127,20 @@ void main() {
           terminalAvailableServersProvider.overrideWith((ref) async => []),
           terminalSystemServersForChatProvider.overrideWith((ref, chatId) async {
             asked.add(chatId);
-            return [saved];
+            return granted;
           }),
         ],
       );
       addTearDown(c.dispose);
       c.read(selectedTerminalIdProvider.notifier).set('bench');
+      check(await terminalAgentScopeFor(c, _chat())).isNull();
+      // Granted since: the next listing reads the chat's terminals again.
+      granted = [saved];
       final scope = await terminalAgentScopeFor(c, _chat());
       check(scope).isNotNull()
         ..has((s) => s.terminalId, 'terminalId').equals('bench')
         ..has((s) => s.chatId, 'chatId').equals('chat-1');
-      check(asked).deepEquals(['chat-1']);
+      check(asked).deepEquals(['chat-1', 'chat-1']);
       // A new chat keeps to the account's list.
       check(await terminalAgentScopeFor(c, null)).isNull();
     });

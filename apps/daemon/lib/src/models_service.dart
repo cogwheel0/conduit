@@ -851,8 +851,12 @@ final class ModelsService {
       );
     }
     stillTheNewest('the model is selected');
+    // A temporary chat's pick lives in its own slot only: as the account's
+    // selection, New Chat would fall back on it.
     _picked(
-      () => _container.read(selectedModelProvider.notifier).set(model),
+      temporary && chatId == null
+          ? () {}
+          : () => _container.read(selectedModelProvider.notifier).set(model),
       account,
       _slotOf(chatId, temporary: temporary),
       model,

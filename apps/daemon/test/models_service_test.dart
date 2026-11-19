@@ -361,6 +361,10 @@ var _terminalsUnreadable = false;
 /// its own answers them.
 var _offered = _terminals;
 
+/// The server's own terminals as it lists them for a saved chat, when not
+/// [_offered]'s (the sidebar's list leaves out one that needs a saved chat).
+List<TerminalServerInfo>? _offeredToChats;
+
 /// A fresh read of the server's own terminals fails while this is set.
 var _systemUnreadable = false;
 
@@ -399,6 +403,7 @@ ProviderContainer _agentContainer(
   _chatHeld = null;
   _terminalsUnreadable = false;
   _offered = _terminals;
+  _offeredToChats = null;
   _systemUnreadable = false;
   _systemHeld = null;
   _systemAsked = Completer<void>();
@@ -426,7 +431,7 @@ ProviderContainer _agentContainer(
           throw StateError('the terminal list is unreadable');
         }
         return [
-          for (final server in _offered)
+          for (final server in _offeredToChats ?? _offered)
             if (server.isAvailableForChatScope(chatId)) server,
         ];
       }),
@@ -480,6 +485,25 @@ void main() {
       // The chat's own pick is its saved agent now: no Switch to offer.
       expect(list.chatAgent, isNull);
       expect(container.read(selectedTerminalIdProvider), 'north');
+
+      // North runs agents only in a saved chat: the sidebar's list leaves it
+      // out, the chat's own list has it. Switch still finds it there.
+      final northSavedOnly = TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'north',
+        systemServerId: 'north',
+        name: 'North bench',
+        baseUrl: Uri.parse('http://127.0.0.1:9/north'),
+        requiresSavedChatContext: true,
+      );
+      final saved = _agentContainer(_AgentsApi());
+      _offered = [_terminals.last];
+      _offeredToChats = [northSavedOnly, _terminals.last];
+      expect(saved.read(selectedTerminalIdProvider), 'south');
+      final switched = await ModelsService(saved)
+          .select(_northAgent, chatId: 'agent-chat');
+      expect(switched.selectedId, _northAgent);
+      expect(saved.read(selectedTerminalIdProvider), 'north');
     });
 
     test('tells the window its agent though the account selected it', () async {
@@ -1031,6 +1055,15 @@ void main() {
       ).equals('preferred-model');
       // New Chat's own first send still takes its agent.
       check(await models.modelFor(null)).equals(_northAgent);
+
+      // With nothing picked in New Chat, a temporary pick is no account
+      // selection New Chat would fall back on: it keeps the default.
+      final fresh = ModelsService(_agentContainer(_AgentsApi()));
+      await fresh.select('preferred-model', temporary: true);
+      check(await fresh.modelFor(null)).equals('first-model');
+      check((await fresh.list()).selectedId).equals('first-model');
+      check(await fresh.modelFor(null, temporary: true))
+          .equals('preferred-model');
     });
 
     test("a send that lands after a later pick leaves the chat that pick", () {
