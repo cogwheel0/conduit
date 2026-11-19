@@ -790,6 +790,68 @@ void main() {
         },
       );
 
+      // The proxy cookie is how the address in use is reached: a new one
+      // rebuilds the clients, ending a reply that arrives through them, so
+      // it is asked first. A name alone is never asked about.
+      test('asks before a proxy sign-in changes the session of the address '
+          'in use', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        final inUse = ProviderContainer(
+          overrides: [
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            openWebUiRouteResolverProvider.overrideWith(
+              () => _InUse(serverId, 'lab'),
+            ),
+            authTokenProvider3.overrideWithValue(null),
+          ],
+        );
+        addTearDown(inUse.dispose);
+        var asked = 0;
+        Future<ServerAddressSave> saveInUse(
+          String label,
+          String cookie, {
+          required bool confirm,
+        }) => saveVerifiedServerAddress(
+          inUse,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: label,
+          verified: ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+            customHeaders: {...lab.customHeaders, 'Cookie': cookie},
+          ),
+          editedFrom: lab,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async {
+            asked++;
+            return confirm;
+          },
+          stillWanted: () => true,
+        );
+        Future<Map<String, String>?> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders['lab'];
+
+        check(await saveInUse('Lab', 'proxy=1', confirm: true))
+            .isA<ServerAddressSaved>();
+        check(asked).equals(1);
+        // Another sign-in's cookie alone, declined: the session stays.
+        check(await saveInUse('Lab', 'proxy=2', confirm: false))
+            .isA<ServerAddressNotSaved>();
+        check(asked).equals(2);
+        check(await kept()).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+        // The same cookie, the name changed: nothing asked.
+        check(await saveInUse('Lab desk', 'proxy=1', confirm: false))
+            .isA<ServerAddressSaved>();
+        check(asked).equals(2);
+      });
+
       // The proxy cookie was captured for the address this edit checked; a
       // stale edit never files it on the destination another window gave
       // the address since.
@@ -1043,6 +1105,21 @@ final class _CookieRefusingSecureStore extends InMemorySecureKeyValueStore {
 }
 
 /// Records the route checks asked for instead of probing.
+/// A resolver whose route is [endpointId] of [serverId], in use.
+final class _InUse extends OpenWebUiRouteResolver {
+  _InUse(this.serverId, this.endpointId);
+
+  final String serverId;
+  final String endpointId;
+
+  @override
+  OpenWebUiRouteStatus build() =>
+      OpenWebUiRouteStatus(serverId: serverId, endpointId: endpointId);
+
+  @override
+  Future<void> resolve({String reason = 'manual'}) async {}
+}
+
 final class _Routes extends OpenWebUiRouteResolver {
   _Routes();
 

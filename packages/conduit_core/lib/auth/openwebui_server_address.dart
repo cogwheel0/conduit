@@ -1393,9 +1393,31 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
-  // Saved, an edit of the address in use that changes how it is reached
-  // moves the clients off it, ending a reply arriving through them; that is
-  // asked first. A name (label) alone changes no connection: never asked.
+  // The proxy sign-in this save keeps, for [cookieOwner].
+  final capturedSession = <String, String>{
+    for (final entry in verified.customHeaders.entries)
+      if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+  };
+  // Whether the account in use would send another session to the address:
+  // the cookie it keeps there is part of how the address is reached.
+  bool changesInUseSession() {
+    if (endpointId == null ||
+        capturedSession.isEmpty ||
+        cookieOwner == null ||
+        cookieOwner != activeAccountId) {
+      return false;
+    }
+    final kept =
+        registry.account(cookieOwner)?.capturedHeaders[endpointId] ??
+        const <String, String>{};
+    return kept.length != capturedSession.length ||
+        capturedSession.entries.any((e) => kept[e.key] != e.value);
+  }
+
+  // Saved, an edit of the address in use that changes how it is reached --
+  // the address, or the session the account in use sends there -- moves the
+  // clients off it, ending a reply arriving through them; that is asked
+  // first. A name (label) alone changes no connection: never asked.
   bool changesInUseConnection(
     List<OpenWebUiEndpoint> stored,
     OpenWebUiEndpoint saving,
@@ -1403,7 +1425,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     if (endpointId == null) return false;
     final before = stored.where((e) => e.id == endpointId).firstOrNull;
     return before != null &&
-        !before.sameConnection(saving) &&
+        (!before.sameConnection(saving) || changesInUseSession()) &&
         isServerAddressInUse(
           container.read(openWebUiRouteResolverProvider),
           serverId: server.id,
