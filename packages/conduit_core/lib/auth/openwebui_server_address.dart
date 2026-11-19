@@ -19,6 +19,7 @@ import '../providers/openwebui_route_resolver.dart'
         openWebUiRouteResolverProvider,
         reloadAfterRoutesEdited;
 import '../services/api_service.dart';
+import '../services/optimized_storage_service.dart' show ServerConnectionTaken;
 import '../services/worker_manager.dart';
 import '../utils/debug_logger.dart';
 import '../utils/sensitive_value_utils.dart';
@@ -611,6 +612,32 @@ OpenWebUiEndpoint _savedEdit(
   return saving;
 }
 
+/// [endpoints], the addresses as stored when the write runs, with [route]
+/// saved onto them as the write saves it: added whole when [adding], else
+/// the edit [_savedEdit] makes of the address as stored (throwing
+/// [_AddressGone] as it does). [saving] is that address. One rule for the
+/// write and for every check made before it of what the write would save.
+({OpenWebUiEndpoint saving, List<OpenWebUiEndpoint> endpoints}) _routesSaving(
+  List<OpenWebUiEndpoint> endpoints,
+  OpenWebUiEndpoint route, {
+  required bool adding,
+  required OpenWebUiEndpoint? editedFrom,
+  required bool keepsSession,
+}) {
+  final saving = adding
+      ? route
+      : _savedEdit(
+          endpoints,
+          route,
+          editedFrom: editedFrom,
+          keepsSession: keepsSession,
+        );
+  return (
+    saving: saving,
+    endpoints: withEditedRoute(endpoints, saving, adding: adding),
+  );
+}
+
 /// Saves [route], an address of the server [serverId] that has just been
 /// checked -- in place of the address of its id, or as a new one when
 /// [adding] -- and keeps the proxy cookie in [headers] for [cookieOwner], the
@@ -659,16 +686,15 @@ Future<bool> saveCheckedAddress(
   }
 
   List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) {
-    final saving = adding
-        ? route
-        : _savedEdit(
-            endpoints,
-            route,
-            editedFrom: editedFrom,
-            keepsSession: keepsSession,
-          );
-    beforeWrite?.call(endpoints, saving, atWriteRegistry, atWriteActive);
-    return withEditedRoute(endpoints, saving, adding: adding);
+    final next = _routesSaving(
+      endpoints,
+      route,
+      adding: adding,
+      editedFrom: editedFrom,
+      keepsSession: keepsSession,
+    );
+    beforeWrite?.call(endpoints, next.saving, atWriteRegistry, atWriteActive);
+    return next.endpoints;
   }
 
   final bool saved;
@@ -1473,6 +1499,40 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
               isCapturedSessionHeader,
             ),
           );
+    // Another saved server reached exactly so: this address is that
+    // server's. Refused before anything is asked or stopped for a save that
+    // cannot happen, judged on what the write would save onto the addresses
+    // as stored now (another window may have saved since the check began);
+    // the write checks again, and that check is the one that counts.
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    final now = stored.server(server.id);
+    if (now != null) {
+      final next = _routesSaving(
+        now.endpoints,
+        route,
+        adding: endpointId == null,
+        editedFrom: editedFrom,
+        keepsSession: verified.customHeaders.keys.any(isCapturedSessionHeader),
+      );
+      final saved = OpenWebUiRegistry(
+        servers: [
+          for (final other in stored.servers)
+            other.id == now.id
+                ? OpenWebUiServer(
+                    id: now.id,
+                    name: now.name,
+                    endpoints: next.endpoints,
+                  )
+                : other,
+        ],
+        accounts: stored.accounts,
+      );
+      if (saved.connectionTakenSince(stored) != null) {
+        return const ServerAddressNotSaved(
+          ServerAddressProblem.differentServer,
+        );
+      }
+    }
     if (changesInUseConnection(
           server.endpoints,
           saving,
@@ -1505,6 +1565,10 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     );
   } on _AddressGone {
     return const ServerAddressNotSaved(ServerAddressProblem.serverMissing);
+  } on ServerConnectionTaken {
+    // Another saved server is reached exactly so: the address is that
+    // server's, and saved here too it would make the two one.
+    return const ServerAddressNotSaved(ServerAddressProblem.differentServer);
   }
   // Not saved: the proxy sign-in that lets requests through was revoked;
   // signing in through the proxy again captures a new one.
