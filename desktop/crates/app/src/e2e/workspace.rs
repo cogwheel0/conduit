@@ -243,7 +243,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= models(dir, cx).await;
     pass &= knowledge(dir, cx).await;
     pass &= tools(dir, inputs, cx).await;
-    pass &= skills(dir, cx).await;
+    pass &= skills(dir, inputs, cx).await;
     pass
 }
 
@@ -977,7 +977,7 @@ async fn tools(dir: &Path, inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
     pass
 }
 
-async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
+async fn skills(dir: &Path, inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
     let s = WorkspaceSection::Skills;
     let mut pass = ok(
         "Workspace › Skills opens and lists",
@@ -1033,18 +1033,31 @@ async fn skills(dir: &Path, cx: &mut AsyncApp) -> bool {
         )
     });
     settle(cx, 300).await;
+    // The server's log, beside the fake model's in the instance's state
+    // (however the env file was chosen); this duplication's own request is
+    // what follows the log as it is now.
+    let server_log = inputs
+        .get("FAKE_MODEL_LOG")
+        .map(|log| PathBuf::from(log).with_file_name("server.log"));
+    let logged = |log: &Option<PathBuf>| {
+        log.as_ref()
+            .and_then(|p| std::fs::read(p).ok())
+            .unwrap_or_default()
+    };
+    let before = logged(&server_log).len();
     command(s, &seeded, ItemCommand::Duplicate, cx);
     let copied = wait_until(cx, Duration::from_secs(20), |cx| {
         listed(s, "Plain English (Clone)", cx).is_some()
     })
     .await;
-    let cloned = std::env::var("CONDUIT_OWUI_DIR")
-        .ok()
-        .and_then(|d| std::fs::read_to_string(format!("{d}/state/server.log")).ok())
-        .is_some_and(|log| {
-            log.lines()
-                .any(|l| l.contains("POST /api/v1/skills/id/") && l.contains("/clone HTTP"))
-        });
+    let clone_request = format!("\"POST /api/v1/skills/id/{seeded}/clone HTTP/");
+    let cloned = wait_until(cx, Duration::from_secs(10), |_| {
+        let log = logged(&server_log);
+        String::from_utf8_lossy(log.get(before..).unwrap_or_default())
+            .lines()
+            .any(|l| l.contains(&clone_request) && l.trim_end().ends_with("\" 200"))
+    })
+    .await;
     pass &= ok(
         "Duplicate has the server copy the skill (its clone, files kept)",
         copied && cloned,
