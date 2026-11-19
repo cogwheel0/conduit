@@ -224,11 +224,12 @@ final class ModelsService {
   /// Where `models.changed` goes (none in some tests).
   final EventBus? _events;
 
-  /// How many times `models.changed` went out.
-  int _announced = 0;
+  /// Whether a pick is being made ([_picked]): it announces itself once,
+  /// so the listeners its changes fire stay quiet.
+  bool _picking = false;
 
   void _announce() {
-    _announced++;
+    if (_picking) return;
     _events?.emit(ConduitEventSpecs.modelsChanged, null);
   }
 
@@ -769,19 +770,24 @@ final class ModelsService {
     return _answerPick(chatId, account);
   }
 
-  /// [model] picked for [chatId]: [select] selects it for the account, and
-  /// the pick is kept. The chat's other windows list it again, though the
-  /// account had selected it already: they show that chat's pick.
+  /// [model] picked for [chatId]: [select] selects it for the account (an
+  /// agent's terminal too), and the pick is kept. One `models.changed`, for
+  /// whatever it changed: the chat's other windows list it again, though
+  /// the account had selected it already, since they show that chat's pick.
   void _picked(
     void Function() select,
     AccountScope account,
     String? chatId,
     core.Model model,
   ) {
-    final announced = _announced;
-    select();
-    _pick(account, chatId, model);
-    if (_announced == announced) _announce();
+    _picking = true;
+    try {
+      select();
+      _pick(account, chatId, model);
+    } finally {
+      _picking = false;
+    }
+    _announce();
   }
 
   /// The list a pick answers with: [chatId]'s, put together for the

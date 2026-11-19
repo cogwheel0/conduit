@@ -1082,6 +1082,13 @@ void main() {
     changed.clear();
     await models.select('preferred-model', chatId: 'plain-chat');
     check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
+    // A chat's own agent on another terminal: the terminal and the model
+    // both change, and the pick still announces once.
+    container.read(selectedTerminalIdProvider.notifier).set('south');
+    changed.clear();
+    await models.select(_northAgent, chatId: 'agent-chat');
+    check(container.read(selectedTerminalIdProvider)).equals('north');
+    check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
   });
   test('an unreachable server leaves the cached models on offer', () async {
     final container = ProviderContainer(
