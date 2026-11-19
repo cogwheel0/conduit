@@ -290,12 +290,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
   @override
   bool get addressAnswering => _sessions.any(_answersThroughAddress);
 
-  /// Stops the answers [addressAnswering] counts: the running ones, and at
-  /// once each send of one not yet started, dropped as Stop drops one
-  /// ([_dropSend]) rather than waited out (with no socket, Open WebUI
-  /// answers such a request only once its whole reply is written). Once
-  /// those sends have settled, an answer one of them started meanwhile is
-  /// stopped too.
+  /// Stops the answers [addressAnswering] counts, as they are when asked:
+  /// the running ones, and at once each send of one not yet started, dropped
+  /// as Stop drops one ([_dropSend]) rather than waited out (with no socket,
+  /// Open WebUI answers such a request only once its whole reply is
+  /// written). An answer another window starts meanwhile is not one of them.
   @override
   Future<void> stopAddressAnswers() async {
     bool counted(_Turn turn) => answersThroughAddress(
@@ -309,15 +308,22 @@ final class TurnsService implements ChatTurns, AddressReplies {
         if (session.pending case final pending?
             when !pending.started.isCompleted &&
                 _answersThroughAddress(session))
-          _dropSend(session, pending),
+          _dropSend(session, pending, where: counted),
     ]);
-    await _stopRunning(where: counted);
   }
 
-  /// Drops [pending], a send not yet started, as the phone's Stop does: the
-  /// core's stop in its chat drops the request still on its way, and the
-  /// send then settles. Completes once it has.
-  Future<void> _dropSend(_ChatSession session, _PendingTurn pending) async {
+  /// Drops [pending], a send not yet started, as the phone's Stop does: it
+  /// is marked dropped, so a send still waiting to go (a voice turn waiting
+  /// for quiet) never goes, and the core's stop in its chat keeps the
+  /// request from going out. Once the send has settled, the answer it
+  /// started meanwhile, if [where] picks it, is stopped too: that one only,
+  /// never a turn that took the chat after it.
+  Future<void> _dropSend(
+    _ChatSession session,
+    _PendingTurn pending, {
+    bool Function(_Turn turn)? where,
+  }) async {
+    pending.dropped = true;
     if (!session.scope.isDisposed) {
       try {
         await session.scope.container.read(stopGenerationSettledProvider)();
@@ -331,6 +337,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
     }
     await pending.started.future.then<void>((_) {}, onError: (_) {});
+    final started = session.turn;
+    if (started != null &&
+        !started.finished &&
+        identical(started.pending, pending) &&
+        (where?.call(started) ?? true) &&
+        !session.scope.isDisposed) {
+      await _stopTurn(session, started);
+    }
   }
 
   bool _answersThroughAddress(_ChatSession session) {
@@ -1520,9 +1534,6 @@ final class TurnsService implements ChatTurns, AddressReplies {
           !pending.started.isCompleted &&
           _answersThroughAddress(session)) {
         await _dropSend(session, pending);
-        if (session.turn case final started? when !started.finished) {
-          await _stopTurn(session, started);
-        }
         return;
       }
       await _stopStranded(chatId, session, account);
@@ -2082,6 +2093,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
           // admitted already, so a window's request waits for it, not it
           // for the request.
           await _untilQuiet(session, ownPending: true);
+          if (session.pending?.dropped ?? false) {
+            throw const RpcError(
+              code: ConduitErrorCodes.conflict,
+              args: <String, String>{'reason': 'stopped'},
+              debugMessage: 'the words were stopped before they went out',
+            );
+          }
           // The call's first turn makes its chat: temporary or not, and in
           // the folder, as the window chose, whatever the call's start reset.
           if (choice != null && !session.scope.isDisposed) {
@@ -4542,6 +4560,10 @@ final class _PendingTurn {
   bool sendSettled = false;
   Object? sendError;
   final Completer<_Turn> started = Completer<_Turn>();
+
+  /// Dropped by a Stop or an address change before it started
+  /// ([TurnsService._dropSend]): a send still waiting to go does not.
+  bool dropped = false;
 
   /// A batch of queued messages the core has committed: the outbox owns
   /// its turn, which starts now rather than once the request has gone out.

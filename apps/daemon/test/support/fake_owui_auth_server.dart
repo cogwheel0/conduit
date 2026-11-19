@@ -124,8 +124,14 @@ final class FakeOwuiAuthServer {
     return fake;
   }
 
+  /// The Open WebUI version the server reports; below 0.9 the core sends
+  /// the legacy request shape, saving the pending turn first.
+  String version = '0.13.1';
+
   Future<void> close() {
     chats._close();
+    final settings = holdSettings;
+    if (settings != null && !settings.isCompleted) settings.complete();
     return _server.close(force: true);
   }
 
@@ -198,13 +204,13 @@ final class FakeOwuiAuthServer {
     }
     if (path == '/health') return json(<String, dynamic>{'status': true});
     if (path == '/api/version') {
-      return json(<String, dynamic>{'version': '0.13.1'});
+      return json(<String, dynamic>{'version': version});
     }
     if (path == '/api/config') {
       return json(<String, dynamic>{
         'status': true,
         'name': 'Open WebUI',
-        'version': '0.13.1',
+        'version': version,
         'default_locale': '',
         'oauth': <String, dynamic>{'providers': <String, dynamic>{}},
         'features': <String, dynamic>{
@@ -393,6 +399,23 @@ final class FakeOwuiChats {
 
   Map<String, dynamic>? refusal;
 
+  /// While set, reads of a chat it keeps (`GET /api/v1/chats/{id}`) wait for
+  /// it; [chatReadAsked] completes as one reaches it.
+  Completer<void>? holdChatReads;
+  Completer<void> chatReadAsked = Completer<void>();
+
+  /// While set, saves of a chat it keeps (`POST /api/v1/chats/{id}`) wait
+  /// for it; [chatSaveAsked] completes as one reaches it.
+  Completer<void>? holdChatSaves;
+  Completer<void> chatSaveAsked = Completer<void>();
+
+  /// A held chat read or save, once let go, loses its connection instead of
+  /// being answered, as when the network drops.
+  bool dropHeldChats = false;
+
+  /// The answers streaming in a response, held after their first word.
+  final Set<Completer<void>> _streamHolds = <Completer<void>>{};
+
   /// The stream holds the running tasks took.
   final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
 
@@ -462,7 +485,10 @@ final class FakeOwuiChats {
     for (final hold in <Completer<void>?>[
       holdAdmission,
       holdStream,
+      holdChatReads,
+      holdChatSaves,
       ..._holds.values,
+      ..._streamHolds,
     ]) {
       if (hold != null && !hold.isCompleted) hold.complete();
     }
@@ -481,6 +507,7 @@ final class FakeOwuiChats {
     final words = answer.split(' ');
     final open = holdStream;
     holdStream = null;
+    if (open != null) _streamHolds.add(open);
     try {
       for (var i = 0; i < words.length; i++) {
         message?['content'] = words.take(i + 1).join(' ');
@@ -501,6 +528,8 @@ final class FakeOwuiChats {
       await response.close();
     } on Object {
       // The client stopped reading: the answer ends where it was.
+    } finally {
+      _streamHolds.remove(open);
     }
   }
 
@@ -520,6 +549,10 @@ final class FakeOwuiChats {
     if (_refusing) return reply(HttpStatus.badRequest, 'Transport not allowed');
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       final socket = await WebSocketTransformer.upgrade(request);
+      if (_refusing) {
+        await socket.close();
+        return;
+      }
       final session = ++_sessions;
       _sid = 'eio-$session';
       _outgoing.clear();
@@ -711,6 +744,17 @@ final class FakeOwuiChats {
     }
     if (chatId != null && stored.containsKey(chatId)) {
       final row = stored[chatId]!;
+      final held = post ? holdChatSaves : holdChatReads;
+      if (held != null) {
+        final asked = post ? chatSaveAsked : chatReadAsked;
+        if (!asked.isCompleted) asked.complete();
+        await held.future;
+        if (dropHeldChats) {
+          final socket = await response.detachSocket(writeHeaders: false);
+          socket.destroy();
+          return true;
+        }
+      }
       if (post) {
         final chat = (await body())['chat'];
         if (chat is Map<String, dynamic>) {

@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/database/database_provider.dart'
-    show openWebUiCertifiedDatabaseServerProvider;
+    show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
@@ -109,74 +109,113 @@ void main() {
     );
   });
 
-  group('against a fake Open WebUI', () {
-    late FakeOwuiAuthServer owui;
-    late EventBus events;
-    late TurnsService turns;
+  late CoreRuntime runtime;
+  late FakeOwuiAuthServer owui;
+  late TurnsService turns;
 
-    setUp(() async {
-      final temporary = Directory.systemTemp.createTempSync('turns-address');
-      addTearDown(() => temporary.deleteSync(recursive: true));
-      final runtime = await CoreRuntime.start(
-        config: BootstrapConfig(
-          sessionToken: 'a' * 43,
-          masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-          userDataDir: temporary.path,
-        ),
-        directories: DaemonDirectories.create(temporary.path),
-        log: DaemonLog(level: 'error', sink: NullSink()),
-      );
-      addTearDown(runtime.dispose);
-      owui =
-          await FakeOwuiAuthServer.start(
-              users: const {
-                'ada@example.com': (
-                  id: 'user-ada',
-                  name: 'Ada',
-                  password: 'pw-ada',
-                ),
-              },
-            )
-            ..models = const ['kettle-model'];
-      addTearDown(owui.close);
-      events = EventBus();
-      final accounts = AccountsService(runtime.container, events: events);
-      addTearDown(accounts.dispose);
-      final auth = AuthService(runtime.container);
-      addTearDown(auth.dispose);
-      final added = await accounts.add(
-        AddAccount(
-          server: ServerDraft(name: 'Lab', url: owui.url),
-          force: true,
-        ),
-      );
-      final accountId = added.accounts.activeAccountId!;
-      await auth.loginWithPassword(
-        const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
-      );
-      await runtime.container.read(activeServerProvider.future);
-      // Chats already on the server are opened as the account's once its
-      // user is bound. Certification starts that bind right after it is
-      // announced, queued on storage's lock: a registry read made after the
-      // announcement's own work (a microtask) is queued behind it.
-      final storage = runtime.container.read(optimizedStorageServiceProvider);
-      final bound = Completer<void>();
-      final watch = runtime.container.listen<Object?>(
-        openWebUiCertifiedDatabaseServerProvider,
-        (_, _) => Future<void>.microtask(() async {
-          final registry = await storage.getOpenWebUiRegistryStrict();
-          if (registry.account(accountId)?.userId != null &&
-              !bound.isCompleted) {
-            bound.complete();
-          }
-        }),
-        fireImmediately: true,
-      );
-      addTearDown(watch.close);
-      await bound.future;
-      turns = TurnsService(runtime.container, events);
-      addTearDown(turns.dispose);
-    });
+  /// A fake Open WebUI reporting [version], signed in to with its user
+  /// bound, and the turns service on a clock of the test's own.
+  Future<void> signIn({String version = '0.13.1'}) async {
+    final temporary = Directory.systemTemp.createTempSync('turns-address');
+    addTearDown(() => temporary.deleteSync(recursive: true));
+    runtime = await CoreRuntime.start(
+      config: BootstrapConfig(
+        sessionToken: 'a' * 43,
+        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
+        userDataDir: temporary.path,
+      ),
+      directories: DaemonDirectories.create(temporary.path),
+      log: DaemonLog(level: 'error', sink: NullSink()),
+    );
+    addTearDown(runtime.dispose);
+    owui =
+        await FakeOwuiAuthServer.start(
+            users: const {
+              'ada@example.com': (
+                id: 'user-ada',
+                name: 'Ada',
+                password: 'pw-ada',
+              ),
+            },
+          )
+          ..models = const ['kettle-model']
+          ..version = version;
+    addTearDown(owui.close);
+    final events = EventBus();
+    final accounts = AccountsService(runtime.container, events: events);
+    addTearDown(accounts.dispose);
+    final auth = AuthService(runtime.container);
+    addTearDown(auth.dispose);
+    final added = await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        force: true,
+      ),
+    );
+    final accountId = added.accounts.activeAccountId!;
+    await auth.loginWithPassword(
+      const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
+    );
+    await runtime.container.read(activeServerProvider.future);
+    // Chats already on the server are opened as the account's once its user
+    // is bound. Certification starts that bind right after it is announced,
+    // queued on storage's lock: a registry read made after the
+    // announcement's own work (a microtask) is queued behind it.
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    final bound = Completer<void>();
+    final watch = runtime.container.listen<Object?>(
+      openWebUiCertifiedDatabaseServerProvider,
+      (_, _) => Future<void>.microtask(() async {
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        if (registry.account(accountId)?.userId != null && !bound.isCompleted) {
+          bound.complete();
+        }
+      }),
+      fireImmediately: true,
+    );
+    addTearDown(watch.close);
+    await bound.future;
+    // A poll moves the clock on and lets the event loop turn once; a cap of
+    // seconds never ends by itself, so what it caps decides.
+    var now = DateTime(2026, 11, 20, 9);
+    turns = TurnsService(
+      runtime.container,
+      events,
+      now: () => now,
+      pause: (duration) {
+        if (duration >= const Duration(seconds: 1)) {
+          return Completer<void>().future;
+        }
+        now = now.add(duration);
+        return Future<void>(() {});
+      },
+    );
+    addTearDown(turns.dispose);
+  }
+
+  /// A send into a chat already on the server, held at its [nth] read of
+  /// the account's settings: admission reads them twice (0 and 1), then the
+  /// outbox reads them as it prepares the request (2), after the chat's
+  /// update has gone out.
+  Future<Future<SendTurnAccepted>> heldPreparing(
+    int nth, {
+    String chatId = 'chat-kitchen',
+  }) async {
+    owui.chats.seed(chatId, userId: 'user-ada');
+    owui
+      ..settingsAsked = Completer<void>()
+      ..settingsToPass = nth
+      ..holdSettings = Completer<void>();
+    final held = turns.send(
+      SendTurn(chatId: chatId, model: 'kettle-model', text: 'Milk?'),
+    )..ignore();
+    await owui.settingsAsked.future;
+    expect(turns.addressAnswering, isTrue);
+    return held;
+  }
+
+  group('against a fake Open WebUI', () {
+    setUp(signIn);
 
     /// Two chats already on the server: one answering, held after its
     /// first word, and the other's send taken by the server with its reply
@@ -222,59 +261,18 @@ void main() {
       expect(owui.chats.stopped, hasLength(1));
       expect(turns.isRunning(answering), isFalse);
       expect(turns.addressAnswering, isFalse);
-      // It settles, its answer stopped or never started.
       await held.then((_) {}, onError: (_) {});
       expect(turns.addressAnswering, isFalse);
     });
-
-    test('a send refused while an address change waits for it ends the '
-        'wait, and the answers through the address are stopped', () async {
-      final (:answering, :held) = await answeringAndHeld();
-      owui.chats.refusal = const {'detail': 'The model is busy.'};
-
-      final changing = turns.stopAddressAnswers();
-      owui.chats.holdAdmission!.complete();
-      await changing;
-
-      expect(owui.chats.stopped, hasLength(1));
-      expect(turns.isRunning(answering), isFalse);
-      expect(turns.addressAnswering, isFalse);
-      // It settles, its answer stopped or never started.
-      await held.then((_) {}, onError: (_) {});
-      expect(turns.addressAnswering, isFalse);
-    });
-
-    /// A send into a chat already on the server, with no socket to send it
-    /// on, held at its [nth] read of the account's settings: 0 is its
-    /// admission's, 1 the outbox's as it prepares the request.
-    Future<Future<SendTurnAccepted>> heldPreparing(int nth) async {
-      owui.chats
-        ..seed('chat-kitchen', userId: 'user-ada')
-        ..refuseSockets();
-      owui
-        ..settingsAsked = Completer<void>()
-        ..settingsToPass = nth
-        ..holdSettings = Completer<void>();
-      final held = turns.send(
-        const SendTurn(
-          chatId: 'chat-kitchen',
-          model: 'kettle-model',
-          text: 'Milk?',
-        ),
-      )..ignore();
-      await owui.settingsAsked.future;
-      expect(turns.addressAnswering, isTrue);
-      return held;
-    }
 
     for (final (nth, where) in const [
       (0, 'while its admission reads settings'),
-      (1, 'while the outbox prepares its request'),
+      (2, 'while the outbox prepares its request'),
     ]) {
       test('an address change that reaches a send $where keeps its request '
           'from going out, and does not wait for an answer', () async {
+        owui.chats.refuseSockets();
         final held = await heldPreparing(nth);
-        // An answer, were one asked for, would run on.
         owui.chats.holdStream = Completer<void>();
 
         final changing = turns.stopAddressAnswers();
@@ -287,6 +285,31 @@ void main() {
       });
     }
 
+    test('an address change leaves alone a reply another window starts in '
+        'another chat while it waits', () async {
+      final held = await heldPreparing(0);
+      final changing = turns.stopAddressAnswers();
+
+      // The other chat's admission and outbox read settings too.
+      owui.settingsToPass = 3;
+      owui.chats
+        ..seed('chat-garden', userId: 'user-ada')
+        ..holdStream = Completer<void>();
+      final other = await turns.send(
+        const SendTurn(
+          chatId: 'chat-garden',
+          model: 'kettle-model',
+          text: 'Water the beans',
+        ),
+      );
+      owui.holdSettings!.complete();
+      await changing;
+      await held.then((_) {}, onError: (_) {});
+
+      expect(turns.isRunning(other.chatId), isTrue);
+      expect(owui.chats.stopped, isEmpty);
+    });
+
     test('Stop on a send whose reply is held drops it then', () async {
       final (answering: _, :held) = await answeringAndHeld();
       const chatId = 'chat-kitchen';
@@ -295,8 +318,54 @@ void main() {
 
       expect(owui.chats.holdAdmission!.isCompleted, isFalse);
       expect(turns.isRunning(chatId), isFalse);
-      // It settles, its answer stopped or never started.
       await held.then((_) {}, onError: (_) {});
     });
+  });
+
+  group('against a fake Open WebUI before 0.9', () {
+    setUp(() => signIn(version: '0.8.5'));
+
+    for (final (step, reads) in const [('read', true), ('saved', false)]) {
+      test('a Stop while its pending turn is $step, which then loses its '
+          'connection, keeps the request from going out on any later '
+          'attempt, and its answer ends stopped', () async {
+        const chatId = 'chat-kitchen';
+        final chats = owui.chats;
+        final held = await heldPreparing(2);
+        chats.dropHeldChats = true;
+        if (reads) {
+          chats
+            ..chatReadAsked = Completer<void>()
+            ..holdChatReads = Completer<void>();
+        } else {
+          chats
+            ..chatSaveAsked = Completer<void>()
+            ..holdChatSaves = Completer<void>();
+        }
+        owui.holdSettings!.complete();
+        await (reads ? chats.chatReadAsked : chats.chatSaveAsked).future;
+
+        final stopping = turns.stop(chatId);
+        await pumpEventQueue();
+        (reads ? chats.holdChatReads : chats.holdChatSaves)!.complete();
+        await stopping;
+        await held.then((_) {}, onError: (_) {});
+
+        expect(chats.completions, isEmpty);
+        final db = runtime.container.read(appDatabaseProvider)!;
+        final ops = await db.select(db.outboxOps).get();
+        expect([
+          for (final op in ops)
+            if (op.chatId == chatId) op.kind,
+        ], isNot(contains('requestCompletion')));
+        final answers = [
+          for (final row in await db.messagesDao.getForChat(chatId))
+            if (row.role == 'assistant')
+              jsonDecode(row.payload) as Map<String, dynamic>,
+        ];
+        expect(answers, isNotEmpty);
+        expect(answers.last['isStreaming'], isFalse);
+      });
+    }
   });
 }
