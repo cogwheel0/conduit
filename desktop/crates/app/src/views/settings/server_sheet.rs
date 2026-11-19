@@ -989,11 +989,15 @@ impl Render for ServerSheet {
             )
             .child(forms::form_group(
                 vec![
-                    forms::field(
+                    // Typed into only once read (the read would write over
+                    // it), and not while Done saves it (it saves what was
+                    // there when it was pressed).
+                    forms::field_locked(
                         l10n.desktop_server_name(),
                         &self.name,
                         None,
                         None,
+                        self.busy || self.addresses.is_none(),
                         window,
                         cx,
                     )
@@ -1769,6 +1773,58 @@ mod tests {
         assert_eq!(beeps(vcx), 1, "Quit during the rename did not beep");
         assert_eq!(quits.get(), 0);
         assert!(sheet_up(vcx));
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// The name takes no typing until it is read, nor while Done saves it:
+    /// what Done saves is what the field shows, and the read never writes
+    /// over what was typed.
+    #[gpui_kit::test]
+    fn the_name_takes_no_typing_until_read_or_while_saved(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ServersAddressesList>(seed_lab());
+        let reading = daemon.hold::<methods::ServersAddressesList>();
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, "srv", window, cx));
+        vcx.run_until_parked();
+        let type_into_name = |text: &str, vcx: &mut VisualTestContext| {
+            on_sheet::<ServerSheet>(vcx, |s, w, cx| s.name.update(cx, |i, cx| i.focus(w, cx)));
+            vcx.update(|_, cx| {
+                if let Some(handle) = sheet::current_window(cx) {
+                    let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+                }
+            });
+            vcx.run_until_parked();
+            let window = vcx
+                .update(|_, cx| sheet::current_window(cx))
+                .expect("the sheet's window");
+            let mut sheet_cx = VisualTestContext::from_window(window, &app);
+            sheet_cx.simulate_input(text);
+            vcx.run_until_parked();
+        };
+        let name = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| {
+                let body = sheet::current::<ServerSheet>(cx).expect("the sheet is down");
+                forms::text(&body.read(cx).name, cx)
+            })
+        };
+        type_into_name("Kiln", vcx);
+        assert_eq!(name(vcx), "", "typing went in before the name was read");
+        drop(reading);
+        vcx.run_until_parked();
+        assert_eq!(name(vcx), "Seed lab");
+        rename(vcx, "Seed lab annex");
+        let held = daemon.hold::<methods::ServersUpdate>();
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.done(w, cx));
+        vcx.run_until_parked();
+        type_into_name(" East", vcx);
+        assert_eq!(
+            name(vcx),
+            "Seed lab annex",
+            "typing went in while Done saved"
+        );
         drop(held);
         vcx.run_until_parked();
     }
