@@ -104,6 +104,42 @@ void main() {
       check(await terminalAgentScopeFor(s, null, temporary: true)).isNull();
     });
 
+    // The host holds no chat as the active one, so the account's list is
+    // the sidebar's, which leaves out a terminal that needs a saved chat:
+    // the chat asked about is offered it, from the terminals listed for it.
+    test("a saved chat is offered a terminal that needs one", () async {
+      final saved = TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'bench',
+        systemServerId: 'bench',
+        name: 'Bench',
+        baseUrl: Uri.parse('http://127.0.0.1:9/bench'),
+        requiresSavedChatContext: true,
+      );
+      final asked = <String>[];
+      final c = ProviderContainer(
+        overrides: [
+          reviewerModeProvider.overrideWith(_ReviewerOff.new),
+          openWebUiAccountAvailableProvider.overrideWithValue(true),
+          terminalAgentsSupportedProvider.overrideWithValue(true),
+          terminalAvailableServersProvider.overrideWith((ref) async => []),
+          terminalSystemServersForChatProvider.overrideWith((ref, chatId) async {
+            asked.add(chatId);
+            return [saved];
+          }),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.read(selectedTerminalIdProvider.notifier).set('bench');
+      final scope = await terminalAgentScopeFor(c, _chat());
+      check(scope).isNotNull()
+        ..has((s) => s.terminalId, 'terminalId').equals('bench')
+        ..has((s) => s.chatId, 'chatId').equals('chat-1');
+      check(asked).deepEquals(['chat-1']);
+      // A new chat keeps to the account's list.
+      check(await terminalAgentScopeFor(c, null)).isNull();
+    });
+
     test('no terminal selected offers none', () async {
       final c = container([_server('bench', kind: TerminalServerKind.system)]);
       check(await terminalAgentScopeFor(c, null)).isNull();

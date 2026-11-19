@@ -90,10 +90,17 @@ Future<TerminalAgentScope?> terminalAgentScopeFor(
   List<TerminalServerInfo>? servers;
   try {
     // Without a terminal service the list stays loading: a host asking for
-    // a picker gives up rather than wait on it.
-    servers = await (ref.read(
-      terminalAvailableServersProvider.future,
-    ) as Future<List<TerminalServerInfo>>).timeout(timeout);
+    // a picker gives up rather than wait on it. A saved chat reads the
+    // terminals offered to it: the host's own list is the sidebar's, which
+    // leaves out one that needs a saved chat.
+    servers =
+        await (ref.read(
+                  chat == null
+                      ? terminalAvailableServersProvider.future
+                      : terminalSystemServersForChatProvider(chat.id).future,
+                )
+                as Future<List<TerminalServerInfo>>)
+            .timeout(timeout);
   } catch (_) {
     return null;
   }

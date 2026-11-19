@@ -75,6 +75,25 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   return servers;
 }
 
+/// The server's own terminals offered to the saved chat [chatId] (a host
+/// listing models for a chat it does not hold as the active one, as the
+/// desktop daemon does, where [terminalAvailableServersProvider] is the
+/// sidebar's list and leaves out a terminal that needs a saved chat). Read
+/// once per chat, and again when the terminals are refreshed
+/// ([TerminalSelectionController.refreshAvailableServers]) or the API changes.
+final terminalSystemServersForChatProvider =
+    FutureProvider.family<List<TerminalServerInfo>, String>((
+      ref,
+      chatId,
+    ) async {
+      final service = ref.watch(terminalServiceProvider);
+      if (service == null) return Completer<List<TerminalServerInfo>>().future;
+      final servers = await service.getSystemTerminalServers();
+      return servers
+          .where((server) => server.isAvailableForChatScope(chatId))
+          .toList(growable: false);
+    });
+
 typedef _TerminalAvailabilityScope = ({
   TerminalService? service,
   String sessionScopeId,
@@ -251,6 +270,7 @@ class TerminalSelectionController {
 
   void refreshAvailableServers() {
     ref.invalidate(terminalAvailableServersProvider);
+    ref.invalidate(terminalSystemServersForChatProvider);
     ref.invalidate(terminalSelectedServerProvider);
   }
 

@@ -139,6 +139,15 @@ final class ModelsService {
     _picksOf(account)[_now(chatId)] = _Pick(model, ++_revision);
   }
 
+  /// The slot of a temporary new chat's pick: its own, never New Chat's
+  /// (both have no chat yet). No chat id is ever this.
+  static const _temporaryNewChat = '\u0000temporary';
+
+  /// Where [chatId]'s pick is kept: the chat's own slot, else New Chat's
+  /// (null), else -- a [temporary] new chat -- the temporary one's.
+  String? _slotOf(String? chatId, {bool temporary = false}) =>
+      chatId == null && temporary ? _temporaryNewChat : _now(chatId);
+
   /// Chat ids that moved (`route.remap`), old to new.
   final Map<String, String> _moved = <String, String>{};
 
@@ -166,9 +175,16 @@ final class ModelsService {
   /// ([AccountScope.require]) once another account is in charge, before the
   /// check and after its wait: the pick is [account]'s, and the request
   /// would otherwise answer the next account with it.
-  Future<void> _checkNewChat(AccountScope account) async {
+  ///
+  /// A [temporary] new chat's pick, in its own slot ([_slotOf]), is checked
+  /// the same way.
+  Future<void> _checkNewChat(
+    AccountScope account, {
+    bool temporary = false,
+  }) async {
     account.require("New Chat's coding agent is checked");
-    final pick = _picksOf(account)[null];
+    final slot = _slotOf(null, temporary: temporary);
+    final pick = _picksOf(account)[slot];
     final agent = pick?.model;
     if (pick == null || terminalAgentTerminalId(agent) == null) return;
     final gone =
@@ -190,8 +206,8 @@ final class ModelsService {
     // taken its place in the slot meanwhile.
     pick.gone = true;
     final picks = _picksOf(account);
-    if (!identical(picks[null], pick)) return;
-    picks[null] = _Pick(null, ++_revision);
+    if (!identical(picks[slot], pick)) return;
+    picks[slot] = _Pick(null, ++_revision);
     _announce();
   }
 
@@ -217,20 +233,23 @@ final class ModelsService {
     picks[_now(chatId)] = _Pick(pick.model, ++_revision, idOnly: pick.idOnly);
   }
 
-  /// A turn is about to be sent from [fromChat] (null: from New Chat): what
-  /// its landing may move, captured before any wait (a pick made while the
-  /// turn waits is not its), then, from New Chat, that pick checked against
-  /// the terminals ([_checkNewChat]) whether or not the turn names a model:
-  /// an agent whose terminal went is not carried to the chat it makes.
-  Future<ModelSend> sending(String? fromChat) async {
+  /// A turn is about to be sent from [fromChat] (null: from New Chat, or
+  /// from a [temporary] new chat, whose pick is its own): what its landing
+  /// may move, captured before any wait (a pick made while the turn waits
+  /// is not its), then, from a new chat, that pick checked against the
+  /// terminals ([_checkNewChat]) whether or not the turn names a model: an
+  /// agent whose terminal went is not carried to the chat it makes.
+  Future<ModelSend> sending(String? fromChat, {bool temporary = false}) async {
     final account = AccountScope.capture(_container);
+    final slot = _slotOf(fromChat, temporary: temporary);
     final send = ModelSend._(
       account,
       fromChat,
-      fromChat == null ? _picksOf(account)[null] : null,
+      slot,
+      fromChat == null ? _picksOf(account)[slot] : null,
       _revision,
     );
-    if (fromChat == null) await _checkNewChat(account);
+    if (fromChat == null) await _checkNewChat(account, temporary: temporary);
     return send;
   }
 
@@ -252,10 +271,11 @@ final class ModelsService {
     if (send._fromChat != null || !send._account.isCurrent) return;
     final picks = _picksOf(send._account);
     final slot = send._slot;
-    // New Chat's pick, taken: a record with no model, at the next revision,
-    // and every window showing New Chat (Quick Ask too) lists it again.
-    if (slot != null && picks[null]?.revision == slot.revision) {
-      picks[null] = _Pick(null, ++_revision);
+    // New Chat's pick (a temporary new chat's, from its own slot), taken: a
+    // record with no model, at the next revision, and every window showing
+    // New Chat (Quick Ask too) lists it again.
+    if (slot != null && picks[send._slotKey]?.revision == slot.revision) {
+      picks[send._slotKey] = _Pick(null, ++_revision);
       _announce();
     }
     final taken = slot == null || slot.gone ? null : slot.model;
@@ -426,7 +446,9 @@ final class ModelsService {
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
     final current = await currentModel(_container);
-    if (chatId == null) await _checkNewChat(account);
+    if (chatId == null) {
+      await _checkNewChat(account, temporary: query.temporary);
+    }
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
@@ -436,7 +458,10 @@ final class ModelsService {
     // and a temporary chat runs no agent.
     // Read with the answer's revision, after the last wait: the window
     // orders this answer against its others for the chat by it.
-    final record = _picksOf(account)[_now(chatId)];
+    final record = _picksOf(account)[_slotOf(
+      chatId,
+      temporary: query.temporary,
+    )];
     final pick = record?.model;
     final agentPick = pick != null && isTerminalAgentModel(pick);
     final selected = pick != null && !(agentPick && query.temporary)
@@ -763,7 +788,13 @@ final class ModelsService {
     }
   }
 
-  Future<ModelList> select(String id, {String? chatId}) async {
+  /// Picks [id] for [chatId] (null: New Chat, or a [temporary] new chat,
+  /// whose pick is its own and which offers no coding agent).
+  Future<ModelList> select(
+    String id, {
+    String? chatId,
+    bool temporary = false,
+  }) async {
     // The pick is made for the account it was asked under, or not at all,
     // and only while no later pick was asked (newest wins).
     final account = AccountScope.capture(_container);
@@ -794,6 +825,7 @@ final class ModelsService {
           (await _agents(
             conversation,
             account,
+            temporary: temporary,
           )).agents.where((candidate) => candidate.id == id).firstOrNull ??
           // Switch: the chat's own agent, asked of its own terminal (picking
           // it selects that terminal), whichever terminal is selected now.
@@ -807,7 +839,7 @@ final class ModelsService {
       }
       stillTheNewest('the coding agent is selected');
       _picked(() => _selectAgent(agent), account, chatId, agent);
-      return _answerPick(chatId, account);
+      return _answerPick(chatId, account, temporary: temporary);
     }
     final models = await _models();
     final model = models.where((candidate) => candidate.id == id).firstOrNull;
@@ -822,10 +854,10 @@ final class ModelsService {
     _picked(
       () => _container.read(selectedModelProvider.notifier).set(model),
       account,
-      chatId,
+      _slotOf(chatId, temporary: temporary),
       model,
     );
-    return _answerPick(chatId, account);
+    return _answerPick(chatId, account, temporary: temporary);
   }
 
   /// [model] picked for [chatId]: [select] selects it for the account (an
@@ -851,8 +883,14 @@ final class ModelsService {
   /// The list a pick answers with: [chatId]'s, put together for the
   /// account the pick was made for and refused once another is in charge
   /// (never started again for the next account).
-  Future<ModelList> _answerPick(String? chatId, AccountScope account) async {
-    final reply = await _list(ModelListQuery(chatId: _now(chatId)));
+  Future<ModelList> _answerPick(
+    String? chatId,
+    AccountScope account, {
+    bool temporary = false,
+  }) async {
+    final reply = await _list(
+      ModelListQuery(chatId: _now(chatId), temporary: temporary),
+    );
     account.require('the pick is answered');
     return reply;
   }
@@ -862,10 +900,12 @@ final class ModelsService {
   /// with, else a regular model (the account's selection when it is one,
   /// else its default, else the first). Never an agent picked for another
   /// chat: with no regular model left, the turn is refused.
-  Future<String> modelFor(String? chatId) async {
+  Future<String> modelFor(String? chatId, {bool temporary = false}) async {
     final account = AccountScope.capture(_container);
-    if (chatId == null) await _checkNewChat(account);
-    final pick = _picksOf(account)[_now(chatId)]?.model;
+    if (chatId == null) await _checkNewChat(account, temporary: temporary);
+    final pick = _picksOf(
+      account,
+    )[_slotOf(chatId, temporary: temporary)]?.model;
     if (pick != null) return pick.id;
     if (chatId != null) {
       final saved = (await _conversation(chatId, account))?.model;
@@ -1185,10 +1225,19 @@ final class _Pick {
 /// A turn on its way ([ModelsService.sending]): the account and chat it
 /// was sent from, New Chat's pick then, and the newest revision then.
 final class ModelSend {
-  ModelSend._(this._account, this._fromChat, this._slot, this._revision);
+  ModelSend._(
+    this._account,
+    this._fromChat,
+    this._slotKey,
+    this._slot,
+    this._revision,
+  );
 
   final AccountScope _account;
   final String? _fromChat;
+
+  /// Where the pick it may take is kept ([ModelsService._slotOf]).
+  final String? _slotKey;
   final _Pick? _slot;
   final int _revision;
 }

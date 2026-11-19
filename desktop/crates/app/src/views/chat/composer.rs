@@ -951,6 +951,13 @@ impl ChatComposer {
         self.follow_ups && self.composer.read(cx).options.steer
     }
 
+    /// Whether the Send button takes a click: Send can send, or, behind an
+    /// answer that waits in the outbox, Queue would queue as Enter does,
+    /// which needs no model list.
+    fn send_offered(&self, cx: &App) -> bool {
+        self.can_send(cx) || (self.queue_offer && self.busy_action(cx).is_some())
+    }
+
     /// What Enter does while an answer is written: queue (Open WebUI), hand
     /// to Hermes (a Desktop Gateway), or nothing.
     fn busy_action(&self, cx: &App) -> Option<bool> {
@@ -2696,6 +2703,29 @@ impl ChatComposer {
     /// Puts `text` at the caret (Ask Conduit) and focuses the field.
     pub fn insert_at_caret(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let at = self.input.read(cx).cursor();
+        // Dictation rebuilds the field from its base and the words heard so
+        // far: what goes in goes into the base too, or the next words (or
+        // a cancel) would drop it. With the caret among the words heard, it
+        // goes after the base, ahead of them: they are heard again whole.
+        if let Some(base) = self.dictation_base.clone() {
+            let kept = base.trim_end().len();
+            if at <= kept && base.is_char_boundary(at) {
+                let mut next = base;
+                next.insert_str(at, text);
+                self.dictation_base = Some(next);
+            } else {
+                let field = self.text(cx);
+                let heard = field
+                    .get(kept..)
+                    .unwrap_or_default()
+                    .trim_start()
+                    .to_string();
+                let next = join_dictated(&base, text);
+                self.set_text(&join_dictated(&next, &heard), window, cx);
+                self.dictation_base = Some(next);
+                return;
+            }
+        }
         self.insert_at(at, text, window, cx);
         self.text_changed(cx);
     }
@@ -4021,7 +4051,6 @@ impl Render for ChatComposer {
         let r = t.roles;
         let m = t.metrics;
         let focused = self.input.read(cx).focus_handle(cx).is_focused(window);
-        let can_send = self.can_send(cx);
         let composer = self.composer.clone();
         let store = composer.read(cx);
         let attachments: Vec<AnyElement> = store
@@ -4152,12 +4181,14 @@ impl Render for ChatComposer {
             // Waiting on the connection: dimmed, its tooltip saying why
             // (the state itself shows once, in the window's pill).
             let waits = self.offline_reason.clone().filter(|_| self.offline);
-            // Behind an answer that waits in the outbox, Send queues.
+            // Behind an answer that waits in the outbox, Send queues, which
+            // needs no model list (as Enter does).
             let label = if self.queue_offer {
                 l10n.desktop_queue_message()
             } else {
                 l10n.send()
             };
+            let can_send = self.send_offered(cx);
             let send = IconButton::new("send", IconName::ArrowUp, label)
                 .size(32., 17.)
                 .when_some(waits.clone(), |b, why| b.tooltip(why))
@@ -4195,7 +4226,7 @@ impl Render for ChatComposer {
                 .on_mouse_down(
                     gpui_kit::MouseButton::Left,
                     cx.listener(|c, _, _, cx| {
-                        if !c.can_send(cx) {
+                        if !c.send_offered(cx) {
                             c.composer.update(cx, |s, cx| s.ask_list_again(cx));
                         }
                     }),
@@ -4944,9 +4975,21 @@ mod tests {
             cx,
         );
         assert_eq!(value(&view, cx), "Draft: plant the beans");
+        // Text given while words are heard (a prefill, Insert) goes in
+        // ahead of them, and the next words keep it.
+        cx.update(|window, cx| view.update(cx, |c, cx| c.insert_at_caret("Note:", window, cx)));
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans");
+        emit(
+            DictationEvent::Text {
+                text: "plant the beans deep".into(),
+                done: true,
+            },
+            cx,
+        );
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
         emit(DictationEvent::Ended { restore: false }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // Cancel: back to what was typed before.
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
+        // Cancel: back to what was typed before, and given meanwhile.
         cx.update(|_, cx| view.update(cx, |c, cx| c.dictation_base = Some(c.text(cx))));
         emit(
             DictationEvent::Text {
@@ -4955,8 +4998,9 @@ mod tests {
             },
             cx,
         );
+        cx.update(|window, cx| view.update(cx, |c, cx| c.insert_at_caret("Later:", window, cx)));
         emit(DictationEvent::Ended { restore: true }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep Later:");
         // A saved recording's words, asked for in this composition (as
         // transcribe_recording records it), are added at the end.
         cx.update(|_, cx| {
@@ -4965,7 +5009,10 @@ mod tests {
             })
         });
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
+        assert_eq!(
+            value(&view, cx),
+            "Draft: Note: plant the beans deep Later: Then rest."
+        );
     }
 
     /// The call button takes Send's place only with nothing to send: a
@@ -5780,6 +5827,22 @@ mod tests {
         let stop = cx.debug_bounds("composer-stop").expect("Stop is offered");
         cx.simulate_click(stop.center(), gpui_kit::Modifiers::none());
         assert_eq!(*seen.borrow(), vec![ChatComposerEvent::Stop]);
+        seen.borrow_mut().clear();
+        // Behind an answer waiting in the outbox (nothing streams), the
+        // Queue button queues as Enter does: the failed list dims nothing.
+        view.update(cx, |c, _| c.streaming = false);
+        cx.simulate_input("And the south side?");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let queue = cx.debug_bounds("composer-send").expect("Queue is offered");
+        cx.simulate_click(queue.center(), gpui_kit::Modifiers::none());
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the south side?".into(),
+                mentions: vec![],
+            }],
+            "the Queue button did not queue"
+        );
     }
 
     #[gpui_kit::test]

@@ -21,7 +21,10 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
-    show terminalAvailableServersProvider, terminalServiceProvider;
+    show
+        terminalAvailableServersProvider,
+        terminalServiceProvider,
+        terminalSystemServersForChatProvider;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart'
     show selectedTerminalIdProvider;
 import 'package:conduit_core/models/conversation.dart';
@@ -417,6 +420,16 @@ ProviderContainer _agentContainer(
         return _offered;
       }),
       terminalServiceProvider.overrideWithValue(_SystemTerminals(api)),
+      // A saved chat's terminals, as the server lists them for it.
+      terminalSystemServersForChatProvider.overrideWith((ref, chatId) async {
+        if (_terminalsUnreadable) {
+          throw StateError('the terminal list is unreadable');
+        }
+        return [
+          for (final server in _offered)
+            if (server.isAvailableForChatScope(chatId)) server,
+        ];
+      }),
       defaultModelProvider.overrideWith((ref) async {
         await _defaultHeld?.future;
         return const core.Model(id: 'first-model', name: 'First model');
@@ -586,7 +599,9 @@ void main() {
       final models = ModelsService(container);
       await models.select(_northAgent, chatId: 'agent-chat');
       _terminalsUnreadable = true;
-      container.invalidate(terminalAvailableServersProvider);
+      container
+        ..invalidate(terminalAvailableServersProvider)
+        ..invalidate(terminalSystemServersForChatProvider);
       final list = await models.list(
         const ModelListQuery(chatId: 'agent-chat'),
       );
@@ -987,6 +1002,35 @@ void main() {
       expect(made.selectedId, _northAgent);
       final next = await models.list();
       expect(next.selectedId, isNot(_northAgent));
+    });
+
+    // A temporary chat's composer and a saved New Chat both have no chat
+    // yet: the temporary one's pick, its list and its first turn are its
+    // own, and never offer, take or clear New Chat's coding agent.
+    test("a temporary chat keeps out of New Chat's pick", () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      final picked = await models.select('preferred-model', temporary: true);
+      check(picked.selectedId).equals('preferred-model');
+      check(picked.agents).isEmpty();
+      await check(
+        models.select(_northAgent, temporary: true),
+      ).throws<RpcError>();
+      check((await models.list()).selectedId).equals(_northAgent);
+
+      final sending = await models.sending(null, temporary: true);
+      final model = await models.modelFor(null, temporary: true);
+      check(model).equals('preferred-model');
+      models.sent(sending, toChat: 'temporary-chat', model: model);
+      check((await models.list()).selectedId).equals(_northAgent);
+      check(
+        (await models.list(const ModelListQuery(chatId: 'temporary-chat')))
+            .selectedId,
+      ).equals('preferred-model');
+      // New Chat's own first send still takes its agent.
+      check(await models.modelFor(null)).equals(_northAgent);
     });
 
     test("a send that lands after a later pick leaves the chat that pick", () {

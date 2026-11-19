@@ -845,12 +845,14 @@ class RpcSession {
     _on(ConduitMethodSpecs.turnsSend, (r) async {
       final models = _models;
       // What the turn's landing may move is captured before any wait, and
-      // New Chat's pick checked, whether or not the turn names a model.
-      final sending = await models?.sending(r.chatId);
+      // New Chat's pick checked, whether or not the turn names a model. A
+      // temporary first turn takes its own pick, never New Chat's.
+      final sending = await models?.sending(r.chatId, temporary: r.temporary);
       // A turn that names no model runs with its own chat's (its pick, its
       // saved agent, else the account's default), never the account's
       // selection of the moment, which may be another chat's agent.
-      final model = r.model ?? await models?.modelFor(r.chatId);
+      final model =
+          r.model ?? await models?.modelFor(r.chatId, temporary: r.temporary);
       final accepted = await _requireTurns().send(r.copyWith(model: model));
       if (sending != null) {
         models!.sent(sending, toChat: accepted.chatId, model: model);
@@ -1742,7 +1744,11 @@ class RpcSession {
     _on(ConduitMethodSpecs.modelsList, (q) => _requireModels().list(q));
     _on(
       ConduitMethodSpecs.modelsSelect,
-      (r) => _requireModels().select(r.id, chatId: r.chatId),
+      (r) => _requireModels().select(
+        r.id,
+        chatId: r.chatId,
+        temporary: r.temporary,
+      ),
     );
     _on(ConduitMethodSpecs.modelsControls, (q) => _requireModels().controls(q));
     _on(

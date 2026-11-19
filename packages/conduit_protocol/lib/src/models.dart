@@ -148,6 +148,10 @@ abstract class SelectModel with _$SelectModel {
     /// found among the ones its terminal offers there. Null for a new
     /// chat.
     String? chatId,
+
+    /// The new chat is a temporary one ([ModelListQuery.temporary]): its
+    /// pick is its own, never New Chat's, and it offers no coding agent.
+    @Default(false) bool temporary,
   }) = _SelectModel;
 
   factory SelectModel.fromJson(Map<String, dynamic> json) =>
