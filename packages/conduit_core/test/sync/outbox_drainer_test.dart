@@ -230,6 +230,9 @@ class FakeCompletionRunner implements RequestCompletionRunner {
   int failuresRemaining = 0;
   Object error = StateError('completion boom');
 
+  /// Runs inside each attempt, before it fails or succeeds.
+  Future<void> Function(Map<String, dynamic> payload)? onRun;
+
   @override
   Future<void> run({
     required String chatId,
@@ -239,6 +242,7 @@ class FakeCompletionRunner implements RequestCompletionRunner {
     ranChats.add(chatId);
     events?.add('completion:$chatId');
     await Future<void>.delayed(Duration.zero);
+    await onRun?.call(payload);
     if (failuresRemaining > 0) {
       failuresRemaining--;
       throw error;
@@ -613,6 +617,61 @@ void main() {
         check(completion.runs).equals(10);
       },
     );
+
+    for (final (cause, error, attemptsBefore) in <(String, Object, int)>[
+      (
+        'a terminal error',
+        const SyncTerminalException(statusCode: 403, message: 'refused'),
+        0,
+      ),
+      ('the error of its last attempt', StateError('completion boom'), 4),
+    ]) {
+      test('a stopped op whose settlement fails once is retried, never parked '
+          'behind $cause, and the chat\'s next op then runs', () async {
+        await seedServerChat('c1');
+        final seq = await enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a1',
+            model: 'm',
+          ).toJson(),
+        );
+        await (db.update(db.outboxOps)..where((t) => t.seq.equals(seq))).write(
+          OutboxOpsCompanion(attempts: Value(attemptsBefore)),
+        );
+        await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+        completion
+          ..failuresRemaining = 2
+          ..onRun = (payload) async {
+            if (completion.runs == 1) {
+              // Stopped while its attempt runs, which then fails.
+              await db.chatsDao.cancelPendingCompletion('c1');
+              completion.error = error;
+            } else {
+              check(payload['stopped']).equals(true);
+              completion.error = StateError('the stopped answer not written');
+            }
+          };
+        final drainer = buildDrainer();
+
+        await drainer.drain();
+
+        check(await dao.watchParkedForChat('c1').first).isEmpty();
+        check(await dao.opBySeq(seq))
+            .isNotNull()
+            .has((op) => op.attempts, 'attempts')
+            .equals(attemptsBefore);
+        check(client.calls).isEmpty();
+
+        clock.now += 10;
+        await drainer.drain();
+
+        check(completion.runs).equals(3);
+        check(await dao.opBySeq(seq)).isNull();
+        check(client.calls).deepEquals(['updateChat:c1']);
+      });
+    }
 
     test(
       'malformed requestCompletion without chatId parks immediately',

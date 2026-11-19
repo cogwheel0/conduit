@@ -201,8 +201,10 @@ Future<bool> stopActiveTransport(ChatMessage message, ApiService? api) async {
   final transport = meta?['transport']?.toString();
   final hasAbortHandle = meta?['hasActiveAbortHandle'] == true;
 
-  // Abort HTTP stream / cancel token
-  if (transport == 'httpStream' || hasAbortHandle) {
+  // Abort HTTP stream / cancel token, and a request still on its way before
+  // any transport attached: with no socket, Open WebUI answers it only once
+  // the whole reply is written.
+  if (transport == null || transport == 'httpStream' || hasAbortHandle) {
     api?.cancelStreamingMessage(message.id);
   }
 

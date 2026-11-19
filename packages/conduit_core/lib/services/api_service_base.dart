@@ -1525,6 +1525,10 @@ abstract class _ApiServiceBase {
   // Widened from Map<String, CancelToken> to support both legacy CancelToken
   // cancellation and new abort-handle cancellation from sendMessageSession.
   final Map<String, Future<void> Function()> _streamCancelActions = {};
+
+  // The sends under way whose completion request is not registered yet, by
+  // answer id, and whether a Stop has reached each ([beginSend]).
+  final Map<String, bool> _sendsUnderWay = {};
   // -----------------------------------------------------------------------
   // Payload construction (shared by legacy and new transport-aware path)
   // -----------------------------------------------------------------------
