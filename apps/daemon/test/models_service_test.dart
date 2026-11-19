@@ -499,6 +499,10 @@ void main() {
       final saved = _agentContainer(_AgentsApi());
       _offered = [_terminals.last];
       _offeredToChats = [northSavedOnly, _terminals.last];
+      addTearDown(() {
+        _offered = _terminals;
+        _offeredToChats = null;
+      });
       expect(saved.read(selectedTerminalIdProvider), 'south');
       final switched = await ModelsService(saved)
           .select(_northAgent, chatId: 'agent-chat');
