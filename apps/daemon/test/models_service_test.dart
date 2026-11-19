@@ -114,6 +114,14 @@ final class _FastGated extends Models {
 
 /// A future's outcome, read on fake time once it settles: its value, or
 /// the code of the [RpcError] it was refused with.
+/// What [models] captures of a turn about to be sent from [chatId], in a
+/// fake-async test: captured at once, its New Chat check settled here.
+ModelSend _sendingIn(FakeAsync time, ModelsService models, String? chatId) {
+  final outcome = _Outcome(models.sending(chatId));
+  time.elapse(Duration.zero);
+  return outcome.value! as ModelSend;
+}
+
 final class _Outcome {
   _Outcome(Future<Object?> future) {
     future.then(
@@ -740,7 +748,7 @@ void main() {
         check(await efforts()).deepEquals(_chatEfforts);
         // A pick a first send made by the agent's id alone: asked the same way.
         models.sent(
-          models.sending(null),
+          await models.sending(null),
           toChat: 'agent-chat',
           model: _northAgent,
         );
@@ -754,7 +762,7 @@ void main() {
         // New Chat's pick, taken to the chat its first send made: the agent as
         // that chat's terminal offers it, not as New Chat's did.
         models.sent(
-          models.sending(null),
+          await models.sending(null),
           toChat: 'agent-chat',
           model: _northAgent,
         );
@@ -811,7 +819,7 @@ void main() {
       // turn sent from New Chat runs no agent, and leaves none to its chat.
       _systemUnreadable = false;
       check(container.read(selectedTerminalIdProvider)).equals('north');
-      final sending = models.sending(null);
+      final sending = await models.sending(null);
       final model = await models.modelFor(null);
       check(model).equals('first-model');
       models.sent(sending, toChat: 'new-chat-1', model: model);
@@ -893,6 +901,23 @@ void main() {
       check(list.selectedId).equals('first-model');
     });
 
+    test("a turn from New Chat that names a model carries no agent whose "
+        'terminal went to the chat it makes', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      // The terminal is turned off, and the first message names a model of
+      // its own: nothing reads New Chat's pick before it is sent.
+      container.read(selectedTerminalIdProvider.notifier).set(null);
+      final sending = await models.sending(null);
+      models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
+      final made = await models.list(
+        const ModelListQuery(chatId: 'new-chat-1'),
+      );
+      expect(made.selectedId, isNot(_northAgent));
+    });
+
     test("goes from New Chat to the chat its first message makes", () async {
       final container = _agentContainer(_AgentsApi());
       container.read(selectedTerminalIdProvider.notifier).set('north');
@@ -900,7 +925,7 @@ void main() {
       await models.select(_northAgent);
       // The first message went to another model for itself alone (`@`).
       models.sent(
-        models.sending(null),
+        await models.sending(null),
         toChat: 'new-chat-1',
         model: 'preferred-model',
       );
@@ -921,7 +946,7 @@ void main() {
         // is picked for C.
         models.select(_northAgent, chatId: 'agent-chat');
         time.elapse(Duration.zero);
-        final sending = models.sending('agent-chat');
+        final sending = _sendingIn(time, models, 'agent-chat');
         models.select('preferred-model', chatId: 'agent-chat');
         time.elapse(Duration.zero);
         models.sent(sending, toChat: 'agent-chat', model: _northAgent);
@@ -940,7 +965,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
         // Another chat's pick is the account's selection now.
         models.select('first-model', chatId: 'plain-chat');
@@ -960,7 +985,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         models.select('first-model');
         time.elapse(Duration.zero);
         models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
@@ -982,7 +1007,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         // Another chat's pick is the account's selection now.
         models.select('first-model', chatId: 'plain-chat');
         time.elapse(Duration.zero);
@@ -1102,7 +1127,7 @@ void main() {
           final changed = <String>[];
           bus.tap((event, _, _) => changed.add(event));
           models.sent(
-            models.sending(null),
+            _sendingIn(time, models, null),
             toChat: 'new-chat-1',
             model: 'preferred-model',
           );

@@ -210,15 +210,20 @@ final class ModelsService {
   }
 
   /// A turn is about to be sent from [fromChat] (null: from New Chat): what
-  /// its landing may move, captured before it waits to be admitted.
-  ModelSend sending(String? fromChat) {
+  /// its landing may move, captured before any wait (a pick made while the
+  /// turn waits is not its), then, from New Chat, that pick checked against
+  /// the terminals ([_checkNewChat]) whether or not the turn names a model:
+  /// an agent whose terminal went is not carried to the chat it makes.
+  Future<ModelSend> sending(String? fromChat) async {
     final account = AccountScope.capture(_container);
-    return ModelSend._(
+    final send = ModelSend._(
       account,
       fromChat,
       fromChat == null ? _picksOf(account)[null] : null,
       _revision,
     );
+    if (fromChat == null) await _checkNewChat(account);
+    return send;
   }
 
   /// [send] was admitted and went to [toChat], with [model].
