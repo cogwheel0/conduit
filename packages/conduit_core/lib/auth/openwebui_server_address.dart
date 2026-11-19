@@ -631,15 +631,28 @@ Future<bool> saveCheckedAddress(
   required Map<String, String> headers,
   required int sessionRevision,
   OpenWebUiEndpoint? editedFrom,
-  void Function(List<OpenWebUiEndpoint> stored, OpenWebUiEndpoint saving)?
+  void Function(
+    List<OpenWebUiEndpoint> stored,
+    OpenWebUiEndpoint saving,
+    OpenWebUiRegistry registry,
+    String? activeAccountId,
+  )?
   beforeWrite,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   // Onto the routes as stored now, not as read before the check, which can
   // take a while; an address removed meanwhile stays removed. [beforeWrite]
-  // runs right before the write, nothing awaited between: what it checks
-  // (and throws on) holds for what is written.
+  // runs right before the write, nothing awaited between, with the accounts
+  // and the active one as storage holds them then: what it checks (and
+  // throws on) holds for what is written.
   final keepsSession = headers.keys.any(isCapturedSessionHeader);
+  late OpenWebUiRegistry atWriteRegistry;
+  String? atWriteActive;
+  void atWrite(OpenWebUiRegistry registry, String? activeAccountId) {
+    atWriteRegistry = registry;
+    atWriteActive = activeAccountId;
+  }
+
   List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) {
     final saving = adding
         ? route
@@ -649,7 +662,7 @@ Future<bool> saveCheckedAddress(
             editedFrom: editedFrom,
             keepsSession: keepsSession,
           );
-    beforeWrite?.call(endpoints, saving);
+    beforeWrite?.call(endpoints, saving, atWriteRegistry, atWriteActive);
     return withEditedRoute(endpoints, saving, adding: adding);
   }
 
@@ -664,9 +677,14 @@ Future<bool> saveCheckedAddress(
           routeId: route.id,
           headers: headers,
           sessionRevision: sessionRevision,
+          atWrite: beforeWrite == null ? null : atWrite,
         );
   } else {
-    await storage.editServerEndpoints(serverId, edit);
+    await storage.editServerEndpoints(
+      serverId,
+      edit,
+      atWrite: beforeWrite == null ? null : atWrite,
+    );
     saved = true;
   }
   if (!saved) return false;
@@ -1431,34 +1449,32 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
-  // Whether the account in use would send another session to the address:
-  // the cookie it keeps there is part of how the address is reached.
-  bool changesInUseSession() {
-    if (endpointId == null ||
-        capturedSession.isEmpty ||
-        cookieOwner == null ||
-        cookieOwner != activeAccountId) {
-      return false;
-    }
-    final kept =
-        registry.account(cookieOwner)?.capturedHeaders[endpointId] ??
-        const <String, String>{};
-    return kept.length != capturedSession.length ||
-        capturedSession.entries.any((e) => kept[e.key] != e.value);
-  }
-
   // Saved, an edit of the address in use that changes how it is reached --
-  // the address, or the session the account in use sends there -- moves the
-  // clients off it, ending a reply arriving through them; that is asked
-  // first. A name (label) alone changes no connection: never asked.
+  // the address, or the session the account in use sends there (the cookie
+  // it keeps for the address) -- moves the clients off it, ending a reply
+  // arriving through them; that is asked first. A name (label) alone changes
+  // no connection: never asked. Judged against [accounts] and [activeId] as
+  // given: read before the address was proved, then as storage holds them
+  // when the save writes.
   bool changesInUseConnection(
     List<OpenWebUiEndpoint> stored,
     OpenWebUiEndpoint saving,
+    OpenWebUiRegistry accounts,
+    String? activeId,
   ) {
     if (endpointId == null) return false;
     final before = stored.where((e) => e.id == endpointId).firstOrNull;
+    final changesSession =
+        capturedSession.isNotEmpty &&
+        cookieOwner != null &&
+        cookieOwner == activeId &&
+        !_sameHeaders(
+          accounts.account(cookieOwner)?.capturedHeaders[endpointId] ??
+              const <String, String>{},
+          capturedSession,
+        );
     return before != null &&
-        (!before.sameConnection(saving) || changesInUseSession()) &&
+        (!before.sameConnection(saving) || changesSession) &&
         isServerAddressInUse(
           container.read(openWebUiRouteResolverProvider),
           serverId: server.id,
@@ -1478,7 +1494,12 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
               isCapturedSessionHeader,
             ),
           );
-    if (changesInUseConnection(server.endpoints, saving) &&
+    if (changesInUseConnection(
+          server.endpoints,
+          saving,
+          registry,
+          activeAccountId,
+        ) &&
         !await confirmChangingInUse()) {
       return const ServerAddressNotSaved();
     }
@@ -1496,8 +1517,9 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
       // reply that started since the question is never cut off unasked.
       beforeWrite: replyArrives == null
           ? null
-          : (stored, saving) {
-              if (changesInUseConnection(stored, saving) && replyArrives()) {
+          : (stored, saving, accounts, activeId) {
+              if (changesInUseConnection(stored, saving, accounts, activeId) &&
+                  replyArrives()) {
                 throw const ServerAddressReplyArriving();
               }
             },
