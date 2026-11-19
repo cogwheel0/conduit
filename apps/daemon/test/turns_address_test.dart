@@ -156,29 +156,24 @@ void main() {
       );
       await runtime.container.read(activeServerProvider.future);
       // Chats already on the server are opened as the account's once its
-      // user is bound, which the core does after the sign-in's database is
-      // certified.
+      // user is bound. Certification starts that bind right after it is
+      // announced, queued on storage's lock: a registry read made after the
+      // announcement's own work (a microtask) is queued behind it.
       final storage = runtime.container.read(optimizedStorageServiceProvider);
-      final certified = Completer<void>();
+      final bound = Completer<void>();
       final watch = runtime.container.listen<Object?>(
         openWebUiCertifiedDatabaseServerProvider,
-        (_, _) {
-          if (!certified.isCompleted) certified.complete();
-        },
+        (_, _) => Future<void>.microtask(() async {
+          final registry = await storage.getOpenWebUiRegistryStrict();
+          if (registry.account(accountId)?.userId != null &&
+              !bound.isCompleted) {
+            bound.complete();
+          }
+        }),
+        fireImmediately: true,
       );
       addTearDown(watch.close);
-      if ((await storage.getOpenWebUiRegistryStrict())
-              .account(accountId)
-              ?.userId ==
-          null) {
-        await certified.future;
-        expect(
-          (await storage.getOpenWebUiRegistryStrict())
-              .account(accountId)
-              ?.userId,
-          isNotNull,
-        );
-      }
+      await bound.future;
       turns = TurnsService(runtime.container, events);
       addTearDown(turns.dispose);
     });
@@ -248,6 +243,49 @@ void main() {
       await held.then((_) {}, onError: (_) {});
       expect(turns.addressAnswering, isFalse);
     });
+
+    /// A send into a chat already on the server, with no socket to send it
+    /// on, held at its [nth] read of the account's settings: 0 is its
+    /// admission's, 1 the outbox's as it prepares the request.
+    Future<Future<SendTurnAccepted>> heldPreparing(int nth) async {
+      owui.chats
+        ..seed('chat-kitchen', userId: 'user-ada')
+        ..refuseSockets();
+      owui
+        ..settingsAsked = Completer<void>()
+        ..settingsToPass = nth
+        ..holdSettings = Completer<void>();
+      final held = turns.send(
+        const SendTurn(
+          chatId: 'chat-kitchen',
+          model: 'kettle-model',
+          text: 'Milk?',
+        ),
+      )..ignore();
+      await owui.settingsAsked.future;
+      expect(turns.addressAnswering, isTrue);
+      return held;
+    }
+
+    for (final (nth, where) in const [
+      (0, 'while its admission reads settings'),
+      (1, 'while the outbox prepares its request'),
+    ]) {
+      test('an address change that reaches a send $where keeps its request '
+          'from going out, and does not wait for an answer', () async {
+        final held = await heldPreparing(nth);
+        // An answer, were one asked for, would run on.
+        owui.chats.holdStream = Completer<void>();
+
+        final changing = turns.stopAddressAnswers();
+        owui.holdSettings!.complete();
+        await changing;
+        await held.then((_) {}, onError: (_) {});
+
+        expect(owui.chats.completions, isEmpty);
+        expect(turns.addressAnswering, isFalse);
+      });
+    }
 
     test('Stop on a send whose reply is held drops it then', () async {
       final (answering: _, :held) = await answeringAndHeld();

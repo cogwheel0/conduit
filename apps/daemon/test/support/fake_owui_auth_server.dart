@@ -42,6 +42,14 @@ final class FakeOwuiAuthServer {
   /// it was just given) waits for it, once; [sessionChecked] completes when
   /// it arrives.
   Completer<void>? holdSessionCheck;
+
+  /// While set, a read of the user's settings
+  /// (`GET /api/v1/users/user/settings`) waits for it, once [settingsToPass]
+  /// more reads have gone through; [settingsAsked] completes as one reaches
+  /// it.
+  Completer<void>? holdSettings;
+  int settingsToPass = 0;
+  Completer<void> settingsAsked = Completer<void>();
   Completer<void> sessionChecked = Completer<void>();
 
   /// While set, a sign-in proxy in front turns every request away with its
@@ -314,6 +322,16 @@ final class FakeOwuiAuthServer {
         ],
       });
     }
+    if (path == '/api/v1/users/user/settings' && request.method == 'GET') {
+      if (holdSettings case final hold?) {
+        if (settingsToPass > 0) {
+          settingsToPass--;
+        } else {
+          if (!settingsAsked.isCompleted) settingsAsked.complete();
+          await hold.future;
+        }
+      }
+    }
     if (path.endsWith('/settings') || path.endsWith('/permissions')) {
       return json(<String, dynamic>{});
     }
@@ -424,6 +442,19 @@ final class FakeOwuiChats {
     ])}',
   );
 
+  var _refusing = false;
+
+  /// From now on the server offers no socket, as one behind a proxy that
+  /// blocks it: the open one is closed and a new one refused, so sends go
+  /// without a socket session.
+  void refuseSockets() {
+    _refusing = true;
+    final socket = _webSocket;
+    _webSocket = null;
+    unawaited(socket?.close());
+    _push('1');
+  }
+
   void _close() {
     _closed = true;
     _push('1');
@@ -486,6 +517,7 @@ final class FakeOwuiChats {
       }
     }
 
+    if (_refusing) return reply(HttpStatus.badRequest, 'Transport not allowed');
     if (WebSocketTransformer.isUpgradeRequest(request)) {
       final socket = await WebSocketTransformer.upgrade(request);
       final session = ++_sessions;
