@@ -30,9 +30,12 @@ jobs:
         run: |
           # A run names its commit, not its pull request (once that is
           # closed). If another open pull request has the same head, its
-          # runs cannot be told apart from this one's: cancel nothing.
-          others="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
-            --jq "[.[] | select(.state == \"open\" and .number != $NUMBER and .head.sha == \"$HEAD_SHA\")] | length")"
+          # runs cannot be told apart from this one's: cancel nothing. The
+          # open pull requests are listed directly: a commit's own list of
+          # pull requests names only the merged one once the commit is on
+          # the default branch.
+          others="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.number != $NUMBER and .head.sha == \"$HEAD_SHA\") | .number" | wc -l | tr -d ' ')"
           if [ "$others" != 0 ]; then
             echo "Another open pull request has head $HEAD_SHA: nothing cancelled."
             exit 0
