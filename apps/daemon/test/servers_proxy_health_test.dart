@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -110,5 +111,5 @@ final class _Manager extends AuthStateManager {
       const AuthState(status: AuthStatus.authenticated, token: 'token');
 
   @override
-  void onAuthIssue() => issues++;
+  void onAuthIssue([AuthFailureKind? kind]) => issues++;
 }

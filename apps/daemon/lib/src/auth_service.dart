@@ -332,6 +332,8 @@ final class AuthService {
   }
 
   static String _signInFailureCode(SignInFailure failure) => switch (failure) {
+    SignInFailure.browserSignInSessionExpired =>
+      ConduitErrorCodes.sessionExpired,
     SignInFailure.twoStepRequired => ConduitErrorCodes.twoStepRequired,
     SignInFailure.twoStepSessionRejected => ConduitErrorCodes.twoStepExpired,
     SignInFailure.accountPendingApproval => ConduitErrorCodes.pendingApproval,
