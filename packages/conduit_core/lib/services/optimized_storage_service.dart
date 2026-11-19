@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:collection/collection.dart' show MapEquality;
+import 'package:collection/collection.dart' show ListEquality, MapEquality;
 import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -2857,6 +2857,21 @@ class OptimizedStorageService {
     final endpoints = edit(stored.endpoints);
     if (endpoints.isEmpty) {
       throw ArgumentError('A server needs at least one route.');
+    }
+    // Already as this edit leaves it (a save tried again after its answer
+    // was lost): nothing is written, so a write that fails cannot undo it.
+    if (const ListEquality<OpenWebUiEndpoint>().equals(
+          endpoints,
+          stored.endpoints,
+        ) &&
+        (session == null ||
+            const MapEquality<String, String>().equals(
+              registry
+                  .account(session.accountId)
+                  ?.capturedHeaders[session.routeId],
+              session.headers,
+            ))) {
+      return;
     }
     await _saveServerUnlocked(
       OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
