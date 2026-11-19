@@ -187,6 +187,8 @@ import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart'
     show TerminalServerInfo;
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart'
+    show TerminalService;
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_mode_controller.dart'
     show chatSessionScopedVoiceOverrides;
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';

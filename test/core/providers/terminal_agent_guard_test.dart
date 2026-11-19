@@ -5,6 +5,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart'
+    show selectedTerminalIdProvider;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -50,11 +52,12 @@ class _Terminals extends TerminalService {
 }
 
 /// A selected agent, the guard listening, the chat's terminal list [servers]
-/// and the server's own list [system]. Returns whether the default model was
-/// put back.
+/// and the server's own list [system], then each of [terminals] selected in
+/// turn. Returns whether the default model was put back.
 Future<bool> _restoredAfter(
   FutureOr<List<TerminalServerInfo>> Function() servers, {
   FutureOr<List<TerminalServerInfo>> Function()? system,
+  List<String?> terminals = const [],
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -81,6 +84,9 @@ Future<bool> _restoredAfter(
   await container
       .read(terminalAvailableServersProvider.future)
       .then((_) {}, onError: (_) {});
+  for (final terminal in terminals) {
+    container.read(selectedTerminalIdProvider.notifier).set(terminal);
+  }
   for (var i = 0; i < 5; i++) {
     await Future<void>.delayed(Duration.zero);
   }
@@ -96,6 +102,16 @@ void main() {
 
   test('an agent whose terminal is still offered stays', () async {
     check(await _restoredAfter(() => [_system('t1')])).isFalse();
+  });
+
+  test('an agent gives way once another terminal, or none, is selected',
+      () async {
+    final offered = [_system('t1'), _system('t2')];
+    check(await _restoredAfter(() => offered, terminals: ['t1'])).isFalse();
+    check(await _restoredAfter(() => offered, terminals: ['t1', 't2']))
+        .isTrue();
+    check(await _restoredAfter(() => offered, terminals: ['t1', null]))
+        .isTrue();
   });
 
   test('a terminal list that cannot be read changes nothing', () async {
