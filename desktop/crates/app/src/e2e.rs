@@ -171,6 +171,8 @@ pub struct E2eInputs {
     pub scenario: String,
     /// KEY=VALUE pairs (the env file). Never printed.
     pub env: BTreeMap<String, String>,
+    /// The env file they were read from.
+    pub env_path: Option<PathBuf>,
 }
 
 /// Whether env entry `key` names another machine. Every address in the
@@ -224,6 +226,7 @@ impl E2eInputs {
             default_env_path(var)
         });
         let mut env = path
+            .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|text| parse_env(&text))
             .unwrap_or_default();
@@ -239,7 +242,11 @@ impl E2eInputs {
             println!("SMOKE FAILED e2e {key} is not a local (loopback) address");
             env.clear();
         }
-        Some(Self { scenario, env })
+        Some(Self {
+            scenario,
+            env,
+            env_path: path,
+        })
     }
 
     pub(crate) fn get(&self, key: &str) -> Option<String> {
@@ -277,6 +284,39 @@ pub fn default_env_path(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf>
         None => Path::new(&var("HOME")?).join("Library/Caches/conduit-dev"),
     };
     Some(cache.join("local-owui").join("local-owui.env"))
+}
+
+/// Where `tool/local_owui/owui.sh` keeps the server's log
+/// (`state/server.log` in its instance), most likely first: in
+/// `CONDUIT_OWUI_DIR`; in the instance the env file in use was written into
+/// (`--e2e-env` or `CONDUIT_OWUI_ENV`, by default `local-owui.env` in the
+/// instance); beside `fake_model_log`, the env file's `FAKE_MODEL_LOG`, which
+/// is kept in the instance's state; else in `local-owui` under
+/// `CONDUIT_DEV_CACHE` (default `~/Library/Caches/conduit-dev`).
+pub fn server_log_paths(
+    var: impl Fn(&str) -> Option<String>,
+    env_path: Option<&Path>,
+    fake_model_log: Option<&str>,
+) -> Vec<PathBuf> {
+    let in_state = |dir: &Path| dir.join("state").join("server.log");
+    let mut paths = vec![];
+    if let Some(dir) = var("CONDUIT_OWUI_DIR") {
+        paths.push(in_state(Path::new(&dir)));
+    }
+    if let Some(dir) = env_path.and_then(Path::parent) {
+        paths.push(in_state(dir));
+    }
+    if let Some(log) = fake_model_log {
+        paths.push(Path::new(log).with_file_name("server.log"));
+    }
+    let cache = match var("CONDUIT_DEV_CACHE") {
+        Some(cache) => Some(PathBuf::from(cache)),
+        None => var("HOME").map(|home| Path::new(&home).join("Library/Caches/conduit-dev")),
+    };
+    if let Some(cache) = cache {
+        paths.push(in_state(&cache.join("local-owui")));
+    }
+    paths
 }
 
 /// `KEY=VALUE` lines; quotes stripped, comments and blanks skipped.
@@ -2444,5 +2484,31 @@ mod tests {
             Some("/tmp/x.env")
         );
         assert_eq!(default_env_path(vars(&[])), None);
+        // And the server's log: the instance's, as owui.sh keeps it, most
+        // likely first, the default last.
+        let paths = |pairs, env: Option<&str>, fake: Option<&str>| -> Vec<String> {
+            server_log_paths(vars(pairs), env.map(Path::new), fake)
+                .into_iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            paths(
+                &[("CONDUIT_OWUI_DIR", "/tmp/owui"), ("HOME", "/Users/avery")],
+                Some("/tmp/other/local-owui.env"),
+                Some("/tmp/seeded/state/requests.jsonl"),
+            ),
+            vec![
+                "/tmp/owui/state/server.log",
+                "/tmp/other/state/server.log",
+                "/tmp/seeded/state/server.log",
+                "/Users/avery/Library/Caches/conduit-dev/local-owui/state/server.log",
+            ]
+        );
+        assert_eq!(
+            paths(&[("CONDUIT_DEV_CACHE", "/tmp/cache")], None, None),
+            vec!["/tmp/cache/local-owui/state/server.log"]
+        );
+        assert!(paths(&[], None, None).is_empty());
     }
 }
