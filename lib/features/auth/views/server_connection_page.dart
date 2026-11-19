@@ -268,7 +268,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final endpointId = widget.endpointId;
     if (endpointId == null) return;
     // As for a saved server's: what the user typed while it is read stays.
-    final untouched = (_formContents(), _routeLabelController.text);
+    final untouched = _routeFields();
     final OpenWebUiRegistry registry;
     try {
       registry = await ref
@@ -292,11 +292,66 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         .server(widget.routesOfServerId!)
         ?.endpoint(endpointId);
     if (!mounted || endpoint == null) return;
-    if ((_formContents(), _routeLabelController.text) != untouched) return;
+    // The saved address is what a save tells the form's changes by. A field
+    // typed into while it was read keeps what was typed; every other field
+    // takes the saved value, so nothing the form never showed is taken for
+    // a deletion.
+    final typed = _routeFields();
     _editedFrom = endpoint;
-    _routeLabelController.text = endpoint.label ?? '';
-    _applyEndpoint(endpoint);
+    if (typed.label == untouched.label) {
+      _routeLabelController.text = endpoint.label ?? '';
+    }
+    setState(() {
+      if (typed.url == untouched.url) _urlController.text = endpoint.url;
+      if (typed.headers == untouched.headers) {
+        _customHeaders
+          ..clear()
+          ..addAll(endpoint.customHeaders);
+      }
+      if (typed.selfSigned == untouched.selfSigned) {
+        _allowSelfSignedCertificates = endpoint.allowSelfSignedCertificates;
+      }
+      if (!kIsWeb && typed.mutualTls == untouched.mutualTls) {
+        _mtlsCertificateChainPem = endpoint.mtlsCertificateChainPem;
+        _mtlsCertificateLabel = endpoint.mtlsCertificateLabel;
+        _mtlsPrivateKeyPem = endpoint.mtlsPrivateKeyPem;
+        _mtlsPrivateKeyLabel = endpoint.mtlsPrivateKeyLabel;
+        _mtlsPrivateKeyPasswordController.text =
+            endpoint.mtlsPrivateKeyPassword ?? '';
+      }
+      _showAdvancedSettings =
+          _showAdvancedSettings ||
+          _allowSelfSignedCertificates ||
+          _customHeaders.isNotEmpty ||
+          (!kIsWeb && _mtlsPrivateKeyPem != null);
+    });
   }
+
+  /// The route form, one entry per thing a save of it can change (the
+  /// client certificate and its key are one), each comparable with `==`.
+  ({
+    String url,
+    String label,
+    String headers,
+    bool selfSigned,
+    (String?, String?, String?, String?, String) mutualTls,
+  })
+  _routeFields() => (
+    url: _urlController.text,
+    label: _routeLabelController.text,
+    headers: [
+      for (final header in _customHeaders.entries)
+        '${header.key}\u0000${header.value}',
+    ].join('\u0001'),
+    selfSigned: _allowSelfSignedCertificates,
+    mutualTls: (
+      _mtlsCertificateChainPem,
+      _mtlsCertificateLabel,
+      _mtlsPrivateKeyPem,
+      _mtlsPrivateKeyLabel,
+      _mtlsPrivateKeyPasswordController.text,
+    ),
+  );
 
   void _applyEndpoint(OpenWebUiEndpoint endpoint) {
     setState(() {

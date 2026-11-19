@@ -6,6 +6,7 @@ import 'package:conduit/core/utils/account_display.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -99,7 +100,12 @@ void main() {
   ) async {
     final server = (await tester.runAsync(() async {
       await storage.saveServerConfigs([
-        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+        const ServerConfig(
+          id: 'a',
+          name: 'Chat',
+          url: 'https://chat.example',
+          customHeaders: {'X-Gate': 'kept'},
+        ),
       ]);
       return (await storage.getOpenWebUiRegistryStrict()).servers.single;
     }))!;
@@ -130,6 +136,14 @@ void main() {
 
     expect(find.text('https://typed.example'), findsOneWidget);
     expect(find.text('https://chat.example'), findsNothing);
+    // The saved address is the editor's baseline now: Save is offered, and
+    // the header the form never showed while it was read is there, not
+    // taken for a deletion.
+    final save = tester.widget<ConduitButton>(
+      find.widgetWithText(ConduitButton, 'Save Address'),
+    );
+    expect(save.onPressed, isNotNull);
+    expect(find.text('X-Gate'), findsOneWidget);
   });
 
   // Back abandons the edit: the address the server's accounts use stays.
