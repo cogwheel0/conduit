@@ -198,14 +198,19 @@ void main() {
     expect(addresses.removable, isFalse, reason: 'one is always left');
   });
 
-  test('a rename leaves the live client, and every reply it carries, '
-      'alone', () async {
+  test('a rename leaves the live client, every reply it carries, and the '
+      'addresses alone', () async {
     final client = runtime.container.read(apiServiceProvider);
     expect(client, isNotNull);
     final active = (await accounts.list()).activeAccountId;
+    final before = (await list()).addresses;
+    // A server's id renames it, nothing else: the URL is not taken.
     final summary = await servers.update(
       ServerDraft(id: serverId, name: 'Bench', url: 'https://ignored.test'),
     );
+    final after = await list();
+    expect(after.name, 'Bench');
+    expect(after.addresses.map((a) => a.url), before.map((a) => a.url));
     expect(
       identical(runtime.container.read(apiServiceProvider), client),
       isTrue,
@@ -419,15 +424,21 @@ void main() {
     );
     addTearDown(watch.close);
     int? afterSwitch;
-    final renaming = servers.update(
-      ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
-    );
+    // The rename is published only once the switch is sampled: a client it
+    // rebuilt could not hide among the switch's own.
+    final sampled = Completer<void>();
     final switching = accounts.switchTo(AccountRef(accountId: other)).then((
       _,
     ) async {
       await runtime.container.read(activeServerProvider.future);
       afterSwitch = clients.length;
+      sampled.complete();
     });
+    final renaming = sampled.future.then(
+      (_) => servers.update(
+        ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
+      ),
+    );
     await Future.wait([renaming, switching]);
     await runtime.container.read(activeServerProvider.future);
     expect(
@@ -1091,16 +1102,6 @@ void main() {
       throwsA(isA<RpcError>()),
       reason: 'the last address stays',
     );
-  });
-
-  test("a server's id renames it, nothing else", () async {
-    final before = (await list()).addresses;
-    await servers.update(
-      ServerDraft(id: serverId, name: 'Workshop', url: 'https://ignored.test'),
-    );
-    final after = await list();
-    expect(after.name, 'Workshop');
-    expect(after.addresses.map((a) => a.url), before.map((a) => a.url));
   });
 
   test(
