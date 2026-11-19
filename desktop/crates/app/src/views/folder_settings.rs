@@ -824,7 +824,10 @@ fn icon_label(alias: &str, l10n: &L10n) -> String {
         "brain" => l10n.folder_icon_brain(),
         "rocket" => l10n.folder_icon_rocket(),
         "dart" => l10n.folder_icon_target(),
-        _ => l10n.folder_icon_generic(),
+        // An icon chosen on the web: the shortcode Open WebUI names it with,
+        // as the phone labels it.
+        "" => l10n.folder_icon_generic(),
+        other => other.replace('_', " "),
     }
 }
 

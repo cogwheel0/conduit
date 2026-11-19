@@ -1775,6 +1775,49 @@ async fn sidebar_folders(
     settle(cx, 500).await;
     shoot_main(dir, "sidebar-folder-nested", cx).await;
 
+    // An icon chosen on the web (any Open WebUI shortcode, here `fire`):
+    // drawn in the sidebar, and offered as the folder's current choice.
+    let rpc = cx.update(|cx| cx.global::<AppState>().connection.read(cx).rpc());
+    let set = rpc
+        .call::<conduit_protocol::methods::FoldersUpdate>(&conduit_protocol::FolderUpdate {
+            id: field_notes.clone(),
+            name: None,
+            icon: Some("fire".into()),
+            system_prompt: None,
+            model_ids: None,
+            knowledge: None,
+        })
+        .await;
+    let f = field_notes.clone();
+    let drawn = set.is_ok()
+        && wait_until(cx, Duration::from_secs(20), move |cx| {
+            cx.global::<AppState>()
+                .stores
+                .chat_list
+                .read(cx)
+                .folder(&f)
+                .is_some_and(|f| f.icon.as_deref() == Some("\u{1F525}\u{FE0F}"))
+        })
+        .await;
+    pass &= ok(
+        "a folder icon chosen on the web shows in the sidebar",
+        drawn,
+    );
+    let offered = rpc
+        .call::<conduit_protocol::methods::FoldersGet>(&conduit_protocol::FolderRef {
+            folder_id: field_notes.clone(),
+        })
+        .await;
+    pass &= ok(
+        "and is offered first, selected, among the icon choices",
+        offered.as_ref().is_ok_and(|f| {
+            f.icon.as_deref() == Some("fire")
+                && f.icon_choices.first().is_some_and(|c| c.alias == "fire")
+        }),
+    );
+    settle(cx, 400).await;
+    shoot_main(dir, "sidebar-folder-web-icon", cx).await;
+
     // Delete Folder… (the sheet is answered "Delete" in the E2E): both
     // folders go, the chat stays, out of any folder.
     in_main(cx, {

@@ -1,5 +1,5 @@
-import 'package:conduit/features/navigation/widgets/folder_icon.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:conduit_core/models/folder_icons.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('every saved icon Open WebUI can show has an emoji', () {

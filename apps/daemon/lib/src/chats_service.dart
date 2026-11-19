@@ -170,7 +170,9 @@ FolderSummary folderSummaryOf(Folder folder) => FolderSummary(
   shared: folder.shared,
   ownerName: folder.shared ? folder.ownerName : null,
   canWrite: folder.canWrite,
-  icon: folderIconOptionForAlias(folder.meta?['icon']?.toString())?.emoji,
+  // A curated icon, or any shortcode Open WebUI knows (one chosen on the
+  // web, such as `fire`).
+  icon: folderIconEmoji(folder.meta?['icon']?.toString()),
 );
 
 /// [rootId] and every folder under it, at any depth: what deleting it
