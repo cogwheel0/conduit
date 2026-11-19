@@ -1545,32 +1545,7 @@ mod tests {
             cx.set_global(conduit_components::Strings::default());
         });
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::ChatsGet>(ChatResult {
-            chat: Some(ChatDetail {
-                hermes: None,
-                abilities: Default::default(),
-                temporary: false,
-                share_id: None,
-                read_only: false,
-                summary: ChatSummary {
-                    unread: false,
-                    read_only: false,
-                    id: "c1".into(),
-                    title: "A chat".into(),
-                    updated_at_ms: 1,
-                    pinned: false,
-                    archived: false,
-                    folder_id: None,
-                    model: None,
-                    tags: vec![],
-                    shared: false,
-                    menu: Default::default(),
-                },
-                messages,
-                system_prompt: None,
-                tasks: vec![],
-            }),
-        });
+        daemon.returns::<methods::ChatsGet>(chat_result(messages));
         let subscribe: Subscribe = Rc::new(|_, _| {});
         let rpc = daemon.rpc();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
@@ -1867,32 +1842,7 @@ mod tests {
             usage: None,
             blocks: vec![],
         }];
-        let detail = |messages: Vec<ChatMessageDto>| ChatResult {
-            chat: Some(ChatDetail {
-                hermes: None,
-                abilities: Default::default(),
-                temporary: false,
-                share_id: None,
-                read_only: false,
-                summary: ChatSummary {
-                    unread: false,
-                    read_only: false,
-                    id: "c1".into(),
-                    title: "A chat".into(),
-                    updated_at_ms: 1,
-                    pinned: false,
-                    archived: false,
-                    folder_id: None,
-                    model: None,
-                    tags: vec![],
-                    shared: false,
-                    menu: Default::default(),
-                },
-                messages,
-                system_prompt: None,
-                tasks: vec![],
-            }),
-        };
+        let detail = chat_result;
         daemon.returns::<methods::ChatsGet>(detail(vec![
             message("a1", "assistant", ""),
             message("u1", "user", "How far is the moon?"),
@@ -1953,31 +1903,8 @@ mod tests {
             }],
             ..message("a1", "assistant", text)
         };
-        let detail = |answer: ChatMessageDto| ChatResult {
-            chat: Some(ChatDetail {
-                hermes: None,
-                abilities: Default::default(),
-                temporary: false,
-                share_id: None,
-                read_only: false,
-                summary: ChatSummary {
-                    unread: false,
-                    read_only: false,
-                    id: "c1".into(),
-                    title: "A chat".into(),
-                    updated_at_ms: 1,
-                    pinned: false,
-                    archived: false,
-                    folder_id: None,
-                    model: None,
-                    tags: vec![],
-                    shared: false,
-                    menu: Default::default(),
-                },
-                messages: vec![message("u1", "user", "How far is the moon?"), answer],
-                system_prompt: None,
-                tasks: vec![],
-            }),
+        let detail = |answer: ChatMessageDto| {
+            chat_result(vec![message("u1", "user", "How far is the moon?"), answer])
         };
         daemon.returns::<methods::ChatsGet>(detail(finished.clone()));
         store.update(cx, |s, cx| {
@@ -2283,17 +2210,19 @@ mod tests {
     /// Lays the transcript out `VIEWPORT` tall, then again once the
     /// answer's text has been parsed (off the main thread).
     fn draw(transcript: &Entity<Transcript>, cx: &mut VisualTestContext) {
-        for settle in [false, true] {
-            if settle {
-                cx.run_until_parked();
-            }
-            let view = transcript.clone();
-            cx.draw(
-                point(px(0.), px(0.)),
-                size(px(800.), px(VIEWPORT)),
-                |_, _| div().flex().flex_col().size_full().child(view),
-            );
-        }
+        paint_once(transcript, cx);
+        cx.run_until_parked();
+        paint_once(transcript, cx);
+    }
+
+    /// One frame of the transcript, `VIEWPORT` tall.
+    fn paint_once(transcript: &Entity<Transcript>, cx: &mut VisualTestContext) {
+        let view = transcript.clone();
+        cx.draw(
+            point(px(0.), px(0.)),
+            size(px(800.), px(VIEWPORT)),
+            |_, _| div().flex().flex_col().size_full().child(view),
+        );
     }
 
     /// Draws frames 16 ms apart until the view has caught up with the end
@@ -2518,22 +2447,27 @@ mod tests {
         moves.push(None);
         moves.extend(vec![Some(170.); 30]);
         let mut held = 0;
-        for (frame, step) in moves.into_iter().enumerate() {
+        for (frame_ix, step) in moves.into_iter().enumerate() {
             match step {
-                Some(dy) => transcript.update(cx, |t, cx| t.scroll_by(px(dy), cx)),
+                Some(dy) => {
+                    transcript.update(cx, |t, cx| t.scroll_by(px(dy), cx));
+                    draw(&transcript, cx);
+                }
+                // The jump is checked on its first frame: a chunk it brings
+                // into view is laid out in that frame, not the next.
                 None => {
                     transcript.update(cx, |t, _| t.stop_following());
                     list.scroll_to(ListOffset {
                         item_ix: 1,
                         offset_in_item: px(row_height * 0.3),
                     });
+                    paint_once(&transcript, cx);
                 }
             }
-            draw(&transcript, cx);
             let row = list.bounds_for_item(1).expect("the answer is on screen");
             assert!(
                 (f32::from(row.size.height) - row_height).abs() < 0.01,
-                "{frame}: the answer's height changed"
+                "{frame_ix}: the answer's height changed"
             );
             let view = list.viewport_bounds();
             let now = bounds(cx);
@@ -2556,7 +2490,7 @@ mod tests {
                     // Laid out this frame, exactly where the full layout put it.
                     assert!(
                         (at - top).abs() < 0.01,
-                        "{frame}: chunk {k} at {at}, not {top}"
+                        "{frame_ix}: chunk {k} at {at}, not {top}"
                     );
                     assert!((f32::from(now[k].size.height) - heights[k]).abs() < 0.01);
                 } else if (at - top).abs() > 0.01 {
