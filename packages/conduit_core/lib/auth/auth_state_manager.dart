@@ -1640,7 +1640,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// when a newer auth attempt begins. So it does when [joins] says no
   /// about the saved servers as they are written over (see
   /// `OptimizedStorageService.selectUnauthenticatedServerConfig`).
-  Future<void> selectUnauthenticatedServerConfig(
+  ///
+  /// Returns whether [config] was made active: false when it was declined,
+  /// or put back after a newer attempt or [canCommit] overtook it.
+  Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     bool Function()? canCommit,
     bool Function(OpenWebUiRegistry stored)? joins,
@@ -1743,6 +1746,7 @@ class AuthStateManager extends _$AuthStateManager {
           previousState: previousState,
         );
       }
+      return selected;
     } catch (error, stackTrace) {
       final claimed = attemptRevision;
       if (error is! ServerConfigSessionRollbackException && claimed != null) {

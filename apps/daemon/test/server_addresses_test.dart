@@ -13,6 +13,8 @@ import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountAdditionOriginProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:checks/checks.dart' as checks;
@@ -304,6 +306,67 @@ void main() {
     final after = runtime.container.read(authStateManagerProvider).value!;
     expect(after.token, isNull);
     expect(runtime.container.read(apiAuthTokenMirrorProvider), isNull);
+  });
+
+  final accountChanged = throwsA(
+    isA<RpcError>()
+        .having((e) => e.code, 'code', ConduitErrorCodes.sessionExpired)
+        .having((e) => e.args['reason'], 'reason', 'account'),
+  );
+
+  // Asked under one session, a forced addition never stops the replies, or
+  // begins from, the session another window put in charge while it read
+  // the server's address.
+  test('an addition on this server is refused once another session takes '
+      'charge while its address is read', () async {
+    final before = await accounts.list();
+    final adding = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        serverId: serverId,
+        force: true,
+      ),
+    );
+    runtime.container
+      ..invalidate(openWebUiAuthSessionEpochProvider)
+      ..read(openWebUiAuthSessionEpochProvider);
+    await expectLater(adding, accountChanged);
+    final after = await accounts.list();
+    expect(after.addingAccount, isFalse);
+    expect(after.activeAccountId, before.activeAccountId);
+    expect(after.accounts, hasLength(before.accounts.length));
+  });
+
+  // Another window left the addition while its selection waited for
+  // storage: nothing was selected, and nothing waits for a sign-in.
+  test('an addition left while it is saved is not reported as waiting for a '
+      'sign-in', () async {
+    final before = await accounts.list();
+    final watch = runtime.container.listen<String?>(
+      accountAdditionOriginProvider,
+      (_, origin) {
+        if (origin == null) return;
+        scheduleMicrotask(
+          () => runtime.container
+              .read(accountAdditionOriginProvider.notifier)
+              .end(origin),
+        );
+      },
+    );
+    addTearDown(watch.close);
+    await expectLater(
+      accounts.add(
+        AddAccount(
+          server: ServerDraft(name: 'Shed', url: other.url),
+        ),
+      ),
+      accountChanged,
+    );
+    watch.close();
+    final after = await accounts.list();
+    expect(after.addingAccount, isFalse);
+    expect(after.activeAccountId, before.activeAccountId);
+    expect((await auth.status()).isAuthenticated, isTrue);
   });
 
   test('a rename while another window switches accounts rebuilds no client '

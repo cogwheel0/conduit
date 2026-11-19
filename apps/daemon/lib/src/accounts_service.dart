@@ -433,7 +433,13 @@ final class AccountsService {
   /// Begins adding an account on [request]'s server: a new account there
   /// becomes active, signed out, for `auth.login*` to sign in to. The account
   /// it was added from keeps its session, for [cancelAdd] to go back to.
+  ///
+  /// Bound to the account in charge when it was asked: once another one
+  /// is (another window switched meanwhile), it stops no reply and adds
+  /// nothing. Refused the same way when the addition ended, or was
+  /// overtaken, before its account was selected.
   Future<AccountChangeResult> add(AddAccount request) async {
+    final scope = AccountScope.capture(_container);
     final draft = request.server;
     // Add Account on This Server: its first address, as it is saved.
     final onServer = request.serverId == null
@@ -441,6 +447,7 @@ final class AccountsService {
         : await _firstAddressOf(request.serverId!);
     final url = onServer?.url ?? ServersService.validateUrl(draft.url);
     final name = onServer?.name ?? ServersService.validateName(draft.name);
+    scope.require('an account addition stops replies');
     final activeId = _container.read(settledActiveAccountIdProvider);
     // Added while a LibreChat account owns the chats: its sign-in shows
     // (the window routes on the addition), and Cancel goes back to it.
@@ -458,6 +465,7 @@ final class AccountsService {
     final joined = request.serverId == null
         ? null
         : await _firstAddressOf(request.serverId!);
+    scope.require('an account addition begins');
     // Only once that lookup held: Cancel goes back to LibreChat.
     if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
     var moved = false;
@@ -497,8 +505,9 @@ final class AccountsService {
       addition.begin(activeId);
       stillAdding = addition.stillInProgress();
     }
+    final bool selected;
     try {
-      await _container
+      selected = await _container
           .read(authStateManagerProvider.notifier)
           .selectUnauthenticatedServerConfig(
             config,
@@ -523,6 +532,15 @@ final class AccountsService {
         debugMessage:
             "the server's first address changed while the account was "
             'added: add it again',
+      );
+    }
+    if (!selected) {
+      if (activeId != null) addition.end(activeId);
+      _libreChatAdditionFrom = null;
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the addition ended before its account was selected',
       );
     }
     _container.invalidate(openWebUiAccountsProvider);
