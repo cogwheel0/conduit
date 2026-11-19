@@ -614,6 +614,156 @@ void main() {
       check(_Routes.reasons).isEmpty();
     });
 
+    group('an edit of an address saved since its check', () {
+      late ProviderContainer signedOut;
+      late String serverId;
+      late OpenWebUiEndpoint lab;
+
+      setUp(() async {
+        await storage.saveServerConfigs([
+          const ServerConfig(
+            id: 'a',
+            name: 'Chat',
+            url: 'https://chat.example',
+          ),
+        ]);
+        final stored =
+            (await storage.getOpenWebUiRegistryStrict()).servers.single;
+        serverId = stored.id;
+        lab = OpenWebUiEndpoint(
+          id: 'lab',
+          url: 'https://lab.example',
+          label: 'Lab',
+          customHeaders: const {'X-Lab': 'one', 'X-Gate': 'g1'},
+        );
+        await storage.saveServer(
+          OpenWebUiServer(
+            id: stored.id,
+            name: stored.name,
+            endpoints: [...stored.endpoints, lab],
+          ),
+        );
+        // No account holds a session: nothing to prove the address with.
+        signedOut = ProviderContainer(
+          overrides: [
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            openWebUiRouteResolverProvider.overrideWith(_Routes.new),
+            authTokenProvider3.overrideWithValue(null),
+          ],
+        );
+        addTearDown(signedOut.dispose);
+      });
+
+      Future<OpenWebUiEndpoint?> stored() async =>
+          (await storage.getOpenWebUiRegistryStrict())
+              .server(serverId)
+              ?.endpoint('lab');
+
+      /// Another window's save of the address, made after this edit's check.
+      Future<void> elsewhere(
+        OpenWebUiEndpoint? Function(OpenWebUiEndpoint stored) edit,
+      ) => storage.editServerEndpoints(
+        serverId,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id == 'lab') ?edit(endpoint) else endpoint,
+        ],
+      );
+
+      Future<ServerAddressSave> save(
+        String label,
+        Map<String, String> headers,
+      ) => saveVerifiedServerAddress(
+        signedOut,
+        serverId: serverId,
+        endpointId: 'lab',
+        addedEndpointId: 'unused',
+        label: label,
+        verified: ServerConfig(
+          id: 'checked',
+          name: 'Lab',
+          url: 'https://lab.example',
+          customHeaders: headers,
+        ),
+        editedFrom: lab,
+        sessionRevision: storage.sessionRevocationRevision,
+        confirmSendingSession: (_) async => false,
+        confirmChangingInUse: () async => true,
+        stillWanted: () => true,
+      );
+
+      test('saves only what its form changed onto the address as stored '
+          'when it writes', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: endpoint.url,
+            label: endpoint.label,
+            customHeaders: const {'X-Lab': 'two', 'X-Gate': 'g1', 'X-New': 'n'},
+          ),
+        );
+
+        // The form renamed the address and typed a new gate value; it left
+        // X-Lab as it was when the check began.
+        final outcome = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g2',
+        });
+
+        check(outcome).isA<ServerAddressSaved>();
+        final now = (await stored())!;
+        check(now.label).equals('Lab renamed');
+        check(now.customHeaders)
+            .deepEquals({'X-Lab': 'two', 'X-Gate': 'g2', 'X-New': 'n'});
+      });
+
+      test('is refused as gone once the address was removed', () async {
+        await elsewhere((_) => null);
+
+        final outcome = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        });
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check(await stored()).isNull();
+      });
+
+      // A header typed for the address checked never goes to the host
+      // another window moved it to; a new name alone still lands.
+      test('that changes how it is reached is refused once the address was '
+          'moved to another host', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: 'https://moved.example',
+            label: endpoint.label,
+            customHeaders: const {'X-Moved': 'm'},
+          ),
+        );
+
+        final typed = await save('Lab', const {'X-Lab': 'one', 'X-Gate': 'g2'});
+        check(typed)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.customHeaders).deepEquals({'X-Moved': 'm'});
+
+        final renamed = await save('Lab renamed', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        });
+        check(renamed).isA<ServerAddressSaved>();
+        final now = (await stored())!;
+        check(now.url).equals('https://moved.example');
+        check(now.label).equals('Lab renamed');
+        check(now.customHeaders).deepEquals({'X-Moved': 'm'});
+      });
+    });
+
     // The only account saved is active with no id kept for it. Looked for
     // among inactive accounts, it had no session, and a valid address was
     // refused as needing a sign-in.

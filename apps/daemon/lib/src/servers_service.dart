@@ -396,7 +396,7 @@ final class ServersService {
       case core.ServerAddressAnswered(:final config, :final sessionRevision):
         return _keep(
           server.id,
-          endpointId,
+          saved,
           draft.label,
           config,
           sessionRevision,
@@ -405,7 +405,7 @@ final class ServersService {
       case core.ServerAddressBehindProxy(:final config, :final sessionRevision):
         return _keep(
           server.id,
-          endpointId,
+          saved,
           draft.label,
           config,
           sessionRevision,
@@ -437,7 +437,7 @@ final class ServersService {
 
   ServerAddressCheckResult _keep(
     String serverId,
-    String? endpointId,
+    OpenWebUiEndpoint? saved,
     String label,
     ServerConfig config,
     int sessionRevision, {
@@ -446,7 +446,7 @@ final class ServersService {
     final id = _uuid.v4();
     _checked[id] = _CheckedAddress(
       serverId: serverId,
-      endpointId: endpointId,
+      saved: saved,
       label: label,
       config: config,
       sessionRevision: sessionRevision,
@@ -503,6 +503,7 @@ final class ServersService {
         addedEndpointId: checked.addedEndpointId,
         label: checked.label,
         verified: checked.config,
+        editedFrom: checked.saved,
         sessionRevision: checked.sessionRevision,
         confirmSendingSession: (address) async {
           if (request.sendSessionConfirmed) return true;
@@ -1025,7 +1026,7 @@ abstract interface class AddressReplies {
 final class _CheckedAddress {
   _CheckedAddress({
     required this.serverId,
-    required this.endpointId,
+    required this.saved,
     required this.label,
     required this.config,
     required this.sessionRevision,
@@ -1033,7 +1034,11 @@ final class _CheckedAddress {
   });
 
   final String serverId;
-  final String? endpointId;
+
+  /// The address edited as stored when it was checked (none for a new one):
+  /// what the save tells the form's changes by.
+  final OpenWebUiEndpoint? saved;
+  String? get endpointId => saved?.id;
   final String label;
 
   /// The address as it answered; with the proxy's cookie once signed in

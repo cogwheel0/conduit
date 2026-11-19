@@ -168,6 +168,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// rather than adding it twice.
   final String _addedEndpointId = const Uuid().v4();
 
+  /// The saved address the form was filled from, which its save tells the
+  /// form's changes by; none while the form holds only what was typed.
+  OpenWebUiEndpoint? _editedFrom;
+
   bool get _editingRoutes => widget.routesOfServerId != null;
 
   bool get _embedded => widget.onChecked != null;
@@ -230,6 +234,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Starts from the edit Settings handed over, then connects, the proxy's
   /// sign-in opening as a page of its own.
   Future<void> _carryOnRouteDraft(ServerAddressDraft draft) async {
+    _editedFrom = draft.from;
     _routeLabelController.text = draft.label;
     setState(() {
       _urlController.text = draft.url;
@@ -283,6 +288,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         ?.endpoint(endpointId);
     if (!mounted || endpoint == null) return;
     if ((_formContents(), _routeLabelController.text) != untouched) return;
+    _editedFrom = endpoint;
     _routeLabelController.text = endpoint.label ?? '';
     _applyEndpoint(endpoint);
   }
@@ -334,6 +340,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       addedEndpointId: _addedEndpointId,
       label: _routeLabelController.text,
       verified: verified,
+      editedFrom: _editedFrom,
       sessionRevision: sessionRevision,
       confirmSendingSession: (address) async {
         if (!mounted) return false;
