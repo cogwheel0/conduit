@@ -1,5 +1,8 @@
+import 'dart:async';
+
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
-    show currentUserProvider2;
+    show authStatusProvider, currentUserProvider2;
 import 'package:conduit_core/models/openwebui_registry.dart'
     show openWebUiServerIdentityUrl;
 import 'package:conduit_core/persistence/account_scoped_preferences.dart'
@@ -9,6 +12,7 @@ import 'package:conduit_core/providers/app_providers.dart'
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
 /// Counts account changes in this daemon: the account in charge, or the
@@ -87,6 +91,68 @@ final class AccountScope {
   /// a saved server whose address changed in place included (it keeps its
   /// id but may reach another server, with the same user id there).
   Object get identity => (_server, primary, preferenceAccount, _user);
+
+  /// Which account it is, whoever is signed in to it: [identity] without
+  /// the user, which a sign-in renewing, or one not yet validated, leaves
+  /// unknown for a while.
+  Object get account => (_server, primary, preferenceAccount);
+
+  /// [isSameAccount], once that can be told: while this account is in
+  /// charge with its user unknown and a sign-in of it under way (its session
+  /// renewing, or its user not yet validated), it waits. Any change to who
+  /// is in charge ends the wait -- a user known, the account signed out or
+  /// its session ended, another account or server address in charge -- and
+  /// the answer is [isSameAccount] then. Never waits for a request begun
+  /// with no user.
+  Future<bool> sameAccountOnceKnown() async {
+    if (_user == null) return isCurrent;
+    if (_signingIn()) {
+      final changed = Completer<void>();
+      void check(Object? _, Object? _) {
+        // Read first: reading can notify this listener again.
+        if (_signingIn() || changed.isCompleted) return;
+        changed.complete();
+      }
+
+      final watches = <ProviderSubscription<Object?>>[];
+      void watch(ProviderListenable<Object?> signal) {
+        try {
+          watches.add(_container.listen<Object?>(signal, check));
+        } on Object {
+          // A sign the container cannot give (a test's container without
+          // it) never changes: nothing to watch.
+        }
+      }
+
+      try {
+        watch(currentUserProvider2);
+        watch(accountSwitchCountProvider);
+        watch(authStatusProvider);
+        // As [_serverAddress] reads it: never started by a wait.
+        if (_container.read(activeServerProvider.exists)) {
+          watch(activeServerProvider);
+        }
+        await changed.future;
+      } finally {
+        for (final subscription in watches) {
+          subscription.close();
+        }
+      }
+    }
+    return isSameAccount;
+  }
+
+  /// Whether this account is still the one in charge, with no user known
+  /// yet and a sign-in of it under way: not signed out, its session not
+  /// ended, no other account or server address in charge.
+  bool _signingIn() {
+    final now = AccountScope.capture(_container);
+    if (now._user != null || now.account != account) return false;
+    final status = _read(() => _container.read(authStatusProvider));
+    return status != AuthStatus.unauthenticated &&
+        status != AuthStatus.credentialError &&
+        status != AuthStatus.error;
+  }
 
   /// Whether the account in charge now is the same account as the one the
   /// request began under, however often its session was renewed since.

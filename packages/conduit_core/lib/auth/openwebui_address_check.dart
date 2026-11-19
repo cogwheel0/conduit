@@ -49,11 +49,16 @@ typedef OpenWebUiAddressCheckResult = ({
 /// Answering a health check only shows that some Open WebUI server is there,
 /// and the token is a session. Before the first one goes to a host none of
 /// the server's routes already uses, [confirmSendingSession] asks the user.
+///
+/// With [onlyAccountId] -- the account a proxy sign-in was captured for --
+/// only that account's token is sent: it alone can prove the address for
+/// the cookie, whichever account is active.
 Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
   required OpenWebUiRegistry registry,
   required String serverId,
   required String address,
   required String? activeAccountId,
+  String? onlyAccountId,
   required String? liveToken,
   required Future<String?> Function(String accountId) keptTokenFor,
   required Set<String> accountsWithSession,
@@ -66,8 +71,10 @@ Future<OpenWebUiAddressCheckResult> checkOpenWebUiAddress({
   var mayReceiveSession =
       candidate != null &&
       routes.any((endpoint) => _sameOrigin(endpoint.url, candidate));
-  final accounts = [...registry.accountsOn(serverId)]
-    ..sort(
+  final accounts = [
+    for (final account in registry.accountsOn(serverId))
+      if (onlyAccountId == null || account.id == onlyAccountId) account,
+  ]..sort(
       (a, b) => (b.id == activeAccountId ? 1 : 0).compareTo(
         a.id == activeAccountId ? 1 : 0,
       ),

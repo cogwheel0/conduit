@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart'
@@ -708,7 +709,9 @@ void _withAnAccount() {
     late Object epoch;
     late User? user;
     late ServerConfig server;
+    late AuthStatus status;
     late bool previousWarning;
+    late ProviderContainer mirrorContainer;
 
     setUpAll(() {
       previousWarning = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
@@ -724,11 +727,59 @@ void _withAnAccount() {
       epoch = Object();
       user = _ava;
       server = _server;
+      status = AuthStatus.authenticated;
     });
     tearDown(() async {
       api.dispose();
       await db.close();
     });
+
+    /// Notification settings whose server mirror waits on the account in
+    /// charge: its session, user, sign-in state and server read from
+    /// [epoch], [user], [status] and [server], which [signIn] moves on.
+    NotificationsService mirroring(FakeAsync async) {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(_NotificationSettings.new),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          currentUserProvider2.overrideWith((ref) => user),
+          authStatusProvider.overrideWith((ref) => status),
+          activeServerProvider.overrideWith((ref) async => server),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(activeServerProvider, (_, _) {});
+      async.flushMicrotasks();
+      mirrorContainer = container;
+      return NotificationsService(container);
+    }
+
+    /// The account's sign-in moves to [next] as [who]: a new session.
+    void signIn(FakeAsync async, AuthStatus next, User? who) {
+      status = next;
+      user = who;
+      epoch = Object();
+      mirrorContainer
+        ..invalidate(authStatusProvider)
+        ..invalidate(currentUserProvider2)
+        ..invalidate(openWebUiAuthSessionEpochProvider);
+      async.elapse(Duration.zero);
+    }
+
+    /// Two changes, the first one's mirror held at the server until
+    /// [Completer.complete]; the second's waits behind it.
+    Completer<void> twoChanges(
+      FakeAsync async,
+      NotificationsService notifications,
+    ) {
+      final held = api.mirrorHeld = Completer<void>();
+      notifications.set(const NotificationSettingsPatch(enabled: false));
+      async.flushMicrotasks();
+      notifications.set(const NotificationSettingsPatch(enabled: true));
+      async.flushMicrotasks();
+      return held;
+    }
 
     /// Set to hold `serverAboutInfo`: completes [aboutAsked] when asked.
     Completer<void>? aboutHeld;
@@ -993,6 +1044,97 @@ void _withAnAccount() {
         held.complete();
         async.flushMicrotasks();
         expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    // The token expired, and its user is unknown until the silent sign-in
+    // ends: the mirror waits for it, and goes once the same user is back.
+    test("a notification mirror waits out its account's sign-in renewing, "
+        'then goes', () {
+      fakeAsync((async) {
+        final held = twoChanges(async, mirroring(async));
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false], reason: 'no user to send it as');
+        signIn(async, AuthStatus.authenticated, _ava);
+        expect(api.reached, <bool?>[false, true]);
+      });
+    });
+
+    // Signed out while the mirror waited for its sign-in to renew: it goes
+    // nowhere, the account's queue moves on, and its next change is sent
+    // once it is signed in to again.
+    test('a notification mirror waiting for its account is dropped once the '
+        'account signs out', () {
+      fakeAsync((async) {
+        final notifications = mirroring(async);
+        final held = twoChanges(async, notifications);
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
+        signIn(async, AuthStatus.unauthenticated, null);
+        signIn(async, AuthStatus.authenticated, _ava);
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false, false]);
+      });
+    });
+
+    // The address of the server in charge changed while the mirror waited:
+    // a change and back is still a change, so it never goes.
+    test('a notification mirror waiting for its account is dropped once the '
+        "account's address changes", () {
+      fakeAsync((async) {
+        final held = twoChanges(async, mirroring(async));
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'https://away.invalid',
+        );
+        mirrorContainer.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        server = _server;
+        mirrorContainer.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        signIn(async, AuthStatus.authenticated, _ava);
+        expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    // Saved before its user was validated, then again after: one account,
+    // one queue, and the server ends up with the last change.
+    test('notification mirrors keep their order across the user being '
+        'validated', () {
+      fakeAsync((async) {
+        user = null;
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(api.mirrorAsked.isCompleted, isTrue);
+        user = _ava;
+        container.invalidate(currentUserProvider2);
+        async.elapse(Duration.zero);
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false, true]);
       });
     });
 

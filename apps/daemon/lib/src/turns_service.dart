@@ -294,15 +294,28 @@ final class TurnsService implements ChatTurns, AddressReplies {
 
   /// Stops the answers [addressAnswering] counts.
   @override
-  Future<void> stopAddressAnswers() async {
-    final chats = [
+  Future<void> stopAddressAnswers() =>
+      _stopRunning(where: (turn) => !turn.clientOwned);
+
+  /// Stops the answers running now (those [where] picks), each as Stop
+  /// does: the ones taken here, never a turn that took a chat's place
+  /// while an earlier one was stopped (a Direct answer started after one
+  /// finished, say). One that finished or went meanwhile is left.
+  Future<void> _stopRunning({bool Function(_Turn turn)? where}) async {
+    final running = [
       for (final session in _sessions)
         if (session.turn case final turn?
-            when !turn.finished && !turn.clientOwned)
-          turn.chatId,
+            when !turn.finished && (where?.call(turn) ?? true))
+          (session, turn),
     ];
-    for (final chatId in chats) {
-      await stop(chatId);
+    for (final (session, turn) in running) {
+      if (!_sessions.contains(session) ||
+          session.scope.isDisposed ||
+          !identical(session.turn, turn) ||
+          turn.finished) {
+        continue;
+      }
+      await _stopTurn(session, turn);
     }
   }
 
@@ -2086,12 +2099,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   }
 
   /// Stops every running answer, as leaving the account they belong to does
-  /// once the user has agreed to.
-  Future<void> stopAll() async {
-    for (final chatId in activeChatIds.toList()) {
-      await stop(chatId);
-    }
-  }
+  /// once the user has agreed to: those running when it was agreed.
+  Future<void> stopAll() => _stopRunning();
 
   Future<void> dispose() async {
     if (_disposed) return;

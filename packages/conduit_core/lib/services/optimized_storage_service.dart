@@ -1419,110 +1419,142 @@ class OptimizedStorageService {
     // Dropped for good once dropped, whatever becomes of the save.
     final droppedBrowserSessions = <StoredBrowserSignInSession>[];
     try {
-      await _saveServerConfigsLocked(configs, droppedBrowserSessions);
+      await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(
+          () => _saveServerConfigsLocked(configs, droppedBrowserSessions),
+        ),
+      );
     } finally {
       _notifyBrowserSessionsDropped(droppedBrowserSessions);
     }
   }
 
+  /// Saves the connection [id] as [edit] makes it from the connection as
+  /// stored when the write runs, as [saveServerConfigs] saves: a change
+  /// another window saved meanwhile, to it or to another connection, is
+  /// kept. Returns what was saved; null, saving nothing, once [id] is no
+  /// longer saved.
+  Future<ServerConfig?> editServerConfig(
+    String id,
+    ServerConfig Function(ServerConfig stored) edit,
+  ) async {
+    final droppedBrowserSessions = <StoredBrowserSignInSession>[];
+    try {
+      return await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          final configs = await _getServerConfigsStrictUnlocked();
+          final index = configs.indexWhere((config) => config.id == id);
+          if (index < 0) return null;
+          final edited = edit(configs[index]);
+          await _saveServerConfigsLocked(
+            [...configs]..[index] = edited,
+            droppedBrowserSessions,
+          );
+          return edited;
+        }),
+      );
+    } finally {
+      _notifyBrowserSessionsDropped(droppedBrowserSessions);
+    }
+  }
+
+  /// [saveServerConfigs]'s write. Call with [_authStateLock] and
+  /// [_serverConfigsLock] held. The browser sign-in sessions it drops are
+  /// added to [droppedBrowserSessions].
   Future<void> _saveServerConfigsLocked(
     List<ServerConfig> configs,
     List<StoredBrowserSignInSession> droppedBrowserSessions,
-  ) {
-    return _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(() async {
-        final currentConfigs = await _getServerConfigsStrictUnlocked();
-        final sanitizedConfigs = configs
-            .map(
-              (config) => config.apiKey == null
-                  ? config
-                  : config.copyWith(apiKey: null),
-            )
-            .toList(growable: false);
-        // Judge ownership by what the save will store, not by what was passed:
-        // accounts on one server share its endpoint, so an edit made through
-        // one account moves every other account on that server too.
-        // Through the routes in use, as the current configs were projected.
-        final selection = _endpointSelection();
-        final nextConfigs = (await _registryForWriteUnlocked())
-            .mergeServerConfigs(sanitizedConfigs, selectedEndpoints: selection)
-            .projectAll(selectedEndpoints: selection);
-        final rawActiveServerId = _rawStoredActiveServerId();
-        final currentActiveId = _effectiveActiveServerId(
-          configs: currentConfigs,
-          rawActiveServerId: rawActiveServerId,
-        );
-        final nextActiveId = _effectiveActiveServerId(
-          configs: nextConfigs,
-          rawActiveServerId: rawActiveServerId,
-        );
-        final currentActive = currentConfigs
-            .where((config) => config.id == currentActiveId)
-            .firstOrNull;
-        final nextActive = nextConfigs
-            .where((config) => config.id == nextActiveId)
-            .firstOrNull;
-        // Session ownership follows the server identity (id, origin URL, mTLS
-        // client identity), not per-request metadata. Editing custom headers
-        // or the self-signed policy of the same server keeps the same account
-        // session, and stripping a legacy persisted apiKey is a one-time
-        // migration rather than an ownership change.
-        final activeOwnershipChanged =
-            currentActiveId != nextActiveId ||
-            (currentActive != null &&
-                nextActive != null &&
-                !_hasSameServerSessionOwnershipIdentity(
-                  currentActive,
-                  nextActive,
-                ));
-
-        final credentialsPayload = await _secureCredentialStorage
-            .getSavedCredentialsPayloadStrict();
-        final credentialServerId = _savedCredentialsServerId(
-          credentialsPayload,
-        );
-        var credentialOwnershipChanged = false;
-        if (credentialsPayload != null) {
-          final currentCredentialConfig = currentConfigs
-              .where((config) => config.id == credentialServerId)
-              .firstOrNull;
-          final nextCredentialConfig = nextConfigs
-              .where((config) => config.id == credentialServerId)
-              .firstOrNull;
-          credentialOwnershipChanged =
-              credentialServerId == null ||
-              currentCredentialConfig == null ||
-              nextCredentialConfig == null ||
-              !_hasSameServerSessionOwnershipIdentity(
-                currentCredentialConfig,
-                nextCredentialConfig,
-              );
-        }
-
-        // Security-owner changes are tokenless before the config payload can
-        // point at the new origin. Metadata-only edits retain the session.
-        if (activeOwnershipChanged) await _deleteAuthTokenUnlocked();
-        if (credentialOwnershipChanged) {
-          await _deleteSavedCredentialsUnlocked();
-        }
-        // The same holds for sessions kept aside, the active account's
-        // included: a switch that failed part-way can leave its session in
-        // the vault, where selecting it again takes that session up.
-        await _dropVaultedSessionsOfMovedAccountsUnlocked(
-          current: currentConfigs,
-          next: nextConfigs,
-          dropped: droppedBrowserSessions,
-        );
-        await _saveServerConfigsUnlocked(sanitizedConfigs);
-        if (rawActiveServerId != nextActiveId) {
-          await _writeActiveServerIdWithoutConfigSync(nextActiveId);
-        }
-        // A normal config edit supersedes any uncommitted auth candidate. The
-        // candidate itself is only in memory, so there is nothing durable to
-        // roll back and its later transaction-id claim must fail.
-        _stagedServerConfigCandidate = null;
-      }),
+  ) async {
+    final currentConfigs = await _getServerConfigsStrictUnlocked();
+    final sanitizedConfigs = configs
+        .map(
+          (config) => config.apiKey == null
+              ? config
+              : config.copyWith(apiKey: null),
+        )
+        .toList(growable: false);
+    // Judge ownership by what the save will store, not by what was passed:
+    // accounts on one server share its endpoint, so an edit made through
+    // one account moves every other account on that server too.
+    // Through the routes in use, as the current configs were projected.
+    final selection = _endpointSelection();
+    final nextConfigs = (await _registryForWriteUnlocked())
+        .mergeServerConfigs(sanitizedConfigs, selectedEndpoints: selection)
+        .projectAll(selectedEndpoints: selection);
+    final rawActiveServerId = _rawStoredActiveServerId();
+    final currentActiveId = _effectiveActiveServerId(
+      configs: currentConfigs,
+      rawActiveServerId: rawActiveServerId,
     );
+    final nextActiveId = _effectiveActiveServerId(
+      configs: nextConfigs,
+      rawActiveServerId: rawActiveServerId,
+    );
+    final currentActive = currentConfigs
+        .where((config) => config.id == currentActiveId)
+        .firstOrNull;
+    final nextActive = nextConfigs
+        .where((config) => config.id == nextActiveId)
+        .firstOrNull;
+    // Session ownership follows the server identity (id, origin URL, mTLS
+    // client identity), not per-request metadata. Editing custom headers
+    // or the self-signed policy of the same server keeps the same account
+    // session, and stripping a legacy persisted apiKey is a one-time
+    // migration rather than an ownership change.
+    final activeOwnershipChanged =
+        currentActiveId != nextActiveId ||
+        (currentActive != null &&
+            nextActive != null &&
+            !_hasSameServerSessionOwnershipIdentity(
+              currentActive,
+              nextActive,
+            ));
+
+    final credentialsPayload = await _secureCredentialStorage
+        .getSavedCredentialsPayloadStrict();
+    final credentialServerId = _savedCredentialsServerId(
+      credentialsPayload,
+    );
+    var credentialOwnershipChanged = false;
+    if (credentialsPayload != null) {
+      final currentCredentialConfig = currentConfigs
+          .where((config) => config.id == credentialServerId)
+          .firstOrNull;
+      final nextCredentialConfig = nextConfigs
+          .where((config) => config.id == credentialServerId)
+          .firstOrNull;
+      credentialOwnershipChanged =
+          credentialServerId == null ||
+          currentCredentialConfig == null ||
+          nextCredentialConfig == null ||
+          !_hasSameServerSessionOwnershipIdentity(
+            currentCredentialConfig,
+            nextCredentialConfig,
+          );
+    }
+
+    // Security-owner changes are tokenless before the config payload can
+    // point at the new origin. Metadata-only edits retain the session.
+    if (activeOwnershipChanged) await _deleteAuthTokenUnlocked();
+    if (credentialOwnershipChanged) {
+      await _deleteSavedCredentialsUnlocked();
+    }
+    // The same holds for sessions kept aside, the active account's
+    // included: a switch that failed part-way can leave its session in
+    // the vault, where selecting it again takes that session up.
+    await _dropVaultedSessionsOfMovedAccountsUnlocked(
+      current: currentConfigs,
+      next: nextConfigs,
+      dropped: droppedBrowserSessions,
+    );
+    await _saveServerConfigsUnlocked(sanitizedConfigs);
+    if (rawActiveServerId != nextActiveId) {
+      await _writeActiveServerIdWithoutConfigSync(nextActiveId);
+    }
+    // A normal config edit supersedes any uncommitted auth candidate. The
+    // candidate itself is only in memory, so there is nothing durable to
+    // roll back and its later transaction-id claim must fail.
+    _stagedServerConfigCandidate = null;
   }
 
   /// Drops the session kept aside for each account in [current] whose

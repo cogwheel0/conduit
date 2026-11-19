@@ -1182,16 +1182,28 @@ fn move_old_switches(cx: &mut App) {
 }
 
 fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
+    let asked = notification_scope(cx);
     // An answer Shortcuts is waiting for gets no notification: the shortcut
     // has it (crate::intents holds it until the shortcut's question ends).
-    if crate::intents::hold_notification(finished, cx) {
+    if crate::intents::hold_notification(finished, asked.clone(), cx) {
         return;
     }
-    notify_turn_finished(finished, cx);
+    notify_turn_finished(finished, asked, cx);
 }
 
-/// The answer notification for `finished`, as the core routes it.
-pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
+/// The account in charge, as a notification raised now records it: it is
+/// shown only while that account still is ([`route_via`], [`post`]).
+pub(crate) fn notification_scope(cx: &App) -> Option<String> {
+    cx.try_global::<AppState>()?
+        .stores
+        .accounts
+        .read(cx)
+        .scope_key()
+}
+
+/// The answer notification for `finished`, raised while `asked` was the
+/// account in charge, as the core routes it.
+pub(crate) fn notify_turn_finished(finished: &TurnFinished, asked: Option<String>, cx: &mut App) {
     let Some(kind) = notify::kind_for(notify::Outcome::of(finished.ok, finished.queued)) else {
         return;
     };
@@ -1231,6 +1243,7 @@ pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
         OpenRequest::Chat {
             id: finished.chat_id.clone(),
         },
+        asked,
         cx,
     );
 }
@@ -1273,16 +1286,19 @@ fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
         OpenRequest::Channel {
             id: posted.channel_id.clone(),
         },
+        notification_scope(cx),
         cx,
     );
 }
 
-/// Asks the core what `n` does, then does it.
+/// Asks the core what `n`, raised while `asked` was the account in
+/// charge ([`notification_scope`]), does, then does it.
 fn route(
     params: NotificationRouteParams,
     n: notify::Notification,
     level: NoticeLevel,
     open: OpenRequest,
+    asked: Option<String>,
     cx: &mut App,
 ) {
     let Some(state) = cx.try_global::<AppState>() else {
@@ -1290,41 +1306,60 @@ fn route(
     };
     let rpc = state.connection.read(cx).rpc();
     let accounts = state.stores.accounts.clone();
-    route_via(rpc, accounts, params, n, level, open, cx);
+    route_via(rpc, (accounts, asked), params, n, level, open, cx);
 }
 
-/// [`route`] over `rpc`. The answer is for the account in charge when it
-/// was asked: once another one is, the notification (of the last one's chat
-/// or channel) is dropped.
+/// Whether `asked`, the account in charge when a notification was raised,
+/// still is: once another one is, the notification (of the last one's chat
+/// or channel) is dropped. Checked when the core's answer lands, and again
+/// right before a system notification is posted.
+fn still_in_charge(
+    accounts: &Entity<crate::stores::accounts::AccountsStore>,
+    asked: &Option<String>,
+    cx: &App,
+) -> bool {
+    let same = accounts.read(cx).scope_key() == *asked;
+    if !same {
+        log::info!("notification: dropped, another account is in charge now");
+    }
+    same
+}
+
+/// [`route`] over `rpc`.
 fn route_via(
     rpc: crate::stores::rpc::Rpc,
-    accounts: Entity<crate::stores::accounts::AccountsStore>,
+    (accounts, asked): RaisedFor,
     params: NotificationRouteParams,
     n: notify::Notification,
     level: NoticeLevel,
     open: OpenRequest,
     cx: &mut App,
 ) {
-    let asked = accounts.read(cx).scope_key();
     let call = rpc.call::<methods::NotificationsRoute>(&params);
     cx.spawn(async move |cx| match call.await {
         Ok(route) => cx.update(|cx| {
-            if accounts.read(cx).scope_key() != asked {
-                log::info!("notification: dropped, another account is in charge now");
-                return;
+            if still_in_charge(&accounts, &asked, cx) {
+                present(route, n, level, open, (accounts, asked), cx)
             }
-            present(route, n, level, open, cx)
         }),
         Err(e) => log::warn!("notifications.route: {e}"),
     })
     .detach();
 }
 
+/// The account a notification was raised for, and where to read the one in
+/// charge, for the check right before it is posted.
+type RaisedFor = (
+    Entity<crate::stores::accounts::AccountsStore>,
+    Option<String>,
+);
+
 fn present(
     route: NotificationRoute,
     mut n: notify::Notification,
     level: NoticeLevel,
     open: OpenRequest,
+    raised_for: RaisedFor,
     cx: &mut App,
 ) {
     log::info!(
@@ -1358,7 +1393,7 @@ fn present(
         // The system notification makes its own sound.
         NotifySurface::System => {
             n.sound = route.system_sound;
-            post(n, cx);
+            post(n, raised_for, cx);
         }
         NotifySurface::Silent => {
             if route.cue {
@@ -1566,8 +1601,10 @@ pub fn ensure_permission(quiet: bool, cx: &mut App) {
     let _ = (quiet, cx);
 }
 
-/// Delivers `n`, asking for permission first if the system hasn't asked.
-fn post(n: notify::Notification, cx: &mut App) {
+/// Delivers `n`, asking for permission first if the system hasn't asked;
+/// not once another account than the one it was raised for is in charge,
+/// which the first prompt can leave time for.
+fn post(n: notify::Notification, raised_for: RaisedFor, cx: &mut App) {
     #[cfg(target_os = "macos")]
     {
         use crate::shell::notifications::Authorization as A;
@@ -1600,7 +1637,11 @@ fn post(n: notify::Notification, cx: &mut App) {
                 log::info!("notification skipped: not allowed ({auth:?})");
                 return;
             }
+            let (accounts, asked) = raised_for;
             let sent = cx.update(|cx| {
+                if !still_in_charge(&accounts, &asked, cx) {
+                    return None;
+                }
                 cx.try_global::<Desktop>()
                     .and_then(|d| d.platform.notifier.as_ref())
                     .map(|notifier| notifier.post(&n))
@@ -1614,7 +1655,7 @@ fn post(n: notify::Notification, cx: &mut App) {
         .detach();
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (n, cx);
+    let _ = (n, raised_for, cx);
 }
 
 /// A notification was clicked: the main window on that chat.
@@ -2507,9 +2548,10 @@ mod route_tests {
 
         let held = daemon.hold::<methods::NotificationsRoute>();
         cx.update(|cx| {
+            let asked = accounts.read(cx).scope_key();
             route_via(
                 rpc.clone(),
-                accounts.clone(),
+                (accounts.clone(), asked),
                 params(),
                 ready("c1"),
                 NoticeLevel::Info,
@@ -2535,9 +2577,10 @@ mod route_tests {
         );
 
         cx.update(|cx| {
+            let asked = accounts.read(cx).scope_key();
             route_via(
                 rpc.clone(),
-                accounts.clone(),
+                (accounts.clone(), asked),
                 params(),
                 ready("c2"),
                 NoticeLevel::Info,
@@ -2549,6 +2592,71 @@ mod route_tests {
         let routed = cx.update(|cx| routed_notifications(cx));
         assert_eq!(routed.len(), 1);
         assert_eq!(routed[0].surface, NotifySurface::Silent);
+    }
+
+    /// An answer that finished while Ask Conduit waited is held with the
+    /// account it finished under: released once another account is in
+    /// charge, it is not shown under that one.
+    #[gpui_kit::test]
+    fn a_held_answer_released_after_an_account_switch_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsRoute>(NotificationRoute {
+            surface: NotifySurface::Silent,
+            cue: false,
+            system_sound: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-held-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            install_without_services(cx);
+            crate::stores::Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let accounts = stores.accounts.clone();
+        let finished = TurnFinished {
+            chat_id: "c1".into(),
+            message_id: "c1-answer".into(),
+            ok: true,
+            code: None,
+            queued: false,
+        };
+        let mut held = crate::intents::HeldNotifications::default();
+        held.begin();
+        let asked = cx.update(|cx| accounts.read(cx).scope_key());
+        assert!(held.hold(&finished, asked));
+
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        let due = held.end(None);
+        assert_eq!(due.len(), 1);
+        for (finished, asked) in due {
+            cx.update(|cx| {
+                route_via(
+                    daemon.rpc(),
+                    (accounts.clone(), asked),
+                    params(),
+                    ready(&finished.chat_id),
+                    NoticeLevel::Info,
+                    OpenRequest::Chat {
+                        id: finished.chat_id.clone(),
+                    },
+                    cx,
+                )
+            });
+        }
+        cx.run_until_parked();
+        assert!(
+            cx.update(|cx| routed_notifications(cx)).is_empty(),
+            "Avery's answer was shown under Blake"
+        );
     }
 }
 

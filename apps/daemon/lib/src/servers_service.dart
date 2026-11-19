@@ -103,37 +103,40 @@ final class ServersService {
     if (registry.server(id) != null && registry.account(id) == null) {
       return _rename(id, validateName(draft.name));
     }
-    final configs = await _storage.getServerConfigsStrict();
-    final index = configs.indexWhere((config) => config.id == id);
-    if (index < 0) throw _notFound(id);
-
-    final existing = configs[index];
-    final updated = existing.copyWith(
-      name: validateName(draft.name),
-      url: validateUrl(draft.url),
-      allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
-      customHeaders: draft.customHeaders ?? existing.customHeaders,
-      mtlsCertificateChainPem: draft.clearMutualTls
-          ? null
-          : (draft.mtlsCertificateChainPem ?? existing.mtlsCertificateChainPem),
-      mtlsCertificateLabel: draft.clearMutualTls
-          ? null
-          : (draft.mtlsCertificateLabel ?? existing.mtlsCertificateLabel),
-      mtlsPrivateKeyPem: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyPem ?? existing.mtlsPrivateKeyPem),
-      mtlsPrivateKeyLabel: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
-      mtlsPrivateKeyPassword: draft.clearMutualTls
-          ? null
-          : (draft.mtlsPrivateKeyPassword ?? existing.mtlsPrivateKeyPassword),
-    );
-
-    final next = <ServerConfig>[...configs]..[index] = updated;
+    final name = validateName(draft.name);
+    final url = validateUrl(draft.url);
     final hadSession = await _storage.getAuthTokenStrict() != null;
     final activeBefore = await _activeConfig();
-    await _storage.saveServerConfigs(next);
+    // Onto the connection as stored when the write runs, not as read before
+    // it: what another window saved meanwhile, and the draft leaves alone,
+    // stays.
+    final updated = await _storage.editServerConfig(
+      id,
+      (existing) => existing.copyWith(
+        name: name,
+        url: url,
+        allowSelfSignedCertificates: draft.allowSelfSignedCertificates,
+        customHeaders: draft.customHeaders ?? existing.customHeaders,
+        mtlsCertificateChainPem: draft.clearMutualTls
+            ? null
+            : (draft.mtlsCertificateChainPem ??
+                  existing.mtlsCertificateChainPem),
+        mtlsCertificateLabel: draft.clearMutualTls
+            ? null
+            : (draft.mtlsCertificateLabel ?? existing.mtlsCertificateLabel),
+        mtlsPrivateKeyPem: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyPem ?? existing.mtlsPrivateKeyPem),
+        mtlsPrivateKeyLabel: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
+        mtlsPrivateKeyPassword: draft.clearMutualTls
+            ? null
+            : (draft.mtlsPrivateKeyPassword ??
+                  existing.mtlsPrivateKeyPassword),
+      ),
+    );
+    if (updated == null) throw _notFound(id);
     await _endSessionIfMoved(hadSession: hadSession);
     await _publishSaved(activeBefore);
     _changed(registry.account(id)?.serverId);
@@ -396,7 +399,7 @@ final class ServersService {
       case core.ServerAddressAnswered(:final config, :final sessionRevision):
         return _keep(
           server.id,
-          endpointId,
+          saved,
           draft.label,
           config,
           sessionRevision,
@@ -405,7 +408,7 @@ final class ServersService {
       case core.ServerAddressBehindProxy(:final config, :final sessionRevision):
         return _keep(
           server.id,
-          endpointId,
+          saved,
           draft.label,
           config,
           sessionRevision,
@@ -437,7 +440,7 @@ final class ServersService {
 
   ServerAddressCheckResult _keep(
     String serverId,
-    String? endpointId,
+    OpenWebUiEndpoint? saved,
     String label,
     ServerConfig config,
     int sessionRevision, {
@@ -446,7 +449,7 @@ final class ServersService {
     final id = _uuid.v4();
     _checked[id] = _CheckedAddress(
       serverId: serverId,
-      endpointId: endpointId,
+      saved: saved,
       label: label,
       config: config,
       sessionRevision: sessionRevision,
@@ -466,7 +469,8 @@ final class ServersService {
   /// changed mid-reply -- comes back as [ServerAddressChangeOutcome
   /// .needsConfirmation], and the window calls again with the answer. One
   /// behind a proxy is saved with what the proxy's sign-in captured, its
-  /// cookie kept for the account that proves the address.
+  /// cookie kept for the account that proves the address -- and refused when
+  /// that is not the account the capture names.
   Future<ServerAddressSaveResult> save(ServerAddressSaveRequest request) async {
     _forgetStale();
     final checked = _checked[request.checkId];
@@ -503,6 +507,8 @@ final class ServersService {
         addedEndpointId: checked.addedEndpointId,
         label: checked.label,
         verified: checked.config,
+        editedFrom: checked.saved,
+        sessionAccount: checked.sessionAccount,
         sessionRevision: checked.sessionRevision,
         confirmSendingSession: (address) async {
           if (request.sendSessionConfirmed) return true;
@@ -625,6 +631,7 @@ final class ServersService {
     // Signed in: a confirmation asked next does not need the window again.
     checked
       ..config = config
+      ..sessionAccount = proxy.account
       ..behindProxy = false;
     return null;
   }
@@ -1025,7 +1032,7 @@ abstract interface class AddressReplies {
 final class _CheckedAddress {
   _CheckedAddress({
     required this.serverId,
-    required this.endpointId,
+    required this.saved,
     required this.label,
     required this.config,
     required this.sessionRevision,
@@ -1033,7 +1040,11 @@ final class _CheckedAddress {
   });
 
   final String serverId;
-  final String? endpointId;
+
+  /// The address edited as stored when it was checked (none for a new one):
+  /// what the save tells the form's changes by.
+  final OpenWebUiEndpoint? saved;
+  String? get endpointId => saved?.id;
   final String label;
 
   /// The address as it answered; with the proxy's cookie once signed in
@@ -1041,6 +1052,10 @@ final class _CheckedAddress {
   ServerConfig config;
   final int sessionRevision;
   bool behindProxy;
+
+  /// The account the proxy's sign-in window was for, when it named one:
+  /// its cookie is kept for that account alone.
+  String? sessionAccount;
 
   /// The id a new address is saved under: one per check, so saving again
   /// after a save that stored it and then failed edits it rather than
