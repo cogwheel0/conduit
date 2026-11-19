@@ -369,6 +369,28 @@ void main() {
     expect((await auth.status()).isAuthenticated, isTrue);
   });
 
+  // Two windows add an account from the same one in charge, the second
+  // before the first is saved: the first gives way, and leaves the second's
+  // addition going.
+  test('an addition overtaken by another from the same account leaves that '
+      'one going', () async {
+    final first = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Shed', url: other.url),
+      ),
+    );
+    final second = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Shed', url: other.url),
+      ),
+    );
+    await expectLater(first, accountChanged);
+    final added = await second;
+    expect(added.outcome, AccountChangeOutcome.needsSignIn);
+    expect(added.accounts.addingAccount, isTrue);
+    expect((await accounts.cancelAdd()).outcome, AccountChangeOutcome.done);
+  });
+
   test('a rename while another window switches accounts rebuilds no client '
       'after the switch', () async {
     final lab = (await accounts.list()).activeAccountId!;

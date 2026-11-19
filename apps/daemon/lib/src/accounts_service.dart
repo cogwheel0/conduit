@@ -116,6 +116,11 @@ final class AccountsService {
   /// chats: that LibreChat account, which Cancel goes back to. The core's
   /// own addition tracking is Open WebUI's (it parks no LibreChat account).
   String? _libreChatAdditionFrom;
+
+  /// Which addition [_libreChatAdditionFrom] is for: one that gives way
+  /// clears it only while it is still its own, not a later one's from the
+  /// same LibreChat account.
+  Object? _libreChatAddition;
   bool _announceScheduled = false;
   String? _lastAnnounced;
 
@@ -467,7 +472,11 @@ final class AccountsService {
         : await _firstAddressOf(request.serverId!);
     scope.require('an account addition begins');
     // Only once that lookup held: Cancel goes back to LibreChat.
-    if (fromLibreChat != null) _libreChatAdditionFrom = fromLibreChat;
+    final thisAddition = Object();
+    if (fromLibreChat != null) {
+      _libreChatAdditionFrom = fromLibreChat;
+      _libreChatAddition = thisAddition;
+    }
     var moved = false;
     bool joins(OpenWebUiRegistry stored) {
       final still =
@@ -501,10 +510,22 @@ final class AccountsService {
     // simply the account.
     final addition = _container.read(accountAdditionOriginProvider.notifier);
     bool Function()? stillAdding;
+    void Function()? endAddition;
     if (activeId != null) {
       addition.begin(activeId);
       stillAdding = addition.stillInProgress();
+      endAddition = addition.endLater();
     }
+    // Ends this addition alone: never one begun after it, from the same
+    // account or LibreChat account included, which it gave way to.
+    void giveUp() {
+      endAddition?.call();
+      if (identical(_libreChatAddition, thisAddition)) {
+        _libreChatAdditionFrom = null;
+        _libreChatAddition = null;
+      }
+    }
+
     final bool selected;
     try {
       selected = await _container
@@ -515,8 +536,7 @@ final class AccountsService {
             joins: joined == null ? null : joins,
           );
     } on Object catch (error) {
-      if (activeId != null) addition.end(activeId);
-      _libreChatAdditionFrom = null;
+      giveUp();
       throw RpcError(
         code: ConduitErrorCodes.serverError,
         args: <String, String>{'detail': '$error'},
@@ -524,8 +544,7 @@ final class AccountsService {
       );
     }
     if (moved) {
-      if (activeId != null) addition.end(activeId);
-      _libreChatAdditionFrom = null;
+      giveUp();
       throw RpcError(
         code: ConduitErrorCodes.notFound,
         args: <String, String>{'serverId': request.serverId!},
@@ -535,8 +554,7 @@ final class AccountsService {
       );
     }
     if (!selected) {
-      if (activeId != null) addition.end(activeId);
-      _libreChatAdditionFrom = null;
+      giveUp();
       throw const RpcError(
         code: ConduitErrorCodes.sessionExpired,
         args: <String, String>{'reason': 'account'},
