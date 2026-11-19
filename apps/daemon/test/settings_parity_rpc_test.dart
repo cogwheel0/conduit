@@ -996,6 +996,77 @@ void _withAnAccount() {
       });
     });
 
+    // The token expired, and its user is unknown until the silent sign-in
+    // ends: the mirror waits for it, and goes once the same user is back.
+    test("a notification mirror waits out its account's sign-in renewing, "
+        'then goes', () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        void signedInAs(User? who) {
+          user = who;
+          epoch = Object();
+          container
+            ..invalidate(currentUserProvider2)
+            ..invalidate(openWebUiAuthSessionEpochProvider);
+          async.elapse(Duration.zero);
+        }
+
+        signedInAs(null);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false], reason: 'no user to send it as');
+        signedInAs(_ava);
+        expect(api.reached, <bool?>[false, true]);
+      });
+    });
+
+    // Saved before its user was validated, then again after: one account,
+    // one queue, and the server ends up with the last change.
+    test('notification mirrors keep their order across the user being '
+        'validated', () {
+      fakeAsync((async) {
+        user = null;
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(api.mirrorAsked.isCompleted, isTrue);
+        user = _ava;
+        container.invalidate(currentUserProvider2);
+        async.elapse(Duration.zero);
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false, true]);
+      });
+    });
+
     test("a notification mirror queued for one server never goes once the "
         "account's address moves to another", () {
       fakeAsync((async) {

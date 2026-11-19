@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
 import 'package:conduit_core/models/openwebui_registry.dart'
@@ -87,6 +89,45 @@ final class AccountScope {
   /// a saved server whose address changed in place included (it keeps its
   /// id but may reach another server, with the same user id there).
   Object get identity => (_server, primary, preferenceAccount, _user);
+
+  /// Which account it is, whoever is signed in to it: [identity] without
+  /// the user, which a sign-in renewing, or one not yet validated, leaves
+  /// unknown for a while.
+  Object get account => (_server, primary, preferenceAccount);
+
+  /// [isSameAccount], once that can be told: while this account is in
+  /// charge with its user unknown (its sign-in renewing, or its user not
+  /// yet validated), it waits for a user, and is the same account only if
+  /// that user is this one's. Never waits for a request begun with no user.
+  Future<bool> sameAccountOnceKnown() async {
+    if (_user == null) return isCurrent;
+    bool unknown() {
+      final now = AccountScope.capture(_container);
+      return now._user == null && now.account == account;
+    }
+
+    if (unknown()) {
+      final known = Completer<void>();
+      void changed(Object? _, Object? _) {
+        // Read first: reading can notify this listener again.
+        if (unknown() || known.isCompleted) return;
+        known.complete();
+      }
+
+      final watches = [
+        _container.listen<Object?>(currentUserProvider2, changed),
+        _container.listen<Object?>(accountSwitchCountProvider, changed),
+      ];
+      try {
+        await known.future;
+      } finally {
+        for (final watch in watches) {
+          watch.close();
+        }
+      }
+    }
+    return isSameAccount;
+  }
 
   /// Whether the account in charge now is the same account as the one the
   /// request began under, however often its session was renewed since.
