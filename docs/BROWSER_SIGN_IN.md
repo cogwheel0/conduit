@@ -259,8 +259,8 @@ Browser sign-in is set up in the server's settings, not on the sign-in screen.
   it. **Test** checks discovery and whether the server accepts token exchange.
   It sends a made-up token, so it can't show that Open WebUI accepts tokens
   issued to Conduit's client (`OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS`, and on
-  Keycloak the audience mapper): sign in through the browser once to check
-  that. Then choose **Save**, or **Remove** to turn it off.
+  Keycloak the audience mapper). Choose **Save**, or **Remove** to turn it off.
+  After saving, sign in through the browser once to check that.
 
 The SSO button then signs in through the browser. After a failure the settings
 fix, such as a wrong client ID or an issuer Conduit couldn't find, the sign-in

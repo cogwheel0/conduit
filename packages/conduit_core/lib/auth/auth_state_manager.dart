@@ -3517,7 +3517,10 @@ class AuthStateManager extends _$AuthStateManager {
     int? claimRevision;
 
     bool canCommit() {
-      final expectedRevision = claimRevision ?? startRevision;
+      // Claimed, the commit is this attempt's alone: its own publication
+      // (signed in, with the token) must not fail it when storage asks again.
+      final claimed = claimRevision;
+      if (claimed != null) return !_authAttemptSuperseded(claimed);
       final current = _current;
       // Accept the bootstrap `loading` state too: the no-token-with-credentials
       // path now holds `loading` (not `unauthenticated`) while this background
@@ -3525,12 +3528,9 @@ class AuthStateManager extends _$AuthStateManager {
       final commitableStatus =
           current.status == AuthStatus.unauthenticated ||
           current.status == AuthStatus.loading;
-      final ownsFence = claimRevision == null
-          ? _sessionSafetyEpoch == startSafetyEpoch &&
-                _authAttemptRevision == expectedRevision
-          : !_authAttemptSuperseded(expectedRevision);
       return ref.mounted &&
-          ownsFence &&
+          _sessionSafetyEpoch == startSafetyEpoch &&
+          _authAttemptRevision == startRevision &&
           commitableStatus &&
           !current.hasValidToken;
     }
@@ -4141,7 +4141,16 @@ class AuthStateManager extends _$AuthStateManager {
           _poisonUncertainServerSession(failedAttemptRevision: commitRevision);
         },
       );
-      if (committed) DebugLogger.auth('Silent login successful');
+      if (committed) {
+        DebugLogger.auth('Silent login successful');
+      } else if (publicationAttempted) {
+        // Rolled back after it was shown: what was shown before comes back.
+        _restoreRolledBackAuthPublication(
+          attemptRevision: commitRevision,
+          capturedSessionSafetyEpoch: publicationSafetyEpoch,
+          previousState: previousState,
+        );
+      }
       return committed;
     } catch (error, stackTrace) {
       if (publicationAttempted &&

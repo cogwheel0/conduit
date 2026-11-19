@@ -555,6 +555,8 @@ void main() {
         saved: _savedBrowserSignIn(expired),
         renew: () async => (token: _renewed, session: _session),
       );
+      // Storage's last word on the commit comes after it is shown.
+      await pumpEventQueue();
 
       check(rig.state.status).equals(AuthStatus.authenticated);
       check(rig.state.token).equals(_renewed);
@@ -1505,6 +1507,14 @@ final class _Storage extends Mock implements OptimizedStorageService {
     expected = expectedSavedCredentials;
     this.browserSession = browserSession;
     await publish();
+    // Asked again once published, as storage asks it: a no rolls it back.
+    if (!canCommit()) {
+      committedToken = null;
+      remembered = null;
+      expected = null;
+      this.browserSession = null;
+      return false;
+    }
     return true;
   }
 }

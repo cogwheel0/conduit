@@ -810,17 +810,28 @@ void main() {
       check(await storedSession('b')).isNull();
     });
 
-    test('when the active account\'s sign-in is cleared', () async {
-      await saveAccounts(['a']);
-      final session = await signInWithBrowser('a');
+    // Deleted at the first try, or by the vault's cleanup after it.
+    for (final refusedOnce in [false, true]) {
+      test('when the active account\'s sign-in is cleared'
+          '${refusedOnce ? ', deleted at the second try' : ''}', () async {
+        await saveAccounts(['a']);
+        final session = await signInWithBrowser('a');
+        if (refusedOnce) {
+          secure.undeletableOnceKey = 'browser_sign_in_session_v1:a';
+        }
 
-      final dropped = await droppedBy(
-        () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
-      );
+        final dropped = await droppedBy(() async {
+          try {
+            await storage.clearActiveAccountAuthDataIf(canClear: () => true);
+          } on StateError {
+            // The refusal, reported once every step ran.
+          }
+        });
 
-      check(dropped).deepEquals([(accountId: 'a', session: session)]);
-      check(await storedSession('a')).isNull();
-    });
+        check(dropped).deepEquals([(accountId: 'a', session: session)]);
+        check(await storedSession('a')).isNull();
+      });
+    }
 
     // Each one deleted is told of: at the first try or the second, and
     // whatever becomes of another.

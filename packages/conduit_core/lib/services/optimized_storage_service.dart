@@ -5192,11 +5192,31 @@ class OptimizedStorageService {
       await attempt(() async {
         final (_, activeId) = await activeAccount();
         if (activeId == null) return;
+        // Read before either delete below reaches it, and told of once one
+        // of them has: the vault's cleanup deletes it too.
+        StoredBrowserSignInSession? session;
+        try {
+          if (BrowserSignInSession.tryDecode(
+                await _secureCredentialStorage.getBrowserSignInSession(
+                  activeId,
+                ),
+              )
+              case final read?) {
+            session = (accountId: activeId, session: read);
+          }
+        } catch (_) {}
+        var sessionDeleted = false;
         await attempt(() async {
-          final session = await _takeBrowserSessionUnlocked(activeId);
-          if (session != null) onBrowserSessionDropped?.call(session);
+          await _secureCredentialStorage.deleteBrowserSignInSession(activeId);
+          sessionDeleted = true;
         });
-        await attempt(() => _deleteVaultedSessionUnlocked(activeId));
+        await attempt(() async {
+          await _deleteVaultedSessionUnlocked(activeId);
+          sessionDeleted = true;
+        });
+        if (sessionDeleted && session != null) {
+          onBrowserSessionDropped?.call(session);
+        }
         await attempt(
           () => _scrubServerConfigAuthArtifactsUnlocked(accountId: activeId),
         );
