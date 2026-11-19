@@ -8,6 +8,11 @@ import 'dart:io';
 /// sign-out, for a fixed set of synthetic users. Every other authenticated read answers an
 /// empty list (or, for the model list, an empty `data`), so the core's
 /// background loads find an empty account rather than an error.
+///
+/// With [models] set it also takes the core's Open WebUI sends, as
+/// [FakeOwuiChats] describes: a polling socket, chats made and saved, and
+/// each answer run as a task whose words arrive on the socket, with a hold
+/// at admission and one on the stream.
 final class FakeOwuiAuthServer {
   FakeOwuiAuthServer._(
     this._server,
@@ -53,6 +58,12 @@ final class FakeOwuiAuthServer {
 
   /// The method and path of every request, in order.
   final List<String> requests = <String>[];
+
+  /// The models the server offers (`/api/models`).
+  List<String> models = const <String>[];
+
+  /// The chats and answers of [models]' sends.
+  final FakeOwuiChats chats = FakeOwuiChats();
 
   /// Answers every signed-in request as a sign-in proxy whose session
   /// expired does: a redirect to its sign-in page.
@@ -105,7 +116,10 @@ final class FakeOwuiAuthServer {
     return fake;
   }
 
-  Future<void> close() => _server.close(force: true);
+  Future<void> close() {
+    chats._close();
+    return _server.close(force: true);
+  }
 
   Future<void> _handle(HttpRequest request) async {
     final response = request.response;
@@ -192,7 +206,7 @@ final class FakeOwuiAuthServer {
           'enable_api_key': true,
           'enable_signup': false,
           'enable_login_form': true,
-          'enable_websocket': false,
+          'enable_websocket': models.isNotEmpty,
         },
       });
     }
@@ -256,6 +270,9 @@ final class FakeOwuiAuthServer {
       return;
     }
 
+    if (models.isNotEmpty && path.startsWith('/ws/socket.io')) {
+      return chats._socket(request);
+    }
     final bearer = request.headers.value('authorization');
     final token = bearer != null && bearer.startsWith('Bearer ')
         ? bearer.substring(7)
@@ -264,6 +281,10 @@ final class FakeOwuiAuthServer {
     if (email == null) {
       await request.drain<void>();
       return json(<String, dynamic>{'detail': 'Not authenticated'}, 401);
+    }
+    if (models.isNotEmpty &&
+        await chats._handle(request, path, _users[email]!)) {
+      return;
     }
     await request.drain<void>();
     if (path == '/api/v1/auths/' || path == '/api/v1/auths') {
@@ -281,7 +302,17 @@ final class FakeOwuiAuthServer {
       return json(<String, dynamic>{'status': true});
     }
     if (path == '/api/models' || path == '/api/v1/models') {
-      return json(<String, dynamic>{'data': <Object>[]});
+      return json(<String, dynamic>{
+        'data': <Object>[
+          for (final id in models)
+            <String, dynamic>{
+              'id': id,
+              'name': id,
+              'object': 'model',
+              'owned_by': 'openai',
+            },
+        ],
+      });
     }
     if (path.endsWith('/settings') || path.endsWith('/permissions')) {
       return json(<String, dynamic>{});
@@ -307,4 +338,514 @@ final class FakeOwuiAuthServer {
 final class _Sessions {
   final Map<String, String> tokens = <String, String>{};
   var issued = 0;
+}
+
+/// The chats of a [FakeOwuiAuthServer] that takes sends, as Open WebUI
+/// serves the core's client: a Socket.IO session over Engine.IO (a
+/// websocket, or long-polling) on `/ws/socket.io/`, `POST /api/v1/chats/new` to
+/// make a chat, `GET`/`POST /api/v1/chats/{id}` to read and save it, and
+/// `POST /api/chat/completions` to answer with [answer]: run as a task whose
+/// words arrive as `chat:completion` events on the socket, or, sent with no
+/// socket session, streamed in the response. Every completion asked for is
+/// in [completions].
+///
+/// [holdAdmission], while set, keeps a completion request waiting after its
+/// turn is stored, before its task starts: [admissionAsked] completes as one
+/// reaches it. Hold a send in a chat already made: a held first send of a
+/// new chat loses its answer here, which it does not against Open WebUI.
+/// [holdStream], while set, is taken by the next answer to start: that one
+/// keeps running after its first word until the hold is completed or its
+/// task is stopped (counted in [stopped]).
+/// [refusal], while set, refuses each completion let through admission with
+/// it, as Open WebUI's 400.
+final class FakeOwuiChats {
+  /// The answer every completion streams.
+  String answer = 'The kettle is on.';
+
+  final Map<String, Map<String, dynamic>> stored =
+      <String, Map<String, dynamic>>{};
+
+  /// The body of every completion request, in order.
+  final List<Map<String, dynamic>> completions = <Map<String, dynamic>>[];
+
+  Completer<void>? holdAdmission;
+  Completer<void> admissionAsked = Completer<void>();
+
+  Completer<void>? holdStream;
+
+  Map<String, dynamic>? refusal;
+
+  /// The stream holds the running tasks took.
+  final Map<String, Completer<void>> _holds = <String, Completer<void>>{};
+
+  /// Task ids stopped, by `/api/tasks/stop/{id}` or with their chat's
+  /// (`/api/tasks/chat/{id}/stop`).
+  final List<String> stopped = <String>[];
+
+  /// The running tasks, by id, and the chat each answers in.
+  final Map<String, String> _running = <String, String>{};
+
+  var _made = 0;
+  var _tasks = 0;
+
+  // The socket: one Engine.IO session at a time, over a websocket or by
+  // long-polling (its packets for the client's next poll, and that poll
+  // while it waits).
+  WebSocket? _webSocket;
+  String? _sid;
+  var _sessions = 0;
+  final List<String> _outgoing = <String>[];
+  Completer<void>? _outgoingReady;
+  var _closed = false;
+
+  void _push(String packet) {
+    if (_webSocket case final socket?) {
+      try {
+        socket.add(packet);
+      } on StateError {
+        // The client hung up: nothing more reaches it.
+      }
+      return;
+    }
+    _outgoing.add(packet);
+    final ready = _outgoingReady;
+    _outgoingReady = null;
+    ready?.complete();
+  }
+
+  void _event(
+    String chatId,
+    String messageId,
+    Map<String, dynamic> data,
+  ) => _push(
+    '42${jsonEncode(<Object>[
+      'events',
+      <String, dynamic>{'chat_id': chatId, 'message_id': messageId, 'data': data},
+    ])}',
+  );
+
+  void _close() {
+    _closed = true;
+    _push('1');
+    unawaited(_webSocket?.close());
+    for (final hold in <Completer<void>?>[
+      holdAdmission,
+      holdStream,
+      ..._holds.values,
+    ]) {
+      if (hold != null && !hold.isCompleted) hold.complete();
+    }
+  }
+
+  /// Streams [answer] as server-sent events, word by word, into [message]
+  /// (its stored copy) as it goes.
+  Future<void> _streamTo(
+    HttpResponse response,
+    Map<String, dynamic>? message,
+  ) async {
+    response
+      ..statusCode = 200
+      ..bufferOutput = false
+      ..headers.contentType = ContentType('text', 'event-stream');
+    final words = answer.split(' ');
+    final open = holdStream;
+    holdStream = null;
+    try {
+      for (var i = 0; i < words.length; i++) {
+        message?['content'] = words.take(i + 1).join(' ');
+        response.write(
+          'data: ${jsonEncode(<String, dynamic>{
+            'choices': <Object>[
+              <String, dynamic>{
+                'delta': <String, dynamic>{'content': i == 0 ? words[i] : ' ${words[i]}'},
+              },
+            ],
+          })}\n\n',
+        );
+        await response.flush();
+        if (i == 0 && open != null) await open.future;
+      }
+      message?['done'] = true;
+      response.write('data: [DONE]\n\n');
+      await response.close();
+    } on Object {
+      // The client stopped reading: the answer ends where it was.
+    }
+  }
+
+  Future<void> _socket(HttpRequest request) async {
+    Future<void> reply(int status, String body) async {
+      request.response
+        ..statusCode = status
+        ..headers.contentType = ContentType('text', 'plain', charset: 'UTF-8')
+        ..write(body);
+      try {
+        await request.response.close();
+      } on Object {
+        // The client gave up on its poll.
+      }
+    }
+
+    if (WebSocketTransformer.isUpgradeRequest(request)) {
+      final socket = await WebSocketTransformer.upgrade(request);
+      final session = ++_sessions;
+      _sid = 'eio-$session';
+      _outgoing.clear();
+      _webSocket = socket;
+      socket.add(
+        '0${jsonEncode(<String, dynamic>{'sid': _sid, 'upgrades': <String>[], 'pingInterval': 25000, 'pingTimeout': 20000, 'maxPayload': 1000000})}',
+      );
+      socket.listen(
+        (data) {
+          // A Socket.IO CONNECT to the default namespace, with its auth.
+          if (data is String && (data == '40' || data.startsWith('40{'))) {
+            socket.add(
+              '40${jsonEncode(<String, dynamic>{'sid': 'socket-$session'})}',
+            );
+          }
+        },
+        onDone: () {
+          if (identical(_webSocket, socket)) _webSocket = null;
+        },
+        onError: (Object _) {},
+      );
+      return;
+    }
+    final sid = request.uri.queryParameters['sid'];
+    if (sid == null) {
+      if (request.method != 'GET' ||
+          request.uri.queryParameters['transport'] != 'polling') {
+        return reply(HttpStatus.badRequest, 'bad handshake');
+      }
+      _sid = 'eio-${++_sessions}';
+      _outgoing.clear();
+      return reply(
+        HttpStatus.ok,
+        '0${jsonEncode(<String, dynamic>{'sid': _sid, 'upgrades': <String>[], 'pingInterval': 25000, 'pingTimeout': 20000, 'maxPayload': 1000000})}',
+      );
+    }
+    if (sid != _sid || _closed) {
+      return reply(HttpStatus.badRequest, 'Invalid session');
+    }
+    if (request.method == 'POST') {
+      final body = await utf8.decodeStream(request);
+      for (final packet in body.split('\x1e')) {
+        // A Socket.IO CONNECT to the default namespace, with its auth.
+        if (packet == '40' || packet.startsWith('40{')) {
+          _push(
+            '40${jsonEncode(<String, dynamic>{'sid': 'socket-$_sessions'})}',
+          );
+        }
+      }
+      return reply(HttpStatus.ok, 'ok');
+    }
+    while (_outgoing.isEmpty && !_closed) {
+      await (_outgoingReady ??= Completer<void>()).future;
+    }
+    final payload = _outgoing.join('\x1e');
+    _outgoing.clear();
+    return reply(HttpStatus.ok, payload);
+  }
+
+  /// A chat [id] of [userId]'s, already on the server and empty, as one
+  /// made elsewhere; a send into it skips the new chat's first read-back.
+  void seed(String id, {required String userId, String title = 'Lab notes'}) {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    stored[id] = <String, dynamic>{
+      'id': id,
+      'user_id': userId,
+      'title': title,
+      'chat': <String, dynamic>{
+        'id': id,
+        'title': title,
+        'models': <String>[],
+        'history': <String, dynamic>{
+          'messages': <String, dynamic>{},
+          'currentId': null,
+        },
+        'messages': <Object>[],
+        'params': <String, dynamic>{},
+        'tags': <Object>[],
+        'timestamp': now * 1000,
+      },
+      'created_at': now,
+      'updated_at': now,
+      'share_id': null,
+      'archived': false,
+      'pinned': false,
+      'meta': <String, dynamic>{},
+      'folder_id': null,
+      'current_message_id': null,
+      'tasks': null,
+      'summary': null,
+      'context_usage': null,
+      'variables': <String, dynamic>{},
+    };
+  }
+
+  /// Answers [request] when it is one of a chat's: true then.
+  Future<bool> _handle(
+    HttpRequest request,
+    String path,
+    ({String id, String name, String password}) user,
+  ) async {
+    final userId = user.id;
+    final response = request.response;
+    Future<Map<String, dynamic>> body() async {
+      final text = await utf8.decodeStream(request);
+      return text.isEmpty
+          ? <String, dynamic>{}
+          : jsonDecode(text) as Map<String, dynamic>;
+    }
+
+    Future<bool> json(Object? value, [int status = 200]) async {
+      response
+        ..statusCode = status
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode(value));
+      await response.close();
+      return true;
+    }
+
+    final post = request.method == 'POST';
+    if (post && path == '/api/v1/chats/new') {
+      final chat = Map<String, dynamic>.of(
+        (await body())['chat'] as Map<String, dynamic>? ?? const {},
+      );
+      final id = 'chat-${++_made}';
+      chat['id'] = id;
+      // Its messages are the user's, as Open WebUI marks them
+      // (`set_message_authors`).
+      final history = chat['history'];
+      for (final message in <Object?>[
+        if (history is Map) ...(history['messages'] as Map? ?? const {}).values,
+        ...chat['messages'] as List? ?? const [],
+      ]) {
+        if (message is! Map) continue;
+        message['user_id'] = userId;
+        if (message['role'] == 'user') {
+          message['user'] = <String, dynamic>{'id': userId, 'name': user.name};
+        }
+      }
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final row = stored[id] = <String, dynamic>{
+        'id': id,
+        'user_id': userId,
+        'title': chat['title'] ?? 'New Chat',
+        'chat': chat,
+        'created_at': now,
+        'updated_at': now,
+        'share_id': null,
+        'archived': false,
+        'pinned': false,
+        'meta': <String, dynamic>{},
+        'folder_id': null,
+        'current_message_id': history is Map ? history['currentId'] : null,
+        'tasks': null,
+        'summary': null,
+        'context_usage': null,
+        'variables': <String, dynamic>{},
+      };
+      return json(row);
+    }
+    if (!post &&
+        (path == '/api/v1/chats/' || path == '/api/v1/chats/list') &&
+        (request.uri.queryParameters['page'] ?? '1') == '1') {
+      await request.drain<void>();
+      return json(<Object>[
+        for (final row in stored.values.toList().reversed)
+          <String, dynamic>{
+            'id': row['id'],
+            'title': row['title'],
+            'updated_at': row['updated_at'],
+            'created_at': row['created_at'],
+            'last_read_at': null,
+            'active': _running.containsValue(row['id']),
+            'pending_approval': false,
+            'archived': false,
+          },
+      ]);
+    }
+    final chatId = RegExp(r'^/api/v1/chats/([^/]+)$').firstMatch(path)?[1];
+    // A chat it does not keep (the core reads a new chat's own id before
+    // the server has made it) is not found, as Open WebUI answers it.
+    if (chatId != null &&
+        !stored.containsKey(chatId) &&
+        RegExp(r'^([0-9a-f]{8}-[0-9a-f-]{27}|chat-\d+)$').hasMatch(chatId)) {
+      await request.drain<void>();
+      return json(<String, dynamic>{
+        'detail': "We could not find what you're looking for :/",
+      }, 401);
+    }
+    if (chatId != null && stored.containsKey(chatId)) {
+      final row = stored[chatId]!;
+      if (post) {
+        final chat = (await body())['chat'];
+        if (chat is Map<String, dynamic>) {
+          row['chat'] = <String, dynamic>{
+            ...row['chat'] as Map<String, dynamic>,
+            ...chat,
+          };
+          if (chat['title'] case final String title) row['title'] = title;
+          row['updated_at'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        }
+      } else {
+        await request.drain<void>();
+      }
+      return json(row);
+    }
+    if (post && path == '/api/chat/completions') {
+      final asked = await body();
+      completions.add(asked);
+      final chat = asked['chat_id'] as String?;
+      final id = asked['id'] as String?;
+      if (chat == null || id == null) {
+        return json(<String, dynamic>{'detail': 'no chat'}, 400);
+      }
+      // The question and its answer are in the stored chat before the task
+      // starts, as Open WebUI writes the turn first; the answer fills in
+      // while the task runs.
+      final message = _answerIn(
+        chat,
+        id: id,
+        question: asked['user_message'] as Map<String, dynamic>?,
+        model: asked['model'] as String?,
+      );
+      final held = holdAdmission;
+      if (!admissionAsked.isCompleted) admissionAsked.complete();
+      if (held != null) await held.future;
+      if (refusal case final refused?) return json(refused, 400);
+      if (asked['session_id'] == null) {
+        // No socket to send it on: the answer streams in the response.
+        await _streamTo(response, message);
+        return true;
+      }
+      final task = 'task-${++_tasks}';
+      _running[task] = chat;
+      unawaited(_run(task, chat, id, message));
+      return json(<String, dynamic>{
+        'status': true,
+        'task_ids': <String>[task],
+        'chat_id': chat,
+      });
+    }
+    if (post && path.startsWith('/api/tasks/stop/')) {
+      await request.drain<void>();
+      final task = path.substring('/api/tasks/stop/'.length);
+      stopped.add(task);
+      _running.remove(task);
+      final open = _holds.remove(task);
+      if (open != null && !open.isCompleted) open.complete();
+      return json(<String, dynamic>{'status': true});
+    }
+    final stopChat = RegExp(r'^/api/tasks/chat/([^/]+)/stop$')
+        .firstMatch(path)?[1];
+    if (post && stopChat != null) {
+      await request.drain<void>();
+      for (final task in <String>[
+        for (final MapEntry(:key, :value) in _running.entries)
+          if (value == stopChat) key,
+      ]) {
+        stopped.add(task);
+        _running.remove(task);
+        final open = _holds.remove(task);
+        if (open != null && !open.isCompleted) open.complete();
+      }
+      return json(<String, dynamic>{'status': true});
+    }
+    if (path.startsWith('/api/tasks/chat/')) {
+      await request.drain<void>();
+      final chat = path.substring('/api/tasks/chat/'.length);
+      return json(<String, dynamic>{
+        'task_ids': <String>[
+          for (final MapEntry(:key, :value) in _running.entries)
+            if (value == chat) key,
+        ],
+      });
+    }
+    if (post && path == '/api/chat/completed') {
+      return json(await body());
+    }
+    return false;
+  }
+
+  /// Streams [task]'s answer [messageId] in [chatId], word by word, into
+  /// [message] (its stored copy) and onto the socket; a stopped task ends
+  /// where it was.
+  Future<void> _run(
+    String task,
+    String chatId,
+    String messageId,
+    Map<String, dynamic>? message,
+  ) async {
+    final words = answer.split(' ');
+    final open = holdStream;
+    holdStream = null;
+    if (open != null) _holds[task] = open;
+    for (var i = 0; i < words.length; i++) {
+      final content = words.take(i + 1).join(' ');
+      message?['content'] = content;
+      _event(chatId, messageId, <String, dynamic>{
+        'type': 'chat:completion',
+        'data': <String, dynamic>{'content': content},
+      });
+      if (i == 0 && open != null) await open.future;
+      if (!_running.containsKey(task)) return;
+    }
+    message?['done'] = true;
+    _running.remove(task);
+    _holds.remove(task);
+    _event(chatId, messageId, <String, dynamic>{
+      'type': 'chat:completion',
+      'data': <String, dynamic>{'done': true, 'content': answer},
+    });
+  }
+
+  /// The answer [id] to [question], in [chatId]'s stored history, as Open
+  /// WebUI adds them when it takes the completion; null for a chat it does
+  /// not keep.
+  Map<String, dynamic>? _answerIn(
+    String chatId, {
+    required String id,
+    required Map<String, dynamic>? question,
+    required String? model,
+  }) {
+    final row = stored[chatId];
+    if (row == null) return null;
+    final chat = row['chat'] as Map<String, dynamic>;
+    final history = Map<String, dynamic>.of(
+      chat['history'] as Map<String, dynamic>? ?? const {},
+    );
+    final messages = Map<String, dynamic>.of(
+      history['messages'] as Map<String, dynamic>? ?? const {},
+    );
+    final questionId = question?['id'] as String?;
+    if (questionId != null) {
+      final asked = messages[questionId] = <String, dynamic>{
+        ...question!,
+        ...?messages[questionId] as Map<String, dynamic>?,
+      };
+      asked['childrenIds'] = <Object?>[
+        ...asked['childrenIds'] as List? ?? const [],
+        id,
+      ];
+    }
+    final message = messages[id] = <String, dynamic>{
+      'id': id,
+      'parentId': questionId,
+      'childrenIds': <String>[],
+      'role': 'assistant',
+      'content': '',
+      'model': model,
+      'modelName': model,
+      'modelIdx': 0,
+      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'done': false,
+    };
+    history
+      ..['messages'] = messages
+      ..['currentId'] = id;
+    chat['history'] = history;
+    return message;
+  }
 }
