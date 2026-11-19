@@ -910,8 +910,6 @@ class AuthStateManager extends _$AuthStateManager {
           );
           final cleared = await storage.clearActiveAccountAuthDataIf(
             canClear: () => !_authAttemptSuperseded(attemptRevision),
-            // Not a sign-out, which revokes its own: told, to be revoked.
-            tellDroppedBrowserSession: true,
           );
           if (!cleared || _authAttemptSuperseded(attemptRevision)) return;
           return;
@@ -4962,39 +4960,22 @@ class AuthStateManager extends _$AuthStateManager {
     final loggedOutAccountId = clearAllAppData
         ? null
         : _accountLeftByPlainLogout();
-    // A plain logout ends the account's browser sign-in session too: read it
-    // before anything clears it, and revoke it once the logout has. Signing
+    // A plain logout ends the account's browser sign-in session too: storage
+    // tells of the session its clear takes, which is revoked then. Signing
     // out of every account revokes them all itself.
     _retryableBrowserGrant = null;
-    // Renewals of the account wait until the logout ends: one between the
-    // read and the clear would rotate the refresh token, leaving the new one
-    // unrevoked. The clear waits for the read.
+    // Renewals of the account wait until the logout ends: one that rotated
+    // the refresh token as the clear took the session would leave the new one
+    // stored nowhere, and unrevoked. The clear waits for the hold.
     final browserRenewalsHeld = clearAllAppData || loggedOutAccountId == null
         ? null
         : _holdBrowserRenewals([loggedOutAccountId]);
-    final browserSessionStorage = ref.read(optimizedStorageServiceProvider);
-    final browserSessionRead = browserRenewalsHeld?.then(
-      (_) => _browserSessionForRevocation(
-        browserSessionStorage,
-        loggedOutAccountId!,
-      ),
-    );
-    Future<void> browserSessionReadSettled() async {
+    Future<void> browserRenewalsSettled() async {
       try {
-        await browserSessionRead;
+        await browserRenewalsHeld;
       } catch (_) {
-        // Unread, there is nothing to revoke.
+        // Nothing held, nothing to wait for.
       }
-    }
-
-    void revokeBrowserSession() {
-      final read = browserSessionRead;
-      if (read == null) return;
-      unawaited(
-        read.then((session) async {
-          if (session != null) await _revokeBrowserSessions([session]);
-        }),
-      );
     }
 
     final attemptRevision = _beginAuthAttempt();
@@ -5187,13 +5168,12 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
 
-      await browserSessionReadSettled();
+      await browserRenewalsSettled();
       durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
       if (!durableAuthDataCleared) {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
         return FullAppDataClearOutcome.ownershipYielded;
       }
-      revokeBrowserSession();
       await purgeLoggedOutAccountData();
 
       DebugLogger.auth(
@@ -5213,7 +5193,7 @@ class AuthStateManager extends _$AuthStateManager {
       } else {
         // Even if logout fails, clear local state where possible.
         try {
-          await browserSessionReadSettled();
+          await browserRenewalsSettled();
           durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
           if (!durableAuthDataCleared) {
             DebugLogger.auth(
@@ -5221,7 +5201,6 @@ class AuthStateManager extends _$AuthStateManager {
             );
             return FullAppDataClearOutcome.ownershipYielded;
           }
-          revokeBrowserSession();
           await purgeLoggedOutAccountData();
         } catch (clearError) {
           _logAuthenticationFailure('logout-clear-failed', clearError);

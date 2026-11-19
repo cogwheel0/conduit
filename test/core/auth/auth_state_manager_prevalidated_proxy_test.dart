@@ -2469,7 +2469,6 @@ void main() {
       when(
         () => storage.clearActiveAccountAuthDataIf(
           canClear: any(named: 'canClear'),
-          tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
         ),
       ).thenAnswer((invocation) async {
         cleanupEntered.complete();
@@ -3836,7 +3835,6 @@ void _routeConditionalAuthClearToLegacyMock(_Storage storage) {
   when(
     () => storage.clearActiveAccountAuthDataIf(
       canClear: any(named: 'canClear'),
-      tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
     ),
   ).thenAnswer((invocation) async {
     final canClear = invocation.namedArguments[#canClear] as bool Function();

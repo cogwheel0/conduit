@@ -810,16 +810,12 @@ void main() {
       check(await storedSession('b')).isNull();
     });
 
-    test('when the active account\'s sign-in is cleared other than by a '
-        'sign-out', () async {
+    test('when the active account\'s sign-in is cleared', () async {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
 
       final dropped = await droppedBy(
-        () => storage.clearActiveAccountAuthDataIf(
-          canClear: () => true,
-          tellDroppedBrowserSession: true,
-        ),
+        () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
       );
 
       check(dropped).deepEquals([(accountId: 'a', session: session)]);
@@ -839,18 +835,6 @@ void main() {
       ]);
       check(await storedSession('a')).isNull();
       check(await storedSession('b')).isNull();
-    });
-
-    test('but not when a sign-out clears it, which revokes its own', () async {
-      await saveAccounts(['a']);
-      await signInWithBrowser('a');
-
-      final dropped = await droppedBy(
-        () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
-      );
-
-      check(dropped).isEmpty();
-      check(await storedSession('a')).isNull();
     });
 
     test('never for a sign-out, which revokes its own', () async {

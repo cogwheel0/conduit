@@ -1049,16 +1049,22 @@ void main() {
       check(rig.service.revoked).deepEquals([_session]);
     });
 
-    test('revokes the refresh token on a plain logout', () async {
-      final rig = await _Rig.start(clears: true);
-      when(() => rig.storage.browserSignInSessionFor('account-a'))
-          .thenAnswer((_) async => _session);
+    // The session the clear took, even when it could not be read before.
+    for (final readable in [true, false]) {
+      test('revokes the refresh token on a plain logout'
+          '${readable ? '' : ' that could not read it first'}', () async {
+        final rig = await _Rig.start(clears: true);
+        if (!readable) {
+          when(() => rig.storage.browserSignInSessionFor('account-a'))
+              .thenThrow(StateError('Keychain locked'));
+        }
 
-      await rig.auth.logout();
-      await pumpEventQueue();
+        await rig.auth.logout();
+        await pumpEventQueue();
 
-      check(rig.service.revoked).deepEquals([_session]);
-    });
+        check(rig.service.revoked).deepEquals([_session]);
+      });
+    }
 
     test('revokes nothing when a newer sign-in owns the account', () async {
       final rig = await _Rig.start(clears: false);
@@ -1194,20 +1200,17 @@ void main() {
       check(rig.service.released).length.equals(1);
     });
 
-    test('a plain logout holds renewals from the session read through the '
-        'clear', () async {
+    test('a plain logout holds renewals through the clear', () async {
       final rig = await _Rig.start(clears: true);
-      when(() => rig.storage.browserSignInSessionFor('account-a'))
-          .thenAnswer((_) async => _session);
       var heldDuringClear = false;
       when(
         () => rig.storage.clearActiveAccountAuthDataIf(
           canClear: any(named: 'canClear'),
-          tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
         ),
       ).thenAnswer((invocation) async {
         heldDuringClear =
             rig.service.held.length == 1 && rig.service.released.isEmpty;
+        rig.storage.dropped.add([(accountId: 'account-a', session: _session)]);
         return (invocation.namedArguments[#canClear] as bool Function())();
       });
 
@@ -1362,12 +1365,14 @@ final class _Rig {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
-        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
-    ).thenAnswer(
-      (invocation) async =>
-          clears && (invocation.namedArguments[#canClear] as bool Function())(),
-    );
+    ).thenAnswer((invocation) async {
+      final args = invocation.namedArguments;
+      if (!clears || !(args[#canClear] as bool Function())()) return false;
+      // The account's session goes with the clear, and is told of.
+      rig.storage.dropped.add([(accountId: rig.activeId, session: _session)]);
+      return true;
+    });
 
     final isolation = _Isolation();
     rig.container = ProviderContainer(

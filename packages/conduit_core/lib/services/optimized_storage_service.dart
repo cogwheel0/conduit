@@ -5112,12 +5112,11 @@ class OptimizedStorageService {
   /// its id and its captured proxy cookies. Every other account stays signed
   /// in: their sessions are in the vault, untouched.
   ///
-  /// The account's browser sign-in session goes too. A sign-out revokes it
-  /// itself; [tellDroppedBrowserSession] tells of it on
-  /// [droppedBrowserSessions] instead, for a clear that is not one.
+  /// The account's browser sign-in session goes too, told of on
+  /// [droppedBrowserSessions] once taken, to be revoked: what this clear
+  /// took, whatever became of a read of it before, or of the steps after.
   Future<bool> clearActiveAccountAuthDataIf({
     required bool Function() canClear,
-    bool tellDroppedBrowserSession = false,
   }) async {
     StoredBrowserSignInSession? droppedBrowserSession;
     final bool cleared;
@@ -5130,9 +5129,7 @@ class OptimizedStorageService {
         return true;
       });
     } finally {
-      if (tellDroppedBrowserSession) {
-        _notifyBrowserSessionsDropped([?droppedBrowserSession]);
-      }
+      _notifyBrowserSessionsDropped([?droppedBrowserSession]);
     }
     if (cleared) {
       DebugLogger.log(
