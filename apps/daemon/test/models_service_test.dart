@@ -723,6 +723,26 @@ void main() {
       },
     );
 
+    test("New Chat's coding agent goes when its terminal does; a chat's own "
+        'stays', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent, chatId: 'agent-chat');
+      await models.select(_northAgent);
+      check((await models.list()).selectedId).equals(_northAgent);
+      // Terminals turned off: New Chat runs no agent, as the account's own
+      // selection does not.
+      container.read(selectedTerminalIdProvider.notifier).set(null);
+      check((await models.list()).selectedId).equals('first-model');
+      check(await models.modelFor(null)).equals('first-model');
+      // The chat's own agent runs on its own terminal, whichever is chosen.
+      check(
+        (await models.list(const ModelListQuery(chatId: 'agent-chat')))
+            .selectedId,
+      ).equals(_northAgent);
+    });
+
     test("goes from New Chat to the chat its first message makes", () async {
       final container = _agentContainer(_AgentsApi());
       container.read(selectedTerminalIdProvider.notifier).set('north');

@@ -102,6 +102,7 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
   ModelsService(this._container, {EventBus? events}) : _events = events {
+    _followTerminal();
     if (events != null) {
       _announceChanges(events);
       _followRemaps(events);
@@ -146,6 +147,19 @@ final class ModelsService {
       id = next;
     }
     return id;
+  }
+
+  /// New Chat's coding agent goes when the terminal under it is switched
+  /// off or changed, as the account's own selection does (the core's
+  /// `terminalAgentSelectionGuardProvider`): a new chat runs on the terminal
+  /// selected. A chat's own agent stays: it runs on its own terminal.
+  void _followTerminal() {
+    _container.listen<String?>(selectedTerminalIdProvider, (_, next) {
+      final picks = _picksOf(AccountScope.capture(_container));
+      final terminal = terminalAgentTerminalId(picks[null]?.model);
+      if (terminal == null || terminal == next?.trim()) return;
+      picks[null] = _Pick(null, ++_revision);
+    });
   }
 
   /// A chat's id moved (`route.remap`): its pick moves with it, unless a
