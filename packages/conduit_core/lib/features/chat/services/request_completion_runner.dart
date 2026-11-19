@@ -12,10 +12,12 @@ import 'package:conduit_core/sync/sync_api_client.dart'
 
 import 'package:conduit_core/providers/app_providers.dart';
 
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
 
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -134,6 +136,32 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         },
       );
       return;
+    }
+
+    // Whether a Stop reached this op since it was claimed, settling it as
+    // stopped if so. Called right before the request goes. A run resumed
+    // after a restart has no send registered in memory, so a Stop before this
+    // is only on the op. The send is registered, then the op is read under
+    // the chat lock, behind any Stop's write already asked for: a Stop is
+    // found in one or the other.
+    Future<bool> settledIfStopped() async {
+      final api = owner.api;
+      if (api is ApiService) api.beginSend(assistantMessageId, adopt: true);
+      final stopped = await _ref
+          .read(chatLocksProvider)
+          .runExclusive(
+            chatId,
+            () => db.outboxDao.completionStopped(chatId, assistantMessageId),
+          );
+      requireCurrentConversationOwner();
+      if (!stopped) return false;
+      await settleStoppedOpenWebUiCompletion(
+        _ref,
+        api: api,
+        owner: owner,
+        assistantMessageIds: [assistantMessageId],
+      );
+      return true;
     }
 
     // Streaming-conflict guard (R5): if a LIVE interactive stream owns this
@@ -277,6 +305,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       // runQueuedCompletion; the stream final + D-07 echo land on the SAME
       // assistantMessageId row (R8 one-row-per-turn). [live] is the root, or
       // the chat session scope that has this chat open.
+      if (await settledIfStopped()) return;
       await runQueuedCompletion(
         live,
         chatId: chatId,
@@ -312,6 +341,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
           ),
     );
     requireCurrentConversationOwner();
+    if (await settledIfStopped()) return;
     await runHeadlessCompletion(
       _ref,
       chatId: chatId,

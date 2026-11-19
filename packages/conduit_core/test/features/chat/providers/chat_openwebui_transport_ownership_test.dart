@@ -29,6 +29,7 @@ import 'package:conduit_core/services/connectivity_service.dart'
 import 'package:conduit_core/services/moa_completion.dart';
 import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/ports/worker_port.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -1158,6 +1159,20 @@ Future<void> _seedChat(
       );
 }
 
+/// Runs each job once [release] completes; [asked] completes as the first
+/// job is asked for.
+final class _HeldWorker implements WorkerPort {
+  final Completer<void> asked = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<R> run<Q, R>(WorkerCallback<Q, R> callback, Q message) async {
+    if (!asked.isCompleted) asked.complete();
+    await release.future;
+    return callback(message);
+  }
+}
+
 /// A selected model a test can change, as a picker does.
 final class _SelectableModel extends SelectedModel {
   _SelectableModel(this._initial);
@@ -2202,6 +2217,90 @@ void main() {
         });
       },
     );
+  });
+
+  test('a resumed completion stopped while its chat is assembled sends no '
+      'request, and its answer ends stopped', () async {
+    const chatId = 'resumed-stopped-chat';
+    const assistantId = 'resumed-stopped-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    // Long enough that the chat is assembled on a worker, held here.
+    final question = 'Which beans grow best by the fence? ' * 1500;
+    await db
+        .into(db.messages)
+        .insert(
+          MessagesCompanion.insert(
+            id: 'resumed-stopped-user',
+            chatId: chatId,
+            role: 'user',
+            content: question,
+            createdAt: 1,
+            orderIndex: 0,
+            payload: jsonEncode(<String, dynamic>{
+              'id': 'resumed-stopped-user',
+              'role': 'user',
+              'content': question,
+              'timestamp': 1,
+            }),
+          ),
+        );
+    final payload = const RequestCompletionPayload(
+      assistantMessageId: assistantId,
+      model: 'model-1',
+    ).toJson();
+    // Claimed after a restart: no send of it is registered in this run.
+    await db
+        .into(db.outboxOps)
+        .insert(
+          OutboxOpsCompanion.insert(
+            kind: OutboxKind.requestCompletion.name,
+            chatId: const Value(chatId),
+            payload: Value(jsonEncode(payload)),
+            status: const Value(OutboxStatus.inFlight),
+          ),
+        );
+    final worker = _HeldWorker();
+    final api = _GatedCompletionApi(Completer<void>()..complete());
+    final onScreen = <ChatMessage>[_user('other-user', 'Another chat')];
+    final container = _container(
+      db: db,
+      active: _conversation(
+        'another-chat',
+        onScreen,
+        ChatStorageKind.openWebUi,
+      ),
+      messages: onScreen,
+      api: api,
+      syncEngine: _PersistingSyncEngine(db, api),
+      extraOverrides: [
+        workerManagerProvider.overrideWithValue(WorkerManager(worker: worker)),
+      ],
+    );
+    addTearDown(container.dispose);
+    final runnerProvider = Provider<RequestCompletionRunner>(
+      (ref) => ChatRequestCompletionRunner(ref),
+    );
+
+    final running = container
+        .read(runnerProvider)
+        .run(chatId: chatId, payload: payload);
+    await worker.asked.future;
+    // Stop: with no send registered its abort finds nothing, and its write
+    // marks the op.
+    api.cancelStreamingMessage(assistantId);
+    await container
+        .read(chatLocksProvider)
+        .runExclusive(
+          chatId,
+          () => db.chatsDao.cancelPendingCompletion(chatId),
+        );
+    worker.release.complete();
+    await running;
+
+    check(api.completionCalls).equals(0);
+    final answer = await db.messagesDao.getMessage(chatId, assistantId);
+    check((jsonDecode(answer!.payload) as Map<String, dynamic>)['isStreaming'])
+        .equals(false);
   });
 
   test('completion runner preserves voice mode for a live request', () async {

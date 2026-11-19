@@ -378,12 +378,38 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
     };
   }
 
-  /// Removes a completed op (A2 — no terminal history, mirrors the lean
-  /// legacy queue). Success implicitly resets backoff (the row is gone).
   /// The op [seq] as it is stored now, or null once it is gone.
   Future<OutboxOp?> opBySeq(int seq) =>
       (select(outboxOps)..where((t) => t.seq.equals(seq))).getSingleOrNull();
 
+  /// Whether a Stop marked the `requestCompletion` op of
+  /// [assistantMessageId] in [chatId] ([RequestCompletionPayload.stopped]).
+  Future<bool> completionStopped(
+    String chatId,
+    String assistantMessageId,
+  ) async {
+    final ops =
+        await (select(outboxOps)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.kind.equals(OutboxKind.requestCompletion.name),
+            ))
+            .get();
+    return ops.any((op) {
+      final Object? payload;
+      try {
+        payload = jsonDecode(op.payload);
+      } on FormatException {
+        return false;
+      }
+      return payload is Map &&
+          payload['assistantMessageId'] == assistantMessageId &&
+          payload['stopped'] == true;
+    });
+  }
+
+  /// Removes a completed op (A2 — no terminal history, mirrors the lean
+  /// legacy queue). Success implicitly resets backoff (the row is gone).
   Future<void> markDone(int seq) {
     return (delete(outboxOps)..where((t) => t.seq.equals(seq))).go();
   }
