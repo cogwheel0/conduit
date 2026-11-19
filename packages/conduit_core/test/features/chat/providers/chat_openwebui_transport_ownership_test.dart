@@ -7458,9 +7458,13 @@ void main() {
           .run(chatId: chatId, payload: payload);
       await api.settingsEntered.future;
       container.read(stopGenerationProvider)();
+      final streamed = _Streamed(container, ids);
       api.holdSettings!.complete();
       await running;
+      await pumpEventQueue();
+      streamed.close();
 
+      check(streamed.ids).isEmpty();
       check(api.requests).isEmpty();
       final shown = {
         for (final message in container.read(chatMessagesProvider))
@@ -7470,7 +7474,6 @@ void main() {
         check(shown[id]!.isStreaming).isFalse();
         check((await storedAnswerOf(id))['isStreaming']).equals(false);
       }
-      await pumpEventQueue();
     });
 
     test('a Stop while the last check before a comparison\'s request reads '
@@ -7494,10 +7497,13 @@ void main() {
           .run(chatId: chatId, payload: payload);
       await registered.future;
       container.read(stopGenerationProvider)();
+      final streamed = _Streamed(container, ids);
       read.complete();
       await running;
       await pumpEventQueue();
+      streamed.close();
 
+      check(streamed.ids).isEmpty();
       check(wire.entered.isCompleted).isFalse();
       final shown = {
         for (final message in container.read(chatMessagesProvider))
@@ -12163,4 +12169,28 @@ class _CountingAuthStateManager extends AuthStateManager {
     onBuild();
     return const AuthState(status: AuthStatus.authenticated);
   }
+}
+
+/// The answers among [ids] that the transcript shows streaming at any of its
+/// changes, from when this is made until [close]: a Stop's answers that
+/// stream again only for a moment are caught, not only a final state.
+final class _Streamed {
+  _Streamed(ProviderContainer container, Iterable<String> ids) {
+    final watched = ids.toSet();
+    _subscription = container.listen<List<ChatMessage>>(
+      chatMessagesProvider,
+      (_, next) {
+        for (final message in next) {
+          if (watched.contains(message.id) && message.isStreaming) {
+            this.ids.add(message.id);
+          }
+        }
+      },
+    );
+  }
+
+  final Set<String> ids = <String>{};
+  late final ProviderSubscription<List<ChatMessage>> _subscription;
+
+  void close() => _subscription.close();
 }
