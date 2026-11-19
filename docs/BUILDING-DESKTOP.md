@@ -363,10 +363,21 @@ Info.plist names the new one.
 Releases run one at a time (each rewrites the appcast). The first release
 starts a new appcast.
 
-Pull requests that touch `desktop/`, `apps/daemon/` or the ARBs also run
-`desktop.yml`'s **Release bundle (unsigned) + smoke** job: the same
+Every push to `main` that touches `desktop/`, `apps/daemon/` or the ARBs
+runs `desktop.yml`'s **Release bundle (unsigned) + smoke** job: the same
 `bundle.sh all` with an ad-hoc signature and a throwaway Sparkle public
-key, then `smoke.sh --launch`; the DMG is kept for five days.
+key, then `smoke.sh --launch`; the DMG is kept for five days. A pull
+request into `main` runs it only when it changes what goes into the
+bundle or how it is made: `desktop/packaging/`, `desktop/vendor/`, a
+`Cargo.toml`, `Cargo.lock`, the toolchain, the daemon's `pubspec.yaml`,
+`pubspec.lock`, or the desktop workflows.
+
+macOS runners are few, so a pull request into another pull request's
+branch (a stacked one) skips the macOS jobs: **Workspace (macOS)**, the
+bundle, **Desktop daemon (macOS build + smoke)** and **Push Swift core**.
+They run once it is retargeted onto `main` and pushed. To run everything
+on a pull request, add the `full-ci` label and push, or start the Desktop
+workflow by hand on its branch (Actions › Desktop › Run workflow).
 
 ### Secrets and variables
 

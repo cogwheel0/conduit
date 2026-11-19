@@ -406,7 +406,7 @@ Plan planChecks(
       'the full Dart test suites',
     if (any((path) => path.startsWith('packages/conduit_markdown/')))
       'Web-safe packages (conduit_markdown compiled to JS and run)',
-    // Mirrors the android-changes job in .github/workflows/ci.yml.
+    // Mirrors the changes job's `android` output in .github/workflows/ci.yml.
     if (any(
       (path) =>
           path.startsWith('android/') ||

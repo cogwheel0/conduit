@@ -1,0 +1,34 @@
+name: Cancel closed pull request runs
+
+# A merged or closed pull request's runs that are still queued or running
+# hold runners (macOS ones are few) for a result nobody reads: main's own
+# push run checks what was merged.
+#
+# pull_request_target, so the token can cancel runs. Nothing from the pull
+# request is checked out or run: the job reads only its head commit's SHA.
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    name: Cancel runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel the pull request's queued and running runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          for status in queued in_progress waiting pending requested; do
+            gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&status=$status&per_page=100" \
+              --jq '.workflow_runs[].id'
+          done | sort -u | while read -r id; do
+            echo "Cancelling run $id"
+            # A run that finished meanwhile cannot be cancelled; that is fine.
+            gh api -X POST "repos/$REPO/actions/runs/$id/cancel" --silent || true
+          done
