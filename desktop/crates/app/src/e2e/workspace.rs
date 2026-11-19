@@ -1037,10 +1037,14 @@ async fn skills(dir: &Path, inputs: &E2eInputs, cx: &mut AsyncApp) -> bool {
     // this duplication's own request is what follows the log as it is now.
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     let fake_model_log = inputs.get("FAKE_MODEL_LOG");
-    let server_log =
-        super::server_log_paths(var, inputs.env_path.as_deref(), fake_model_log.as_deref())
-            .into_iter()
-            .find(|p| p.is_file());
+    let server_log = super::server_log_paths(
+        var,
+        inputs.env_path.as_deref(),
+        inputs.env_explicit,
+        fake_model_log.as_deref(),
+    )
+    .into_iter()
+    .find(|p| p.is_file());
     pass &= ok(
         "the local Open WebUI's server log is found (state/server.log)",
         server_log.is_some(),
