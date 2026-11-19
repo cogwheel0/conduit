@@ -3249,7 +3249,15 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<User> _validateIssuedToken(ApiService api, String token) async {
+  /// With [proxyPageForNow], a page from a proxy in front of the server
+  /// fails as [BrowserSignInFailure.proxySignInRequired]: it says nothing
+  /// about the session, which a browser sign-in keeps, with its refresh
+  /// token, where Open WebUI's own refusal ends them.
+  Future<User> _validateIssuedToken(
+    ApiService api,
+    String token, {
+    bool proxyPageForNow = false,
+  }) async {
     try {
       final user = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
@@ -3258,6 +3266,17 @@ class AuthStateManager extends _$AuthStateManager {
       _recordValidatedIdentity(token, user);
       return user;
     } catch (error, stackTrace) {
+      if (proxyPageForNow &&
+          error is DioException &&
+          error.response != null &&
+          answeredWithWebPage(error.response!.headers)) {
+        Error.throwWithStackTrace(
+          const BrowserSignInException(
+            BrowserSignInFailure.proxySignInRequired,
+          ),
+          stackTrace,
+        );
+      }
       Error.throwWithStackTrace(
         Exception(_loginValidationMessage(error)),
         stackTrace,
@@ -3771,7 +3790,11 @@ class AuthStateManager extends _$AuthStateManager {
     final saved = savedToken.trim();
     if (!renew && saved.isNotEmpty && _isValidTokenFormat(saved)) {
       try {
-        final user = await _validateIssuedToken(api, saved);
+        final user = await _validateIssuedToken(
+          api,
+          saved,
+          proxyPageForNow: true,
+        );
         return (token: saved, user: user);
       } catch (error) {
         if (!_isConfirmedAuthFailure(error)) rethrow;
@@ -3790,7 +3813,11 @@ class AuthStateManager extends _$AuthStateManager {
       throw const BrowserSignInException(BrowserSignInFailure.failed);
     }
     _acceptFreshlyIssuedServerToken(renewal.token, source: 'browser-renewal');
-    final user = await _validateIssuedToken(api, renewal.token);
+    final user = await _validateIssuedToken(
+      api,
+      renewal.token,
+      proxyPageForNow: true,
+    );
     if (user.id != renewal.session.owuiUserId) {
       throw const BrowserSignInException(BrowserSignInFailure.userMismatch);
     }

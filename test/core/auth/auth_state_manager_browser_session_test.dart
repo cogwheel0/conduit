@@ -22,6 +22,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -613,18 +614,34 @@ void main() {
       );
     }
 
-    test('a renewal that fails for now keeps the saved sign-in', () async {
-      final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
-      final rig = await _Rig.start(
-        storedToken: expired,
-        saved: _savedBrowserSignIn(expired),
-        renew: () async =>
+    // A proxy in front of the server answering with its own page says
+    // nothing about the session Open WebUI issued.
+    for (final (reason, renew, refusals) in [
+      (
+        'fails for now',
+        () async =>
             throw const BrowserSignInException(BrowserSignInFailure.network),
-      );
+        const <String, Object>{},
+      ),
+      (
+        'meets a proxy page',
+        () async => (token: _renewed, session: _session),
+        {_renewed: _proxyPage()},
+      ),
+    ]) {
+      test('a renewal that $reason keeps the saved sign-in', () async {
+        final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
+        final rig = await _Rig.start(
+          storedToken: expired,
+          saved: _savedBrowserSignIn(expired),
+          renew: renew,
+          refusals: refusals,
+        );
 
-      check(rig.state.status).equals(AuthStatus.unauthenticated);
-      verifyNever(() => rig.storage.deleteSavedCredentialsIfMatches(any()));
-    });
+        check(rig.state.status).equals(AuthStatus.unauthenticated);
+        verifyNever(() => rig.storage.deleteSavedCredentialsIfMatches(any()));
+      });
+    }
 
     test('a session the server refuses renews in the background, showing '
         'nothing until the new one is in', () async {
@@ -1241,6 +1258,7 @@ final class _Rig {
     Map<String, String>? saved,
     String activeId = 'account-a',
     Future<BrowserSignInRenewal> Function()? renew,
+    Map<String, Object> refusals = const {},
     bool clears = true,
     List<StoredBrowserSignInSession> swept = const [],
   }) async {
@@ -1250,8 +1268,8 @@ final class _Rig {
       ..activeId = activeId
       ..storedToken = storedToken
       ..saved = saved;
-    rig.api = _Api(workerManager);
-    rig.savedCredentialApi = _Api(workerManager);
+    rig.api = _Api(workerManager)..refusals.addAll(refusals);
+    rig.savedCredentialApi = _Api(workerManager)..refusals.addAll(refusals);
     rig.service.onRenew = renew;
     final storage = rig.storage;
     storage.registry = registry ?? _registry();
@@ -1554,6 +1572,23 @@ final class _Service extends BrowserSignInService {
   }
 }
 
+/// A 401 page from a proxy in front of the server.
+DioException _proxyPage() {
+  final request = RequestOptions(path: '/api/v1/auths/');
+  return DioException(
+    requestOptions: request,
+    type: DioExceptionType.badResponse,
+    response: Response<String>(
+      requestOptions: request,
+      statusCode: 401,
+      data: '<html>Sign in</html>',
+      headers: Headers.fromMap({
+        Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+      }),
+    ),
+  );
+}
+
 /// An Open WebUI client that signs in as user A, and records the tokens it
 /// was asked to check.
 final class _Api extends ApiService {
@@ -1562,6 +1597,9 @@ final class _Api extends ApiService {
 
   final validated = <String?>[];
 
+  /// What checking a token answers instead of user A, by token.
+  final refusals = <String, Object>{};
+
   @override
   Future<User> getCurrentUser({
     bool suppressAuthFailureNotification = false,
@@ -1569,6 +1607,7 @@ final class _Api extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     validated.add(candidateAuthToken);
+    if (refusals[candidateAuthToken] case final refusal?) throw refusal;
     return _userA;
   }
 
