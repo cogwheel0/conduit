@@ -167,7 +167,7 @@ final class ModelsService {
   void _land(Map<String?, _Pick> picks, String chatId, _Pick pick) {
     final there = picks[_now(chatId)];
     if (there != null && there.revision > pick.revision) return;
-    picks[_now(chatId)] = _Pick(pick.model, ++_revision);
+    picks[_now(chatId)] = _Pick(pick.model, ++_revision, idOnly: pick.idOnly);
   }
 
   /// A turn is about to be sent from [fromChat] (null: from New Chat): what
@@ -188,9 +188,10 @@ final class ModelsService {
   /// `models.select` alone, and a send that lands after a later one would
   /// otherwise take it back. A turn from New Chat makes the chat: New
   /// Chat's pick, of any kind, as it was when the turn was sent, is that
-  /// chat's now, and leaves New Chat unless New Chat was picked again
+  /// chat's now (whatever model the first message went to for itself
+  /// alone, with `@`), and leaves New Chat unless New Chat was picked again
   /// meanwhile. A coding agent the turn named with none picked is the
-  /// chat's too. Either lands only where no newer pick was made, and only
+  /// chat's too, known by its id alone. Either lands only where no newer pick was made, and only
   /// while the account the turn was sent under is still the one in charge,
   /// with nothing changed in between: otherwise nothing is written.
   void sent(ModelSend send, {required String toChat, String? model}) {
@@ -201,9 +202,9 @@ final class ModelsService {
     // and every window showing New Chat (Quick Ask too) lists it again.
     if (slot != null && picks[null]?.revision == slot.revision) {
       picks[null] = _Pick(null, ++_revision);
-      _events?.emit(ConduitEventSpecs.modelsChanged, null);
+      _announce();
     }
-    final made = slot != null && slot.model != null && slot.model!.id == model
+    final made = slot?.model != null
         ? slot
         : model != null && isTerminalAgentModelId(model)
         ? _Pick(
@@ -212,6 +213,7 @@ final class ModelsService {
               name: terminalAgentDisplayName(model) ?? model,
             ),
             send._revision,
+            idOnly: true,
           )
         : null;
     if (made != null) _land(picks, toChat, made);
@@ -221,6 +223,14 @@ final class ModelsService {
 
   /// Where `models.changed` goes (none in some tests).
   final EventBus? _events;
+
+  /// How many times `models.changed` went out.
+  int _announced = 0;
+
+  void _announce() {
+    _announced++;
+    _events?.emit(ConduitEventSpecs.modelsChanged, null);
+  }
 
   /// Publishes `models.changed` when the ids on offer change, or the model
   /// the next turn runs with.
@@ -242,13 +252,13 @@ final class ModelsService {
     );
     _container.listen<core.Model?>(selectedModelProvider, (previous, next) {
       if (previous?.id == next?.id) return;
-      events.emit(ConduitEventSpecs.modelsChanged, null);
+      _announce();
     });
     // The coding agents on offer are the selected terminal's: another
     // terminal changes the list even when the model stays.
     _container.listen<String?>(selectedTerminalIdProvider, (previous, next) {
       if (previous == next) return;
-      events.emit(ConduitEventSpecs.modelsChanged, null);
+      _announce();
     });
     List<String>? last;
     _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
@@ -258,7 +268,7 @@ final class ModelsService {
       final previous = last;
       last = ids;
       if (previous == null || _sameIds(previous, ids)) return;
-      events.emit(ConduitEventSpecs.modelsChanged, null);
+      _announce();
     });
   }
 
@@ -737,8 +747,7 @@ final class ModelsService {
         );
       }
       stillTheNewest('the coding agent is selected');
-      _selectAgent(agent);
-      _pick(account, chatId, agent);
+      _picked(() => _selectAgent(agent), account, chatId, agent);
       return _answerPick(chatId, account);
     }
     final models = await _models();
@@ -751,9 +760,28 @@ final class ModelsService {
       );
     }
     stillTheNewest('the model is selected');
-    _container.read(selectedModelProvider.notifier).set(model);
-    _pick(account, chatId, model);
+    _picked(
+      () => _container.read(selectedModelProvider.notifier).set(model),
+      account,
+      chatId,
+      model,
+    );
     return _answerPick(chatId, account);
+  }
+
+  /// [model] picked for [chatId]: [select] selects it for the account, and
+  /// the pick is kept. The chat's other windows list it again, though the
+  /// account had selected it already: they show that chat's pick.
+  void _picked(
+    void Function() select,
+    AccountScope account,
+    String? chatId,
+    core.Model model,
+  ) {
+    final announced = _announced;
+    select();
+    _pick(account, chatId, model);
+    if (_announced == announced) _announce();
   }
 
   /// The list a pick answers with: [chatId]'s, put together for the
@@ -1006,12 +1034,17 @@ final class ModelsService {
     AccountScope account,
   ) async {
     final selected = await currentModel(_container);
-    if (id == null || selected?.id == id) return selected;
+    if (id == null) return selected;
     if (isTerminalAgentModelId(id)) {
       // The chat's own agent, as it was picked there, else asked of its own
-      // terminal: never the terminal the account selected for another chat.
-      final pick = _picksOf(account)[_now(chatId)]?.model;
-      if (pick?.id == id) return pick;
+      // terminal: never as the account selected it for another chat, nor on
+      // the terminal selected for one. A pick known by its id alone carries
+      // no controls.
+      final pick = _picksOf(account)[_now(chatId)];
+      if (pick != null && pick.model?.id == id && !pick.idOnly) {
+        return pick.model;
+      }
+      if (chatId == null && selected?.id == id) return selected;
       final conversation = chatId == null
           ? null
           : await _conversation(chatId, account);
@@ -1023,6 +1056,7 @@ final class ModelsService {
         account,
       )).agents.where((candidate) => candidate.id == id).firstOrNull;
     }
+    if (selected?.id == id) return selected;
     return _model(id);
   }
 
@@ -1065,12 +1099,16 @@ final class ModelsService {
 
 /// One chat's pick, and the revision it was written at.
 final class _Pick {
-  const _Pick(this.model, this.revision);
+  const _Pick(this.model, this.revision, {this.idOnly = false});
 
   /// Null once the pick is gone (New Chat's, taken by its first send): the
   /// record stays for its revision.
   final core.Model? model;
   final int revision;
+
+  /// Whether [model] is known by its id alone (a coding agent a first send
+  /// named), not as a terminal offered it: it has none of its controls.
+  final bool idOnly;
 }
 
 /// A turn on its way ([ModelsService.sending]): the account and chat it
