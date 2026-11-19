@@ -71,7 +71,8 @@ void main() {
     },
   );
 
-  test('the active account checks it with its own token', () async {
+  test('the active account checks it with its own token; a sign-in named '
+      "for another account, with that account's alone", () async {
     final asked = <String>[];
 
     final found = await check0(
@@ -85,15 +86,11 @@ void main() {
     check(found.result).equals(OpenWebUiAddressCheck.sameServer);
     check(found.provedBy).equals('ada');
     check(asked).deepEquals(['live-ada']);
-  });
 
-  // A proxy sign-in captured for Bob is his to prove: Ada's live token is
-  // not sent, though she is active and would prove the address too.
-  test("a sign-in named for one account is proved with that account's "
-      'token alone', () async {
-    final asked = <String>[];
-
-    final found = await check0(
+    // A proxy sign-in captured for Bob is his to prove: Ada's live token is
+    // not sent, though she is active and would prove the address too.
+    asked.clear();
+    final named = await check0(
       activeAccountId: 'ada',
       liveToken: 'live-ada',
       kept: {'bob': 'kept-bob'},
@@ -101,10 +98,11 @@ void main() {
       asked: asked,
       onlyAccountId: 'bob',
     );
-    check(found.result).equals(OpenWebUiAddressCheck.sameServer);
-    check(found.provedBy).equals('bob');
+    check(named.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(named.provedBy).equals('bob');
     check(asked).deepEquals(['kept-bob']);
 
+    // Bob holds no token here: he signs in first; Ada's is never sent.
     asked.clear();
     final unproved = await check0(
       activeAccountId: 'ada',

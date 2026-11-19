@@ -142,6 +142,11 @@ final class OptimizedStorageDatabaseHandle {
   }
 }
 
+/// The registry and the active account as storage holds them under a
+/// write's locks ([OptimizedStorageService.editServerEndpoints]).
+typedef StoredAtWrite =
+    void Function(OpenWebUiRegistry registry, String? activeAccountId);
+
 /// Optimized storage service backed by Hive for non-sensitive data and
 /// SecureKeyValueStore for credentials.
 class OptimizedStorageService {
@@ -2768,13 +2773,18 @@ class OptimizedStorageService {
   /// For edits made from a list on screen: two started before the first
   /// lands would otherwise each save the list as it was, and the second
   /// would bring back what the first removed.
+  ///
+  /// [atWrite], when given, is told the registry and the active account as
+  /// they stand under the write's locks, right before [edit] runs: what a
+  /// check [edit] makes judges the write by.
   Future<void> editServerEndpoints(
     String serverId,
-    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit,
-  ) {
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    StoredAtWrite? atWrite,
+  }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(
-        () => _editServerEndpointsUnlocked(serverId, edit),
+        () => _editServerEndpointsUnlocked(serverId, edit, atWrite: atWrite),
       ),
     );
   }
@@ -2795,6 +2805,7 @@ class OptimizedStorageService {
     required String routeId,
     required Map<String, String> headers,
     required int sessionRevision,
+    StoredAtWrite? atWrite,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
@@ -2812,6 +2823,7 @@ class OptimizedStorageService {
         await _editServerEndpointsUnlocked(
           serverId,
           edit,
+          atWrite: atWrite,
           session: (
             accountId: accountId,
             routeId: routeId,
@@ -2830,11 +2842,15 @@ class OptimizedStorageService {
     String serverId,
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
     _RouteSession? session,
+    StoredAtWrite? atWrite,
   }) async {
     final registry = await _registryForWriteUnlocked();
     final stored = registry.server(serverId);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
+    }
+    if (atWrite != null) {
+      atWrite(registry, await _effectiveActiveServerIdUnlocked());
     }
     // [edit] runs right before the write, nothing awaited between: a check
     // it makes (and throws on) holds for what is written.
