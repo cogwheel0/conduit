@@ -19,9 +19,19 @@ final class FakeOwuiAuthServer {
   final HttpServer _server;
   final Map<String, ({String id, String name, String password})> _users;
   final Set<String> _twoStep;
-  Map<String, String> _tokens = <String, String>{};
+  _Sessions _sessions = _Sessions();
+  Map<String, String> get _tokens => _sessions.tokens;
   final Map<String, String> _challenges = <String, String>{};
+
+  /// What this listener has issued (sessions and challenges).
   var _issued = 0;
+
+  /// A new token or challenge named with [prefix]: unique across every
+  /// listener sharing these sessions, so no sign-in takes another's.
+  String _issue(String prefix) {
+    _issued++;
+    return '$prefix-${++_sessions.issued}';
+  }
 
   /// While set, the next current-user read (how a client checks a session
   /// it was just given) waits for it, once; [sessionChecked] completes when
@@ -54,7 +64,7 @@ final class FakeOwuiAuthServer {
 
   /// Takes [other]'s sessions as its own, from now on: the same server
   /// reached another way (here, through a sign-in proxy).
-  void shareSessionsOf(FakeOwuiAuthServer other) => _tokens = other._tokens;
+  void shareSessionsOf(FakeOwuiAuthServer other) => _sessions = other._sessions;
 
   /// Ends every session server-side: their tokens are refused from now on.
   void revokeSessions() => _tokens.clear();
@@ -64,7 +74,7 @@ final class FakeOwuiAuthServer {
 
   /// A session for [email], as a sign-in in a window would have made.
   String sessionFor(String email) {
-    final token = 'fake-window-token-${++_issued}';
+    final token = _issue('fake-window-token');
     _tokens[token] = email;
     return token;
   }
@@ -197,7 +207,7 @@ final class FakeOwuiAuthServer {
         }, 400);
       }
       if (_twoStep.contains(email)) {
-        final challenge = 'fake-challenge-${++_issued}';
+        final challenge = _issue('fake-challenge');
         _challenges[challenge] = email;
         return json(<String, dynamic>{
           'next_step': 'verify',
@@ -205,7 +215,7 @@ final class FakeOwuiAuthServer {
           'expires_in': 300,
         });
       }
-      final token = 'fake-token-${++_issued}';
+      final token = _issue('fake-token');
       _tokens[token] = email;
       lastIssued = token;
       return json(<String, dynamic>{
@@ -222,7 +232,7 @@ final class FakeOwuiAuthServer {
       if (email == null) {
         return json(<String, dynamic>{'detail': 'Challenge expired'}, 401);
       }
-      final token = 'fake-token-${++_issued}';
+      final token = _issue('fake-token');
       _tokens[token] = email;
       return json(<String, dynamic>{'token': token});
     }
@@ -290,4 +300,11 @@ final class FakeOwuiAuthServer {
       'permissions': <String, dynamic>{},
     };
   }
+}
+
+/// A server's sessions, by token, and how many tokens it has issued: shared
+/// by every listener of that one server ([FakeOwuiAuthServer.shareSessionsOf]).
+final class _Sessions {
+  final Map<String, String> tokens = <String, String>{};
+  var issued = 0;
 }
