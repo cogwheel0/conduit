@@ -296,6 +296,21 @@ pub fn field(
     field_hinted(label, state, hint, help, error, window, cx)
 }
 
+/// [`field`] whose error answers a Save: `refusals` counts the Saves
+/// refused, so each is heard, even in the words of the one before (see
+/// [`conduit_components::announce::LiveText::attempt`]).
+pub fn field_refused(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    error: Option<SharedString>,
+    refusals: u64,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    let hint = hint(state, cx);
+    field_with(label, state, hint, None, error, false, refusals, window, cx)
+}
+
 /// [`field`] that takes no typing while `locked`: a form whose save or test
 /// is out, so what it answers is the form as it stands (nothing typed
 /// meanwhile is closed over or judged by an older answer).
@@ -309,7 +324,7 @@ pub fn field_locked(
     cx: &App,
 ) -> Div {
     let hint = hint(state, cx);
-    field_with(label, state, hint, help, error, locked, window, cx)
+    field_with(label, state, hint, help, error, locked, 0, window, cx)
 }
 
 /// [`field`] with its placeholder given here (one input that serves two
@@ -323,7 +338,7 @@ pub fn field_hinted(
     window: &Window,
     cx: &App,
 ) -> Div {
-    field_with(label, state, hint, help, error, false, window, cx)
+    field_with(label, state, hint, help, error, false, 0, window, cx)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -334,6 +349,7 @@ fn field_with(
     help: Option<SharedString>,
     error: Option<SharedString>,
     locked: bool,
+    attempt: u64,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -363,7 +379,7 @@ fn field_with(
                     .id(help_id)
                     .when(error.is_some(), |d| d.role(Role::Alert))
                     // Heard when it appears, as the phone's field errors.
-                    .child(live_text("live", error.clone(), Priority::High))
+                    .child(live_text("live", error.clone(), Priority::High).attempt(attempt))
                     .text_size(px(m.small))
                     .line_height(relative(1.35))
                     .text_color(if error.is_some() {

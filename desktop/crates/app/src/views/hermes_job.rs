@@ -263,12 +263,20 @@ impl HermesJobSheet {
         )
     }
 
-    pub fn save(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        if self.errors(cx).iter().any(Option::is_some) {
+        let errors = self.errors(cx);
+        if let Some(first) = errors.iter().position(Option::is_some) {
             self.show_errors = true;
+            // The first field Save refused takes the focus, as the phone's
+            // form moves to it.
+            match first {
+                0 => self.name.update(cx, |i, cx| i.focus(window, cx)),
+                1 => self.prompt.update(cx, |i, cx| i.focus(window, cx)),
+                _ => self.schedule.update(cx, |i, cx| i.focus(window, cx)),
+            }
             cx.notify();
             return;
         }
@@ -729,7 +737,13 @@ impl Render for HermesJobSheet {
                         .text_size(px(t.metrics.small))
                         .text_color(t.roles.danger)
                         .child(e.clone())
-                        .child(live_text("live", Some(e), Priority::High)),
+                        // Said with the field's name: the Prompt has no
+                        // row label of its own around the error.
+                        .child(live_text(
+                            "live",
+                            Some(format!("{}, {e}", l.hermes_job_prompt_label()).into()),
+                            Priority::High,
+                        )),
                 )
             });
         let mut body = vec![
@@ -887,6 +901,49 @@ mod tests {
             })
         });
         vcx.update(|_, cx| assert!(sheet::has_unsaved(cx), "Quit would drop the prompt"));
+    }
+
+    /// Save with the Prompt empty: the Prompt takes the focus, and its error
+    /// is said with the field's name.
+    #[gpui_kit::test]
+    fn an_empty_prompt_is_named_and_focused(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        use gpui_kit::Focusable as _;
+        let (_daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        use_connection(&stores, vcx, "a");
+        let sheet = open_job(&stores, vcx);
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            s.prompt.update(cx, |i, cx| i.set_value("", w, cx));
+            s.save(w, cx);
+        });
+        vcx.update(|_, cx| {
+            if let Some(handle) = sheet::current_window(cx) {
+                let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+            }
+        });
+        vcx.run_until_parked();
+        let l = L10n::new("en");
+        let named = format!(
+            "{}, {}",
+            l.hermes_job_prompt_label(),
+            l.required_field_helper()
+        );
+        vcx.update(|_, cx| {
+            assert!(
+                AnnouncementLog::texts(cx)
+                    .iter()
+                    .any(|t| t.as_ref() == named),
+                "said {:?}",
+                AnnouncementLog::texts(cx)
+            );
+        });
+        on_sheet(vcx, &sheet, |s, w, cx| {
+            assert!(
+                s.prompt.read(cx).focus_handle(cx).is_focused(w),
+                "the Prompt did not take the focus"
+            );
+        });
     }
 
     /// Words typed while a Save is out stay in the editor, still to save.

@@ -271,7 +271,7 @@
   "desktopHermesCadenceEveryHours": "{count, plural, =1{Ogni ora} other{Ogni # ore}}",
   "desktopHermesCadenceEveryHoursAt": "{count, plural, =1{Ogni ora ai :{minute}} other{Ogni # ore ai :{minute}}}",
   "desktopHermesCadenceDaily": "Ogni giorno alle {time}",
-  "desktopHermesCadenceWeekdays": "Nei giorni feriali alle {time}",
+  "desktopHermesCadenceWeekdays": "Dal lunedì al venerdì alle {time}",
   "desktopHermesCadenceWeekends": "Nel fine settimana alle {time}",
   "desktopHermesCadenceWeekly": "{weekday, select, 0{Ogni domenica alle {time}} 1{Ogni lunedì alle {time}} 2{Ogni martedì alle {time}} 3{Ogni mercoledì alle {time}} 4{Ogni giovedì alle {time}} 5{Ogni venerdì alle {time}} 6{Ogni sabato alle {time}} other{Ogni lunedì alle {time}}}",
   "desktopHermesCadenceMonthly": "{day, plural, other{Ogni mese il giorno # alle {time}}}",

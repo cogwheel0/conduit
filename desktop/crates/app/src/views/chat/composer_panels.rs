@@ -489,15 +489,18 @@ pub(crate) fn row(
 
 pub(crate) fn note(text: String, t: &ConduitTheme, danger: bool) -> AnyElement {
     // An error is said when it appears (the phone's panel error is a live
-    // region); loading and empty notes are not.
-    let live = danger.then(|| SharedString::from(text.clone()));
+    // region); loading and empty notes are not, and have no region: one
+    // drawn beside the error would share its id, and its quiet frame would
+    // make the error new again on every redraw.
     div()
         .relative()
-        .child(conduit_components::announce::live_text(
-            "note-live",
-            live,
-            conduit_components::announce::Priority::High,
-        ))
+        .when(danger, |d| {
+            d.child(conduit_components::announce::live_text(
+                "note-live",
+                Some(SharedString::from(text.clone())),
+                conduit_components::announce::Priority::High,
+            ))
+        })
         .px(px(8.))
         .py(px(6.))
         .text_size(px(t.metrics.control))

@@ -400,7 +400,7 @@ impl PromptCard {
                 .on_option(pick)
                 .actions(actions);
                 if count > 1 {
-                    card = card.queue(index + 1, count);
+                    card = card.step(index, count);
                 }
                 card
             }
@@ -689,6 +689,63 @@ mod tests {
         assert_eq!(
             daemon.calls::<conduit_protocol::methods::ChatPromptsDecide>()[0]["promptId"],
             "p2"
+        );
+    }
+
+    /// Two questions of one prompt worded alike: Next and Back are each
+    /// heard, with the question's place; a redraw says nothing more.
+    #[gpui_kit::test]
+    fn each_question_reached_is_heard_with_its_place(cx: &mut gpui_kit::TestAppContext) {
+        use std::rc::Rc;
+
+        use conduit_components::announce::AnnouncementLog;
+        use gpui_kit::AppContext as _;
+
+        use crate::stores::chat::{ChatStore, Subscribe};
+        use crate::stores::rpc::fake::FakeDaemon;
+
+        cx.update(crate::views::test_globals);
+        cx.update(AnnouncementLog::install);
+        let daemon = FakeDaemon::new();
+        let mut asked = prompt();
+        asked.chat_id = "c1".into();
+        let asked = serde_json::to_value(&asked).unwrap();
+        daemon.on::<conduit_protocol::methods::ChatPromptsGet>(move |_| {
+            Ok(serde_json::json!({"chatId": "c1", "prompt": asked}))
+        });
+        let subscribe: Subscribe = Rc::new(|_, _| {});
+        let rpc = daemon.rpc();
+        let store = cx.new(|cx| ChatStore::new(rpc, subscribe, "c1".into(), cx));
+        cx.run_until_parked();
+        let s = store.clone();
+        let (card, vcx) = cx.add_window_view(move |window, cx| {
+            let mut card = PromptCard::new(window, cx);
+            card.set_store(Some(s), cx);
+            card
+        });
+        let draw = |vcx: &mut gpui_kit::VisualTestContext| {
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            vcx.run_until_parked();
+        };
+        draw(vcx);
+        for by in [1, -1] {
+            card.update_in(vcx, |c, window, cx| c.step(by, window, cx));
+            draw(vcx);
+            draw(vcx);
+        }
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(
+            said,
+            [
+                "Departure: When?, 1 of 2",
+                "Departure: When?, 2 of 2",
+                "Departure: When?, 1 of 2",
+            ]
         );
     }
 }

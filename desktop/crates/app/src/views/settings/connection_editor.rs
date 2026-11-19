@@ -118,6 +118,9 @@ pub struct ConnectionEditorSheet {
     pub testing: bool,
     pub deleting: bool,
     pub issues: Issues,
+    /// Counts the saves and tests the core answered with issues: each is
+    /// heard, even in the words of the one before.
+    refusals: u64,
     pub attempt: Option<Attempt>,
     pub error: Option<String>,
     /// The form as it opened, to tell whether it was changed.
@@ -253,6 +256,7 @@ impl ConnectionEditorSheet {
             testing: false,
             deleting: false,
             issues: Issues::default(),
+            refusals: 0,
             attempt: None,
             error: None,
             initial: Fingerprint {
@@ -429,6 +433,12 @@ impl ConnectionEditorSheet {
         (issues != Issues::default()).then_some(issues)
     }
 
+    /// A save or test the core refused for what the form says.
+    fn refused(&mut self, issues: Issues) {
+        self.issues = issues;
+        self.refusals += 1;
+    }
+
     pub fn save(&mut self, cx: &mut Context<Self>) {
         if self.in_flight() || self.read_only() {
             return;
@@ -472,7 +482,7 @@ impl ConnectionEditorSheet {
                     Err(e) => {
                         log::warn!("integrations.save: {e}");
                         match Self::issues_from(&e, &l10n) {
-                            Some(issues) => s.issues = issues,
+                            Some(issues) => s.refused(issues),
                             None => s.error = Some(save_error(&e, &l10n)),
                         }
                         s.reload_if_changed(&e, cx);
@@ -513,7 +523,7 @@ impl ConnectionEditorSheet {
                     }
                     Err(e) => {
                         match Self::issues_from(&e, &l10n) {
-                            Some(issues) => s.issues = issues,
+                            Some(issues) => s.refused(issues),
                             None => {
                                 s.attempt = Some(Attempt {
                                     ok: false,
@@ -938,7 +948,10 @@ impl ConnectionEditorSheet {
                                 .text_size(px(t.metrics.small))
                                 .text_color(t.roles.danger)
                                 .child(e.clone())
-                                .child(live_text("live", Some(e.into()), Priority::High)),
+                                .child(
+                                    live_text("live", Some(e.into()), Priority::High)
+                                        .attempt(self.refusals),
+                                ),
                         )
                     })
                     .into_any_element(),
@@ -1423,6 +1436,39 @@ mod tests {
             saves[0]["draft"]["name"], typed,
             "the sheet closed over words typed while it saved"
         );
+    }
+
+    /// A JSON document refused twice in the same words, with no edit
+    /// between, is heard twice; a redraw says nothing more.
+    #[gpui_kit::test]
+    fn each_refused_document_is_heard(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        daemon.on::<methods::IntegrationsSave>(|_| {
+            let mut e = conduit_daemon::RpcError::internal("the form has a problem");
+            e.args.insert("spec".into(), "specInvalid".into());
+            Err(e)
+        });
+        let sheet = open(&stores, None, vcx);
+        sheet.update(vcx, |s, cx| {
+            s.spec_type = "json".into();
+            cx.notify();
+        });
+        let refused = crate::l10n::L10n::new("en").personal_connections_spec_invalid();
+        let heard = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| AnnouncementLog::texts(cx))
+                .iter()
+                .filter(|t| t.as_ref() == refused)
+                .count()
+        };
+        for _ in 0..2 {
+            sheet.update(vcx, |s, cx| s.save(cx));
+            vcx.run_until_parked();
+            draw_sheet(vcx);
+        }
+        draw_sheet(vcx);
+        assert_eq!(heard(vcx), 2, "the second refusal was not heard");
     }
 
     /// An issue the core found goes once its field changes.
