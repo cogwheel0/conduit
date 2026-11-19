@@ -128,9 +128,11 @@ impl ChunkPlace {
         {
             return facts;
         }
+        // One parse for both.
+        let code = code_blocks(markdown);
         let facts = TextFacts {
-            media: changes_height_later(markdown),
-            stops: has_keyboard_stops(markdown),
+            media: media_text(markdown) || code.diagram,
+            stops: link_text(markdown) || code.any,
         };
         if self.text.get().is_some() {
             self.state.borrow_mut().measured = None;
@@ -363,73 +365,77 @@ impl Element for LazyChunk {
 /// thread), PDF cards (their first page renders later) and diagrams
 /// (drawn by the renderer web view). Such a chunk is never held.
 pub fn changes_height_later(markdown: &str) -> bool {
-    // HTML tag names are case-insensitive: `<IMG …>` is a picture too.
-    let lower = markdown.to_ascii_lowercase();
-    if markdown.contains("![") || lower.contains("<img") || lower.contains(".pdf") {
-        return true;
-    }
-    markdown.lines().any(|line| {
-        let t = in_containers(line).trim_start();
-        let fence = t.strip_prefix("```").or_else(|| t.strip_prefix("~~~"));
-        fence.is_some_and(|rest| {
-            let lang = rest.trim_start_matches(['`', '~']).trim();
-            let lang = lang.split_whitespace().next().unwrap_or_default();
-            super::diagrams::diagram_kind(lang).is_some()
-        })
-    })
+    media_text(markdown) || code_blocks(markdown).diagram
 }
 
 /// Whether a chunk's markdown draws something Tab stops at under Full
 /// Keyboard Access: a link (inline, reference or bare) or a code block
 /// (its Copy and Preview buttons).
 pub fn has_keyboard_stops(markdown: &str) -> bool {
+    link_text(markdown) || code_blocks(markdown).any
+}
+
+/// Pictures and PDF links, by their text.
+fn media_text(markdown: &str) -> bool {
+    // HTML tag names are case-insensitive: `<IMG …>` is a picture too.
+    let lower = markdown.to_ascii_lowercase();
+    markdown.contains("![") || lower.contains("<img") || lower.contains(".pdf")
+}
+
+/// Links (inline, reference or bare), by their text.
+fn link_text(markdown: &str) -> bool {
     markdown.contains("](")
         || markdown.contains("]:")
         || markdown.contains("://")
         || markdown.contains("www.")
         || markdown.contains('<')
-        || markdown.contains("```")
-        || markdown.contains("~~~")
-        || markdown.lines().any(|line| {
-            let content = in_containers(line);
-            [line, content]
-                .iter()
-                .any(|l| l.starts_with("    ") || l.starts_with('\t'))
-        })
 }
 
-/// `line`'s text inside the blockquote and list markers it opens with
-/// (`> `, `- `, `1. `), where a fence or indented code starts as it would
-/// at the start of a line. A line indented four or more is code already
-/// and opens no container.
-fn in_containers(line: &str) -> &str {
-    let mut rest = line;
-    loop {
-        let t = rest.trim_start_matches(' ');
-        if rest.len() - t.len() > 3 {
-            return rest;
+/// The code blocks of a chunk, as the text view parses it: in quotes and
+/// list items too, fenced or indented.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CodeBlocks {
+    any: bool,
+    /// A fenced block in a diagram's language (drawn as a diagram).
+    diagram: bool,
+}
+
+/// [`CodeBlocks`] of `markdown`, by the parser the text view itself uses
+/// (one rule for every container, as the renderer applies its code block
+/// plugins). One that cannot be parsed counts as holding both.
+fn code_blocks(markdown: &str) -> CodeBlocks {
+    use gpui_kit::base::text::MarkdownExtensions;
+    use gpui_kit::base::text::editor_host::{BlockNode, parse_markdown};
+
+    fn walk(nodes: &[BlockNode], found: &mut CodeBlocks) {
+        for node in nodes {
+            match node {
+                BlockNode::CodeBlock(code) => {
+                    found.any = true;
+                    found.diagram |= code
+                        .lang()
+                        .is_some_and(|lang| super::diagrams::diagram_kind(lang.trim()).is_some());
+                }
+                BlockNode::Root { children, .. }
+                | BlockNode::Blockquote { children, .. }
+                | BlockNode::List { children, .. }
+                | BlockNode::ListItem { children, .. } => walk(children, found),
+                _ => {}
+            }
         }
-        let inner = if let Some(after) = t.strip_prefix('>') {
-            after.strip_prefix(' ').unwrap_or(after)
-        } else if let Some(after) = list_marker(t) {
-            after
-        } else {
-            return rest;
-        };
-        rest = inner;
     }
-}
 
-/// The text after a list item's marker (`-`, `*`, `+`, or up to nine
-/// digits and `.` or `)`) and the one space that ends it.
-fn list_marker(t: &str) -> Option<&str> {
-    let digits = t.bytes().take_while(u8::is_ascii_digit).count();
-    let after = match digits {
-        0 => t.strip_prefix(['-', '*', '+'])?,
-        1..=9 => t[digits..].strip_prefix(['.', ')'])?,
-        _ => return None,
-    };
-    after.strip_prefix(' ')
+    match parse_markdown(markdown, std::sync::Arc::new(MarkdownExtensions::default())) {
+        Ok(blocks) => {
+            let mut found = CodeBlocks::default();
+            walk(&blocks, &mut found);
+            found
+        }
+        Err(_) => CodeBlocks {
+            any: true,
+            diagram: true,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -461,6 +467,22 @@ mod tests {
             "- Step one\n- ```mermaid\n  graph TD; A-->B\n  ```"
         ));
         assert!(!changes_height_later("> ```rust\n> fn f() {}\n> ```"));
+        // In a list item's continuation, under a multi-digit marker or in a
+        // nested list, quoted there.
+        assert!(changes_height_later(
+            "10. Step\n\n    > ```mermaid\n    > graph TD; A-->B\n    > ```"
+        ));
+        assert!(changes_height_later(
+            "- Outer\n  - Inner\n\n    > ```mermaid\n    > graph TD; A-->B\n    > ```"
+        ));
+        // After a list marker and a tab.
+        assert!(changes_height_later(
+            "-\t```mermaid\n\tgraph TD; A-->B\n\t```"
+        ));
+        // A fence written inside quoted indented code is code, not a diagram.
+        assert!(!changes_height_later(
+            "> Like this:\n>\n>     ```mermaid\n>     graph TD; A-->B\n>     ```"
+        ));
         assert!(changes_height_later(
             "A chart: <IMG src=\"https://example.org/t.png\">"
         ));
@@ -579,6 +601,11 @@ mod tests {
         // Indented code inside a quote (its Copy button).
         assert!(has_keyboard_stops("> Try this:\n>\n>     let x = 1;"));
         assert!(has_keyboard_stops("> > Nested:\n> >\n> >     let x = 1;"));
+        // In a list item's continuation, and after a list marker and a tab.
+        assert!(has_keyboard_stops(
+            "10. Step\n\n    > ```rust\n    > fn f() {}\n    > ```"
+        ));
+        assert!(has_keyboard_stops("-\t```rust\n\tfn f() {}\n\t```"));
         assert!(!has_keyboard_stops("> A quote, **bold**.\n> More of it."));
     }
 }
