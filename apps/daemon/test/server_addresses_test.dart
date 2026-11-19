@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountAdditionOriginProvider;
@@ -925,6 +926,40 @@ void main() {
     expect(
       registry.server(serverId)!.endpoint(inUse.id)!.customHeaders,
       isNot(contains('X-Desk')),
+    );
+  });
+
+  // Another saved server is reached exactly as the edit would reach this
+  // one: refused as that server's address before any question, so no reply
+  // is stopped for a save that never happens.
+  test('an in-use edit to another saved server\'s connection stops no reply',
+      () async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.saveServerConfigs([
+      ...await storage.getServerConfigs(),
+      ServerConfig(id: 'annex-account', name: 'Annex', url: localhost()),
+    ]);
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(url: localhost()),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    replies.answering = true;
+    addTearDown(() => replies.answering = false);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(
+        checkId: found.checkId!,
+        sendSessionConfirmed: true,
+        stopReplies: true,
+      ),
+    );
+    expect(replies.stopped, 0, reason: 'a reply was stopped for nothing');
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.differentServer);
+    expect(
+      (await list()).addresses.singleWhere((a) => a.id == inUse.id).url,
+      inUse.url,
     );
   });
 

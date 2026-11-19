@@ -1474,6 +1474,33 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
               isCapturedSessionHeader,
             ),
           );
+    // Another saved server reached exactly so: this address is that
+    // server's. Refused before anything is asked or stopped for a save that
+    // cannot happen; the write checks again, and that check is the one that
+    // counts.
+    final stored = await storage.getOpenWebUiRegistryStrict();
+    final now = stored.server(server.id);
+    if (now != null &&
+        OpenWebUiRegistry(
+              servers: [
+                for (final other in stored.servers)
+                  other.id == now.id
+                      ? OpenWebUiServer(
+                          id: now.id,
+                          name: now.name,
+                          endpoints: withEditedRoute(
+                            now.endpoints,
+                            saving,
+                            adding: endpointId == null,
+                          ),
+                        )
+                      : other,
+              ],
+              accounts: stored.accounts,
+            ).connectionTakenSince(stored) !=
+            null) {
+      return const ServerAddressNotSaved(ServerAddressProblem.differentServer);
+    }
     if (changesInUseConnection(
           server.endpoints,
           saving,

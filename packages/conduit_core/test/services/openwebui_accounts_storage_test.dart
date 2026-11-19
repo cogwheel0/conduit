@@ -1967,6 +1967,41 @@ void main() {
         (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
       ).equals(lab);
 
+      // An edit of the lab's account that moves it to the home server's
+      // connection, as `servers.update` makes one, would make it so too.
+      await check(
+        storage.editServerConfig(
+          'b',
+          (stored) => stored.copyWith(url: homeRoute.url),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // So would a sign-in of the lab's account through the home server's
+      // connection: refused before anything of its session moves (the home
+      // account has proved its user, so it stays).
+      await storage.bindAccountUser('a', 'user-a');
+      await signIn('b');
+      final token = await storage.getAuthTokenStrict();
+      await check(
+        storage.selectUnauthenticatedServerConfig(
+          account('b'),
+          publish: () => fail('a refused sign-in was published'),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      final after = await storage.getOpenWebUiRegistryStrict();
+      check(after.server(lab.id)).equals(lab);
+      check(after.server(home.id)).equals(home);
+      check(after.account('a')?.userId).equals('user-a');
+      check(await storage.getAuthTokenStrict()).equals(token);
+      check(await storage.getActiveServerId()).equals('b');
+
       // A header of its own makes it another connection: saved.
       await storage.editServerEndpoints(
         lab.id,
