@@ -168,7 +168,21 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// rather than adding it twice.
   final String _addedEndpointId = const Uuid().v4();
 
+  /// The saved address the form was filled from, which its save tells the
+  /// form's changes by; none while the form holds only what was typed.
+  OpenWebUiEndpoint? _editedFrom;
+
   bool get _editingRoutes => widget.routesOfServerId != null;
+
+  /// A saved address not read yet: saving the form now would write it over
+  /// that address whole, so Save waits for it.
+  bool get _awaitingSavedAddress =>
+      _editingRoutes && widget.endpointId != null && _editedFrom == null;
+
+  /// The route form takes no input while its address is checked, or before
+  /// the saved address it edits is read.
+  bool get _formLocked =>
+      _editingRoutes && (_isConnecting || _awaitingSavedAddress);
 
   bool get _embedded => widget.onChecked != null;
 
@@ -230,6 +244,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   /// Starts from the edit Settings handed over, then connects, the proxy's
   /// sign-in opening as a page of its own.
   Future<void> _carryOnRouteDraft(ServerAddressDraft draft) async {
+    _editedFrom = draft.from;
     _routeLabelController.text = draft.label;
     setState(() {
       _urlController.text = draft.url;
@@ -257,15 +272,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Future<void> _prefillFromRoute() async {
     final endpointId = widget.endpointId;
     if (endpointId == null) return;
-    // As for a saved server's: what the user typed while it is read stays.
-    final untouched = (_formContents(), _routeLabelController.text);
+    // The form takes no input until this is read (_formLocked), so the
+    // saved address fills it whole and is what its save is told apart from.
     final OpenWebUiRegistry registry;
     try {
       registry = await ref
           .read(optimizedStorageServiceProvider)
           .getOpenWebUiRegistryStrict();
     } catch (error, stackTrace) {
-      // Nothing awaits this; say why the form starts empty.
+      // Nothing awaits this; say why the form stays empty.
       DebugLogger.error(
         'route-edit-prefill-failed',
         scope: 'auth/accounts',
@@ -281,8 +296,15 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final endpoint = registry
         .server(widget.routesOfServerId!)
         ?.endpoint(endpointId);
-    if (!mounted || endpoint == null) return;
-    if ((_formContents(), _routeLabelController.text) != untouched) return;
+    if (!mounted) return;
+    if (endpoint == null) {
+      // Removed meanwhile: there is nothing left to edit.
+      setState(() {
+        _connectionError = AppLocalizations.of(context)!.errorMessage;
+      });
+      return;
+    }
+    _editedFrom = endpoint;
     _routeLabelController.text = endpoint.label ?? '';
     _applyEndpoint(endpoint);
   }
@@ -334,6 +356,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       addedEndpointId: _addedEndpointId,
       label: _routeLabelController.text,
       verified: verified,
+      editedFrom: _editedFrom,
       sessionRevision: sessionRevision,
       confirmSendingSession: (address) async {
         if (!mounted) return false;
@@ -489,7 +512,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Future<void> _connectToServer() async {
-    if (_isConnecting) return;
+    if (_isConnecting || _awaitingSavedAddress) return;
     final l10n = AppLocalizations.of(context)!;
     // Before anything is awaited: a sign-out from here on, during the checks
     // or the proxy sign-in, revokes whatever cookie they capture. Only an
@@ -1215,11 +1238,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 const SizedBox(height: Spacing.xl),
               ],
               // An address is saved as it was checked, and the editor then
-              // closes: an edit made during the check would be lost.
+              // closes: an edit made during the check would be lost. Nor
+              // does the form take input before the saved address is read:
+              // its save is told apart from that address, field by field.
               IgnorePointer(
-                ignoring: _editingRoutes && _isConnecting,
+                ignoring: _formLocked,
                 child: ExcludeFocus(
-                  excluding: _editingRoutes && _isConnecting,
+                  excluding: _formLocked,
                   child: cupertino
                       ? _buildCupertinoServerForm()
                       : _buildServerForm(),
@@ -1653,7 +1678,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : l10n.connectToServerButton,
       busyLabel: l10n.connecting,
       busy: _isConnecting,
-      onPressed: _urlController.text.trim().isEmpty ? null : _connectToServer,
+      onPressed: _urlController.text.trim().isEmpty || _awaitingSavedAddress
+          ? null
+          : _connectToServer,
     );
   }
 
@@ -2015,7 +2042,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : _embedded
           ? AppLocalizations.of(context)!.continueAction
           : AppLocalizations.of(context)!.connectToServerButton,
-      onPressed: _isConnecting || _urlController.text.trim().isEmpty
+      onPressed:
+          _isConnecting ||
+              _urlController.text.trim().isEmpty ||
+              _awaitingSavedAddress
           ? null
           : _connectToServer,
       isLoading: _isConnecting,

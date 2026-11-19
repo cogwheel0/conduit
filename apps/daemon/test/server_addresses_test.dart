@@ -11,7 +11,10 @@ import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
+    show accountAdditionOriginProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:checks/checks.dart' as checks;
@@ -44,6 +47,7 @@ void main() {
   late String serverId;
   const users = {
     'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+    'bob@example.com': (id: 'user-bob', name: 'Bob', password: 'pw-bob'),
   };
 
   setUpAll(() async {
@@ -263,6 +267,129 @@ void main() {
       reason: 'a new client ends the reply the old one carries',
     );
     expect((await auth.status()).isAuthenticated, isTrue);
+  });
+
+  // Another window moved the active account to another address while a
+  // proxy sign-in of it was being staged: storage dropped its session, and
+  // the staged sign-in stops. The session it would settle back to was the
+  // old address's, and must not reach a client built for the new one.
+  test('a proxy sign-in stopped by an edit that moved its account puts no '
+      'session back', () async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    final before = runtime.container.read(authStateManagerProvider).value!;
+    expect(before.token, isNotNull);
+    final activeId = (await accounts.list()).activeAccountId!;
+    final captured = (await storage.getServerConfigsStrict()).singleWhere(
+      (config) => config.id == activeId,
+    );
+    final configs = storage.serverConfigRevision;
+    await storage.saveServerConfigs([
+      for (final config in await storage.getServerConfigsStrict())
+        config.id == activeId ? config.copyWith(url: localhost()) : config,
+    ]);
+    expect(await storage.getAuthTokenStrict(), isNull);
+
+    final committed = await runtime.container
+        .read(authStateManagerProvider.notifier)
+        .commitPrevalidatedProxySession(
+          serverConfig: captured,
+          token: 'fake-token-staged',
+          user: const User(
+            id: 'user-ada',
+            username: 'ada',
+            email: 'ada@example.com',
+            role: 'user',
+          ),
+          configRevision: configs,
+        );
+
+    expect(committed, isFalse);
+    final after = runtime.container.read(authStateManagerProvider).value!;
+    expect(after.token, isNull);
+    expect(runtime.container.read(apiAuthTokenMirrorProvider), isNull);
+  });
+
+  final accountChanged = throwsA(
+    isA<RpcError>()
+        .having((e) => e.code, 'code', ConduitErrorCodes.sessionExpired)
+        .having((e) => e.args['reason'], 'reason', 'account'),
+  );
+
+  // Asked under one session, a forced addition never stops the replies, or
+  // begins from, the session another window put in charge while it read
+  // the server's address.
+  test('an addition on this server is refused once another session takes '
+      'charge while its address is read', () async {
+    final before = await accounts.list();
+    final adding = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        serverId: serverId,
+        force: true,
+      ),
+    );
+    runtime.container
+      ..invalidate(openWebUiAuthSessionEpochProvider)
+      ..read(openWebUiAuthSessionEpochProvider);
+    await expectLater(adding, accountChanged);
+    final after = await accounts.list();
+    expect(after.addingAccount, isFalse);
+    expect(after.activeAccountId, before.activeAccountId);
+    expect(after.accounts, hasLength(before.accounts.length));
+  });
+
+  // Another window left the addition while its selection waited for
+  // storage: nothing was selected, and nothing waits for a sign-in.
+  test('an addition left while it is saved is not reported as waiting for a '
+      'sign-in', () async {
+    final before = await accounts.list();
+    final watch = runtime.container.listen<String?>(
+      accountAdditionOriginProvider,
+      (_, origin) {
+        if (origin == null) return;
+        scheduleMicrotask(
+          () => runtime.container
+              .read(accountAdditionOriginProvider.notifier)
+              .end(origin),
+        );
+      },
+    );
+    addTearDown(watch.close);
+    await expectLater(
+      accounts.add(
+        AddAccount(
+          server: ServerDraft(name: 'Shed', url: other.url),
+        ),
+      ),
+      accountChanged,
+    );
+    watch.close();
+    final after = await accounts.list();
+    expect(after.addingAccount, isFalse);
+    expect(after.activeAccountId, before.activeAccountId);
+    expect((await auth.status()).isAuthenticated, isTrue);
+  });
+
+  // Two windows add an account from the same one in charge, the second
+  // before the first is saved: the first gives way, and leaves the second's
+  // addition going.
+  test('an addition overtaken by another from the same account leaves that '
+      'one going', () async {
+    final first = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Shed', url: other.url),
+      ),
+    );
+    final second = accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Shed', url: other.url),
+      ),
+    );
+    await expectLater(first, accountChanged);
+    final added = await second;
+    expect(added.outcome, AccountChangeOutcome.needsSignIn);
+    expect(added.accounts.addingAccount, isTrue);
+    expect((await accounts.cancelAdd()).outcome, AccountChangeOutcome.done);
   });
 
   test('a rename while another window switches accounts rebuilds no client '
@@ -655,6 +782,10 @@ void main() {
     expect(saved.addresses!.addresses, hasLength(1));
   });
 
+  // The sign-in window names the account it was for, or none. Named, its
+  // cookie is that account's once its own session proves the address,
+  // whichever account is active; a named account that cannot is asked to
+  // sign in.
   test('an address behind a sign-in proxy is saved with what its sign-in '
       'captured, the cookie kept for the account', () async {
     // The same server, behind a proxy.
@@ -694,11 +825,64 @@ void main() {
       registry.server(serverId)!.endpoint(route.id)!.customHeaders,
       isNot(contains('Cookie')),
     );
-    final account = registry.accountsOn(serverId).single;
-    expect(account.capturedHeaders[route.id]?['Cookie'], '_lab_proxy=let-in');
-
+    final ada = registry.accountsOn(serverId).single.id;
+    expect(
+      registry.account(ada)!.capturedHeaders[route.id]?['Cookie'],
+      '_lab_proxy=let-in',
+    );
     await servers.remove(
       ServerAddressRemoveRequest(serverId: serverId, endpointId: route.id),
+    );
+
+    // Bob's account on the same server, signed in; Ada's in charge again.
+    await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        serverId: serverId,
+        force: true,
+      ),
+    );
+    await auth.loginWithPassword(
+      const PasswordLogin(username: 'bob@example.com', password: 'pw-bob'),
+    );
+    final bob = (await accounts.list()).activeAccountId!;
+    await userKnown(bob);
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await runtime.container.read(activeServerProvider.future);
+
+    Future<ServerAddressSaveResult> signedInFor(String account) async {
+      final found = await check(ServerAddressForm(url: proxied.url));
+      return servers.save(
+        ServerAddressSaveRequest(
+          checkId: found.checkId!,
+          sendSessionConfirmed: true,
+          proxy: ExternalAuthCompletion(
+            origin: proxied.url,
+            cookies: const {'_lab_proxy': 'let-in'},
+            account: account,
+          ),
+        ),
+      );
+    }
+
+    final refused = await signedInFor('an-account-not-signed-in-here');
+    expect(refused.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(refused.problem, ServerAddressProblemCode.needsSignIn);
+
+    // Ada's session would prove it too; only Bob's is asked.
+    final forBob = await signedInFor(bob);
+    expect(forBob.outcome, ServerAddressChangeOutcome.done);
+    final bobRoute = forBob.addresses!.addresses.last;
+    final kept = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      kept.account(bob)!.capturedHeaders[bobRoute.id]?['Cookie'],
+      '_lab_proxy=let-in',
+    );
+    expect(kept.account(ada)!.capturedHeaders, isNot(contains(bobRoute.id)));
+    await servers.remove(
+      ServerAddressRemoveRequest(serverId: serverId, endpointId: bobRoute.id),
     );
   });
 
