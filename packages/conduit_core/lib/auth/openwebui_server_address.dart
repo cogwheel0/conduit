@@ -489,8 +489,9 @@ checkSavedServerAddress(
 }
 
 /// Thrown inside the write of an edited address that is no longer stored as
-/// the edit began from it: removed since, or moved by another edit while
-/// this one changes how it is reached ([editedAddress]).
+/// the edit began from it -- removed since, or moved by another edit while
+/// this one changes how it is reached ([editedAddress]) -- or whose edit
+/// never said what it began from.
 final class _AddressGone implements Exception {
   const _AddressGone();
 }
@@ -576,11 +577,13 @@ OpenWebUiEndpoint? editedAddress({
 }
 
 /// [edited] as it is saved onto [endpoints], in place of the address of its
-/// id: [editedAddress] when the edit began from [editedFrom]. Throws
+/// id: what it changes from [editedFrom] ([editedAddress]). Throws
 /// [_AddressGone] once that address is no longer stored as the edit began,
 /// or -- when the save [keepsSession], a proxy cookie captured for [edited]
 /// -- once what is saved no longer reaches the destination that cookie was
-/// issued for ([OpenWebUiEndpoint.sameSessionOwner]).
+/// issued for ([OpenWebUiEndpoint.sameSessionOwner]). Without [editedFrom]
+/// it throws too: the form would be written over the address whole, and
+/// what it never read of it lost.
 OpenWebUiEndpoint _savedEdit(
   List<OpenWebUiEndpoint> endpoints,
   OpenWebUiEndpoint edited, {
@@ -588,8 +591,7 @@ OpenWebUiEndpoint _savedEdit(
   required bool keepsSession,
 }) {
   final stored = endpoints.where((e) => e.id == edited.id).firstOrNull;
-  if (stored == null) throw const _AddressGone();
-  if (editedFrom == null) return edited;
+  if (stored == null || editedFrom == null) throw const _AddressGone();
   final saving =
       editedAddress(stored: stored, from: editedFrom, edited: edited) ??
       (throw const _AddressGone());
@@ -605,9 +607,9 @@ OpenWebUiEndpoint _savedEdit(
 /// account whose session proved it (see
 /// `OptimizedStorageService.editServerEndpointsWithSession`).
 ///
-/// An edit begun from [editedFrom] saves only what it changes from it
-/// ([editedAddress]); one of an address no longer stored as it began throws
-/// [_AddressGone], saving nothing.
+/// An edit saves only what it changes from [editedFrom], the address as it
+/// began from it ([editedAddress]); one without it, or of an address no
+/// longer stored as it began, throws [_AddressGone], saving nothing.
 ///
 /// The address and its cookie are saved together: saved without it, an
 /// address behind a proxy would be refused. When the cookie cannot be kept
@@ -1277,9 +1279,9 @@ final class ServerAddressNotSaved extends ServerAddressSave {
 ///
 /// An edit saves what it changes from [editedFrom], the address as the
 /// editor began from it, onto the address as stored when the write runs
-/// ([editedAddress]); without one, [verified] whole. An address removed
-/// since, or moved elsewhere while the edit changes how it is reached, is
-/// not saved: [ServerAddressProblem.serverMissing].
+/// ([editedAddress]). An edit without one, or of an address removed since,
+/// or moved elsewhere while the edit changes how it is reached, is not
+/// saved: [ServerAddressProblem.serverMissing].
 ///
 /// A proxy sign-in in [verified] whose window named the account it was for
 /// ([sessionAccount]) is kept for that account alone, once its own session

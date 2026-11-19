@@ -174,6 +174,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   bool get _editingRoutes => widget.routesOfServerId != null;
 
+  /// A saved address not read yet: saving the form now would write it over
+  /// that address whole, so Save waits for it.
+  bool get _awaitingSavedAddress =>
+      _editingRoutes && widget.endpointId != null && _editedFrom == null;
+
   bool get _embedded => widget.onChecked != null;
 
   /// The saved server the form was filled in from, when it was.
@@ -496,7 +501,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   }
 
   Future<void> _connectToServer() async {
-    if (_isConnecting) return;
+    if (_isConnecting || _awaitingSavedAddress) return;
     final l10n = AppLocalizations.of(context)!;
     // Before anything is awaited: a sign-out from here on, during the checks
     // or the proxy sign-in, revokes whatever cookie they capture. Only an
@@ -1660,7 +1665,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : l10n.connectToServerButton,
       busyLabel: l10n.connecting,
       busy: _isConnecting,
-      onPressed: _urlController.text.trim().isEmpty ? null : _connectToServer,
+      onPressed: _urlController.text.trim().isEmpty || _awaitingSavedAddress
+          ? null
+          : _connectToServer,
     );
   }
 
@@ -2022,7 +2029,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
           : _embedded
           ? AppLocalizations.of(context)!.continueAction
           : AppLocalizations.of(context)!.connectToServerButton,
-      onPressed: _isConnecting || _urlController.text.trim().isEmpty
+      onPressed:
+          _isConnecting ||
+              _urlController.text.trim().isEmpty ||
+              _awaitingSavedAddress
           ? null
           : _connectToServer,
       isLoading: _isConnecting,

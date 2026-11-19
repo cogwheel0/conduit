@@ -367,6 +367,7 @@ void main() {
         serverId: server.id,
         route: route,
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: 'a',
         headers: const {'X-Gate': 'g', 'Cookie': 'proxy=1'},
         sessionRevision: storage.sessionRevocationRevision,
@@ -410,15 +411,19 @@ void main() {
         await container.read(activeServerProvider.future);
         var changes = 0;
         container.listen(activeServerProvider, (_, _) => changes++);
-        Future<bool> save(String routeId, String url) => saveCheckedAddress(
-          container,
-          serverId: stored.id,
-          route: OpenWebUiEndpoint(id: routeId, url: url),
-          adding: false,
-          cookieOwner: null,
-          headers: const {},
-          sessionRevision: storage.sessionRevocationRevision,
-        );
+        Future<bool> save(String routeId, String url) async =>
+            saveCheckedAddress(
+              container,
+              serverId: stored.id,
+              route: OpenWebUiEndpoint(id: routeId, url: url),
+              adding: false,
+              editedFrom: (await storage.getOpenWebUiRegistryStrict())
+                  .server(stored.id)!
+                  .endpoint(routeId),
+              cookieOwner: null,
+              headers: const {},
+              sessionRevision: storage.sessionRevocationRevision,
+            );
 
         check(await save('away', 'https://moved-away.example')).isTrue();
         await Future<void>.delayed(Duration.zero);
@@ -461,6 +466,7 @@ void main() {
             url: 'https://moved.example',
           ),
           adding: false,
+          editedFrom: server.endpoints.single,
           cookieOwner: 'a',
           headers: const {'Cookie': 'proxy=1'},
           sessionRevision: storage.sessionRevocationRevision,
@@ -493,6 +499,7 @@ void main() {
           url: 'https://moved.example',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: null,
         headers: const {'Cookie': 'proxy=1'},
         sessionRevision: storage.sessionRevocationRevision,
@@ -616,6 +623,7 @@ void main() {
           url: 'https://moved.example',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: 'a',
         headers: const {'Cookie': 'proxy=1'},
         sessionRevision: revision,
@@ -830,6 +838,36 @@ void main() {
           check((await stored())!.label).equals('Lab');
         });
       }
+
+      // An editor that never read the address saved would write the form
+      // over it whole, its unread headers and certificate lost.
+      test('that does not say what it began from is refused', () async {
+        final outcome = await saveVerifiedServerAddress(
+          signedOut,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: 'Lab renamed',
+          verified: const ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+          ),
+          editedFrom: null,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async => true,
+          stillWanted: () => true,
+        );
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        final now = (await stored())!;
+        check(now.label).equals('Lab');
+        check(now.customHeaders).deepEquals(lab.customHeaders);
+      });
 
       test('is refused as gone once the address was removed', () async {
         await elsewhere((_) => null);

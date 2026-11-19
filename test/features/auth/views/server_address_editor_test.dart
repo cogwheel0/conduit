@@ -404,6 +404,7 @@ void main() {
           url: 'http://100.64.0.7:8080',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: null,
         headers: const {},
         sessionRevision: storage.sessionRevocationRevision,
