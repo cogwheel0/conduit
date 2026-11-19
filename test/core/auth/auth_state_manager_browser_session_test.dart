@@ -246,6 +246,39 @@ void main() {
       check(rig.state.isAuthenticated).isFalse();
     });
 
+    test('Cancel while an unfinished sign-out holds the commit shows nothing '
+        'of it', () async {
+      var holding = false;
+      final clearing = Completer<void>();
+      final cleared = Completer<bool>();
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async {
+          if (!holding ||
+              key != PreferenceKeys.incompleteLogoutFence ||
+              value != null) {
+            return null;
+          }
+          if (!clearing.isCompleted) clearing.complete();
+          return cleared.future;
+        },
+      );
+      final rig = await _Rig.start();
+      rig.container
+          .read(incompleteLogoutFenceProvider.notifier)
+          .setSuppressed(true);
+      holding = true;
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await clearing.future;
+      await rig.auth.cancelBrowserSignIn();
+      cleared.complete(true);
+
+      check(await signIn).isFalse();
+      check(rig.state.isAuthenticated).isFalse();
+      check(rig.state.error).isNull();
+    });
+
     test('a sign-in begun after Cancel is not called off by it', () async {
       final rig = await _Rig.start();
       rig.service.findingProvider = Completer<void>();

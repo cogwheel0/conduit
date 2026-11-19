@@ -520,7 +520,7 @@ class AuthStateManager extends _$AuthStateManager {
     final publicationSafetyEpoch = _sessionSafetyEpoch;
     var publicationAttempted = false;
     try {
-      return await storage.commitExistingServerSession(
+      final committed = await storage.commitExistingServerSession(
         ownership: ownership,
         token: token,
         rememberedCredentials: rememberedCredentials,
@@ -537,6 +537,7 @@ class AuthStateManager extends _$AuthStateManager {
           return _publishCommittedAuthenticatedSession(
             attemptRevision: attemptRevision,
             candidateToken: token,
+            stillWanted: () => _canCommitAuth(canCommit),
             publish: () {
               _setIncompleteLogoutFenceInMemory(false);
               _updateApiServiceToken(token);
@@ -566,6 +567,15 @@ class AuthStateManager extends _$AuthStateManager {
           );
         },
       );
+      // Rolled back after it was shown: what was shown before comes back.
+      if (!committed && publicationAttempted) {
+        _restoreRolledBackAuthPublication(
+          attemptRevision: attemptRevision,
+          capturedSessionSafetyEpoch: publicationSafetyEpoch,
+          previousState: previousState,
+        );
+      }
+      return committed;
     } catch (error, stackTrace) {
       if (publicationAttempted &&
           _restoreRolledBackAuthPublication(
@@ -5464,12 +5474,19 @@ class AuthStateManager extends _$AuthStateManager {
   /// authenticated session. This callback is awaited by the storage
   /// transaction while its auth/config locks remain held, so a failed checked
   /// preference write rolls the new token and ownership changes back.
+  /// [stillWanted] is the caller's own say, asked with the attempt's
+  /// revision: an attempt called off while the fence cleared publishes
+  /// nothing, though no newer attempt began.
   Future<void> _publishCommittedAuthenticatedSession({
     required int attemptRevision,
     required String candidateToken,
     required void Function() publish,
+    bool Function()? stillWanted,
   }) async {
-    if (_authAttemptSuperseded(attemptRevision)) {
+    bool overtaken() =>
+        _authAttemptSuperseded(attemptRevision) ||
+        !(stillWanted?.call() ?? true);
+    if (overtaken()) {
       throw StateError('Authentication attempt was superseded before publish.');
     }
     final fence = ref.read(incompleteLogoutFenceProvider.notifier);
@@ -5480,7 +5497,7 @@ class AuthStateManager extends _$AuthStateManager {
     int? fenceClearGeneration;
     if (fenceWasSet) {
       try {
-        if (_authAttemptSuperseded(attemptRevision)) {
+        if (overtaken()) {
           throw StateError(
             'Authentication attempt was superseded before fence clear.',
           );
@@ -5491,7 +5508,7 @@ class AuthStateManager extends _$AuthStateManager {
         if (!cleared || fence.desiredSuppressed) {
           throw StateError('Incomplete logout fence could not be cleared.');
         }
-        if (_authAttemptSuperseded(attemptRevision)) {
+        if (overtaken()) {
           throw StateError(
             'Authentication attempt was superseded during fence clear.',
           );
