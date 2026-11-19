@@ -67,6 +67,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart'
+    show kLibreChatTransport;
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatSessionHandleProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -281,21 +283,53 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (session.turn case final turn? when !turn.finished) turn.chatId,
   ];
 
-  /// Whether an Open WebUI answer is being written: one that arrives
-  /// through the active account's address, unlike a direct or Hermes one,
-  /// which this process talks to the provider for itself.
+  /// Whether an Open WebUI answer is being written, or sent for: one that
+  /// arrives through the active account's address, unlike a direct or
+  /// Hermes one, which this process talks to the provider for itself, or a
+  /// LibreChat one, which its own server writes.
   @override
-  bool get addressAnswering => _sessions.any(
-    (session) => switch (session.turn) {
-      final turn? => !turn.finished && !turn.clientOwned,
-      null => false,
-    },
-  );
+  bool get addressAnswering => _sessions.any(_answersThroughAddress);
 
-  /// Stops the answers [addressAnswering] counts.
+  /// Stops the answers [addressAnswering] counts. A send of one not yet
+  /// started is let start first, then stopped with the rest.
   @override
-  Future<void> stopAddressAnswers() =>
-      _stopRunning(where: (turn) => !turn.clientOwned);
+  Future<void> stopAddressAnswers() async {
+    await Future.wait(<Future<void>>[
+      for (final session in _sessions)
+        if (session.pending case final pending?
+            when !pending.started.isCompleted &&
+                _answersThroughAddress(session))
+          pending.started.future.then<void>((_) {}, onError: (_) {}),
+    ]);
+    await _stopRunning(
+      where: (turn) => answersThroughAddress(
+        running: true,
+        sending: false,
+        transport: turn.transport,
+      ),
+    );
+  }
+
+  bool _answersThroughAddress(_ChatSession session) {
+    final turn = session.turn;
+    if (turn != null && !turn.finished) {
+      return answersThroughAddress(
+        running: true,
+        sending: false,
+        transport: turn.transport,
+      );
+    }
+    final pending = session.pending;
+    final id = pending?.assistantMessageId;
+    final answer = id == null
+        ? null
+        : _find(session, session.scope.messages, id);
+    return answersThroughAddress(
+      running: false,
+      sending: pending != null && !pending.started.isCompleted,
+      transport: answer?.metadata?['transport'],
+    );
+  }
 
   /// Stops the answers running now (those [where] picks), each as Stop
   /// does: the ones taken here, never a turn that took a chat's place
@@ -2507,6 +2541,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
             model: answer.model ?? pending.model,
             userMessageId: question == answer.id ? null : question,
             clientOwned: clientOwned,
+            transport: transport,
           )
           ..text = answer.content
           ..pending = pending;
@@ -4413,6 +4448,23 @@ final class _NotQuietYet implements Exception {
   const _NotQuietYet();
 }
 
+/// Whether a chat's answer arrives through the active account's address,
+/// so an address change has to wait for it, or stop it: an Open WebUI one,
+/// running ([running]) or sent and not yet started ([sending]), unlike a
+/// direct or Hermes one, which this process talks to the provider for
+/// itself, or a LibreChat one, which its own server writes. [transport] is
+/// the answer's; a send whose answer is not there yet has none, and counts,
+/// so a change waits the moment it takes to show.
+bool answersThroughAddress({
+  required bool running,
+  required bool sending,
+  required Object? transport,
+}) =>
+    (running || sending) &&
+    transport != kDirectTransport &&
+    transport != kHermesTransport &&
+    transport != kLibreChatTransport;
+
 final class _PendingTurn {
   _PendingTurn({
     required this.model,
@@ -4472,6 +4524,7 @@ final class _Turn {
     required this.model,
     required this.userMessageId,
     required this.clientOwned,
+    this.transport,
   });
 
   /// Not final: a chat's `local:` id can be replaced by the server's while
@@ -4484,6 +4537,10 @@ final class _Turn {
   /// Whether this process talks to the provider itself (direct, Hermes), so
   /// the send that started the turn lasts as long as the answer.
   final bool clientOwned;
+
+  /// Its answer's transport, which says which backend writes it; null for
+  /// an Open WebUI answer followed from the queued-answer outbox.
+  final Object? transport;
 
   /// The send that started this turn; null for one followed from the
   /// queued-answer outbox. [session.pending] may already be the next send.
