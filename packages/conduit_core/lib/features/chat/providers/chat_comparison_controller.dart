@@ -700,6 +700,10 @@ const String _comparisonNoTaskError =
 /// has navigated away from. Either way the request is sent once: the first
 /// accepted response marks every slot submitted, and any later run of the same
 /// op recovers by pull alone.
+///
+/// [settledIfStopped] is asked after the last wait before the request: true
+/// when a Stop reached the op, whose answers it has settled as stopped. A
+/// Stop after it stops the request itself.
 Future<void> runComparisonCompletion(
   dynamic ref, {
   required String chatId,
@@ -719,6 +723,7 @@ Future<void> runComparisonCompletion(
   OpenWebUiChatSettingsSnapshot? chatSettings,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
+  Future<bool> Function()? settledIfStopped,
 }) async {
   final api = ref.read(apiServiceProvider);
   if (api == null) {
@@ -813,20 +818,6 @@ Future<void> runComparisonCompletion(
   );
   requireOwner();
 
-  if (live) {
-    final notifier =
-        ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
-    for (final slot in slots) {
-      notifier.updateMessageById(slot.assistantMessageId, (message) {
-        if (message.isStreaming) return message;
-        return message.copyWith(
-          isStreaming: true,
-          metadata: notifier._metadataWithoutResponseDone(message.metadata),
-        );
-      });
-    }
-  }
-
   final visibleModels =
       (ref.read(modelsProvider) as AsyncValue<List<Model>>).asData?.value ??
       const <Model>[];
@@ -920,6 +911,22 @@ Future<void> runComparisonCompletion(
     userMessageMap['models'] = [for (final slot in slots) slot.model];
   }
 
+  // A stopped answer is never shown streaming again.
+  if (await settledIfStopped?.call() ?? false) return;
+  if (live) {
+    final notifier =
+        ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+    for (final slot in slots) {
+      notifier.updateMessageById(slot.assistantMessageId, (message) {
+        if (message.isStreaming) return message;
+        return message.copyWith(
+          isStreaming: true,
+          metadata: notifier._metadataWithoutResponseDone(message.metadata),
+        );
+      });
+    }
+  }
+
   final bufferedChatId = owner.chatId;
   for (final id in slotIds) {
     socketService?.startBuffering(
@@ -939,32 +946,43 @@ Future<void> runComparisonCompletion(
         admitted: admittedToolServers,
       );
     }
-    final session = await api.sendMessageSession(
-      messages: requestMessages,
-      model: primary.model,
-      conversationId: owner.chatId,
-      terminalId: terminalId,
-      toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-      filterIds: filterIds.isNotEmpty ? filterIds : null,
-      enableWebSearch: enableWebSearch,
-      enableImageGeneration: enableImageGeneration,
-      enableCodeInterpreter: enableCodeInterpreter,
-      isVoiceMode: isVoiceMode,
-      modelItem: modelItemFor(primary.model),
-      sessionIdOverride: socketSessionId,
-      toolServers: toolServers,
-      backgroundTasks: bgTasks,
-      responseMessageId: primary.assistantMessageId,
-      userSettings: userSettingsData,
-      globalParams: turnSettings.baseline?.globalParams,
-      chatParams: turnSettings.chatParams,
-      reasoningEffort: turnSettings.reasoningEffort,
-      parentId: userMessageMap?['parentId']?.toString(),
-      userMessage: userMessageMap,
-      variables: promptVars,
-      files: _extractTopLevelRequestFiles(userMessageMap),
-      messageIds: comparisonTargets(group),
-    );
+    final ChatCompletionSession session;
+    try {
+      session = await api.sendMessageSession(
+        messages: requestMessages,
+        model: primary.model,
+        conversationId: owner.chatId,
+        terminalId: terminalId,
+        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+        filterIds: filterIds.isNotEmpty ? filterIds : null,
+        enableWebSearch: enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
+        enableCodeInterpreter: enableCodeInterpreter,
+        isVoiceMode: isVoiceMode,
+        modelItem: modelItemFor(primary.model),
+        sessionIdOverride: socketSessionId,
+        toolServers: toolServers,
+        backgroundTasks: bgTasks,
+        responseMessageId: primary.assistantMessageId,
+        userSettings: userSettingsData,
+        globalParams: turnSettings.baseline?.globalParams,
+        chatParams: turnSettings.chatParams,
+        reasoningEffort: turnSettings.reasoningEffort,
+        parentId: userMessageMap?['parentId']?.toString(),
+        userMessage: userMessageMap,
+        variables: promptVars,
+        files: _extractTopLevelRequestFiles(userMessageMap),
+        messageIds: comparisonTargets(group),
+      );
+    } on ChatCompletionStopped {
+      await settleStoppedOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        assistantMessageIds: slotIds,
+      );
+      return;
+    }
     final completed = await _markComparisonAcceptedOrAbort(
       ref,
       session: session,

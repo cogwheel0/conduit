@@ -151,8 +151,17 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         !savedChatId.startsWith('local:');
     // A Stop that reached this send while it was preparing ([beginSend]),
     // or that reaches it before its request goes out: the request is never
-    // sent.
-    var stopped = _sendsUnderWay.remove(messageId) ?? false;
+    // sent. A request for several answers ([messageIds]) is the send of each:
+    // a Stop on any of them stops it.
+    final answerIds = <String>{
+      messageId,
+      for (final target in messageIds ?? const <ChatCompletionTarget>[])
+        target.messageId,
+    };
+    var stopped = false;
+    for (final id in answerIds) {
+      if (_sendsUnderWay.remove(id) ?? false) stopped = true;
+    }
     if (stopped) {
       throw ChatCompletionStopped(
         RequestOptions(path: '/api/chat/completions'),
@@ -167,7 +176,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       }
     }
 
-    _streamCancelActions[messageId] = abort;
+    for (final id in answerIds) {
+      _streamCancelActions[id] = abort;
+    }
     var legacyPendingTurnPersisted = false;
 
     Future<void> ensureLegacyPendingTurnPersisted() async {

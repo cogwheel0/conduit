@@ -1159,18 +1159,55 @@ Future<void> _seedChat(
       );
 }
 
-/// Runs each job once [release] completes; [asked] completes as the first
-/// job is asked for.
+/// While [holding], runs each job once [release] completes; [asked]
+/// completes as the first held job is asked for.
 final class _HeldWorker implements WorkerPort {
+  _HeldWorker({this.holding = true});
+
+  bool holding;
   final Completer<void> asked = Completer<void>();
   final Completer<void> release = Completer<void>();
 
   @override
   Future<R> run<Q, R>(WorkerCallback<Q, R> callback, Q message) async {
-    if (!asked.isCompleted) asked.complete();
-    await release.future;
+    if (holding) {
+      if (!asked.isCompleted) asked.complete();
+      await release.future;
+    }
     return callback(message);
   }
+}
+
+/// Holds `/api/chat/completions` until [release] completes, then refuses it;
+/// [entered] completes as the request arrives. Nothing else is found.
+final class _HeldCompletionAdapter implements HttpClientAdapter {
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  ResponseBody _json(Object body, int status) => ResponseBody.fromString(
+    jsonEncode(body),
+    status,
+    headers: {
+      Headers.contentTypeHeader: ['application/json; charset=utf-8'],
+    },
+  );
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.path != '/api/chat/completions') {
+      return _json(const <String, dynamic>{}, 404);
+    }
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return _json(const <String, dynamic>{'detail': 'Answered too late.'}, 400);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// A selected model a test can change, as a picker does.
@@ -6286,6 +6323,7 @@ void main() {
       User? account,
       bool webSearchAvailable = false,
       bool modelSelectable = false,
+      WorkerPort? worker,
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -6327,6 +6365,10 @@ void main() {
           if (trackSignIn)
             openWebUiAuthSessionEpochProvider.overrideWith(
               (ref) => ref.watch(_signInEpochProvider),
+            ),
+          if (worker != null)
+            workerManagerProvider.overrideWithValue(
+              WorkerManager(worker: worker),
             ),
         ],
       );
@@ -7339,6 +7381,122 @@ void main() {
       for (final payload in [first, second]) {
         check((payload['metadata'] as Map)['completionSubmitted']).equals(true);
       }
+    });
+
+    /// Admits a comparison of [text] and claims its op, as the drainer does.
+    Future<({List<String> ids, Map<String, dynamic> payload})> claimed(
+      ProviderContainer container, {
+      String text = 'compare these',
+    }) async {
+      final handles = await durableCompareSend(
+        container,
+        text,
+        null,
+        models: const [duplicate, duplicate],
+      );
+      final op = (await db.outboxDao.pendingForChat(chatId))
+          .singleWhere((op) => op.kind == 'requestCompletion');
+      await (db.update(db.outboxOps)..where((t) => t.seq.equals(op.seq))).write(
+        const OutboxOpsCompanion(status: Value(OutboxStatus.inFlight)),
+      );
+      return (
+        ids: [for (final handle in handles) handle.assistantMessageId],
+        payload: jsonDecode(op.payload) as Map<String, dynamic>,
+      );
+    }
+
+    Future<Map<String, dynamic>> storedAnswerOf(String id) async =>
+        jsonDecode((await db.messagesDao.getMessage(chatId, id))!.payload)
+            as Map<String, dynamic>;
+
+    test('a Stop while a comparison that is not on screen is assembled sends '
+        'no request, and every answer ends stopped', () async {
+      final worker = _HeldWorker(holding: false);
+      final (:api, :socket, :container) = await open(worker: worker);
+      // Long enough that the chat is assembled on a worker, held below.
+      final (:ids, :payload) = await claimed(
+        container,
+        text: 'Compare these beans. ' * 3000,
+      );
+      (container.read(chatMessagesProvider.notifier) as _TestMessagesNotifier)
+          .setMessages(const <ChatMessage>[]);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('another-chat', const [], ChatStorageKind.openWebUi),
+          );
+      worker.holding = true;
+
+      final running = runnerFor(container)
+          .run(chatId: chatId, payload: payload);
+      await worker.asked.future;
+      // Stop aborts the last answer, which nothing has registered yet, and its
+      // write marks the op.
+      api.cancelStreamingMessage(ids.last);
+      await container
+          .read(chatLocksProvider)
+          .runExclusive(
+            chatId,
+            () => db.chatsDao.cancelPendingCompletion(chatId),
+          );
+      worker.release.complete();
+      await running;
+
+      check(api.requests).isEmpty();
+      for (final id in ids) {
+        check((await storedAnswerOf(id))['isStreaming']).equals(false);
+      }
+    });
+
+    test('a Stop while a comparison on screen prepares its request sends no '
+        'request, and no answer shows as streaming again', () async {
+      final (:api, :socket, :container) = await open();
+      final (:ids, :payload) = await claimed(container);
+      api.holdSettings = Completer<void>();
+
+      final running = runnerFor(container)
+          .run(chatId: chatId, payload: payload);
+      await api.settingsEntered.future;
+      container.read(stopGenerationProvider)();
+      api.holdSettings!.complete();
+      await running;
+
+      check(api.requests).isEmpty();
+      final shown = {
+        for (final message in container.read(chatMessagesProvider))
+          message.id: message,
+      };
+      for (final id in ids) {
+        check(shown[id]!.isStreaming).isFalse();
+        check((await storedAnswerOf(id))['isStreaming']).equals(false);
+      }
+      await pumpEventQueue();
+    });
+
+    test('a Stop while a comparison\'s request is on its way aborts it, and '
+        'every answer ends stopped, none of them answered', () async {
+      final (:api, :socket, :container) = await open();
+      final (:ids, :payload) = await claimed(container);
+      final wire = _HeldCompletionAdapter();
+      api.sendOverWire(wire);
+
+      final running = runnerFor(container)
+          .run(chatId: chatId, payload: payload);
+      await wire.entered.future;
+      // Stop aborts the last answer at once, before the server answers.
+      container.read(stopGenerationProvider)();
+      wire.release.complete();
+      await running;
+
+      for (final id in ids) {
+        final answer = await storedAnswerOf(id);
+        check(answer['isStreaming']).equals(false);
+        check(answer['error']).isNull();
+        check(
+          (answer['metadata'] as Map<String, dynamic>?)?['completionSubmitted'],
+        ).isNull();
+      }
+      await pumpEventQueue();
     });
 
     test('an account change during a delayed response sends nothing again and '
@@ -11532,6 +11690,16 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   @override
   String? get assistantMessageId => requests.lastOrNull?.responseMessageId;
 
+  /// When set, the completion request goes to this adapter through the
+  /// service's own send instead of being answered here ([sendOverWire]).
+  HttpClientAdapter? _wire;
+
+  void sendOverWire(HttpClientAdapter adapter) {
+    _wire = adapter;
+    dio.httpClientAdapter = adapter;
+    dio.interceptors.clear();
+  }
+
   /// When set, an attached file's info is answered only once this completes,
   /// and [fileInfoEntered] marks the wait: the window in which the chat and the
   /// composer can change under a turn whose files are still being prepared.
@@ -11687,6 +11855,35 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
             : Map<String, dynamic>.of(chatParams),
       ),
     );
+    if (_wire != null) {
+      return super.sendMessageSession(
+        messages: messages,
+        model: model,
+        conversationId: conversationId,
+        terminalId: terminalId,
+        toolIds: toolIds,
+        filterIds: filterIds,
+        skillIds: skillIds,
+        enableWebSearch: enableWebSearch,
+        enableImageGeneration: enableImageGeneration,
+        enableCodeInterpreter: enableCodeInterpreter,
+        isVoiceMode: isVoiceMode,
+        modelItem: modelItem,
+        sessionIdOverride: sessionIdOverride,
+        toolServers: toolServers,
+        backgroundTasks: backgroundTasks,
+        responseMessageId: responseMessageId,
+        userSettings: userSettings,
+        globalParams: globalParams,
+        chatParams: chatParams,
+        parentId: parentId,
+        reasoningEffort: reasoningEffort,
+        userMessage: userMessage,
+        variables: variables,
+        files: files,
+        messageIds: messageIds,
+      );
+    }
     await holdResponse?.future;
     if (answerSynchronously) {
       return ChatCompletionSession.jsonCompletion(

@@ -138,15 +138,19 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       return;
     }
 
-    // Whether a Stop reached this op since it was claimed, settling it as
-    // stopped if so. Called right before the request goes. A run resumed
-    // after a restart has no send registered in memory, so a Stop before this
-    // is only on the op. The send is registered, then the op is read under
-    // the chat lock, behind any Stop's write already asked for: a Stop is
-    // found in one or the other.
-    Future<bool> settledIfStopped() async {
+    // Whether a Stop reached this op since it was claimed, settling its
+    // [answers] as stopped if so. Called right before the request goes. A run
+    // resumed after a restart has no send registered in memory, so a Stop
+    // before this is only on the op. The answers' send is registered, then
+    // the op is read under the chat lock, behind any Stop's write already
+    // asked for: a Stop is found in one or the other.
+    Future<bool> settledIfStopped(Iterable<String> answers) async {
       final api = owner.api;
-      if (api is ApiService) api.beginSend(assistantMessageId, adopt: true);
+      if (api is ApiService) {
+        for (final id in answers) {
+          api.beginSend(id, adopt: true);
+        }
+      }
       final stopped = await _ref
           .read(chatLocksProvider)
           .runExclusive(
@@ -159,7 +163,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         _ref,
         api: api,
         owner: owner,
-        assistantMessageIds: [assistantMessageId],
+        assistantMessageIds: answers,
       );
       return true;
     }
@@ -215,6 +219,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         owner: owner,
         requireCurrentConversationOwner: requireCurrentConversationOwner,
         deferIfTargetIsBusy: deferIfTargetIsBusy,
+        settledIfStopped: settledIfStopped,
       );
       return;
     }
@@ -305,7 +310,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       // runQueuedCompletion; the stream final + D-07 echo land on the SAME
       // assistantMessageId row (R8 one-row-per-turn). [live] is the root, or
       // the chat session scope that has this chat open.
-      if (await settledIfStopped()) return;
+      if (await settledIfStopped([assistantMessageId])) return;
       await runQueuedCompletion(
         live,
         chatId: chatId,
@@ -341,7 +346,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
           ),
     );
     requireCurrentConversationOwner();
-    if (await settledIfStopped()) return;
+    if (await settledIfStopped([assistantMessageId])) return;
     await runHeadlessCompletion(
       _ref,
       chatId: chatId,
@@ -394,6 +399,7 @@ extension on ChatRequestCompletionRunner {
     required void Function() requireCurrentConversationOwner,
     required void Function({Set<String>? ownedAssistantIds})
     deferIfTargetIsBusy,
+    required Future<bool> Function(Iterable<String> answers) settledIfStopped,
   }) async {
     final slotIds = [for (final slot in group.slots) slot.assistantMessageId];
     final ownIds = slotIds.toSet();
@@ -506,6 +512,7 @@ extension on ChatRequestCompletionRunner {
         chatSettings: decoded.chatSettings,
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
+        settledIfStopped: () => settledIfStopped(slotIds),
       );
       return;
     }
@@ -543,6 +550,7 @@ extension on ChatRequestCompletionRunner {
       chatSettings: decoded.chatSettings,
       recoveryAttempts: _recoveryAttempts,
       recoveryDelay: _recoveryDelay,
+      settledIfStopped: () => settledIfStopped(slotIds),
     );
   }
 }
