@@ -197,8 +197,10 @@ Actions › Release Desktop › Run workflow runs the whole build as a
 rehearsal: ad-hoc signature, a test bundle id, a throwaway Sparkle key, no
 secrets, nothing published. It is the cheapest way to find out whether the
 runner image (Xcode 26+), the disk and the time limit hold before a real
-tag. `desktop.yml`'s bundle job runs the same rehearsal on every pull
-request that touches the desktop app.
+tag. `desktop.yml`'s bundle job runs the same rehearsal on every push to
+`main` that touches the desktop app, and on a pull request into `main` that
+changes the packaging (see [BUILDING-DESKTOP.md](BUILDING-DESKTOP.md) for
+which). A stacked pull request skips it unless it has the `full-ci` label.
 
 ## Secrets and variables
 
@@ -333,7 +335,7 @@ checks the bundled conduitd, and `appcast.sh` checks that:
   is started only when none was ever published: a failed lookup stops the
   release.
 
-`release_test.sh` (run by `desktop.yml` on every pull request) checks these
+`release_test.sh` (run by `desktop.yml`'s workspace job) checks these
 feed safeguards and the publishing ones against synthetic feeds.
 
 ## Rehearsals

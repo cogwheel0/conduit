@@ -17,6 +17,8 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
   pull_request:
@@ -32,8 +34,12 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
+  # Every job, on any branch: Actions › Desktop › Run workflow.
+  workflow_dispatch:
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -59,6 +65,58 @@ env:
 # anyway). Only pushes to main save them, so pull requests restore main's
 # and never evict each other's. The release workflow uses no cache.
 jobs:
+  # What a pull request needs from the two macOS jobs. Pushes to main, and
+  # runs started by hand, run both.
+  #
+  # macOS runners are few and every pull request queues for them, so on a
+  # pull request into another one's branch (a stacked one) both skip: they
+  # run once it is retargeted onto main and pushed (retargeting alone starts
+  # no run). The release bundle takes the longest, and what it adds to the
+  # workspace job is the packaging, so a pull request builds it only when
+  # it changes what goes into the bundle or how it is made. The `full-ci`
+  # label runs both on any pull request this workflow starts for (its
+  # paths above); for any other branch, run the workflow by hand.
+  changes:
+    name: Desktop changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      macos: ${{ steps.diff.outputs.macos }}
+      bundle: ${{ steps.diff.outputs.bundle }}
+    steps:
+      # The checked-out ref is the merge commit, so its first parent is the
+      # base branch and the diff between them is the pull request's.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: diff
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FULL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          macos=false
+          if [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || [ "$FULL" = true ]; then macos=true; fi
+          # Packaging, the crates and Dart packages the bundle ships (their
+          # licences too), the whisper library only the bundle compiles, and
+          # the workflows that build it. The daemon's code has its own macOS
+          # build and smoke job (ci.yml), and the app's the workspace job.
+          bundle=$FULL
+          if git diff --name-only HEAD^1 HEAD -- \
+              desktop/packaging desktop/vendor desktop/Cargo.lock \
+              desktop/rust-toolchain.toml ':(glob)desktop/**/Cargo.toml' \
+              apps/daemon/native apps/daemon/pubspec.yaml pubspec.lock \
+              .github/workflows/desktop.yml .github/workflows/release-desktop.yml |
+              grep -q .; then
+            bundle=true
+          fi
+          [ "$macos" = true ] || bundle=false
+          {
+            echo "macos=$macos"
+            echo "bundle=$bundle"
+          } >> "$GITHUB_OUTPUT"
+
   # desktop/crates/protocol/src/generated.rs must be exactly what the
   # generator writes from the Dart DTOs. The generator formats with the
   # pinned rustfmt, so this job needs both Dart and Rust.
@@ -138,6 +196,8 @@ jobs:
   # macOS is the first desktop platform: the whole workspace, GPUI included.
   macos:
     name: Workspace (macOS)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.macos != 'false') }}
     # Apple silicon with Xcode 26 or later: the app links FoundationModels
     # (macOS 26 SDK) weakly. The same image as the bundle job and the
     # release; DESKTOP_MACOS_RUNNER overrides it for all three.
@@ -224,6 +284,8 @@ jobs:
   # fallback strip (Apple's) is the one exercised here.
   bundle:
     name: Release bundle (rehearsal, ad hoc) + smoke
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.bundle != 'false') }}
     runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 120
     steps:

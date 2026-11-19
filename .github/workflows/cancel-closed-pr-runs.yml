@@ -1,0 +1,50 @@
+name: Cancel closed pull request runs
+
+# A merged or closed pull request's runs that are still queued or running
+# hold runners (macOS ones are few) for a result nobody reads: main's own
+# push run checks what was merged.
+#
+# pull_request_target, so the token can cancel runs. Nothing from the pull
+# request is checked out or run: the job reads only its head commit's SHA.
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    name: Cancel runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel the pull request's queued and running runs
+        # bash, not the default `sh -e`: with pipefail, a failed listing
+        # fails the step instead of passing with nothing cancelled.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # A run names its commit, not its pull request (once that is
+          # closed). If any open pull request has the same head (another
+          # one, or this one reopened meanwhile), its runs cannot be told
+          # apart from the closed one's: cancel nothing. The open pull
+          # requests are listed directly: a commit's own list of pull
+          # requests names only the merged one once the commit is on the
+          # default branch.
+          open="$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            --jq ".[] | select(.head.sha == \"$HEAD_SHA\") | .number" | wc -l | tr -d ' ')"
+          if [ "$open" != 0 ]; then
+            echo "An open pull request has head $HEAD_SHA: nothing cancelled."
+            exit 0
+          fi
+          for status in queued in_progress waiting pending requested; do
+            gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&status=$status&per_page=100" \
+              --jq '.workflow_runs[].id'
+          done | sort -u | while read -r id; do
+            echo "Cancelling run $id"
+            # A run that finished meanwhile cannot be cancelled; that is fine.
+            gh api -X POST "repos/$REPO/actions/runs/$id/cancel" --silent || true
+          done

@@ -141,6 +141,23 @@ codegen check, and the Dart analyzers and tests). CI runs the Rust checks,
 the codegen check, the notices check and the release bundle
 (`.github/workflows/desktop.yml`); it does not run the E2E passes.
 
+Every push to `main` that touches the desktop runs all of it. macOS
+runners are few, so pull requests run less:
+
+- A pull request into `main` runs **Workspace (macOS)**. It runs the
+  release bundle (and with it the notices check) only when it changes
+  what goes into the bundle or how it is made: `desktop/packaging/`,
+  `desktop/vendor/`, a `Cargo.toml`, `Cargo.lock`, the toolchain, the
+  whisper library (`apps/daemon/native/`), the daemon's `pubspec.yaml`,
+  `pubspec.lock`, or the desktop workflows.
+- A pull request into another pull request's branch (a stacked one) skips
+  the macOS jobs: Workspace, the bundle, **Desktop daemon (macOS build +
+  smoke)** and **Push Swift core**. They run once it is retargeted onto
+  `main` and pushed.
+- The `full-ci` label runs every job of each workflow a pull request
+  starts (add it, then push). Actions › Desktop › Run workflow runs the
+  Desktop workflow on any branch.
+
 ### Local test servers
 
 The daemon's live tests, the signed-in run of `apps/daemon/tool/smoke.dart`
@@ -651,7 +668,8 @@ before compiling.
 
 `THIRD_PARTY_NOTICES.md` is generated, not committed: `bundle.sh build`
 writes it into each bundle's `Resources` (Settings › About opens it), and
-CI's `desktop.yml` runs the generator's check on every pull request.
+CI's `desktop.yml` runs the generator's check with the release bundle
+(see [Checks](#checks) for when that runs).
 
 ```sh
 desktop/packaging/notices/notices.sh             # desktop/target/notices/THIRD_PARTY_NOTICES.md
