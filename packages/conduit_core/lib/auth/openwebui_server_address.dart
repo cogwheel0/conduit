@@ -703,6 +703,33 @@ String? addressCookieOwner(
   return accounts.length == 1 ? accounts.single : null;
 }
 
+/// Whether [server] keeps [route] exactly as a save of it would write it:
+/// the same address, name and connection under its id, and -- when the save
+/// brings a proxy sign-in -- those session headers kept on it for one of the
+/// server's accounts.
+bool _savedAsIs(
+  OpenWebUiRegistry registry,
+  OpenWebUiServer server,
+  OpenWebUiEndpoint route,
+  Map<String, String> session,
+) {
+  final stored = server.endpoint(route.id);
+  if (stored == null ||
+      stored.label != route.label ||
+      !stored.sameConnection(route)) {
+    return false;
+  }
+  if (session.isEmpty) return true;
+  return registry.accountsOn(server.id).any(
+    (account) => _sameHeaders(account.capturedHeaders[route.id], session),
+  );
+}
+
+bool _sameHeaders(Map<String, String>? a, Map<String, String> b) =>
+    a != null &&
+    a.length == b.length &&
+    b.entries.every((entry) => a[entry.key] == entry.value);
+
 /// Whether [endpointId] of [serverId] is the address [route] is in use.
 bool isServerAddressInUse(
   OpenWebUiRouteStatus route, {
@@ -1314,6 +1341,33 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     return const ServerAddressNotSaved(ServerAddressProblem.serverMissing);
   }
 
+  final trimmedLabel = label.trim();
+  final route = OpenWebUiEndpoint(
+    id: endpointId ?? addedEndpointId,
+    url: verified.url,
+    label: trimmedLabel.isEmpty ? null : trimmedLabel,
+    customHeaders: {
+      for (final entry in verified.customHeaders.entries)
+        if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+    },
+    allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
+    mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
+    mtlsCertificateLabel: verified.mtlsCertificateLabel,
+    mtlsPrivateKeyPem: verified.mtlsPrivateKeyPem,
+    mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
+    mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
+  );
+  // The proxy sign-in this save keeps, for the account it settles on.
+  final capturedSession = <String, String>{
+    for (final entry in verified.customHeaders.entries)
+      if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
+  };
+  // Saved already, as this save would write it: an attempt whose answer was
+  // lost after it was written, tried again. Nothing is written or asked.
+  if (_savedAsIs(registry, server, route, capturedSession)) {
+    return const ServerAddressSaved();
+  }
+
   ServerConfig keptCookie(Iterable<String> accountIds) => withKeptAddressCookie(
     verified,
     registry: registry,
@@ -1362,22 +1416,6 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   }
   if (!stillWanted()) return const ServerAddressNotSaved();
 
-  final trimmedLabel = label.trim();
-  final route = OpenWebUiEndpoint(
-    id: endpointId ?? addedEndpointId,
-    url: verified.url,
-    label: trimmedLabel.isEmpty ? null : trimmedLabel,
-    customHeaders: {
-      for (final entry in verified.customHeaders.entries)
-        if (!isCapturedSessionHeader(entry.key)) entry.key: entry.value,
-    },
-    allowSelfSignedCertificates: verified.allowSelfSignedCertificates,
-    mtlsCertificateChainPem: verified.mtlsCertificateChainPem,
-    mtlsCertificateLabel: verified.mtlsCertificateLabel,
-    mtlsPrivateKeyPem: verified.mtlsPrivateKeyPem,
-    mtlsPrivateKeyLabel: verified.mtlsPrivateKeyLabel,
-    mtlsPrivateKeyPassword: verified.mtlsPrivateKeyPassword,
-  );
   // A proxy sign-in on this address belongs to the account whose session
   // proved it, which need not be the active one.
   final cookieOwner = addressCookieOwner(
@@ -1393,11 +1431,6 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
-  // The proxy sign-in this save keeps, for [cookieOwner].
-  final capturedSession = <String, String>{
-    for (final entry in verified.customHeaders.entries)
-      if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
-  };
   // Whether the account in use would send another session to the address:
   // the cookie it keeps there is part of how the address is reached.
   bool changesInUseSession() {

@@ -961,6 +961,36 @@ void main() {
     );
   });
 
+  test('a move written before its answer failed is saved when tried again',
+      () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(url: localhost()),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    // The move is written; the answer then fails (here, as the change is
+    // announced).
+    var failing = true;
+    events.tap((event, _, _) {
+      if (event == ConduitEvents.serversChanged && failing) {
+        failing = false;
+        throw StateError('the answer could not be put together');
+      }
+    });
+    final request = ServerAddressSaveRequest(
+      checkId: found.checkId!,
+      sendSessionConfirmed: true,
+    );
+    await expectLater(servers.save(request), throwsA(isA<StateError>()));
+    final retried = await servers.save(request);
+    expect(retried.outcome, ServerAddressChangeOutcome.done);
+    expect(
+      retried.addresses!.addresses.singleWhere((a) => a.id == inUse.id).url,
+      localhost(),
+    );
+  });
+
   test('a reply started after removing was asked about is asked about '
       'before the address goes', () async {
     await addSecond();
