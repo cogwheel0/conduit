@@ -822,17 +822,26 @@ void main() {
       check(await storedSession('a')).isNull();
     });
 
-    // Each one deleted is told of, even when another cannot be deleted.
-    for (final undeletable in [null, 'a']) {
-      test('when a sign-out cut short is finished at startup'
-          '${undeletable == null ? '' : ', but for one it cannot delete'}',
+    // Each one deleted is told of, even when another cannot be deleted, and
+    // one deleted only at the second try.
+    for (final (refusal, aDeleted) in [
+      ('', true),
+      (', but for one it cannot delete', false),
+      (', one at the second try', true),
+    ]) {
+      test('when a sign-out cut short is finished at startup$refusal',
           () async {
         await saveAccounts(['a', 'b']);
         final sessionA = await signInWithBrowser('a');
         final sessionB = await signInWithBrowser('b');
-        secure.undeletableKey = undeletable == null
-            ? null
-            : 'browser_sign_in_session_v1:$undeletable';
+        const keyA = 'browser_sign_in_session_v1:a';
+        if (refusal.isNotEmpty) {
+          if (aDeleted) {
+            secure.undeletableOnceKey = keyA;
+          } else {
+            secure.undeletableKey = keyA;
+          }
+        }
 
         final dropped = await droppedBy(() async {
           try {
@@ -843,7 +852,7 @@ void main() {
         });
 
         check(dropped).unorderedEquals([
-          if (undeletable == null) (accountId: 'a', session: sessionA),
+          if (aDeleted) (accountId: 'a', session: sessionA),
           (accountId: 'b', session: sessionB),
         ]);
         check(await storedSession('b')).isNull();
@@ -1288,6 +1297,7 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedOnceKey;
   String? unreadableKey;
   String? undeletableKey;
+  String? undeletableOnceKey;
   bool Function(String key, String? value)? refuseWhen;
 
   /// Every key deleted so far.
@@ -1296,6 +1306,10 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   @override
   Future<void> delete({required String key}) {
     if (key == undeletableKey) throw StateError('keychain refused $key');
+    if (key == undeletableOnceKey) {
+      undeletableOnceKey = null;
+      throw StateError('keychain refused $key');
+    }
     deletedKeys.add(key);
     return super.delete(key: key);
   }

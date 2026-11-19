@@ -5272,17 +5272,27 @@ class OptimizedStorageService {
         );
       }
       // One at a time, so one that cannot be deleted leaves the others told
-      // of; then any it could not read.
+      // of; then all at once, for any it could not read or delete on its
+      // own, told of once that deletes them.
+      void tell(String accountId, String payload) {
+        if (BrowserSignInSession.tryDecode(payload) case final session?) {
+          droppedBrowserSessions.add((accountId: accountId, session: session));
+        }
+      }
+
+      final untold = {...browserSessions};
       for (final MapEntry(key: accountId, value: payload)
           in browserSessions.entries) {
         await attempt(() async {
           await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
-          if (BrowserSignInSession.tryDecode(payload) case final session?) {
-            droppedBrowserSessions.add((accountId: accountId, session: session));
-          }
+          untold.remove(accountId);
+          tell(accountId, payload);
         });
       }
-      await attempt(_secureCredentialStorage.deleteAllBrowserSignInSessions);
+      await attempt(() async {
+        await _secureCredentialStorage.deleteAllBrowserSignInSessions();
+        untold.forEach(tell);
+      });
       await attempt(_scrubServerConfigAuthArtifactsUnlocked);
       _stagedServerConfigCandidate = null;
     });
