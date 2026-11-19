@@ -463,6 +463,10 @@ Future<void> durableSend(
     mutationOwner: sendMutationOwner,
   );
   onAssistantPlaceholderCreated?.call(sendHandle);
+  // A Stop from here on, while admission reads settings, stays with the send.
+  if (sendMutationOwner.openWebUiApi case final ApiService api) {
+    api.beginSend(assistantMessageId);
+  }
 
   final chatLocks = ref.read(chatLocksProvider);
   final attachmentList = attachments ?? const <String>[];

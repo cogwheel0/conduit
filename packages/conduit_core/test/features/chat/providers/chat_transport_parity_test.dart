@@ -1315,6 +1315,30 @@ void main() {
       check(abortCalled).isTrue();
     });
 
+    test('a Stop while the send prepares keeps its request from being sent, '
+        'though no abort was registered yet', () async {
+      final api = _buildFakeApi();
+      final requests = _PathRecordingAdapter(api.dio.httpClientAdapter);
+      api.dio.httpClientAdapter = requests;
+
+      api.beginSend('msg-preparing');
+      // Stop, as the chat's Stop reaches it while settings are read.
+      api.cancelStreamingMessage('msg-preparing');
+
+      await check(
+        api.sendMessageSession(
+          messages: const [
+            {'role': 'user', 'content': 'Hello'},
+          ],
+          model: 'model-1',
+          conversationId: 'conv-1',
+          responseMessageId: 'msg-preparing',
+        ),
+      ).throws<ChatCompletionStopped>();
+      check(requests.paths).not((it) => it.contains('/api/chat/completions'));
+      check(api.sendStopped('msg-preparing')).isFalse();
+    });
+
     // -------------------------------------------------------------------
     // 4. Stop cancels taskSocket using task id
     // -------------------------------------------------------------------

@@ -154,6 +154,23 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
+  /// Ends an assistant placeholder whose request a Stop kept from being sent:
+  /// not streaming, done, its content as it is.
+  Future<bool> markAssistantStopped({
+    required String chatId,
+    required String messageId,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        payload
+          ..['isStreaming'] = false
+          ..['done'] = true;
+      },
+    );
+  }
+
   /// Durability barrier written immediately before the completion POST.
   ///
   /// The marker means submission may have started; it deliberately does not
