@@ -274,7 +274,9 @@ void main() {
         ],
       );
       addTearDown(container.dispose);
-      check((await _settledAuth(container)).token).equals(_tokenA);
+      final initial = await _settledAuth(container);
+      check(initial.isAuthenticated).isTrue();
+      check(initial.token).equals(_tokenA);
 
       final configs = storage.serverConfigRevision;
       await storage.saveServerConfigs([
