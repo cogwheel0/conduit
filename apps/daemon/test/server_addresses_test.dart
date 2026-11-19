@@ -47,6 +47,7 @@ void main() {
   late String serverId;
   const users = {
     'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),
+    'bob@example.com': (id: 'user-bob', name: 'Bob', password: 'pw-bob'),
   };
 
   setUpAll(() async {
@@ -781,6 +782,10 @@ void main() {
     expect(saved.addresses!.addresses, hasLength(1));
   });
 
+  // The sign-in window names the account it was for, or none. Named, its
+  // cookie is that account's once its own session proves the address,
+  // whichever account is active; a named account that cannot is asked to
+  // sign in.
   test('an address behind a sign-in proxy is saved with what its sign-in '
       'captured, the cookie kept for the account', () async {
     // The same server, behind a proxy.
@@ -820,21 +825,31 @@ void main() {
       registry.server(serverId)!.endpoint(route.id)!.customHeaders,
       isNot(contains('Cookie')),
     );
-    final account = registry.accountsOn(serverId).single;
-    expect(account.capturedHeaders[route.id]?['Cookie'], '_lab_proxy=let-in');
-
+    final ada = registry.accountsOn(serverId).single.id;
+    expect(
+      registry.account(ada)!.capturedHeaders[route.id]?['Cookie'],
+      '_lab_proxy=let-in',
+    );
     await servers.remove(
       ServerAddressRemoveRequest(serverId: serverId, endpointId: route.id),
     );
-  });
 
-  // The sign-in window named the account it was for: its cookie is kept
-  // once that account's own session proves the address through the proxy,
-  // and for no other account.
-  test('a proxy sign-in named for an account is kept once that account '
-      'proves the address', () async {
-    proxied.shareSessionsOf(owui);
-    final active = (await accounts.list()).activeAccountId!;
+    // Bob's account on the same server, signed in; Ada's in charge again.
+    await accounts.add(
+      AddAccount(
+        server: ServerDraft(name: 'Lab', url: owui.url),
+        serverId: serverId,
+        force: true,
+      ),
+    );
+    await auth.loginWithPassword(
+      const PasswordLogin(username: 'bob@example.com', password: 'pw-bob'),
+    );
+    final bob = (await accounts.list()).activeAccountId!;
+    await userKnown(bob);
+    await accounts.switchTo(AccountRef(accountId: ada));
+    await runtime.container.read(activeServerProvider.future);
+
     Future<ServerAddressSaveResult> signedInFor(String account) async {
       final found = await check(ServerAddressForm(url: proxied.url));
       return servers.save(
@@ -854,18 +869,20 @@ void main() {
     expect(refused.outcome, ServerAddressChangeOutcome.notSaved);
     expect(refused.problem, ServerAddressProblemCode.needsSignIn);
 
-    final saved = await signedInFor(active);
-    expect(saved.outcome, ServerAddressChangeOutcome.done);
-    final route = saved.addresses!.addresses.last;
-    final registry = await runtime.container
+    // Ada's session would prove it too; only Bob's is asked.
+    final forBob = await signedInFor(bob);
+    expect(forBob.outcome, ServerAddressChangeOutcome.done);
+    final bobRoute = forBob.addresses!.addresses.last;
+    final kept = await runtime.container
         .read(optimizedStorageServiceProvider)
         .getOpenWebUiRegistryStrict();
     expect(
-      registry.account(active)!.capturedHeaders[route.id]?['Cookie'],
+      kept.account(bob)!.capturedHeaders[bobRoute.id]?['Cookie'],
       '_lab_proxy=let-in',
     );
+    expect(kept.account(ada)!.capturedHeaders, isNot(contains(bobRoute.id)));
     await servers.remove(
-      ServerAddressRemoveRequest(serverId: serverId, endpointId: route.id),
+      ServerAddressRemoveRequest(serverId: serverId, endpointId: bobRoute.id),
     );
   });
 

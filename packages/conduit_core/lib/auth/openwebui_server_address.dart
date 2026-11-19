@@ -463,6 +463,9 @@ ApiService buildAddressCheckApi(
 /// flagged active or the only one saved; its session is the live one, not
 /// one kept for an inactive account. Returns what the check found and that
 /// account's id. Throws when storage cannot be read.
+///
+/// With [onlyAccountId], only that account's session is tried
+/// ([checkOpenWebUiAddress]).
 Future<({OpenWebUiAddressCheckResult found, String? activeAccountId})>
 checkSavedServerAddress(
   ProviderContainer container, {
@@ -471,6 +474,7 @@ checkSavedServerAddress(
   required String address,
   required Future<bool> Function(Uri address) confirmSendingSession,
   required Future<String> Function(String accountId, String token) userAt,
+  String? onlyAccountId,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   final activeAccountId = await storage.getEffectiveActiveServerId();
@@ -479,6 +483,7 @@ checkSavedServerAddress(
     serverId: serverId,
     address: address,
     activeAccountId: activeAccountId,
+    onlyAccountId: onlyAccountId,
     liveToken: container.read(authTokenProvider3),
     keptTokenFor: storage.vaultedTokenFor,
     accountsWithSession: await storage.accountIdsWithSession(),
@@ -1321,6 +1326,9 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     registry: registry,
     serverId: server.id,
     address: verified.url,
+    // A sign-in captured for one account is proved by that account alone:
+    // another one's session proving the address says nothing about it.
+    onlyAccountId: sessionAccount,
     confirmSendingSession: confirmSendingSession,
     userAt: (accountId, token) async {
       // Each account's token travels with its own proxy cookie only.
