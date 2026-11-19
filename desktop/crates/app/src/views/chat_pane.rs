@@ -682,15 +682,17 @@ impl ChatPane {
         self.stores
             .navigation
             .update(cx, |n, cx| n.new_chat(false, cx));
-        if let Some(model) = model {
-            self.composer_store
-                .update(cx, |c, cx| c.select_model(&model, cx));
-        }
-        // Once the new chat's draft has taken the field (the switch, which
-        // empties it, follows this update), the suggested message goes in.
+        // Once the composer is on the new chat (the switch, which empties
+        // the field, follows this update): the suggested model is picked for
+        // it (never for the chat open before), and the suggested message
+        // goes in.
         let prompt = prompt.filter(|p| !p.is_empty());
         cx.spawn_in(window, async move |this, cx| {
             let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(model) = model {
+                    this.composer_store
+                        .update(cx, |c, cx| c.select_model(&model, cx));
+                }
                 if let Some(prompt) = prompt {
                     this.composer
                         .update(cx, |c, cx| c.restore(&prompt, window, cx));
@@ -3689,6 +3691,50 @@ mod tests {
             assert_eq!(picks[0]["chatId"], "c-agent");
             vcx.update(|window, cx| window.draw(cx).clear(cx));
             assert!(vcx.debug_bounds("chat-agent-switch").is_none());
+        }
+
+        /// A handoff with a suggested model, taken while chat A is open: the
+        /// model is picked for the new chat (New Chat, no chat id) once the
+        /// composer is on it, never for chat A, and the new chat shows it.
+        #[gpui_kit::test]
+        fn a_handoffs_model_is_picked_for_the_new_chat_not_the_open_one(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            let summary = |id: &str| serde_json::json!({"id": id, "name": id, "pinned": false, "capabilities": []});
+            daemon.on::<methods::ModelsSelect>(move |q| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": q["id"],
+                    "revision": 1,
+                }))
+            });
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": "k",
+                }))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.open_handoff(
+                    Some("suggested".into()),
+                    Some("Carry on from here".into()),
+                    window,
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1, "{picks:?}");
+            assert_eq!(picks[0]["id"], "suggested");
+            assert!(
+                picks[0].get("chatId").is_none_or(|c| c.is_null()),
+                "the handoff's model was picked for chat A: {picks:?}"
+            );
+            pane.read_with(vcx, |p, cx| {
+                let c = p.composer_store.read(cx);
+                assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some("suggested"));
+            });
         }
 
         /// A link handled right after a new chat's in the same batch
