@@ -4158,7 +4158,7 @@ impl Render for ChatComposer {
             } else {
                 l10n.send()
             };
-            IconButton::new("send", IconName::ArrowUp, label)
+            let send = IconButton::new("send", IconName::ArrowUp, label)
                 .size(32., 17.)
                 .when_some(waits.clone(), |b, why| b.tooltip(why))
                 .shortcut(if waits.is_some() {
@@ -4186,6 +4186,21 @@ impl Render for ChatComposer {
                         let _ = weak.update(cx, |c, cx| c.submit(window, cx));
                     }
                 }))
+                .into_any_element();
+            // Dimmed with no list for the chat, Send takes no click; a press
+            // on it asks for the list again, as Send by keyboard does, and
+            // still sends nothing.
+            div()
+                .debug_selector(|| "composer-send".into())
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|c, _, _, cx| {
+                        if !c.can_send(cx) {
+                            c.composer.update(cx, |s, cx| s.ask_list_again(cx));
+                        }
+                    }),
+                )
+                .child(send)
                 .into_any_element()
         };
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
+        agentTerminalGone,
         captureOpenWebUiReasoningPickTargetFor,
         modelControlChoicesProvider,
         modelControlStates,
@@ -23,6 +24,11 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show libreChatModelSection;
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
+    show
+        terminalAvailableServersProvider,
+        terminalServiceProvider,
+        terminalSessionScopeIdProvider;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart'
     show selectedTerminalIdProvider;
 import 'package:conduit_core/models/model_controls.dart';
@@ -148,6 +154,47 @@ final class ModelsService {
     return id;
   }
 
+  /// New Chat's coding agent for [account], checked as it is read against
+  /// the terminals now, by the rule the account's own selection follows
+  /// (the core's [agentTerminalGone]): a new chat runs on the terminal
+  /// selected, so the agent goes once another terminal or none is selected,
+  /// or once the server confirms its terminal is gone. Its slot is cleared
+  /// then, at the next revision, and every window showing New Chat lists it
+  /// again. A chat's own agent stays: it runs on its own terminal.
+  ///
+  /// Every reader of New Chat's pick checks through this, and it refuses
+  /// ([AccountScope.require]) once another account is in charge, before the
+  /// check and after its wait: the pick is [account]'s, and the request
+  /// would otherwise answer the next account with it.
+  Future<void> _checkNewChat(AccountScope account) async {
+    account.require("New Chat's coding agent is checked");
+    final pick = _picksOf(account)[null];
+    final agent = pick?.model;
+    if (pick == null || terminalAgentTerminalId(agent) == null) return;
+    final gone =
+        await agentTerminalGone(
+          agent,
+          selected: (id: _container.read(selectedTerminalIdProvider)),
+          listed: _container.read(terminalAvailableServersProvider),
+          service: _container.read(terminalServiceProvider),
+          scope: _container.read(terminalSessionScopeIdProvider),
+        ) ||
+        // Another terminal, or none, chosen while the server was read.
+        await agentTerminalGone(
+          agent,
+          selected: (id: _container.read(selectedTerminalIdProvider)),
+        );
+    account.require("New Chat's coding agent is checked");
+    if (!gone) return;
+    // Gone for every send that took this pick, though a newer one may have
+    // taken its place in the slot meanwhile.
+    pick.gone = true;
+    final picks = _picksOf(account);
+    if (!identical(picks[null], pick)) return;
+    picks[null] = _Pick(null, ++_revision);
+    _announce();
+  }
+
   /// A chat's id moved (`route.remap`): its pick moves with it, unless a
   /// newer one was already made under the new id.
   void _followRemaps(EventBus events) {
@@ -171,15 +218,20 @@ final class ModelsService {
   }
 
   /// A turn is about to be sent from [fromChat] (null: from New Chat): what
-  /// its landing may move, captured before it waits to be admitted.
-  ModelSend sending(String? fromChat) {
+  /// its landing may move, captured before any wait (a pick made while the
+  /// turn waits is not its), then, from New Chat, that pick checked against
+  /// the terminals ([_checkNewChat]) whether or not the turn names a model:
+  /// an agent whose terminal went is not carried to the chat it makes.
+  Future<ModelSend> sending(String? fromChat) async {
     final account = AccountScope.capture(_container);
-    return ModelSend._(
+    final send = ModelSend._(
       account,
       fromChat,
       fromChat == null ? _picksOf(account)[null] : null,
       _revision,
     );
+    if (fromChat == null) await _checkNewChat(account);
+    return send;
   }
 
   /// [send] was admitted and went to [toChat], with [model].
@@ -191,7 +243,9 @@ final class ModelsService {
   /// chat's now (whatever model the first message went to for itself
   /// alone, with `@`), and leaves New Chat unless New Chat was picked again
   /// meanwhile. A coding agent the turn named with none picked is the
-  /// chat's too, known by its id alone. Either lands only where no newer pick was made, and only
+  /// chat's too, known by its id alone. A coding agent found gone since
+  /// ([_checkNewChat]) is not: the turn ran without it. Either lands only
+  /// where no newer pick was made, and only
   /// while the account the turn was sent under is still the one in charge,
   /// with nothing changed in between: otherwise nothing is written.
   void sent(ModelSend send, {required String toChat, String? model}) {
@@ -204,8 +258,11 @@ final class ModelsService {
       picks[null] = _Pick(null, ++_revision);
       _announce();
     }
-    final made = slot?.model != null
-        ? slot
+    final taken = slot == null || slot.gone ? null : slot.model;
+    final made = taken != null
+        // A coding agent New Chat picked, as New Chat's terminal offered it:
+        // the chat knows it by its id alone, its controls asked of its own.
+        ? _Pick(taken, slot!.revision, idOnly: isTerminalAgentModelId(taken.id))
         : model != null && isTerminalAgentModelId(model)
         ? _Pick(
             core.Model(
@@ -369,6 +426,7 @@ final class ModelsService {
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
     final current = await currentModel(_container);
+    if (chatId == null) await _checkNewChat(account);
     // Checked right before the answer is put together, after its last
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
@@ -806,6 +864,7 @@ final class ModelsService {
   /// chat: with no regular model left, the turn is refused.
   Future<String> modelFor(String? chatId) async {
     final account = AccountScope.capture(_container);
+    if (chatId == null) await _checkNewChat(account);
     final pick = _picksOf(account)[_now(chatId)]?.model;
     if (pick != null) return pick.id;
     if (chatId != null) {
@@ -1046,6 +1105,7 @@ final class ModelsService {
       // terminal: never as the account selected it for another chat, nor on
       // the terminal selected for one. A pick known by its id alone carries
       // no controls.
+      if (chatId == null) await _checkNewChat(account);
       final pick = _picksOf(account)[_now(chatId)];
       if (pick != null && pick.model?.id == id && !pick.idOnly) {
         return pick.model;
@@ -1105,7 +1165,7 @@ final class ModelsService {
 
 /// One chat's pick, and the revision it was written at.
 final class _Pick {
-  const _Pick(this.model, this.revision, {this.idOnly = false});
+  _Pick(this.model, this.revision, {this.idOnly = false});
 
   /// Null once the pick is gone (New Chat's, taken by its first send): the
   /// record stays for its revision.
@@ -1115,6 +1175,11 @@ final class _Pick {
   /// Whether [model] is known by its id alone (a coding agent a first send
   /// named), not as a terminal offered it: it has none of its controls.
   final bool idOnly;
+
+  /// Set once [model], New Chat's coding agent, was found gone
+  /// ([ModelsService._checkNewChat]): a send that took this pick before then
+  /// ran without it, and leaves it to no chat.
+  bool gone = false;
 }
 
 /// A turn on its way ([ModelsService.sending]): the account and chat it

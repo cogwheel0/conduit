@@ -1212,6 +1212,46 @@ void main() {
         check((await stored())!.url).equals('https://moved.example');
       });
 
+      // Storage keeps the address and its cookie exactly as this save would
+      // write them (an attempt whose answer was lost, tried again): nothing
+      // is written, so a write that would fail cannot undo a done save.
+      test('an exact repeat of what storage keeps is saved without a write',
+          () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          (endpoints) => endpoints,
+          accountId: 'a',
+          routeId: 'lab',
+          headers: const {'Cookie': 'proxy=1'},
+          sessionRevision: storage.sessionRevocationRevision,
+        );
+        secure.refusesCookie = true;
+        addTearDown(() => secure.refusesCookie = false);
+
+        final outcome = await saveVerifiedServerAddress(
+          signedOut,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: 'Lab',
+          verified: ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+            customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+          ),
+          editedFrom: lab,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async => true,
+          stillWanted: () => true,
+        );
+
+        check(outcome).isA<ServerAddressSaved>();
+      });
+
       // A header typed for the address checked never goes to the host
       // another window moved it to; a new name alone still lands.
       test('that changes how it is reached is refused once the address was '
@@ -1325,7 +1365,6 @@ final class _CookieRefusingSecureStore extends InMemorySecureKeyValueStore {
   }
 }
 
-/// Records the route checks asked for instead of probing.
 /// A resolver whose route is [endpointId] of [serverId], in use.
 final class _InUse extends OpenWebUiRouteResolver {
   _InUse(this.serverId, this.endpointId);
@@ -1341,6 +1380,7 @@ final class _InUse extends OpenWebUiRouteResolver {
   Future<void> resolve({String reason = 'manual'}) async {}
 }
 
+/// Records the route checks asked for instead of probing.
 final class _Routes extends OpenWebUiRouteResolver {
   _Routes();
 

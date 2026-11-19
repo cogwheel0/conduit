@@ -2148,6 +2148,27 @@ void main() {
           .equals('http://10.0.0.2:3000');
     });
 
+    // The sign-out could not write the server details back, so reads stay
+    // fenced until a write lands. An edit that leaves them as they are is
+    // that write: it is not skipped as having nothing to change.
+    test('an unchanged edit after a sign-out that could not keep the server '
+        'details writes them, and they read again', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+
+      secure.refusedKey = 'openwebui_registry_v1';
+      await check(
+        storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
+      ).throws<StateError>();
+      secure.refusedKey = null;
+      check(await storage.getServerConfigsStrict()).isEmpty();
+
+      await storage.editServerEndpoints(server.id, (endpoints) => endpoints);
+
+      check((await storage.getServerConfigsStrict()).single.id).equals('a');
+    });
+
     test('removing the route in use falls back to the first', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');
