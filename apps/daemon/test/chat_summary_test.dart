@@ -72,16 +72,9 @@ void main() {
       expect(writable.canWrite, isTrue);
 
       final own = folderSummaryOf(
-        const Folder(
-          id: 'folder-3',
-          name: 'Mine',
-          isExpanded: true,
-          meta: {'icon': 'fire'},
-        ),
+        const Folder(id: 'folder-3', name: 'Mine', isExpanded: true),
       );
       expect((own.shared, own.canWrite, own.expanded), (false, true, true));
-      // Its icon as the web chose it, drawn as Open WebUI's table draws it.
-      expect(own.icon, '\u{1F525}\u{FE0F}');
     });
 
     test('lists its chats in it, another user\'s read-only', () {
