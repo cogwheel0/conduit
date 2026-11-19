@@ -19,6 +19,7 @@ import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
+import 'support/step_clock.dart';
 
 /// The answers an address change waits for or stops: the Open WebUI ones,
 /// which arrive through the active account's address.
@@ -112,6 +113,7 @@ void main() {
   late CoreRuntime runtime;
   late FakeOwuiAuthServer owui;
   late TurnsService turns;
+  late StepClock clock;
 
   /// A fake Open WebUI reporting [version], signed in to with its user
   /// bound, and the turns service on a clock of the test's own.
@@ -175,20 +177,12 @@ void main() {
     );
     addTearDown(watch.close);
     await bound.future;
-    // A poll moves the clock on and lets the event loop turn once; a cap of
-    // seconds never ends by itself, so what it caps decides.
-    var now = DateTime(2026, 11, 20, 9);
+    clock = StepClock();
     turns = TurnsService(
       runtime.container,
       events,
-      now: () => now,
-      pause: (duration) {
-        if (duration >= const Duration(seconds: 1)) {
-          return Completer<void>().future;
-        }
-        now = now.add(duration);
-        return Future<void>(() {});
-      },
+      now: clock.now,
+      pause: clock.pause,
     );
     addTearDown(turns.dispose);
   }
@@ -209,7 +203,7 @@ void main() {
     final held = turns.send(
       SendTurn(chatId: chatId, model: 'kettle-model', text: 'Milk?'),
     )..ignore();
-    await owui.settingsAsked.future;
+    await clock.during(owui.settingsAsked.future);
     expect(turns.addressAnswering, isTrue);
     return held;
   }
@@ -228,11 +222,13 @@ void main() {
         ..seed('chat-garden', userId: 'user-ada')
         ..seed('chat-kitchen', userId: 'user-ada')
         ..holdStream = Completer<void>();
-      final answering = await turns.send(
-        const SendTurn(
-          chatId: 'chat-garden',
-          model: 'kettle-model',
-          text: 'Water the beans',
+      final answering = await clock.during(
+        turns.send(
+          const SendTurn(
+            chatId: 'chat-garden',
+            model: 'kettle-model',
+            text: 'Water the beans',
+          ),
         ),
       );
       expect(turns.isRunning(answering.chatId), isTrue);
@@ -246,7 +242,7 @@ void main() {
           text: 'Milk?',
         ),
       )..ignore();
-      await chats.admissionAsked.future;
+      await clock.during(chats.admissionAsked.future);
       expect(turns.addressAnswering, isTrue);
       return (answering: answering.chatId, held: held);
     }
@@ -255,13 +251,13 @@ void main() {
         'reply is still held: the send is dropped, not waited out', () async {
       final (:answering, :held) = await answeringAndHeld();
 
-      await turns.stopAddressAnswers();
+      await clock.during(turns.stopAddressAnswers());
 
       expect(owui.chats.holdAdmission!.isCompleted, isFalse);
       expect(owui.chats.stopped, hasLength(1));
       expect(turns.isRunning(answering), isFalse);
       expect(turns.addressAnswering, isFalse);
-      await held.then((_) {}, onError: (_) {});
+      await clock.during(held.then((_) {}, onError: (_) {}));
       expect(turns.addressAnswering, isFalse);
     });
 
@@ -277,8 +273,8 @@ void main() {
 
         final changing = turns.stopAddressAnswers();
         owui.holdSettings!.complete();
-        await changing;
-        await held.then((_) {}, onError: (_) {});
+        await clock.during(changing);
+        await clock.during(held.then((_) {}, onError: (_) {}));
 
         expect(owui.chats.completions, isEmpty);
         expect(turns.addressAnswering, isFalse);
@@ -295,16 +291,18 @@ void main() {
       owui.chats
         ..seed('chat-garden', userId: 'user-ada')
         ..holdStream = Completer<void>();
-      final other = await turns.send(
-        const SendTurn(
-          chatId: 'chat-garden',
-          model: 'kettle-model',
-          text: 'Water the beans',
+      final other = await clock.during(
+        turns.send(
+          const SendTurn(
+            chatId: 'chat-garden',
+            model: 'kettle-model',
+            text: 'Water the beans',
+          ),
         ),
       );
       owui.holdSettings!.complete();
-      await changing;
-      await held.then((_) {}, onError: (_) {});
+      await clock.during(changing);
+      await clock.during(held.then((_) {}, onError: (_) {}));
 
       expect(turns.isRunning(other.chatId), isTrue);
       expect(owui.chats.stopped, isEmpty);
@@ -314,11 +312,11 @@ void main() {
       final (answering: _, :held) = await answeringAndHeld();
       const chatId = 'chat-kitchen';
 
-      await turns.stop(chatId);
+      await clock.during(turns.stop(chatId));
 
       expect(owui.chats.holdAdmission!.isCompleted, isFalse);
       expect(turns.isRunning(chatId), isFalse);
-      await held.then((_) {}, onError: (_) {});
+      await clock.during(held.then((_) {}, onError: (_) {}));
     });
   });
 
@@ -343,13 +341,15 @@ void main() {
             ..holdChatSaves = Completer<void>();
         }
         owui.holdSettings!.complete();
-        await (reads ? chats.chatReadAsked : chats.chatSaveAsked).future;
+        await clock.during(
+          (reads ? chats.chatReadAsked : chats.chatSaveAsked).future,
+        );
 
         final stopping = turns.stop(chatId);
         await pumpEventQueue();
         (reads ? chats.holdChatReads : chats.holdChatSaves)!.complete();
-        await stopping;
-        await held.then((_) {}, onError: (_) {});
+        await clock.during(stopping);
+        await clock.during(held.then((_) {}, onError: (_) {}));
 
         expect(chats.completions, isEmpty);
         final db = runtime.container.read(appDatabaseProvider)!;
