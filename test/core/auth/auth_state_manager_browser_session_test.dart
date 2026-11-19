@@ -22,6 +22,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -245,6 +246,39 @@ void main() {
       check(rig.state.isAuthenticated).isFalse();
     });
 
+    test('Cancel while an unfinished sign-out holds the commit shows nothing '
+        'of it', () async {
+      var holding = false;
+      final clearing = Completer<void>();
+      final cleared = Completer<bool>();
+      PreferencesStore.debugOverride(
+        await FlutterKeyValueStore.load(),
+        writeInterceptor: (_, key, value) async {
+          if (!holding ||
+              key != PreferenceKeys.incompleteLogoutFence ||
+              value != null) {
+            return null;
+          }
+          if (!clearing.isCompleted) clearing.complete();
+          return cleared.future;
+        },
+      );
+      final rig = await _Rig.start();
+      rig.container
+          .read(incompleteLogoutFenceProvider.notifier)
+          .setSuppressed(true);
+      holding = true;
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await clearing.future;
+      await rig.auth.cancelBrowserSignIn();
+      cleared.complete(true);
+
+      check(await signIn).isFalse();
+      check(rig.state.isAuthenticated).isFalse();
+      check(rig.state.error).isNull();
+    });
+
     test('a sign-in begun after Cancel is not called off by it', () async {
       final rig = await _Rig.start();
       rig.service.findingProvider = Completer<void>();
@@ -332,17 +366,24 @@ void main() {
       check(rig.storage.committedToken).equals(_issued);
     });
 
-    test('a commit lost to the account moving to another address is tried '
-        'once more there, with the same grant', () async {
-      final rig = await _Rig.start();
-      rig.storage.refusedCommits = 1;
+    // Lost as it is committed, or as it takes the account's ownership,
+    // before anything is exchanged.
+    for (final (lost, refuse, exchanges) in [
+      ('A commit', (_Storage storage) => storage.refusedCommits = 1, 2),
+      ('An ownership', (_Storage storage) => storage.refusedOwnerships = 1, 1),
+    ]) {
+      test('$lost lost to the account moving to another address is tried '
+          'once more there, with the same grant', () async {
+        final rig = await _Rig.start();
+        refuse(rig.storage);
 
-      check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
+        check(await rig.auth.loginWithBrowser(config: _config)).isTrue();
 
-      check(rig.service.authorizeCalls).length.equals(1);
-      check(rig.service.exchanges).length.equals(2);
-      check(rig.storage.committedToken).equals(_issued);
-    });
+        check(rig.service.authorizeCalls).length.equals(1);
+        check(rig.service.exchanges).length.equals(exchanges);
+        check(rig.storage.committedToken).equals(_issued);
+      });
+    }
 
     test('a commit lost twice is a failure to try again', () async {
       final rig = await _Rig.start();
@@ -554,37 +595,48 @@ void main() {
       check(rig.service.renewals).equals(1);
     });
 
-    test(
-      'a renewal that signs in as another user ends the saved sign-in',
-      () async {
-        final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
-        final rig = await _Rig.start(
-          storedToken: expired,
-          saved: _savedBrowserSignIn(expired),
-          renew: () async => (
-            token: _renewed,
-            session: const BrowserSignInSession(
-              serverId: 'server-1',
-              provider: 'oidc',
-              clientId: 'conduit',
-              issuer: 'https://id.example',
-              tokenEndpoint: 'https://id.example/token',
-              refreshToken: 'idp-refresh',
-              owuiUserId: 'someone-else',
+    // Renewed as a user other than the one its session was issued to, or
+    // than the one the account was proved to be: a session left over from
+    // a sign-in as someone else that never finished never renews as them.
+    for (final (sessionUser, accountUser) in [
+      ('someone-else', null),
+      ('user-a', 'someone-else'),
+    ]) {
+      test(
+        'a renewal that signs in as another user than '
+        '${accountUser == null ? 'its session' : 'its account'}\'s ends the '
+        'saved sign-in',
+        () async {
+          final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
+          final rig = await _Rig.start(
+            registry: _registry(userId: accountUser),
+            storedToken: expired,
+            saved: _savedBrowserSignIn(expired),
+            renew: () async => (
+              token: _renewed,
+              session: BrowserSignInSession(
+                serverId: 'server-1',
+                provider: 'oidc',
+                clientId: 'conduit',
+                issuer: 'https://id.example',
+                tokenEndpoint: 'https://id.example/token',
+                refreshToken: 'idp-refresh',
+                owuiUserId: sessionUser,
+              ),
             ),
-          ),
-        );
+          );
 
-        check(rig.state.status).equals(AuthStatus.credentialError);
-        check(rig.state.error).equals('browserSignInSessionExpired');
-        check(rig.storage.committedToken).isNull();
-        verify(
-          () => rig.storage.deleteSavedCredentialsIfMatches(
-            _savedBrowserSignIn(expired),
-          ),
-        ).called(1);
-      },
-    );
+          check(rig.state.status).equals(AuthStatus.credentialError);
+          check(rig.state.error).equals('browserSignInSessionExpired');
+          check(rig.storage.committedToken).isNull();
+          verify(
+            () => rig.storage.deleteSavedCredentialsIfMatches(
+              _savedBrowserSignIn(expired),
+            ),
+          ).called(1);
+        },
+      );
+    }
 
     for (final (failure, message) in [
       (BrowserSignInFailure.refreshExpired, 'browserSignInSessionExpired'),
@@ -613,18 +665,34 @@ void main() {
       );
     }
 
-    test('a renewal that fails for now keeps the saved sign-in', () async {
-      final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
-      final rig = await _Rig.start(
-        storedToken: expired,
-        saved: _savedBrowserSignIn(expired),
-        renew: () async =>
+    // A proxy in front of the server answering with its own page says
+    // nothing about the session Open WebUI issued.
+    for (final (reason, renew, refusals) in [
+      (
+        'fails for now',
+        () async =>
             throw const BrowserSignInException(BrowserSignInFailure.network),
-      );
+        const <String, Object>{},
+      ),
+      (
+        'meets a proxy page',
+        () async => (token: _renewed, session: _session),
+        {_renewed: _proxyPage()},
+      ),
+    ]) {
+      test('a renewal that $reason keeps the saved sign-in', () async {
+        final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
+        final rig = await _Rig.start(
+          storedToken: expired,
+          saved: _savedBrowserSignIn(expired),
+          renew: renew,
+          refusals: refusals,
+        );
 
-      check(rig.state.status).equals(AuthStatus.unauthenticated);
-      verifyNever(() => rig.storage.deleteSavedCredentialsIfMatches(any()));
-    });
+        check(rig.state.status).equals(AuthStatus.unauthenticated);
+        verifyNever(() => rig.storage.deleteSavedCredentialsIfMatches(any()));
+      });
+    }
 
     test('a session the server refuses renews in the background, showing '
         'nothing until the new one is in', () async {
@@ -981,16 +1049,22 @@ void main() {
       check(rig.service.revoked).deepEquals([_session]);
     });
 
-    test('revokes the refresh token on a plain logout', () async {
-      final rig = await _Rig.start(clears: true);
-      when(() => rig.storage.browserSignInSessionFor('account-a'))
-          .thenAnswer((_) async => _session);
+    // The session the clear took, even when it could not be read before.
+    for (final readable in [true, false]) {
+      test('revokes the refresh token on a plain logout'
+          '${readable ? '' : ' that could not read it first'}', () async {
+        final rig = await _Rig.start(clears: true);
+        if (!readable) {
+          when(() => rig.storage.browserSignInSessionFor('account-a'))
+              .thenThrow(StateError('Keychain locked'));
+        }
 
-      await rig.auth.logout();
-      await pumpEventQueue();
+        await rig.auth.logout();
+        await pumpEventQueue();
 
-      check(rig.service.revoked).deepEquals([_session]);
-    });
+        check(rig.service.revoked).deepEquals([_session]);
+      });
+    }
 
     test('revokes nothing when a newer sign-in owns the account', () async {
       final rig = await _Rig.start(clears: false);
@@ -1126,20 +1200,17 @@ void main() {
       check(rig.service.released).length.equals(1);
     });
 
-    test('a plain logout holds renewals from the session read through the '
-        'clear', () async {
+    test('a plain logout holds renewals through the clear', () async {
       final rig = await _Rig.start(clears: true);
-      when(() => rig.storage.browserSignInSessionFor('account-a'))
-          .thenAnswer((_) async => _session);
       var heldDuringClear = false;
       when(
         () => rig.storage.clearActiveAccountAuthDataIf(
           canClear: any(named: 'canClear'),
-          tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
         ),
       ).thenAnswer((invocation) async {
         heldDuringClear =
             rig.service.held.length == 1 && rig.service.released.isEmpty;
+        rig.storage.dropped.add([(accountId: 'account-a', session: _session)]);
         return (invocation.namedArguments[#canClear] as bool Function())();
       });
 
@@ -1241,6 +1312,7 @@ final class _Rig {
     Map<String, String>? saved,
     String activeId = 'account-a',
     Future<BrowserSignInRenewal> Function()? renew,
+    Map<String, Object> refusals = const {},
     bool clears = true,
     List<StoredBrowserSignInSession> swept = const [],
   }) async {
@@ -1250,8 +1322,8 @@ final class _Rig {
       ..activeId = activeId
       ..storedToken = storedToken
       ..saved = saved;
-    rig.api = _Api(workerManager);
-    rig.savedCredentialApi = _Api(workerManager);
+    rig.api = _Api(workerManager)..refusals.addAll(refusals);
+    rig.savedCredentialApi = _Api(workerManager)..refusals.addAll(refusals);
     rig.service.onRenew = renew;
     final storage = rig.storage;
     storage.registry = registry ?? _registry();
@@ -1293,12 +1365,14 @@ final class _Rig {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
-        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
-    ).thenAnswer(
-      (invocation) async =>
-          clears && (invocation.namedArguments[#canClear] as bool Function())(),
-    );
+    ).thenAnswer((invocation) async {
+      final args = invocation.namedArguments;
+      if (!clears || !(args[#canClear] as bool Function())()) return false;
+      // The account's session goes with the clear, and is told of.
+      rig.storage.dropped.add([(accountId: rig.activeId, session: _session)]);
+      return true;
+    });
 
     final isolation = _Isolation();
     rig.container = ProviderContainer(
@@ -1376,6 +1450,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
   /// Commits refused, as a move of the account to another address refuses
   /// one taken before it.
   int refusedCommits = 0;
+
+  /// Ownerships refused, as a move of the account to another address
+  /// refuses the client of the address it left.
+  int refusedOwnerships = 0;
   String? committedToken;
   Map<String, String>? remembered;
   Map<String, String>? expected;
@@ -1394,6 +1472,10 @@ final class _Storage extends Mock implements OptimizedStorageService {
     required ServerConfig validatedConfig,
     required bool requireActive,
   }) async {
+    if (refusedOwnerships > 0) {
+      refusedOwnerships--;
+      return null;
+    }
     ownershipConfigs.add(validatedConfig);
     return (
       revision: 1,
@@ -1554,6 +1636,23 @@ final class _Service extends BrowserSignInService {
   }
 }
 
+/// A 401 page from a proxy in front of the server.
+DioException _proxyPage() {
+  final request = RequestOptions(path: '/api/v1/auths/');
+  return DioException(
+    requestOptions: request,
+    type: DioExceptionType.badResponse,
+    response: Response<String>(
+      requestOptions: request,
+      statusCode: 401,
+      data: '<html>Sign in</html>',
+      headers: Headers.fromMap({
+        Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+      }),
+    ),
+  );
+}
+
 /// An Open WebUI client that signs in as user A, and records the tokens it
 /// was asked to check.
 final class _Api extends ApiService {
@@ -1562,6 +1661,9 @@ final class _Api extends ApiService {
 
   final validated = <String?>[];
 
+  /// What checking a token answers instead of user A, by token.
+  final refusals = <String, Object>{};
+
   @override
   Future<User> getCurrentUser({
     bool suppressAuthFailureNotification = false,
@@ -1569,6 +1671,7 @@ final class _Api extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     validated.add(candidateAuthToken);
+    if (refusals[candidateAuthToken] case final refusal?) throw refusal;
     return _userA;
   }
 

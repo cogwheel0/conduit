@@ -520,7 +520,7 @@ class AuthStateManager extends _$AuthStateManager {
     final publicationSafetyEpoch = _sessionSafetyEpoch;
     var publicationAttempted = false;
     try {
-      return await storage.commitExistingServerSession(
+      final committed = await storage.commitExistingServerSession(
         ownership: ownership,
         token: token,
         rememberedCredentials: rememberedCredentials,
@@ -537,6 +537,7 @@ class AuthStateManager extends _$AuthStateManager {
           return _publishCommittedAuthenticatedSession(
             attemptRevision: attemptRevision,
             candidateToken: token,
+            stillWanted: () => _canCommitAuth(canCommit),
             publish: () {
               _setIncompleteLogoutFenceInMemory(false);
               _updateApiServiceToken(token);
@@ -566,6 +567,15 @@ class AuthStateManager extends _$AuthStateManager {
           );
         },
       );
+      // Rolled back after it was shown: what was shown before comes back.
+      if (!committed && publicationAttempted) {
+        _restoreRolledBackAuthPublication(
+          attemptRevision: attemptRevision,
+          capturedSessionSafetyEpoch: publicationSafetyEpoch,
+          previousState: previousState,
+        );
+      }
+      return committed;
     } catch (error, stackTrace) {
       if (publicationAttempted &&
           _restoreRolledBackAuthPublication(
@@ -900,8 +910,6 @@ class AuthStateManager extends _$AuthStateManager {
           );
           final cleared = await storage.clearActiveAccountAuthDataIf(
             canClear: () => !_authAttemptSuperseded(attemptRevision),
-            // Not a sign-out, which revokes its own: told, to be revoked.
-            tellDroppedBrowserSession: true,
           );
           if (!cleared || _authAttemptSuperseded(attemptRevision)) return;
           return;
@@ -1633,12 +1641,13 @@ class AuthStateManager extends _$AuthStateManager {
   }) async {
     bool stopped() =>
         _authAttemptSuperseded(attemptRevision) || !_canCommitAuth(canCommit);
-    final ownership = await _captureLoginServerOwnership(
-      storage,
-      api,
+    // None once the account moved to another address since [api] was read:
+    // nothing is exchanged yet, so the grant is tried there.
+    final ownership = await storage.captureServerSessionOwnership(
+      validatedConfig: api.serverConfig,
       requireActive: true,
     );
-    if (stopped()) return false;
+    if (ownership == null || stopped()) return false;
 
     final BrowserSignInAnswer answer;
     try {
@@ -3249,7 +3258,15 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  Future<User> _validateIssuedToken(ApiService api, String token) async {
+  /// With [proxyPageForNow], a page from a proxy in front of the server
+  /// fails as [BrowserSignInFailure.proxySignInRequired]: it says nothing
+  /// about the session, which a browser sign-in keeps, with its refresh
+  /// token, where Open WebUI's own refusal ends them.
+  Future<User> _validateIssuedToken(
+    ApiService api,
+    String token, {
+    bool proxyPageForNow = false,
+  }) async {
     try {
       final user = await api.getCurrentUser(
         suppressAuthFailureNotification: true,
@@ -3258,6 +3275,17 @@ class AuthStateManager extends _$AuthStateManager {
       _recordValidatedIdentity(token, user);
       return user;
     } catch (error, stackTrace) {
+      if (proxyPageForNow &&
+          error is DioException &&
+          error.response != null &&
+          answeredWithWebPage(error.response!.headers)) {
+        Error.throwWithStackTrace(
+          const BrowserSignInException(
+            BrowserSignInFailure.proxySignInRequired,
+          ),
+          stackTrace,
+        );
+      }
       Error.throwWithStackTrace(
         Exception(_loginValidationMessage(error)),
         stackTrace,
@@ -3771,7 +3799,11 @@ class AuthStateManager extends _$AuthStateManager {
     final saved = savedToken.trim();
     if (!renew && saved.isNotEmpty && _isValidTokenFormat(saved)) {
       try {
-        final user = await _validateIssuedToken(api, saved);
+        final user = await _validateIssuedToken(
+          api,
+          saved,
+          proxyPageForNow: true,
+        );
         return (token: saved, user: user);
       } catch (error) {
         if (!_isConfirmedAuthFailure(error)) rethrow;
@@ -3779,19 +3811,27 @@ class AuthStateManager extends _$AuthStateManager {
       }
     }
 
+    final storage = ref.read(optimizedStorageServiceProvider);
+    // Who the account was proved to be, kept apart from its session: one left
+    // over from a sign-in as someone else that never finished must not renew
+    // as them.
+    final provedUserId = (await storage.getOpenWebUiRegistryStrict())
+        .account(accountId)
+        ?.userId;
     final renewal = await ref
         .read(browserSignInServiceProvider)
-        .renew(
-          accountId: accountId,
-          api: api,
-          storage: ref.read(optimizedStorageServiceProvider),
-        );
+        .renew(accountId: accountId, api: api, storage: storage);
     if (!_isValidTokenFormat(renewal.token)) {
       throw const BrowserSignInException(BrowserSignInFailure.failed);
     }
     _acceptFreshlyIssuedServerToken(renewal.token, source: 'browser-renewal');
-    final user = await _validateIssuedToken(api, renewal.token);
-    if (user.id != renewal.session.owuiUserId) {
+    final user = await _validateIssuedToken(
+      api,
+      renewal.token,
+      proxyPageForNow: true,
+    );
+    if (user.id != renewal.session.owuiUserId ||
+        (provedUserId != null && user.id != provedUserId)) {
       throw const BrowserSignInException(BrowserSignInFailure.userMismatch);
     }
     DebugLogger.auth('Browser sign-in session renewed');
@@ -4920,39 +4960,22 @@ class AuthStateManager extends _$AuthStateManager {
     final loggedOutAccountId = clearAllAppData
         ? null
         : _accountLeftByPlainLogout();
-    // A plain logout ends the account's browser sign-in session too: read it
-    // before anything clears it, and revoke it once the logout has. Signing
+    // A plain logout ends the account's browser sign-in session too: storage
+    // tells of the session its clear takes, which is revoked then. Signing
     // out of every account revokes them all itself.
     _retryableBrowserGrant = null;
-    // Renewals of the account wait until the logout ends: one between the
-    // read and the clear would rotate the refresh token, leaving the new one
-    // unrevoked. The clear waits for the read.
+    // Renewals of the account wait until the logout ends: one that rotated
+    // the refresh token as the clear took the session would leave the new one
+    // stored nowhere, and unrevoked. The clear waits for the hold.
     final browserRenewalsHeld = clearAllAppData || loggedOutAccountId == null
         ? null
         : _holdBrowserRenewals([loggedOutAccountId]);
-    final browserSessionStorage = ref.read(optimizedStorageServiceProvider);
-    final browserSessionRead = browserRenewalsHeld?.then(
-      (_) => _browserSessionForRevocation(
-        browserSessionStorage,
-        loggedOutAccountId!,
-      ),
-    );
-    Future<void> browserSessionReadSettled() async {
+    Future<void> browserRenewalsSettled() async {
       try {
-        await browserSessionRead;
+        await browserRenewalsHeld;
       } catch (_) {
-        // Unread, there is nothing to revoke.
+        // Nothing held, nothing to wait for.
       }
-    }
-
-    void revokeBrowserSession() {
-      final read = browserSessionRead;
-      if (read == null) return;
-      unawaited(
-        read.then((session) async {
-          if (session != null) await _revokeBrowserSessions([session]);
-        }),
-      );
     }
 
     final attemptRevision = _beginAuthAttempt();
@@ -5145,13 +5168,12 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
 
-      await browserSessionReadSettled();
+      await browserRenewalsSettled();
       durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
       if (!durableAuthDataCleared) {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
         return FullAppDataClearOutcome.ownershipYielded;
       }
-      revokeBrowserSession();
       await purgeLoggedOutAccountData();
 
       DebugLogger.auth(
@@ -5171,7 +5193,7 @@ class AuthStateManager extends _$AuthStateManager {
       } else {
         // Even if logout fails, clear local state where possible.
         try {
-          await browserSessionReadSettled();
+          await browserRenewalsSettled();
           durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
           if (!durableAuthDataCleared) {
             DebugLogger.auth(
@@ -5179,7 +5201,6 @@ class AuthStateManager extends _$AuthStateManager {
             );
             return FullAppDataClearOutcome.ownershipYielded;
           }
-          revokeBrowserSession();
           await purgeLoggedOutAccountData();
         } catch (clearError) {
           _logAuthenticationFailure('logout-clear-failed', clearError);
@@ -5437,12 +5458,19 @@ class AuthStateManager extends _$AuthStateManager {
   /// authenticated session. This callback is awaited by the storage
   /// transaction while its auth/config locks remain held, so a failed checked
   /// preference write rolls the new token and ownership changes back.
+  /// [stillWanted] is the caller's own say, asked with the attempt's
+  /// revision: an attempt called off while the fence cleared publishes
+  /// nothing, though no newer attempt began.
   Future<void> _publishCommittedAuthenticatedSession({
     required int attemptRevision,
     required String candidateToken,
     required void Function() publish,
+    bool Function()? stillWanted,
   }) async {
-    if (_authAttemptSuperseded(attemptRevision)) {
+    bool overtaken() =>
+        _authAttemptSuperseded(attemptRevision) ||
+        !(stillWanted?.call() ?? true);
+    if (overtaken()) {
       throw StateError('Authentication attempt was superseded before publish.');
     }
     final fence = ref.read(incompleteLogoutFenceProvider.notifier);
@@ -5453,7 +5481,7 @@ class AuthStateManager extends _$AuthStateManager {
     int? fenceClearGeneration;
     if (fenceWasSet) {
       try {
-        if (_authAttemptSuperseded(attemptRevision)) {
+        if (overtaken()) {
           throw StateError(
             'Authentication attempt was superseded before fence clear.',
           );
@@ -5464,7 +5492,7 @@ class AuthStateManager extends _$AuthStateManager {
         if (!cleared || fence.desiredSuppressed) {
           throw StateError('Incomplete logout fence could not be cleared.');
         }
-        if (_authAttemptSuperseded(attemptRevision)) {
+        if (overtaken()) {
           throw StateError(
             'Authentication attempt was superseded during fence clear.',
           );
