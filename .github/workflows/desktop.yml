@@ -70,7 +70,8 @@ jobs:
   # no run). The release bundle takes the longest, and what it adds to the
   # workspace job is the packaging, so a pull request builds it only when
   # it changes what goes into the bundle or how it is made. The `full-ci`
-  # label runs both on any pull request.
+  # label runs both on any pull request this workflow starts for (its
+  # paths above); for any other branch, run the workflow by hand.
   changes:
     name: Desktop changes
     runs-on: ubuntu-latest
@@ -94,12 +95,14 @@ jobs:
           macos=false
           if [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || [ "$FULL" = true ]; then macos=true; fi
           # Packaging, the crates and Dart packages the bundle ships (their
-          # licences too), and the workflows that build it.
+          # licences too), the whisper library only the bundle compiles, and
+          # the workflows that build it. The daemon's code has its own macOS
+          # build and smoke job (ci.yml), and the app's the workspace job.
           bundle=$FULL
           if git diff --name-only HEAD^1 HEAD -- \
               desktop/packaging desktop/vendor desktop/Cargo.lock \
               desktop/rust-toolchain.toml ':(glob)desktop/**/Cargo.toml' \
-              apps/daemon/pubspec.yaml pubspec.lock \
+              apps/daemon/native apps/daemon/pubspec.yaml pubspec.lock \
               .github/workflows/desktop.yml .github/workflows/release-desktop.yml |
               grep -q .; then
             bundle=true

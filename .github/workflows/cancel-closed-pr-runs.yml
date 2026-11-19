@@ -23,7 +23,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # A run names its commit, not its pull request (once that is
+          # closed). If another open pull request has the same head, its
+          # runs cannot be told apart from this one's: cancel nothing.
+          others="$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq "[.[] | select(.state == \"open\" and .number != $NUMBER and .head.sha == \"$HEAD_SHA\")] | length")"
+          if [ "$others" != 0 ]; then
+            echo "Another open pull request has head $HEAD_SHA: nothing cancelled."
+            exit 0
+          fi
           for status in queued in_progress waiting pending requested; do
             gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&status=$status&per_page=100" \
               --jq '.workflow_runs[].id'
