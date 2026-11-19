@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "Проверить обновления…",
   "desktopUpdatesSection": "Обновления",
   "desktopAutomaticUpdateChecks": "Проверять обновления автоматически",
-  "desktopBetaUpdates": "Получать бета-версии",
-  "desktopBetaUpdatesFooter": "Бета-версии выходят раньше и могут быть менее стабильными. Если выключить, Conduit дождётся следующей стабильной версии; к более старой версии он не возвращается.",
   "desktopUpdatesUnavailable": "Обновления работают только в установленном приложении.",
   "desktopSuggestionsHeading": "Предложения",
   "desktopImageLoadFailed": "Не удалось загрузить изображение.",

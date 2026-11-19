@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "檢查更新…",
   "desktopUpdatesSection": "更新",
   "desktopAutomaticUpdateChecks": "自動檢查更新",
-  "desktopBetaUpdates": "接收測試版更新",
-  "desktopBetaUpdatesFooter": "測試版會更早推出，但可能較不穩定。關閉後，Conduit 會等待下一個穩定版本；不會退回舊版本。",
   "desktopUpdatesUnavailable": "僅已安裝的應用程式可以更新。",
   "desktopSuggestionsHeading": "建議",
   "desktopImageLoadFailed": "無法載入此圖片。",

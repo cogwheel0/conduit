@@ -74,7 +74,7 @@ use crate::views::main_window::MainWindow;
 use crate::views::settings::{SETTINGS_SIZE, SettingsView, Tab};
 
 /// The app's version: `CONDUIT_VERSION` at build time (the release
-/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0` or `1.3.0-beta.2`;
+/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0`;
 /// see packaging/macos/bundle.sh), else the crate version.
 pub const VERSION: &str = match option_env!("CONDUIT_VERSION") {
     Some(v) => v,
@@ -206,8 +206,19 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     }
 }
 
+/// Bytes only a build with the test harness carries: the packaging scripts
+/// look for them in the built binary and never sign it for distribution
+/// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
+/// they were given.
+#[cfg(feature = "harness")]
+pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    // Kept in the binary (never optimized out): the marker is how a harness
+    // build is told from a release one after the fact.
+    #[cfg(feature = "harness")]
+    let _ = std::hint::black_box(HARNESS_MARKER);
     // A build without the test harness refuses its flags rather than
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
@@ -285,6 +296,16 @@ pub fn run() {
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if let Some(path) = &probe
+        && e2e::shell::probe_files(path).is_none()
+    {
+        eprintln!(
+            "conduit-desktop: --probe {}: name a file whose .cmd and .quit files are others (say, state.json)",
+            path.display()
+        );
+        std::process::exit(64);
+    }
     #[cfg(target_os = "macos")]
     let smoke_options = smoke::SmokeOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]

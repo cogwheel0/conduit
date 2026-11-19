@@ -125,6 +125,8 @@ mod mac_extras;
 mod notes;
 mod notifications;
 mod offline;
+#[cfg(target_os = "macos")]
+mod panels;
 mod read_aloud;
 mod rendering;
 mod rendering_media;

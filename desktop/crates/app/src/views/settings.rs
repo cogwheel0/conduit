@@ -22,8 +22,7 @@
 //!   diagnostic report.
 //! * **About**: the version, the server's name and version, What's New,
 //!   the source repository and open-source licenses, Support Conduit, and
-//!   updates (Check Now, check automatically, "Receive beta updates"; see
-//!   [`crate::updates`]).
+//!   updates (Check Now and check automatically; see [`crate::updates`]).
 //!
 //! The phone's Settings pages, in the phone's groups (see [`Tab::ALL`]):
 //! **Profile**, **Personalization** and **Connection** for the account
@@ -1496,11 +1495,11 @@ impl SettingsView {
     }
 
     /// About › Updates: Sparkle's check and "check automatically" (release
-    /// bundles only), and the saved "Receive beta updates".
+    /// bundles only). Releases are stable only, so there is no channel to
+    /// pick.
     fn updates_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let l10n = cx.l10n().clone();
         let available = crate::updates::available(cx);
-        let beta = self.settings.read(cx).prefs.desktop.beta_updates;
         let mut rows = vec![];
         // The row names the subject, the button keeps the verb.
         let check = Button::new("check-for-updates", l10n.desktop_check_now())
@@ -1532,22 +1531,7 @@ impl SettingsView {
                     .into_any_element(),
             );
         }
-        let settings = self.settings.clone();
-        let beta_switch = Switch::new("beta-updates", l10n.desktop_beta_updates(), beta).on_click(
-            Rc::new(move |_, _, cx| {
-                settings.update(cx, |s, cx| s.set_desktop(|d| d.beta_updates = !beta, cx));
-            }),
-        );
-        rows.push(
-            setting_row(l10n.desktop_beta_updates(), None, beta_switch, cx).into_any_element(),
-        );
-        settings_section(
-            l10n.desktop_updates_section(),
-            Some(l10n.desktop_beta_updates_footer().into()),
-            rows,
-            cx,
-        )
-        .into_any_element()
+        settings_section(l10n.desktop_updates_section(), None, rows, cx).into_any_element()
     }
 
     fn accounts(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {

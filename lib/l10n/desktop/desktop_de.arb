@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "Nach Updates suchen …",
   "desktopUpdatesSection": "Updates",
   "desktopAutomaticUpdateChecks": "Automatisch nach Updates suchen",
-  "desktopBetaUpdates": "Beta-Updates erhalten",
-  "desktopBetaUpdatesFooter": "Betas kommen zuerst und können weniger stabil sein. Ist dies aus, wartet Conduit auf die nächste stabile Version; zu einer älteren Version geht es nie zurück.",
   "desktopUpdatesUnavailable": "Updates gibt es nur in der installierten App.",
   "desktopSuggestionsHeading": "Vorschläge",
   "desktopImageLoadFailed": "Das Bild konnte nicht geladen werden.",
