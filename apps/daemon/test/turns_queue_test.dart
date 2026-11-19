@@ -65,24 +65,24 @@ void main() {
       const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
     );
     await runtime.container.read(activeServerProvider.future);
-    // A chat already on the server is opened as the account's once its user
-    // is bound, which the core does after the sign-in's database is
-    // certified.
+    // A chat already on the server opens as the account's once its user is
+    // bound. Certification starts that bind right after it is announced,
+    // queued on storage's lock: a registry read made after the
+    // announcement's own work (a microtask) is queued behind it.
     final storage = runtime.container.read(optimizedStorageServiceProvider);
-    final certified = Completer<void>();
+    final bound = Completer<void>();
     final watch = runtime.container.listen<Object?>(
       openWebUiCertifiedDatabaseServerProvider,
-      (_, _) {
-        if (!certified.isCompleted) certified.complete();
-      },
+      (_, _) => Future<void>.microtask(() async {
+        final registry = await storage.getOpenWebUiRegistryStrict();
+        if (registry.account(accountId)?.userId != null && !bound.isCompleted) {
+          bound.complete();
+        }
+      }),
+      fireImmediately: true,
     );
     addTearDown(watch.close);
-    if ((await storage.getOpenWebUiRegistryStrict())
-            .account(accountId)
-            ?.userId ==
-        null) {
-      await certified.future;
-    }
+    await bound.future;
     turns = TurnsService(runtime.container, events);
     addTearDown(turns.dispose);
   });
@@ -106,27 +106,9 @@ void main() {
     const chatId = 'chat-kitchen';
     final chats = owui.chats..seed(chatId, userId: 'user-ada');
     final completed = <String>[];
-    Future<SendTurnAccepted>? meanwhile;
-    var armed = false;
     events.attach('probe', (envelope) {
-      switch (envelope.event) {
-        case ConduitEvents.turnCompleted:
-          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
-        case ConduitEvents.queueChanged:
-          final queue = QueueState.fromJson(envelope.payload);
-          // The second batch waits for the chat to settle: a window that
-          // shows Send is used now.
-          if (armed &&
-              queue.phase == QueuePhase.admitting &&
-              meanwhile == null) {
-            meanwhile = turns.send(
-              SendTurn(
-                chatId: chatId,
-                model: 'kettle-model',
-                text: 'And the lark?',
-              ),
-            )..ignore();
-          }
+      if (envelope.event == ConduitEvents.turnCompleted) {
+        completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
       }
     });
     await turns.send(
@@ -139,8 +121,6 @@ void main() {
     subscribeWindow(events, turns, 'probe', <String>[chatId]);
     await until(() => completed.isNotEmpty);
 
-    // A slow answer, two messages queued behind it, the first sent now:
-    // Stop & Send stops the slow one (its hold goes with its task).
     chats.holdStream = Completer<void>();
     await turns.send(
       SendTurn(chatId: chatId, model: 'kettle-model', text: 'Answer slow'),
@@ -162,18 +142,32 @@ void main() {
     );
     expect(completed, hasLength(4));
 
-    // A long answer, one message queued behind it, and a message sent
-    // while that batch waits for the chat to settle.
     final long = chats.holdStream = Completer<void>();
     await turns.send(
       SendTurn(chatId: chatId, model: 'kettle-model', text: 'Answer long'),
     );
     await until(() => turns.queueGet(chatId).offer);
-    armed = true;
     turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the east side?'));
+    // The batch waits for the long answer's stored copy, held here, and then
+    // for a window's message that claimed the chat meanwhile. Such a send
+    // reaches its claim without any I/O, so an emptied event queue means it
+    // has it.
+    final reads = chats.holdChatReads = Completer<void>();
     long.complete();
-    await until(() => meanwhile != null);
-    await meanwhile!;
+    await until(() => completed.length >= 5);
+    await chats.chatReadAsked.future;
+    final meanwhile = turns.send(
+      const SendTurn(
+        chatId: chatId,
+        model: 'kettle-model',
+        text: 'And the lark?',
+      ),
+    );
+    await pumpEventQueue();
+    expect(chats.completions, hasLength(5));
+    chats.holdChatReads = null;
+    reads.complete();
+    await meanwhile;
     await until(
       () =>
           completed.length >= 7 &&
@@ -190,11 +184,9 @@ void main() {
       'And the lark?',
       'And the east side?',
     ];
-    // Over the socket, as the server answers with one.
     expect(<Object?>[
       for (final completion in chats.completions) completion['session_id'],
     ], everyElement(isNotNull));
-    // Each went to the server once, in this order.
     expect(<Object?>[
       for (final completion in chats.completions)
         (completion['user_message'] as Map?)?['content'],
