@@ -431,6 +431,49 @@ PY
 
 set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
 
+# The entitlement that lets a debugger (lldb, Instruments) attach, as Xcode
+# gives Debug builds. Development signatures only (sign-dev.sh): notarization
+# refuses it, and a released app must not take it.
+GET_TASK_ALLOW=com.apple.security.get-task-allow
+
+# Copies the entitlements SRC to OUT with GET_TASK_ALLOW added: a dev-only
+# copy, so the checked-in files stay as a release signs them.
+#
+#   dev_entitlements SRC OUT
+dev_entitlements() {
+  cp "$1" "$2"
+  set_plist "Add :$GET_TASK_ALLOW bool true" "$2"
+}
+
+# Whether the entitlements FILE grants GET_TASK_ALLOW: its value, as the
+# property list holds it (comments and XML escapes read as codesign reads
+# them), is Boolean true. A value false or of another type, or none, grants
+# nothing. Stops when FILE is missing or is no property list.
+#
+#   grants_debugger FILE
+grants_debugger() {
+  [ -r "$1" ] || die "no entitlements at $1"
+  /usr/bin/plutil -lint -s "$1" >/dev/null 2>&1 || die "$1 is not a property list"
+  # plutil reads a key path, "." between keys: the entitlement's own dots
+  # are escaped.
+  /usr/bin/plutil -extract "${GET_TASK_ALLOW//./\\.}" xml1 -o - "$1" 2>/dev/null |
+    grep -Fxq '<true/>'
+}
+
+# Stops when any entitlements FILE grants GET_TASK_ALLOW ([grants_debugger]),
+# or is missing or no property list: what bundle.sh signs a bundle with is
+# never a debug build's.
+#
+#   refuse_debug_entitlements FILE...
+refuse_debug_entitlements() {
+  local f
+  for f in "$@"; do
+    if grants_debugger "$f"; then
+      die "$f grants $GET_TASK_ALLOW: a debugger's entitlement, for sign-dev.sh's dev builds only"
+    fi
+  done
+}
+
 # The bytes only a build with the test harness carries (lib.rs
 # HARNESS_MARKER, compiled in with the `harness` feature only).
 HARNESS_MARKER='conduit-desktop: test harness build'

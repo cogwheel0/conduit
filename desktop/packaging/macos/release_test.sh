@@ -24,6 +24,11 @@
 #   file's real state, so the publication completes or is put back.
 # * a binary built with the test harness is never signed for distribution,
 #   and a step takes only the bundle id it was asked for.
+# * no entitlements file bundle.sh signs with grants get-task-allow (a
+#   debugger's entitlement), read as the property list holds it: set true
+#   (an XML-escaped key too) it is refused; set false, absent or only in a
+#   comment it is not; a file that is no property list is refused.
+#   sign-dev.sh's dev copy sets it Boolean true, and is refused.
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
 #   and refuses another file, another length or another key.
 # * release_app_key gives the app the next key only for the one tag both
@@ -445,6 +450,37 @@ expect 0 "a harness binary may be signed with Apple Development" harness "$tmp/h
 expect 0 "a harness binary may be signed ad hoc" harness "$tmp/harness-bin" adhoc
 expect 0 "a binary without the harness may be signed for distribution" harness "$tmp/release-bin" distribution
 expect 1 "a missing binary is refused" harness "$tmp/no-such-bin" distribution
+debug_ents() { bash -c ". '$here/lib.sh'; refuse_debug_entitlements \"\$@\"" _ "$@"; }
+grants() { bash -c ". '$here/lib.sh'; grants_debugger \"\$1\"" _ "$1"; }
+if [ -x /usr/bin/plutil ] && [ -x /usr/libexec/PlistBuddy ]; then
+  for f in Conduit.entitlements conduitd.entitlements widget/ConduitWidget.entitlements \
+    share/Share.entitlements; do
+    expect 0 "release entitlements $f grant no debugger" debug_ents "$here/$f"
+  done
+  ents() { # file body: an entitlements plist around body
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+      '<plist version="1.0">' '<dict>' "$2" '</dict>' '</plist>' >"$1"
+  }
+  ents "$tmp/ent-true" '<key>com.apple.security.get-task-allow</key><true/>'
+  ents "$tmp/ent-false" '<key>com.apple.security.get-task-allow</key><false/>'
+  ents "$tmp/ent-comment" '<!-- com.apple.security.get-task-allow --><key>com.apple.security.app-sandbox</key><true/>'
+  ents "$tmp/ent-escaped" '<key>com.apple.security.get&#45;task&#45;allow</key><true/>'
+  ents "$tmp/ent-none" '<key>com.apple.security.app-sandbox</key><true/>'
+  printf 'not a property list\n' >"$tmp/ent-broken"
+  expect 1 "entitlements granting get-task-allow are refused" debug_ents "$tmp/ent-true"
+  expect 0 "get-task-allow set false is not refused" debug_ents "$tmp/ent-false"
+  expect 0 "get-task-allow named only in a comment is not refused" debug_ents "$tmp/ent-comment"
+  expect 1 "an XML-escaped get-task-allow set true is refused" debug_ents "$tmp/ent-escaped"
+  expect 0 "entitlements without get-task-allow are not refused" debug_ents "$tmp/ent-none"
+  expect 1 "entitlements that are no property list are refused" debug_ents "$tmp/ent-broken"
+  bash -c ". '$here/lib.sh'; dev_entitlements \"\$1\" \"\$2\"" _ \
+    "$here/Conduit.entitlements" "$tmp/dev.entitlements"
+  expect 0 "sign-dev.sh's dev copy sets get-task-allow to Boolean true" grants "$tmp/dev.entitlements"
+  expect 1 "a dev copy is refused where a release signs" debug_ents "$tmp/dev.entitlements"
+else
+  echo "skip  entitlements checks (no plutil or PlistBuddy here)"
+fi
 if command -v plutil >/dev/null; then
   app_with() { # app id [version] [LSEnvironment]
     mkdir -p "$1/Contents"
