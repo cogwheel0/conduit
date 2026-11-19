@@ -445,6 +445,7 @@ mod tests {
             content: content.into(),
             timestamp_ms: 1,
             model: (role == "assistant").then(|| "m".into()),
+            model_name: None,
             streaming: false,
             error_code: None,
             versions: vec![],

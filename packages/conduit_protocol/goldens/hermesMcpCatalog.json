@@ -2,7 +2,11 @@
   "entries": [
     {
       "name": "calendar",
-      "description": ""
+      "description": "",
+      "credentials": [],
+      "canAdd": true,
+      "fromDashboard": false,
+      "oauth": false
     }
   ]
 }

@@ -215,7 +215,7 @@ List<String> _checkNamespaces() {
       failures.add('event "$event" must be namespaced');
     }
   }
-  if (ConduitEvents.all.length != 51) {
+  if (ConduitEvents.all.length != 52) {
     failures.add(
       'ConduitEvents.all has ${ConduitEvents.all.length} entries; update this '
       'count deliberately when adding an event so nobody forgets to add it to '

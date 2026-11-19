@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "available": true,
+    "servers": [
+      {
+        "name": "calendar",
+        "description": "",
+        "enabled": true,
+        "tools": []
+      }
+    ],
+    "canSetApiKey": false,
+    "listFailed": false
+  },
+  "stillInstalling": false,
+  "signIn": true
+}

@@ -1159,6 +1159,45 @@ impl SidebarView {
                 expanded,
                 can_create,
             } => self.hermes_group(*group, *count, *expanded, *can_create, t, cx),
+            // The phone's row: how many runs Show Scheduled Runs leaves
+            // out, and Show, which turns it back on.
+            SidebarItem::HermesScheduledHidden { count } => {
+                let text = l.hermes_scheduled_runs_hidden(*count as i64);
+                let stores = self.stores.clone();
+                // A stop for the arrows (Return shows the runs), drawn
+                // selected as the other footer rows are.
+                let selected = self.is_selection(&KeyRow::HermesScheduledHidden);
+                let fill = selection_fill(t, self.list_focused);
+                div()
+                    .id("hermes-scheduled-hidden")
+                    .role(Role::Status)
+                    .aria_label(SharedString::from(text.clone()))
+                    .aria_selected(selected)
+                    .when(selected, |d| d.aria_active_descendant().bg(fill))
+                    .rounded(t.row_radius())
+                    .h(px(t.metrics.row_height))
+                    .pl(px(ROW_CONTENT_INSET + ROW_STATUS_GUTTER))
+                    .pr(px(ROW_CONTENT_INSET))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_size(px(t.metrics.small))
+                    .text_color(r.sidebar_text_subtle)
+                    .child(div().flex_1().min_w_0().truncate().child(text))
+                    .child(
+                        conduit_components::views::kit::Button::new(
+                            "hermes-show-scheduled",
+                            l.hermes_show_scheduled_runs_action(),
+                        )
+                        .ghost()
+                        .on_click(Rc::new(move |_, _, cx| {
+                            crate::views::settings::hermes::set_show_scheduled_runs(
+                                &stores, true, cx,
+                            );
+                        })),
+                    )
+                    .into_any_element()
+            }
             SidebarItem::AreaHint { area, hint } => {
                 let text = area_hint_text(*area, *hint, &l);
                 let retry = matches!(hint, AreaHint::Failed | AreaHint::ArchivedFailed);
@@ -2716,6 +2755,9 @@ impl SidebarView {
                 crate::views::hermes_rooms::open_bot(&self.stores, &name, cx);
             }
             Some(KeyRow::HermesConnection) => self.hermes_connection_menu(window, cx),
+            Some(KeyRow::HermesScheduledHidden) => {
+                crate::views::settings::hermes::set_show_scheduled_runs(&self.stores, true, cx);
+            }
             // Already shown in its pane.
             Some(KeyRow::Item(_)) => {}
             Some(KeyRow::Chat(_)) | None => {

@@ -200,6 +200,10 @@ abstract final class ConduitEvents {
   /// [LocationCommand]; answered with `location.report`.
   static const String locationCommand = 'location.command';
 
+  /// The core gives a chat's composer words to insert at the caret.
+  /// Payload [ComposerInsertText], scoped to the chat.
+  static const String composerInsertText = 'composer.insertText';
+
   /// Every event name, for subscription validation and tests.
   static const Set<String> all = {
     turnStarted,
@@ -253,6 +257,7 @@ abstract final class ConduitEvents {
     hermesRoomsListChanged,
     appleCommand,
     locationCommand,
+    composerInsertText,
   };
 }
 

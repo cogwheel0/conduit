@@ -1283,7 +1283,9 @@ abstract final class ConduitMethods {
   /// Adds a server of the user's own (an HTTP address or a command).
   static const String hermesMcpAdd = 'hermes.mcp.add';
 
-  /// Adds a server from Hermes's catalog, by its name there.
+  /// Adds a server from Hermes's catalog, by its name there, with the
+  /// values it asks for; says whether Hermes is still installing it and
+  /// whether it signs in next.
   static const String hermesMcpAddFromCatalog = 'hermes.mcp.addFromCatalog';
   static const String hermesMcpSetApiKey = 'hermes.mcp.setApiKey';
   static const String hermesMcpRemove = 'hermes.mcp.remove';

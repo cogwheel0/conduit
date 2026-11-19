@@ -317,6 +317,52 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// or one just finished.
   bool hasScope(String chatId) => _sessionOf(chatId) != null;
 
+  /// The chat whose send holds Hermes session [sessionId], so a question
+  /// about that send is the chat's alone: the one chat with a running send
+  /// that holds the session (its `local:hermes_` chat, a chat that names the
+  /// session, or an Open WebUI chat with a Hermes answer of that session).
+  /// Null, so the question is not asked, when no running send holds it or
+  /// several do: an old answer of the session in another chat never takes
+  /// it.
+  String? hermesChatOf(String sessionId) {
+    if (sessionId.isEmpty) return null;
+    bool holds(_ChatSession session) {
+      final chatId = session.chatId;
+      if (chatId == '$kHermesSessionConversationIdPrefix$sessionId') {
+        return true;
+      }
+      final conversation = session.scope.conversation;
+      if (conversation?.metadata['hermesSessionId']?.toString() == sessionId) {
+        return true;
+      }
+      return session.scope.messages.any(
+        (m) => m.metadata?['hermesSessionId']?.toString() == sessionId,
+      );
+    }
+
+    // Running: admitted and not finished. A turn stops counting the moment
+    // it finishes (its send is kept until the sync after it); a send whose
+    // turn has not started yet counts.
+    bool sending(_ChatSession session) {
+      final turn = session.turn;
+      if (turn != null && !turn.finished) return true;
+      final pending = session.pending;
+      return pending != null &&
+          !(turn != null && identical(turn.pending, pending));
+    }
+
+    final live = <_ChatSession>[
+      for (final session in _sessions)
+        if (!session.scope.isDisposed && (session.chatId ?? '').isNotEmpty)
+          session,
+    ];
+    final holding = <_ChatSession>[
+      for (final session in live)
+        if (sending(session) && holds(session)) session,
+    ];
+    return holding.length == 1 ? holding.single.chatId : null;
+  }
+
   @override
   Future<void> settled(String chatId) async {
     final settling = _sessionOf(chatId)?.settling;
@@ -1651,6 +1697,42 @@ final class TurnsService implements ChatTurns, AddressReplies {
       admissionFailed: queue.admissionFailed,
       offer: offer,
     );
+  }
+
+  /// Hands [insertion] (Hermes' prefill) to the windows showing
+  /// [session]'s chat, then takes it back, as a phone's composer clears what
+  /// it took.
+  void _insertText(_ChatSession session, ComposerTextInsertion? insertion) {
+    if (insertion == null ||
+        insertion.text.isEmpty ||
+        insertion.targetId != chatComposerTextInsertionTargetId) {
+      return;
+    }
+    // Words given back after a declined model switch (`onlyIntoEmpty`) stay
+    // in the chat, with its note and Copy: a window's message box is never
+    // written into on its own. They are taken all the same.
+    if (!insertion.onlyIntoEmpty) {
+      final chatId = session.chatId;
+      if (chatId != null && chatId.isNotEmpty) {
+        _events.emit(
+          ConduitEventSpecs.composerInsertText,
+          ComposerInsertText(chatId: chatId, text: insertion.text),
+          scope: chatId,
+        );
+      } else {
+        DebugLogger.warning(
+          'composer-insert-without-chat',
+          scope: 'daemon/turns',
+        );
+      }
+    }
+    // Not from inside the provider's own notification.
+    scheduleMicrotask(() {
+      if (session.scope.isDisposed) return;
+      session.scope.container
+          .read(composerTextInsertionProvider.notifier)
+          .clear(insertion.id);
+    });
   }
 
   /// Tells the windows showing [session]'s chat that its queue changed
@@ -3381,6 +3463,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
         chatDraftQueueAdmissionWaitProvider.overrideWithValue(
           () => _beforeQueuedBatch(session),
         ),
+        // Words the core gives this chat's composer (Hermes' prefill)
+        // belong to this chat, not to whichever one a phone would show:
+        // each scope has its own, sent to the chat's windows
+        // (`composer.insertText`).
+        composerTextInsertionProvider.overrideWith(
+          ComposerTextInsertionNotifier.new,
+        ),
       ],
     );
     session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;
@@ -3390,6 +3479,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       scope.container.listen<List<ChatMessage>>(
         chatMessagesProvider,
         (_, _) => _project(session),
+      ),
+      scope.container.listen<ComposerTextInsertion?>(
+        composerTextInsertionProvider,
+        (_, next) => _insertText(session, next),
       ),
       // The messages queued behind the answer, and whether one may be.
       scope.container.listen<List<ChatDraftQueue>>(

@@ -116,6 +116,40 @@ void main() {
     });
   });
 
+  group('answerModelNameOf', () {
+    ChatMessage answer(Map<String, dynamic>? metadata) => ChatMessage(
+      id: 'a1',
+      role: 'assistant',
+      content: 'Basil and thyme.',
+      timestamp: DateTime.utc(2026, 11, 2),
+      model: 'hermes:agent:desktop:7f3a9c',
+      metadata: metadata,
+    );
+
+    test('the name the answer kept, for a window to fall back to', () {
+      expect(
+        answerModelNameOf(
+          answer(<String, dynamic>{'modelName': ' Demo Model Large '}),
+        ),
+        'Demo Model Large',
+      );
+      expect(
+        answerModelNameOf(
+          answer(<String, dynamic>{'model_name': 'Demo Model Large'}),
+        ),
+        'Demo Model Large',
+      );
+    });
+
+    test('none when it kept none', () {
+      expect(answerModelNameOf(answer(null)), isNull);
+      expect(
+        answerModelNameOf(answer(<String, dynamic>{'modelName': '  '})),
+        isNull,
+      );
+    });
+  });
+
   group('siblingIdsOf', () {
     ChatMessage message(
       String id, {

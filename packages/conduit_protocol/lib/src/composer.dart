@@ -386,3 +386,17 @@ abstract class ComposerMentionDto with _$ComposerMentionDto {
   factory ComposerMentionDto.fromJson(Map<String, dynamic> json) =>
       _$ComposerMentionDtoFromJson(json);
 }
+
+/// Payload of `composer.insertText`: words the core gives a chat's
+/// composer: text Hermes prefills. (A message kept back when the user
+/// declined a model switch stays in the chat, never in the composer.)
+@freezed
+abstract class ComposerInsertText with _$ComposerInsertText {
+  const factory ComposerInsertText({
+    required String chatId,
+    required String text,
+  }) = _ComposerInsertText;
+
+  factory ComposerInsertText.fromJson(Map<String, dynamic> json) =>
+      _$ComposerInsertTextFromJson(json);
+}

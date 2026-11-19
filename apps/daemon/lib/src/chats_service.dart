@@ -1839,6 +1839,7 @@ final class ChatsService {
       content: message.content,
       timestampMs: message.timestamp.millisecondsSinceEpoch,
       model: message.model,
+      modelName: answerModelNameOf(message),
       streaming: message.isStreaming,
       errorCode: message.error == null ? null : ConduitErrorCodes.serverError,
       versions: <ChatMessageVersionDto>[
@@ -1848,6 +1849,7 @@ final class ChatsService {
             content: version.content,
             timestampMs: version.timestamp.millisecondsSinceEpoch,
             model: version.model,
+            modelName: _nonEmpty(version.modelName),
             sources: chatSourceDtos(version.sources),
             usage: _usage(
               version.usage,
@@ -1961,6 +1963,21 @@ final class ChatsService {
       loadSeconds: summary.loadSeconds,
     );
   }
+}
+
+/// The name [message]'s model went by when it answered, as the stored
+/// answer keeps it (`modelName`, or `model_name` as some servers write it);
+/// null when it kept none. The phone's header falls back to it when the
+/// model is not among those on offer (a Hermes answer's agent id after a
+/// confirmed model switch), and a window does the same.
+String? answerModelNameOf(core.ChatMessage message) => _nonEmpty(
+  (message.metadata?['modelName'] ?? message.metadata?['model_name'])
+      ?.toString(),
+);
+
+String? _nonEmpty(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }
 
 /// [message] and its versions, by id, in the order the server keeps them:

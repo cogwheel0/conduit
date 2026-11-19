@@ -5,18 +5,29 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show
+        ComposerTextInsertion,
+        chatComposerTextInsertionTargetId,
+        chatMessagesProvider,
+        composerTextInsertionProvider;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart'
+    show HermesHeldModelSwitch;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesCapabilitiesProvider, hermesConfigProvider;
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show
         activeServerProvider,
         optimizedStorageServiceProvider,
+        selectedModelProvider,
         serverConfigsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/ports/ui_requests.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_hermes_server.dart';
@@ -31,6 +42,21 @@ void main() {
   late CoreRuntime runtime;
   late FakeHermesServer hermesServer;
   late HermesService hermes;
+  var connected = false;
+
+  /// Hermes saved as the connection in use, as the first test leaves it: a
+  /// test that runs alone saves it itself.
+  Future<void> connect() async {
+    if (connected) return;
+    hermes = HermesService(runtime.container, events: EventBus());
+    await hermes.saveSettings(
+      HermesSettingsEdit(
+        baseUrl: hermesServer.baseUrl,
+        apiKey: hermesServer.key,
+      ),
+    );
+    connected = true;
+  }
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-test');
@@ -78,6 +104,7 @@ void main() {
     expect((await hermes.test(right)).ok, isTrue);
 
     settings = await hermes.saveSettings(right);
+    connected = true;
     expect(settings.enabled, isTrue);
     expect(settings.usable, isTrue);
     expect(settings.hasApiKey, isTrue);
@@ -128,14 +155,24 @@ void main() {
     final completed = <TurnCompleted>[];
     final failed = <TurnFailed>[];
     final asked = <UiRequest>[];
+    final askedTwice = Completer<void>();
+    final askedThrice = Completer<void>();
+    // The next turn of a chat that ends, by chat: true when it completed.
+    final ending = <String, Completer<bool>>{};
     events.attach('window', (envelope) {
       switch (envelope.event) {
         case ConduitEvents.turnCompleted:
-          completed.add(TurnCompleted.fromJson(envelope.payload));
+          final done = TurnCompleted.fromJson(envelope.payload);
+          completed.add(done);
+          ending.remove(done.chatId)?.complete(true);
         case ConduitEvents.turnFailed:
-          failed.add(TurnFailed.fromJson(envelope.payload));
+          final lost = TurnFailed.fromJson(envelope.payload);
+          failed.add(lost);
+          ending.remove(lost.chatId)?.complete(false);
         case ConduitEvents.uiRequest:
           asked.add(UiRequest.fromJson(envelope.payload));
+          if (asked.length == 2) askedTwice.complete();
+          if (asked.length == 3) askedThrice.complete();
       }
     });
 
@@ -206,18 +243,113 @@ void main() {
     }
     expect(asked.single.kind, UiRequestKind.hermesDecision);
     expect(asked.single.messageCode, 'hermes.approval');
-    uiRequests.respond(
-      UiResponse(requestId: asked.single.requestId, choice: 'once'),
+    // A question about this session's send is this chat's, even with an
+    // old answer of the session kept in another chat (as an Open WebUI chat
+    // keeps a Hermes answer); with no send running, nobody's.
+    final other = hermesServer.seedForeign(
+      title: 'Seed swap',
+      source: 'api_server',
     );
-    await answered(3);
+    final otherChat = hermesChatId(other);
+    final otherScope = await turns.holdScope(otherChat);
+    addTearDown(() => turns.releaseScope(otherChat));
+    otherScope.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      ...otherScope.read(chatMessagesProvider),
+      ChatMessage(
+        id: 'segment-1',
+        role: 'assistant',
+        content: 'Sow them in rows.',
+        timestamp: DateTime.utc(2026, 11, 18),
+        metadata: <String, dynamic>{'hermesSessionId': sessionId},
+      ),
+    ]);
+    expect(turns.hermesChatOf(sessionId), first.chatId);
+    // A second send running in that other chat too: two running sends
+    // hold the session, so a question about it is nobody's (refused, not
+    // asked in either chat).
+    // The window follows both chats, so each send's answer reaches it.
+    subscribeWindow(events, turns, 'window', <String>[first.chatId, otherChat]);
+    await turns.send(
+      SendTurn(
+        text: 'Please approve the seed swap',
+        model: agent.id,
+        chatId: otherChat,
+      ),
+    );
+    await askedTwice.future;
+    expect(asked, hasLength(2));
+    expect(turns.hermesChatOf(sessionId), isNull);
+    // The core's real question, through the port: refused, asked nowhere.
+    final port = DaemonUiRequestPort()
+      ..attach(uiRequests)
+      ..hermesChatOf = turns.hermesChatOf;
+    final held = HermesHeldModelSwitch(
+      model: 'demo-model-large',
+      sessionId: sessionId,
+    );
+    expect(await port.confirmHermesModelSwitch(held), isNull);
+    expect(asked, hasLength(2), reason: 'a switch was asked with two sends');
+    final firstEnds = (ending[first.chatId] = Completer<bool>()).future;
+    final otherEnds = (ending[otherChat] = Completer<bool>()).future;
+    for (final request in asked) {
+      uiRequests.respond(
+        UiResponse(requestId: request.requestId, choice: 'once'),
+      );
+    }
+    expect(await firstEnds, isTrue, reason: 'this chat\'s send failed');
+    expect(await otherEnds, isTrue, reason: 'the other chat\'s send failed');
     expect(completed.last.text.trim(), 'Approved and done.');
-    expect(hermesServer.approvals.single['choice'], 'once');
+    expect(turns.hermesChatOf(sessionId), isNull);
+
+    // A send that finished stops counting at once, though the sync after it
+    // still runs: asked the instant the other chat's answer finishes (its
+    // send not yet settled), a switch for this chat's running send is asked
+    // here.
+    Future<bool?>? switching;
+    final stopWatching = events.tap((event, scope, _) {
+      if (event == ConduitEvents.turnCompleted &&
+          scope == otherChat &&
+          switching == null) {
+        switching = port.confirmHermesModelSwitch(held);
+      }
+    });
+    await turns.send(
+      SendTurn(
+        text: 'Please approve the trellis',
+        model: agent.id,
+        chatId: first.chatId,
+      ),
+    );
+    await askedThrice.future;
+    await turns.send(
+      SendTurn(text: 'Seed swap notes', model: agent.id, chatId: otherChat),
+    );
+    await answered(5);
+    stopWatching();
+    expect(switching, isNotNull, reason: 'the other chat never finished');
+    final question = asked.last;
+    expect(question.kind, UiRequestKind.hermesModelSwitch);
+    expect(question.detail['chatId'], first.chatId);
+    uiRequests.respond(
+      UiResponse(requestId: question.requestId, choice: 'deny'),
+    );
+    expect(await switching, isFalse);
+    uiRequests.respond(
+      UiResponse(requestId: asked[2].requestId, choice: 'once'),
+    );
+    await answered(6);
+    await hermes.delete(other);
+    expect(hermesServer.approvals.map((a) => a['choice']), <String>[
+      'once',
+      'once',
+      'once',
+    ]);
 
     // Opened again, from Hermes's own record.
     final detail = await chats.get(first.chatId);
     expect(detail, isNotNull);
     expect(detail!.messages.map((m) => m.content).first, 'Hello Hermes');
-    expect(detail.messages, hasLength(6));
+    expect(detail.messages, hasLength(8));
     // Read Aloud reads its answers from the same record.
     final answer = detail.messages.lastWhere((m) => m.role == 'assistant');
     expect(
@@ -357,6 +489,116 @@ void main() {
     for (final id in <String>[own, cli, branch.id, copy.id, here.id]) {
       await hermes.delete(id);
     }
+  });
+
+  test('scheduled runs leave the lists while Show Scheduled Runs is off, '
+      'and the lists say how many', () async {
+    await connect();
+    final events = EventBus();
+    final announced = <String>[];
+    events.attach('test', (envelope) => announced.add(envelope.event));
+    final watching = HermesService(runtime.container, events: events);
+    addTearDown(watching.dispose);
+    final settings = CoreSettingsService(runtime.container);
+    final shown = settings.get().hermesShowScheduledSessions;
+    addTearDown(
+      () => settings.set(AppSettingsPatch(hermesShowScheduledSessions: shown)),
+    );
+    final run = hermesServer.seedForeign(
+      title: 'Morning brief',
+      source: 'cron',
+    );
+    addTearDown(() => hermes.delete(run));
+    final kept = hermesServer.seedForeign(title: 'Tide tables');
+    addTearDown(() => hermes.delete(kept));
+    await settings.set(
+      const AppSettingsPatch(hermesShowScheduledSessions: true),
+    );
+
+    var listed = await hermes.sessions();
+    expect(listed.sessions.map((s) => s.id), containsAll(<String>[run, kept]));
+    expect(listed.hiddenScheduledRuns, 0);
+
+    await settings.set(
+      const AppSettingsPatch(hermesShowScheduledSessions: false),
+    );
+    expect(settings.get().hermesShowScheduledSessions, isFalse);
+    // The windows read the lists again.
+    expect(announced, contains(ConduitEvents.hermesChanged));
+    listed = await hermes.sessions();
+    expect(listed.sessions.map((s) => s.id), contains(kept));
+    expect(listed.sessions.map((s) => s.id), isNot(contains(run)));
+    expect(listed.hiddenScheduledRuns, 1);
+
+    // A run the user pinned stays.
+    listed = await hermes.update(HermesSessionUpdate(id: run, pinned: true));
+    expect(listed.sessions.first.id, run);
+    expect(listed.hiddenScheduledRuns, 0);
+  });
+
+  test("Hermes' prefill goes to its chat's windows; words given back "
+      'after a kept model stay in the chat, and the picker stays', () async {
+    await connect();
+    final events = EventBus();
+    final given = <ComposerInsertText>[];
+    final prefilled = Completer<(String?, ComposerInsertText)>();
+    events.tap((event, scope, payload) {
+      if (event != ConduitEvents.composerInsertText) return;
+      final text = ComposerInsertText.fromJson(payload);
+      given.add(text);
+      if (!prefilled.isCompleted) prefilled.complete((scope, text));
+    });
+    final turns = TurnsService(runtime.container, events, hermes: hermes);
+    addTearDown(turns.dispose);
+    final id = hermesServer.seedForeign(
+      title: 'Seed list',
+      source: 'api_server',
+      turns: <(String, String)>[('Which seeds first?', 'Peas.')],
+    );
+    addTearDown(() => hermes.delete(id));
+    final chatId = hermesChatId(id);
+    final scope = await turns.holdScope(chatId);
+    addTearDown(() => turns.releaseScope(chatId));
+    final picked = runtime.container.read(selectedModelProvider);
+    addTearDown(() {
+      if (picked != null) {
+        runtime.container
+            .read(selectedModelProvider.notifier)
+            .set(picked, allowHidden: true);
+      }
+    });
+    final takenBack = Completer<void>();
+    scope.listen<ComposerTextInsertion?>(composerTextInsertionProvider, (
+      before,
+      now,
+    ) {
+      if (before != null && now == null && !takenBack.isCompleted) {
+        takenBack.complete();
+      }
+    });
+    final insertion = scope.read(composerTextInsertionProvider.notifier);
+    insertion.insert(
+      targetId: chatComposerTextInsertionTargetId,
+      text: 'Plant the peas in March?',
+      onlyIntoEmpty: true,
+    );
+    await takenBack.future;
+    // The chat kept its model: core puts the chat back on it, and the
+    // account's picker is left as it is.
+    const kept = Model(id: 'hermes:demo-model', name: 'demo-model');
+    scope.read(selectedModelProvider.notifier).set(kept, allowHidden: true);
+    expect(runtime.container.read(selectedModelProvider)?.id, picked?.id);
+
+    insertion.insert(
+      targetId: chatComposerTextInsertionTargetId,
+      text: '/plan ',
+    );
+    final (sentTo, sent) = await prefilled.future;
+    expect(sentTo, chatId, reason: 'sent to every window, not the chat\'s');
+    expect(sent, ComposerInsertText(chatId: chatId, text: '/plan '));
+    expect(given, hasLength(1), reason: 'the kept words reached a window');
+    // Never the app-wide composer's.
+    expect(runtime.container.read(composerTextInsertionProvider), isNull);
   });
 
   test('a transcript whose rows have no ids keeps the names a window '

@@ -37,7 +37,7 @@ use std::time::Duration;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
     AppSettingsDto, ChatFileDto, ComposerMentionDto, ComposerOptions, ComposerSearch,
-    ContextAttachmentDto, ContextSuggestion, Draft, DraftRef, DraftSave, FetchUrl, FetchedUrl,
+    ContextAttachmentDto, ContextSuggestion, DraftRef, DraftSave, FetchUrl, FetchedUrl,
     KnowledgeSummary, LibreChatComposer, LibreChatComposerTarget, MentionList, ModelList,
     ModelSummary, NoParams, PromptSummary, RenderPrompt, RenderedPrompt, SelectModel, ServerFile,
     ServerFileList, SkillSummary, UploadedFile, methods,
@@ -407,6 +407,10 @@ pub enum ComposerEvent {
     DraftSwitched,
     /// The draft for [`DraftKey`] was read: the composer shows it.
     DraftLoaded { key: DraftKey, text: String },
+    /// The draft read ended, however it ended (read, failed, another chat
+    /// or account): what waited for it goes on. After [`Self::DraftLoaded`]
+    /// when it was read.
+    DraftReadEnded,
 }
 
 /// One of LibreChat's composer switches.
@@ -518,6 +522,18 @@ pub struct ComposerStore {
     /// folder, with the folder's model, prompt and knowledge.
     new_chat_folder: Option<String>,
     draft_saved: String,
+    /// What the stored draft holds is not known: its read failed. This
+    /// composer then writes no draft at all (not while open, not on
+    /// leaving): the stored draft stays as it was, and a chat opened again
+    /// reads it afresh.
+    draft_unknown: bool,
+    /// The draft read still on its way (its number), until it lands or
+    /// fails: the composer takes no input and sends nothing until then.
+    /// The read is this composer's, not a chat id's: it lands on the chat
+    /// shown, under whatever id that chat has by then.
+    draft_reading: Option<u64>,
+    _draft_read: Option<Task<()>>,
+    draft_reads: u64,
     next_id: u64,
     /// Bumped by [`Self::reset`]: answers to an older account are dropped.
     scope: u64,
@@ -615,6 +631,10 @@ impl ComposerStore {
             draft: None,
             new_chat_folder: None,
             draft_saved: String::new(),
+            draft_unknown: false,
+            draft_reading: None,
+            _draft_read: None,
+            draft_reads: 0,
             next_id: 0,
             scope: 0,
             draft_round: 0,
@@ -2091,18 +2111,22 @@ impl ComposerStore {
     /// pending goes under the new key, and one already made under the New
     /// Chat key is taken back from there.
     pub fn adopt_draft(&mut self, key: DraftKey, text: &str, cx: &mut Context<Self>) {
-        let _ = cx;
         let Some(old) = self.draft.take() else {
             return;
         };
         self._draft = None;
-        if !self.draft_saved.is_empty() {
+        self._draft_read = None;
+        self.end_draft_read(cx);
+        // The New Chat draft, unknown, is left as it is; the new chat's is
+        // known (it has none), so what was typed meanwhile is kept there.
+        if !self.draft_saved.is_empty() && !self.draft_unknown {
             self.save_now(&old, "");
         }
         if !text.is_empty() {
             self.save_now(&key, text);
         }
         self.draft_saved = text.to_string();
+        self.draft_unknown = false;
         self.draft = Some(key);
     }
 
@@ -2175,6 +2199,21 @@ impl ComposerStore {
         self.ticket() == ticket
     }
 
+    /// Whether the draft is still being read ([`ComposerEvent::DraftLoaded`]
+    /// follows): until then the field's emptiness says nothing about it.
+    pub fn draft_reading(&self) -> bool {
+        self.draft_reading.is_some()
+    }
+
+    /// The draft read in flight, if any, ends: said once
+    /// ([`ComposerEvent::DraftReadEnded`]), on every path that ends it.
+    fn end_draft_read(&mut self, cx: &mut Context<Self>) {
+        if self.draft_reading.take().is_some() {
+            cx.emit(ComposerEvent::DraftReadEnded);
+            cx.notify();
+        }
+    }
+
     /// Another chat opened: `text` (what the composer held) is kept for the
     /// chat it held it for, and the new chat's draft is read (it arrives as
     /// [`ComposerEvent::DraftLoaded`]). `None`: a chat that keeps none (a
@@ -2215,13 +2254,21 @@ impl ComposerStore {
         if self.draft == key && self.new_chat_folder == folder {
             return;
         }
+        // Left while its read is on its way, or unknown: nothing is
+        // written, and the stored draft stays as it was (what was typed
+        // then is not kept).
         if let Some(old) = self.draft.take()
+            && self.draft_reading.is_none()
             && text != self.draft_saved
+            && !self.draft_unknown
         {
             self.save_now(&old, text);
         }
         self._draft = None;
+        self._draft_read = None;
+        self.end_draft_read(cx);
         self.draft_saved = String::new();
+        self.draft_unknown = false;
         self.draft = key.clone();
         self.new_chat_folder = folder.clone();
         // Another chat's draft: a send still on its way from the last one
@@ -2260,19 +2307,39 @@ impl ComposerStore {
             folder_id: key.folder_id.clone(),
         });
         let ticket = self.ticket();
-        self._draft = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+        self.draft_reads += 1;
+        let read = self.draft_reads;
+        self.draft_reading = Some(read);
+        cx.notify();
+        self._draft_read = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let draft = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.draft.as_ref() != Some(&key) || !s.holds(ticket) {
+                    // This composer's read, still the one on its way: it
+                    // lands on the chat shown, whatever its id is now.
+                    if s.draft_reading != Some(read) {
                         return;
                     }
-                    let text = draft.map(|d: Draft| d.text).unwrap_or_default();
-                    s.draft_saved = text.clone();
-                    cx.emit(ComposerEvent::DraftLoaded { key, text });
+                    match (s.draft.clone(), draft) {
+                        (Some(key), Ok(d)) if s.holds(ticket) => {
+                            s.draft_unknown = false;
+                            s.draft_saved = d.text.clone();
+                            cx.emit(ComposerEvent::DraftLoaded { key, text: d.text });
+                        }
+                        // Never settled on absence: not an empty draft.
+                        (_, Err(e)) => {
+                            log::warn!("drafts.get: {e}");
+                            s.draft_unknown = true;
+                        }
+                        // Read for a composition started over since (shared
+                        // text started fresh): it lands nowhere, and the
+                        // stored draft, never shown, is never written over.
+                        _ => s.draft_unknown = true,
+                    }
+                    s.end_draft_read(cx);
                 });
-            }),
-        );
+            },
+        ));
     }
 
     /// The text changed: kept 400 ms after it last did.
@@ -2280,18 +2347,29 @@ impl ComposerStore {
         let Some(key) = self.draft.clone() else {
             return;
         };
+        // The field takes no input while the draft is read: nothing it
+        // holds then is written.
+        if self.draft_reading.is_some() {
+            self._draft = None;
+            return;
+        }
         if text == self.draft_saved {
             self._draft = None;
             return;
         }
         let text = text.to_string();
+        // Not known, nothing is written over the stored draft.
+        if self.draft_unknown {
+            self._draft = None;
+            return;
+        }
         self._draft = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 cx.background_executor()
                     .timer(Duration::from_millis(400))
                     .await;
                 let _ = this.update(cx, |s, _| {
-                    if s.draft.as_ref() == Some(&key) {
+                    if s.draft.as_ref() == Some(&key) && !s.draft_unknown {
                         s.save_now(&key, &text);
                         s.draft_saved = text;
                     }
@@ -2302,10 +2380,13 @@ impl ComposerStore {
 
     /// The message went out: its draft goes at once.
     pub fn clear_draft(&mut self, cx: &mut Context<Self>) {
-        let _ = cx;
         self._draft = None;
+        self._draft_read = None;
+        self.end_draft_read(cx);
+        // Unknown, the stored draft is left as it is: never cleared unseen.
         if let Some(key) = self.draft.clone()
             && !self.draft_saved.is_empty()
+            && !self.draft_unknown
         {
             self.save_now(&key, "");
         }
@@ -2490,7 +2571,10 @@ impl ComposerStore {
         self.draft = None;
         self.new_chat_folder = None;
         self.draft_saved = String::new();
+        self.draft_unknown = false;
         self._draft = None;
+        self._draft_read = None;
+        self.end_draft_read(cx);
         self.set_params(serde_json::Value::Null);
         self.draft_model = None;
         self._draft_model = None;
@@ -2703,6 +2787,26 @@ pub fn placeholder_model_name(name: &str) -> Option<String> {
 /// The model `id` among the account's models, then the coding agents.
 pub fn find_model<'a>(list: &'a ModelList, id: &str) -> Option<&'a ModelSummary> {
     list.models.iter().chain(&list.agents).find(|m| m.id == id)
+}
+
+/// An answer's model, `id`, as its header names it: as the picker names it
+/// (a coding agent as "Codex · gpt-5.1", even once its terminal no longer
+/// offers it); else by the name the answer kept when it was written
+/// (`fallback`, a Hermes answer's agent id after a confirmed model switch,
+/// as the phone's header falls back to it); else as it is.
+pub fn answer_model_name(list: Option<&ModelList>, id: &str, fallback: Option<&str>) -> String {
+    list.and_then(|list| {
+        find_model(list, id)
+            .map(|m| m.name.clone())
+            .or_else(|| list.agent_names.get(id).cloned())
+    })
+    .or_else(|| {
+        fallback
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .map(str::to_string)
+    })
+    .unwrap_or_else(|| id.to_string())
 }
 
 /// How a model is named on screen: with its direct connection, when it
@@ -3010,6 +3114,34 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_falls_back_to_the_name_it_kept_for_a_model_not_on_offer() {
+        let mut list = laid_out();
+        list.models[1].name = "Basil 7B".into();
+        // On offer: as the picker names it, whatever the answer kept.
+        assert_eq!(
+            answer_model_name(Some(&list), "b", Some("Older Name")),
+            "Basil 7B"
+        );
+        // Not on offer (a Hermes agent id after a confirmed switch): the
+        // name the answer kept.
+        let agent_id = "hermes:agent:desktop:7f3a9c";
+        assert_eq!(
+            answer_model_name(Some(&list), agent_id, Some(" Demo Model Large ")),
+            "Demo Model Large"
+        );
+        assert_eq!(
+            answer_model_name(None, agent_id, Some("Demo Model Large")),
+            "Demo Model Large"
+        );
+        // Nothing kept: the id as it is.
+        assert_eq!(
+            answer_model_name(Some(&list), agent_id, Some("  ")),
+            agent_id
+        );
+        assert_eq!(answer_model_name(Some(&list), agent_id, None), agent_id);
+    }
+
+    #[test]
     fn the_message_box_names_a_model_in_at_most_24_characters() {
         assert_eq!(placeholder_model_name("  "), None);
         assert_eq!(
@@ -3115,6 +3247,7 @@ mod tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+    use conduit_protocol::Draft;
 
     fn t(kind: TriggerKind, start: usize, query: &str) -> Option<Trigger> {
         Some(Trigger {
@@ -4852,12 +4985,22 @@ mod tests {
         });
         store.update(cx, |s, cx| s.switch_draft(Some(key(Some("a"))), "", cx));
         cx.run_until_parked();
+        // Read, then the read ended.
         assert_eq!(
-            seen.lock().unwrap().last(),
-            Some(&ComposerEvent::DraftLoaded {
-                key: key(Some("a")),
-                text: "kept".into()
-            })
+            seen.lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .take(2)
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                ComposerEvent::DraftReadEnded,
+                ComposerEvent::DraftLoaded {
+                    key: key(Some("a")),
+                    text: "kept".into()
+                },
+            ]
         );
         // Typed: kept 400 ms after the last change, once.
         store.update(cx, |s, cx| {

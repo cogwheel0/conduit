@@ -4,6 +4,7 @@
   "content": "The outbox drains oldest-first.",
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
+  "modelName": "GPT-4o",
   "streaming": true,
   "versions": [],
   "sources": [

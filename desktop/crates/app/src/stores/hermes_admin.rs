@@ -26,8 +26,8 @@ use std::time::Duration;
 use conduit_daemon::RpcError;
 use conduit_protocol::{
     Event, HermesCatalog, HermesConnectionRef, HermesConnections, HermesJobNotice, HermesJobRef,
-    HermesJobs, HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle,
-    HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
+    HermesJobs, HermesMcpCatalogEntryDto, HermesMcpServers, HermesRef, HermesSessionDto,
+    HermesStatus, HermesToggle, HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
 };
 use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -42,6 +42,11 @@ use crate::stores::rpc::Rpc;
 pub const LIVE_POLL: Duration = Duration::from_secs(2);
 /// How often an idle list is read, so a run started elsewhere shows up.
 pub const IDLE_POLL: Duration = Duration::from_secs(15);
+
+/// How often the MCP servers are read again while a catalog install is
+/// still going, and how many times at most (two minutes).
+pub const INSTALL_REREAD: Duration = Duration::from_secs(5);
+pub const INSTALL_REREADS: usize = 24;
 
 /// The connection a sheet or question was opened under.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -96,6 +101,14 @@ pub struct HermesAdminStore {
     pub busy: HashSet<String>,
     /// MCP servers with an action in flight.
     pub mcp_busy: HashSet<String>,
+    /// The MCP catalog as Add from Catalog last showed it, and the
+    /// connection it was read for ([`Self::take_catalog`]): a pick opens the
+    /// entry's values sheet from it, or adds it to that connection.
+    mcp_catalog: Vec<HermesMcpCatalogEntryDto>,
+    mcp_catalog_for: Option<String>,
+    /// Catalog servers Hermes is still installing, and whether each signs
+    /// in with OAuth once listed: Settings says so until they are listed.
+    pub mcp_installing: Vec<(String, bool)>,
     /// Toolsets being turned on or off: their switches wait.
     pub toolsets_busy: HashSet<String>,
     /// Reload Skills is in flight.
@@ -103,6 +116,9 @@ pub struct HermesAdminStore {
     /// The Scheduled Agents pane is shown: the list is polled.
     watching_jobs: bool,
     poll: Option<Task<()>>,
+    /// Reads the MCP servers again while a catalog install is still going,
+    /// so Settings lists it once Hermes finishes ([`Self::set_installing`]).
+    install_poll: Option<Task<()>>,
     poll_every: Option<Duration>,
     /// Notices the last list brought, for the window to say once.
     pending_notices: Vec<HermesJobNotice>,
@@ -171,6 +187,20 @@ type InUse = (Option<String>, Option<String>);
 pub struct Ticket {
     generation: u64,
     seq: u64,
+}
+
+impl Ticket {
+    /// The store's generation it was asked under ([`HermesAdminStore::is_current`]).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+/// A catalog read as it was asked: the generation and connection in use.
+#[derive(Clone, Debug)]
+pub struct CatalogAsk {
+    generation: u64,
+    connection: Option<String>,
 }
 
 /// A connections-list read or action, as it was asked (its place in the
@@ -247,6 +277,9 @@ impl HermesAdminStore {
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
         self.list_order.forget();
+        self.forget_catalog();
+        self.mcp_installing.clear();
+        self.install_poll = None;
         self.toolsets_busy.clear();
         self.skills_reloading = false;
         self.changed(cx);
@@ -257,6 +290,45 @@ impl HermesAdminStore {
     /// the daemon refuses once another is in use.
     pub fn connection(&self) -> Option<String> {
         self.connections.as_ref()?.connection.clone()
+    }
+
+    /// What a catalog read is asked under: its answer is shown only while
+    /// the same connection is in use ([`Self::take_catalog`]).
+    pub fn ask_catalog(&self) -> CatalogAsk {
+        CatalogAsk {
+            generation: self.generation,
+            connection: self.connection(),
+        }
+    }
+
+    /// Keeps `entries`, read as `asked`, for the menu about to show them:
+    /// false (nothing kept, no menu) once another connection came into use,
+    /// so one connection's catalog never stands for another's.
+    pub fn take_catalog(
+        &mut self,
+        asked: &CatalogAsk,
+        entries: Vec<HermesMcpCatalogEntryDto>,
+    ) -> bool {
+        if !self.is_current(asked.generation) || self.connection() != asked.connection {
+            return false;
+        }
+        self.mcp_catalog = entries;
+        self.mcp_catalog_for = asked.connection.clone();
+        true
+    }
+
+    /// Catalog entry `name` as the menu showed it, with the connection it
+    /// was read for: none once another connection came into use (the
+    /// catalog is forgotten then), so a pick from an earlier menu adds
+    /// nothing to the connection in use now.
+    pub fn catalog_entry(&self, name: &str) -> Option<(HermesMcpCatalogEntryDto, Option<String>)> {
+        let entry = self.mcp_catalog.iter().find(|e| e.name == name)?;
+        Some((entry.clone(), self.mcp_catalog_for.clone()))
+    }
+
+    fn forget_catalog(&mut self) {
+        self.mcp_catalog.clear();
+        self.mcp_catalog_for = None;
     }
 
     /// The connection in use now, for a sheet or question to keep.
@@ -459,6 +531,9 @@ impl HermesAdminStore {
             self.status = None;
             self.catalog = None;
             self.mcp = None;
+            self.forget_catalog();
+            self.mcp_installing.clear();
+            self.install_poll = None;
             self.jobs = None;
             self.runs.clear();
             self.runs_open.clear();
@@ -642,13 +717,25 @@ impl HermesAdminStore {
                     return;
                 }
                 s.mcp = Some(match result {
-                    Ok(servers) => Loaded::Ready(servers),
+                    Ok(servers) => {
+                        s.forget_installed(&servers);
+                        Loaded::Ready(servers)
+                    }
                     Err(e) => Loaded::Failed(e.to_string()),
                 });
                 s.changed(cx);
             });
         })
         .detach();
+    }
+
+    /// Reads the servers again after `ticket`'s action failed (a step after
+    /// the install may have failed once it was made): only while its
+    /// connection is still in use, so another's list is never read over.
+    pub fn refresh_mcp_after(&mut self, ticket: Ticket, cx: &mut Context<Self>) {
+        if self.is_current(ticket.generation) {
+            self.refresh_mcp(cx);
+        }
     }
 
     /// An MCP read or action about to be asked.
@@ -674,6 +761,7 @@ impl HermesAdminStore {
             self.refresh_mcp(cx);
             return true;
         }
+        self.forget_installed(&servers);
         self.mcp = Some(Loaded::Ready(servers));
         self.changed(cx);
         true
@@ -683,6 +771,59 @@ impl HermesAdminStore {
     pub fn adopt_mcp(&mut self, servers: HermesMcpServers, cx: &mut Context<Self>) {
         let ticket = self.ask_mcp();
         self.answer_mcp(ticket, servers, cx);
+    }
+
+    /// Catalog server `name` is still being installed (`oauth`: it signs in
+    /// once listed). One already listed (the install finished before the
+    /// list was read) is not. The servers are read again every
+    /// [`INSTALL_REREAD`] while an install is still going, at most
+    /// [`INSTALL_REREADS`] times from the last install asked, so the
+    /// finished server is listed without anything else asking.
+    pub fn set_installing(&mut self, name: &str, oauth: bool, cx: &mut Context<Self>) {
+        let listed = self
+            .mcp
+            .as_ref()
+            .and_then(Loaded::ready)
+            .is_some_and(|l| l.servers.iter().any(|s| s.name == name));
+        if listed {
+            return;
+        }
+        self.mcp_installing.retain(|(n, _)| n != name);
+        self.mcp_installing.push((name.to_string(), oauth));
+        // Each install read for gets the whole budget: a poll going is
+        // replaced.
+        {
+            let generation = self.generation;
+            self.install_poll = Some(cx.spawn(
+                async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    for _ in 0..INSTALL_REREADS {
+                        cx.background_executor().timer(INSTALL_REREAD).await;
+                        let go_on = this
+                            .update(cx, |s, cx| {
+                                if !s.is_current(generation) || s.mcp_installing.is_empty() {
+                                    return false;
+                                }
+                                s.refresh_mcp(cx);
+                                true
+                            })
+                            .unwrap_or(false);
+                        if !go_on {
+                            break;
+                        }
+                    }
+                },
+            ));
+        }
+        self.changed(cx);
+    }
+
+    /// Installs that finished: listed now.
+    fn forget_installed(&mut self, servers: &HermesMcpServers) {
+        self.mcp_installing
+            .retain(|(name, _)| !servers.servers.iter().any(|s| &s.name == name));
+        if self.mcp_installing.is_empty() {
+            self.install_poll = None;
+        }
     }
 
     pub fn set_mcp_busy(&mut self, name: &str, busy: bool, cx: &mut Context<Self>) {
@@ -1238,6 +1379,124 @@ mod tests {
                 s.mcp,
                 Some(Loaded::Ready(servers("studio-tools"))),
                 "the servers were not read again for the connection in use"
+            );
+        });
+    }
+
+    /// A catalog server Hermes is still installing is listed once Hermes is
+    /// done, with nothing else asking: the servers are read again while it
+    /// installs, and no more once it is listed. One already listed is never
+    /// said to be installing.
+    #[gpui_kit::test]
+    fn a_server_still_installing_is_listed_once_hermes_is_done(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let done = count.fetch_add(1, Ordering::SeqCst) > 0;
+            let names: &[&str] = if done { &["shed-tools", "tide_charts"] } else { &["shed-tools"] };
+            Ok(json!({
+                "available": true,
+                "servers": names.iter().map(|n| json!({"name": n, "enabled": true})).collect::<Vec<_>>(),
+            }))
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.adopt_mcp(servers("shed-tools"), cx);
+            s.set_installing("shed-tools", false, cx);
+            assert!(
+                s.mcp_installing.is_empty(),
+                "a listed server was said to be installing"
+            );
+            s.set_installing("tide_charts", false, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert_eq!(s.mcp_installing.len(), 1));
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.mcp_installing.is_empty(),
+                "the finished server was never listed"
+            );
+        });
+        cx.executor().advance_clock(INSTALL_REREAD * 4);
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "read again after it was listed"
+        );
+    }
+
+    /// An add that failed after another connection came into use reads
+    /// nothing again: the list shown is the new connection's.
+    #[gpui_kit::test]
+    fn a_failed_add_of_the_connection_before_reads_nothing_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::to_value(servers("studio-tools")).unwrap())
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let ticket = store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.ask_mcp()
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.adopt_connections(list("b"), cx));
+        cx.run_until_parked();
+        let after_switch = reads.load(Ordering::SeqCst);
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            after_switch,
+            "read again for the old add"
+        );
+        let ticket = store.update(cx, |s, _| s.ask_mcp());
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), after_switch + 1);
+    }
+
+    /// A catalog read of one connection is never shown or picked from once
+    /// another is in use: its entries would ask for one server's values and
+    /// send them to the other.
+    #[gpui_kit::test]
+    fn a_catalog_read_before_a_switch_is_never_picked_from(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let entry: HermesMcpCatalogEntryDto = serde_json::from_value(json!({
+            "name": "tide_charts", "description": "Tide tables", "credentials": [],
+            "canAdd": true, "fromDashboard": true, "oauth": false,
+        }))
+        .unwrap();
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            let asked = s.ask_catalog();
+            s.adopt_connections(list("b"), cx);
+            assert!(
+                !s.take_catalog(&asked, vec![entry.clone()]),
+                "the shed's catalog was kept for the greenhouse"
+            );
+            assert!(s.catalog_entry("tide_charts").is_none());
+
+            let asked = s.ask_catalog();
+            assert!(s.take_catalog(&asked, vec![entry.clone()]));
+            let (_, read_for) = s.catalog_entry("tide_charts").unwrap();
+            assert_eq!(read_for.as_deref(), Some("0a1b2c3d:b"));
+
+            s.adopt_connections(list("a"), cx);
+            assert!(
+                s.catalog_entry("tide_charts").is_none(),
+                "a pick from the greenhouse's menu would add to the shed"
             );
         });
     }

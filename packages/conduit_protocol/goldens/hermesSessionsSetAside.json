@@ -12,5 +12,6 @@
     }
   ],
   "archived": [],
-  "archivedFailed": true
+  "archivedFailed": true,
+  "hiddenScheduledRuns": 0
 }

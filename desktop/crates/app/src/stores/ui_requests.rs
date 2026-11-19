@@ -79,6 +79,13 @@ pub enum Card {
     },
     /// An MCP App asks to open a web page.
     OpenLink { url: String },
+    /// Hermes holds a switch to another model until the user confirms it:
+    /// Switch and Send (`allow`) or Keep Current Model (`deny`), with
+    /// Hermes' own reason when it gave one.
+    HermesModelSwitch {
+        model: String,
+        reason: Option<String>,
+    },
     /// A kind this window does not host: answer on mobile or the web.
     Unsupported,
 }
@@ -129,6 +136,21 @@ pub enum InputKind {
 
 fn arg(r: &UiRequest, key: &str) -> Option<String> {
     r.message_args.get(key).cloned().filter(|s| !s.is_empty())
+}
+
+/// Whether `request` shows (and is answered) while `chat` is open: a held
+/// Hermes model switch is the question of the chat whose message waits
+/// (`detail.chatId`), shown with that chat only and never answered from
+/// another; every other request shows with any chat.
+pub fn shown_with(request: &UiRequest, chat: Option<&str>) -> bool {
+    match request.kind {
+        UiRequestKind::HermesModelSwitch => request
+            .detail
+            .get("chatId")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|owner| chat == Some(owner)),
+        _ => true,
+    }
 }
 
 /// The card for `request`.
@@ -282,6 +304,13 @@ pub fn card(request: &UiRequest) -> Card {
             Some(url) => Card::OpenLink { url },
             None => Card::Unsupported,
         },
+        UiRequestKind::HermesModelSwitch => match arg(request, "model") {
+            Some(model) => Card::HermesModelSwitch {
+                model,
+                reason: arg(request, "reason"),
+            },
+            None => Card::Unsupported,
+        },
         UiRequestKind::HermesDecision | UiRequestKind::Unknown => Card::Unsupported,
     }
 }
@@ -377,7 +406,8 @@ pub fn allow(request: &UiRequest, text: Option<String>) -> Option<Answer> {
         | Card::Tool { .. }
         | Card::Mcp { .. }
         | Card::McpAppTool { .. }
-        | Card::OpenLink { .. } => Some(Answer::new("allow")),
+        | Card::OpenLink { .. }
+        | Card::HermesModelSwitch { .. } => Some(Answer::new("allow")),
         Card::Input { .. } => Some(Answer {
             choice: "allow".into(),
             text: Some(text.unwrap_or_default()),
@@ -430,6 +460,9 @@ pub struct UiRequestsStore {
     /// Requests answered here whose `ui.settled` has not arrived yet.
     pub answering: HashSet<String>,
     pub error: Option<RpcError>,
+    /// The request whose answer [`Self::error`] is about: its card says so,
+    /// and no other.
+    pub error_for: Option<String>,
     /// Hermes questions whose answer did not arrive (the card says so and
     /// stays, to be answered again).
     pub hermes_failed: HashSet<String>,
@@ -444,12 +477,24 @@ impl UiRequestsStore {
             queue: vec![],
             answering: HashSet::new(),
             error: None,
+            error_for: None,
             hermes_failed: HashSet::new(),
         }
     }
 
     pub fn top(&self) -> Option<&UiRequest> {
         self.queue.first()
+    }
+
+    /// The first request the dock shows while `chat` is open: a request
+    /// that is one chat's alone ([`shown_with`]) waits for that chat.
+    pub fn top_for(&self, chat: Option<&str>) -> Option<&UiRequest> {
+        self.queue.iter().find(|r| shown_with(r, chat))
+    }
+
+    /// How many requests the dock has while `chat` is open.
+    pub fn shown_count(&self, chat: Option<&str>) -> usize {
+        self.queue.iter().filter(|r| shown_with(r, chat)).count()
     }
 
     /// A new daemon session: the daemon sends what is still waiting again.
@@ -508,6 +553,7 @@ impl UiRequestsStore {
             return;
         }
         self.error = None;
+        self.error_for = None;
         let id = request_id.to_string();
         let call = self.rpc.call::<methods::UiRespond>(&UiResponse {
             request_id: id.clone(),
@@ -526,6 +572,7 @@ impl UiRequestsStore {
                         log::warn!("ui.respond: {e}");
                         s.answering.remove(&id);
                         s.error = Some(e);
+                        s.error_for = Some(id.clone());
                     }
                 }
                 cx.notify();
@@ -555,6 +602,7 @@ impl UiRequestsStore {
         }
         self.hermes_failed.remove(request_id);
         self.error = None;
+        self.error_for = None;
         let id = request_id.to_string();
         let call = self
             .rpc
@@ -737,6 +785,27 @@ mod tests {
     }
 
     #[test]
+    fn a_held_model_switch_is_switch_or_keep() {
+        let held = request(
+            "m",
+            UiRequestKind::HermesModelSwitch,
+            &[("model", "Heron Large"), ("reason", "It costs more.")],
+        );
+        assert_eq!(
+            card(&held),
+            Card::HermesModelSwitch {
+                model: "Heron Large".into(),
+                reason: Some("It costs more.".into()),
+            }
+        );
+        // ⌥⌘↩ switches; ⌥⌘⌫ keeps the current model.
+        assert_eq!(allow(&held, None), Some(Answer::new("allow")));
+        assert_eq!(deny(&held), Answer::new("deny"));
+        let unnamed = request("n", UiRequestKind::HermesModelSwitch, &[]);
+        assert_eq!(card(&unnamed), Card::Unsupported);
+    }
+
+    #[test]
     fn the_shortcuts_pick_the_primary_and_the_safe_answer() {
         let tool = request("1", UiRequestKind::ToolApproval, &[]);
         assert_eq!(allow(&tool, None), Some(Answer::new("allow")));
@@ -806,6 +875,28 @@ mod tests {
             daemon.calls::<methods::UiRespond>()[1],
             json!({"requestId": "b", "choice": "deny", "remember": false})
         );
+    }
+
+    /// An answer that did not arrive is said on its own card only: the
+    /// next card shown (another chat's) is not marked failed.
+    #[gpui_kit::test]
+    fn a_failed_answer_is_said_on_its_own_card(cx: &mut gpui_kit::TestAppContext) {
+        let daemon = crate::stores::rpc::fake::FakeDaemon::new();
+        daemon.once::<methods::UiRespond>(Err(conduit_daemon::protocol::error(
+            "rpc.timeout",
+            "no answer",
+        )));
+        let store = cx.new(|_| UiRequestsStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.on_request(request("a", UiRequestKind::ToolApproval, &[]), cx);
+            s.on_request(request("b", UiRequestKind::ToolApproval, &[]), cx);
+            s.respond("a", Answer::new("allow"), false, cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.error.is_some());
+            assert_eq!(s.error_for.as_deref(), Some("a"));
+        });
     }
 
     #[test]

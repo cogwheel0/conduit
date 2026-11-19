@@ -15,6 +15,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show
         hermesConfigProvider,
+        hermesModelSwitchPromptProvider,
         hostHermesDashboardBridgeFactoryProvider,
         hostHermesDashboardSignOutProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
@@ -286,6 +287,11 @@ final class CoreRuntime {
         connectivityPortProvider.overrideWithValue(connectivity),
         openExternalUrlProvider.overrideWithValue(openUrl),
         uiRequestPortProvider.overrideWithValue(uiRequests),
+        // Hermes holding a switch to another model asks the windows, as a
+        // phone asks its screen (`hermesModelSwitch`).
+        hermesModelSwitchPromptProvider.overrideWithValue(
+          uiRequests.confirmHermesModelSwitch,
+        ),
         // A server's `chat:handoff` is asked of the windows, which open the
         // new chat themselves; a phone's coordinator asks its screen.
         chatHandoffCoordinatorProvider.overrideWith(handoff.coordinator),
