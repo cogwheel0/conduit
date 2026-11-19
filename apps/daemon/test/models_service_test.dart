@@ -426,7 +426,7 @@ ProviderContainer _agentContainer(
       }),
       terminalServiceProvider.overrideWithValue(_SystemTerminals(api)),
       // A saved chat's terminals, as the server lists them for it.
-      terminalSystemServersForChatProvider.overrideWith((ref, chatId) async {
+      terminalSystemServersForChatProvider.overrideWithValue((chatId) async {
         if (_terminalsUnreadable) {
           throw StateError('the terminal list is unreadable');
         }
@@ -623,9 +623,7 @@ void main() {
       final models = ModelsService(container);
       await models.select(_northAgent, chatId: 'agent-chat');
       _terminalsUnreadable = true;
-      container
-        ..invalidate(terminalAvailableServersProvider)
-        ..invalidate(terminalSystemServersForChatProvider);
+      container.invalidate(terminalAvailableServersProvider);
       final list = await models.list(
         const ModelListQuery(chatId: 'agent-chat'),
       );

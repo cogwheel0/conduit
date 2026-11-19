@@ -50,15 +50,20 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
 }
 
 /// The terminals a chat can use: for a saved chat ([chatId]), the server's
-/// own as it offers them to that chat, read afresh
+/// own as it offers them to that chat, in a read of this lookup's own
 /// ([terminalSystemServersForChatProvider]); a host holding no chat as the
 /// active one has the sidebar's list, which leaves out a terminal that needs
 /// a saved chat. For a new chat (null), the account's list.
-Future<List<TerminalServerInfo>> _terminalsFor(dynamic ref, String? chatId) =>
-    (chatId == null
-            ? ref.read(terminalAvailableServersProvider.future)
-            : ref.refresh(terminalSystemServersForChatProvider(chatId).future))
+Future<List<TerminalServerInfo>> _terminalsFor(dynamic ref, String? chatId) {
+  if (chatId == null) {
+    return ref.read(terminalAvailableServersProvider.future)
         as Future<List<TerminalServerInfo>>;
+  }
+  final read = ref.read(
+    terminalSystemServersForChatProvider,
+  ) as Future<List<TerminalServerInfo>> Function(String);
+  return read(chatId);
+}
 
 /// The scope on [terminalId] for [chat], when [servers] lists it as one of
 /// the server's own terminals.

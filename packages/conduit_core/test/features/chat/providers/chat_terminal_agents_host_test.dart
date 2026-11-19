@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -125,7 +127,9 @@ void main() {
           openWebUiAccountAvailableProvider.overrideWithValue(true),
           terminalAgentsSupportedProvider.overrideWithValue(true),
           terminalAvailableServersProvider.overrideWith((ref) async => []),
-          terminalSystemServersForChatProvider.overrideWith((ref, chatId) async {
+          terminalSystemServersForChatProvider.overrideWithValue((
+            chatId,
+          ) async {
             asked.add(chatId);
             return granted;
           }),
@@ -144,6 +148,49 @@ void main() {
       // A new chat keeps to the account's list.
       check(await terminalAgentScopeFor(c, null)).isNull();
     });
+
+    test(
+      "two lookups for one saved chat at once each keep their own read",
+      () async {
+        final saved = TerminalServerInfo(
+          kind: TerminalServerKind.system,
+          selectionId: 'bench',
+          systemServerId: 'bench',
+          name: 'Bench',
+          baseUrl: Uri.parse('http://127.0.0.1:9/bench'),
+          requiresSavedChatContext: true,
+        );
+        final reads = <Completer<List<TerminalServerInfo>>>[];
+        final c = ProviderContainer(
+          overrides: [
+            reviewerModeProvider.overrideWith(_ReviewerOff.new),
+            openWebUiAccountAvailableProvider.overrideWithValue(true),
+            terminalAgentsSupportedProvider.overrideWithValue(true),
+            terminalAvailableServersProvider.overrideWith((ref) async => []),
+            terminalSystemServersForChatProvider.overrideWithValue((chatId) {
+              final read = Completer<List<TerminalServerInfo>>();
+              reads.add(read);
+              return read.future;
+            }),
+          ],
+        );
+        addTearDown(c.dispose);
+        c.read(selectedTerminalIdProvider.notifier).set('bench');
+        final first = terminalAgentScopeFor(c, _chat());
+        final second = terminalAgentScopeFor(c, _chat());
+        await Future<void>.delayed(Duration.zero);
+        check(reads).length.equals(2);
+        // The first read answers while the second is still out: the first
+        // lookup has its answer, whatever the second's turns out to be.
+        reads.first.complete([saved]);
+        check(await first)
+            .isNotNull()
+            .has((s) => s.terminalId, 'terminalId')
+            .equals('bench');
+        reads.last.complete([]);
+        check(await second).isNull();
+      },
+    );
 
     test('no terminal selected offers none', () async {
       final c = container([_server('bench', kind: TerminalServerKind.system)]);
