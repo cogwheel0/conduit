@@ -14,6 +14,7 @@ import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
+import 'support/step_clock.dart';
 import 'support/window.dart';
 
 /// The queue of an Open WebUI chat, against a fake Open WebUI that takes
@@ -23,6 +24,7 @@ void main() {
   late FakeOwuiAuthServer owui;
   late EventBus events;
   late TurnsService turns;
+  late StepClock clock;
 
   setUp(() async {
     final temporary = Directory.systemTemp.createTempSync('turns-queue');
@@ -83,12 +85,18 @@ void main() {
     );
     addTearDown(watch.close);
     await bound.future;
-    turns = TurnsService(runtime.container, events);
+    clock = StepClock();
+    turns = TurnsService(
+      runtime.container,
+      events,
+      now: clock.now,
+      pause: clock.pause,
+    );
     addTearDown(turns.dispose);
   });
 
   /// Completes once [ok] holds: checked now, and after each event the
-  /// daemon sends.
+  /// daemon sends, with the clock moving meanwhile.
   Future<void> until(bool Function() ok) {
     if (ok()) return Future<void>.value();
     final done = Completer<void>();
@@ -98,7 +106,7 @@ void main() {
       done.complete();
       scheduleMicrotask(untap);
     });
-    return done.future;
+    return clock.during(done.future);
   }
 
   test('each queued batch goes out once, in a chat whose earlier batch went '
@@ -111,27 +119,37 @@ void main() {
         completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
       }
     });
-    await turns.send(
-      const SendTurn(
-        chatId: chatId,
-        model: 'kettle-model',
-        text: 'Is the kettle on?',
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is the kettle on?',
+        ),
       ),
     );
     subscribeWindow(events, turns, 'probe', <String>[chatId]);
     await until(() => completed.isNotEmpty);
 
     chats.holdStream = Completer<void>();
-    await turns.send(
-      SendTurn(chatId: chatId, model: 'kettle-model', text: 'Answer slow'),
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Answer slow',
+        ),
+      ),
     );
     await until(() => turns.queueGet(chatId).offer);
     turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the north side?'));
     final two = turns.queueAdd(
       QueueAdd(chatId: chatId, text: 'And the south side?'),
     );
-    final now = await turns.queueSendNow(
-      QueueDraftRef(chatId: chatId, draftId: two.drafts.first.id),
+    final now = await clock.during(
+      turns.queueSendNow(
+        QueueDraftRef(chatId: chatId, draftId: two.drafts.first.id),
+      ),
     );
     expect(now.outcome, 'admitted');
     await until(
@@ -143,8 +161,14 @@ void main() {
     expect(completed, hasLength(4));
 
     final long = chats.holdStream = Completer<void>();
-    await turns.send(
-      SendTurn(chatId: chatId, model: 'kettle-model', text: 'Answer long'),
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Answer long',
+        ),
+      ),
     );
     await until(() => turns.queueGet(chatId).offer);
     turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the east side?'));
@@ -155,7 +179,7 @@ void main() {
     final reads = chats.holdChatReads = Completer<void>();
     long.complete();
     await until(() => completed.length >= 5);
-    await chats.chatReadAsked.future;
+    await clock.during(chats.chatReadAsked.future);
     final meanwhile = turns.send(
       const SendTurn(
         chatId: chatId,
@@ -167,7 +191,7 @@ void main() {
     expect(chats.completions, hasLength(5));
     chats.holdChatReads = null;
     reads.complete();
-    await meanwhile;
+    await clock.during(meanwhile);
     await until(
       () =>
           completed.length >= 7 &&
