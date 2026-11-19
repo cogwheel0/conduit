@@ -43,9 +43,16 @@ that.
 ## What it holds
 
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,
-offline, with direct connections and channels on, embedding bypassed, and
-one OpenAI connection, `fake_model.py`, which also does its speech-to-text
-and text-to-speech. `seed.py` then makes:
+offline, with direct connections and channels on, retrieval bypassed, and
+one OpenAI connection, `fake_model.py`, which also does its speech-to-text,
+text-to-speech and embeddings (saving a memory needs one), and is the voice
+behind the server's realtime calls (a scripted exchange over its
+`/v1/realtime` WebSocket). The fake model also serves a personal tool
+server (OpenAPI, `/personal/openapi.json`, one operation `read_buoy`) for
+the app to add and run client-side (direct integrations are on), and
+takes webhook deliveries on any `/webhook/...` path (user webhooks are
+on), logging both. `seed.py` then
+makes:
 
 - an admin, Avery Tester (`avery@example.test`), and a second user, Riley
   Example (`riley@example.test`), each with a random password;
@@ -68,6 +75,7 @@ and text-to-speech. `seed.py` then makes:
 | `OWUI_URL` | `http://127.0.0.1:8150` |
 | `OWUI_EMAIL`, `OWUI_PASSWORD` | the admin |
 | `OWUI_MODEL` | `fake-model` |
+| `OWUI_SECOND_MODEL` | `fake-model-b`, which answers as `fake-model` does with a `B: ` prefix (Compare Models, Regenerate With) |
 | `OWUI_REFUSED_MODEL` | `fake-refused`, which the provider refuses with a 400 |
 | `OWUI_SECOND_EMAIL`, `OWUI_SECOND_PASSWORD` | the second user |
 | `OWUI_SHARED_FOLDER`, `OWUI_SHARED_CHAT` | the shared folder and one of its chats |
@@ -80,9 +88,15 @@ and text-to-speech. `seed.py` then makes:
 `fake_model.py` answers from the last user message: "Say the word: X"
 with X, a favourite colour from earlier in the chat, `fail` with a 500,
 `refuse` with a 400, `time` with a `get_current_timestamp` call
-(approval asked when the message says `approve`), and `reason`, `code`,
-`math`, `long` and `slow` with the answers the chat view's E2E checks. Its
-docstring has the full list. `drive_chat.py` sends one turn over a socket
+(approval asked when the message says `approve`, once
+`owui.sh tool-permissions on` has turned on auto tool permissions; every
+other call says it needs none), and `reason`, `code`,
+`math`, `long` and `slow` with the answers the chat view's E2E checks,
+`effort` (sent with a `reasoning_effort`) with a 400 naming the parameter,
+and Open WebUI's Merge Responses prompt with one merged sentence. A streamed
+answer ends with a usage chunk (token counts and timings), and
+`fake-model-b` answers the same way with a `B: ` prefix. Its docstring has
+the full list. `drive_chat.py` sends one turn over a socket
 session the way the web client does and saves what the server sent;
 `owui.sh chat DIR TEXT` runs it with the venv's python, into `DIR`
 (`chat.json` holds the saved chat). The desktop app's `--e2e offline`

@@ -179,6 +179,8 @@ final class HermesHeldModelSwitch {
     required this.model,
     this.provider,
     this.reason,
+    this.sessionId,
+    this.stopped,
   });
 
   final String model;
@@ -186,6 +188,15 @@ final class HermesHeldModelSwitch {
 
   /// Hermes' explanation, bounded; null when it gave none.
   final String? reason;
+
+  /// The Hermes session whose send waits on the answer: a host that asks
+  /// elsewhere than its chat (another window) shows the question only with
+  /// that chat.
+  final String? sessionId;
+
+  /// Completes when that send is stopped: the question is withdrawn then,
+  /// with no answer.
+  final Future<void>? stopped;
 }
 
 /// Asks the user whether to switch the chat to a model Hermes holds for

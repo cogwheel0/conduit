@@ -1,0 +1,28 @@
+{
+  "summary": {
+    "id": "task-digest",
+    "name": "Morning digest",
+    "active": false,
+    "schedule": {
+      "kind": "custom",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 0,
+      "minute": 0,
+      "days": [],
+      "rrule": "FREQ=MONTHLY"
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "modelName": "Fake Model",
+  "target": "channel",
+  "channelId": "trail-crew",
+  "channelName": "trail-crew",
+  "terminal": true,
+  "nextRuns": [
+    1762934400000
+  ]
+}

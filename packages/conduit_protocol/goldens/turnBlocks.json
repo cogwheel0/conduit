@@ -14,5 +14,12 @@
       "kind": "text",
       "markdown": "The outbox"
     }
+  ],
+  "tasks": [
+    {
+      "id": "1",
+      "content": "Read the DAO",
+      "status": "pending"
+    }
   ]
 }

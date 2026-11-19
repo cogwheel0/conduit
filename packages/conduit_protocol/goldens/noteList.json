@@ -6,7 +6,11 @@
       "updatedAtMs": 1790000000001,
       "pinned": false,
       "preview": "",
-      "conflictCopy": true
+      "conflictCopy": true,
+      "section": "older",
+      "canEdit": true,
+      "accessUnverified": false,
+      "canShare": false
     }
   ]
 }

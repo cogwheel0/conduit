@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "What's new",
+      "intro": "Conduit runs as a Mac app now, with the phone's settings in their own window.",
+      "bullets": [
+        {
+          "text": "Settings has the phone's pages: Profile, Personalization, Connection, Chat, Audio and Data Controls.",
+          "icon": "polish"
+        },
+        {
+          "text": "Your system prompt, memories and quick actions are the ones your Open WebUI account keeps, so they match on every device.",
+          "icon": "local"
+        },
+        {
+          "text": "Notes like these appear after each update, and About › What's New shows them again.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

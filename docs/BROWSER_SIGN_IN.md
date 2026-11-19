@@ -13,6 +13,7 @@ ID, once per server.
 
 | | |
 | --- | --- |
+| Conduit | The iOS or Android app. Conduit Desktop for Mac doesn't offer browser sign-in: it signs in to SSO in its own sign-in window |
 | Open WebUI | `0.8.0` or newer, with `ENABLE_OAUTH_TOKEN_EXCHANGE=true`. `0.11.0` or newer to limit which apps' tokens it accepts |
 | SSO provider | `oidc`, `microsoft`, or `google`, already working for Open WebUI on the web. GitHub and Feishu use the in-app sign-in only |
 | Identity provider | Serves HTTPS, and lets you register a public client (no secret) with PKCE |

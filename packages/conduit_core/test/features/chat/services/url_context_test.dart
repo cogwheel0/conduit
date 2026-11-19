@@ -47,6 +47,12 @@ void main() {
     check(isYoutubeUrl('https://youtu.be/abc')).isTrue();
     check(isYoutubeUrl('https://m.youtube.com/watch?v=abc')).isTrue();
     check(isYoutubeUrl('https://example.test/youtube.com')).isFalse();
+    // The host decides, not how the address starts.
+    check(isYoutubeUrl('https://youtube.com.example.test/watch')).isFalse();
+    check(isYoutubeUrl('https://youtu.be.example.test/abc')).isFalse();
+    check(isYoutubeUrl('https://www.youtube.community/watch')).isFalse();
+    check(isYoutubeUrl('https://youtube.com/watch?v=abc')).isTrue();
+    check(isYoutubeUrl('https://WWW.YouTube.com/watch?v=abc')).isTrue();
     check(isFetchableUrl(' https://example.test/a ')).isTrue();
     check(isFetchableUrl('ftp://example.test/a')).isFalse();
     check(isFetchableUrl('not a url')).isFalse();

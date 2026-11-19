@@ -15,5 +15,28 @@
   "imageGeneration": false,
   "codeInterpreter": false,
   "fileIds": [],
+  "context": [
+    {
+      "id": "ctx-1",
+      "kind": "web",
+      "name": "Outbox notes",
+      "url": "https://docs.example.test/outbox",
+      "content": "Writes drain in order."
+    }
+  ],
+  "mentions": [
+    {
+      "start": 0,
+      "end": 6,
+      "id": "user-1",
+      "label": "Riley",
+      "idType": "U",
+      "kind": "entity"
+    }
+  ],
+  "filterIds": [
+    "tidy"
+  ],
+  "compareModels": [],
   "temporary": false
 }

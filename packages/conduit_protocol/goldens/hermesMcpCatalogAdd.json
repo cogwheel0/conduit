@@ -1,0 +1,7 @@
+{
+  "name": "calendar",
+  "credentials": {
+    "CALENDAR_TOKEN": "demo-token"
+  },
+  "connection": "0a1b2c3d:2"
+}

@@ -1,0 +1,8 @@
+{
+  "profiles": [
+    "default",
+    "writer"
+  ],
+  "selected": "writer",
+  "issue": "signInFirst"
+}

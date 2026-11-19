@@ -1,0 +1,11 @@
+{
+  "requestId": "req-mcp-app-1",
+  "kind": "mcpAppToolCall",
+  "messageCode": "mcpApp.toolCall",
+  "messageArgs": {
+    "serverName": "harbour",
+    "toolName": "refresh_tides"
+  },
+  "detail": {},
+  "defaultChoice": "deny"
+}

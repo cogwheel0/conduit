@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart'
@@ -219,16 +220,34 @@ class OpenWebUiAccountsController {
   }
 
   /// Makes [accountId] the active account.
+  ///
+  /// [stillFrom] is asked at the change's turn, once the changes before it
+  /// are done, and again after the active account is read: whether the
+  /// account the switch was asked over is still the one in charge. False
+  /// switches nothing and throws [AccountChangeSuperseded].
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
-  }) => _afterLastChange(() => _switchTo(accountId, force: force));
+    bool Function()? stillFrom,
+  }) => _afterLastChange(
+    () => _switchTo(accountId, force: force, stillFrom: stillFrom),
+  );
 
   Future<OpenWebUiAccountChangeResult> _switchTo(
     String accountId, {
     required bool force,
+    bool Function()? stillFrom,
   }) async {
-    if (await _activeAccountId() == accountId) {
+    void requireFrom() {
+      if (!(stillFrom?.call() ?? true)) {
+        throw const AccountChangeSuperseded();
+      }
+    }
+
+    requireFrom();
+    final activeId = await _activeAccountId();
+    requireFrom();
+    if (activeId == accountId) {
       // Signed out, it goes to auth, which takes up a session it still has.
       final auth = _ref.read(authStateManagerProvider).asData?.value;
       if (auth == null || auth.isAuthenticated) {

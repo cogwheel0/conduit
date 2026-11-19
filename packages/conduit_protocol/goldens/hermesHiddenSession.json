@@ -1,0 +1,10 @@
+{
+  "id": "s5",
+  "chatId": "local:hermes_s5",
+  "title": "Gift ideas",
+  "pinned": false,
+  "archived": false,
+  "hidden": true,
+  "source": "api_server",
+  "running": false
+}

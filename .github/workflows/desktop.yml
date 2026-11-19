@@ -1,0 +1,383 @@
+name: Desktop
+
+# The native desktop app's Cargo workspace (desktop/), and the protocol
+# crate generated from packages/conduit_protocol.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'packages/conduit_protocol/**'
+      # The app's strings are generated from the ARBs (crates/app/build.rs),
+      # and the release bundle carries conduitd, with the core and markdown
+      # packages it is built from.
+      - 'lib/l10n/**'
+      - 'apps/daemon/**'
+      - 'packages/conduit_core/lib/**'
+      - 'packages/conduit_core/pubspec.yaml'
+      - 'packages/conduit_markdown/lib/**'
+      - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
+      - '.github/workflows/desktop.yml'
+      - '.github/workflows/release-desktop.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'packages/conduit_protocol/**'
+      # The app's strings are generated from the ARBs (crates/app/build.rs),
+      # and the release bundle carries conduitd, with the core and markdown
+      # packages it is built from.
+      - 'lib/l10n/**'
+      - 'apps/daemon/**'
+      - 'packages/conduit_core/lib/**'
+      - 'packages/conduit_core/pubspec.yaml'
+      - 'packages/conduit_markdown/lib/**'
+      - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
+      - '.github/workflows/desktop.yml'
+      - '.github/workflows/release-desktop.yml'
+  # Every job, on any branch: Actions › Desktop › Run workflow.
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Disk and cache size: a GPUI workspace's debug target with full debug
+  # info and incremental state runs to tens of GB, more than a hosted
+  # runner has to spare. CI needs neither (a panic still names its line).
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+
+# Every job installs the toolchain desktop/rust-toolchain.toml pins
+# (channel and components); `rustup toolchain install` with no argument
+# reads it from the working directory.
+#
+# Caches: Cargo's registry and git checkouts, and the jobs' target folders
+# with the workspace's own crates cleaned out (they rebuild every run
+# anyway). Only pushes to main save them, so pull requests restore main's
+# and never evict each other's. The release workflow uses no cache.
+jobs:
+  # What a pull request needs from the two macOS jobs. Pushes to main, and
+  # runs started by hand, run both.
+  #
+  # macOS runners are few and every pull request queues for them, so on a
+  # pull request into another one's branch (a stacked one) both skip: they
+  # run once it is retargeted onto main and pushed (retargeting alone starts
+  # no run). The release bundle takes the longest, and what it adds to the
+  # workspace job is the packaging, so a pull request builds it only when
+  # it changes what goes into the bundle or how it is made. The `full-ci`
+  # label runs both on any pull request this workflow starts for (its
+  # paths above); for any other branch, run the workflow by hand.
+  changes:
+    name: Desktop changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      macos: ${{ steps.diff.outputs.macos }}
+      bundle: ${{ steps.diff.outputs.bundle }}
+    steps:
+      # The checked-out ref is the merge commit, so its first parent is the
+      # base branch and the diff between them is the pull request's.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: diff
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FULL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          macos=false
+          if [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || [ "$FULL" = true ]; then macos=true; fi
+          # Packaging, the crates and Dart packages the bundle ships (their
+          # licences too), the whisper library only the bundle compiles, and
+          # the workflows that build it. The daemon's code has its own macOS
+          # build and smoke job (ci.yml), and the app's the workspace job.
+          bundle=$FULL
+          if git diff --name-only HEAD^1 HEAD -- \
+              desktop/packaging desktop/vendor desktop/Cargo.lock \
+              desktop/rust-toolchain.toml ':(glob)desktop/**/Cargo.toml' \
+              apps/daemon/native apps/daemon/pubspec.yaml pubspec.lock \
+              .github/workflows/desktop.yml .github/workflows/release-desktop.yml |
+              grep -q .; then
+            bundle=true
+          fi
+          [ "$macos" = true ] || bundle=false
+          {
+            echo "macos=$macos"
+            echo "bundle=$bundle"
+          } >> "$GITHUB_OUTPUT"
+
+  # desktop/crates/protocol/src/generated.rs must be exactly what the
+  # generator writes from the Dart DTOs. The generator formats with the
+  # pinned rustfmt, so this job needs both Dart and Rust.
+  protocol-codegen:
+    name: Protocol codegen drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # The pub workspace resolves the app's path dependencies too, so the
+      # third_party/ submodules are needed for `pub get`.
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Regenerate the Rust protocol types
+        working-directory: packages/conduit_protocol
+        run: dart run tool/generate_rust.dart
+      - name: Fail if generated.rs drifted from the Dart source
+        run: |
+          git diff --exit-code -- desktop/crates/protocol/src/generated.rs || {
+            echo "::error::generated.rs is stale: run 'dart run tool/generate_rust.dart' in packages/conduit_protocol and commit it."
+            exit 1
+          }
+
+  # The protocol crate is plain serde, so it builds everywhere; Windows and
+  # Linux check it (and run its conformance tests) ahead of shipping there.
+  protocol:
+    name: Protocol crate (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+          restore-keys: desktop-protocol-${{ runner.os }}-
+      - run: cargo check -p conduit-protocol --locked
+      - run: cargo test -p conduit-protocol --locked
+      - name: Leave only dependencies in the target folder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cargo clean -p conduit-protocol
+      - name: Save the Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+
+  # macOS is the first desktop platform: the whole workspace, GPUI included.
+  macos:
+    name: Workspace (macOS)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.macos != 'false') }}
+    # Apple silicon with Xcode 26 or later: the app links FoundationModels
+    # (macOS 26 SDK) weakly. The same image as the bundle job and the
+    # release; DESKTOP_MACOS_RUNNER overrides it for all three.
+    runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 90
+    env:
+      # The gallery's accessibility test opens real windows.
+      CONDUIT_SKIP_UI_TESTS: '1'
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pick Xcode 26 or later
+        shell: bash
+        run: |
+          major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
+          if [ "$major" -lt 26 ]; then
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)"
+            [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
+            sudo xcode-select -s "$newest"
+          fi
+          xcodebuild -version
+          df -h / | tail -1
+      # Xcode 26 builds the Apple models engine without its macOS 27 parts
+      # (apple_models.sh sdk-gaps): named on the run, never silent.
+      - name: Name what this Xcode's SDK leaves out
+        run: packaging/macos/apple_models.sh sdk-gaps --github
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      # GPUI compiles its Metal shaders at build time. Xcode 26 ships the
+      # Metal compiler as a separate component.
+      - name: Make sure the Metal compiler is installed
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      - name: Restore the Cargo cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+          restore-keys: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-
+      - run: cargo fmt --all --check
+      # The release scripts' safeguards, against synthetic feeds and stubs.
+      - run: packaging/macos/release_test.sh
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # Tests build the app with its test harness (`harness`, through the
+      # crate's dev-dependency on itself); the release bundle builds it
+      # without. Lint that configuration too.
+      - name: Clippy without the test harness (as the release bundle builds)
+        run: cargo clippy -p conduit-desktop --lib --bins --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: Disk left
+        if: always()
+        run: df -h / | tail -1 && du -sh target 2>/dev/null || true
+      - name: Leave only dependencies in the target folder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo clean -p conduit-desktop -p conduit-components -p conduit-gallery \
+            -p conduit-protocol -p conduit-daemon
+          du -sh target
+      - name: Save the Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+
+  # The release path, without the secrets: packaging/macos/bundle.sh as a
+  # rehearsal (--rehearsal: the release's strictness about the Sparkle key,
+  # the icon, stripping and dSYMs) on a test bundle id, signed ad hoc, with
+  # a throwaway Sparkle public key (so Sparkle is embedded, thinned and
+  # signed as in a release); then smoke.sh: the bundle's checks, the bundled
+  # conduitd's handshake, and the app's own --shots pass on a throwaway
+  # profile with no conduitd left behind. Without llvm-tools, so the
+  # fallback strip (Apple's) is the one exercised here.
+  bundle:
+    name: Release bundle (rehearsal, ad hoc) + smoke
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.bundle != 'false') }}
+    runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Pick Xcode 26 or later
+        shell: bash
+        run: |
+          major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
+          if [ "$major" -lt 26 ]; then
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)"
+            [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
+            sudo xcode-select -s "$newest"
+          fi
+          xcodebuild -version
+          df -h / | tail -1
+      - name: Name what this Xcode's SDK leaves out
+        run: desktop/packaging/macos/apple_models.sh sdk-gaps --github
+      - name: Fetch third_party submodules
+        run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          cache: true
+      - run: flutter pub get
+      - name: Generate Dart code
+        shell: bash
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Install the pinned Rust toolchain
+        working-directory: desktop
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Make sure the Metal compiler is installed
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+      # Cargo's downloads only: the release target (line tables, for the
+      # dSYMs) would crowd the cache out.
+      - name: Restore the Cargo registry
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ hashFiles('desktop/Cargo.lock') }}
+          restore-keys: desktop-registry-
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --features cli --version 0.9.3
+      # bundle.sh builds whisper.cpp with CMake after the Rust build; a
+      # missing one would only show half an hour in.
+      - name: Make sure CMake is installed
+        run: command -v cmake >/dev/null || brew install cmake; cmake --version | head -1
+      # THIRD_PARTY_NOTICES.md is generated, not committed: the generator
+      # must run and find a licence for everything the app ships.
+      - name: Third-party notices (generate, check the licence set)
+        run: desktop/packaging/notices/notices.sh --check
+      - name: Share extension tests
+        run: desktop/packaging/macos/share/test.sh
+      - name: Build, sign ad hoc, make the DMG and verify
+        shell: bash
+        run: |
+          # A key made for this run only: its private half is never used.
+          SPARKLE_PUBLIC_ED_KEY="$(openssl genpkey -algorithm ed25519 |
+            openssl pkey -pubout -outform DER | tail -c 32 | base64)"
+          export SPARKLE_PUBLIC_ED_KEY
+          desktop/packaging/macos/bundle.sh all --version 0.0.0 \
+            --rehearsal --bundle-id app.cogwheel.conduit.desktop.ci
+      - name: Smoke-test the bundle
+        run: desktop/packaging/macos/smoke.sh desktop/target/macos/Conduit-0.0.0/Conduit.app --launch
+      - name: Disk left
+        if: always()
+        run: df -h / | tail -1 && du -sh desktop/target 2>/dev/null || true
+      - name: Save the Cargo registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: desktop-registry-${{ hashFiles('desktop/Cargo.lock') }}
+      - name: Keep the DMG and the dSYMs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: conduit-desktop-unsigned-${{ github.sha }}
+          path: |
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0-dSYMs.zip
+          retention-days: 5

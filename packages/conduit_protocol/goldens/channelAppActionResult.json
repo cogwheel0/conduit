@@ -1,0 +1,15 @@
+{
+  "reply": {
+    "channelId": "c1",
+    "messageId": "m3",
+    "appId": "a1",
+    "reply": {
+      "kind": "error",
+      "title": "",
+      "content": "",
+      "filename": "report.md",
+      "embeds": [],
+      "actions": []
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/integrations/personal_connection_drafts.dart';
@@ -7,6 +8,7 @@ import 'package:conduit_core/features/integrations/personal_connection_settings.
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
 
@@ -333,12 +335,12 @@ void main() {
           PersonalConnectionKind.toolServer,
           PatchPersonalConnection(
             'alpha',
-            draft.copyWith(url: 'https://new.example').toPatch(stored),
+            draft.copyWith(url: 'https://alpha.example/v2').toPatch(stored),
           ),
         );
         var saved =
             server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
-        check(saved['url']).equals('https://new.example');
+        check(saved['url']).equals('https://alpha.example/v2');
         check(saved['key']).equals('key-alpha');
 
         await api.editPersonalConnections(
@@ -367,6 +369,354 @@ void main() {
         );
         saved = server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
         check(saved['key']).equals('');
+      },
+    );
+
+    test('a kept key never follows a connection to another origin', () {
+      final tool = _toolServer('alpha', 'Alpha');
+      final toolDraft = PersonalToolServerDraft.fromEntry(tool);
+      final terminal = _terminal('https://term.example');
+      final terminalDraft = PersonalTerminalDraft.fromEntry(terminal);
+      // An inline document, with an absolute path on another origin that
+      // nothing fetches.
+      final inline = _toolServer(
+        'alpha',
+        'Alpha',
+        extra: <String, dynamic>{
+          'spec_type': 'json',
+          'spec': '{"paths": {}}',
+          'path': 'https://beta.example/openapi.json',
+        },
+      );
+      final inlineDraft = PersonalToolServerDraft.fromEntry(inline);
+      // (row, stored entry, patch, the key saved).
+      final rows =
+          <(String, Map<String, dynamic>, Map<String, dynamic>, String)>[
+            // The connection's URL: another scheme, host or port drops the key.
+            for (final moved in <String>[
+              'https://beta.example',
+              'http://alpha.example',
+              'https://alpha.example:8443',
+              'https://ALPHA.example.evil.test',
+            ])
+              (
+                'url $moved',
+                tool,
+                toolDraft.copyWith(url: moved).toPatch(tool),
+                '',
+              ),
+            for (final moved in <String>[
+              'https://other.example',
+              'https://term.example:9000',
+            ])
+              (
+                'terminal url $moved',
+                terminal,
+                terminalDraft.copyWith(url: moved).toPatch(terminal),
+                '',
+              ),
+            // The same origin (another path, a trailing slash, the default
+            // port, the host's case) keeps it.
+            for (final same in <String>[
+              'https://alpha.example/v2',
+              'https://alpha.example/',
+              'https://alpha.example:443',
+              'https://Alpha.Example',
+            ])
+              (
+                'url $same',
+                tool,
+                toolDraft.copyWith(url: same).toPatch(tool),
+                'key-alpha',
+              ),
+            (
+              'terminal url on its origin',
+              terminal,
+              terminalDraft
+                  .copyWith(url: 'https://term.example/shell')
+                  .toPatch(terminal),
+              'terminal-key',
+            ),
+            // A fetched document's absolute path is where the key goes.
+            for (final away in <String>[
+              'https://beta.example/openapi.json',
+              'http://alpha.example/openapi.json',
+              'https://alpha.example:8443/openapi.json',
+            ])
+              (
+                'path $away',
+                tool,
+                toolDraft.copyWith(path: away).toPatch(tool),
+                '',
+              ),
+            for (final same in <String>[
+              'spec/openapi.json',
+              'https://alpha.example/spec/openapi.json',
+            ])
+              (
+                'path $same',
+                tool,
+                toolDraft.copyWith(path: same).toPatch(tool),
+                'key-alpha',
+              ),
+            // An inline document fetches nothing: its path never moves the key,
+            // until the entry fetches from that path.
+            (
+              'inline path to another origin',
+              inline,
+              inlineDraft
+                  .copyWith(path: 'https://gamma.example/openapi.json')
+                  .toPatch(inline),
+              'key-alpha',
+            ),
+            (
+              'inline to fetched, from a path on another origin',
+              inline,
+              inlineDraft.copyWith(specType: 'url').toPatch(inline),
+              '',
+            ),
+            (
+              'fetched to inline',
+              tool,
+              toolDraft
+                  .copyWith(specType: 'json', spec: '{"paths": {}}')
+                  .toPatch(tool),
+              'key-alpha',
+            ),
+          ];
+      for (final (row, stored, patch, key) in rows) {
+        // A patch never names a kept key: the merge decides.
+        check(because: row, patch.containsKey('key')).isFalse();
+        check(
+          because: row,
+          mergePersonalConnectionEdit(stored, patch)['key'],
+        ).equals(key);
+      }
+      // A key typed for the new origin is the one saved.
+      check(
+        toolDraft
+            .copyWith(
+              url: 'https://beta.example',
+              key: 'beta-key',
+              keyMode: PersonalConnectionSecretMode.replace,
+            )
+            .toPatch(tool)['key'],
+      ).equals('beta-key');
+    });
+
+    test('a save from an editor opened before another window changed the entry '
+        'is refused, and nothing is written', () async {
+      final opened = _toolServer('alpha', 'Alpha');
+      // Another window renamed it since this editor opened it.
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[_toolServer('alpha', 'Renamed')],
+        },
+      });
+      final before = jsonEncode(server.settings);
+      await check(
+        _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(opened)
+                .copyWith(description: 'Typed here')
+                .toPatch(opened),
+            fingerprint: personalConnectionFingerprint(opened),
+          ),
+        ),
+      ).throws<PersonalConnectionEditException>(
+        (it) => it
+            .has((e) => e.failure, 'failure')
+            .equals(PersonalConnectionEditFailure.changed),
+      );
+
+      check(jsonEncode(server.settings)).equals(before);
+    });
+
+    test('a save from an editor that saw the latest entry still keeps its key '
+        'to its origin', () async {
+      final opened = _toolServer('alpha', 'Alpha');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[_toolServer('alpha', 'Alpha')],
+        },
+      });
+      await _api(server).editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(opened)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(opened),
+          fingerprint: personalConnectionFingerprint(opened),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+      // The same entry, its map keys in another order: the same print.
+      check(
+        personalConnectionFingerprint(
+          Map<String, dynamic>.fromEntries(opened.entries.toList().reversed),
+        ),
+      ).equals(personalConnectionFingerprint(opened));
+      // Keyed: not the plain hash of the entry, which would check a
+      // guessed key offline.
+      check(personalConnectionFingerprint(opened)).not(
+        (it) => it.equals(
+          sha256
+              .convert(utf8.encode(jsonEncode(_sortedKeys(opened))))
+              .toString(),
+        ),
+      );
+      // Its key counts.
+      check(personalConnectionFingerprint({...opened, 'key': 'other'}))
+          .not((it) => it.equals(personalConnectionFingerprint(opened)));
+    });
+
+    test('a key saved since the editor read the entry never follows its URL '
+        'to another origin', () async {
+      // The editor read Alpha without a key; another client then saved
+      // one for Alpha's host.
+      final read = _toolServer('alpha', 'Alpha', key: '');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            _toolServer('alpha', 'Alpha', key: 'saved-elsewhere'),
+          ],
+        },
+      });
+      final api = _api(server);
+      await api.editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(read)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(read),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+
+      // A terminal read without a key, given one since, likewise.
+      final terminalRead = {..._terminal('https://term.example'), 'key': ''};
+      final terminals = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'terminalServers': <dynamic>[_terminal('https://term.example')],
+        },
+      });
+      await _api(terminals).editPersonalConnections(
+        PersonalConnectionKind.terminal,
+        PatchPersonalConnection(
+          'https://term.example',
+          PersonalTerminalDraft.fromEntry(terminalRead)
+              .copyWith(url: 'https://other.example')
+              .toPatch(terminalRead),
+        ),
+      );
+      final terminal =
+          terminals.settings['ui']['terminalServers'][0]
+              as Map<String, dynamic>;
+      check(terminal['url']).equals('https://other.example');
+      check(terminal['key']).equals('');
+    });
+
+    test('a URL another window moved, with its key, is not where an older '
+        'editor\'s Save takes that key', () async {
+      // The editor read Alpha keyless at alpha.example; another window
+      // then moved it to gamma.example and typed a key for gamma.
+      final read = _toolServer('alpha', 'Alpha', key: '');
+      final server = FakeUserSettingsServer(<String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            _toolServer(
+              'alpha',
+              'Alpha',
+              key: 'gamma-key',
+              extra: <String, dynamic>{'url': 'https://gamma.example'},
+            ),
+          ],
+        },
+      });
+      await _api(server).editPersonalConnections(
+        PersonalConnectionKind.toolServer,
+        PatchPersonalConnection(
+          'alpha',
+          PersonalToolServerDraft.fromEntry(read)
+              .copyWith(url: 'https://beta.example')
+              .toPatch(read),
+        ),
+      );
+      final saved =
+          server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+      check(saved['url']).equals('https://beta.example');
+      check(saved['key']).equals('');
+    });
+
+    test(
+      'a path edit keeps the key another client saved after moving the URL',
+      () async {
+        // The editor read Alpha with its key at alpha.example; another
+        // client then moved it to beta.example and saved beta's key. The
+        // editor's Save names beta with another path, and no key.
+        final read = _toolServer('alpha', 'Alpha');
+        final server = FakeUserSettingsServer(<String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': <dynamic>[
+              _toolServer(
+                'alpha',
+                'Alpha',
+                key: 'beta-key',
+                extra: <String, dynamic>{'url': 'https://beta.example'},
+              ),
+            ],
+          },
+        });
+        await _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(read)
+                .copyWith(url: 'https://beta.example/v2')
+                .toPatch(read),
+          ),
+        );
+        final saved =
+            server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+        check(saved['url']).equals('https://beta.example/v2');
+        check(saved['key']).equals('beta-key');
+      },
+    );
+
+    test(
+      'a key saved since the editor read the entry stays on its origin',
+      () async {
+        final read = _toolServer('alpha', 'Alpha', key: '');
+        final server = FakeUserSettingsServer(<String, dynamic>{
+          'ui': <String, dynamic>{
+            'toolServers': <dynamic>[
+              _toolServer('alpha', 'Alpha', key: 'saved-elsewhere'),
+            ],
+          },
+        });
+        await _api(server).editPersonalConnections(
+          PersonalConnectionKind.toolServer,
+          PatchPersonalConnection(
+            'alpha',
+            PersonalToolServerDraft.fromEntry(read)
+                .copyWith(url: 'https://alpha.example/v2')
+                .toPatch(read),
+          ),
+        );
+        final saved =
+            server.settings['ui']['toolServers'][0] as Map<String, dynamic>;
+        check(saved['url']).equals('https://alpha.example/v2');
+        check(saved['key']).equals('saved-elsewhere');
       },
     );
 
@@ -412,3 +762,13 @@ ApiService _api(FakeUserSettingsServer server, {String token = 'account-a'}) {
   api.dio.httpClientAdapter = server;
   return api;
 }
+
+/// [value] with every map's keys sorted, as a fingerprint's text is.
+Object? _sortedKeys(Object? value) => switch (value) {
+  final Map<dynamic, dynamic> map => {
+    for (final key in map.keys.map((k) => k.toString()).toList()..sort())
+      key: _sortedKeys(map[key]),
+  },
+  final List<dynamic> list => [for (final item in list) _sortedKeys(item)],
+  _ => value,
+};

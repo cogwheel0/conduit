@@ -1,5 +1,7 @@
 {
   "channelId": "c1",
   "content": "Hi",
-  "parentId": "m1"
+  "parentId": "m1",
+  "mentions": [],
+  "files": []
 }

@@ -224,12 +224,22 @@ final class _HermesDesktopAdministration {
           "the gateway's add takes no values",
         );
       }
-      await mcpRequest(
+      final result = await mcpRequest(
         'mcp.servers.add',
         params: {'name': entry.name, 'preset': entry.name},
       );
+      // The dashboard install it falls back to can go on in the background.
+      stillInstalling = result['background'] == true;
     }
-    await reloadMcp();
+    // An install Hermes accepted is made, at once or in the background: a
+    // reload that fails after it (the server not ready to load yet) does
+    // not turn it into a failed add, which would be asked again. The next
+    // list read loads it.
+    try {
+      await reloadMcp();
+    } on Object {
+      // Made all the same.
+    }
     return stillInstalling;
   }
 

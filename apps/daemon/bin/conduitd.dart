@@ -25,8 +25,13 @@ Future<void> main(List<String> args) async {
   // sockets, sync timers and Riverpod subscriptions alive after the graceful
   // stop has finished, so the event loop never drains: the daemon used to log
   // "exited cleanly" and then run on, orphaned, after the app was gone.
-  // `exit` drops unflushed output, so flush the two pipes first.
+  // `exit` drops unflushed output, so flush the two pipes first -- but not
+  // for long: when the app is gone (it died, or quit the way a crash does)
+  // the pipes have no reader and the flush never completes. A daemon with
+  // nothing else alive still ended (its event loop drained), but a
+  // signed-in one idled on there, orphaned, after logging "exited cleanly".
   await Future.wait<void>(<Future<void>>[stdout.flush(), stderr.flush()])
+      .timeout(const Duration(seconds: 2), onTimeout: () => <void>[])
       .catchError((Object _) => <void>[]);
   exit(code);
 }
@@ -138,6 +143,9 @@ Future<int> _run(List<String> args) async {
     ..redactExactly(<String>[config.sessionToken, config.masterKey])
     ..attachFile(RotatingLogFile(Directory(directories.paths.logs)));
   DebugLogger.sink = DaemonLogSink(log);
+  if (!installModelLogoCatalog()) {
+    log.info('no model logo catalog; direct models show their initials');
+  }
 
   final server = DaemonServer(
     config: config,
@@ -206,7 +214,18 @@ Future<int> _run(List<String> args) async {
   // when the app dies: either way nobody is left to serve. Without this the
   // daemon would outlive a crashed app and keep the user's sockets and sync
   // running with no window to show for it.
-  unawaited(stdinClosed.future.then((_) => server.requestStop('stdin closed')));
+  unawaited(
+    stdinClosed.future.then((_) {
+      server.requestStop('stdin closed');
+      // Nothing may keep the process once its app is gone (see the last
+      // flush in [main]): a stop that has not ended the process in 10 s,
+      // whatever it still waits on, is cut short.
+      Timer(const Duration(seconds: 10), () {
+        log.warn('still running 10 s after stdin closed: exiting now');
+        exit(0);
+      });
+    }),
+  );
 
   await server.onStopped;
   for (final signal in signals) {

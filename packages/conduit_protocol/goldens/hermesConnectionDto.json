@@ -1,0 +1,20 @@
+{
+  "id": "9d2f7c1e-0a4b-4c3d-8e5f-6a7b8c9d0e1f",
+  "name": "Studio agent",
+  "baseUrl": "http://127.0.0.1:19303",
+  "mode": "desktop",
+  "desktopAuthKind": "nativePkce",
+  "desktopProfile": "writer",
+  "allowSelfSignedCertificates": true,
+  "active": true,
+  "plainHttp": true,
+  "hasApiKey": true,
+  "hasLegacyToken": true,
+  "desktopSignedIn": true,
+  "accessHeaderNames": [
+    "CF-Access-Client-Id",
+    "CF-Access-Client-Secret"
+  ],
+  "hasMemoryKey": true,
+  "dashboardSignedIn": true
+}

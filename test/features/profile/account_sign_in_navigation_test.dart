@@ -228,6 +228,7 @@ class _SignedOutHandover extends Fake implements OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+    bool Function()? stillFrom,
   }) => _change(force);
 
   @override

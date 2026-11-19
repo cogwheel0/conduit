@@ -1,0 +1,15 @@
+{
+  "users": [
+    {
+      "id": "user-1",
+      "name": "Riley"
+    }
+  ],
+  "channels": [
+    {
+      "id": "ch-1",
+      "name": "garden",
+      "detail": "Raised beds"
+    }
+  ]
+}

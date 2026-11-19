@@ -1,0 +1,18 @@
+{
+  "name": "Morning digest",
+  "prompt": "Summarize the garden notes.",
+  "modelId": "fake-model",
+  "active": true,
+  "schedule": {
+    "kind": "once",
+    "year": 2026,
+    "month": 11,
+    "day": 12,
+    "hour": 7,
+    "minute": 45,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "folderId": "folder-garden"
+}

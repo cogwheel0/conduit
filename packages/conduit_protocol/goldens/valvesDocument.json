@@ -1,0 +1,20 @@
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "Weather",
+  "phase": "ready",
+  "fields": [
+    {
+      "key": "verbose",
+      "title": "Verbose",
+      "type": "boolean",
+      "isRequired": false,
+      "password": false,
+      "options": [],
+      "isDefault": true,
+      "hasDefault": false,
+      "text": "",
+      "seed": ""
+    }
+  ]
+}

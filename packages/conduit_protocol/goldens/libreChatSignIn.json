@@ -1,0 +1,6 @@
+{
+  "url": "https://chat.example.org",
+  "email": "rowan@example.test",
+  "password": "pw",
+  "force": false
+}

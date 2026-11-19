@@ -1,0 +1,8 @@
+{
+  "share": true,
+  "duplicate": true,
+  "move": true,
+  "markUnread": true,
+  "generateTitle": true,
+  "export": true
+}

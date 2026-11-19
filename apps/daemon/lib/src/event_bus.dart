@@ -1,4 +1,13 @@
+import 'dart:async';
+
 import 'package:conduit_protocol/conduit_protocol.dart';
+
+/// An in-process listener on the [EventBus] ([EventBus.tap]).
+typedef EventTap = void Function(
+  String event,
+  String? scope,
+  Map<String, dynamic> payload,
+);
 
 /// Fan-out of daemon events to every connected window, with per-client
 /// filters.
@@ -23,9 +32,45 @@ class EventBus {
   /// reconnecting window, which is a new session, starts again too.
   void attach(String sessionId, void Function(EventEnvelope envelope) deliver) {
     _subscribers[sessionId] = _Subscriber(deliver);
+    final waiting = List<Completer<bool>>.of(_attachWaiters);
+    _attachWaiters.clear();
+    for (final waiter in waiting) {
+      waiter.complete(true);
+    }
+  }
+
+  final List<Completer<bool>> _attachWaiters = <Completer<bool>>[];
+
+  /// True when the next client attaches (a window reconnecting), false when
+  /// [until] completes first. Either way nothing is left waiting here.
+  Future<bool> attachBefore(Future<void> until) {
+    final waiter = Completer<bool>();
+    _attachWaiters.add(waiter);
+    unawaited(
+      until.then((_) {
+        if (_attachWaiters.remove(waiter)) waiter.complete(false);
+      }),
+    );
+    return waiter.future;
   }
 
   void detach(String sessionId) => _subscribers.remove(sessionId);
+
+  final List<EventTap> _taps = <EventTap>[];
+
+  /// Hears every event published from now on, in this process: what
+  /// `intents.ask` waits for its answer with. A tap is not a window: it is
+  /// never counted in [subscriberCount] (which decides whether anyone can
+  /// be asked a question), never [watches] a chat and takes no sequence
+  /// numbers. Returns the function that removes it.
+  void Function() tap(EventTap listener) {
+    _taps.add(listener);
+    return () => _taps.remove(listener);
+  }
+
+  /// Whether a window is listening to [scope] (shows that chat, say).
+  bool watches(String scope) =>
+      _subscribers.values.any((subscriber) => subscriber.scopes.contains(scope));
 
   /// Replaces [sessionId]'s interest set.
   ///
@@ -47,12 +92,15 @@ class EventBus {
   /// Publishes to every client whose filter matches, each under its own
   /// next sequence number.
   ///
-  /// Returns how many clients it reached.
+  /// Returns how many clients it reached; taps ([tap]) are not counted.
   int publish(
     String event, {
     String? scope,
     Map<String, dynamic> payload = const <String, dynamic>{},
   }) {
+    for (final listener in _taps.toList()) {
+      listener(event, scope, payload);
+    }
     var reached = 0;
     // A copy: delivering can close a session, which detaches it.
     for (final subscriber in _subscribers.values.toList()) {

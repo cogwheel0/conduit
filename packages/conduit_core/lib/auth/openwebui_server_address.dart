@@ -508,12 +508,17 @@ Future<bool> saveCheckedAddress(
   required String? cookieOwner,
   required Map<String, String> headers,
   required int sessionRevision,
+  void Function(List<OpenWebUiEndpoint> stored)? beforeWrite,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   // Onto the routes as stored now, not as read before the check, which can
-  // take a while; an address removed meanwhile stays removed.
-  List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) =>
-      withEditedRoute(endpoints, route, adding: adding);
+  // take a while; an address removed meanwhile stays removed. [beforeWrite]
+  // runs right before the write, nothing awaited between: what it checks
+  // (and throws on) holds for what is written.
+  List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) {
+    beforeWrite?.call(endpoints);
+    return withEditedRoute(endpoints, route, adding: adding);
+  }
   final bool saved;
   if (headers.keys.any(isCapturedSessionHeader)) {
     saved =
@@ -780,6 +785,9 @@ String serverNameFromUrl(String url) {
 
 const _reservedHeaderNames = {
   'authorization',
+  // A session cookie is captured through the proxy's sign-in and kept for
+  // the account that proved it; one typed in an address never becomes it.
+  'cookie',
   'content-type',
   'content-length',
   'host',
@@ -839,7 +847,11 @@ ServerAddressProblem? validateServerAddressHeader(
       validateServerAddressHeaderName(name) ??
       validateServerAddressHeaderValue(value);
   if (problem != null) return problem;
-  if (headers.containsKey(name)) return ServerAddressProblem.headerAlreadyAdded;
+  // Header names are case-insensitive: `x-gate` is `X-Gate` again.
+  final lower = name.toLowerCase();
+  if (headers.keys.any((added) => added.toLowerCase() == lower)) {
+    return ServerAddressProblem.headerAlreadyAdded;
+  }
   if (headers.length >= maxServerAddressHeaders) {
     return ServerAddressProblem.tooManyHeaders;
   }
@@ -1097,6 +1109,13 @@ final class ServerAddressSaved extends ServerAddressSave {
 }
 
 /// Not saved, for [problem]; with none, the user chose not to go on.
+/// Thrown by [saveVerifiedServerAddress] when, as its write runs, a reply
+/// arrives through the address in use that the edit would move: nothing was
+/// saved, and the caller asks about the reply again.
+final class ServerAddressReplyArriving implements Exception {
+  const ServerAddressReplyArriving();
+}
+
 final class ServerAddressNotSaved extends ServerAddressSave {
   const ServerAddressNotSaved([this.problem]);
 
@@ -1125,6 +1144,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   required Future<bool> Function(Uri address) confirmSendingSession,
   required Future<bool> Function() confirmChangingInUse,
   required bool Function() stillWanted,
+  bool Function()? replyArrives,
 }) async {
   final storage = container.read(optimizedStorageServiceProvider);
   final registry = await storage.getOpenWebUiRegistryStrict();
@@ -1208,14 +1228,22 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
-  // Saved, the address in use moves the clients off it, ending a reply
-  // arriving through them; that is asked first.
-  if (endpointId != null &&
-      isServerAddressInUse(
-        container.read(openWebUiRouteResolverProvider),
-        serverId: server.id,
-        endpointId: endpointId,
-      ) &&
+  // Saved, an edit of the address in use that changes how it is reached
+  // moves the clients off it, ending a reply arriving through them; that is
+  // asked first. A name (label) alone changes no connection: never asked.
+  bool changesInUseConnection(List<OpenWebUiEndpoint> stored) {
+    if (endpointId == null) return false;
+    final before = stored.where((e) => e.id == endpointId).firstOrNull;
+    return before != null &&
+        !before.sameConnection(route) &&
+        isServerAddressInUse(
+          container.read(openWebUiRouteResolverProvider),
+          serverId: server.id,
+          endpointId: endpointId,
+        );
+  }
+
+  if (changesInUseConnection(server.endpoints) &&
       !await confirmChangingInUse()) {
     return const ServerAddressNotSaved();
   }
@@ -1228,6 +1256,15 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     cookieOwner: cookieOwner,
     headers: verified.customHeaders,
     sessionRevision: sessionRevision,
+    // Asked again inside the write, about the address as stored then: a
+    // reply that started since the question is never cut off unasked.
+    beforeWrite: replyArrives == null
+        ? null
+        : (stored) {
+            if (changesInUseConnection(stored) && replyArrives()) {
+              throw const ServerAddressReplyArriving();
+            }
+          },
   );
   // Not saved: the proxy sign-in that lets requests through was revoked;
   // signing in through the proxy again captures a new one.

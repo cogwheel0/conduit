@@ -630,10 +630,13 @@ Future<void> reloadAfterRoutesEdited(
       final saved = await container
           .read(optimizedStorageServiceProvider)
           .getServerConfigsStrict();
+      // The connection, not the name: a rename since the active config
+      // was read is no reason for a new client.
+      final stored = active == null
+          ? null
+          : saved.where((config) => config.id == active.id).firstOrNull;
       connectionChanged =
-          active == null ||
-          saved.where((config) => config.id == active.id).firstOrNull !=
-              active;
+          active == null || stored == null || !stored.sameConnectionAs(active);
     }
   } catch (_) {
     // Unknown: the clients are rebuilt, as for any edit.

@@ -49,7 +49,9 @@ final class ChatActionAvailability {
   final bool saveTemporary;
 
   /// Compare Models ([comparisonCommandAvailableProvider], the model left
-  /// to the composer).
+  /// to the composer): never in a chat a coding agent answers
+  /// ([conversationUsesTerminalAgent]), which Open WebUI keeps to that
+  /// agent alone.
   final bool compare;
 }
 
@@ -285,6 +287,10 @@ Future<ChatActionAvailability> chatActionAvailability(
         conversation.messages.isNotEmpty &&
         api != null &&
         !isNativeHermesConversation(conversation),
-    compare: advanced && durableOpenWebUi && !readOnly,
+    compare:
+        advanced &&
+        durableOpenWebUi &&
+        !readOnly &&
+        !conversationUsesTerminalAgent(null, conversation),
   );
 }

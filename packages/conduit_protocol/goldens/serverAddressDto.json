@@ -1,0 +1,14 @@
+{
+  "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "url": "https://chat.example.com",
+  "label": "Home network",
+  "inUse": true,
+  "allowSelfSignedCertificates": true,
+  "customHeaderNames": [
+    "X-Conduit-Tenant"
+  ],
+  "hasMutualTlsCredentials": true,
+  "mtlsCertificateLabel": "home-client.pem",
+  "mtlsPrivateKeyLabel": "home-client-key.pem",
+  "hasPrivateKeyPassword": true
+}

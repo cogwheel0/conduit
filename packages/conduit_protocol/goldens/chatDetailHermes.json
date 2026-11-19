@@ -1,0 +1,46 @@
+{
+  "summary": {
+    "id": "local:hermes_s4",
+    "title": "Garden notes",
+    "updatedAtMs": 1758413000000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": false,
+    "readOnly": false,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": false,
+    "export": false,
+    "merge": false,
+    "branch": false,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": true,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "tasks": [],
+  "hermes": {
+    "sessionId": "s4",
+    "readOnly": false,
+    "owner": ""
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "rateLimit",
+  "blocking": false,
+  "message": "The provider is rate limiting this key.",
+  "provider": "Custom",
+  "model": "demo-model",
+  "resetsAtMs": 1762851000000,
+  "partial": false,
+  "actions": [
+    "retry"
+  ]
+}

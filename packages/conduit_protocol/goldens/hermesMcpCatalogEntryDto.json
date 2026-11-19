@@ -1,0 +1,19 @@
+{
+  "name": "calendar",
+  "description": "Events from a calendar",
+  "authType": "api_key",
+  "credentials": [
+    {
+      "name": "CALENDAR_TOKEN",
+      "prompt": "Calendar access token",
+      "required": true
+    },
+    {
+      "name": "CALENDAR_REGION",
+      "required": false
+    }
+  ],
+  "canAdd": true,
+  "fromDashboard": true,
+  "oauth": false
+}

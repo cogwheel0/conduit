@@ -1,0 +1,12 @@
+{
+  "noteId": "n2",
+  "recordings": [
+    {
+      "id": "r2",
+      "name": "recording_2.wav",
+      "state": "waiting",
+      "size": 0,
+      "createdAtMs": 0
+    }
+  ]
+}

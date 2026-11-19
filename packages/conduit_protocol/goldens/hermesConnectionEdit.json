@@ -1,0 +1,23 @@
+{
+  "id": "c1",
+  "name": "Home",
+  "baseUrl": "https://agent.example.test",
+  "mode": "desktop",
+  "desktopAuthKind": "legacyToken",
+  "desktopProfile": "default",
+  "apiKey": "sk-demo",
+  "legacyToken": "demo-token",
+  "allowSelfSignedCertificates": true,
+  "allowPlainHttp": true,
+  "accessHeaders": [
+    {
+      "name": "CF-Access-Client-Id",
+      "value": "demo.access"
+    },
+    {
+      "name": "X-Gate",
+      "savedName": "X-Old-Gate"
+    }
+  ],
+  "memoryKey": "demo-memory"
+}

@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "connected": true,
+  "transport": "websocket",
+  "latencyMs": 42,
+  "quality": "excellent",
+  "lastHeartbeatMs": 1762790400000,
+  "reconnects": 1,
+  "allowPolling": false,
+  "allowWebsocket": true
+}

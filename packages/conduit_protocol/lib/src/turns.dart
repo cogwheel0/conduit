@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'blocks.dart';
+import 'chats.dart';
 import 'composer.dart';
 
 part 'turns.freezed.dart';
@@ -33,6 +34,21 @@ abstract class SendTurn with _$SendTurn {
     /// Ids of files already uploaded through `/upload`.
     @Default(<String>[]) List<String> fileIds,
 
+    /// Web pages, YouTube transcripts, notes and knowledge files (`#`, the
+    /// + menu's Web Page): the core's context attachments.
+    @Default(<ContextAttachmentDto>[]) List<ContextAttachmentDto> context,
+
+    /// `@` users and channels and `$` skills in [text], which the daemon
+    /// writes in Open WebUI's wire format.
+    @Default(<ComposerMentionDto>[]) List<ComposerMentionDto> mentions,
+
+    /// Open WebUI toggle filters chosen in the + menu.
+    @Default(<String>[]) List<String> filterIds,
+
+    /// "Compare Models": the two models to answer side by side. Empty for an
+    /// ordinary turn; [model] is then ignored.
+    @Default(<String>[]) List<String> compareModels,
+
     /// Start a conversation the server never stores.
     ///
     /// Only meaningful with no [chatId]. The daemon assigns a `local:` id,
@@ -40,6 +56,14 @@ abstract class SendTurn with _$SendTurn {
     /// memory for as long as it runs. It never reaches the sidebar, the
     /// database or another device.
     @Default(false) bool temporary,
+
+    /// A new chat made in this folder ("New Chat in Folder"), so the
+    /// folder's system prompt and knowledge apply from its first answer.
+    String? folderId,
+
+    /// A new chat's own settings (`chatSettings.*` keeps them for the
+    /// window until the chat exists): its system prompt and parameters.
+    Map<String, dynamic>? chatParams,
   }) = _SendTurn;
 
   factory SendTurn.fromJson(Map<String, dynamic> json) =>
@@ -83,6 +107,11 @@ abstract class RegenerateTurn with _$RegenerateTurn {
     /// Null keeps the model the conversation is already using. Passing one
     /// is how "try this again with a better model" works.
     String? model,
+
+    /// Retry Without Reasoning Effort: the reasoning effort the chat saved
+    /// and the picker's pick for the model are set back to automatic first,
+    /// so the retry sends none.
+    @Default(false) bool withoutReasoningEffort,
   }) = _RegenerateTurn;
 
   factory RegenerateTurn.fromJson(Map<String, dynamic> json) =>
@@ -136,6 +165,11 @@ abstract class TurnStarted with _$TurnStarted {
     required String chatId,
     required String messageId,
     required String model,
+
+    /// A Compare Models turn: the other models' answers, written at the same
+    /// time under their own ids (their `turn.delta` and `turn.blocks` name
+    /// them). Empty for an ordinary turn.
+    @Default(<String>[]) List<String> companionIds,
   }) = _TurnStarted;
 
   factory TurnStarted.fromJson(Map<String, dynamic> json) =>
@@ -179,6 +213,10 @@ abstract class TurnBlocks with _$TurnBlocks {
 
     /// The answer's blocks, in order (see [MessageBlockKind]).
     @Default(<MessageBlockDto>[]) List<MessageBlockDto> blocks,
+
+    /// The chat's task checklist as the turn left it ([ChatDetail.tasks]);
+    /// null when the turn has not touched it.
+    List<ChatTaskDto>? tasks,
   }) = _TurnBlocks;
 
   factory TurnBlocks.fromJson(Map<String, dynamic> json) =>
@@ -202,6 +240,12 @@ abstract class TurnFinished with _$TurnFinished {
 
     /// Why it failed (a `ConduitErrorCodes` value); absent when [ok].
     String? code,
+
+    /// The answer did not go out: its request waits in the outbox (sent
+    /// while offline) and the chat's stored copy shows it queued. Nothing
+    /// is ready yet, so no "answer ready"; when it goes out, its own
+    /// `turn.*` events follow. [ok] stays true: nothing failed.
+    @Default(false) bool queued,
   }) = _TurnFinished;
 
   factory TurnFinished.fromJson(Map<String, dynamic> json) =>
@@ -269,4 +313,54 @@ abstract class StoppedResult with _$StoppedResult {
 
   factory StoppedResult.fromJson(Map<String, dynamic> json) =>
       _$StoppedResultFromJson(json);
+}
+
+/// Params for `turns.steer`: a message typed while Hermes is working.
+@freezed
+abstract class SteerTurn with _$SteerTurn {
+  const factory SteerTurn({
+    required String chatId,
+    required String text,
+    @Default(<ComposerMentionDto>[]) List<ComposerMentionDto> mentions,
+
+    /// True steers the running turn; false sends the text as the next
+    /// message, after it (the core's `HermesBusyTurnAction`).
+    @Default(true) bool steer,
+  }) = _SteerTurn;
+
+  factory SteerTurn.fromJson(Map<String, dynamic> json) =>
+      _$SteerTurnFromJson(json);
+}
+
+/// Reply to `turns.steer`.
+@freezed
+abstract class SteerResult with _$SteerResult {
+  const factory SteerResult({
+    /// Hermes took the message.
+    required bool accepted,
+
+    /// Hermes did not say whether the turn saw the steer: the composer keeps
+    /// the text and says so, without sending it again.
+    @Default(false) bool uncertain,
+  }) = _SteerResult;
+
+  factory SteerResult.fromJson(Map<String, dynamic> json) =>
+      _$SteerResultFromJson(json);
+}
+
+/// Params for `turns.retryQueued` and `turns.removeQueued`: the queued
+/// answer [messageId] in [chatId] ([ChatMessageDto.queued]).
+@freezed
+abstract class QueuedTurnRef with _$QueuedTurnRef {
+  const factory QueuedTurnRef({
+    required String chatId,
+    required String messageId,
+
+    /// `turns.retryQueued` only: send it again without the reasoning
+    /// effort the provider refused.
+    @Default(false) bool withoutReasoningEffort,
+  }) = _QueuedTurnRef;
+
+  factory QueuedTurnRef.fromJson(Map<String, dynamic> json) =>
+      _$QueuedTurnRefFromJson(json);
 }

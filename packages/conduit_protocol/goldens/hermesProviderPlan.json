@@ -1,0 +1,9 @@
+{
+  "gauges": [
+    {
+      "id": "month",
+      "usedFraction": 0.1
+    }
+  ],
+  "rateLimited": false
+}

@@ -1,0 +1,6 @@
+{
+  "id": "rec-1",
+  "chatId": "chat-1",
+  "engine": "local",
+  "modelId": "fake-model"
+}

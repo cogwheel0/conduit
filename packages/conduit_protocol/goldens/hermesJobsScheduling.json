@@ -1,0 +1,24 @@
+{
+  "jobs": [
+    {
+      "id": "j3",
+      "prompt": "",
+      "schedule": "",
+      "enabled": true,
+      "deliver": [],
+      "catchUp": "default",
+      "running": true,
+      "stopping": false,
+      "deliveryKnown": true
+    }
+  ],
+  "writable": false,
+  "scheduling": true,
+  "notices": [
+    {
+      "jobId": "j3",
+      "kind": "stopped"
+    }
+  ],
+  "listFailed": false
+}

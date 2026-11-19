@@ -2171,6 +2171,35 @@ void main() {
       ).deepEquals(['u1', 'a1']);
     });
 
+    test('a held switch is asked with the session it holds, and is '
+        'withdrawn when the send stops', () async {
+      final gateway = _Gateway()
+        ..handler = (method, params) =>
+            method == 'config.set' && params['key'] == 'model'
+            ? {'confirm_required': true}
+            : null;
+      final asked = Completer<HermesHeldModelSwitch>();
+      final service = _service(
+        gateway,
+        _Rest(_transcript),
+        confirmModelSwitch: (held) async {
+          asked.complete(held);
+          await held.stopped;
+          return null;
+        },
+      );
+      final container = await _turnContainer(service, _chat);
+
+      final regenerating = regenerateMessage(container, 'And drinks?', null);
+      final held = await asked.future;
+      check(held.sessionId).equals('stored-1');
+      check(held.stopped).isNotNull();
+      await container.read(stopGenerationSettledProvider)();
+      await regenerating;
+
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
     test('rewinds to the row it checked on the canonical wire', () async {
       final gateway = _Gateway(authority: true);
       final service = _service(gateway, _Rest(_transcript));

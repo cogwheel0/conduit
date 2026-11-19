@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/providers/apple_pcc_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/connectivity_port.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
@@ -62,6 +65,18 @@ void main() {
       runtime.container.read(workerPortProvider),
       isNot(isA<InlineWorkerPort>()),
     );
+  });
+
+  test("Apple's models run through the window, never on Apple's servers", () {
+    final container = runtime.container;
+    expect(container.read(applePccHostProvider), same(runtime.apple));
+    expect(
+      container.read(hostDirectProviderAdaptersProvider).map((a) => a.key),
+      <String>[kApplePccAdapterKey],
+    );
+    expect(container.read(applePrivateCloudComputeSupportedProvider), isFalse);
+    // Until a window says this Mac has Apple's models.
+    expect(container.read(applePccPlatformSupportedProvider), isFalse);
   });
 
   test('PreferencesStore reads synchronously, as the core requires', () async {

@@ -1,0 +1,17 @@
+{
+  "kind": "notice",
+  "key": "notice:6",
+  "seq": 6,
+  "own": false,
+  "scheduled": false,
+  "author": "",
+  "memberId": "moss",
+  "text": "",
+  "continued": false,
+  "notice": "turnFailed",
+  "memberName": "Moss",
+  "detail": "rate limited",
+  "names": [],
+  "messageCount": 0,
+  "actionable": false
+}

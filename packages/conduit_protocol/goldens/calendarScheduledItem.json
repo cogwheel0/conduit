@@ -1,0 +1,33 @@
+{
+  "key": "run_r1|",
+  "kind": "scheduled",
+  "id": "run_r1",
+  "calendarId": "__scheduled_tasks__",
+  "title": "Morning digest",
+  "recurring": false,
+  "allDay": false,
+  "cancelled": false,
+  "start": {
+    "year": 2026,
+    "month": 11,
+    "day": 11,
+    "hour": 8,
+    "minute": 0
+  },
+  "time": {
+    "kind": "at",
+    "start": {
+      "year": 2026,
+      "month": 11,
+      "day": 11,
+      "hour": 8,
+      "minute": 0
+    }
+  },
+  "invited": false,
+  "editable": false,
+  "automationId": "task-digest",
+  "runId": "r1",
+  "resultChatId": "chat-digest-1",
+  "scheduledState": "finished"
+}

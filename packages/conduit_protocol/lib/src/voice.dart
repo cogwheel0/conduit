@@ -118,7 +118,15 @@ abstract class VoiceVoices with _$VoiceVoices {
 /// saved one unless given.
 @freezed
 abstract class VoiceSpeak with _$VoiceSpeak {
-  const factory VoiceSpeak({required String text, String? voice}) = _VoiceSpeak;
+  const factory VoiceSpeak({
+    required String text,
+    String? voice,
+
+    /// The chat whose backend speaks it (its model's: Open WebUI, the
+    /// Direct voice provider, Hermes or LibreChat); the active server's
+    /// when null.
+    String? chatId,
+  }) = _VoiceSpeak;
 
   factory VoiceSpeak.fromJson(Map<String, dynamic> json) =>
       _$VoiceSpeakFromJson(json);

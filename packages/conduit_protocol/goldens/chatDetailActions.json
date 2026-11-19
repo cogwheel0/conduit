@@ -1,0 +1,42 @@
+{
+  "summary": {
+    "id": "chat-9a2e4d1b",
+    "title": "Pond liner sizes",
+    "updatedAtMs": 1758412900000,
+    "pinned": false,
+    "archived": false,
+    "tags": [],
+    "shared": true,
+    "readOnly": false,
+    "unread": false,
+    "menu": {
+      "share": false,
+      "duplicate": false,
+      "move": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "export": false
+    }
+  },
+  "messages": [],
+  "readOnly": false,
+  "abilities": {
+    "fork": true,
+    "export": true,
+    "merge": false,
+    "branch": true,
+    "deleteMessages": false,
+    "markUnread": false,
+    "generateTitle": false,
+    "share": false,
+    "saveTemporary": false,
+    "compare": false,
+    "branchFromHere": false,
+    "undoLastTurn": false,
+    "hermesWork": false,
+    "hermesContext": false
+  },
+  "temporary": false,
+  "shareId": "b5c6d7e8-1f2a-4b3c-9d0e-6a7b8c9d0e1f",
+  "tasks": []
+}

@@ -1,0 +1,17 @@
+{
+  "sessions": [
+    {
+      "id": "s4",
+      "chatId": "local:hermes_s4",
+      "title": "Garden notes",
+      "pinned": false,
+      "archived": false,
+      "hidden": false,
+      "source": "cli",
+      "running": true
+    }
+  ],
+  "archived": [],
+  "archivedFailed": true,
+  "hiddenScheduledRuns": 0
+}

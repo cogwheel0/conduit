@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "name": "calendar",
+      "description": "",
+      "credentials": [],
+      "canAdd": true,
+      "fromDashboard": false,
+      "oauth": false
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Retrieved 3 sources",
+  "phrase": "sourcesRetrieved",
+  "count": 3,
+  "action": "sources_retrieved",
+  "done": true,
+  "queries": [],
+  "links": [],
+  "details": []
+}

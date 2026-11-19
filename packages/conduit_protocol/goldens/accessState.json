@@ -1,0 +1,20 @@
+{
+  "kind": "folder",
+  "id": "folder-1",
+  "grants": [
+    {
+      "principalType": "group",
+      "principalId": "group-1",
+      "write": false,
+      "name": ""
+    }
+  ],
+  "audience": "private",
+  "canEdit": true,
+  "allowUsers": true,
+  "allowGroups": true,
+  "allowWrite": true,
+  "allowPublic": true,
+  "allowOpen": false,
+  "ownerName": "Ada Example"
+}

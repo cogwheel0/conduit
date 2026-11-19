@@ -1,0 +1,23 @@
+{
+  "notes": [
+    {
+      "version": "0.9.0",
+      "title": "Novedades",
+      "intro": "Conduit ya funciona como app para Mac, con los ajustes del teléfono en su propia ventana.",
+      "bullets": [
+        {
+          "text": "Ajustes incluye las páginas del teléfono: Perfil, Personalización, Datos y conexión, Conversación, Audio y Control de datos.",
+          "icon": "polish"
+        },
+        {
+          "text": "Tu prompt del sistema, tus memorias y tus acciones rápidas son los que guarda tu cuenta de Open WebUI, así que coinciden en todos tus dispositivos.",
+          "icon": "local"
+        },
+        {
+          "text": "Notas como estas aparecen después de cada actualización, y Acerca de › Novedades las vuelve a mostrar.",
+          "icon": "direct"
+        }
+      ]
+    }
+  ]
+}

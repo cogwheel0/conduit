@@ -1,0 +1,9 @@
+{
+  "server": true,
+  "serverName": "Harbor Notes",
+  "serverVersion": "0.13.2",
+  "latestVersion": "0.13.3",
+  "repositoryUrl": "https://github.com/cogwheel0/conduit",
+  "buyMeACoffeeUrl": "https://www.buymeacoffee.com/cogwheel0",
+  "githubSponsorsUrl": "https://github.com/sponsors/cogwheel0"
+}

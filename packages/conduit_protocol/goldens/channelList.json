@@ -6,8 +6,14 @@
       "private": true,
       "unread": 0,
       "manager": false,
-      "canPost": false
+      "canPost": false,
+      "kind": "standard",
+      "title": "",
+      "muted": false,
+      "canDelete": false,
+      "canLeave": false
     }
   ],
-  "enabled": true
+  "enabled": true,
+  "canCreate": false
 }

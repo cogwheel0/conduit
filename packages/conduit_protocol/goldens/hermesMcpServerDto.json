@@ -1,0 +1,11 @@
+{
+  "name": "notes",
+  "description": "http://127.0.0.1:9000/mcp",
+  "enabled": false,
+  "auth": "oauth",
+  "tools": [
+    "search",
+    "fetch"
+  ],
+  "toolFilter": "only search"
+}

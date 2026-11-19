@@ -1,0 +1,35 @@
+{
+  "id": "m3",
+  "channelId": "c1",
+  "user": {
+    "id": "app:a1",
+    "name": "Builder"
+  },
+  "content": "Build ready",
+  "pinned": false,
+  "replyCount": 0,
+  "createdAtMs": 1790000000000,
+  "reactions": [],
+  "mine": false,
+  "senderKey": "app:a1",
+  "senderKind": "app",
+  "display": "Build ready",
+  "files": [
+    {
+      "id": "f2",
+      "name": "a.png",
+      "image": true
+    }
+  ],
+  "app": {
+    "appId": "a1",
+    "embeds": [],
+    "actions": []
+  },
+  "replyToId": "m1",
+  "replyTo": {
+    "name": "Ada",
+    "text": "Ship it"
+  },
+  "latestReplyAtMs": 1790000002000
+}

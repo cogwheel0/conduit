@@ -1,0 +1,19 @@
+{
+  "id": "chat-4e2a9b10",
+  "title": "Harbour tide tables",
+  "updatedAtMs": 1758412900000,
+  "pinned": false,
+  "archived": false,
+  "tags": [],
+  "shared": false,
+  "readOnly": false,
+  "unread": false,
+  "menu": {
+    "share": true,
+    "duplicate": false,
+    "move": true,
+    "markUnread": true,
+    "generateTitle": true,
+    "export": true
+  }
+}

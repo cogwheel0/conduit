@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "activeId": "c1",
+  "connections": [
+    {
+      "id": "c1",
+      "name": "Home",
+      "baseUrl": "",
+      "mode": "responses",
+      "desktopAuthKind": "legacyToken",
+      "desktopProfile": "default",
+      "allowSelfSignedCertificates": false,
+      "active": false,
+      "plainHttp": false,
+      "hasApiKey": false,
+      "hasLegacyToken": false,
+      "desktopSignedIn": false,
+      "accessHeaderNames": [],
+      "hasMemoryKey": false,
+      "dashboardSignedIn": false
+    }
+  ],
+  "canAdd": false,
+  "savedId": "c1",
+  "connection": "0a1b2c3d:2"
+}

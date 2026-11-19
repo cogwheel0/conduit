@@ -124,6 +124,22 @@ final class AutomationDraft {
     );
   }
 
+  /// Moves the task to terminal [id], or to none. The working folder
+  /// belonged to the old terminal and goes with it, and a coding agent runs
+  /// only on its own terminal, so one chosen from another is cleared.
+  AutomationDraft withTerminal(String? id) {
+    final agentTerminal = parseTerminalAgentModelId(modelId.trim())?.terminalId;
+    final moved = id != terminalId;
+    final next = id == null
+        ? copyWith(clearTerminal: true)
+        : moved
+        ? copyWith(clearTerminal: true).copyWith(terminalId: id)
+        : copyWith(terminalId: id);
+    return agentTerminal != null && agentTerminal != id
+        ? next.copyWith(modelId: '')
+        : next;
+  }
+
   /// Whether the draft differs from the task it started from. A new task is
   /// always a change.
   bool get isChanged {

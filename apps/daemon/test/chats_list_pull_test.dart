@@ -1,13 +1,26 @@
 @TestOn('vm')
 library;
 
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart'
+    show directLocalDatabaseProvider;
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatDatabaseProvider;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider, PrimaryAccountKind;
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/pull_sync.dart' show PullResult;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -95,4 +108,83 @@ void main() {
     await list();
     expect(engine.pulls, 2);
   });
+
+  test('a LibreChat chat not listed yet is pinned and archived in LibreChat', () async {
+    // LibreChat is in charge; Open WebUI's account is still signed in
+    // behind it.
+    final warned = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(
+      () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warned,
+    );
+    final libreChat = AppDatabase(NativeDatabase.memory());
+    addTearDown(libreChat.close);
+    final direct = AppDatabase(NativeDatabase.memory());
+    addTearDown(direct.close);
+    final owui = _OwuiApi();
+    addTearDown(owui.dispose);
+    final scoped = ProviderContainer(
+      overrides: [
+        syncEngineProvider.overrideWith(() => engine),
+        conversationsProvider.overrideWith(_Conversations.new),
+        foldersProvider.overrideWith(_Folders.new),
+        currentUserProvider2.overrideWithValue(null),
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        libreChatDatabaseProvider.overrideWithValue(libreChat),
+        directLocalDatabaseProvider.overrideWithValue(direct),
+        apiServiceProvider.overrideWithValue(owui),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    // A copy just made: in LibreChat's store, not in the list yet.
+    await libreChat.chatsDao.upsertServerChat(
+      rows: ChatBlobMapper.blobToRows(
+        chatId: 'lc-copy',
+        blob: <String, dynamic>{
+          'title': 'Seed swap (copy)',
+          'history': <String, dynamic>{
+            'messages': <String, dynamic>{},
+            'currentId': null,
+          },
+        },
+        title: 'Seed swap (copy)',
+        createdAt: 1,
+        updatedAt: 1,
+      ),
+    );
+    final service = ChatsService(scoped, now: () => now);
+
+    await service.setPinned('lc-copy', value: true);
+    await service.setArchived('lc-copy', value: true);
+
+    expect(owui.toggles, isEmpty, reason: 'sent to Open WebUI');
+    final row = await libreChat.chatsDao.getChat('lc-copy');
+    expect(row?.pinned, isTrue);
+    expect(row?.archived, isTrue);
+  });
+}
+
+/// Open WebUI's client, which takes no LibreChat chat's pin or archive.
+final class _OwuiApi extends ApiService {
+  _OwuiApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server-owui',
+          name: 'Garden server',
+          url: 'https://garden.invalid',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final toggles = <String>[];
+
+  @override
+  Future<void> pinConversation(String id, bool pinned) async =>
+      toggles.add('pin $id');
+
+  @override
+  Future<void> archiveConversation(String id, bool archived) async =>
+      toggles.add('archive $id');
 }

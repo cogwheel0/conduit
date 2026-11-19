@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Conduit.app (Contents/MacOS/Conduit), signed with the hardened runtime.
+
+  The app talks to its own conduitd over loopback (a WebSocket and HTTP on
+  127.0.0.1) and the daemon talks to the user's servers. The two network
+  keys say so; they are enforced only inside the App Sandbox, which Conduit
+  does not use, so they grant nothing extra today.
+
+  No JIT or unsigned-memory exceptions: the app is native Rust, and
+  WebKit (sign-in and Preview windows) runs its JIT in its own processes.
+  Audio input: dictation records from the microphone (the hardened
+  runtime refuses it otherwise); the user is asked once, by macOS.
+  Location: `{{USER_LOCATION}}` asks CoreLocation, only for a prompt that
+  names it while the account's location setting is on (the hardened
+  runtime refuses it otherwise); the user is asked once, by macOS.
+
+  bundle.sh adds com.apple.security.cs.disable-library-validation for
+  ad-hoc builds only, where the embedded Sparkle.framework has no team ID
+  to match.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.personal-information.location</key>
+	<true/>
+</dict>
+</plist>

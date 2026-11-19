@@ -1,0 +1,12 @@
+{
+  "visible": true,
+  "options": [
+    "automatic",
+    "low",
+    "medium",
+    "high"
+  ],
+  "allowsCustom": true,
+  "current": "high",
+  "ollama": false
+}

@@ -1,0 +1,14 @@
+{
+  "modelId": "fake-model",
+  "reasoning": {
+    "visible": true,
+    "options": [],
+    "allowsCustom": false,
+    "current": "low",
+    "ollama": false
+  },
+  "fastTier": false,
+  "draft": {
+    "reasoning_effort": "low"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "url": "https://chat.example.org",
+  "cookies": {
+    "refreshToken": "r1",
+    "token_provider": "openid"
+  },
+  "force": false,
+  "startId": "sso-start-1"
+}

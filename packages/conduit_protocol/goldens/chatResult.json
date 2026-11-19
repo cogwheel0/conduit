@@ -8,10 +8,37 @@
       "archived": false,
       "tags": [],
       "shared": false,
-      "readOnly": false
+      "readOnly": false,
+      "unread": false,
+      "menu": {
+        "share": false,
+        "duplicate": false,
+        "move": false,
+        "markUnread": false,
+        "generateTitle": false,
+        "export": false
+      }
     },
     "messages": [],
     "systemPrompt": "Answer briefly.",
-    "readOnly": false
+    "readOnly": false,
+    "abilities": {
+      "fork": false,
+      "export": false,
+      "merge": false,
+      "branch": false,
+      "deleteMessages": false,
+      "markUnread": false,
+      "generateTitle": false,
+      "share": false,
+      "saveTemporary": false,
+      "compare": false,
+      "branchFromHere": false,
+      "undoLastTurn": false,
+      "hermesWork": false,
+      "hermesContext": false
+    },
+    "temporary": false,
+    "tasks": []
   }
 }

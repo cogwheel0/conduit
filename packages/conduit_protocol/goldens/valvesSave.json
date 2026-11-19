@@ -1,0 +1,12 @@
+{
+  "kind": "tool",
+  "id": "tool-weather",
+  "label": "",
+  "values": [
+    {
+      "key": "verbose",
+      "isDefault": true,
+      "text": ""
+    }
+  ]
+}

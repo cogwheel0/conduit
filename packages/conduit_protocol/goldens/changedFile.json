@@ -1,0 +1,32 @@
+{
+  "path": "/home/u/projects/harbour/notes/pier.md",
+  "added": 2,
+  "removed": 1,
+  "lines": [
+    {
+      "kind": "hunk",
+      "text": "@@ -1,2 +1,3 @@"
+    },
+    {
+      "kind": "context",
+      "text": "# Pier",
+      "oldNumber": 1,
+      "newNumber": 1
+    },
+    {
+      "kind": "removed",
+      "text": "Open until five",
+      "oldNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Open until six",
+      "newNumber": 2
+    },
+    {
+      "kind": "added",
+      "text": "Closed on Mondays",
+      "newNumber": 3
+    }
+  ]
+}

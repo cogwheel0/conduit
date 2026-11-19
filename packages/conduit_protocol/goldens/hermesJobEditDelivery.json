@@ -1,0 +1,6 @@
+{
+  "prompt": "Summarise",
+  "schedule": "every 2h",
+  "deliver": "local,telegram",
+  "catchUp": "skip"
+}

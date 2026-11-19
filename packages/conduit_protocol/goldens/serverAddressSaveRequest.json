@@ -1,0 +1,11 @@
+{
+  "checkId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+  "sendSessionConfirmed": true,
+  "stopReplies": true,
+  "proxy": {
+    "origin": "https://chat.example.com",
+    "cookies": {
+      "_oauth2_proxy": "synthetic-cookie"
+    }
+  }
+}

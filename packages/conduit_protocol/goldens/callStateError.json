@@ -1,0 +1,14 @@
+{
+  "phase": "error",
+  "call": 3,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Call permission denied",
+  "notice": "replyIncomplete",
+  "noticeCount": 1
+}

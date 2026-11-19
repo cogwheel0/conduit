@@ -7,5 +7,6 @@
   "errorArgs": {
     "attempt": "3"
   },
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }

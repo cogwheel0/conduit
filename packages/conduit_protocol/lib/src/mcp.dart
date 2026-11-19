@@ -40,6 +40,11 @@ abstract class McpServerSummary with _$McpServerSummary {
     /// Whether an OAuth sign-in has been completed and is still held.
     @Default(false) bool oauthConnected,
 
+    /// For a held OAuth sign-in: the authorization server's host, and the
+    /// scopes it granted (empty when it reported none).
+    String? oauthIssuerHost,
+    @Default(<String>[]) List<String> oauthScopes,
+
     /// The user agreed to send credentials over plain HTTP to this
     /// endpoint.
     @Default(false) bool allowInsecureCredentials,

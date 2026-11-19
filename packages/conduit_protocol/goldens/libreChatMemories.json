@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "memories": [
+    {
+      "key": "home_harbour",
+      "value": "Port Wren",
+      "tokenCount": 0
+    }
+  ],
+  "totalTokens": 12,
+  "tokenLimit": 2000,
+  "usagePercent": 1,
+  "canCreate": true,
+  "canUpdate": true,
+  "canOptOut": true
+}

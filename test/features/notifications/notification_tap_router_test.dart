@@ -101,6 +101,7 @@ class _FakeAccounts extends Fake implements OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+    bool Function()? stillFrom,
   }) async {
     switches.add((accountId, force));
     final result = results.removeAt(0);
@@ -117,6 +118,7 @@ class _ThrowingAccounts extends Fake implements OpenWebUiAccountsController {
   Future<OpenWebUiAccountChangeResult> switchTo(
     String accountId, {
     bool force = false,
+    bool Function()? stillFrom,
   }) async => throw StateError('storage');
 }
 

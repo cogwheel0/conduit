@@ -42,7 +42,9 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   // Enhanced Tools Management Operations
   Future<Map<String, dynamic>> getTool(String toolId) async {
     _traceApi('Fetching tool details: $toolId');
-    final response = await _dio.get('/api/v1/tools/id/$toolId');
+    final response = await _dio.get(
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}',
+    );
     return response.data as Map<String, dynamic>;
   }
 
@@ -51,7 +53,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     WorkspaceToolForm form,
   ) async {
     final response = await _dio.post(
-      '/api/v1/tools/id/$toolId/update',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/update',
       data: form.toJson(),
     );
     return response.data is Map
@@ -66,7 +68,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     List<WorkspaceAccessGrantInput> grants,
   ) async {
     final response = await _dio.post(
-      '/api/v1/tools/id/$toolId/access/update',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/access/update',
       data: {'access_grants': workspaceGrantInputs(grants)},
     );
     return response.data is Map
@@ -122,7 +124,9 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   /// Switches a tool on or off (Open WebUI 0.13 and later). A tool switched
   /// off cannot be picked or run in any chat.
   Future<WorkspaceToolDetail?> toggleWorkspaceTool(String toolId) async {
-    final response = await _dio.post('/api/v1/tools/id/$toolId/toggle');
+    final response = await _dio.post(
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/toggle',
+    );
     return response.data is Map
         ? WorkspaceToolSummary.fromJson(
             Map<String, dynamic>.from(response.data as Map),
@@ -132,17 +136,21 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
 
   Future<void> deleteTool(String toolId) async {
     _traceApi('Deleting tool: $toolId');
-    await _dio.delete('/api/v1/tools/id/$toolId/delete');
+    await _dio.delete('/api/v1/tools/id/${Uri.encodeComponent(toolId)}/delete');
   }
 
   Future<Map<String, dynamic>> getToolValves(String toolId) async {
     _traceApi('Fetching tool valves: $toolId');
-    final response = await _dio.get('/api/v1/tools/id/$toolId/valves');
+    final response = await _dio.get(
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves',
+    );
     return response.data as Map<String, dynamic>;
   }
 
   Future<WorkspaceValveSpec?> getToolValvesSpec(String toolId) async {
-    final response = await _dio.get('/api/v1/tools/id/$toolId/valves/spec');
+    final response = await _dio.get(
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves/spec',
+    );
     return response.data is Map
         ? WorkspaceValveSpec.fromJson(
             Map<String, dynamic>.from(response.data as Map),
@@ -156,7 +164,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   ) async {
     _traceApi('Updating tool valves: $toolId');
     final response = await _dio.post(
-      '/api/v1/tools/id/$toolId/valves/update',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves/update',
       data: valves,
     );
     return response.data as Map<String, dynamic>;
@@ -172,7 +180,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   }) async {
     _traceApi('Fetching user tool valves: $toolId');
     final response = await _dio.get(
-      '/api/v1/tools/id/$toolId/valves/user',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves/user',
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return _nullableJsonMap(response.data) ?? <String, dynamic>{};
@@ -183,7 +191,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     final response = await _dio.get(
-      '/api/v1/tools/id/$toolId/valves/user/spec',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves/user/spec',
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return response.data is Map
@@ -200,7 +208,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   }) async {
     _traceApi('Updating user tool valves: $toolId');
     final response = await _dio.post(
-      '/api/v1/tools/id/$toolId/valves/user/update',
+      '/api/v1/tools/id/${Uri.encodeComponent(toolId)}/valves/user/update',
       data: valves,
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
@@ -215,7 +223,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     final response = await _dio.get(
-      '/api/v1/functions/id/$functionId/valves/user',
+      '/api/v1/functions/id/${Uri.encodeComponent(functionId)}/valves/user',
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
     return _nullableJsonMap(response.data);
@@ -229,7 +237,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
   }) async {
     if (functionId == kConduitPushFunctionId) return null;
     final response = await _dio.get(
-      '/api/v1/functions/id/$functionId/valves/user/spec',
+      '/api/v1/functions/id/${Uri.encodeComponent(functionId)}/valves/user/spec',
       options: _withAuthSnapshot(Options(), authSnapshot),
     );
     final spec = _nullableJsonMap(response.data);
@@ -242,7 +250,7 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     final response = await _dio.post(
-      '/api/v1/functions/id/$functionId/valves/user/update',
+      '/api/v1/functions/id/${Uri.encodeComponent(functionId)}/valves/user/update',
       data: valves,
       options: _withAuthSnapshot(Options(), authSnapshot),
     );

@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Conduit Desktop's Info.plist, for every bundle: the dev .app that
+  crates/app/run.sh builds and the release bundle. The build replaces
+  the @...@ placeholders:
+
+    @BUNDLE_ID@       app.cogwheel.conduit.desktop (dev: ….desktop.dev)
+    @BUNDLE_NAME@     Conduit (dev: Conduit Dev)
+    @EXECUTABLE@      the binary in Contents/MacOS
+    @VERSION@         CFBundleShortVersionString, e.g. 1.2.0
+    @BUILD@           CFBundleVersion: the integer packaging/macos/lib.sh's
+                      build_number derives from the version (Sparkle
+                      compares it), e.g. 1020099
+
+  packaging/macos/bundle.sh adds Sparkle's keys (SUFeedURL, SUPublicEDKey,
+  automatic checks) to release bundles; the dev bundle has no updater.
+
+  conduit:// is the same scheme the iOS app registers (kept on purpose:
+  one set of links for both). The document types are "Open with" only
+  (LSHandlerRank Alternate): Conduit never becomes the default app for them.
+
+  The Share extension (Contents/PlugIns/ConduitShare.appex) has its own
+  Info.plist, packaging/macos/share/Info.plist.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleName</key>
+	<string>@BUNDLE_NAME@</string>
+	<key>CFBundleDisplayName</key>
+	<string>@BUNDLE_NAME@</string>
+	<key>CFBundleExecutable</key>
+	<string>@EXECUTABLE@</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@BUILD@</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<!-- macOS 14 Sonoma, Apple Silicon only (the release decision;
+	     SMAppService alone would need 13). Keep in step with MACOS_MIN in
+	     release.env. -->
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSArchitecturePriority</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<!-- The app icon (packaging/macos/icon.sh): Resources/Assets.car's
+	     AppIcon for macOS 26+, which otherwise draws a plain .icns inside a
+	     grey squircle at small sizes, and Resources/AppIcon.icns for
+	     macOS 14 and 15. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Tunap Paul. Conduit is open source; see THIRD_PARTY_NOTICES.md for the software it includes.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+
+	<!-- Dictation (the composer's mic, ⇧⌘L): the microphone, and this
+	     Mac's own speech recognition when Settings › Audio chooses it.
+	     Asked for on first use; the audio stays on this Mac unless the
+	     server's engine is chosen. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Conduit connects to servers on your local network that you add, such as Open WebUI, model providers and MCP tool servers.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Conduit listens when you dictate a message or talk in a voice call. A dictation's recording stays with your draft until you send it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Conduit turns what you dictate into text on this Mac when you choose On This Mac in Settings › Audio.</string>
+
+	<!-- {{USER_LOCATION}}: asked only for a prompt that names it, while the
+	     Open WebUI account's location setting is on; translated in each
+	     <lang>.lproj/InfoPlist.strings (native_strings.py infoplist). -->
+	<key>NSLocationUsageDescription</key>
+	<string>Conduit shares your approximate location with a prompt that asks for it, when your account's settings allow it.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Conduit shares your approximate location with a prompt that asks for it, when your account's settings allow it.</string>
+
+	<!-- conduit://chat/<id>, conduit://new?q=…, conduit://settings/<tab> -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.cogwheel.conduit.link</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>conduit</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- Open with Conduit: a new chat with the files attached (never sent). -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+				<string>public.plain-text</string>
+				<string>net.daringfireball.markdown</string>
+				<string>public.comma-separated-values-text</string>
+				<string>public.json</string>
+				<string>org.openxmlformats.wordprocessingml.document</string>
+				<string>org.openxmlformats.spreadsheetml.sheet</string>
+				<string>org.openxmlformats.presentationml.presentation</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.png</string>
+				<string>public.jpeg</string>
+				<string>com.compuserve.gif</string>
+				<string>org.webmproject.webp</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- The Services menu (every app's app menu › Services, and the menu
+	     selected text opens): the selection goes to Conduit
+	     (shell/services.rs). Ask Conduit opens Quick Ask with it quoted;
+	     New Conduit Chat With Selection opens a new chat with it. Nothing
+	     is sent. ServicesMenu.strings (written from the ARB catalogs by
+	     share/build.sh) translates the titles. An empty NSRequiredContext
+	     turns the items on without a trip to System Settings. Dev bundles
+	     (crates/app/run.sh) drop this key, so worktree builds stay out of
+	     the Services menu. -->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask Conduit</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>askConduit</string>
+			<key>NSPortName</key>
+			<string>@BUNDLE_NAME@</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>New Conduit Chat With Selection</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>newChatWithSelection</string>
+			<key>NSPortName</key>
+			<string>@BUNDLE_NAME@</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+	</array>
+
+	<!-- Markdown is not declared by every macOS version; import it so .md
+	     files match the document type above. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>net.daringfireball.markdown</string>
+			<key>UTTypeDescription</key>
+			<string>Markdown document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.plain-text</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>md</string>
+					<string>markdown</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>text/markdown</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

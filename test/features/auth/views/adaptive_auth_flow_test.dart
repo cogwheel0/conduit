@@ -808,6 +808,8 @@ void main() {
         any(),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
         publish: any(named: 'publish'),
       ),
     );
@@ -855,6 +857,8 @@ void main() {
         any(),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
         publish: any(named: 'publish'),
       ),
     ).thenAnswer((invocation) async {
@@ -930,6 +934,8 @@ void main() {
         any(),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
         publish: any(named: 'publish'),
       ),
     ).thenAnswer((_) async {

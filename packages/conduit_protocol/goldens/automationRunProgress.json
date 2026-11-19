@@ -1,0 +1,10 @@
+{
+  "id": "task-digest",
+  "phase": "finished",
+  "run": {
+    "id": "run-3",
+    "status": "",
+    "succeeded": true,
+    "resultChatId": "c-9"
+  }
+}

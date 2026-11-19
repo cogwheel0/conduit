@@ -1,0 +1,6 @@
+{
+  "id": "filter:translate",
+  "kind": "filter",
+  "name": "Translate",
+  "targetId": "translate"
+}

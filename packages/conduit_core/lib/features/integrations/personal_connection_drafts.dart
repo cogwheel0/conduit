@@ -62,6 +62,26 @@ String _clean(String? value) => value?.trim() ?? '';
 String _stripTrailingSlash(String value) =>
     value.replaceFirst(RegExp(r'/+$'), '');
 
+/// Whether a stored credential would reach another origin if [url] replaced
+/// [stored]: another scheme, host or port (an unreadable URL counts as
+/// another origin unless it is the stored text itself). A kept key never
+/// follows a connection there (`mergePersonalConnectionEdit` removes it,
+/// against the entry as stored when the edit is saved); the form has to
+/// type a new one.
+bool personalConnectionKeyMoves(String stored, String url) {
+  final a = _stripTrailingSlash(_clean(stored));
+  final b = _stripTrailingSlash(_clean(url));
+  if (a == b) return false;
+  final from = Uri.tryParse(a);
+  final to = Uri.tryParse(b);
+  if (from == null || to == null || !from.hasAuthority || !to.hasAuthority) {
+    return true;
+  }
+  return from.scheme.toLowerCase() != to.scheme.toLowerCase() ||
+      from.host.toLowerCase() != to.host.toLowerCase() ||
+      from.port != to.port;
+}
+
 /// Writes [value] into [patch] only when it differs from what the entry
 /// stores, treating a missing field as [fallback].
 void _setIfChanged(
@@ -196,7 +216,9 @@ class PersonalToolServerDraft {
 
   /// The merge patch that turns [previous] into this draft. Only changed
   /// fields appear, and the key appears only when the draft replaces or clears
-  /// it.
+  /// it. A kept key that would follow the URL to another origin is removed
+  /// where the patch is applied (`mergePersonalConnectionEdit`), against the
+  /// entry as stored then.
   Map<String, dynamic> toPatch(Map<String, dynamic> previous) {
     final patch = <String, dynamic>{};
     final info = <String, dynamic>{};

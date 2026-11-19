@@ -20,8 +20,30 @@ final class FakeOpenAi {
 
   Future<void> close() => _server.close(force: true);
 
+  /// Each `/audio/transcriptions` request: its upload's size and the
+  /// language it named.
+  final List<({int bytes, String? language})> transcriptions =
+      <({int bytes, String? language})>[];
+
   Future<void> _handle(HttpRequest request) async {
     final response = request.response;
+    if (request.uri.path.endsWith('/audio/transcriptions')) {
+      final body = await request.fold<List<int>>(
+        <int>[],
+        (all, chunk) => all..addAll(chunk),
+      );
+      final text = latin1.decode(body);
+      final language = RegExp(r'name="language"\r\n\r\n([^\r]*)')
+          .firstMatch(text)
+          ?.group(1);
+      transcriptions.add((bytes: body.length, language: language));
+      response.headers.contentType = ContentType.json;
+      response.write(
+        jsonEncode(<String, String>{'text': ' A fake transcript. '}),
+      );
+      await response.close();
+      return;
+    }
     if (request.uri.path.endsWith('/models')) {
       await request.drain<void>();
       response.headers.contentType = ContentType.json;

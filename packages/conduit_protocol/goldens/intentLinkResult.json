@@ -1,0 +1,11 @@
+{
+  "url": "https://example.com/tide-tables",
+  "youtube": false,
+  "attachment": {
+    "id": "ctx-7",
+    "kind": "web",
+    "name": "Tide tables for Port Wren",
+    "url": "https://example.com/tide-tables",
+    "content": "High water at 06:12 and 18:40."
+  }
+}

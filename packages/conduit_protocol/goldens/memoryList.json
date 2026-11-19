@@ -1,0 +1,11 @@
+{
+  "available": true,
+  "enabled": true,
+  "items": [
+    {
+      "id": "m2",
+      "content": "Has a cat named Pip.",
+      "updatedAt": 0
+    }
+  ]
+}

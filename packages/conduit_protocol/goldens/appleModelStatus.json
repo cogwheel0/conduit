@@ -1,0 +1,6 @@
+{
+  "model": "onDevice",
+  "availability": "unavailable",
+  "reason": "modelNotReady",
+  "supportsCurrentLocale": true
+}

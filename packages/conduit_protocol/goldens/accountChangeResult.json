@@ -2,6 +2,9 @@
   "outcome": "blockedByActiveReply",
   "accounts": {
     "accounts": [],
-    "addingAccount": false
+    "addingAccount": false,
+    "libreChatAccounts": [],
+    "primary": "openWebUi",
+    "libreChatSession": "none"
   }
 }

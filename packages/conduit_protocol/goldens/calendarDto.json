@@ -1,0 +1,11 @@
+{
+  "id": "cal-garden",
+  "name": "Garden club",
+  "color": "#22c55e",
+  "isDefault": true,
+  "scheduled": false,
+  "owned": true,
+  "writable": true,
+  "canMakeDefault": false,
+  "visible": true
+}

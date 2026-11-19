@@ -35,7 +35,9 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
   }
 
   Future<WorkspaceSkillDetail?> getWorkspaceSkill(String id) async {
-    final response = await _dio.get('/api/v1/skills/id/$id');
+    final response = await _dio.get(
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}',
+    );
     return response.data is Map
         ? WorkspaceSkillSummary.fromJson(
             Map<String, dynamic>.from(response.data as Map),
@@ -81,7 +83,7 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
     WorkspaceSkillForm form,
   ) async {
     final response = await _dio.post(
-      '/api/v1/skills/id/$id/update',
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}/update',
       data: form.toJson(),
     );
     return response.data is Map
@@ -96,7 +98,7 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
     List<WorkspaceAccessGrantInput> grants,
   ) async {
     final response = await _dio.post(
-      '/api/v1/skills/id/$id/access/update',
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}/access/update',
       data: {'access_grants': workspaceGrantInputs(grants)},
     );
     return response.data is Map
@@ -114,7 +116,9 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
   }
 
   Future<WorkspaceSkillDetail?> toggleWorkspaceSkill(String id) async {
-    final response = await _dio.post('/api/v1/skills/id/$id/toggle');
+    final response = await _dio.post(
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}/toggle',
+    );
     return response.data is Map
         ? WorkspaceSkillSummary.fromJson(
             Map<String, dynamic>.from(response.data as Map),
@@ -123,7 +127,9 @@ mixin _PromptsSkillsApi on _ApiServiceBase {
   }
 
   Future<bool> deleteWorkspaceSkill(String id) async {
-    final response = await _dio.delete('/api/v1/skills/id/$id/delete');
+    final response = await _dio.delete(
+      '/api/v1/skills/id/${Uri.encodeComponent(id)}/delete',
+    );
     return response.data == true;
   }
 

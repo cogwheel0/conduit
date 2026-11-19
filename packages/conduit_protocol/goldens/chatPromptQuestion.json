@@ -1,0 +1,16 @@
+{
+  "id": "when",
+  "header": "Departure",
+  "question": "When should the boat leave?",
+  "options": [
+    {
+      "label": "Morning",
+      "description": "Before the tide"
+    },
+    {
+      "label": "Evening",
+      "description": "After the wind"
+    }
+  ],
+  "allowOther": false
+}

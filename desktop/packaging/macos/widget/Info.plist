@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ConduitWidget.appex (Contents/PlugIns), the WidgetKit extension.
+  widget/build.sh fills in the @…@ values: the app's bundle id plus
+  ".widget", the app's version and build, the oldest macOS, and the app
+  group the app writes the snapshot into (release.env, WIDGET_APP_GROUP).
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Conduit</string>
+	<key>CFBundleExecutable</key>
+	<string>ConduitWidget</string>
+	<key>CFBundleIdentifier</key>
+	<string>@BUNDLE_ID@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>ConduitWidget</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>@BUILD@</string>
+	<key>ConduitAppGroup</key>
+	<string>@APP_GROUP@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MIN_OS@</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Tunap Paul.</string>
+</dict>
+</plist>

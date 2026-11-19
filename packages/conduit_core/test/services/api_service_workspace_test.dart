@@ -384,6 +384,36 @@ void main() {
     },
   );
 
+  test('a skill, tool or function id goes into its path as one segment', () async {
+    const id = 'team notes/../x';
+    final segments = <List<String>>[];
+    final adapter = _RecordingAdapter((request) {
+      segments.add(request.uri.pathSegments);
+      if (request.method == 'DELETE') return _json(true);
+      return _json({'id': id, 'name': 'Notes', 'user_id': 'user-1'});
+    });
+    final api = _api(adapter);
+    const skill = WorkspaceSkillForm(id: id, name: 'Notes', content: 'x');
+    const tool = WorkspaceToolForm(id: id, name: 'Notes', content: 'x');
+
+    await api.getWorkspaceSkill(id);
+    await api.updateWorkspaceSkill(id, skill);
+    await api.updateWorkspaceSkillAccess(id, const []);
+    await api.toggleWorkspaceSkill(id);
+    await api.deleteWorkspaceSkill(id);
+    await api.updateWorkspaceTool(id, tool);
+    await api.updateWorkspaceToolAccess(id, const []);
+    await api.getToolValvesSpec(id);
+    await api.getUserFunctionValves(id);
+
+    check(segments.map((s) => '${s.take(4).join('|')}|${s[4]}').toList())
+        .deepEquals([
+      for (var i = 0; i < 5; i++) 'api|v1|skills|id|$id',
+      for (var i = 0; i < 3; i++) 'api|v1|tools|id|$id',
+      'api|v1|functions|id|$id',
+    ]);
+  });
+
   test('skill access errors remain Dio errors with server status', () async {
     final adapter = _RecordingAdapter((request) {
       check(request.method).equals('POST');
