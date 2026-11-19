@@ -319,10 +319,14 @@ void main() {
       );
     }
 
-    // Back from the sign-in sheet the app resumes, and a renewal of the old
-    // tokens may still be on its way: whether Hermes renewed or refused
-    // them, it must not replace the sign-in that finished first.
-    for (final refreshStatus in [HttpStatus.ok, HttpStatus.unauthorized]) {
+    // A request is still waiting on a renewal of the old tokens when a
+    // sign-in finishes: whether Hermes renewed them, refused them or was
+    // not ready, the sign-in's tokens stay, and the request sends them.
+    for (final refreshStatus in [
+      HttpStatus.ok,
+      HttpStatus.unauthorized,
+      HttpStatus.serviceUnavailable,
+    ]) {
       test(
         'a renewal answered $refreshStatus after a sign-in leaves the sign-in',
         () => withClock(Clock.fixed(now), () async {
@@ -332,25 +336,23 @@ void main() {
             refreshGate: held.future,
           );
           final saved = <HermesDesktopCredentials>[];
-          final lifecycle = _Lifecycle();
           final gateway = service(
             rest,
-            expiresAt: now.add(const Duration(minutes: 2)),
+            expiresAt: now.add(const Duration(seconds: 30)),
             saved: saved,
             browserAuth: _Sheet(),
-          )..startLifecycleObservation(lifecycle);
+          );
 
-          lifecycle.emit(AppLifecyclePhase.resumed);
+          final jobs = gateway.listJobs();
           await rest.refreshArrived.future;
           check(rest.refreshTokensSent).deepEquals(['refresh']);
           check(await gateway.signInNative()).isNotNull();
           held.complete();
-          await gateway.resumeRenewal;
+          await jobs;
 
           check(
             saved.single.nativeTokens?.refreshToken,
           ).equals('signed-in-refresh');
-          await gateway.listJobs();
           check(
             rest.jobsAuthorizations,
           ).deepEquals(['Bearer signed-in-access']);

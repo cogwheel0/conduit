@@ -405,7 +405,8 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       await _saveTokens(next);
       return next;
     } on DioException catch (error) {
-      if (error.response?.statusCode == 503) return current;
+      // Not ready: the held tokens still serve, a sign-in's if one finished.
+      if (error.response?.statusCode == 503) return _nativeTokens;
       if (error.response?.statusCode == 401) {
         _spend(current.refreshToken);
         if (!identical(_nativeTokens, current)) return _nativeTokens;
