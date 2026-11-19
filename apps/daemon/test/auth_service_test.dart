@@ -134,6 +134,23 @@ void main() {
     check(starter.finished).deepEquals(<String>['fresh']);
   });
 
+  // A credential error is a refused sign-in, but a browser sign-in whose
+  // renewal ended is signed in to again.
+  for (final (error, code) in [
+    ('Invalid credentials', ConduitErrorCodes.invalidCredentials),
+    ('browserSignInSessionExpired', ConduitErrorCodes.sessionExpired),
+  ]) {
+    test('a credential error "$error" is told as $code', () async {
+      manager.built = AuthState(
+        status: AuthStatus.credentialError,
+        error: error,
+      );
+      container.invalidate(authStateManagerProvider);
+      await container.read(authStateManagerProvider.future);
+      check((await auth.status()).errorCode).equals(code);
+    });
+  }
+
   test('a code checked for the attempt still in charge signs in', () async {
     await signIn(OpenWebUiTwoStepKind.verify);
     final verifying = auth.twoStepVerify(const TwoStepCode(code: '123456'));
@@ -164,9 +181,13 @@ final class _Manager extends AuthStateManager {
     error: 'connection issue',
   );
 
+  /// What the next build publishes, when not [kept].
+  AuthState? built;
+
   @override
-  Future<AuthState> build() async =>
-      kept ? _issue : const AuthState(status: AuthStatus.unauthenticated);
+  Future<AuthState> build() async => kept
+      ? _issue
+      : built ?? const AuthState(status: AuthStatus.unauthenticated);
 
   /// Trusts the kept token at once, as the core's refresh does.
   @override

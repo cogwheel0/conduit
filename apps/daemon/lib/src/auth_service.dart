@@ -719,6 +719,10 @@ final class AuthService {
   /// an API key, a second step needed); anything else is a connection
   /// issue. The prose is dropped rather than shown in the server's locale.
   static String? _errorCodeFor(AuthState state) => switch (state.status) {
+    AuthStatus.credentialError
+        when classifySignInFailure(state.error ?? '') ==
+            SignInFailure.browserSignInSessionExpired =>
+      ConduitErrorCodes.sessionExpired,
     AuthStatus.credentialError => ConduitErrorCodes.invalidCredentials,
     AuthStatus.tokenExpired => ConduitErrorCodes.sessionExpired,
     AuthStatus.error when state.error != null => switch (classifySignInFailure(
