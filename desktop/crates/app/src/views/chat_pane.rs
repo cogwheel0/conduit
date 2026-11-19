@@ -3780,14 +3780,34 @@ mod tests {
             });
             assert!(toasts.contains(&failed), "{toasts:?}");
             let asked = daemon.calls::<methods::ModelsList>().len();
+            // A click on Send, dimmed with no list: the list is asked for
+            // again, and nothing is sent.
+            let retry = daemon.hold::<methods::ModelsList>();
             pane.update_in(vcx, |p, window, cx| {
-                p.composer.update(cx, |c, cx| {
-                    c.set_text("Plan the trip", window, cx);
-                    c.submit(window, cx)
-                })
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Plan the trip", window, cx))
+            });
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            let send = vcx.debug_bounds("composer-send").expect("Send is shown");
+            vcx.simulate_click(send.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ModelsList>().len(),
+                asked + 1,
+                "a click on Send asked for no list"
+            );
+            // Send again while that read is out: it is waited for.
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| c.submit(window, cx))
             });
             vcx.run_until_parked();
-            assert_eq!(daemon.calls::<methods::ModelsList>().len(), asked + 1);
+            assert_eq!(
+                daemon.calls::<methods::ModelsList>().len(),
+                asked + 1,
+                "Send started another list read"
+            );
+            retry.release();
+            vcx.run_until_parked();
             assert!(daemon.calls::<methods::TurnsSend>().is_empty());
             pane.read_with(vcx, |p, cx| {
                 assert_eq!(p.composer.read(cx).text(cx), "Plan the trip");

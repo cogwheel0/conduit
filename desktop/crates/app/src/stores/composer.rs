@@ -858,6 +858,8 @@ impl ComposerStore {
     /// `models.list`, then `composer.options` (which depends on it).
     /// It replaces a list still on its way.
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
+        // A read is out again: Send waits for it rather than asking anew.
+        self.list_failed = None;
         let query = self.list_query();
         let call = self.rpc.call::<methods::ModelsList>(&query);
         let scope = self.scope;
