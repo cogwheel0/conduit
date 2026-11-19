@@ -84,6 +84,13 @@ abstract class ModelList with _$ModelList {
     /// while the chat has no pick of its own. The selection is never
     /// changed for it.
     String? chatAgent,
+
+    /// The revision of the chat's own pick this list was put together with
+    /// (0: the chat has none). Every pick `models.select` makes is newer
+    /// than any before it, so of two answers for the chat, the one with the
+    /// higher revision has the newer pick; for the same revision, the one
+    /// asked later is newer.
+    @Default(0) int revision,
   }) = _ModelList;
 
   factory ModelList.fromJson(Map<String, dynamic> json) =>

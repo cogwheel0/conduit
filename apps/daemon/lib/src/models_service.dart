@@ -355,7 +355,10 @@ final class ModelsService {
     // The chat's own pick (kept here, the one record), else the account's
     // default: an agent the account picked elsewhere is never this chat's,
     // and a temporary chat runs no agent.
-    final pick = _picksOf(account)[_now(chatId)]?.model;
+    // Read with the answer's revision, after the last wait: the window
+    // orders this answer against its others for the chat by it.
+    final record = _picksOf(account)[_now(chatId)];
+    final pick = record?.model;
     final agentPick = pick != null && isTerminalAgentModel(pick);
     final selected = pick != null && !(agentPick && query.temporary)
         ? pick
@@ -380,6 +383,7 @@ final class ModelsService {
       agents: agents.map(_summarize).toList(growable: false),
       agentNames: _agentNames(conversation),
       chatAgent: _chatAgent(conversation, pick),
+      revision: record?.revision ?? 0,
     );
     try {
       return _arranged([...models, ...agents], plain);

@@ -809,7 +809,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "moreSections": [],
   "canPin": false,
   "agents": [],
-  "agentNames": {}
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'selectModel': r'''
@@ -7289,7 +7290,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "canPin": true,
   "defaultId": "fake-model",
   "agents": [],
-  "agentNames": {}
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'modelSection': r'''
@@ -9481,7 +9483,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "agentNames": {
     "agent:buildbox:pi:default": "Pi · default"
   },
-  "chatAgent": "agent:buildbox:pi:default"
+  "chatAgent": "agent:buildbox:pi:default",
+  "revision": 0
 }''',
 
   'terminalAgent': r'''

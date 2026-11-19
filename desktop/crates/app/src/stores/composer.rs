@@ -527,13 +527,15 @@ pub struct ComposerStore {
     _select: Option<Task<()>>,
     /// Numbers each request answered with the chat's list (`models.list`,
     /// `models.select`, `models.setPinned`), in the order they were sent.
-    list_ticket: u64,
-    /// The newest pick's ticket: a list asked before it is older than the
-    /// pick's own answer, so it is dropped.
-    select_ticket: u64,
-    /// The chat the newest pick is out for, following its id when it moves:
-    /// its answer is that chat's, whatever id it has now.
-    selecting: Option<conduit_protocol::ModelListQuery>,
+    list_seq: u64,
+    /// The list shown, ordered: the revision of the chat's pick it was put
+    /// together with ([`ModelList::revision`]), then its request's number.
+    /// An answer for the chat is shown only when it is ordered after it.
+    shown_order: (i64, u64),
+    /// The newest pick still out (its request's number), and the chat it is
+    /// for, following its id when it moves: its answer is that chat's,
+    /// whatever id it has now.
+    selecting: Option<(u64, conduit_protocol::ModelListQuery)>,
     _options: Option<Task<()>>,
     _searches: [Option<Task<()>>; 3],
     _draft: Option<Task<()>>,
@@ -611,8 +613,8 @@ impl ComposerStore {
             draft_round: 0,
             _models: None,
             _select: None,
-            list_ticket: 0,
-            select_ticket: 0,
+            list_seq: 0,
+            shown_order: (0, 0),
             selecting: None,
             _options: None,
             _searches: [None, None, None],
@@ -710,10 +712,19 @@ impl ComposerStore {
         !self.options_answered() || self.options.agent_chat
     }
 
-    /// The next list request's ticket.
-    fn next_list_ticket(&mut self) -> u64 {
-        self.list_ticket += 1;
-        self.list_ticket
+    /// The next list request's number, in the order they are sent.
+    fn next_list_seq(&mut self) -> u64 {
+        self.list_seq += 1;
+        self.list_seq
+    }
+
+    /// Whether an answer for `query`, ordered `(revision, number)`, is newer
+    /// than the list shown: the first answer for the chat shown, else one
+    /// with a newer pick, or the same pick and asked later. Older answers
+    /// (a pick's answer put together before a list that came later, a list
+    /// asked before the pick was made) are dropped.
+    fn newer_answer(&self, query: &conduit_protocol::ModelListQuery, order: (i64, u64)) -> bool {
+        self.models_for.as_ref() != Some(query) || order > self.shown_order
     }
 
     /// The model the next message goes to: the `@` one, else the selected.
@@ -727,18 +738,17 @@ impl ComposerStore {
         let query = self.list_query();
         let call = self.rpc.call::<methods::ModelsList>(&query);
         let scope = self.scope;
-        let ticket = self.next_list_ticket();
+        let seq = self.next_list_seq();
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
                     // Another account's, or another chat's: not this one's.
-                    // Asked before the newest pick: older than its answer.
-                    _ if s.scope != scope
-                        || s.list_query() != query
-                        || ticket < s.select_ticket => {}
+                    _ if s.scope != scope || s.list_query() != query => {}
+                    // Older than the list shown.
+                    Ok(list) if !s.newer_answer(&query, (list.revision, seq)) => {}
                     Ok(list) => {
-                        s.set_models(list, query, cx);
+                        s.set_models(list, query, seq, cx);
                         s.refresh_options(cx);
                     }
                     Err(e) => log::info!("models.list: {e}"),
@@ -997,16 +1007,19 @@ impl ComposerStore {
                 chat_id: self.chat_id(),
             });
         let query = self.list_query();
-        let ticket = self.next_list_ticket();
+        let seq = self.next_list_seq();
         self._models = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| match result {
-                    // Asked before the newest pick: older than its answer.
-                    _ if ticket < s.select_ticket => {}
                     // The pin answers with the chat's list: shown while that
-                    // chat is, read again otherwise.
-                    Ok(list) if s.list_query() == query => s.set_models(list, query, cx),
+                    // chat is (when newer than the list shown), read again
+                    // otherwise.
+                    Ok(list) if s.list_query() == query => {
+                        if s.newer_answer(&query, (list.revision, seq)) {
+                            s.set_models(list, query, seq, cx);
+                        }
+                    }
                     Ok(_) => s.refresh_models(cx),
                     Err(e) => {
                         log::warn!("models.setPinned: {e}");
@@ -1021,8 +1034,10 @@ impl ComposerStore {
         &mut self,
         mut list: ModelList,
         query: conduit_protocol::ModelListQuery,
+        seq: u64,
         cx: &mut Context<Self>,
     ) {
+        self.shown_order = (list.revision, seq);
         // A temporary chat offers no coding agent (none can answer there),
         // whichever answer the list came with (a pick's answer is for a
         // chat that is not temporary): a selected agent is then hidden, and
@@ -1077,19 +1092,19 @@ impl ComposerStore {
             id: id.to_string(),
             chat_id: self.chat_id(),
         });
-        // The newest truth for the chat: lists asked before it are dropped,
-        // and its answer is the chat's, under whatever id it has by then.
-        let ticket = self.next_list_ticket();
-        self.select_ticket = ticket;
-        self.selecting = Some(self.list_query());
+        // Its answer is the chat's, under whatever id it has by then, and is
+        // shown when it is ordered after the list shown then (its pick is
+        // newer, or as new and asked later).
+        let seq = self.next_list_seq();
+        self.selecting = Some((seq, self.list_query()));
         self._select = Some(
             cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    if s.scope != scope || s.select_ticket != ticket {
+                    if s.scope != scope || s.selecting.as_ref().is_none_or(|(n, _)| *n != seq) {
                         return;
                     }
-                    let Some(query) = s.selecting.take() else {
+                    let Some((_, query)) = s.selecting.take() else {
                         return;
                     };
                     if s.list_query() != query {
@@ -1097,8 +1112,10 @@ impl ComposerStore {
                     }
                     match result {
                         Ok(list) => {
-                            s.set_models(list, query, cx);
-                            s.refresh_options(cx);
+                            if s.newer_answer(&query, (list.revision, seq)) {
+                                s.set_models(list, query, seq, cx);
+                                s.refresh_options(cx);
+                            }
                         }
                         Err(e) => {
                             cx.emit(ComposerEvent::ModelNotSelected(e.to_string()));
@@ -2048,11 +2065,16 @@ impl ComposerStore {
             chat_id: Some(to.to_string()),
             folder_id: draft.folder_id.clone(),
         });
-        // A pick still out is the chat's: it answers under the new id.
-        if let Some(selecting) = &mut self.selecting
-            && selecting.chat_id.as_deref() == Some(from)
+        // The list shown and a pick still out are the chat's: under its new
+        // id, answers keep their order against them.
+        for query in self
+            .models_for
+            .iter_mut()
+            .chain(self.selecting.iter_mut().map(|(_, q)| q))
         {
-            selecting.chat_id = Some(to.to_string());
+            if query.chat_id.as_deref() == Some(from) {
+                query.chat_id = Some(to.to_string());
+            }
         }
         if self.channel.is_none() {
             self.refresh_models(cx);
@@ -2901,6 +2923,7 @@ mod tests {
             agents: vec![],
             agent_names: Default::default(),
             chat_agent: None,
+            revision: 0,
         }
     }
 
@@ -3840,6 +3863,66 @@ mod tests {
         });
     }
 
+    /// A pick's answer that lands after a newer list for the chat (asked
+    /// after the pick, answered with the same pick revision) never puts its
+    /// older catalog back: the newer list stays, and the next turn names
+    /// what it shows.
+    #[gpui_kit::test]
+    fn a_late_pick_answer_never_replaces_a_newer_list(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::DraftsGet>(Draft::default());
+        daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
+        // The first list, before any pick.
+        daemon.once::<methods::ModelsList>(Ok(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("b".into()),
+            ..Default::default()
+        }));
+        // A refresh asked after the pick, once the pick is made: the server
+        // no longer offers Alder.
+        daemon.returns::<methods::ModelsList>(ModelList {
+            models: vec![model("b", "Birch")],
+            selected_id: Some("b".into()),
+            revision: 1,
+            ..Default::default()
+        });
+        // The pick's own answer, put together before the server dropped it.
+        daemon.returns::<methods::ModelsSelect>(ModelList {
+            models: vec![model("a", "Alder"), model("b", "Birch")],
+            selected_id: Some("a".into()),
+            revision: 1,
+            ..Default::default()
+        });
+        let store = store(&daemon, Arc::default(), cx);
+        store.update(cx, |s, cx| {
+            s.switch_draft(
+                Some(DraftKey {
+                    chat_id: Some("plain-chat".into()),
+                    folder_id: None,
+                }),
+                "",
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let held = daemon.hold::<methods::ModelsSelect>();
+        store.update(cx, |s, cx| s.select_model("a", cx));
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
+        held.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            let shown: Vec<&str> = s
+                .models
+                .as_ref()
+                .map(|l| l.models.iter().map(|m| m.id.as_str()).collect())
+                .unwrap_or_default();
+            assert_eq!(shown, vec!["b"], "the older catalog came back");
+            assert_eq!(s.next_model().map(|m| m.id.as_str()), Some("b"));
+        });
+    }
+
     /// A pick out while the chat's id moves, and a list for the new id that
     /// answers first with the model before the pick: the pick's own answer
     /// is the chat's, so the agent is shown and is what the next turn names.
@@ -3859,6 +3942,7 @@ mod tests {
             models: vec![model("k", "Kestrel")],
             agents: vec![model(agent, "Codex · gpt-test")],
             selected_id: Some(agent.into()),
+            revision: 1,
             ..Default::default()
         });
         let store = store(&daemon, Arc::default(), cx);

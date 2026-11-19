@@ -10050,6 +10050,13 @@ pub struct ModelList {
     /// changed for it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_agent: Option<String>,
+    /// The revision of the chat's own pick this list was put together with
+    /// (0: the chat has none). Every pick `models.select` makes is newer
+    /// than any before it, so of two answers for the chat, the one with the
+    /// higher revision has the newer pick; for the same revision, the one
+    /// asked later is newer.
+    #[serde(default)]
+    pub revision: i64,
 }
 
 /// A coding agent's place: the terminal it runs on, the agent (`codex`,

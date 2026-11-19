@@ -820,6 +820,38 @@ void main() {
       },
     );
 
+    test(
+      "every answer carries the chat's pick revision, newer for each pick",
+      () {
+        fakeAsync((time) {
+          final container = _agentContainer(_AgentsApi());
+          final models = ModelsService(container);
+          int revision(Future<ModelList> answer) {
+            final outcome = _Outcome(answer);
+            time.elapse(Duration.zero);
+            return (outcome.value! as ModelList).revision;
+          }
+
+          const plain = ModelListQuery(chatId: 'plain-chat');
+          check(revision(models.list(plain))).equals(0);
+          final first = revision(
+            models.select('preferred-model', chatId: 'plain-chat'),
+          );
+          check(first).isGreaterThan(0);
+          check(revision(models.list(plain))).equals(first);
+          final second = revision(
+            models.select('first-model', chatId: 'plain-chat'),
+          );
+          check(second).isGreaterThan(first);
+          check(revision(models.list(plain))).equals(second);
+          // Another chat's answer has its own pick's revision (none here).
+          check(
+            revision(models.list(const ModelListQuery(chatId: 'agent-chat'))),
+          ).equals(0);
+        });
+      },
+    );
+
     test("one LibreChat account's picks are never another's", () {
       fakeAsync((time) {
         final container = _agentContainer(_AgentsApi());
