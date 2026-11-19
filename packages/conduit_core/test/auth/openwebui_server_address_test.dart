@@ -732,6 +732,49 @@ void main() {
         check(await stored()).isNull();
       });
 
+      // The window named the account its proxy sign-in is for: the cookie
+      // is that account's or nobody's, whichever account proves the address.
+      test('keeps a proxy sign-in for the account it was captured for '
+          'alone', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        Future<ServerAddressSave> signedInFor(String account) =>
+            saveVerifiedServerAddress(
+              signedOut,
+              serverId: serverId,
+              endpointId: 'lab',
+              addedEndpointId: 'unused',
+              label: 'Lab',
+              verified: ServerConfig(
+                id: 'checked',
+                name: 'Lab',
+                url: 'https://lab.example',
+                customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+              ),
+              editedFrom: lab,
+              sessionAccount: account,
+              sessionRevision: storage.sessionRevocationRevision,
+              confirmSendingSession: (_) async => false,
+              confirmChangingInUse: () async => true,
+              stillWanted: () => true,
+            );
+        Future<Map<String, Map<String, String>>> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders;
+
+        check(await signedInFor('b'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await kept()).isEmpty();
+
+        check(await signedInFor('a')).isA<ServerAddressSaved>();
+        check(await kept()).deepEquals({
+          'lab': {'Cookie': 'proxy=1'},
+        });
+      });
+
       // A header typed for the address checked never goes to the host
       // another window moved it to; a new name alone still lands.
       test('that changes how it is reached is refused once the address was '

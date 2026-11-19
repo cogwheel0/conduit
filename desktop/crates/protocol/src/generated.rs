@@ -980,7 +980,9 @@ pub struct ExternalAuthCompletion {
     /// names it): required for `auth.renewProxy`, and checked by
     /// `auth.completeExternal` when given. Refused with `auth.sessionExpired`
     /// once another account is in charge, or (renewal) when the captured
-    /// session is another user's.
+    /// session is another user's. Given to `servers.addresses.save`, the
+    /// address is saved only when that account proves it (else
+    /// `needsSignIn`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
 }

@@ -1241,6 +1241,10 @@ final class ServerAddressNotSaved extends ServerAddressSave {
 /// ([editedAddress]); without one, [verified] whole. An address removed
 /// since, or moved elsewhere while the edit changes how it is reached, is
 /// not saved: [ServerAddressProblem.serverMissing].
+///
+/// A proxy sign-in in [verified] whose window named the account it was for
+/// ([sessionAccount]) is kept for that account alone: proved by another,
+/// the address is not saved ([ServerAddressProblem.needsSignIn]).
 Future<ServerAddressSave> saveVerifiedServerAddress(
   ProviderContainer container, {
   required String serverId,
@@ -1249,6 +1253,7 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   required String label,
   required ServerConfig verified,
   required OpenWebUiEndpoint? editedFrom,
+  String? sessionAccount,
   required int sessionRevision,
   required Future<bool> Function(Uri address) confirmSendingSession,
   required Future<bool> Function() confirmChangingInUse,
@@ -1331,10 +1336,12 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     provedBy: provedBy,
     activeAccountId: activeAccountId,
   );
-  if (cookieOwner == null &&
-      verified.customHeaders.keys.any(isCapturedSessionHeader)) {
+  if (verified.customHeaders.keys.any(isCapturedSessionHeader) &&
+      (cookieOwner == null ||
+          (sessionAccount != null && cookieOwner != sessionAccount))) {
     // Kept for none of them, the address would be saved for the proxy to
-    // refuse. Once one of them is signed in to, it is that one's.
+    // refuse. Once one of them is signed in to, it is that one's -- and
+    // only the one its sign-in window was for.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
   // Saved, an edit of the address in use that changes how it is reached

@@ -466,7 +466,8 @@ final class ServersService {
   /// changed mid-reply -- comes back as [ServerAddressChangeOutcome
   /// .needsConfirmation], and the window calls again with the answer. One
   /// behind a proxy is saved with what the proxy's sign-in captured, its
-  /// cookie kept for the account that proves the address.
+  /// cookie kept for the account that proves the address -- and refused when
+  /// that is not the account the capture names.
   Future<ServerAddressSaveResult> save(ServerAddressSaveRequest request) async {
     _forgetStale();
     final checked = _checked[request.checkId];
@@ -504,6 +505,7 @@ final class ServersService {
         label: checked.label,
         verified: checked.config,
         editedFrom: checked.saved,
+        sessionAccount: checked.sessionAccount,
         sessionRevision: checked.sessionRevision,
         confirmSendingSession: (address) async {
           if (request.sendSessionConfirmed) return true;
@@ -626,6 +628,7 @@ final class ServersService {
     // Signed in: a confirmation asked next does not need the window again.
     checked
       ..config = config
+      ..sessionAccount = proxy.account
       ..behindProxy = false;
     return null;
   }
@@ -1046,6 +1049,10 @@ final class _CheckedAddress {
   ServerConfig config;
   final int sessionRevision;
   bool behindProxy;
+
+  /// The account the proxy's sign-in window was for, when it named one:
+  /// its cookie is kept for that account alone.
+  String? sessionAccount;
 
   /// The id a new address is saved under: one per check, so saving again
   /// after a save that stored it and then failed edits it rather than
