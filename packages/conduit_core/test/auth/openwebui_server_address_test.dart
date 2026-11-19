@@ -672,8 +672,9 @@ void main() {
 
       Future<ServerAddressSave> save(
         String label,
-        Map<String, String> headers,
-      ) => saveVerifiedServerAddress(
+        Map<String, String> headers, {
+        String url = 'https://lab.example',
+      }) => saveVerifiedServerAddress(
         signedOut,
         serverId: serverId,
         endpointId: 'lab',
@@ -682,7 +683,7 @@ void main() {
         verified: ServerConfig(
           id: 'checked',
           name: 'Lab',
-          url: 'https://lab.example',
+          url: url,
           customHeaders: headers,
         ),
         editedFrom: lab,
@@ -716,6 +717,104 @@ void main() {
         check(now.customHeaders)
             .deepEquals({'X-Lab': 'two', 'X-Gate': 'g2', 'X-New': 'n'});
       });
+
+      // Two windows each move the address: the one saved first stays.
+      test('that moves it is refused once another window moved it '
+          'elsewhere', () async {
+        await elsewhere(
+          (endpoint) => OpenWebUiEndpoint(
+            id: endpoint.id,
+            url: 'https://moved.example',
+            label: endpoint.label,
+          ),
+        );
+
+        final outcome = await save('Lab', const {
+          'X-Lab': 'one',
+          'X-Gate': 'g1',
+        }, url: 'https://other.example');
+
+        check(outcome)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.url).equals('https://moved.example');
+      });
+
+      // Header names are one name in any case: X-Extra added here and
+      // x-extra in another window leave one header, this form's.
+      test(
+        'keeps one header that two windows added in different case',
+        () async {
+          await elsewhere(
+            (endpoint) => OpenWebUiEndpoint(
+              id: endpoint.id,
+              url: endpoint.url,
+              label: endpoint.label,
+              customHeaders: {...endpoint.customHeaders, 'x-extra': 'theirs'},
+            ),
+          );
+
+          final outcome = await save('Lab', const {
+            'X-Lab': 'one',
+            'X-Gate': 'g1',
+            'X-Extra': 'ours',
+          });
+
+          check(outcome).isA<ServerAddressSaved>();
+          check((await stored())!.customHeaders)
+              .deepEquals({'X-Lab': 'one', 'X-Gate': 'g1', 'X-Extra': 'ours'});
+        },
+      );
+
+      // The proxy cookie was captured for the address this edit checked; a
+      // stale edit never files it on the destination another window gave
+      // the address since.
+      for (final (what, moved) in [
+        (
+          'another host',
+          (OpenWebUiEndpoint e) => OpenWebUiEndpoint(
+            id: e.id,
+            url: 'https://moved.example',
+            label: e.label,
+            customHeaders: e.customHeaders,
+          ),
+        ),
+        (
+          'another client identity',
+          (OpenWebUiEndpoint e) => OpenWebUiEndpoint(
+            id: e.id,
+            url: e.url,
+            label: e.label,
+            customHeaders: e.customHeaders,
+            mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nlab\n',
+            mtlsPrivateKeyPem: '-----BEGIN PRIVATE KEY-----\nlab\n',
+          ),
+        ),
+      ]) {
+        test('keeps no proxy sign-in once another window gave the address '
+            '$what', () async {
+          await storage.setActiveServerId('a');
+          await storage.bindAccountUser('a', 'user-a');
+          await elsewhere(moved);
+
+          final outcome = await save('Lab renamed', {
+            ...lab.customHeaders,
+            'Cookie': 'proxy=1',
+          });
+
+          check(outcome)
+              .isA<ServerAddressNotSaved>()
+              .has((n) => n.problem, 'problem')
+              .equals(ServerAddressProblem.serverMissing);
+          check(
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders,
+          ).isEmpty();
+          check((await stored())!.label).equals('Lab');
+        });
+      }
 
       test('is refused as gone once the address was removed', () async {
         await elsewhere((_) => null);

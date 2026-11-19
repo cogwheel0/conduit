@@ -501,11 +501,14 @@ final class _AddressGone implements Exception {
 /// a header another window changed or added since is kept. A client
 /// certificate and its key are one field.
 ///
+/// Header names are one name in any case ([_headerKey]), as the form
+/// checks them: two spellings of one header never both stay.
+///
 /// An edit that moves the address to another origin takes [edited]'s
 /// headers and client identity whole: none of those stored goes to a host
 /// it was not given for. Null when another edit moved the address since
-/// [from] while this one changes how it is reached: what this one checked,
-/// and was given for, is no longer where the address goes.
+/// [from] while this one moves it too, or changes how it is reached: what
+/// this one checked, and was given for, is no longer where the address goes.
 OpenWebUiEndpoint? editedAddress({
   required OpenWebUiEndpoint stored,
   required OpenWebUiEndpoint from,
@@ -527,8 +530,11 @@ OpenWebUiEndpoint? editedAddress({
     mtlsPrivateKeyLabel: connection.mtlsPrivateKeyLabel,
     mtlsPrivateKeyPassword: connection.mtlsPrivateKeyPassword,
   );
-  if (origin(edited) != origin(from)) return named(edited);
-  if (origin(stored) != origin(from)) {
+  final movedElsewhere = origin(stored) != origin(from);
+  if (origin(edited) != origin(from)) {
+    return movedElsewhere ? null : named(edited);
+  }
+  if (movedElsewhere) {
     return edited.sameConnection(from) ? named(stored) : null;
   }
   Object identity(OpenWebUiEndpoint e) => (
@@ -539,19 +545,27 @@ OpenWebUiEndpoint? editedAddress({
     e.mtlsPrivateKeyPassword,
   );
   final tls = identity(edited) != identity(from) ? edited : stored;
+  final began = {
+    for (final entry in from.customHeaders.entries)
+      _headerKey(entry.key): entry.value,
+  };
+  final kept = {
+    for (final name in edited.customHeaders.keys) _headerKey(name),
+  };
+  final headers = <String, MapEntry<String, String>>{
+    for (final entry in stored.customHeaders.entries)
+      if (!began.containsKey(_headerKey(entry.key)) ||
+          kept.contains(_headerKey(entry.key)))
+        _headerKey(entry.key): entry,
+    for (final entry in edited.customHeaders.entries)
+      if (began[_headerKey(entry.key)] != entry.value)
+        _headerKey(entry.key): entry,
+  };
   return OpenWebUiEndpoint(
     id: stored.id,
     url: pick((e) => e.url),
     label: label,
-    customHeaders: {
-      for (final entry in stored.customHeaders.entries)
-        if (!from.customHeaders.containsKey(entry.key) ||
-            edited.customHeaders.containsKey(entry.key))
-          entry.key: entry.value,
-      for (final entry in edited.customHeaders.entries)
-        if (from.customHeaders[entry.key] != entry.value)
-          entry.key: entry.value,
-    },
+    customHeaders: Map.fromEntries(headers.values),
     allowSelfSignedCertificates: pick((e) => e.allowSelfSignedCertificates),
     mtlsCertificateChainPem: tls.mtlsCertificateChainPem,
     mtlsCertificateLabel: tls.mtlsCertificateLabel,
@@ -563,17 +577,26 @@ OpenWebUiEndpoint? editedAddress({
 
 /// [edited] as it is saved onto [endpoints], in place of the address of its
 /// id: [editedAddress] when the edit began from [editedFrom]. Throws
-/// [_AddressGone] once that address is no longer stored as the edit began.
+/// [_AddressGone] once that address is no longer stored as the edit began,
+/// or -- when the save [keepsSession], a proxy cookie captured for [edited]
+/// -- once what is saved no longer reaches the destination that cookie was
+/// issued for ([OpenWebUiEndpoint.sameSessionOwner]).
 OpenWebUiEndpoint _savedEdit(
   List<OpenWebUiEndpoint> endpoints,
   OpenWebUiEndpoint edited, {
   required OpenWebUiEndpoint? editedFrom,
+  required bool keepsSession,
 }) {
   final stored = endpoints.where((e) => e.id == edited.id).firstOrNull;
   if (stored == null) throw const _AddressGone();
   if (editedFrom == null) return edited;
-  return editedAddress(stored: stored, from: editedFrom, edited: edited) ??
+  final saving =
+      editedAddress(stored: stored, from: editedFrom, edited: edited) ??
       (throw const _AddressGone());
+  if (keepsSession && !saving.sameSessionOwner(edited)) {
+    throw const _AddressGone();
+  }
+  return saving;
 }
 
 /// Saves [route], an address of the server [serverId] that has just been
@@ -609,16 +632,22 @@ Future<bool> saveCheckedAddress(
   // take a while; an address removed meanwhile stays removed. [beforeWrite]
   // runs right before the write, nothing awaited between: what it checks
   // (and throws on) holds for what is written.
+  final keepsSession = headers.keys.any(isCapturedSessionHeader);
   List<OpenWebUiEndpoint> edit(List<OpenWebUiEndpoint> endpoints) {
     final saving = adding
         ? route
-        : _savedEdit(endpoints, route, editedFrom: editedFrom);
+        : _savedEdit(
+            endpoints,
+            route,
+            editedFrom: editedFrom,
+            keepsSession: keepsSession,
+          );
     beforeWrite?.call(endpoints, saving);
     return withEditedRoute(endpoints, saving, adding: adding);
   }
 
   final bool saved;
-  if (headers.keys.any(isCapturedSessionHeader)) {
+  if (keepsSession) {
     saved =
         cookieOwner != null &&
         await storage.editServerEndpointsWithSession(
@@ -937,6 +966,9 @@ ServerAddressProblem? validateServerAddressHeaderValue(String value) {
   return null;
 }
 
+/// [name] as header names compare: in any case, `x-gate` is `X-Gate`.
+String _headerKey(String name) => name.toLowerCase();
+
 /// What is wrong with adding header [name] with [value] to [headers], or
 /// null when it can be added.
 ServerAddressProblem? validateServerAddressHeader(
@@ -951,9 +983,8 @@ ServerAddressProblem? validateServerAddressHeader(
       validateServerAddressHeaderName(name) ??
       validateServerAddressHeaderValue(value);
   if (problem != null) return problem;
-  // Header names are case-insensitive: `x-gate` is `X-Gate` again.
-  final lower = name.toLowerCase();
-  if (headers.keys.any((added) => added.toLowerCase() == lower)) {
+  final key = _headerKey(name);
+  if (headers.keys.any((added) => _headerKey(added) == key)) {
     return ServerAddressProblem.headerAlreadyAdded;
   }
   if (headers.length >= maxServerAddressHeaders) {
@@ -1368,7 +1399,14 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
   try {
     final saving = endpointId == null
         ? route
-        : _savedEdit(server.endpoints, route, editedFrom: editedFrom);
+        : _savedEdit(
+            server.endpoints,
+            route,
+            editedFrom: editedFrom,
+            keepsSession: verified.customHeaders.keys.any(
+              isCapturedSessionHeader,
+            ),
+          );
     if (changesInUseConnection(server.endpoints, saving) &&
         !await confirmChangingInUse()) {
       return const ServerAddressNotSaved();
