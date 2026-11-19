@@ -935,6 +935,9 @@ impl ComposerStore {
             return;
         }
         self.set_mention(None, cx);
+        // A coding agent answers alone (the list may not offer it, so
+        // `select_model` cannot tell).
+        self.compare_with = None;
         self.select_model(id, cx);
     }
 
@@ -1180,8 +1183,9 @@ impl ComposerStore {
                 let _ = this.update(cx, |s, cx| match result {
                     // The pin answers with the chat's list: shown while that
                     // chat is (when newer than the list shown), read again
-                    // otherwise.
-                    Ok(list) if s.list_query() == query => {
+                    // otherwise. A temporary chat's is read again too: the
+                    // pin's answer is New Chat's.
+                    Ok(list) if s.list_query() == query && !query.temporary => {
                         if s.newer_answer(&query, (session, list.revision, seq)) {
                             s.set_models(list, query, seq, cx);
                             // It can show a pick whose own answer it
@@ -1252,6 +1256,15 @@ impl ComposerStore {
         // looked up.
         self.draft_model = None;
         self._draft_model = None;
+        // A coding agent answers alone: a comparison prepared before goes.
+        if self
+            .models
+            .as_ref()
+            .and_then(|list| find_model(list, id))
+            .is_some_and(|m| m.agent.is_some())
+        {
+            self.compare_with = None;
+        }
         // Shown at once; the daemon's answer replaces it.
         if let Some(list) = &mut self.models {
             list.selected_id = Some(id.to_string());
@@ -1260,9 +1273,11 @@ impl ComposerStore {
         // list, shown while that chat is (the composer keeps nothing).
         let scope = self.scope;
         cx.notify();
+        // A temporary chat's pick is its own, never New Chat's.
         let call = self.rpc.call::<methods::ModelsSelect>(&SelectModel {
             id: id.to_string(),
             chat_id: self.chat_id(),
+            temporary: self.list_query().temporary,
         });
         // Its answer is the chat's, under whatever id it has by then, and is
         // shown when it is ordered after the list shown then (its pick is
@@ -2054,8 +2069,11 @@ impl ComposerStore {
             image_generation: self.image_generation,
             code_interpreter: self.code_interpreter,
             file_ids: self.file_ids(),
+            // Never beside a coding agent, which answers alone.
             compare_models: match (&self.compare_with, self.next_model()) {
-                (Some(other), Some(first)) if other.id != first.id => {
+                (Some(other), Some(first))
+                    if other.id != first.id && first.agent.is_none() && other.agent.is_none() =>
+                {
                     vec![first.id.clone(), other.id.clone()]
                 }
                 _ => vec![],
@@ -3688,9 +3706,16 @@ mod tests {
             .expect("options");
         assert_eq!(options["modelId"], "k");
         assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
-        // A one-message model is set; then Switch.
-        store.update(cx, |s, cx| s.set_mention(Some(model("k", "Kestrel")), cx));
+        // A one-message model and a comparison are set; then Switch, to an
+        // agent this list does not offer.
+        store.update(cx, |s, cx| {
+            s.set_mention(Some(model("k", "Kestrel")), cx);
+            s.set_compare_with(Some(model("b", "B")), cx);
+        });
         store.update(cx, |s, cx| s.switch_to_chat_agent(agent, cx));
+        store.read_with(cx, |s, _| {
+            assert!(s.compare_with.is_none(), "the comparison outlived Switch");
+        });
         cx.run_until_parked();
         let picks = daemon.calls::<methods::ModelsSelect>();
         assert_eq!(picks.len(), 1);
@@ -3736,6 +3761,35 @@ mod tests {
             let list = s.models.as_ref().expect("a list");
             assert!(list.agents.is_empty(), "a temporary chat offered an agent");
             assert!(find_model(list, agent).is_none());
+        });
+        // The pick says it is a temporary chat's: never New Chat's.
+        assert_eq!(
+            daemon.calls::<methods::ModelsSelect>()[0]["temporary"],
+            true
+        );
+        // A pin answers with New Chat's list (it carries no temporary): the
+        // temporary chat's list is read again, never replaced by it.
+        daemon.returns::<methods::ModelsSetPinned>(ModelList {
+            models: vec![model("k", "Kestrel"), model("n", "Nuthatch")],
+            selected_id: Some("n".into()),
+            ..Default::default()
+        });
+        let lists = daemon.calls::<methods::ModelsList>().len();
+        store.update(cx, |s, cx| s.set_pinned("k", true, cx));
+        cx.run_until_parked();
+        let asked = daemon.calls::<methods::ModelsList>();
+        assert_eq!(
+            asked.len(),
+            lists + 1,
+            "the temporary list was not read again"
+        );
+        assert_eq!(asked.last().expect("a list")["temporary"], true);
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.selected_model().map(|m| m.id.as_str()),
+                Some("k"),
+                "New Chat's pick replaced the temporary chat's"
+            );
         });
     }
 
@@ -4597,12 +4651,13 @@ mod tests {
         daemon.returns::<methods::ModelsList>(ModelList {
             models: vec![model("k", "Kestrel")],
             selected_id: Some("k".into()),
+            agents: vec![coding_agent(agent)],
             ..Default::default()
         });
         daemon.returns::<methods::ModelsSelect>(ModelList {
             models: vec![model("k", "Kestrel")],
             selected_id: Some(agent.into()),
-            agents: vec![model(agent, "Codex · gpt-test")],
+            agents: vec![coding_agent(agent)],
             ..Default::default()
         });
         daemon.returns::<methods::ComposerOptions>(ComposerOptions::default());
@@ -4620,7 +4675,16 @@ mod tests {
         cx.run_until_parked();
         store.read_with(cx, |s, _| assert!(!s.agent_chat()));
         let held = daemon.hold::<methods::ComposerOptions>();
-        store.update(cx, |s, cx| s.select_model(agent, cx));
+        store.update(cx, |s, cx| {
+            // A comparison prepared with the regular model goes with it: a
+            // coding agent answers alone.
+            s.set_compare_with(Some(model("b", "B")), cx);
+            s.select_model(agent, cx);
+            assert!(
+                s.compare_with.is_none(),
+                "the comparison outlived the agent"
+            );
+        });
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some(agent));
@@ -4631,6 +4695,11 @@ mod tests {
         });
         held.release();
         cx.run_until_parked();
+        // None is sent beside an agent, whatever is prepared.
+        store.update(cx, |s, cx| {
+            s.set_compare_with(Some(model("b", "B")), cx);
+            assert!(s.take_turn(vec![], cx).compare_models.is_empty());
+        });
     }
 
     /// Quick Ask keeps no draft but sends ordinary chats: its list is for a
@@ -4980,9 +5049,10 @@ mod tests {
             s.select_model("b", cx);
         });
         cx.run_until_parked();
+        // This composer keeps no draft: a temporary chat's pick.
         assert_eq!(
             daemon.calls::<methods::ModelsSelect>(),
-            vec![json!({"id": "b"})]
+            vec![json!({"id": "b", "temporary": true})]
         );
         store.read_with(cx, |s, _| {
             assert_eq!(s.selected_model().map(|m| m.id.as_str()), Some("b"))

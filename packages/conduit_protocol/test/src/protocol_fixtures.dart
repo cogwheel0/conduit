@@ -4809,6 +4809,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     id: 'agent:buildbox:codex:gpt-5.1',
     chatId: 'chat-1',
   ),
+  'selectModelTemporary': const SelectModel(id: 'gpt-4o', temporary: true),
   'modelControlOption': const ModelControlOptionDto(
     value: 'high',
     label: 'High',
@@ -5712,6 +5713,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'terminalAgent': TerminalAgentDto.fromJson,
       'modelListQuery': ModelListQuery.fromJson,
       'selectModelInChat': SelectModel.fromJson,
+      'selectModelTemporary': SelectModel.fromJson,
       'modelControlOption': ModelControlOptionDto.fromJson,
       'modelControl': ModelControlDto.fromJson,
       'modelControlsQuery': ModelControlsQuery.fromJson,

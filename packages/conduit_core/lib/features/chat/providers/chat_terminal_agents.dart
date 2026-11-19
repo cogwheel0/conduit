@@ -49,6 +49,22 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
   return _agentScopeOn(terminalId, chat, servers);
 }
 
+/// The terminals a chat can use: for a saved chat ([chatId]), the server's
+/// own as it offers them to that chat, in a read of this lookup's own
+/// ([terminalSystemServersForChatProvider]); a host holding no chat as the
+/// active one has the sidebar's list, which leaves out a terminal that needs
+/// a saved chat. For a new chat (null), the account's list.
+Future<List<TerminalServerInfo>> _terminalsFor(dynamic ref, String? chatId) {
+  if (chatId == null) {
+    return ref.read(terminalAvailableServersProvider.future)
+        as Future<List<TerminalServerInfo>>;
+  }
+  final read = ref.read(
+    terminalSystemServersForChatProvider,
+  ) as Future<List<TerminalServerInfo>> Function(String);
+  return read(chatId);
+}
+
 /// The scope on [terminalId] for [chat], when [servers] lists it as one of
 /// the server's own terminals.
 TerminalAgentScope? _agentScopeOn(
@@ -91,9 +107,7 @@ Future<TerminalAgentScope?> terminalAgentScopeFor(
   try {
     // Without a terminal service the list stays loading: a host asking for
     // a picker gives up rather than wait on it.
-    servers = await (ref.read(
-      terminalAvailableServersProvider.future,
-    ) as Future<List<TerminalServerInfo>>).timeout(timeout);
+    servers = await _terminalsFor(ref, chat?.id).timeout(timeout);
   } catch (_) {
     return null;
   }
@@ -199,10 +213,7 @@ Future<Model?> resolveTerminalAgentModel(
   if (ref.read(terminalAgentsSupportedProvider) != true) return null;
   final api = ref.read(apiServiceProvider) as ApiService?;
   if (api == null) return null;
-  final servers = await bounded(
-    ref.read(terminalAvailableServersProvider.future)
-        as Future<List<TerminalServerInfo>>,
-  );
+  final servers = await bounded(_terminalsFor(ref, chatId));
   final server = servers
       .where(
         (server) => server.isSystem && server.selectionId == agent.terminalId,
