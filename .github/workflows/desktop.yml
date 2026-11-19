@@ -17,6 +17,8 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
   pull_request:
@@ -32,6 +34,8 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
   # Every job, on any branch: Actions › Desktop › Run workflow.

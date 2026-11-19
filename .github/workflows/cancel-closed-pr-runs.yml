@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cancel the pull request's queued and running runs
+        # bash, not the default `sh -e`: with pipefail, a failed listing
+        # fails the step instead of passing with nothing cancelled.
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
