@@ -524,12 +524,27 @@ void main() {
         OpenWebUiRegistry registry, {
         String? provedBy,
         String? active,
+        String? capturedFor,
       }) => addressCookieOwner(
         registry,
         serverId: chat.id,
         provedBy: provedBy,
         activeAccountId: active,
+        capturedFor: capturedFor,
       );
+
+      // Its window named the account: only that account's session proving
+      // the address keeps it, never a fallback to the account in charge.
+      test('is only the account its window was for, once that one proved '
+          'the address', () {
+        final registry = registryWith([
+          OpenWebUiAccount(id: 'a', serverId: 'chat', userId: 'user-a'),
+          OpenWebUiAccount(id: 'b', serverId: 'chat', userId: 'user-b'),
+        ]);
+        check(ownerOf(registry, provedBy: 'b', capturedFor: 'b')).equals('b');
+        check(ownerOf(registry, provedBy: 'a', capturedFor: 'b')).isNull();
+        check(ownerOf(registry, active: 'b', capturedFor: 'b')).isNull();
+      });
 
       test('is the one whose session proved the address', () {
         final registry = registryWith([
@@ -832,9 +847,10 @@ void main() {
       });
 
       // The window named the account its proxy sign-in is for: the cookie
-      // is that account's or nobody's, whichever account proves the address.
-      test('keeps a proxy sign-in for the account it was captured for '
-          'alone', () async {
+      // is that account's once its session proves the address, else
+      // nobody's. With no session here, neither account proves it.
+      test('keeps a proxy sign-in for no account its session has not '
+          'proved', () async {
         await storage.setActiveServerId('a');
         await storage.bindAccountUser('a', 'user-a');
         Future<ServerAddressSave> signedInFor(String account) =>
@@ -868,10 +884,11 @@ void main() {
             .equals(ServerAddressProblem.needsSignIn);
         check(await kept()).isEmpty();
 
-        check(await signedInFor('a')).isA<ServerAddressSaved>();
-        check(await kept()).deepEquals({
-          'lab': {'Cookie': 'proxy=1'},
-        });
+        check(await signedInFor('a'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await kept()).isEmpty();
       });
 
       // A header typed for the address checked never goes to the host

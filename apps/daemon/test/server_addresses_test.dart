@@ -828,6 +828,47 @@ void main() {
     );
   });
 
+  // The sign-in window named the account it was for: its cookie is kept
+  // once that account's own session proves the address through the proxy,
+  // and for no other account.
+  test('a proxy sign-in named for an account is kept once that account '
+      'proves the address', () async {
+    proxied.shareSessionsOf(owui);
+    final active = (await accounts.list()).activeAccountId!;
+    Future<ServerAddressSaveResult> signedInFor(String account) async {
+      final found = await check(ServerAddressForm(url: proxied.url));
+      return servers.save(
+        ServerAddressSaveRequest(
+          checkId: found.checkId!,
+          sendSessionConfirmed: true,
+          proxy: ExternalAuthCompletion(
+            origin: proxied.url,
+            cookies: const {'_lab_proxy': 'let-in'},
+            account: account,
+          ),
+        ),
+      );
+    }
+
+    final refused = await signedInFor('an-account-not-signed-in-here');
+    expect(refused.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(refused.problem, ServerAddressProblemCode.needsSignIn);
+
+    final saved = await signedInFor(active);
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final route = saved.addresses!.addresses.last;
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      registry.account(active)!.capturedHeaders[route.id]?['Cookie'],
+      '_lab_proxy=let-in',
+    );
+    await servers.remove(
+      ServerAddressRemoveRequest(serverId: serverId, endpointId: route.id),
+    );
+  });
+
   test('reorder puts them in the order given, and it is kept', () async {
     await addSecond();
     final before = (await list()).addresses;

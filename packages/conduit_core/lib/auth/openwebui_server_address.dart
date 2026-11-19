@@ -674,13 +674,19 @@ Future<bool> saveCheckedAddress(
 /// prove -- the active account when it is one of the server's, else the
 /// server's only account. None when it could be any of several.
 ///
+/// A sign-in whose window named the account it was for ([capturedFor]) is
+/// that account's only once its own session proved the address: no other
+/// account, and no fallback, ever keeps it.
+///
 /// Accounts still being signed in to are not counted: none is a user yet.
 String? addressCookieOwner(
   OpenWebUiRegistry registry, {
   required String serverId,
   required String? provedBy,
   required String? activeAccountId,
+  String? capturedFor,
 }) {
+  if (capturedFor != null) return provedBy == capturedFor ? provedBy : null;
   if (provedBy != null) return provedBy;
   final accounts = [
     for (final account in registry.accountsOn(serverId))
@@ -1276,8 +1282,9 @@ final class ServerAddressNotSaved extends ServerAddressSave {
 /// not saved: [ServerAddressProblem.serverMissing].
 ///
 /// A proxy sign-in in [verified] whose window named the account it was for
-/// ([sessionAccount]) is kept for that account alone: proved by another,
-/// the address is not saved ([ServerAddressProblem.needsSignIn]).
+/// ([sessionAccount]) is kept for that account alone, once its own session
+/// proved the address: else the address is not saved
+/// ([ServerAddressProblem.needsSignIn]).
 Future<ServerAddressSave> saveVerifiedServerAddress(
   ProviderContainer container, {
   required String serverId,
@@ -1368,13 +1375,12 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     serverId: server.id,
     provedBy: provedBy,
     activeAccountId: activeAccountId,
+    capturedFor: sessionAccount,
   );
-  if (verified.customHeaders.keys.any(isCapturedSessionHeader) &&
-      (cookieOwner == null ||
-          (sessionAccount != null && cookieOwner != sessionAccount))) {
+  if (cookieOwner == null &&
+      verified.customHeaders.keys.any(isCapturedSessionHeader)) {
     // Kept for none of them, the address would be saved for the proxy to
-    // refuse. Once one of them is signed in to, it is that one's -- and
-    // only the one its sign-in window was for.
+    // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
   }
   // Saved, an edit of the address in use that changes how it is reached
