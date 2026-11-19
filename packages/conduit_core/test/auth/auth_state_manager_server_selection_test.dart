@@ -1,15 +1,20 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/hive_boxes.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
+import 'package:hive_ce/hive.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -208,6 +213,82 @@ void main() {
       check(after.isAuthenticated).isTrue();
     });
   }
+
+  group('a proxy sign-in staged for an account', () {
+    late Directory tempDir;
+    late WorkerManager workers;
+    late OptimizedStorageService storage;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('proxy-staged-test');
+      Hive.init(tempDir.path);
+      workers = WorkerManager(maxConcurrentTasks: 1);
+      storage = OptimizedStorageService(
+        secureStorage: InMemorySecureKeyValueStore(),
+        boxes: HiveBoxes(
+          preferences: await Hive.openBox<dynamic>(HiveBoxNames.preferences),
+          caches: await Hive.openBox<dynamic>(HiveBoxNames.caches),
+          attachmentQueue: await Hive.openBox<dynamic>(
+            HiveBoxNames.attachmentQueue,
+          ),
+          metadata: await Hive.openBox<dynamic>(HiveBoxNames.metadata),
+        ),
+        workerManager: workers,
+      );
+    });
+
+    tearDown(() async {
+      workers.dispose();
+      await Hive.close();
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    // Another window moved the account to another address while its proxy
+    // sign-in was staged: storage dropped its session, and the staged
+    // sign-in stops. The session it would settle back to was the old
+    // address's, and must not reach a client built for the new one.
+    test('puts no session back once an edit moved its account', () async {
+      const account = ServerConfig(
+        id: 'account-a',
+        name: 'A',
+        url: 'https://a.example',
+        isActive: true,
+      );
+      await storage.saveServerConfigs([account]);
+      await storage.setActiveServerId(account.id);
+      await storage.bindAccountUser(account.id, _userA.id);
+      await storage.saveLocalUser(_userA);
+      await storage.saveAuthToken(_tokenA);
+      final container = ProviderContainer(
+        overrides: [
+          optimizedStorageServiceProvider.overrideWithValue(storage),
+          apiServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      check((await _settledAuth(container)).token).equals(_tokenA);
+
+      final configs = storage.serverConfigRevision;
+      await storage.saveServerConfigs([
+        account.copyWith(url: 'https://a-moved.example'),
+      ]);
+      check(await storage.getAuthTokenStrict()).isNull();
+
+      final committed = await container
+          .read(authStateManagerProvider.notifier)
+          .commitPrevalidatedProxySession(
+            serverConfig: account,
+            token: 'staged-session',
+            user: _userA,
+            configRevision: configs,
+          );
+
+      check(committed).isFalse();
+      check(container.read(authStateManagerProvider).requireValue.token)
+          .isNull();
+      check(container.read(apiAuthTokenMirrorProvider)).isNull();
+    });
+  });
 }
 
 /// The auth state once it is no longer loading: awaited as it is

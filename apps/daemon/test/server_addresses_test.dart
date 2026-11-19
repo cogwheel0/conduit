@@ -5,12 +5,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit_core/auth/auth_state_manager.dart'
-    show authStateManagerProvider;
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
-import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountAdditionOriginProvider;
@@ -247,46 +244,6 @@ void main() {
         ),
       ),
     );
-  });
-
-  // Another window moved the active account to another address while a
-  // proxy sign-in of it was being staged: storage dropped its session, and
-  // the staged sign-in stops. The session it would settle back to was the
-  // old address's, and must not reach a client built for the new one.
-  test('a proxy sign-in stopped by an edit that moved its account puts no '
-      'session back', () async {
-    final storage = runtime.container.read(optimizedStorageServiceProvider);
-    final before = runtime.container.read(authStateManagerProvider).value!;
-    expect(before.token, isNotNull);
-    final activeId = (await accounts.list()).activeAccountId!;
-    final captured = (await storage.getServerConfigsStrict()).singleWhere(
-      (config) => config.id == activeId,
-    );
-    final configs = storage.serverConfigRevision;
-    await storage.saveServerConfigs([
-      for (final config in await storage.getServerConfigsStrict())
-        config.id == activeId ? config.copyWith(url: localhost()) : config,
-    ]);
-    expect(await storage.getAuthTokenStrict(), isNull);
-
-    final committed = await runtime.container
-        .read(authStateManagerProvider.notifier)
-        .commitPrevalidatedProxySession(
-          serverConfig: captured,
-          token: 'fake-token-staged',
-          user: const User(
-            id: 'user-ada',
-            username: 'ada',
-            email: 'ada@example.com',
-            role: 'user',
-          ),
-          configRevision: configs,
-        );
-
-    expect(committed, isFalse);
-    final after = runtime.container.read(authStateManagerProvider).value!;
-    expect(after.token, isNull);
-    expect(runtime.container.read(apiAuthTokenMirrorProvider), isNull);
   });
 
   final accountChanged = throwsA(
