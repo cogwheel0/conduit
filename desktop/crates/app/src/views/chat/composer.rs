@@ -1041,6 +1041,9 @@ impl ChatComposer {
             return;
         }
         if !self.can_send(cx) {
+            // No list for the chat (it failed, or a new daemon session has
+            // not answered): Send asks for it again.
+            self.composer.update(cx, |c, cx| c.ask_list_again(cx));
             return;
         }
         let (text, mentions) = self.take_text(window, cx);
@@ -1873,7 +1876,7 @@ impl ChatComposer {
     /// one checked, then Custom… when the model takes another value.
     fn show_effort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::native_menu::NativeMenu;
-        let Some(options) = self.composer.read(cx).model_options.clone() else {
+        let Some(options) = self.composer.read(cx).answered_model_options().cloned() else {
             return;
         };
         let l10n = cx.l10n().clone();
@@ -1914,8 +1917,7 @@ impl ChatComposer {
         let Some(control) = self
             .composer
             .read(cx)
-            .model_controls
-            .as_ref()
+            .answered_controls()
             .and_then(|l| l.controls.iter().find(|c| c.key == key).cloned())
         else {
             return;
@@ -1972,8 +1974,7 @@ impl ChatComposer {
         let current = self
             .composer
             .read(cx)
-            .model_options
-            .as_ref()
+            .answered_model_options()
             .map(|o| o.reasoning.current.clone())
             .filter(|c| c != "automatic")
             .unwrap_or_default();
@@ -2147,7 +2148,7 @@ impl ChatComposer {
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web, image, code) = (
             store.web_search,
             store.image_generation,
@@ -3493,15 +3494,13 @@ impl ChatComposer {
             .models
             .as_ref()
             .is_some_and(crate::stores::composer::has_more_models);
-        let options = store.model_options.clone();
+        let options = store.answered_model_options().cloned();
         // A model with an effort control of its own (a coding agent's)
         // takes it from that control, below; the app's would contradict it.
         // Unknown until the options for the chat and model on screen answer.
         let own_effort = !store.options_answered() || store.options.own_effort_control;
         let controls = store
-            .model_controls
-            .as_ref()
-            .filter(|c| c.model_id == selected)
+            .answered_controls()
             .map(|c| c.controls.clone())
             .unwrap_or_default();
         let total = rows
@@ -4037,7 +4036,7 @@ impl Render for ChatComposer {
             .iter()
             .map(|c| context_chip(c, &composer, &t, cx))
             .collect();
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web_search, image_generation) = (store.web_search, store.image_generation);
         let code_interpreter = store.code_interpreter;
         let tool_ids = store.tool_ids.clone();
