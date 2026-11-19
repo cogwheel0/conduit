@@ -5271,15 +5271,18 @@ class OptimizedStorageService {
           data: {'errorType': error.runtimeType.toString()},
         );
       }
-      await attempt(() async {
-        await _secureCredentialStorage.deleteAllBrowserSignInSessions();
-        droppedBrowserSessions.addAll([
-          for (final MapEntry(key: accountId, value: payload)
-              in browserSessions.entries)
-            if (BrowserSignInSession.tryDecode(payload) case final session?)
-              (accountId: accountId, session: session),
-        ]);
-      });
+      // One at a time, so one that cannot be deleted leaves the others told
+      // of; then any it could not read.
+      for (final MapEntry(key: accountId, value: payload)
+          in browserSessions.entries) {
+        await attempt(() async {
+          await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+          if (BrowserSignInSession.tryDecode(payload) case final session?) {
+            droppedBrowserSessions.add((accountId: accountId, session: session));
+          }
+        });
+      }
+      await attempt(_secureCredentialStorage.deleteAllBrowserSignInSessions);
       await attempt(_scrubServerConfigAuthArtifactsUnlocked);
       _stagedServerConfigCandidate = null;
     });
