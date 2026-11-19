@@ -1,6 +1,9 @@
 #!/bin/bash
-# Checks the release scripts' safeguards against synthetic feeds and stub
-# `gh`/`git` commands: no network, no real release, no signing key.
+# Checks the release scripts' safeguards against synthetic feeds, Sparkle
+# keys made here, and stub `gh`/`git` commands: no real release, no real
+# key. On macOS it also runs the pinned Sparkle's own tools (downloaded once,
+# checksum-verified, as bundle.sh does) on synthetic apps and DMGs. It needs
+# an openssl that does Ed25519, as the release does.
 #
 #   desktop/packaging/macos/release_test.sh
 #
@@ -10,17 +13,30 @@
 #   accepts a correct feed and a patch release.
 # * release_exists / feed_exists answer yes or no, and stop on any other
 #   answer (a failed lookup is never "none yet").
-# * publish-appcast.sh keeps the live appcast.xml when the new upload fails
-#   or the new file cannot take its name, keeps the last one as
-#   appcast.previous.xml when it succeeds, and stops on a feed release whose
-#   appcast.xml is missing beside an appcast.previous.xml.
+# * publish-appcast.sh publishes only a feed signed with
+#   SPARKLE_PUBLIC_ED_KEY: an unsigned one, one changed after it was signed,
+#   or one signed with another key stops before any upload. It keeps the
+#   live appcast.xml when the new upload fails or the new file cannot take
+#   its name, keeps the last one as appcast.previous.xml when it succeeds,
+#   and stops on a feed release whose appcast.xml is missing beside an
+#   appcast.previous.xml.
 # * a rename or delete GitHub applied whose reply was lost is judged by the
 #   file's real state, so the publication completes or is put back.
 # * a binary built with the test harness is never signed for distribution,
 #   and a step takes only the bundle id it was asked for.
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
-#   and refuses another file, another length or another key (with a
-#   throwaway key made here; skipped without an Ed25519 openssl).
+#   and refuses another file, another length or another key.
+# * release_app_key gives the app the next key only for the one tag both
+#   rotation variables name, and stops on any other combination.
+# * verify_feed, the feed job's check, gives Sparkle's own verdict
+#   (`sign_update --verify`) on feeds sign_update signs: a good one, one
+#   changed after it was signed, one signed with another key, an unsigned
+#   one (macOS).
+# * appcast.sh, through the pinned generate_appcast, on synthetic DMGs: a
+#   release; a key rotation's bridge release (an app carrying the next key)
+#   only with --next-public-key naming that key, its update and feed signed
+#   with the current key; the release after it, with the keys swapped,
+#   keeping the bridge's item (macOS).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/conduit-release-test.XXXXXX")"
@@ -228,9 +244,77 @@ lookup yes 0 feed_exists branch
 lookup no 2 feed_exists branch
 lookup stop 128 feed_exists branch
 
+# ── Sparkle keys made here, and feeds signed with them ──────────────────────
+openssl_path="$(bash -c ". '$here/lib.sh'; ed25519_openssl")" || {
+  echo "release_test: needs an openssl that does Ed25519, as the release does (brew install openssl@3, or set OPENSSL)"
+  exit 1
+}
+for k in a b c; do
+  "$openssl_path" genpkey -algorithm ed25519 -outform DER -out "$tmp/key-$k.der" 2>/dev/null
+done
+public_of() { "$openssl_path" pkey -inform DER -in "$1" -pubout -outform DER | tail -c 32 | base64; }
+private_of() { tail -c 32 "$1" | base64; } # the seed, as generate_keys -x exports it
+key_a="$(public_of "$tmp/key-a.der")"
+key_b="$(public_of "$tmp/key-b.der")"
+key_c="$(public_of "$tmp/key-c.der")"
+sign_feed() { # unsigned signed key.der: appends the block Sparkle's signAppcast writes
+  "$openssl_path" pkeyutl -sign -inkey "$3" -keyform DER -rawin -in "$1" -out "$tmp/feed.sig" || return 1
+  {
+    cat "$1"
+    printf '<!-- sparkle-signatures:\nedSignature: %s\nlength: %s\n-->\n' \
+      "$(base64 <"$tmp/feed.sig" | tr -d '\n')" "$(wc -c <"$1" | tr -d ' ')"
+  } >"$2"
+}
+feed_check() { bash -c ". '$here/lib.sh'; verify_feed \"\$@\"" _ "$@"; }
+cp "$tmp/good.xml" "$tmp/good-unsigned.xml"
+sign_feed "$tmp/good-unsigned.xml" "$tmp/good.xml" "$tmp/key-a.der"
+sign_feed "$tmp/good-unsigned.xml" "$tmp/good-other-key.xml" "$tmp/key-b.der"
+sed 's#desktop-v1.3.0#desktop-v6.6.6#' "$tmp/good.xml" >"$tmp/good-changed.xml"
+export SPARKLE_PUBLIC_ED_KEY="$key_a"
+
+# ── release_app_key ─────────────────────────────────────────────────────────
+app_key() { # want label tag current next rotation-tag
+  local want="$1" label="$2" got rc
+  shift 2
+  got="$(bash -c ". '$here/lib.sh'; release_app_key \"\$@\"" _ "$@" 2>"$tmp/out.txt")"
+  rc=$?
+  if { [ "$want" = stop ] && [ "$rc" != 0 ] && [ -z "$got" ]; } ||
+    { [ "$want" != stop ] && [ "$rc" = 0 ] && [ "$got" = "$want" ]; }; then
+    pass "$label"
+  else
+    fail "$label (got '$got', exit $rc)"
+    sed 's/^/      /' "$tmp/out.txt"
+  fi
+}
+app_key "$key_a" "without rotation variables the app carries the signing key" desktop-v1.3.0 "$key_a" "" ""
+app_key "$key_b" "the tag both rotation variables name carries the next key" desktop-v1.3.0 "$key_a" "$key_b" desktop-v1.3.0
+app_key stop "the next key without the rotation tag stops" desktop-v1.3.0 "$key_a" "$key_b" ""
+app_key stop "the rotation tag without the next key stops" desktop-v1.3.0 "$key_a" "" desktop-v1.3.0
+app_key stop "rotation variables left set for an earlier tag stop the next release" desktop-v1.4.0 "$key_a" "$key_b" desktop-v1.3.0
+app_key stop "a next key that is the signing key's stops" desktop-v1.3.0 "$key_a" "$key_a" desktop-v1.3.0
+app_key stop "a next key that is not a key stops" desktop-v1.3.0 "$key_a" "not-a-key" desktop-v1.3.0
+
 # ── publish-appcast.sh (release-asset) ──────────────────────────────────────
 printf '<rss/>\n' >"$tmp/live.xml"
 cp "$tmp/live.xml" "$STUB_ASSETS/7 appcast.xml"
+# Refused before any gh call: nothing is uploaded, the live feed stays.
+gh_calls() { if [ -f "$STUB_LOG" ]; then wc -l <"$STUB_LOG" | tr -d ' '; else echo 0; fi; }
+refused() { # label feed [env...]
+  local label="$1" xml="$2" before
+  shift 2
+  before="$(gh_calls)"
+  expect 1 "$label" env "$@" APPCAST_HOSTING=release-asset "$here/publish-appcast.sh" "$xml" --push
+  if grep -q 'SPARKLE_PUBLIC_ED_KEY' "$tmp/out.txt" && [ "$(gh_calls)" = "$before" ] &&
+    [ "$(ls "$STUB_ASSETS")" = "7 appcast.xml" ]; then
+    pass "$label: refused for its signature, before anything reached GitHub"
+  else
+    fail "$label: $(tail -1 "$tmp/out.txt"); gh calls $before -> $(gh_calls); files: $(ls "$STUB_ASSETS" | tr '\n' ' ')"
+  fi
+}
+refused "an unsigned feed is never published" "$tmp/good-unsigned.xml"
+refused "a feed changed after it was signed is never published" "$tmp/good-changed.xml"
+refused "a feed signed with another key is never published" "$tmp/good-other-key.xml"
+refused "a feed is never published without SPARKLE_PUBLIC_ED_KEY" "$tmp/good.xml" -u SPARKLE_PUBLIC_ED_KEY
 expect 1 "a failed upload stops" env STUB_UPLOAD=fail APPCAST_HOSTING=release-asset \
   "$here/publish-appcast.sh" "$tmp/good.xml" --push
 if ls "$STUB_ASSETS" | grep -qx '7 appcast.xml'; then
@@ -409,47 +493,155 @@ else
 fi
 
 # ── verify_enclosure ────────────────────────────────────────────────────────
-if openssl_path="$(bash -c ". '$here/lib.sh'; ed25519_openssl" 2>/dev/null)"; then
-  "$openssl_path" genpkey -algorithm ed25519 -outform DER -out "$tmp/throwaway.der" 2>/dev/null
-  "$openssl_path" genpkey -algorithm ed25519 -outform DER -out "$tmp/other.der" 2>/dev/null
-  public_of() { "$openssl_path" pkey -inform DER -in "$1" -pubout -outform DER | tail -c 32 | base64; }
-  key="$(public_of "$tmp/throwaway.der")"
-  other_key="$(public_of "$tmp/other.der")"
-  "$openssl_path" pkeyutl -sign -inkey "$tmp/throwaway.der" -keyform DER -rawin -in "$dmg" \
-    -out "$tmp/dmg.sig"
-  signed="$(base64 <"$tmp/dmg.sig" | tr -d '\n')"
-  feed "$tmp/signed.xml" "$(item 1030099 1.3.0 "$url" "$size" "$signed" "")" "$old_item"
-  enclosure() { bash -c ". '$here/lib.sh'; verify_enclosure \"\$@\"" _ "$@"; }
-  expect 0 "the DMG its signed enclosure describes is accepted" \
-    enclosure "$tmp/signed.xml" 1030099 "$dmg" "$key"
-  printf 'swapped dmg bytes!!' >"$tmp/swapped.dmg"
-  expect 1 "another DMG of the same length is refused" \
-    enclosure "$tmp/signed.xml" 1030099 "$tmp/swapped.dmg" "$key"
-  printf 'synthetic dmg bytes, longer' >"$tmp/longer.dmg"
-  expect 1 "a DMG of another length is refused" \
-    enclosure "$tmp/signed.xml" 1030099 "$tmp/longer.dmg" "$key"
-  expect 1 "a signature made with another key is refused" \
-    enclosure "$tmp/signed.xml" 1030099 "$dmg" "$other_key"
-  expect 1 "no public key refuses" enclosure "$tmp/signed.xml" 1030099 "$dmg" ""
-  # mktemp fails for the enclosure's scratch folder only (openssl's probe
-  # still works): verification fails, and writes nothing where it runs.
-  mkdir -p "$tmp/no-scratch-bin" "$tmp/no-scratch-cwd"
-  cat >"$tmp/no-scratch-bin/mktemp" <<'STUB'
+"$openssl_path" pkeyutl -sign -inkey "$tmp/key-a.der" -keyform DER -rawin -in "$dmg" \
+  -out "$tmp/dmg.sig"
+signed="$(base64 <"$tmp/dmg.sig" | tr -d '\n')"
+feed "$tmp/signed.xml" "$(item 1030099 1.3.0 "$url" "$size" "$signed" "")" "$old_item"
+enclosure() { bash -c ". '$here/lib.sh'; verify_enclosure \"\$@\"" _ "$@"; }
+expect 0 "the DMG its signed enclosure describes is accepted" \
+  enclosure "$tmp/signed.xml" 1030099 "$dmg" "$key_a"
+printf 'swapped dmg bytes!!' >"$tmp/swapped.dmg"
+expect 1 "another DMG of the same length is refused" \
+  enclosure "$tmp/signed.xml" 1030099 "$tmp/swapped.dmg" "$key_a"
+printf 'synthetic dmg bytes, longer' >"$tmp/longer.dmg"
+expect 1 "a DMG of another length is refused" \
+  enclosure "$tmp/signed.xml" 1030099 "$tmp/longer.dmg" "$key_a"
+expect 1 "a signature made with another key is refused" \
+  enclosure "$tmp/signed.xml" 1030099 "$dmg" "$key_b"
+expect 1 "no public key refuses" enclosure "$tmp/signed.xml" 1030099 "$dmg" ""
+# mktemp fails for the enclosure's scratch folder only (openssl's probe
+# still works): verification fails, and writes nothing where it runs.
+mkdir -p "$tmp/no-scratch-bin" "$tmp/no-scratch-cwd"
+cat >"$tmp/no-scratch-bin/mktemp" <<'STUB'
 #!/bin/bash
 case "$*" in *conduit-enclosure*) echo "mktemp: cannot create" >&2; exit 1 ;; esac
 exec /usr/bin/mktemp "$@"
 STUB
-  chmod +x "$tmp/no-scratch-bin/mktemp"
-  expect 1 "an enclosure check whose scratch folder cannot be made fails" \
-    env PATH="$tmp/no-scratch-bin:$PATH" bash -c "cd '$tmp/no-scratch-cwd' && . '$here/lib.sh' && verify_enclosure \"\$@\"" _ \
-    "$tmp/signed.xml" 1030099 "$dmg" "$key"
-  if [ -z "$(ls "$tmp/no-scratch-cwd")" ]; then
-    pass "a failed scratch folder writes nothing where the check runs"
+chmod +x "$tmp/no-scratch-bin/mktemp"
+expect 1 "an enclosure check whose scratch folder cannot be made fails" \
+  env PATH="$tmp/no-scratch-bin:$PATH" bash -c "cd '$tmp/no-scratch-cwd' && . '$here/lib.sh' && verify_enclosure \"\$@\"" _ \
+  "$tmp/signed.xml" 1030099 "$dmg" "$key_a"
+if [ -z "$(ls "$tmp/no-scratch-cwd")" ]; then
+  pass "a failed scratch folder writes nothing where the check runs"
+else
+  fail "a failed scratch folder wrote: $(ls "$tmp/no-scratch-cwd" | tr '\n' ' ')"
+fi
+
+# ── verify_feed, against the pinned Sparkle ─────────────────────────────────
+# Sparkle's tools are macOS binaries. sign_update --verify gives Sparkle's
+# own verdict, but needs the private key, which the feed job never has:
+# verify_feed must agree with it on every feed here.
+if [ "$(uname -s)" = Darwin ]; then
+  if sparkle="$(bash -c ". '$here/lib.sh'; sparkle_dir")"; then
+    sparkle_sign() { # feed key.der: sign_update signs FEED in place
+      private_of "$2" | "$sparkle/bin/sign_update" --ed-key-file - "$1" >/dev/null
+    }
+    agree() { # want label feed: verify_feed with key a, and Sparkle with key a
+      expect "$1" "$2 (verify_feed)" feed_check "$3" "$key_a"
+      expect "$1" "$2 (Sparkle's sign_update --verify)" \
+        bash -c "printf '%s' \"\$1\" | '$sparkle/bin/sign_update' --verify --ed-key-file - \"\$2\"" _ \
+        "$(private_of "$tmp/key-a.der")" "$3"
+    }
+    cp "$tmp/good-unsigned.xml" "$tmp/sparkle-signed.xml"
+    sparkle_sign "$tmp/sparkle-signed.xml" "$tmp/key-a.der"
+    agree 0 "a feed sign_update signed with the trusted key is accepted" "$tmp/sparkle-signed.xml"
+    sed 's#desktop-v1.3.0#desktop-v6.6.6#' "$tmp/sparkle-signed.xml" >"$tmp/sparkle-changed.xml"
+    agree 1 "a feed sign_update signed, then changed, is refused" "$tmp/sparkle-changed.xml"
+    cp "$tmp/good-unsigned.xml" "$tmp/sparkle-other-key.xml"
+    sparkle_sign "$tmp/sparkle-other-key.xml" "$tmp/key-b.der"
+    agree 1 "a feed sign_update signed with another key is refused" "$tmp/sparkle-other-key.xml"
+    agree 1 "an unsigned feed is refused" "$tmp/good-unsigned.xml"
+    # Sparkle reads the last signature block: one appended by another key
+    # over a signed feed is the one checked.
+    sign_feed "$tmp/sparkle-signed.xml" "$tmp/sparkle-appended.xml" "$tmp/key-b.der"
+    agree 1 "a second signature block by another key is refused" "$tmp/sparkle-appended.xml"
+    # The fixture publish-appcast.sh is tested with: signed here as Sparkle
+    # signs a feed, and Sparkle agrees.
+    agree 0 "a feed signed here in Sparkle's format is accepted" "$tmp/good.xml"
+    expect 1 "verify_feed without a public key refuses" feed_check "$tmp/sparkle-signed.xml" ""
   else
-    fail "a failed scratch folder wrote: $(ls "$tmp/no-scratch-cwd" | tr '\n' ' ')"
+    fail "the pinned Sparkle could not be fetched (lib.sh sparkle_dir)"
+    sparkle=""
   fi
 else
-  echo "skip  verify_enclosure (no openssl with Ed25519 here)"
+  echo "skip  verify_feed against Sparkle and appcast.sh (Sparkle's tools need macOS)"
+  sparkle=""
+fi
+
+# ── appcast.sh, with generate_appcast: a release and a key rotation ─────────
+# Synthetic apps, signed ad hoc (generate_appcast refuses a bundle whose
+# signature does not verify), in DMGs made here. Key a is the current key,
+# b the next one, c neither.
+if [ -n "$sparkle" ]; then
+  macos_min="$(bash -c ". '$here/lib.sh'; printf '%s' \"\$MACOS_MIN\"")"
+  printf 'int main(void) { return 0; }\n' |
+    xcrun clang -arch arm64 -mmacosx-version-min="$macos_min" -x c - -o "$tmp/stub-executable"
+  dmg_with() { # dmg key version
+    local src app
+    src="$(mktemp -d "$tmp/app.XXXXXX")" && app="$src/Conduit.app" || return 1
+    mkdir -p "$app/Contents/MacOS" "$(dirname "$1")"
+    cp "$tmp/stub-executable" "$app/Contents/MacOS/Conduit"
+    plutil -create xml1 "$app/Contents/Info.plist"
+    local kv
+    for kv in CFBundleIdentifier=app.example.release-test CFBundleExecutable=Conduit \
+      CFBundlePackageType=APPL "CFBundleShortVersionString=$3" \
+      "CFBundleVersion=$(bash -c ". '$here/lib.sh'; build_number $3")" \
+      "LSMinimumSystemVersion=$macos_min" "SUPublicEDKey=$2"; do
+      plutil -insert "${kv%%=*}" -string "${kv#*=}" "$app/Contents/Info.plist"
+    done
+    plutil -insert SURequireSignedFeed -bool true "$app/Contents/Info.plist"
+    codesign --force --sign - "$app" 2>/dev/null || return 1
+    # As in bundle.sh: hdiutil sometimes fails with "Resource busy" on a
+    # hosted CI runner, and a later try succeeds.
+    local try
+    for try in 1 2 3; do
+      hdiutil create -quiet -ov -srcfolder "$src" -format UDZO -volname Conduit "$1" && return 0
+      sleep 5
+    done
+    return 1
+  }
+  dmg_with "$tmp/release/Conduit-1.3.0.dmg" "$key_a" 1.3.0 || fail "could not make the release's DMG"
+  dmg_with "$tmp/bridge/Conduit-1.3.0.dmg" "$key_b" 1.3.0 || fail "could not make the bridge's DMG"
+  dmg_with "$tmp/after/Conduit-1.4.0.dmg" "$key_b" 1.4.0 || fail "could not make the next release's DMG"
+  appcast() { # private-key.der public-key work dmg version [appcast.sh options]
+    local der="$1" public="$2" work="$3" dmg_file="$4" version="$5"
+    shift 5
+    SPARKLE_ED_PRIVATE_KEY="$(private_of "$der")" SPARKLE_PUBLIC_ED_KEY="$public" \
+      "$here/appcast.sh" --dmg "$dmg_file" --version "$version" \
+      --download-url-prefix https://example.org/releases/ --work "$work" "$@"
+  }
+  expect 0 "a release whose app carries the signing key goes through generate_appcast" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-release" "$tmp/release/Conduit-1.3.0.dmg" 1.3.0 --fresh
+  expect 0 "its feed passes verify_feed with that key" feed_check "$tmp/feed-release/appcast.xml" "$key_a"
+  expect 1 "and not with another key" feed_check "$tmp/feed-release/appcast.xml" "$key_b"
+  expect 1 "an app built for the next key is refused without --next-public-key" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-unasked" "$tmp/bridge/Conduit-1.3.0.dmg" 1.3.0 --fresh
+  expect 1 "--next-public-key naming another key than the app's is refused" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-wrong-next" "$tmp/bridge/Conduit-1.3.0.dmg" 1.3.0 --fresh \
+    --next-public-key "$key_c"
+  expect 1 "--next-public-key naming the signing key itself is refused" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-same" "$tmp/release/Conduit-1.3.0.dmg" 1.3.0 --fresh \
+    --next-public-key "$key_a"
+  expect 1 "--next-public-key without SPARKLE_PUBLIC_ED_KEY is refused" \
+    appcast "$tmp/key-a.der" "" "$tmp/feed-no-public" "$tmp/bridge/Conduit-1.3.0.dmg" 1.3.0 --fresh \
+    --next-public-key "$key_b"
+  expect 1 "--next-public-key that is not a key is refused" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-not-key" "$tmp/bridge/Conduit-1.3.0.dmg" 1.3.0 --fresh \
+    --next-public-key not-a-key
+  expect 0 "a bridge release (its app carries the next key) goes through with --next-public-key" \
+    appcast "$tmp/key-a.der" "$key_a" "$tmp/feed-bridge" "$tmp/bridge/Conduit-1.3.0.dmg" 1.3.0 --fresh \
+    --next-public-key "$key_b"
+  expect 0 "the bridge's update is signed with the current key" \
+    enclosure "$tmp/feed-bridge/appcast.xml" 1030099 "$tmp/bridge/Conduit-1.3.0.dmg" "$key_a"
+  expect 0 "the bridge's feed is signed with the current key" \
+    feed_check "$tmp/feed-bridge/appcast.xml" "$key_a"
+  expect 1 "and not with the next key" feed_check "$tmp/feed-bridge/appcast.xml" "$key_b"
+  # The rotation done: the next key signs, and the feed keeps the bridge.
+  expect 0 "the release after the bridge, signed with the next key, keeps the bridge's item" \
+    appcast "$tmp/key-b.der" "$key_b" "$tmp/feed-after" "$tmp/after/Conduit-1.4.0.dmg" 1.4.0 \
+    --existing "$tmp/feed-bridge/appcast.xml"
+  expect 0 "its feed is signed with the next key" feed_check "$tmp/feed-after/appcast.xml" "$key_b"
+  expect 1 "and not with the old one" feed_check "$tmp/feed-after/appcast.xml" "$key_a"
 fi
 
 echo

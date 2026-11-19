@@ -274,6 +274,44 @@ elif len(raw) == 32:
 ' "$openssl"
 }
 
+# Whether $1 has the shape of a Sparkle public EdDSA key: base64 of 32
+# bytes, as SUPublicEDKey and `generate_keys -p` have it.
+is_ed25519_public_key() {
+  python3 -I -c '
+import base64, binascii, sys
+try:
+    sys.exit(0 if len(base64.b64decode(sys.argv[1], validate=True)) == 32 else 1)
+except (binascii.Error, ValueError):
+    sys.exit(1)
+' "$1"
+}
+
+# The public key the app of release TAG carries (SUPublicEDKey), from the
+# repository's variables: CURRENT (SPARKLE_PUBLIC_ED_KEY), the key that signs
+# the release; or, for a key rotation's bridge release, NEXT
+# (SPARKLE_NEXT_PUBLIC_ED_KEY), only when ROTATION_TAG
+# (SPARKLE_KEY_ROTATION_TAG) names TAG. Anything else stops: one of the two
+# without the other, a rotation named for another tag (left over, or set
+# early), or a NEXT that is not a key or is CURRENT.
+#
+#   release_app_key TAG CURRENT NEXT ROTATION_TAG
+release_app_key() {
+  local tag="$1" current="$2" next="$3" rotation_tag="$4"
+  if [ -z "$next" ] && [ -z "$rotation_tag" ]; then
+    printf '%s\n' "$current"
+    return 0
+  fi
+  [ -n "$next" ] && [ -n "$rotation_tag" ] ||
+    die "a key rotation needs both SPARKLE_NEXT_PUBLIC_ED_KEY and SPARKLE_KEY_ROTATION_TAG; only one is set (docs/RELEASING-DESKTOP.md, \"Rotating the Sparkle key\")"
+  [ "$rotation_tag" = "$tag" ] ||
+    die "SPARKLE_KEY_ROTATION_TAG names $rotation_tag, not $tag: finish that rotation (swap the keys, delete both rotation variables) or name this tag (docs/RELEASING-DESKTOP.md)"
+  is_ed25519_public_key "$next" ||
+    die "SPARKLE_NEXT_PUBLIC_ED_KEY is not a Sparkle public key (base64 of 32 bytes; generate_keys -p)"
+  [ "$next" != "$current" ] ||
+    die "SPARKLE_NEXT_PUBLIC_ED_KEY is SPARKLE_PUBLIC_ED_KEY: nothing to rotate (delete both rotation variables)"
+  printf '%s\n' "$next"
+}
+
 # Whether the appcast XML's item for sparkle:version BUILD describes FILE:
 # its enclosure's length is FILE's size, and its sparkle:edSignature (an
 # Ed25519 signature over the whole file, as Sparkle checks it) verifies with
@@ -324,6 +362,70 @@ PY
       -in "$file" -sigfile "$dir/signature" >/dev/null || rc=$?
   fi
   [ "$rc" = 0 ] || warn "enclosure: $file is not the DMG the signed item describes"
+  return "$rc"
+}
+
+# Whether the appcast XML carries its own signature by PUBLIC (base64, as
+# SUPublicEDKey), as installed copies require it (SURequireSignedFeed). It
+# is Sparkle 2.10.1's check (SPUExtractAppcastContent, SUSignatureVerifier)
+# with the public key alone, so the job that publishes the feed needs no
+# private key, which `sign_update --verify` does. Like Sparkle, it verifies
+# the bytes before the last `<!-- sparkle-signatures:` block against that
+# block's edSignature; it accepts the block only as generate_appcast and
+# sign_update write it (edSignature, then length, the length of those bytes)
+# with nothing but whitespace after it. release_test.sh checks it against
+# feeds the pinned Sparkle signs.
+#
+#   verify_feed XML PUBLIC
+verify_feed() {
+  local xml="$1" public="$2" openssl dir rc=0
+  [ -n "$public" ] || { warn "feed: no public key to check the signature with"; return 1; }
+  # Every step checked here, never by errexit, as in verify_enclosure.
+  [ -r "$xml" ] || { warn "feed: cannot read $xml"; return 1; }
+  openssl="$(ed25519_openssl)" || return 1
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/conduit-feed-signature.XXXXXX")" && [ -d "$dir" ] ||
+    { warn "feed: could not make a scratch folder"; return 1; }
+  python3 -I - "$xml" "$public" "$dir" <<'PY' || rc=$?
+import base64, binascii, os, re, sys
+path, public, out = sys.argv[1:]
+with open(path, "rb") as f:
+    data = f.read()
+prefix = b"<!-- sparkle-signatures:\n"
+start = data.rfind(prefix)
+if start < 0:
+    sys.exit("feed: not signed (no sparkle-signatures block)")
+end = data.find(b"-->", start + len(prefix))
+if end < 0:
+    sys.exit("feed: the signature block is not closed")
+content, block = data[:start], data[start + len(prefix):end]
+if data[end + 3:].strip():
+    sys.exit("feed: something follows the signature block")
+m = re.fullmatch(rb"edSignature: ([A-Za-z0-9+/]+={0,2})\nlength: ([0-9]+)\n", block)
+if not m:
+    sys.exit("feed: the signature block is not an edSignature and a length")
+if int(m.group(2)) != len(content):
+    sys.exit(f"feed: the block signs {int(m.group(2))} bytes, but {len(content)} precede it")
+try:
+    sig = base64.b64decode(m.group(1), validate=True)
+    key = base64.b64decode(public, validate=True)
+except binascii.Error:
+    sys.exit("feed: the signature or the key is not base64")
+if len(sig) != 64 or len(key) != 32:
+    sys.exit("feed: not an Ed25519 signature and public key")
+for name, value in (("content", content), ("signature", sig),
+                    ("public.der", bytes.fromhex("302a300506032b6570032100") + key)):
+    with open(os.path.join(out, name), "wb") as f:
+        f.write(value)
+PY
+  if [ "$rc" = 0 ] && { [ ! -f "$dir/content" ] || [ ! -s "$dir/signature" ] || [ ! -s "$dir/public.der" ]; }; then
+    warn "feed: the signed bytes, the signature or the key was not written"
+    rc=1
+  fi
+  if [ "$rc" = 0 ]; then
+    "$openssl" pkeyutl -verify -pubin -keyform DER -inkey "$dir/public.der" -rawin \
+      -in "$dir/content" -sigfile "$dir/signature" >/dev/null || rc=$?
+  fi
+  [ "$rc" = 0 ] || warn "feed: $xml is not signed with that public key"
   return "$rc"
 }
 

@@ -37,7 +37,7 @@ git tag desktop-v1.2.0 && git push origin desktop-v1.2.0
    │
    ▼  a person checks the draft and publishes it
    release-desktop.yml, job "feed"
-   appcast.xml → the fixed release `desktop-appcast` (the URL in every Info.plist)
+   appcast.xml, its signature checked → the fixed release `desktop-appcast` (the URL in every Info.plist)
    │
    ▼  installed copies find 1.2.0 on their next check (daily, or Check for Updates…)
 ```
@@ -125,8 +125,9 @@ xcrun notarytool store-credentials conduit-desktop-notary \
 
 Every update and the appcast itself are signed with one EdDSA (ed25519) key
 pair. Installed copies trust only the public key their Info.plist carries,
-so **the key is made once and never changes** (see
-[Losing or rotating the key](#losing-or-rotating-the-sparkle-key)). Use
+so **the key stays the same from one release to the next**; changing it
+takes a bridge release (see
+[Rotating the Sparkle key](#rotating-the-sparkle-key)). Use
 Sparkle's own `generate_keys` from the pinned Sparkle release; it creates
 the key in the login keychain:
 
@@ -215,6 +216,8 @@ which). A stacked pull request skips it unless it has the `full-ci` label.
 | `MACOS_NOTARY_APP_PASSWORD` | secret | an app-specific password for it | option B |
 | `SPARKLE_ED_PRIVATE_KEY` | secret | Sparkle's private EdDSA key (`generate_keys -x`) | always |
 | `SPARKLE_PUBLIC_ED_KEY` | variable | the matching public key (it ends up in every Info.plist) | always |
+| `SPARKLE_NEXT_PUBLIC_ED_KEY` | variable | the new public key a key rotation's bridge release carries | key rotation only, with `SPARKLE_KEY_ROTATION_TAG` |
+| `SPARKLE_KEY_ROTATION_TAG` | variable | the bridge release's tag (`desktop-vX.Y.Z`) | key rotation only, with `SPARKLE_NEXT_PUBLIC_ED_KEY` |
 | `MACOS_APP_PROVISIONING_PROFILE` | secret | base64 of the app's Developer ID provisioning profile | optional (widget listed) |
 | `MACOS_WIDGET_PROVISIONING_PROFILE` | secret | base64 of the widget extension's | optional (widget listed) |
 | `DESKTOP_MACOS_RUNNER` | variable | another runner image for the macOS jobs (default `macos-26`) | optional |
@@ -225,9 +228,10 @@ that job only) and, when it is published, updates the feed. The build
 itself (cargo, dart, cmake) gets no secret. One step reads secrets before
 it: the configuration check, which sees whether each secret is set and
 reads `SPARKLE_ED_PRIVATE_KEY` to check that it belongs to
-`SPARKLE_PUBLIC_ED_KEY`, so the run fails within a minute instead of after
-the build. Every other secret is read after the build, only in the step
-that needs it.
+`SPARKLE_PUBLIC_ED_KEY` (and the rotation variables, see
+[Rotating the Sparkle key](#rotating-the-sparkle-key)), so the run fails
+within a minute instead of after the build. Every other secret is read
+after the build, only in the step that needs it.
 
 ## Making a release
 
@@ -267,14 +271,17 @@ that needs it.
    live feed has; it downloads that DMG from its public URL and checks it
    against `SHA256SUMS.txt` and against the item's signed enclosure (its
    length, and its EdDSA signature with `SPARKLE_PUBLIC_ED_KEY`), so a DMG
-   swapped on the draft never goes live. Then it puts the feed on the
-   fixed prerelease `desktop-appcast`. The first time, that release is
-   made as a **draft**, `appcast.xml` is uploaded to it and read back, and
-   only then is it published: a run that fails on the way leaves a draft
-   no installed copy reads, and the next run takes it over (re-run the feed
-   job). Later publications upload the new feed under a name of their run's
-   own (`appcast.next-….xml`) and swap that file in by two renames, the last
-   one kept as `appcast.previous.xml`.
+   swapped on the draft never goes live. Then `publish-appcast.sh` checks
+   the feed's own signature with `SPARKLE_PUBLIC_ED_KEY` (installed copies
+   refuse a feed their key did not sign), so an appcast swapped on the
+   draft, its checksum with it, never goes live either, and puts the feed
+   on the fixed prerelease `desktop-appcast`. The first time, that release
+   is made as a **draft**, `appcast.xml` is uploaded to it and read back,
+   and only then is it published: a run that fails on the way leaves a
+   draft no installed copy reads, and the next run takes it over (re-run
+   the feed job). Later publications upload the new feed under a name of
+   their run's own (`appcast.next-….xml`) and swap that file in by two
+   renames, the last one kept as `appcast.previous.xml`.
    Installed copies pick the update up on their next daily check, or at
    once with Conduit › Check for Updates….
 
@@ -323,12 +330,15 @@ Then `smoke.sh --launch` starts the signed app on a throwaway profile and
 checks the bundled conduitd, and `appcast.sh` checks that:
 
 - the private key belongs to `SPARKLE_PUBLIC_ED_KEY` and to the
-  `SUPublicEDKey` of the app inside the DMG;
+  `SUPublicEDKey` of the app inside the DMG (a bridge release's app
+  carries `SPARKLE_NEXT_PUBLIC_ED_KEY` instead, and no other key);
 - the new item is this version and build, with
   `sparkle:minimumSystemVersion` 14.0 and `sparkle:hardwareRequirements`
   arm64, at the release's download URL;
 - its EdDSA signature verifies against the DMG, and the feed's own
-  signature verifies;
+  signature verifies, both with Sparkle's `sign_update` and with the check
+  the feed job makes before it publishes (`lib.sh` `verify_feed`, which
+  needs only the public key);
 - no item is on a channel;
 - the feed keeps every item of the one it started from, and the new item
   is the DMG's length and the newest build (`check_appcast.py`). A new feed
@@ -336,7 +346,10 @@ checks the bundled conduitd, and `appcast.sh` checks that:
   release.
 
 `release_test.sh` (run by `desktop.yml`'s workspace job) checks these
-feed safeguards and the publishing ones against synthetic feeds.
+feed safeguards and the publishing ones against synthetic feeds and keys.
+On macOS it also checks `verify_feed` against feeds the pinned Sparkle's
+`sign_update` signs, and runs `appcast.sh` through its `generate_appcast`
+for a release, a bridge release and the release after it.
 
 ## Rehearsals
 
@@ -462,7 +475,7 @@ sets:
 | Key | Value |
 | --- | --- |
 | `SUFeedURL` | `https://github.com/<repo>/releases/download/desktop-appcast/appcast.xml` |
-| `SUPublicEDKey` | `SPARKLE_PUBLIC_ED_KEY` |
+| `SUPublicEDKey` | `SPARKLE_PUBLIC_ED_KEY` (a bridge release: `SPARKLE_NEXT_PUBLIC_ED_KEY`) |
 | `SUEnableAutomaticChecks` | `true`, daily (`SUScheduledCheckInterval` 86400) |
 | `SUVerifyUpdateBeforeExtraction` | `true`: the EdDSA signature is checked before unpacking |
 | `SURequireSignedFeed` | `true`: an appcast not signed with the same key is refused |
@@ -490,9 +503,16 @@ Notarization failures print `notarytool log` in the job log.
 
 **A published release is bad.** Installed copies that already updated keep
 it until the next release. To stop offering it, put the previous feed back:
-download `appcast.xml` from the previous `desktop-v*` release and run
-`desktop/packaging/macos/publish-appcast.sh appcast.xml --push` (with `gh`
-signed in). Then ship a fixed X.Y.Z+1.
+download `appcast.xml` from the previous `desktop-v*` release and, with
+`gh` signed in, run:
+
+```sh
+SPARKLE_PUBLIC_ED_KEY="$(gh variable get SPARKLE_PUBLIC_ED_KEY)" \
+  desktop/packaging/macos/publish-appcast.sh appcast.xml --push
+```
+
+It refuses a feed the current key did not sign (one from before a key
+rotation), as installed copies would. Then ship a fixed X.Y.Z+1.
 
 ### A stale or missing appcast
 
@@ -518,17 +538,107 @@ cannot read the feed. On the `desktop-appcast` release, rename
 `appcast.next-….xml`), then re-run the feed job. Neither the feed job nor
 `publish-appcast.sh` ever starts an empty feed over a published host.
 
-### Losing or rotating the Sparkle key
+### Rotating the Sparkle key
 
-Installed copies accept only updates and feeds signed with the key in their
-Info.plist. This pipeline releases with one key pair only: the
-configuration check and `appcast.sh` refuse an app whose `SUPublicEDKey` is
-not the public half of `SPARKLE_ED_PRIVATE_KEY`. A rotation (one release
-signed with the old key that carries the new public key) cannot be made
-with it: it needs a change to the pipeline first, tested with the pinned
-Sparkle and signed feeds. Until then, keep the key, in two places (the
-secret and an offline backup).
+Installed copies accept only updates and feeds signed with the key their
+Info.plist carries. A rotation moves them to a new key pair through one
+**bridge release**: signed like any other with the current key (its DMG
+and the feed), but its app carries the new public key. Copies that install
+it trust only the new key from then on, and every later release is signed
+with the new key. A rotation needs the current private key; for a lost
+one, see below.
 
-If the private key is lost, installed copies will not update themselves
-any more: set the new key pair, release, and ask people to download the new
-version by hand.
+The pipeline refuses an app whose `SUPublicEDKey` is not the public half
+of `SPARKLE_ED_PRIVATE_KEY`, except in the one release that two variables
+name together: `SPARKLE_NEXT_PUBLIC_ED_KEY`, the new public key, and
+`SPARKLE_KEY_ROTATION_TAG`, that release's tag. The configuration check
+stops the run when only one is set, when the tag is not the one being
+built (so variables left behind stop the next release), or when the next
+key is not a key or is the current one. `appcast.sh` then signs the
+bridge's DMG itself (`generate_appcast` signs an update only with the key
+its app carries), signs the feed again, and checks that the app carries
+exactly the next key.
+
+1. **Make the new key pair** on the Mac you trust, under its own account,
+   so the current key stays as it is:
+
+   ```sh
+   d="$(bash -c '. desktop/packaging/macos/lib.sh && sparkle_dir')"
+   "$d/bin/generate_keys" --account conduit-desktop-next      # creates the key; prints the public key
+   "$d/bin/generate_keys" --account conduit-desktop-next -x sparkle-next-private-key.txt
+   ```
+
+   Put `sparkle-next-private-key.txt` in the offline backup.
+2. **Name the bridge release**, the next version `X.Y.Z`, with both
+   variables. Leave `SPARKLE_ED_PRIVATE_KEY` and `SPARKLE_PUBLIC_ED_KEY` as
+   they are:
+
+   ```sh
+   gh variable set SPARKLE_NEXT_PUBLIC_ED_KEY --body "$("$d/bin/generate_keys" --account conduit-desktop-next -p)"
+   gh variable set SPARKLE_KEY_ROTATION_TAG --body desktop-vX.Y.Z
+   ```
+
+3. **Tag and push** `desktop-vX.Y.Z` as for any release. The run's
+   annotations say it is the bridge release.
+4. **Check the draft** as for any release, and that its app carries the
+   new key:
+
+   ```sh
+   gh release download desktop-vX.Y.Z -p Conduit-X.Y.Z.dmg -D bridge
+   mkdir bridge/mnt
+   hdiutil attach -nobrowse -readonly -mountpoint bridge/mnt bridge/Conduit-X.Y.Z.dmg
+   plutil -extract SUPublicEDKey raw -o - bridge/mnt/Conduit.app/Contents/Info.plist   # the new public key
+   hdiutil detach bridge/mnt
+   ```
+
+5. **Publish it** and wait for its feed job to pass. That job checks the
+   feed and the DMG with `SPARKLE_PUBLIC_ED_KEY`, so the variable must
+   still be the old key: re-run a failed feed job before step 6.
+6. **Swap the keys**, then delete the rotation variables:
+
+   ```sh
+   gh secret set SPARKLE_ED_PRIVATE_KEY < sparkle-next-private-key.txt
+   gh variable set SPARKLE_PUBLIC_ED_KEY --body "$("$d/bin/generate_keys" --account conduit-desktop-next -p)"
+   bash -c '. desktop/packaging/macos/lib.sh && sparkle_public_key' < sparkle-next-private-key.txt
+   # must print the same public key
+   gh variable delete SPARKLE_NEXT_PUBLIC_ED_KEY
+   gh variable delete SPARKLE_KEY_ROTATION_TAG
+   ```
+
+   In Keychain Access, delete the item "Private key for signing Sparkle
+   updates" of the account `conduit-desktop` (the old key; mark its backup
+   as retired). To keep signing on this Mac, move the new key to that
+   account with `"$d/bin/generate_keys" --account conduit-desktop -f
+   sparkle-next-private-key.txt`, then delete the item of
+   `conduit-desktop-next`. Do not leave `sparkle-next-private-key.txt` on
+   disk.
+7. **Release the next version** as usual. It is signed with the new key,
+   and its feed keeps the bridge's item.
+
+What installed copies see:
+
+- A copy older than the bridge reads the bridge's feed with the old key,
+  installs it, and from then on trusts only the new key.
+- Until step 7, the live feed is the bridge's, signed with the old key. A
+  copy already on the bridge cannot read it: Check for Updates… there says
+  the feed is improperly signed. There is nothing newer for it meanwhile.
+  Copies check daily; give the bridge a couple of weeks to reach most of
+  them before step 7.
+- A copy that missed the bridge cannot read the feeds signed with the new
+  key. Sparkle 2.10.1 lets it through after 20 days of such failures
+  (`SUSignedFeedFailureExpirationInterval`): it then reads the feed in a
+  restricted mode and installs the newest update if the DMG is signed
+  with Developer ID by the installed app's team. Keep the same Developer
+  ID team across a rotation; with another team, those copies need a
+  download by hand.
+
+### Losing the Sparkle key
+
+No bridge release can be made without the current private key. Make a
+new key pair and store both halves as in the one-time setup
+([3. The Sparkle EdDSA key](#3-the-sparkle-eddsa-key)), with no rotation
+variables, and release. Installed copies refuse its feed until Sparkle's
+20-day fallback (above) lets them install it through its Developer ID
+signature, from the same team only. Ask people to download the new
+version by hand meanwhile. Keep the key in two places (the secret and an
+offline backup) so this never happens.
