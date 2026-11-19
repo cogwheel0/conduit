@@ -722,25 +722,12 @@ String? addressCookieOwner(
 }
 
 /// Whether [server] keeps [route] exactly as a save of it would write it:
-/// the same address, name and connection under its id, and -- when the save
-/// brings a proxy sign-in -- those session headers kept on it for one of the
-/// server's accounts.
-bool _savedAsIs(
-  OpenWebUiRegistry registry,
-  OpenWebUiServer server,
-  OpenWebUiEndpoint route,
-  Map<String, String> session,
-) {
+/// the same address, name and connection under its id.
+bool _savedAsIs(OpenWebUiServer server, OpenWebUiEndpoint route) {
   final stored = server.endpoint(route.id);
-  if (stored == null ||
-      stored.label != route.label ||
-      !stored.sameConnection(route)) {
-    return false;
-  }
-  if (session.isEmpty) return true;
-  return registry.accountsOn(server.id).any(
-    (account) => _sameHeaders(account.capturedHeaders[route.id], session),
-  );
+  return stored != null &&
+      stored.label == route.label &&
+      stored.sameConnection(route);
 }
 
 bool _sameHeaders(Map<String, String>? a, Map<String, String> b) =>
@@ -1381,8 +1368,10 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
       if (isCapturedSessionHeader(entry.key)) entry.key: entry.value,
   };
   // Saved already, as this save would write it: an attempt whose answer was
-  // lost after it was written, tried again. Nothing is written or asked.
-  if (_savedAsIs(registry, server, route, capturedSession)) {
+  // lost after it was written, tried again. Nothing is written or asked. A
+  // save that brings a proxy sign-in is judged once its account is known
+  // (below): another account keeping that cookie does not make it saved.
+  if (capturedSession.isEmpty && _savedAsIs(server, route)) {
     return const ServerAddressSaved();
   }
 
@@ -1448,6 +1437,18 @@ Future<ServerAddressSave> saveVerifiedServerAddress(
     // Kept for none of them, the address would be saved for the proxy to
     // refuse. Once one of them is signed in to, it is that one's.
     return const ServerAddressNotSaved(ServerAddressProblem.needsSignIn);
+  }
+  // Saved already, its proxy sign-in kept for the account it is for: tried
+  // again after its answer was lost (a move included, which an edit could
+  // no longer apply).
+  if (capturedSession.isNotEmpty &&
+      cookieOwner != null &&
+      _savedAsIs(server, route) &&
+      _sameHeaders(
+        registry.account(cookieOwner)?.capturedHeaders[route.id],
+        capturedSession,
+      )) {
+    return const ServerAddressSaved();
   }
   // Saved, an edit of the address in use that changes how it is reached --
   // the address, or the session the account in use sends there (the cookie

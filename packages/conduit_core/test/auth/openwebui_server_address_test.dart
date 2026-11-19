@@ -1072,6 +1072,71 @@ void main() {
         check(await kept()).isEmpty();
       });
 
+      // The address is stored as the save would write it, and account A
+      // keeps the save's proxy cookie on it, but the account the save is
+      // for does not: it is not saved yet. The cookie goes to that account
+      // once proved (here the active account, with nothing to prove), or a
+      // capture named for an account its session has not proved is refused.
+      test('a proxy sign-in another account already keeps is saved for the '
+          'account it is for', () async {
+        await storage.saveServerConfigs([
+          const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+          const ServerConfig(id: 'b', name: 'Chat', url: 'https://chat.example'),
+        ]);
+        await storage.bindAccountUser('a', 'user-a');
+        await storage.bindAccountUser('b', 'user-b');
+        check(
+          (await storage.getOpenWebUiRegistryStrict())
+              .accountsOn(serverId)
+              .map((a) => a.id),
+        ).unorderedEquals(['a', 'b']);
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          (endpoints) => endpoints,
+          accountId: 'a',
+          routeId: 'lab',
+          headers: const {'Cookie': 'proxy=1'},
+          sessionRevision: storage.sessionRevocationRevision,
+        );
+        await storage.setActiveServerId('b');
+        Future<ServerAddressSave> carrying({String? sessionAccount}) =>
+            saveVerifiedServerAddress(
+              signedOut,
+              serverId: serverId,
+              endpointId: 'lab',
+              addedEndpointId: 'unused',
+              label: 'Lab',
+              verified: ServerConfig(
+                id: 'checked',
+                name: 'Lab',
+                url: 'https://lab.example',
+                customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+              ),
+              editedFrom: lab,
+              sessionAccount: sessionAccount,
+              sessionRevision: storage.sessionRevocationRevision,
+              confirmSendingSession: (_) async => false,
+              confirmChangingInUse: () async => true,
+              stillWanted: () => true,
+            );
+        Future<Map<String, String>?> keptFor(String account) async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account(account)!
+                .capturedHeaders['lab'];
+
+        // Named for B, whose session has not proved the address: refused.
+        check(await carrying(sessionAccount: 'b'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await keptFor('b')).isNull();
+
+        // Unscoped: B, active, is the account it is for, and keeps it now.
+        check(await carrying()).isA<ServerAddressSaved>();
+        check(await keptFor('b')).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+        check(await keptFor('a')).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+      });
+
       // A header typed for the address checked never goes to the host
       // another window moved it to; a new name alone still lands.
       test('that changes how it is reached is refused once the address was '
