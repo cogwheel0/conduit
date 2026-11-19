@@ -305,6 +305,10 @@ final class FolderSettingsService {
       canEditSystemPrompt: folder.canWrite && canEditPrompt,
       canShare: canShare,
       iconChoices: <FolderIconChoice>[
+        // An icon chosen on the web stays the folder's choice.
+        if (customFolderIconAlias(folder.meta?['icon']?.toString())
+            case final custom?)
+          FolderIconChoice(alias: custom, emoji: folderIconEmoji(custom)!),
         for (final option in folderIconOptions)
           FolderIconChoice(alias: option.alias, emoji: option.emoji),
       ],

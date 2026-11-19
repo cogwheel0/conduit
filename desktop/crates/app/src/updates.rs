@@ -4,14 +4,11 @@
 //! Only a release bundle has an updater (see [`crate::shell::updater`]).
 //! Without one, the menu item stays disabled (GPUI's menus disable items
 //! whose action has no handler) and About says updates come with the
-//! installed app. "Receive beta updates" is saved either way
-//! (`desktop.betaUpdates`, off by default).
+//! installed app. Releases are stable only: there is no channel to choose.
 
 use gpui_kit::{App, Global};
 
-use crate::AppState;
 use crate::actions::CheckForUpdates;
-use crate::stores::settings::SettingsEvent;
 
 /// The running updater, when this build has one.
 pub struct Updates {
@@ -21,19 +18,13 @@ pub struct Updates {
 
 impl Global for Updates {}
 
-fn beta_pref(cx: &App) -> bool {
-    cx.try_global::<AppState>()
-        .is_some_and(|s| s.settings.read(cx).prefs.desktop.beta_updates)
-}
-
-/// Starts the updater (release bundles only) and follows the beta switch.
+/// Starts the updater (release bundles only).
 pub fn install(cx: &mut App) {
     #[cfg(target_os = "macos")]
     {
-        let beta = beta_pref(cx);
-        let updater = match crate::shell::updater::Updater::start(beta) {
+        let updater = match crate::shell::updater::Updater::start() {
             Ok(updater) => {
-                log::info!("updates: Sparkle started (betas {beta})");
+                log::info!("updates: Sparkle started");
                 Some(updater)
             }
             Err(why) => {
@@ -49,25 +40,6 @@ pub fn install(cx: &mut App) {
     }
     #[cfg(not(target_os = "macos"))]
     cx.set_global(Updates {});
-
-    let Some(settings) = cx.try_global::<AppState>().map(|s| s.settings.clone()) else {
-        return;
-    };
-    cx.subscribe(&settings, |_, event, cx| {
-        if matches!(event, SettingsEvent::DesktopChanged) {
-            let beta = beta_pref(cx);
-            #[cfg(target_os = "macos")]
-            if let Some(updater) = updater(cx)
-                && updater.beta() != beta
-            {
-                log::info!("updates: betas {beta}");
-                updater.set_beta(beta);
-            }
-            #[cfg(not(target_os = "macos"))]
-            let _ = beta;
-        }
-    })
-    .detach();
 }
 
 #[cfg(target_os = "macos")]

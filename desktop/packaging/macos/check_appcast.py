@@ -2,17 +2,16 @@
 """Checks a generated appcast before it is published (appcast.sh runs it).
 
   check_appcast.py --new NEW.xml [--old OLD.xml] --dmg DMG --version V
-                   --build N --url URL [--beta]
+                   --build N --url URL
 
 Fails (exit 1, a line saying why) unless:
 * every item of the feed it started from (OLD, absent for a new feed) is
   still in NEW, by build number: a feed never drops earlier releases;
 * NEW holds exactly one item for build N, version V, whose enclosure is
   URL, is as long as DMG, and carries a 64-byte EdDSA signature;
-* build N is newer than every other item on its channel's way: a stable
-  build newer than every stable item, a beta build newer than every item
-  (Sparkle orders by build, and beta readers also see stable items);
-* the item is on the beta channel exactly when --beta is given.
+* build N is newer than every other item (Sparkle orders by build);
+* the item is on no channel: Conduit Desktop has one feed, the default
+  (stable) channel.
 
 Only the standard library: it runs on any Mac or CI image.
 """
@@ -70,12 +69,12 @@ def check(args):
     if len(signature) != 64:
         return "the enclosure has no EdDSA signature"
     for other in new:
-        if other is item or (not args.beta and other["channel"] == "beta"):
+        if other is item:
             continue
         if not other["build"].isdigit() or int(other["build"]) >= args.build:
             return f"build {args.build} is not newer than build {other['build']} already in the feed"
-    if (item["channel"] == "beta") != args.beta:
-        return f"build {args.build} is on channel {item['channel'] or 'default'!r}"
+    if item["channel"]:
+        return f"build {args.build} is on channel {item['channel']!r}"
     return None
 
 
@@ -96,7 +95,6 @@ def main():
     p.add_argument("--version", required=True)
     p.add_argument("--build", type=int, required=True)
     p.add_argument("--url", required=True)
-    p.add_argument("--beta", action="store_true")
     problem = check(p.parse_args())
     if problem:
         print(f"appcast check failed: {problem}", file=sys.stderr)

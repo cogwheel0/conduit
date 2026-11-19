@@ -222,7 +222,9 @@ abstract class MessageBlockDto with _$MessageBlockDto {
     /// `caution`).
     /// `error`: why, when hosts should say something other than [error]:
     /// `directToolsUnsupported` (the model refused tool definitions; advise
-    /// turning web search off). Absent otherwise.
+    /// turning web search off), `heldReplyStillRunning` (a polling-only
+    /// server may still be writing the reply; open the chat again later).
+    /// Absent otherwise.
     String? type,
 
     /// `status`: the timeline, oldest first.

@@ -1470,7 +1470,7 @@ mod tests {
         ChatDetail, ChatMessageDto, ChatResult, ChatSummary, Event, MessageBlockDto,
         MessageBlockKind, TurnBlocks, methods,
     };
-    use gpui_kit::{TestAppContext, VisualTestContext, size};
+    use gpui_kit::{Bounds, ListOffset, Pixels, TestAppContext, VisualTestContext, size};
 
     use super::*;
     use crate::l10n::L10n;
@@ -1583,6 +1583,36 @@ mod tests {
         };
         let transcript = cx.new(|cx| Transcript::new(store.clone(), host, cx));
         (store, transcript, cx.add_empty_window(), daemon)
+    }
+
+    /// The chat `c1` holding `messages`, as the daemon answers it.
+    fn chat_result(messages: Vec<ChatMessageDto>) -> ChatResult {
+        ChatResult {
+            chat: Some(ChatDetail {
+                hermes: None,
+                abilities: Default::default(),
+                temporary: false,
+                share_id: None,
+                read_only: false,
+                summary: ChatSummary {
+                    unread: false,
+                    read_only: false,
+                    id: "c1".into(),
+                    title: "A chat".into(),
+                    updated_at_ms: 1,
+                    pinned: false,
+                    archived: false,
+                    folder_id: None,
+                    model: None,
+                    tags: vec![],
+                    shared: false,
+                    menu: Default::default(),
+                },
+                messages,
+                system_prompt: None,
+                tasks: vec![],
+            }),
+        }
     }
 
     /// A finished answer of `lines` paragraphs, optionally with suggestions.
@@ -2435,6 +2465,194 @@ mod tests {
         }
         assert!(transcript.read_with(cx, |t, _| t.chase.is_none()));
         assert!(list.is_following_tail(), "and following again");
+    }
+
+    /// The text states of answer `key`'s chunks, in order.
+    fn chunk_states(
+        transcript: &Entity<Transcript>,
+        key: &str,
+        cx: &mut VisualTestContext,
+    ) -> Vec<Entity<gpui_kit::component::text::TextViewState>> {
+        transcript.read_with(cx, |t, cx| {
+            let Some(RowView::Assistant(view)) = t.rows.get(key) else {
+                panic!("{key} is drawn");
+            };
+            let row = view.read(cx);
+            (0..)
+                .map_while(|k| row.texts.get(&format!("text0.{k}")).map(|(_, s)| s.clone()))
+                .collect()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_long_answer_lays_out_only_near_the_view_and_nothing_moves(cx: &mut TestAppContext) {
+        let (_, transcript, cx, _daemon) = open_with(
+            vec![
+                message("u1", "user", "How far is the moon?"),
+                answer("a1", 600, &[]),
+            ],
+            cx,
+        );
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        draw(&transcript, cx);
+        let states = chunk_states(&transcript, "a1", cx);
+        assert!(states.len() > 10, "{} chunks", states.len());
+        let bounds = |cx: &mut VisualTestContext| -> Vec<Bounds<Pixels>> {
+            cx.update(|_, cx| states.iter().map(|s| s.read(cx).bounds()).collect())
+        };
+        // The first frame lays out every chunk (none was measured yet):
+        // where each sits in the answer, and the answer's height.
+        let row = list.bounds_for_item(1).expect("the answer is on screen");
+        let first = bounds(cx);
+        let offsets: Vec<f32> = first
+            .iter()
+            .map(|b| f32::from(b.top() - row.top()))
+            .collect();
+        let heights: Vec<f32> = first.iter().map(|b| f32::from(b.size.height)).collect();
+        let row_height = f32::from(row.size.height);
+        assert!(row_height > VIEWPORT * 10., "a long answer: {row_height}");
+
+        // Up through the answer a step at a time, then a jump past what is
+        // laid out, then back down to its end.
+        let mut moves: Vec<Option<f32>> = vec![Some(-90.); 60];
+        moves.push(None);
+        moves.extend(vec![Some(170.); 30]);
+        let mut held = 0;
+        for (frame, step) in moves.into_iter().enumerate() {
+            match step {
+                Some(dy) => transcript.update(cx, |t, cx| t.scroll_by(px(dy), cx)),
+                None => {
+                    transcript.update(cx, |t, _| t.stop_following());
+                    list.scroll_to(ListOffset {
+                        item_ix: 1,
+                        offset_in_item: px(row_height * 0.3),
+                    });
+                }
+            }
+            draw(&transcript, cx);
+            let row = list.bounds_for_item(1).expect("the answer is on screen");
+            assert!(
+                (f32::from(row.size.height) - row_height).abs() < 0.01,
+                "{frame}: the answer's height changed"
+            );
+            let view = list.viewport_bounds();
+            let now = bounds(cx);
+            // Layout snaps edges to device pixels (half toward zero).
+            let scale = cx.update(|window, _| window.scale_factor());
+            let snap = |y: f32| {
+                let d = y * scale;
+                (if d.fract().abs() == 0.5 {
+                    d.trunc()
+                } else {
+                    d.round()
+                }) / scale
+            };
+            for k in 0..states.len() {
+                let top = snap(f32::from(row.top()) + offsets[k]);
+                let on_screen =
+                    top < f32::from(view.bottom()) && top + heights[k] > f32::from(view.top());
+                let at = f32::from(now[k].top());
+                if on_screen {
+                    // Laid out this frame, exactly where the full layout put it.
+                    assert!(
+                        (at - top).abs() < 0.01,
+                        "{frame}: chunk {k} at {at}, not {top}"
+                    );
+                    assert!((f32::from(now[k].size.height) - heights[k]).abs() < 0.01);
+                } else if (at - top).abs() > 0.01 {
+                    held += 1;
+                }
+            }
+        }
+        assert!(held > 100, "chunks far from the view were held: {held}");
+    }
+
+    #[gpui_kit::test]
+    fn a_selection_keeps_its_answer_laid_out_after_the_drag(cx: &mut TestAppContext) {
+        let (_, transcript, cx, _daemon) = open_with(
+            vec![
+                message("u1", "user", "How far is the moon?"),
+                answer("a1", 600, &[]),
+            ],
+            cx,
+        );
+        draw(&transcript, cx);
+        draw(&transcript, cx);
+        let states = chunk_states(&transcript, "a1", cx);
+        let first = |cx: &mut VisualTestContext| cx.update(|_, cx| states[0].read(cx).bounds());
+        // At the answer's end the first chunk is far above: held, so the
+        // scroll does not move it.
+        let before = first(cx);
+        transcript.update(cx, |t, cx| t.scroll_by(px(-90.), cx));
+        draw(&transcript, cx);
+        assert_eq!(first(cx), before, "held while nothing is selected");
+
+        // A selection made (the drag is over): laid out wherever it is.
+        cx.update(|_, cx| states[0].update(cx, |s, cx| s.select_all(cx)));
+        draw(&transcript, cx);
+        let at = first(cx);
+        transcript.update(cx, |t, cx| t.scroll_by(px(-90.), cx));
+        draw(&transcript, cx);
+        let moved = f32::from(first(cx).top() - at.top()).abs();
+        assert!(
+            (moved - 90.).abs() < 0.5,
+            "laid out, so it follows: {moved}"
+        );
+        let copied = transcript.read_with(cx, |t, cx| t.selected_reply_text(cx));
+        assert!(
+            copied.is_some_and(|text| text.contains("Line 1 of answer a1.")),
+            "the selection is kept"
+        );
+    }
+
+    #[gpui_kit::test]
+    fn another_text_in_a_chunk_is_measured_again_before_it_is_held(cx: &mut TestAppContext) {
+        let first = answer("a1", 600, &[]);
+        let text = first.blocks[0].markdown.clone().unwrap_or_default();
+        // The same chunk as one paragraph: the same bytes (so the same
+        // chunks after it), a much shorter height.
+        let chunk = crate::views::chat::markdown::stable_chunks(&text)[0]
+            .trim_end()
+            .len();
+        let other_text = format!("{}{}", text[..chunk].replace("\n\n", "  "), &text[chunk..]);
+        assert_eq!(
+            crate::views::chat::markdown::stable_chunks(&other_text)[0]
+                .trim_end()
+                .len(),
+            chunk
+        );
+        let mut other = first.clone();
+        other.blocks[0].markdown = Some(other_text.clone());
+        other.content = other_text;
+        let (store, transcript, cx, daemon) = open_with(
+            vec![message("u1", "user", "How far is the moon?"), first],
+            cx,
+        );
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        draw(&transcript, cx);
+        draw(&transcript, cx);
+        let height = |cx: &mut VisualTestContext| {
+            draw(&transcript, cx);
+            f32::from(
+                list.bounds_for_item(1)
+                    .expect("the answer is on screen")
+                    .size
+                    .height,
+            )
+        };
+        let before = height(cx);
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            message("u1", "user", "How far is the moon?"),
+            other,
+        ]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        height(cx);
+        let after = height(cx);
+        assert!(
+            after < before - 200.,
+            "the first chunk's new height counts: {before} -> {after}"
+        );
     }
 
     #[gpui_kit::test]

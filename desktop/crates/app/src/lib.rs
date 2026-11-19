@@ -74,7 +74,7 @@ use crate::views::main_window::MainWindow;
 use crate::views::settings::{SETTINGS_SIZE, SettingsView, Tab};
 
 /// The app's version: `CONDUIT_VERSION` at build time (the release
-/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0` or `1.3.0-beta.2`;
+/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0`;
 /// see packaging/macos/bundle.sh), else the crate version.
 pub const VERSION: &str = match option_env!("CONDUIT_VERSION") {
     Some(v) => v,
@@ -114,11 +114,17 @@ fn arg(args: &[String], key: &str) -> Option<String> {
         .cloned()
 }
 
-/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`)
-/// that drives, resets and photographs its profile.
+/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
+/// or a fixture: `--fixture`, `--chat-fixture` and the rest) that drives,
+/// resets and photographs its profile, or saves settings to it (a
+/// fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
-    args.iter()
-        .any(|a| a == "--shots" || a.starts_with("--e2e") || a.starts_with("--capture"))
+    args.iter().any(|a| {
+        a == "--shots"
+            || a.starts_with("--e2e")
+            || a.starts_with("--capture")
+            || (a.starts_with("--") && a.ends_with("fixture"))
+    })
 }
 
 /// The profile a scripted run uses: the one named by `named`
@@ -200,8 +206,19 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     }
 }
 
+/// Bytes only a build with the test harness carries: the packaging scripts
+/// look for them in the built binary and never sign it for distribution
+/// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
+/// they were given.
+#[cfg(feature = "harness")]
+pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    // Kept in the binary (never optimized out): the marker is how a harness
+    // build is told from a release one after the fact.
+    #[cfg(feature = "harness")]
+    let _ = std::hint::black_box(HARNESS_MARKER);
     // A build without the test harness refuses its flags rather than
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
@@ -279,6 +296,16 @@ pub fn run() {
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if let Some(path) = &probe
+        && e2e::shell::probe_files(path).is_none()
+    {
+        eprintln!(
+            "conduit-desktop: --probe {}: name a file whose .cmd and .quit files are others (say, state.json)",
+            path.display()
+        );
+        std::process::exit(64);
+    }
     #[cfg(target_os = "macos")]
     let smoke_options = smoke::SmokeOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -350,7 +377,7 @@ pub fn run() {
         // The chat view over a fixture daemon (perf and AccessKit checks).
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if let Some((mode, shots)) = chat_fixture.clone() {
-            chat_fixture::run(mode, shots, cx);
+            chat_fixture::run(mode, shots, settings.clone(), cx);
             return;
         }
         // A channel's timeline over a fixture daemon (perf).
@@ -1008,7 +1035,12 @@ mod harness_profile_tests {
         ])));
         assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
         assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        // A fixture saves its own settings (the shots' theme), with or
+        // without `--shots`.
+        assert!(is_scripted(&args(&["app", "--chat-fixture", "shots"])));
+        assert!(is_scripted(&args(&["app", "--fixture", "web-media"])));
         assert!(!is_scripted(&args(&["app", "--hidden"])));
+        assert!(!is_scripted(&args(&["app", "--cwd", "/tmp/fixture"])));
 
         let ordinary =
             std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");

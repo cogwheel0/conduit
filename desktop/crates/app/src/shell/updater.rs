@@ -6,25 +6,17 @@
 //! Sparkle needs: `SUFeedURL` and `SUPublicEDKey`. When any of the three is
 //! missing there is no updater, and "Check for Updates…" stays disabled.
 //!
-//! **Channels.** One appcast serves both: beta items carry
-//! `<sparkle:channel>beta</sparkle:channel>`, and the delegate's
-//! `allowedChannelsForUpdater:` answers `{"beta"}` only while Settings ›
-//! About › "Receive beta updates" is on. Items without a channel are for
-//! everyone. Turning betas off never goes back to an older version: the
-//! next stable release that is newer than the installed beta is offered.
+//! **One channel.** Releases are stable only: the appcast's items carry no
+//! `sparkle:channel`, and the delegate names no other channel, so Sparkle
+//! offers only items on its default channel.
 //!
 //! What Sparkle decides (an update found, none, downloaded, installing, an
 //! error) goes to the app log, for support and the release checks.
 
-use std::cell::Cell;
-
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject, Bool, NSObjectProtocol};
-use objc2::{AnyThread, DefinedClass, define_class, msg_send};
-use objc2_foundation::{NSBundle, NSError, NSObject, NSSet, NSString};
-
-/// The channel beta items carry in the appcast.
-pub const BETA_CHANNEL: &str = "beta";
+use objc2::{AnyThread, define_class, msg_send};
+use objc2_foundation::{NSBundle, NSError, NSObject, NSString};
 
 /// Sparkle's `SUNoUpdateError` (SUErrors.h): the check found nothing newer.
 const SU_NO_UPDATE_ERROR: isize = 1001;
@@ -43,15 +35,15 @@ pub enum Unavailable {
 /// The running updater.
 pub struct Updater {
     controller: Retained<AnyObject>,
-    delegate: Retained<Delegate>,
+    /// Kept alive here: the controller holds its delegate weakly.
+    _delegate: Retained<Delegate>,
 }
 
 impl Updater {
     /// Loads Sparkle and starts the updater (automatic checks follow the
     /// user's Sparkle defaults; `SUEnableAutomaticChecks` in Info.plist
-    /// turns them on without the first-run prompt). `beta` is the saved
-    /// "Receive beta updates".
-    pub fn start(beta: bool) -> Result<Self, Unavailable> {
+    /// turns them on without the first-run prompt).
+    pub fn start() -> Result<Self, Unavailable> {
         let main = NSBundle::mainBundle();
         for key in ["SUFeedURL", "SUPublicEDKey"] {
             let value = main.objectForInfoDictionaryKey(&NSString::from_str(key));
@@ -78,7 +70,7 @@ impl Updater {
         })?;
         let class = AnyClass::get(c"SPUStandardUpdaterController")
             .ok_or_else(|| Unavailable::LoadFailed("no SPUStandardUpdaterController".into()))?;
-        let delegate = Delegate::new(beta);
+        let delegate = Delegate::new();
         // SAFETY: `+alloc` on an NSObject subclass, then its designated
         // initializer (`startingUpdater:` YES starts the update cycle now,
         // on the main thread). The controller keeps the delegate weakly;
@@ -94,7 +86,7 @@ impl Updater {
         };
         Ok(Self {
             controller,
-            delegate,
+            _delegate: delegate,
         })
     }
 
@@ -136,32 +128,6 @@ impl Updater {
             ];
         }
     }
-
-    /// "Receive beta updates". Turning it on looks for a beta at once (in
-    /// the background: Sparkle shows something only when it finds one).
-    pub fn set_beta(&self, on: bool) {
-        let before = self.delegate.ivars().beta.replace(on);
-        if on && !before && self.can_check() {
-            // SAFETY: an updater method, on the main thread.
-            unsafe {
-                let _: () = msg_send![&*self.updater(), checkForUpdatesInBackground];
-            }
-        }
-    }
-
-    pub fn beta(&self) -> bool {
-        self.delegate.ivars().beta.get()
-    }
-}
-
-/// The channels Sparkle may offer: the default channel always, `beta` too
-/// when the user asked for betas.
-pub fn allowed_channels(beta: bool) -> Vec<&'static str> {
-    if beta { vec![BETA_CHANNEL] } else { vec![] }
-}
-
-struct DelegateIvars {
-    beta: Cell<bool>,
 }
 
 fn describe_item(item: &AnyObject) -> String {
@@ -169,14 +135,10 @@ fn describe_item(item: &AnyObject) -> String {
     unsafe {
         let display: Option<Retained<NSString>> = msg_send![item, displayVersionString];
         let version: Option<Retained<NSString>> = msg_send![item, versionString];
-        let channel: Option<Retained<NSString>> = msg_send![item, channel];
         format!(
-            "{} (build {}, channel {})",
+            "{} (build {})",
             display.map(|s| s.to_string()).unwrap_or_default(),
             version.map(|s| s.to_string()).unwrap_or_default(),
-            channel
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "default".into()),
         )
     }
 }
@@ -191,21 +153,11 @@ define_class!(
     // optional SPUUpdaterDelegate method, so no protocol declaration is
     // needed.
     #[unsafe(super(NSObject))]
-    #[ivars = DelegateIvars]
     struct Delegate;
 
     unsafe impl NSObjectProtocol for Delegate {}
 
     impl Delegate {
-        #[unsafe(method_id(allowedChannelsForUpdater:))]
-        fn allowed_channels_for_updater(&self, _updater: &AnyObject) -> Retained<NSSet<NSString>> {
-            let channels: Vec<Retained<NSString>> = allowed_channels(self.ivars().beta.get())
-                .into_iter()
-                .map(NSString::from_str)
-                .collect();
-            NSSet::from_retained_slice(&channels)
-        }
-
         #[unsafe(method(updater:didFindValidUpdate:))]
         fn did_find_valid_update(&self, _updater: &AnyObject, item: &AnyObject) {
             log::info!("updates: found {}", describe_item(item));
@@ -252,10 +204,8 @@ define_class!(
 );
 
 impl Delegate {
-    fn new(beta: bool) -> Retained<Self> {
-        let this = Self::alloc().set_ivars(DelegateIvars {
-            beta: Cell::new(beta),
-        });
+    fn new() -> Retained<Self> {
+        let this = Self::alloc().set_ivars(());
         // SAFETY: NSObject's designated initializer.
         unsafe { msg_send![super(this), init] }
     }
@@ -266,16 +216,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn betas_are_offered_only_when_asked_for() {
-        assert!(allowed_channels(false).is_empty());
-        assert_eq!(allowed_channels(true), vec!["beta"]);
-    }
-
-    #[test]
     fn a_bare_binary_has_no_updater() {
         // Tests run outside a bundle: no Info.plist keys, no framework.
         assert!(matches!(
-            Updater::start(false),
+            Updater::start(),
             Err(Unavailable::NotConfigured(_) | Unavailable::NoFramework)
         ));
     }

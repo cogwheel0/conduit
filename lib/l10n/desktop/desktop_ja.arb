@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "アップデートを確認…",
   "desktopUpdatesSection": "アップデート",
   "desktopAutomaticUpdateChecks": "アップデートを自動的に確認",
-  "desktopBetaUpdates": "ベータ版のアップデートを受け取る",
-  "desktopBetaUpdatesFooter": "ベータ版は先に届きますが、安定性が低いことがあります。オフにすると次の安定版を待ちます。古いバージョンに戻ることはありません。",
   "desktopUpdatesUnavailable": "アップデートはインストールされたアプリでのみ利用できます。",
   "desktopSuggestionsHeading": "提案",
   "desktopImageLoadFailed": "この画像を読み込めませんでした。",

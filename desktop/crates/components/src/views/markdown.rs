@@ -16,7 +16,7 @@ use gpui_kit::base::text::{
     markdown_ast as mdast,
 };
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::component::highlighter::SyntaxHighlighter;
+use gpui_kit::component::highlighter::{LanguageRegistry, SyntaxHighlighter};
 use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -274,6 +274,46 @@ impl MarkdownPlugin for CodeBlockPlugin {
 type Highlights = Vec<(std::ops::Range<usize>, HighlightStyle)>;
 type HighlightKey = (String, u64, bool);
 
+/// Highlighted code kept: a block streaming into an open fence is a new
+/// text every frame, so the cache is emptied when it outgrows this.
+const HIGHLIGHT_CACHE_MAX: usize = 512;
+
+thread_local! {
+    /// One highlighter per grammar, kept for the next block: making one
+    /// compiles the language's tree-sitter queries (several milliseconds,
+    /// every frame while code streams into an open fence), while parsing a
+    /// block with it again takes microseconds. `update` without an edit
+    /// parses the new text from scratch, so a reused highlighter styles
+    /// exactly as a new one does. Keyed by the grammar a fence names
+    /// ([`grammar`]), so it holds at most one per grammar the app has,
+    /// whatever labels the messages write.
+    static HIGHLIGHTERS: std::cell::RefCell<HashMap<SharedString, SyntaxHighlighter>> =
+        Default::default();
+}
+
+/// The grammar a fence's label names, by its registered name (`sh` and
+/// `bash` are one); none for a label no grammar parses, which is drawn
+/// plain, as a highlighter made for it would draw it.
+fn grammar(lang: &str) -> Option<SharedString> {
+    LanguageRegistry::singleton()
+        .language(lang)
+        .filter(|config| config.has_grammar())
+        .map(|config| config.name)
+}
+
+/// Runs `f` with the kept highlighter for `lang`'s grammar, made the first
+/// time; none when `lang` names no grammar.
+fn with_highlighter<R>(lang: &str, f: impl FnOnce(&mut SyntaxHighlighter) -> R) -> Option<R> {
+    let name = grammar(lang)?;
+    HIGHLIGHTERS.with(|h| {
+        let mut h = h.borrow_mut();
+        let highlighter = h
+            .entry(name.clone())
+            .or_insert_with(|| SyntaxHighlighter::new(&name));
+        Some(f(highlighter))
+    })
+}
+
 fn highlights(lang: &str, code: &str, cx: &App) -> Highlights {
     use std::hash::{Hash, Hasher};
     thread_local! {
@@ -287,20 +327,30 @@ fn highlights(lang: &str, code: &str, cx: &App) -> Highlights {
     if let Some(hit) = CACHE.with(|c| c.borrow().get(&key).cloned()) {
         return hit;
     }
-    let mut highlighter = SyntaxHighlighter::new(lang);
     let rope = gpui_kit::component::Rope::from_str(code);
-    highlighter.update(None, &rope, None);
-    let styles = highlighter.styles(&(0..code.len()), theme.as_ref());
-    CACHE.with(|c| c.borrow_mut().insert(key, styles.clone()));
+    let styles = with_highlighter(lang, |highlighter| {
+        highlighter.update(None, &rope, None);
+        highlighter.styles(&(0..code.len()), theme.as_ref())
+    })
+    .unwrap_or_default();
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() >= HIGHLIGHT_CACHE_MAX {
+            c.clear();
+        }
+        c.insert(key, styles.clone())
+    });
     styles
 }
 
 /// Warms tree-sitter for `langs`, so the first code block of each doesn't
-/// hitch the main thread (35–60 ms each).
+/// hitch the main thread (35–60 ms each). The highlighters are kept for the
+/// blocks to come.
 pub fn preload_grammars(langs: &[&str]) {
     for lang in langs {
-        let mut h = SyntaxHighlighter::new(lang);
-        h.update(None, &gpui_kit::component::Rope::from_str("x"), None);
+        let _ = with_highlighter(lang, |h| {
+            h.update(None, &gpui_kit::component::Rope::from_str("x"), None);
+        });
     }
 }
 
@@ -652,7 +702,59 @@ impl MarkdownPlugin for CitationPlugin {
 
 #[cfg(test)]
 mod code_tests {
-    use super::{CodeSegment, code_segments};
+    use super::{CodeSegment, SyntaxHighlighter, code_segments, with_highlighter};
+    use gpui_kit::component::Rope;
+    use gpui_kit::component::highlighter::HighlightTheme;
+
+    #[test]
+    fn a_kept_highlighter_styles_each_block_as_a_new_one_does() {
+        let theme = HighlightTheme::default_light();
+        // A block streaming in, then others (shorter, unrelated, broken).
+        let full = "fn orbit(period: f64) -> f64 {\n    // degrees a day\n    360.0 / period\n}\n";
+        let mut texts: Vec<String> = (1..=full.len())
+            .step_by(7)
+            .map(|n| full[..n].to_string())
+            .collect();
+        texts.extend([
+            "let x = \"tide\";".into(),
+            "}{ unbalanced (".into(),
+            full.into(),
+            String::new(),
+        ]);
+        for lang in ["rust", "python"] {
+            for code in &texts {
+                let rope = Rope::from_str(code);
+                let kept = with_highlighter(lang, |h| {
+                    h.update(None, &rope, None);
+                    h.styles(&(0..code.len()), theme.as_ref())
+                })
+                .expect("a grammar");
+                let mut fresh = SyntaxHighlighter::new(lang);
+                fresh.update(None, &rope, None);
+                assert_eq!(
+                    kept,
+                    fresh.styles(&(0..code.len()), theme.as_ref()),
+                    "{lang}: {code:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn labels_from_messages_never_add_highlighters() {
+        let kept = || super::HIGHLIGHTERS.with(|h| h.borrow().len());
+        let _ = with_highlighter("bash", |_| ());
+        let at_first = kept();
+        assert!(at_first >= 1, "bash has a grammar here");
+        // Another spelling of a grammar shares its highlighter.
+        let _ = with_highlighter("sh", |_| ());
+        assert_eq!(kept(), at_first);
+        // Labels that name no grammar keep nothing, however many.
+        for n in 0..200 {
+            let _ = with_highlighter(&format!("not-a-language-{n}"), |_| ());
+        }
+        assert_eq!(kept(), at_first);
+    }
 
     #[test]
     fn long_code_lines_get_their_own_row_with_the_indent_apart() {

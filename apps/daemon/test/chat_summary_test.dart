@@ -77,6 +77,16 @@ void main() {
       expect((own.shared, own.canWrite, own.expanded), (false, true, true));
     });
 
+    test('draws any icon Open WebUI names, as the web chose it', () {
+      String? iconOf(String icon) => folderSummaryOf(
+        Folder(id: 'folder-4', name: 'Bonfire', meta: {'icon': icon}),
+      ).icon;
+      expect(iconOf('rocket'), '🚀');
+      // Open WebUI's table draws it with the emoji presentation selector.
+      expect(iconOf('fire'), '\u{1F525}\u{FE0F}');
+      expect(iconOf('not_an_emoji_name'), isNull);
+    });
+
     test('lists its chats in it, another user\'s read-only', () {
       final chats = folderChatSummaries(
         <Conversation>[

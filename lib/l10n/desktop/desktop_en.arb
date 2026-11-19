@@ -4776,14 +4776,6 @@
   "@desktopAutomaticUpdateChecks": {
     "description": "Switch in Settings > About: look for updates in the background once a day."
   },
-  "desktopBetaUpdates": "Receive Beta Updates",
-  "@desktopBetaUpdates": {
-    "description": "Switch in Settings > About (off by default): also offer beta versions."
-  },
-  "desktopBetaUpdatesFooter": "Betas arrive first and can be less stable. Turning this off waits for the next stable version; Conduit never goes back to an older one.",
-  "@desktopBetaUpdatesFooter": {
-    "description": "Footer under the update settings explaining the beta channel and that turning it off never downgrades."
-  },
   "desktopUpdatesUnavailable": "Updates come with the installed app.",
   "@desktopUpdatesUnavailable": {
     "description": "Shown in Settings > About in development builds, which cannot update themselves."

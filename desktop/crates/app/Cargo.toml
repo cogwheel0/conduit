@@ -44,7 +44,7 @@ alacritty_terminal = { version = "=0.26.0", default-features = false }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-foundation = { workspace = true, features = ["NSLocale", "NSError", "NSBundle", "NSDictionary", "NSValue", "NSAppleEventDescriptor", "NSAppleEventManager", "NSSet", "NSDate", "NSDateFormatter", "NSFormatter", "NSURL", "NSRange"] }
-objc2-app-kit = { workspace = true, features = ["NSAlert", "NSButton", "NSControl", "NSActionCell", "NSCell", "NSDatePicker", "NSDatePickerCell", "NSPanel", "NSEvent", "NSRunningApplication", "NSSharingService", "NSSound", "NSWorkspace", "NSPasteboard", "block2"] }
+objc2-app-kit = { workspace = true, features = ["NSAlert", "NSButton", "NSControl", "NSTextField", "NSActionCell", "NSCell", "NSDatePicker", "NSDatePickerCell", "NSPanel", "NSEvent", "NSRunningApplication", "NSSharingService", "NSSound", "NSWorkspace", "NSPasteboard", "block2"] }
 # SSO: a WKWebView window with a non-persistent store (exact pins: the
 # versions it was checked against).
 gpui-webview = "=0.9.0"

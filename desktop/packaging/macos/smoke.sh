@@ -3,7 +3,8 @@
 #
 #   desktop/packaging/macos/smoke.sh APP [--launch]
 #
-# 1. The bundle: Info.plist lints, Apple Silicon only, signature valid;
+# 1. The bundle: Info.plist lints, Apple Silicon only, signature valid and
+#    every Mach-O signed for the app's team (none when ad-hoc);
 #    the desktop widget is embedded (a sandboxed WidgetKit extension under
 #    the app's id, sharing its app group) with the library the app reloads
 #    it through; the Share extension embedded, sandboxed and signed, and the
@@ -41,6 +42,13 @@ while IFS= read -r f; do
   [ "$(lipo -archs "$f")" = "$ARCH" ] || die "$f is $(lipo -archs "$f")"
 done < <(macho_files "$app")
 codesign --verify --deep --strict --verbose=2 "$app"
+# One signer throughout: every Mach-O under the app's team (ad-hoc: none).
+signature="$(signature_of "$app")"
+teams="$(macho_teams "$app")"
+others="$(awk -v t="${signature%% *}" '$1 != t' <<<"$teams")"
+[ -z "$others" ] || die "Mach-O files signed for another team than the app's (${signature%% *}): $others"
+printf 'signature: %s, team %s on all %s Mach-O files\n' "${signature#* }" "${signature%% *}" \
+  "$(wc -l <<<"$teams" | tr -d ' ')"
 share_verify "$app" "$(plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")" ||
   die "the Share extension or the Services items are not as they should be"
 log "Share extension and Services items"

@@ -5,6 +5,8 @@ import 'dart:convert';
 
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart'
+    show kHeldReplyUnresolvedMessage;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/src/message_blocks.dart';
 import 'package:test/test.dart';
@@ -268,6 +270,16 @@ void main() {
       final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
       expect(error.type, 'directToolsUnsupported');
       expect(error.error, 'HTTP 400: model does not support tools');
+    });
+
+    test('a held reply a polling-only server may still write says so', () {
+      final dtos = MessageBlocks().forMessage(
+        answer(content: '').copyWith(
+          error: const ChatMessageError(content: kHeldReplyUnresolvedMessage),
+        ),
+      );
+      final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
+      expect(error.type, 'heldReplyStillRunning');
     });
 
     test('a reasoning header that kept its timing in the summary', () {

@@ -1660,8 +1660,6 @@
   "desktopCheckForUpdates": "Rechercher des mises à jour…",
   "desktopUpdatesSection": "Mises à jour",
   "desktopAutomaticUpdateChecks": "Rechercher automatiquement les mises à jour",
-  "desktopBetaUpdates": "Recevoir les versions bêta",
-  "desktopBetaUpdatesFooter": "Les bêtas arrivent en premier et peuvent être moins stables. Une fois désactivé, Conduit attend la prochaine version stable ; il ne revient jamais à une version plus ancienne.",
   "desktopUpdatesUnavailable": "Les mises à jour ne concernent que l'application installée.",
   "desktopSuggestionsHeading": "Suggestions",
   "desktopImageLoadFailed": "Impossible de charger cette image.",
