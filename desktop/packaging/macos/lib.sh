@@ -431,6 +431,34 @@ PY
 
 set_plist() { /usr/libexec/PlistBuddy -c "$1" "$2" >/dev/null; }
 
+# The entitlement that lets a debugger (lldb, Instruments) attach, as Xcode
+# gives Debug builds. Development signatures only (sign-dev.sh): notarization
+# refuses it, and a released app must not take it.
+GET_TASK_ALLOW=com.apple.security.get-task-allow
+
+# Copies the entitlements SRC to OUT with GET_TASK_ALLOW added: a dev-only
+# copy, so the checked-in files stay as a release signs them.
+#
+#   dev_entitlements SRC OUT
+dev_entitlements() {
+  cp "$1" "$2"
+  set_plist "Add :$GET_TASK_ALLOW bool true" "$2"
+}
+
+# Stops when any entitlements FILE grants GET_TASK_ALLOW, or cannot be read:
+# what bundle.sh signs a bundle with is never a debug build's.
+#
+#   refuse_debug_entitlements FILE...
+refuse_debug_entitlements() {
+  local f
+  for f in "$@"; do
+    [ -r "$f" ] || die "no entitlements at $f"
+    if grep -Fq "$GET_TASK_ALLOW" "$f"; then
+      die "$f grants $GET_TASK_ALLOW: a debugger's entitlement, for sign-dev.sh's dev builds only"
+    fi
+  done
+}
+
 # The bytes only a build with the test harness carries (lib.rs
 # HARNESS_MARKER, compiled in with the `harness` feature only).
 HARNESS_MARKER='conduit-desktop: test harness build'

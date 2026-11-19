@@ -24,6 +24,8 @@
 #   file's real state, so the publication completes or is put back.
 # * a binary built with the test harness is never signed for distribution,
 #   and a step takes only the bundle id it was asked for.
+# * no entitlements file bundle.sh signs with grants get-task-allow (a
+#   debugger's entitlement); sign-dev.sh's dev copy does, and is refused.
 # * verify_enclosure accepts the DMG an item's signed enclosure describes
 #   and refuses another file, another length or another key.
 # * release_app_key gives the app the next key only for the one tag both
@@ -445,6 +447,20 @@ expect 0 "a harness binary may be signed with Apple Development" harness "$tmp/h
 expect 0 "a harness binary may be signed ad hoc" harness "$tmp/harness-bin" adhoc
 expect 0 "a binary without the harness may be signed for distribution" harness "$tmp/release-bin" distribution
 expect 1 "a missing binary is refused" harness "$tmp/no-such-bin" distribution
+debug_ents() { bash -c ". '$here/lib.sh'; refuse_debug_entitlements \"\$@\"" _ "$@"; }
+for f in Conduit.entitlements conduitd.entitlements widget/ConduitWidget.entitlements \
+  share/Share.entitlements; do
+  expect 0 "release entitlements $f grant no debugger" debug_ents "$here/$f"
+done
+if [ -x /usr/libexec/PlistBuddy ]; then
+  bash -c ". '$here/lib.sh'; dev_entitlements \"\$1\" \"\$2\"" _ \
+    "$here/Conduit.entitlements" "$tmp/dev.entitlements"
+  expect 0 "sign-dev.sh's dev copy lets a debugger attach" \
+    grep -Fq com.apple.security.get-task-allow "$tmp/dev.entitlements"
+  expect 1 "a dev copy is refused where a release signs" debug_ents "$tmp/dev.entitlements"
+else
+  echo "skip  dev_entitlements (no PlistBuddy here)"
+fi
 if command -v plutil >/dev/null; then
   app_with() { # app id [version] [LSEnvironment]
     mkdir -p "$1/Contents"

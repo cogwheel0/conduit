@@ -326,13 +326,19 @@ pub fn save<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    fn dir(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("conduit-prefs-{name}-{}", std::process::id()))
+    /// A new, empty folder of this test's own, removed when it drops: never
+    /// a folder an earlier run (or another process) left behind.
+    fn scratch() -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix("conduit-prefs-")
+            .tempdir()
+            .expect("a temporary folder")
     }
 
     #[test]
     fn round_trips_and_defaults() {
-        let path = dir("rt").join("desktop-preferences.json");
+        let scratch = scratch();
+        let path = scratch.path().join("desktop-preferences.json");
         assert_eq!(load::<Preferences>(&path), Preferences::default());
         let mut prefs = Preferences::default();
         prefs.appearance.palette = "catppuccin".into();
@@ -355,7 +361,8 @@ mod tests {
             d.quick_ask_stroke(),
             crate::keymap::KeyStroke::new(" ").primary().shift()
         );
-        let path = dir("desktop").join("desktop-preferences.json");
+        let scratch = scratch();
+        let path = scratch.path().join("desktop-preferences.json");
         let mut prefs = Preferences::default();
         prefs.desktop.close_to_menu_bar = true;
         prefs.desktop.notify_answers = false;
@@ -392,7 +399,8 @@ mod tests {
     fn a_saved_beta_updates_switch_is_ignored() {
         // Releases are stable only: an older build's "Receive beta updates"
         // stays in the file until the next save, and nothing reads it.
-        let path = dir("beta").join("desktop-preferences.json");
+        let scratch = scratch();
+        let path = scratch.path().join("desktop-preferences.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
@@ -408,7 +416,8 @@ mod tests {
 
     #[test]
     fn unreadable_files_give_defaults() {
-        let path = dir("bad").join("window-state.json");
+        let scratch = scratch();
+        let path = scratch.path().join("window-state.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"{not json").unwrap();
         assert_eq!(load::<WindowState>(&path), WindowState::default());
@@ -423,7 +432,8 @@ mod tests {
     #[test]
     fn a_value_this_build_cannot_read_costs_only_that_value() {
         // A newer build's choices and a wrong type, among good settings.
-        let path = dir("salvage").join("desktop-preferences.json");
+        let scratch = scratch();
+        let path = scratch.path().join("desktop-preferences.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let text = br#"{
             "appearance": {"palette": "claude", "mode": "sepia", "density": "comfortable"},

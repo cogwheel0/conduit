@@ -87,6 +87,8 @@ gpui-kit = { workspace = true, features = ["test-support"] }
 conduit-desktop = { path = ".", features = ["harness"] }
 # The vendored mermaid's pin check (views/chat/preview.rs).
 sha2 = "0.10"
+# A fresh folder per test that writes files (prefs.rs).
+tempfile = "3"
 
 [lints]
 workspace = true

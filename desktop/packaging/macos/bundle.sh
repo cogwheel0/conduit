@@ -553,6 +553,8 @@ do_sign() {
     set_plist "Add :com.apple.security.cs.disable-library-validation bool true" "$ent/Conduit.entitlements"
     set_plist "Add :com.apple.security.cs.disable-library-validation bool true" "$ent/conduitd.entitlements"
   fi
+  # A debugger's entitlement is for sign-dev.sh's dev builds only.
+  refuse_debug_entitlements "$ent"/*.entitlements
   sign() { codesign --force --sign "$identity" ${ts[@]+"${ts[@]}"} --options runtime "$@"; }
 
   # The team, never the identity: a name names its holder.
