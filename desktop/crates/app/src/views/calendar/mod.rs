@@ -360,13 +360,19 @@ impl CalendarPane {
             // With the day it is under and its time on that day, as the row
             // shows them: two events of one name are told apart, and so are
             // the two rows of an event that runs past midnight.
+            // An event that goes on past this day says when it ends too
+            // (the row's own time leaves that out).
             let l = cx.l10n();
-            let row = format!(
+            let on = &agenda.days[day].day;
+            let mut row = format!(
                 "{}, {}, {}",
                 shown_title(item, l),
-                format::day_heading(&agenda.days[day].day, agenda.today.as_ref(), l),
+                format::day_heading(on, agenda.today.as_ref(), l),
                 format::row_time(&item.time, l)
             );
+            if let Some(ends) = format::ends_after(item, on, l) {
+                row = format!("{row}, {ends}");
+            }
             crate::views::a11y::announce_row(&row, next, items.len(), cx);
         }
         self.selected = Some((key, day));
@@ -1787,6 +1793,16 @@ mod tests {
             start: Some(late.start.clone()),
             end: None,
         };
+        // All day on both days.
+        let mut fair = standup("k4", 0);
+        fair.title = "Harvest fair".into();
+        fair.all_day = true;
+        fair.last_day = Some(next.clone());
+        fair.time = CalendarRowTimeDto {
+            kind: "allDay".into(),
+            start: None,
+            end: None,
+        };
         let mut late_end = late.clone();
         late_end.time = CalendarRowTimeDto {
             kind: "endsAt".into(),
@@ -1800,11 +1816,16 @@ mod tests {
             days: vec![
                 CalendarAgendaDay {
                     day: day.clone(),
-                    items: vec![morning.clone(), afternoon.clone(), late.clone()],
+                    items: vec![
+                        morning.clone(),
+                        afternoon.clone(),
+                        late.clone(),
+                        fair.clone(),
+                    ],
                 },
                 CalendarAgendaDay {
                     day: next.clone(),
-                    items: vec![late_end.clone()],
+                    items: vec![late_end.clone(), fair.clone()],
                 },
             ],
             ..Default::default()
@@ -1830,7 +1851,7 @@ mod tests {
         let (pane, vcx) = cx.add_window_view(move |window, cx| CalendarPane::new(s, window, cx));
         vcx.run_until_parked();
         pane.update(vcx, |p, cx| {
-            for _ in 0..4 {
+            for _ in 0..6 {
                 p.move_selection(true, cx);
             }
         });
@@ -1844,13 +1865,22 @@ mod tests {
         let today = format::day_heading(&day, Some(&day), &l);
         let tomorrow = format::day_heading(&next, Some(&day), &l);
         let at = |i: &CalendarItemDto| format::row_time(&i.time, &l);
+        // A row of an event that goes on past its day says when it ends.
+        let ends_late = l.calendar_ends_at(&format!(
+            "{} {}",
+            format::day(&next, &l),
+            format::time(late.end.as_ref().unwrap(), &l)
+        ));
+        let ends_fair = l.calendar_ends_at(&format::day(&next, &l));
         assert_eq!(
             said,
             [
-                format!("Standup, {today}, {}, 1 of 4", at(&morning)),
-                format!("Standup, {today}, {}, 2 of 4", at(&afternoon)),
-                format!("Standup, {today}, {}, 3 of 4", at(&late)),
-                format!("Standup, {tomorrow}, {}, 4 of 4", at(&late_end)),
+                format!("Standup, {today}, {}, 1 of 6", at(&morning)),
+                format!("Standup, {today}, {}, 2 of 6", at(&afternoon)),
+                format!("Standup, {today}, {}, {ends_late}, 3 of 6", at(&late)),
+                format!("Harvest fair, {today}, {}, {ends_fair}, 4 of 6", at(&fair)),
+                format!("Standup, {tomorrow}, {}, 5 of 6", at(&late_end)),
+                format!("Harvest fair, {tomorrow}, {}, 6 of 6", at(&fair)),
             ]
         );
         assert_ne!(at(&morning), at(&afternoon));

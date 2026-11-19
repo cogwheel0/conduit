@@ -1350,12 +1350,17 @@ impl Render for TaskEditor {
             body.push(
                 forms::form_group(
                     vec![
-                        forms::field_refused(
+                        forms::field_answered(
                             l.scheduled_task_name_label(),
                             &self.name,
-                            self.issue("nameRequired")
-                                .then(|| l.scheduled_task_name_required().into()),
-                            self.refusals,
+                            None,
+                            forms::Answer {
+                                error: self
+                                    .issue("nameRequired")
+                                    .then(|| l.scheduled_task_name_required().into()),
+                                attempt: self.refusals,
+                            },
+                            false,
                             window,
                             cx,
                         )

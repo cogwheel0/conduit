@@ -118,9 +118,12 @@ pub struct ConnectionEditorSheet {
     pub testing: bool,
     pub deleting: bool,
     pub issues: Issues,
-    /// Counts the saves and tests the core answered with issues: each is
-    /// heard, even in the words of the one before.
-    refusals: u64,
+    /// Counts the requests answered (Save, Test, the switch, Delete): the
+    /// one attempt every live region of the sheet takes (a field's issue,
+    /// the JSON document's, the form's error or test result), so each
+    /// answer is heard, even in the words of the one before, and a redraw
+    /// is not.
+    answers: u64,
     pub attempt: Option<Attempt>,
     pub error: Option<String>,
     /// The form as it opened, to tell whether it was changed.
@@ -256,7 +259,7 @@ impl ConnectionEditorSheet {
             testing: false,
             deleting: false,
             issues: Issues::default(),
-            refusals: 0,
+            answers: 0,
             attempt: None,
             error: None,
             initial: Fingerprint {
@@ -433,12 +436,6 @@ impl ConnectionEditorSheet {
         (issues != Issues::default()).then_some(issues)
     }
 
-    /// A save or test the core refused for what the form says.
-    fn refused(&mut self, issues: Issues) {
-        self.issues = issues;
-        self.refusals += 1;
-    }
-
     pub fn save(&mut self, cx: &mut Context<Self>) {
         if self.in_flight() || self.read_only() {
             return;
@@ -466,6 +463,7 @@ impl ConnectionEditorSheet {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
                 s.saving = false;
+                s.answers += 1;
                 let l10n = cx.l10n().clone();
                 match result {
                     Ok(list) => {
@@ -482,7 +480,7 @@ impl ConnectionEditorSheet {
                     Err(e) => {
                         log::warn!("integrations.save: {e}");
                         match Self::issues_from(&e, &l10n) {
-                            Some(issues) => s.refused(issues),
+                            Some(issues) => s.issues = issues,
                             None => s.error = Some(save_error(&e, &l10n)),
                         }
                         s.reload_if_changed(&e, cx);
@@ -515,6 +513,7 @@ impl ConnectionEditorSheet {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
                 s.testing = false;
+                s.answers += 1;
                 let l10n = cx.l10n().clone();
                 match result {
                     Ok(result) => {
@@ -523,7 +522,7 @@ impl ConnectionEditorSheet {
                     }
                     Err(e) => {
                         match Self::issues_from(&e, &l10n) {
-                            Some(issues) => s.refused(issues),
+                            Some(issues) => s.issues = issues,
                             None => {
                                 s.attempt = Some(Attempt {
                                     ok: false,
@@ -645,6 +644,7 @@ impl ConnectionEditorSheet {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
                 s.saving = false;
+                s.answers += 1;
                 let l10n = cx.l10n().clone();
                 match result {
                     Ok(list) => {
@@ -715,6 +715,7 @@ impl ConnectionEditorSheet {
             let result = call.await;
             let _ = this.update(cx, |s, cx| {
                 s.deleting = false;
+                s.answers += 1;
                 match result {
                     Ok(list) => {
                         (s.on_change)(list, cx);
@@ -851,11 +852,14 @@ impl ConnectionEditorSheet {
             );
         }
         identity.push(
-            forms::field_locked(
+            forms::field_answered(
                 l10n.personal_connections_url(),
                 &self.url,
                 None,
-                self.issues.url.clone().map(SharedString::from),
+                forms::Answer {
+                    error: self.issues.url.clone().map(SharedString::from),
+                    attempt: self.answers,
+                },
                 locked,
                 window,
                 cx,
@@ -915,11 +919,14 @@ impl ConnectionEditorSheet {
         }
         if !tool || self.spec_type == SPEC_TYPES[0] {
             document.push(
-                forms::field_locked(
+                forms::field_answered(
                     l10n.personal_connections_path(),
                     &self.path,
                     None,
-                    self.issues.path.clone().map(SharedString::from),
+                    forms::Answer {
+                        error: self.issues.path.clone().map(SharedString::from),
+                        attempt: self.answers,
+                    },
                     locked,
                     window,
                     cx,
@@ -950,7 +957,7 @@ impl ConnectionEditorSheet {
                                 .child(e.clone())
                                 .child(
                                     live_text("live", Some(e.into()), Priority::High)
-                                        .attempt(self.refusals),
+                                        .attempt(self.answers),
                                 ),
                         )
                     })
@@ -1174,13 +1181,22 @@ impl Render for ConnectionEditorSheet {
             body.push(self.enabled_group(&l10n, cx));
         }
         if let Some(error) = &self.error {
-            body.push(forms::form_error("connection-error", error.clone(), cx).into_any_element());
+            body.push(
+                forms::form_error_answered("connection-error", error.clone(), self.answers, cx)
+                    .into_any_element(),
+            );
         } else if let Some(attempt) = &self.attempt {
             body.push(if attempt.ok {
-                forms::form_note(attempt.text.clone(), true, cx).into_any_element()
-            } else {
-                forms::form_error("connection-test-failed", attempt.text.clone(), cx)
+                forms::form_note_answered(attempt.text.clone(), true, self.answers, cx)
                     .into_any_element()
+            } else {
+                forms::form_error_answered(
+                    "connection-test-failed",
+                    attempt.text.clone(),
+                    self.answers,
+                    cx,
+                )
+                .into_any_element()
             });
         }
         div()
@@ -1438,37 +1454,46 @@ mod tests {
         );
     }
 
-    /// A JSON document refused twice in the same words, with no edit
-    /// between, is heard twice; a redraw says nothing more.
+    /// A Save refused twice in the same words, with no edit between, is
+    /// heard twice, whichever field it names (the JSON document, the URL);
+    /// a redraw says nothing more.
     #[gpui_kit::test]
-    fn each_refused_document_is_heard(cx: &mut gpui_kit::TestAppContext) {
+    fn each_refusal_is_heard(cx: &mut gpui_kit::TestAppContext) {
         use conduit_components::announce::AnnouncementLog;
-        let (daemon, stores, vcx) = bench(cx);
-        vcx.update(|_, cx| AnnouncementLog::install(cx));
-        daemon.on::<methods::IntegrationsSave>(|_| {
-            let mut e = conduit_daemon::RpcError::internal("the form has a problem");
-            e.args.insert("spec".into(), "specInvalid".into());
-            Err(e)
-        });
-        let sheet = open(&stores, None, vcx);
-        sheet.update(vcx, |s, cx| {
-            s.spec_type = "json".into();
-            cx.notify();
-        });
-        let refused = crate::l10n::L10n::new("en").personal_connections_spec_invalid();
-        let heard = |vcx: &mut VisualTestContext| {
-            vcx.update(|_, cx| AnnouncementLog::texts(cx))
-                .iter()
-                .filter(|t| t.as_ref() == refused)
-                .count()
-        };
-        for _ in 0..2 {
-            sheet.update(vcx, |s, cx| s.save(cx));
-            vcx.run_until_parked();
+        let l = crate::l10n::L10n::new("en");
+        for (field, issue, refused) in [
+            ("spec", "specInvalid", l.personal_connections_spec_invalid()),
+            ("url", "urlInvalid", l.personal_connections_url_invalid()),
+        ] {
+            let (daemon, stores, vcx) = bench(cx);
+            vcx.update(|_, cx| AnnouncementLog::install(cx));
+            daemon.on::<methods::IntegrationsSave>(move |_| {
+                let mut e = conduit_daemon::RpcError::internal("the form has a problem");
+                e.args.insert(field.into(), issue.into());
+                Err(e)
+            });
+            let sheet = open(&stores, None, vcx);
+            if field == "spec" {
+                sheet.update(vcx, |s, cx| {
+                    s.spec_type = "json".into();
+                    cx.notify();
+                });
+            }
+            let heard = |vcx: &mut VisualTestContext| {
+                vcx.update(|_, cx| AnnouncementLog::texts(cx))
+                    .iter()
+                    .filter(|t| t.as_ref() == refused)
+                    .count()
+            };
+            for _ in 0..2 {
+                sheet.update(vcx, |s, cx| s.save(cx));
+                vcx.run_until_parked();
+                draw_sheet(vcx);
+            }
             draw_sheet(vcx);
+            assert_eq!(heard(vcx), 2, "the second {field} refusal was not heard");
+            vcx.update(|_, cx| sheet::dismiss(cx));
         }
-        draw_sheet(vcx);
-        assert_eq!(heard(vcx), 2, "the second refusal was not heard");
     }
 
     /// An issue the core found goes once its field changes.
