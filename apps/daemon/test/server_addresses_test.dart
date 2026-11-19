@@ -548,13 +548,15 @@ void main() {
     );
   });
 
-  test('an edit keeps a header value it was not given', () async {
+  test('an edit keeps a header value it was not given, its name in any '
+      'case', () async {
     final second = await addSecond();
     final found = await check(
       ServerAddressForm(
         url: second.url,
         label: 'Renamed route',
-        headers: const [ServerAddressHeader(name: 'X-Lab')],
+        // Saved as `X-Lab`.
+        headers: const [ServerAddressHeader(name: 'x-lab')],
       ),
       endpointId: second.id,
     );
@@ -567,9 +569,16 @@ void main() {
     final registry = await runtime.container
         .read(optimizedStorageServiceProvider)
         .getOpenWebUiRegistryStrict();
+    final headers = registry
+        .server(serverId)!
+        .endpoint(second.id)!
+        .customHeaders;
     expect(
-      registry.server(serverId)!.endpoint(second.id)!.customHeaders['X-Lab'],
-      'one',
+      [
+        for (final e in headers.entries)
+          if (e.key.toLowerCase() == 'x-lab') e.value,
+      ],
+      ['one'],
     );
   });
 

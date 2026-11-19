@@ -132,8 +132,7 @@ final class ServersService {
             : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
         mtlsPrivateKeyPassword: draft.clearMutualTls
             ? null
-            : (draft.mtlsPrivateKeyPassword ??
-                  existing.mtlsPrivateKeyPassword),
+            : (draft.mtlsPrivateKeyPassword ?? existing.mtlsPrivateKeyPassword),
       ),
     );
     if (updated == null) throw _notFound(id);
@@ -344,7 +343,13 @@ final class ServersService {
     final headers = <String, String>{};
     for (final header in form.headers) {
       final name = header.name.trim();
-      final keptValue = header.value == null ? kept[name] : null;
+      // Header names are case-insensitive, as duplicates are judged.
+      final keptValue = header.value == null
+          ? kept.entries
+                .where((e) => e.key.toLowerCase() == name.toLowerCase())
+                .firstOrNull
+                ?.value
+          : null;
       // A typed value is trimmed; a kept one stays as saved, byte for byte,
       // so a label edit changes nothing the connection is compared by.
       final value = header.value?.trim() ?? keptValue ?? '';
