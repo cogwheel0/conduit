@@ -4,11 +4,15 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -46,6 +50,26 @@ TerminalServerInfo _server(String id, {required TerminalServerKind kind}) =>
       name: 'Bench',
       baseUrl: Uri.parse('http://127.0.0.1:9/$id'),
     );
+
+/// The server's own terminals, as [read] answers each call.
+class _Terminals extends TerminalService {
+  _Terminals(this.read)
+    : super(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'host-test',
+            name: 'Host test',
+            url: 'https://owui.example',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+  final Future<List<TerminalServerInfo>> Function() read;
+
+  @override
+  Future<List<TerminalServerInfo>> getSystemTerminalServers() => read();
+}
 
 void main() {
   group('conversationUsesTerminalAgent', () {
@@ -167,18 +191,21 @@ void main() {
             openWebUiAccountAvailableProvider.overrideWithValue(true),
             terminalAgentsSupportedProvider.overrideWithValue(true),
             terminalAvailableServersProvider.overrideWith((ref) async => []),
-            terminalSystemServersForChatProvider.overrideWithValue((chatId) {
-              final read = Completer<List<TerminalServerInfo>>();
-              reads.add(read);
-              return read.future;
-            }),
+            // The server's own terminals, a read held for each call; the
+            // chat's list is the real provider's, over that service.
+            terminalServiceProvider.overrideWithValue(
+              _Terminals(() {
+                final read = Completer<List<TerminalServerInfo>>();
+                reads.add(read);
+                return read.future;
+              }),
+            ),
           ],
         );
         addTearDown(c.dispose);
         c.read(selectedTerminalIdProvider.notifier).set('bench');
         final first = terminalAgentScopeFor(c, _chat());
         final second = terminalAgentScopeFor(c, _chat());
-        await Future<void>.delayed(Duration.zero);
         check(reads).length.equals(2);
         // The first read answers while the second is still out: the first
         // lookup has its answer, whatever the second's turns out to be.
