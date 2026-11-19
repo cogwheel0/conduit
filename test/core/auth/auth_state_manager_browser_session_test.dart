@@ -595,37 +595,48 @@ void main() {
       check(rig.service.renewals).equals(1);
     });
 
-    test(
-      'a renewal that signs in as another user ends the saved sign-in',
-      () async {
-        final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
-        final rig = await _Rig.start(
-          storedToken: expired,
-          saved: _savedBrowserSignIn(expired),
-          renew: () async => (
-            token: _renewed,
-            session: const BrowserSignInSession(
-              serverId: 'server-1',
-              provider: 'oidc',
-              clientId: 'conduit',
-              issuer: 'https://id.example',
-              tokenEndpoint: 'https://id.example/token',
-              refreshToken: 'idp-refresh',
-              owuiUserId: 'someone-else',
+    // Renewed as a user other than the one its session was issued to, or
+    // than the one the account was proved to be: a session left over from
+    // a sign-in as someone else that never finished never renews as them.
+    for (final (sessionUser, accountUser) in [
+      ('someone-else', null),
+      ('user-a', 'someone-else'),
+    ]) {
+      test(
+        'a renewal that signs in as another user than '
+        '${accountUser == null ? 'its session' : 'its account'}\'s ends the '
+        'saved sign-in',
+        () async {
+          final expired = _jwt(const Duration(minutes: -5), tag: 'expired');
+          final rig = await _Rig.start(
+            registry: _registry(userId: accountUser),
+            storedToken: expired,
+            saved: _savedBrowserSignIn(expired),
+            renew: () async => (
+              token: _renewed,
+              session: BrowserSignInSession(
+                serverId: 'server-1',
+                provider: 'oidc',
+                clientId: 'conduit',
+                issuer: 'https://id.example',
+                tokenEndpoint: 'https://id.example/token',
+                refreshToken: 'idp-refresh',
+                owuiUserId: sessionUser,
+              ),
             ),
-          ),
-        );
+          );
 
-        check(rig.state.status).equals(AuthStatus.credentialError);
-        check(rig.state.error).equals('browserSignInSessionExpired');
-        check(rig.storage.committedToken).isNull();
-        verify(
-          () => rig.storage.deleteSavedCredentialsIfMatches(
-            _savedBrowserSignIn(expired),
-          ),
-        ).called(1);
-      },
-    );
+          check(rig.state.status).equals(AuthStatus.credentialError);
+          check(rig.state.error).equals('browserSignInSessionExpired');
+          check(rig.storage.committedToken).isNull();
+          verify(
+            () => rig.storage.deleteSavedCredentialsIfMatches(
+              _savedBrowserSignIn(expired),
+            ),
+          ).called(1);
+        },
+      );
+    }
 
     for (final (failure, message) in [
       (BrowserSignInFailure.refreshExpired, 'browserSignInSessionExpired'),

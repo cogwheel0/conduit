@@ -3813,13 +3813,16 @@ class AuthStateManager extends _$AuthStateManager {
       }
     }
 
+    final storage = ref.read(optimizedStorageServiceProvider);
+    // Who the account was proved to be, kept apart from its session: one left
+    // over from a sign-in as someone else that never finished must not renew
+    // as them.
+    final provedUserId = (await storage.getOpenWebUiRegistryStrict())
+        .account(accountId)
+        ?.userId;
     final renewal = await ref
         .read(browserSignInServiceProvider)
-        .renew(
-          accountId: accountId,
-          api: api,
-          storage: ref.read(optimizedStorageServiceProvider),
-        );
+        .renew(accountId: accountId, api: api, storage: storage);
     if (!_isValidTokenFormat(renewal.token)) {
       throw const BrowserSignInException(BrowserSignInFailure.failed);
     }
@@ -3829,7 +3832,8 @@ class AuthStateManager extends _$AuthStateManager {
       renewal.token,
       proxyPageForNow: true,
     );
-    if (user.id != renewal.session.owuiUserId) {
+    if (user.id != renewal.session.owuiUserId ||
+        (provedUserId != null && user.id != provedUserId)) {
       throw const BrowserSignInException(BrowserSignInFailure.userMismatch);
     }
     DebugLogger.auth('Browser sign-in session renewed');
