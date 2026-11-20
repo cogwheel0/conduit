@@ -24,6 +24,8 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapsho
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/conversation_parsing.dart'
+    show parseFullConversationModel;
 import 'package:conduit_core/services/connectivity_service.dart'
     show isOnlineProvider;
 import 'package:conduit_core/services/moa_completion.dart';
@@ -1262,6 +1264,57 @@ final class _ServerCopyApi extends _GatedCompletionApi {
     );
   }
 }
+
+/// Reads the chat as the server holds it: [history], whose current message is
+/// [currentId], parsed or raw.
+final class _ServerChatApi extends _GatedCompletionApi {
+  _ServerChatApi(this.currentId, this.history) : super(Completer<void>());
+
+  final String currentId;
+  final Map<String, Map<String, dynamic>> history;
+
+  Map<String, dynamic> _response(String id) => {
+    'id': id,
+    'title': 'A',
+    'created_at': 1,
+    'updated_at': 2,
+    'chat': {
+      'title': 'A',
+      'history': {'currentId': currentId, 'messages': history},
+    },
+  };
+
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => parseFullConversationModel(_response(id));
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => _response(id);
+}
+
+/// Message [id] of a chat's history, under [parentId].
+Map<String, dynamic> _historyEntry(
+  String id,
+  String role,
+  String content, {
+  String? parentId,
+  List<String> childrenIds = const [],
+  String? model,
+  bool done = true,
+}) => {
+  'id': id,
+  'parentId': parentId,
+  'childrenIds': childrenIds,
+  'role': role,
+  'content': content,
+  'timestamp': 1,
+  if (role == 'assistant') ...{'model': ?model, 'done': done},
+};
 
 Conversation _conversation(
   String id,
@@ -3303,24 +3356,34 @@ void main() {
           kDeleteMessagesIdsKey: [assistantId],
         },
       );
-      final api = _ServerCopyApi([
-        _user(userId, 'Say the word: heron'),
-        _streamingAssistant(assistantId, '').copyWith(
-          versions: [
-            ChatMessageVersion(
-              id: 'answer-earlier',
-              content: 'egret',
-              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
-            ),
-            ChatMessageVersion(
-              id: 'answer-elsewhere',
-              content: 'heron',
-              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
-              model: 'model-2',
-            ),
-          ],
+      final api = _ServerChatApi(assistantId, {
+        userId: _historyEntry(
+          userId,
+          'user',
+          'Say the word: heron',
+          childrenIds: ['answer-earlier', 'answer-elsewhere', assistantId],
         ),
-      ]);
+        'answer-earlier': _historyEntry(
+          'answer-earlier',
+          'assistant',
+          'egret',
+          parentId: userId,
+        ),
+        'answer-elsewhere': _historyEntry(
+          'answer-elsewhere',
+          'assistant',
+          'heron',
+          parentId: userId,
+          model: 'model-2',
+        ),
+        assistantId: _historyEntry(
+          assistantId,
+          'assistant',
+          '',
+          parentId: userId,
+          done: false,
+        ),
+      });
       final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
       final container = _container(
         db: db,
@@ -3345,6 +3408,84 @@ void main() {
       check(answer.isStreaming).isFalse();
       check(answer.versions.map((v) => v.id)).deepEquals(['answer-earlier']);
     });
+
+    // The empty answer regenerates answer-1, which a later turn follows. That
+    // turn's question may wait on an empty answer of its own.
+    for (final (label, laterAnswer) in [
+      ('answered', 'answer-2'),
+      ('waiting', 'empty-answer-2'),
+    ]) {
+      test('a copy read straight from the server keeps the turns below the '
+          'answer shown in place of the empty one, $label', () async {
+        await seedTurn();
+        await db.outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {
+            kDeleteMessagesIdsKey: [assistantId, 'empty-answer-2'],
+          },
+        );
+        final api = _ServerChatApi(assistantId, {
+          userId: _historyEntry(
+            userId,
+            'user',
+            'Name a bird',
+            childrenIds: ['answer-1', assistantId],
+          ),
+          'answer-1': _historyEntry(
+            'answer-1',
+            'assistant',
+            'heron',
+            parentId: userId,
+            childrenIds: ['question-2'],
+          ),
+          'question-2': _historyEntry(
+            'question-2',
+            'user',
+            'Another one',
+            parentId: 'answer-1',
+            childrenIds: [laterAnswer],
+          ),
+          laterAnswer: _historyEntry(
+            laterAnswer,
+            'assistant',
+            laterAnswer == 'answer-2' ? 'egret' : '',
+            parentId: 'question-2',
+            done: laterAnswer == 'answer-2',
+          ),
+          assistantId: _historyEntry(
+            assistantId,
+            'assistant',
+            '',
+            parentId: userId,
+            done: false,
+          ),
+        });
+        final messages = <ChatMessage>[_user(userId, 'Name a bird')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+        );
+        addTearDown(container.dispose);
+
+        final refreshed = await pullChatOrFetch(container, chatId);
+
+        final waits = laterAnswer != 'answer-2';
+        check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([
+          userId,
+          'answer-1',
+          'question-2',
+          if (!waits) 'answer-2',
+        ]);
+        check([
+          for (final m in refreshed.messages)
+            if (m.isHeldByServer) m.id,
+        ]).deepEquals([if (waits) 'question-2']);
+      });
+    }
 
     test('a copy read straight from the server leaves the empty answer out of '
         'the versions of an answer it keeps', () async {

@@ -416,13 +416,11 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
     // background instead. Bound to the session just checked: another can sign
     // in while the deletes still to land are read.
     final authSnapshot = api.captureAuthSnapshot();
-    final pendingBefore = await unsentMessageDeletesOf(
-      openWebUiOwnership.database,
-      rawConversationId,
-    );
-    final Conversation fetched;
     try {
-      fetched = await api.getConversation(
+      fullConversation = await readChatWithoutUnsentDeletes(
+        ref,
+        api,
+        openWebUiOwnership.database,
         rawConversationId,
         authSnapshot: authSnapshot,
       );
@@ -432,11 +430,6 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
         OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
       );
     }
-    fullConversation = await withoutUnsentMessageDeletes(
-      openWebUiOwnership.database,
-      fetched,
-      pendingBefore: pendingBefore,
-    );
     if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
       throw OpenWebUiConversationOwnershipException(
         OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
