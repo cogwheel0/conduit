@@ -4,6 +4,8 @@ library;
 import 'dart:convert';
 
 import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart'
+    show kTetherTurnMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart'
     show kHeldReplyUnresolvedMessage;
@@ -284,18 +286,25 @@ void main() {
 
     test("a failed relay to one of the user's devices is named for the "
         "window's words", () {
-      for (final (text, type) in const <(String, String)>[
+      for (final (text, viaTether, type) in const <(String, bool, String)>[
         (
           'Tether connection interrupted: Connection lost. The operation may '
               'have completed. Check its result before trying again; do not '
               'automatically repeat it.',
+          false,
           'tetherInterrupted',
         ),
-        ('Tether service is unavailable.', 'tetherUnavailable'),
-        ('Tether has too many active operations.', 'tetherBusy'),
+        ('Tether service is unavailable.', false, 'tetherUnavailable'),
+        ('Tether has too many active operations.', false, 'tetherBusy'),
+        // What Open WebUI's completion router says instead for a turn to a
+        // device's model.
+        ('Open WebUI: Server Connection Error', true, 'tetherInterrupted'),
       ]) {
         final dtos = MessageBlocks().forMessage(
-          answer(content: '').copyWith(error: ChatMessageError(content: text)),
+          answer(content: '').copyWith(
+            error: ChatMessageError(content: text),
+            metadata: {if (viaTether) kTetherTurnMetadataKey: true},
+          ),
         );
         final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
         expect(error.type, type);

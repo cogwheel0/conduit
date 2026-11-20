@@ -1098,6 +1098,7 @@ Future<void> runComparisonCompletion(
           for (final id in slotIds)
             if (id != slot.assistantMessageId) id,
         ],
+        viaTether: isTetherModel(modelFor(slot.model)),
       );
       if (!attached) detached.add(slot.assistantMessageId);
     }

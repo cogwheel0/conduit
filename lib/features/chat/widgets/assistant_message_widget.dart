@@ -1825,13 +1825,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final msg = widget.message as ChatMessage;
 
     // If viewing a version, return the version's error
-    if (_activeVersionIndex >= 0 && _activeVersionIndex < msg.versions.length) {
+    if (_viewingVersion(msg)) {
       return msg.versions[_activeVersionIndex].error;
     }
 
     // Otherwise return the main message's error
     return msg.error;
   }
+
+  bool _viewingVersion(ChatMessage message) =>
+      _activeVersionIndex >= 0 && _activeVersionIndex < message.versions.length;
 
   /// The card for a failed Hermes turn Hermes classified, or null for any
   /// other error (shown as the banner).
@@ -1863,7 +1866,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // a model can keep asking for tools after Conduit stopped offering them.
     // So does a failed relay to one of the user's Tether devices.
     final l10n = AppLocalizations.of(context)!;
-    final relayFailure = switch (tetherRelayFailureOf(errorContent)) {
+    final message = widget.message;
+    final relayFailure = switch (message is ChatMessage &&
+            !_viewingVersion(message)
+        ? tetherRelayFailureOfAnswer(message)
+        : tetherRelayFailureOf(errorContent)) {
       TetherRelayFailure.interrupted => l10n.tetherRelayInterrupted,
       TetherRelayFailure.unavailable => l10n.tetherRelayUnavailable,
       TetherRelayFailure.busy => l10n.tetherRelayBusy,

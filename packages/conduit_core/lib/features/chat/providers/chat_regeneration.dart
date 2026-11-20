@@ -1621,6 +1621,7 @@ Future<void> regenerateMessage(
         ownsActiveConversation: () =>
             activeOpenWebUiChatIdForMutation(ref, regenerationOwner) != null,
         ownsPendingPlaceholder: ownsLiveRegenerationPlaceholder,
+        viaTether: isTetherModel(selectedModel),
       );
       if (!attached) {
         final ownerIsStillActive =

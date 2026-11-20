@@ -12,18 +12,21 @@ import 'package:conduit_core/models/model.dart';
 /// tags it with that label. Its `connection_type` is `local`, as the
 /// server's own connections can be too, so that says nothing here.
 String? tetherModelDeviceTag(Model model) {
-  final metadata = model.metadata;
-  final baseUrl = metadata?['base_url'];
-  if (baseUrl is! String || !baseUrl.startsWith(kTetherUrlScheme)) {
-    return null;
-  }
-  final tags = metadata?['tags'];
+  if (!isTetherModel(model)) return null;
+  final tags = model.metadata?['tags'];
   if (tags is! List) return null;
   for (final tag in tags) {
     final name = (tag is Map ? tag['name'] : tag)?.toString().trim();
     if (name != null && name.isNotEmpty) return name;
   }
   return null;
+}
+
+/// Whether one of the user's devices offers [model]: Open WebUI gives it a
+/// `tether://<device>` base URL.
+bool isTetherModel(Model? model) {
+  final baseUrl = model?.metadata?['base_url'];
+  return baseUrl is String && baseUrl.startsWith(kTetherUrlScheme);
 }
 
 /// The scheme of the address Open WebUI gives a device's connection.

@@ -355,6 +355,9 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       ownsActiveConversation: () =>
           activeOpenWebUiChatIdForMutation(ref, owner) != null,
+      viaTether: isTetherModel(
+        _openWebUiRequestModel(ref, effectiveModelId, selected: selectedModel),
+      ),
     );
     if (!attached) {
       await _finishSubmittedOpenWebUiCompletionHeadlessly(

@@ -3,6 +3,17 @@
 /// `utils/tether.py`).
 library;
 
+import 'package:conduit_core/models/chat_message.dart';
+
+/// Set on an assistant message whose turn went to a model one of the user's
+/// devices offers ([isTetherModel]).
+const String kTetherTurnMetadataKey = 'tetherTurn';
+
+/// What Open WebUI 0.13.4's completion router reports for any failure before
+/// the model's answer began, a relay's included: the relay's own words never
+/// reach the client then (`routers/openai.py`, `generate_chat_completion`).
+const String _serverConnectionError = 'Open WebUI: Server Connection Error';
+
 enum TetherRelayFailure {
   /// The relay broke after the request went out (`tether_interrupted`): the
   /// operation may have completed, so it must not be repeated blindly.
@@ -19,18 +30,29 @@ enum TetherRelayFailure {
 ///
 /// [error] is a message, or a body such as a tool's result or a terminal's
 /// 502 (`{"error": ..., "code": "tether_interrupted"}`).
-TetherRelayFailure? tetherRelayFailureOf(Object? error) {
+///
+/// [viaTether] says the request went to one of the user's devices. The
+/// server's generic connection error then stands for a relay that failed
+/// before the device answered. Whether the device ran it cannot be told from
+/// that, so it reads as [TetherRelayFailure.interrupted].
+TetherRelayFailure? tetherRelayFailureOf(
+  Object? error, {
+  bool viaTether = false,
+}) {
   if (error is Map) {
     if (error['code'] == 'tether_interrupted') {
       return TetherRelayFailure.interrupted;
     }
     for (final key in const ['error', 'detail', 'message']) {
-      final failure = tetherRelayFailureOf(error[key]);
+      final failure = tetherRelayFailureOf(error[key], viaTether: viaTether);
       if (failure != null) return failure;
     }
     return null;
   }
   if (error is! String) return null;
+  if (viaTether && error.trim() == _serverConnectionError) {
+    return TetherRelayFailure.interrupted;
+  }
   final text = error.toLowerCase();
   if (text.contains('tether_interrupted') ||
       text.contains('tether connection interrupted')) {
@@ -45,3 +67,11 @@ TetherRelayFailure? tetherRelayFailureOf(Object? error) {
   }
   return null;
 }
+
+/// The relay failure [answer]'s error reports, knowing whether its turn went
+/// to one of the user's devices ([kTetherTurnMetadataKey]).
+TetherRelayFailure? tetherRelayFailureOfAnswer(ChatMessage answer) =>
+    tetherRelayFailureOf(
+      answer.error?.content,
+      viaTether: answer.metadata?[kTetherTurnMetadataKey] == true,
+    );

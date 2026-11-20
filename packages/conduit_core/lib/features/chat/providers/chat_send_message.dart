@@ -1558,6 +1558,7 @@ Future<void> _sendMessageInternal(
           filterIds: filterIdsForApi,
           ownsActiveConversation: () =>
               activeOpenWebUiChatIdForMutation(ref, submittedOwner!) != null,
+          viaTether: isTetherModel(selectedModel),
         );
         if (!attached) {
           if (isTemporary) {

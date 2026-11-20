@@ -49,11 +49,13 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
@@ -6375,6 +6377,7 @@ void main() {
       bool webSearchAvailable = false,
       bool modelSelectable = false,
       WorkerPort? worker,
+      Model selected = const Model(id: 'model-1', name: 'Model 1'),
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -6402,6 +6405,7 @@ void main() {
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
         webSearchAvailable: webSearchAvailable,
+        model: selected,
         modelSelectable: modelSelectable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
@@ -6636,6 +6640,79 @@ void main() {
       check(api.stoppedTasks).deepEquals(['task-0']);
       check(message(a).isStreaming).isFalse();
       check(message(a).content).equals('A partial');
+    });
+
+    group("a model one of the user's devices offers through Tether", () {
+      // As Open WebUI 0.13.4 lists it.
+      final device = Model.fromJson(<String, dynamic>{
+        'id': 'garage-llama',
+        'name': 'garage-llama',
+        'object': 'model',
+        'owned_by': 'openai',
+        'connection_type': 'local',
+        'tags': <Map<String, dynamic>>[
+          <String, dynamic>{'name': 'Studio Mac · Garage lab'},
+        ],
+        'owner_id': 'user-1',
+        'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+        'service': 'garage_lab',
+      });
+
+      // What 0.13.4's completion router reports for any relay failure before
+      // the device answered: the relay's own words do not reach the client.
+      const serverWords = 'Open WebUI: Server Connection Error';
+
+      TetherRelayFailure? relayFailureOf(
+        ProviderContainer container,
+        String id,
+      ) => assistantMessageBlocks(
+        container.read(chatMessagesProvider).firstWhere((m) => m.id == id),
+      ).whereType<AssistantErrorBlock>().single.relayFailure;
+
+      test('an answer the server failed in its own words may still have run '
+          'there', () async {
+        final (:api, :socket, :container) = await open(
+          available: [device],
+          selected: device,
+        );
+        await sendMessageWithContainer(container, 'hello', null);
+        final answer = api.requests.single.responseMessageId!;
+
+        socket.deliver(answer, 'chat:message:error', {
+          'error': {'content': serverWords},
+          'done': true,
+        });
+
+        check(
+          relayFailureOf(container, answer),
+        ).equals(TetherRelayFailure.interrupted);
+      });
+
+      test("beside another model's answer, only the device's does", () async {
+        final (:api, :socket, :container) = await open(
+          available: [device, duplicate],
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [device, duplicate],
+        );
+        final [a, b] = [for (final h in handles) h.assistantMessageId];
+        await replay(container);
+
+        for (final id in [a, b]) {
+          socket.deliver(id, 'chat:message:error', {
+            'error': {'content': serverWords},
+            'done': true,
+          });
+        }
+
+        check(
+          relayFailureOf(container, a),
+        ).equals(TetherRelayFailure.interrupted);
+        check(relayFailureOf(container, b)).isNull();
+      });
     });
 
     group('a turn whose attached files are still being prepared', () {

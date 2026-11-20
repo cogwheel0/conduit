@@ -196,6 +196,8 @@ import 'package:conduit_core/features/integrations/personal_connection_client.da
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
     show personalConnectionsOfferedProvider, personalSelectionNoticeProvider;
+import 'package:conduit_core/features/tether/tether_offers.dart'
+    show isTetherModel;
 import 'package:conduit_core/utils/system_prompt.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_storage.dart';
 import 'package:conduit_core/features/web_search/web_search.dart';

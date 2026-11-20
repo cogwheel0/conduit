@@ -3658,6 +3658,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ownsPendingPlaceholder: () =>
             _hasStreamingAssistant &&
             _stillOwnsReopenedTail(resumeOwner, last.id),
+        viaTether: switch (_openWebUiRequestModel(
+          ref,
+          resolvedModelId,
+          selected: selectedModel,
+        )) {
+          final model? => isTetherModel(model),
+          null => null,
+        },
       );
     } catch (error) {
       DebugLogger.log(
