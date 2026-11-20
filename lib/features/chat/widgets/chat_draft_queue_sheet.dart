@@ -43,7 +43,11 @@ class ChatDraftQueueRow extends ConsumerWidget {
       child: visible
           ? KeyedSubtree(
               key: const ValueKey<String>('chat-draft-queue-row-shown'),
-              child: _buildRow(context, queue),
+              child: _buildRow(
+                context,
+                queue,
+                ref.watch(queuedDraftAttachmentsProvider),
+              ),
             )
           : const SizedBox.shrink(
               key: ValueKey<String>('chat-draft-queue-row-hidden'),
@@ -51,12 +55,20 @@ class ChatDraftQueueRow extends ConsumerWidget {
     );
   }
 
-  Widget _buildRow(BuildContext context, ChatDraftQueue queue) {
+  Widget _buildRow(
+    BuildContext context,
+    ChatDraftQueue queue,
+    List<QueuedDraftAttachment> held,
+  ) {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final sending = queue.phase != ChatDraftQueuePhase.idle;
     final failed = queue.admissionFailed && !sending;
-    final preview = queue.drafts.first.text.replaceAll(RegExp(r'\s+'), ' ');
+    final preview = chatDraftPreview(
+      queue,
+      queue.drafts.first,
+      held,
+    ).replaceAll(RegExp(r'\s+'), ' ');
     final title = l10n.queuedDraftsCount(queue.drafts.length);
     final detail = sending
         ? l10n.queuedDraftsSending
@@ -537,7 +549,7 @@ class _ChatDraftQueueSheetState extends ConsumerState<ChatDraftQueueSheet> {
               minLines: 1,
               maxLines: 6,
             )
-          else
+          else if (draft.text.isNotEmpty)
             Text(
               draft.text,
               style: theme.bodyMedium,

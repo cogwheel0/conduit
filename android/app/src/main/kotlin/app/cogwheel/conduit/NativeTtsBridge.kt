@@ -55,8 +55,12 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         val file: File,
         val result: MethodChannel.Result
     )
-    private var fileSynthesis: FileSynthesis? = null
-    private val synthesisTimeoutTask = Runnable { cancelSynthesis() }
+    /** Renders asked for and not yet answered; the engine works through them in turn. */
+    private val fileSyntheses = LinkedHashMap<String, FileSynthesis>()
+    private val synthesisStallTask = Runnable {
+        Log.w(TAG, "Device speech made no progress for ${SYNTHESIS_STALL_MS} ms")
+        failSyntheses(SYNTHESIS_STALLED, "Device speech stopped responding")
+    }
     private val synthesisUtteranceIds = mutableSetOf<String>()
     private var activeUtterance: ActiveUtterance? = null
     private var pausedRequest: SpeakRequest? = null
@@ -95,34 +99,38 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                 val engine = tts
                 val text = call.argument<String>("text")
                 if (!available || engine == null || text.isNullOrBlank()) {
-                    result.error("SYNTHESIS_FAILED", "Device speech is unavailable", null)
+                    result.error(SYNTHESIS_FAILED, "Device speech is unavailable", null)
                     return@ensureInitialized
                 }
-                cancelSynthesis()
+                // Each render keeps the voice, rate and pitch it was asked
+                // with: the engine reads them as the request is queued.
                 call.argument<String>("voiceIdentifier")?.let { voice ->
                     resolveVoice(engine, voice)?.let { engine.voice = it }
                         ?: parseLocale(voice)?.let { engine.language = it }
                 }
-                engine.setSpeechRate(floatArgument(call, "rate", 0.5f, 0.1f, 3.0f))
+                engine.setSpeechRate(rateArgument(call))
                 engine.setPitch(floatArgument(call, "pitch", 1f, 0.1f, 2f))
+                val id = UUID.randomUUID().toString()
                 try {
                     val file = File.createTempFile("conduit-speech-", ".wav", activity.cacheDir)
-                    val id = UUID.randomUUID().toString()
-                    fileSynthesis = FileSynthesis(id, file, result)
+                    fileSyntheses[id] = FileSynthesis(id, file, result)
                     synthesisUtteranceIds.add(id)
                     val params = Bundle().apply {
                         putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, floatArgument(call, "volume", 1f, 0f, 1f))
                     }
                     if (engine.synthesizeToFile(text, params, file, id) != TextToSpeech.SUCCESS) {
-                        cancelSynthesis()
-                    } else {
-                        mainHandler.postDelayed(synthesisTimeoutTask, 60_000)
+                        synthesisUtteranceIds.remove(id)
+                        failSynthesis(id)
+                    } else if (fileSyntheses.size == 1) {
+                        // The engine was idle: its silence counts from now.
+                        noteSynthesisProgress()
                     }
                 } catch (_: Exception) {
-                    if (fileSynthesis?.result === result) {
-                        cancelSynthesis()
+                    synthesisUtteranceIds.remove(id)
+                    if (fileSyntheses.containsKey(id)) {
+                        failSynthesis(id)
                     } else {
-                        result.error("SYNTHESIS_FAILED", "Device speech could not be prepared", null)
+                        result.error(SYNTHESIS_FAILED, "Device speech could not be prepared", null)
                     }
                 }
             }
@@ -145,7 +153,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                     voiceIdentifier = call.argument<String>("voiceIdentifier")
                         ?.trim()
                         ?.takeIf { it.isNotEmpty() },
-                    rate = floatArgument(call, "rate", 0.5f, 0.1f, 3.0f),
+                    rate = rateArgument(call),
                     pitch = floatArgument(call, "pitch", 1.0f, 0.1f, 2.0f),
                     volume = floatArgument(call, "volume", 1.0f, 0.0f, 1.0f),
                     voiceCall = call.argument<Boolean>("voiceCall") == true
@@ -227,7 +235,10 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
     private val progressListener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String) {
             mainHandler.post {
-                if (synthesisUtteranceIds.contains(utteranceId)) return@post
+                if (synthesisUtteranceIds.contains(utteranceId)) {
+                    noteSynthesisProgress()
+                    return@post
+                }
                 if (resumeUtteranceIds.remove(utteranceId)) {
                     emit(mapOf("type" to "continue"))
                 } else {
@@ -236,11 +247,27 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
             }
         }
 
+        override fun onBeginSynthesis(
+            utteranceId: String,
+            sampleRateInHz: Int,
+            audioFormat: Int,
+            channelCount: Int
+        ) {
+            mainHandler.post {
+                if (synthesisUtteranceIds.contains(utteranceId)) noteSynthesisProgress()
+            }
+        }
+
+        override fun onAudioAvailable(utteranceId: String, audio: ByteArray) {
+            mainHandler.post {
+                if (synthesisUtteranceIds.contains(utteranceId)) noteSynthesisProgress()
+            }
+        }
+
         override fun onDone(utteranceId: String) {
             mainHandler.post {
-                val pending = fileSynthesis
                 if (synthesisUtteranceIds.remove(utteranceId)) {
-                    if (pending?.id != utteranceId) return@post
+                    val pending = fileSyntheses[utteranceId] ?: return@post
                     val metadata = MediaMetadataRetriever()
                     try {
                         metadata.setDataSource(pending.file.path)
@@ -250,11 +277,11 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
                         if (duration == null || duration <= 0) {
                             throw IllegalStateException("Empty speech audio")
                         }
-                        fileSynthesis = null
-                        mainHandler.removeCallbacks(synthesisTimeoutTask)
+                        fileSyntheses.remove(utteranceId)
+                        noteSynthesisProgress()
                         pending.result.success(mapOf("path" to pending.file.path, "durationMs" to duration))
                     } catch (_: Exception) {
-                        cancelSynthesis()
+                        failSynthesis(utteranceId)
                     } finally {
                         metadata.release()
                     }
@@ -280,7 +307,7 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         override fun onError(utteranceId: String, errorCode: Int) {
             mainHandler.post {
                 if (synthesisUtteranceIds.remove(utteranceId)) {
-                    if (fileSynthesis?.id == utteranceId) cancelSynthesis()
+                    failSynthesis(utteranceId)
                     return@post
                 }
                 if (activeUtterance?.id == utteranceId) {
@@ -302,7 +329,11 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
 
         override fun onStop(utteranceId: String, interrupted: Boolean) {
             mainHandler.post {
-                if (synthesisUtteranceIds.remove(utteranceId)) return@post
+                // A render flushed by live speech or a stop never finishes.
+                if (synthesisUtteranceIds.remove(utteranceId)) {
+                    failSynthesis(utteranceId)
+                    return@post
+                }
                 if (suppressStopForUtteranceId == utteranceId) {
                     suppressStopForUtteranceId = null
                     return@post
@@ -338,14 +369,43 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
-    /** Completes pending synthesis with an error and deletes its incomplete file. */
+    /** Fails every pending render, stopping the engine if there were any. */
     private fun cancelSynthesis() {
-        mainHandler.removeCallbacks(synthesisTimeoutTask)
-        val pending = fileSynthesis ?: return
-        fileSynthesis = null
+        failSyntheses(SYNTHESIS_FAILED, "Device speech could not be prepared")
+    }
+
+    private fun failSyntheses(code: String, message: String) {
+        mainHandler.removeCallbacks(synthesisStallTask)
+        if (fileSyntheses.isEmpty()) return
+        val pending = fileSyntheses.values.toList()
+        fileSyntheses.clear()
         tts?.stop()
-        pending.file.delete()
-        pending.result.error("SYNTHESIS_FAILED", "Device speech could not be prepared", null)
+        pending.forEach { it.fail(code, message) }
+    }
+
+    /** Fails the render [id] alone; the engine goes on with the next. */
+    private fun failSynthesis(id: String) {
+        val pending = fileSyntheses.remove(id) ?: return
+        noteSynthesisProgress()
+        pending.fail(SYNTHESIS_FAILED, "Device speech could not be prepared")
+    }
+
+    private fun FileSynthesis.fail(code: String, message: String) {
+        file.delete()
+        result.error(code, message, null)
+    }
+
+    /**
+     * Restarts the stall clock while renders are pending, and stops it once
+     * none are. A render can take a while, but an engine that says nothing
+     * at all for [SYNTHESIS_STALL_MS] has stopped: its renders are reported
+     * as failed, rather than leaving the reading silent.
+     */
+    private fun noteSynthesisProgress() {
+        mainHandler.removeCallbacks(synthesisStallTask)
+        if (fileSyntheses.isNotEmpty()) {
+            mainHandler.postDelayed(synthesisStallTask, SYNTHESIS_STALL_MS)
+        }
     }
 
     private fun speakRequest(request: SpeakRequest, baseOffset: Int, isResume: Boolean): Boolean {
@@ -536,6 +596,13 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         return if (locale.language.isNullOrEmpty()) null else locale
     }
 
+    /**
+     * The channel's rate is Apple's scale, where 0.5 is a voice's own pace;
+     * Android's own pace is 1.0, so it is doubled, as flutter_tts did.
+     */
+    private fun rateArgument(call: MethodCall): Float =
+        floatArgument(call, "rate", 0.5f, 0.05f, 1.5f) * 2f
+
     private fun floatArgument(
         call: MethodCall,
         key: String,
@@ -576,6 +643,11 @@ class NativeTtsBridge(private val activity: MainActivity) : MethodChannel.Method
         // answer, short enough that the track does not linger once the call
         // has gone back to listening.
         private const val CALL_AUDIO_KEEP_ALIVE_GRACE_MS = 5_000L
+
+        private const val SYNTHESIS_STALL_MS = 20_000L
+        private const val SYNTHESIS_FAILED = "SYNTHESIS_FAILED"
+        private const val SYNTHESIS_STALLED = "SYNTHESIS_STALLED"
+        private const val TAG = "NativeTtsBridge"
     }
 }
 

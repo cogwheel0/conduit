@@ -5122,5 +5122,9 @@
   "tetherRelayBusy": "Je apparaat is via Tether bezig met andere verzoeken. Probeer het opnieuw als die klaar zijn.",
   "@tetherRelayBusy": {
     "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
+  "knowledgeBaseEntire": "Hele kennisbank",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

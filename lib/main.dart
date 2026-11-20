@@ -91,6 +91,8 @@ import 'features/chat/services/voice_input_service.dart';
 import 'features/chat/voice_mode/chat_voice_audio_session_coordinator.dart';
 import 'features/chat/voice_mode/chat_voice_mode_controller.dart';
 
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart'
+    show composerTrayCaptureProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         chatWakelockCoordinatorProvider,
@@ -134,6 +136,7 @@ import 'features/hermes/widgets/hermes_model_switch_prompt.dart';
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 
 import 'features/chat/services/chat_handoff_host.dart';
+import 'core/services/media_upload_controller.dart' show captureComposerTray;
 
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
@@ -528,6 +531,10 @@ void main() {
           chatHandoffOpenerProvider.overrideWith(
             (ref) =>
                 (model, prompt) => openChatHandoffInApp(ref, model, prompt),
+          ),
+          composerTrayCaptureProvider.overrideWith(
+            (ref) =>
+                () => captureComposerTray(ref),
           ),
           routeNavigatorProvider.overrideWithValue(const GoRouterNavigator()),
           openExternalUrlProvider.overrideWithValue(

@@ -441,6 +441,7 @@ final class _HermesDesktopAdministration {
     }
 
     await _owner._ensureConnected();
+    await _owner._learnDesktopUploadContract();
     final support = await Future.wait<bool>([
       supported(
         () => _owner._rpc.request<Object?>(
@@ -467,7 +468,7 @@ final class _HermesDesktopAdministration {
       'jobs_admin': jobs,
       'sessions': true,
       'desktop_gateway': true,
-      'desktop_uploads': _owner._desktopContract >= 2,
+      'desktop_uploads': _owner._currentDesktopContract >= 2,
       'authoritative_running': _owner._authoritativeRunning,
     };
   }

@@ -387,6 +387,11 @@ class MediaUploadController {
   final Map<String, int> _pathGenerations = <String, int>{};
   int _nextGeneration = 0;
 
+  /// The finished row of each photo the tray keeps (one compressed as it was
+  /// picked), by path. It goes once the photo leaves the tray and is deleted.
+  final Map<String, ({AttachmentUploadQueue queue, String id})> _trayHeldRows =
+      {};
+
   @visibleForTesting
   int get debugTrackedPathGenerationCount => _pathGenerations.length;
 
@@ -848,12 +853,26 @@ class MediaUploadController {
     var queueOwnedCleanup = false;
     queueOwnedCleanup = await inflight.cancel();
     if (!queueOwnedCleanup) {
-      await _cleanupAttachmentForGeneration(
+      final cleaned = await _cleanupAttachmentForGeneration(
         targetPath: filePath,
         ownershipPath: filePath,
         inflight: inflight,
         fencePathIdentity: true,
       );
+      final held = _trayHeldRows.remove(filePath);
+      if (cleaned && held != null) {
+        try {
+          await held.queue.acknowledgeTerminal(held.id);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'tray-held-upload-acknowledgement-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'id': held.id},
+          );
+        }
+      }
     }
     _tryPrunePathGeneration(filePath, inflight);
   }
@@ -1349,11 +1368,11 @@ class MediaUploadController {
     String uploadFileName = fileName;
     String? uploadMimeType = mimeType;
     String? convertedTempPath;
-    if (isImage) {
-      final shouldConvert = await _shouldConvertImage(lowerName, fileSize);
-      _throwIfOperationNotActive(filePath, inflight);
-      if (shouldConvert) {
-        final convertedPath = await _ref.read(imageUploadConverterProvider)(
+    final pickedConversion = isImage && await _isPickedConversion(filePath);
+    _throwIfOperationNotActive(filePath, inflight);
+    if (isImage && !pickedConversion) {
+      if (convertsImageForUpload(lowerName, fileSize ?? 0)) {
+        var convertedPath = await _ref.read(imageUploadConverterProvider)(
           filePath,
         );
         if (!_isOperationActive(filePath, inflight)) {
@@ -1361,6 +1380,12 @@ class MediaUploadController {
             await cleanupTerminalAttachmentFile(convertedPath);
           }
           throw const MediaUploadCancelledException();
+        }
+        if (convertedPath != null &&
+            !await _keepsConversion(fileName, filePath, convertedPath)) {
+          await cleanupTerminalAttachmentFile(convertedPath);
+          _throwIfOperationNotActive(filePath, inflight);
+          convertedPath = null;
         }
         if (convertedPath != null) {
           final replacementResult =
@@ -1557,6 +1582,16 @@ class MediaUploadController {
               data: {'fileName': displayFileName},
             );
           }
+        }
+
+        // A photo compressed as it was picked is the tray's own copy, which
+        // its preview reads until the attachment is sent or removed; those
+        // delete it. The row stays to clean it up after a restart.
+        if (pickedConversion &&
+            entry?.status == QueuedAttachmentStatus.completed &&
+            _currentAttachment(filePath) != null) {
+          _trayHeldRows[filePath] = (queue: uploader, id: id);
+          return;
         }
 
         // Keep the durable terminal row until every app-owned source/temp path
@@ -1874,9 +1909,10 @@ class MediaUploadController {
       );
     }
 
-    var measuredTotalBytes = 0;
-    var currentSourceBytes = 0;
+    var settledImageBytes = 0;
+    final shrinkable = <({String path, int bytes})>[];
     for (final path in imagePaths) {
+      if (path == filePath) continue;
       final attachment = imagesByPath[path];
       final preparedDataUrl =
           attachment?.base64DataUrl ??
@@ -1886,22 +1922,46 @@ class MediaUploadController {
       final bytes = preparedDataUrl != null
           ? decodedImageByteLength(
               preparedDataUrl,
-              maxDecodedBytes: kDirectMaxDecodedImageBytes - measuredTotalBytes,
+              maxDecodedBytes: kDirectMaxDecodedImageBytes - settledImageBytes,
             )
           : await File(path).length();
       _throwIfOperationNotActive(filePath, inflight);
-      measuredTotalBytes += bytes;
-      if (path == filePath) currentSourceBytes = bytes;
-      if (measuredTotalBytes > kDirectMaxDecodedImageBytes) {
+      if (preparedDataUrl == null &&
+          attachment != null &&
+          convertsImageToFit(attachment.fileName)) {
+        shrinkable.add((path: path, bytes: bytes));
+        continue;
+      }
+      settledImageBytes += bytes;
+      if (settledImageBytes > kDirectMaxDecodedImageBytes) {
         throw const DirectChatInputException(
           'Direct chat images must be 20 MB or less in total.',
         );
       }
     }
-
-    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
-      File(filePath),
+    final inline = await _inlineImageSource(
+      filePath,
+      fileName: fileName,
+      limit: kDirectMaxDecodedImageBytes,
+      settledBytes: settledImageBytes,
+      shrinkable: shrinkable,
+      inflight: inflight,
     );
+    if (inline == null) {
+      throw const DirectChatInputException(
+        'Direct chat images must be 20 MB or less in total.',
+      );
+    }
+    final (path: source, otherBytes: otherImageBytes) = inline;
+
+    final String? dataUrl;
+    try {
+      dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+        File(source),
+      );
+    } finally {
+      if (source != filePath) await cleanupTerminalAttachmentFile(source);
+    }
     _throwIfOperationNotActive(filePath, inflight);
     if (dataUrl == null) {
       throw const DirectChatInputException(
@@ -1910,7 +1970,7 @@ class MediaUploadController {
     }
     final decodedBytes = validatePreparedDirectImageDataUrl(
       dataUrl,
-      otherImageBytes: measuredTotalBytes - currentSourceBytes,
+      otherImageBytes: otherImageBytes,
     );
 
     final existing = _ownedAttachment(filePath, inflight);
@@ -2001,8 +2061,15 @@ class MediaUploadController {
     var uploadName = fileName;
     var uploadMime = mimeType ?? _libreChatMimeType(fileName);
     String? convertedPath;
-    if (isImage && await _shouldConvertImage(fileName.toLowerCase(), null)) {
+    if (isImage &&
+        !await _isPickedConversion(filePath) &&
+        convertsImageForUpload(fileName, await File(filePath).length())) {
       convertedPath = await _ref.read(imageUploadConverterProvider)(filePath);
+      if (convertedPath != null &&
+          !await _keepsConversion(fileName, filePath, convertedPath)) {
+        await cleanupTerminalAttachmentFile(convertedPath);
+        convertedPath = null;
+      }
       if (convertedPath != null) {
         uploadPath = convertedPath;
         final dot = fileName.lastIndexOf('.');
@@ -2169,9 +2236,10 @@ class MediaUploadController {
       );
     }
 
-    var measuredTotalBytes = 0;
-    var currentSourceBytes = 0;
+    var settledImageBytes = 0;
+    final shrinkable = <({String path, int bytes})>[];
     for (final path in imagePaths) {
+      if (path == filePath) continue;
       final attachment = imagesByPath[path];
       final preparedDataUrl =
           attachment?.base64DataUrl ??
@@ -2184,25 +2252,49 @@ class MediaUploadController {
             ? decodedImageByteLength(
                 preparedDataUrl,
                 maxDecodedBytes:
-                    kHermesMaxDecodedImageBytes - measuredTotalBytes,
+                    kHermesMaxDecodedImageBytes - settledImageBytes,
               )
             : await File(path).length();
       } on DirectChatInputException catch (error) {
         throw HermesChatInputException(error.message);
       }
       _throwIfOperationNotActive(filePath, inflight);
-      measuredTotalBytes += bytes;
-      if (path == filePath) currentSourceBytes = bytes;
-      if (measuredTotalBytes > kHermesMaxDecodedImageBytes) {
+      if (preparedDataUrl == null &&
+          attachment != null &&
+          convertsImageToFit(attachment.fileName)) {
+        shrinkable.add((path: path, bytes: bytes));
+        continue;
+      }
+      settledImageBytes += bytes;
+      if (settledImageBytes > kHermesMaxDecodedImageBytes) {
         throw const HermesChatInputException(
           'Hermes images must be 6 MB or less in total.',
         );
       }
     }
-
-    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
-      File(filePath),
+    final inline = await _inlineImageSource(
+      filePath,
+      fileName: fileName,
+      limit: kHermesMaxDecodedImageBytes,
+      settledBytes: settledImageBytes,
+      shrinkable: shrinkable,
+      inflight: inflight,
     );
+    if (inline == null) {
+      throw const HermesChatInputException(
+        'Hermes images must be 6 MB or less in total.',
+      );
+    }
+    final (path: source, otherBytes: otherImageBytes) = inline;
+
+    final String? dataUrl;
+    try {
+      dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+        File(source),
+      );
+    } finally {
+      if (source != filePath) await cleanupTerminalAttachmentFile(source);
+    }
     _throwIfOperationNotActive(filePath, inflight);
     if (dataUrl == null) {
       throw const HermesChatInputException(
@@ -2213,15 +2305,12 @@ class MediaUploadController {
     try {
       decodedBytes = decodedImageByteLength(
         dataUrl,
-        maxDecodedBytes:
-            kHermesMaxDecodedImageBytes -
-            (measuredTotalBytes - currentSourceBytes),
+        maxDecodedBytes: kHermesMaxDecodedImageBytes - otherImageBytes,
       );
     } on DirectChatInputException catch (error) {
       throw HermesChatInputException(error.message);
     }
-    if (measuredTotalBytes - currentSourceBytes + decodedBytes >
-        kHermesMaxDecodedImageBytes) {
+    if (otherImageBytes + decodedBytes > kHermesMaxDecodedImageBytes) {
       throw const HermesChatInputException(
         'Hermes images must be 6 MB or less in total.',
       );
@@ -2289,38 +2378,119 @@ class MediaUploadController {
     }
   }
 
-  /// Whether [lowerName] should be converted to JPEG before upload (carried
-  /// verbatim from `task_worker._shouldConvertImage`).
-  Future<bool> _shouldConvertImage(String lowerName, int? fileSize) async {
-    const alwaysConvert = {
-      '.heic',
-      '.heif',
-      '.dng',
-      '.raw',
-      '.cr2',
-      '.nef',
-      '.arw',
-      '.orf',
-      '.rw2',
-      '.bmp',
-    };
-    if (alwaysConvert.any(lowerName.endsWith)) {
+  /// The file the image at [filePath], named [fileName], goes inline from,
+  /// and what the message's other images count beside it; null when it does
+  /// not fit in [limit]. Hermes and Direct measure an image before encoding
+  /// it, and a PNG is kept as picked, so a large screenshot meets their limit
+  /// here.
+  ///
+  /// The others count [settledBytes], and each of [shrinkable], not
+  /// prepared yet, its file. The image goes as it is when it fits beside
+  /// them, else as a JPEG of it when [convertsImageToFit] allows one and that
+  /// fits. When neither fits, each of [shrinkable] counts as the smaller of
+  /// its file and a JPEG of it, which its own preparation will choose in
+  /// turn, and this image goes as the smaller of its own two if that fits.
+  /// The caller removes a JPEG made here once it is encoded.
+  Future<({String path, int otherBytes})?> _inlineImageSource(
+    String filePath, {
+    required String fileName,
+    required int limit,
+    required int settledBytes,
+    required List<({String path, int bytes})> shrinkable,
+    required _InflightUpload inflight,
+  }) async {
+    final sourceBytes = await File(filePath).length();
+    _throwIfOperationNotActive(filePath, inflight);
+    var otherBytes = settledBytes;
+    for (final other in shrinkable) {
+      otherBytes += other.bytes;
+    }
+    if (sourceBytes <= limit - otherBytes) {
+      return (path: filePath, otherBytes: otherBytes);
+    }
+    String? converted;
+    int? convertedBytes;
+    if (convertsImageToFit(fileName)) {
+      converted = await _ref.read(imageUploadConverterProvider)(filePath);
+      if (converted == filePath) converted = null;
+      if (converted != null) convertedBytes = await _fileBytes(converted);
+    }
+    if (shrinkable.isNotEmpty &&
+        (convertedBytes == null || convertedBytes > limit - otherBytes) &&
+        _isOperationActive(filePath, inflight)) {
+      otherBytes = settledBytes;
+      for (final other in shrinkable) {
+        otherBytes += await _smallestImageBytes(other.path, other.bytes);
+      }
+    }
+    final useConversion =
+        convertedBytes != null && convertedBytes < sourceBytes;
+    final bytes = useConversion ? convertedBytes : sourceBytes;
+    if (bytes > limit - otherBytes || !_isOperationActive(filePath, inflight)) {
+      if (converted != null) await cleanupTerminalAttachmentFile(converted);
+      _throwIfOperationNotActive(filePath, inflight);
+      return null;
+    }
+    if (!useConversion && converted != null) {
+      await cleanupTerminalAttachmentFile(converted);
+    }
+    return (
+      path: useConversion ? converted! : filePath,
+      otherBytes: otherBytes,
+    );
+  }
+
+  /// The smaller of [bytes], the size of the image at [filePath], and a JPEG
+  /// of it, which is removed once measured.
+  Future<int> _smallestImageBytes(String filePath, int bytes) async {
+    final String? converted;
+    try {
+      converted = await _ref.read(imageUploadConverterProvider)(filePath);
+    } catch (_) {
+      return bytes;
+    }
+    if (converted == null || converted == filePath) return bytes;
+    try {
+      final convertedBytes = await _fileBytes(converted);
+      return convertedBytes != null && convertedBytes < bytes
+          ? convertedBytes
+          : bytes;
+    } finally {
+      await cleanupTerminalAttachmentFile(converted);
+    }
+  }
+
+  Future<int?> _fileBytes(String filePath) async {
+    try {
+      return await File(filePath).length();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Whether [filePath] is the JPEG `compressPickedImage` made of a photo as
+  /// it was picked. It went through [convertsImageForUpload] then, and is not
+  /// encoded again.
+  Future<bool> _isPickedConversion(String filePath) async =>
+      await resolveConvertedUploadFile(filePath) != null;
+
+  /// Whether the JPEG at [convertedPath] goes up in place of [filePath], an
+  /// image named [fileName]. The name decides: a staged path need not keep
+  /// the picked file's extension. A size that cannot be read keeps the JPEG.
+  Future<bool> _keepsConversion(
+    String fileName,
+    String filePath,
+    String convertedPath,
+  ) async {
+    try {
+      return keepsConvertedImage(
+        fileName,
+        originalBytes: await File(filePath).length(),
+        convertedBytes: await File(convertedPath).length(),
+      );
+    } on FileSystemException {
       return true;
     }
-
-    const neverConvert = {'.webp', '.gif'};
-    if (neverConvert.any(lowerName.endsWith)) {
-      return false;
-    }
-
-    const optimizeThreshold = 500 * 1024;
-    const optimizableFormats = {'.jpg', '.jpeg', '.png'};
-    if (optimizableFormats.any(lowerName.endsWith)) {
-      final size = fileSize ?? 0;
-      return size > optimizeThreshold;
-    }
-
-    return false;
   }
 }
 
@@ -2550,6 +2720,27 @@ typedef _UploadAcceptance = ({Object? error, StackTrace? stackTrace});
 
 final class MediaUploadCancelledException implements Exception {
   const MediaUploadCancelledException();
+}
+
+/// The app's `composerTrayCaptureProvider`: retiring what it captured takes
+/// those files from the composer's tray, then stops their uploads and
+/// removes their staged copies.
+void Function() captureComposerTray(Ref ref) {
+  final controller = ref.read(mediaUploadControllerProvider);
+  final captured = controller.captureAttachmentOwnership();
+  return () => unawaited(
+    controller.retireAttachmentOwnership(captured).catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
+      DebugLogger.error(
+        'attachment-boundary-cleanup-failed',
+        scope: 'media/upload',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
 }
 
 /// `keepAlive` so the controller's in-flight tracking + `ref` survive across

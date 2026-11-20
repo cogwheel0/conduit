@@ -13913,7 +13913,7 @@ pub struct VoiceSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_voice: Option<String>,
     /// One speech speed for every voice, as a multiple of the voice's own
-    /// pace: one of core's `ttsSpeedPresets` (0.75, 1, 1.25, 1.5, 2).
+    /// pace: one of core's `ttsSpeedPresets` (0.25 to 2, in quarters).
     #[serde(default = "default_voice_settings_speed")]
     pub speed: f64,
     #[serde(default = "default_voice_settings_pitch")]

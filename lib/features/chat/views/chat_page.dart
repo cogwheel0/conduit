@@ -778,6 +778,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void startNewChat() {
+    clearHermesTrayForNewChat(ref);
     resetHermesForNewChat(ref);
     clearSelectedFiltersForConversationBoundary(ref);
 
@@ -797,7 +798,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ref.read(pendingOpenWebUiChatSettingsProvider.notifier).replace(const {});
 
     // Reset to default model for new conversations (fixes #296)
-    restoreDefaultModel(ref);
+    restoreDefaultModelForNewChat(ref);
 
     if (_timelineViewportController.hasClients) {
       _timelineViewportController.jumpToLatest();

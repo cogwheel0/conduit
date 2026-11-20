@@ -6736,5 +6736,9 @@
   "tetherRelayBusy": "デバイスは Tether 経由でほかのリクエストを処理中です。完了してからもう一度お試しください。",
   "@tetherRelayBusy": {
     "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
+  "knowledgeBaseEntire": "ナレッジベース全体",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

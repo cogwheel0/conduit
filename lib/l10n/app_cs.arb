@@ -7042,5 +7042,9 @@
   "tetherRelayBusy": "Vaše zařízení přes Tether zpracovává jiné požadavky. Zkuste to znovu, až skončí.",
   "@tetherRelayBusy": {
     "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
+  "knowledgeBaseEntire": "Celá znalostní báze",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

@@ -277,8 +277,16 @@ void main() {
           .singleWhere((item) => item.id == 'tts-speed');
 
       check(speed.value).equals('1.25');
-      check(speed.options.map((option) => option.label))
-          .deepEquals(['0.75×', '1×', '1.25×', '1.5×', '2×']);
+      check(speed.options.map((option) => option.label)).deepEquals([
+        '0.25×',
+        '0.5×',
+        '0.75×',
+        '1×',
+        '1.25×',
+        '1.5×',
+        '1.75×',
+        '2×',
+      ]);
       check(speed.subtitle).isNull();
     }
   });

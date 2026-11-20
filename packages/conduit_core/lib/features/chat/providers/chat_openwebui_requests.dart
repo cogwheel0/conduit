@@ -1,8 +1,12 @@
 part of 'chat_providers.dart';
 
 bool _shouldIncludeConversationHistoryMessage(ChatMessage message) {
-  if (message.role.isEmpty || message.content.isEmpty) {
-    return false;
+  if (message.role.isEmpty) return false;
+  if (message.content.isEmpty) {
+    // A user turn of files alone is still a turn.
+    return message.role == 'user' &&
+        ((message.attachmentIds?.isNotEmpty ?? false) ||
+            (message.files?.isNotEmpty ?? false));
   }
   if (message.role != 'assistant') {
     return true;

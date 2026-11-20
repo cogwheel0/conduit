@@ -4894,5 +4894,9 @@
   "tetherRelayBusy": "기기가 Tether를 통해 다른 요청을 처리하고 있습니다. 완료된 후 다시 시도하세요.",
   "@tetherRelayBusy": {
     "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
+  "knowledgeBaseEntire": "지식 베이스 전체",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

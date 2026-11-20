@@ -520,6 +520,22 @@ void main() {
       check(s.parked.last.upload).identicalTo(uploading);
     });
 
+    // Send takes files without words; Queue refused them.
+    test('takes files without words, and refuses a draft of neither', () async {
+      final s = await _Session.start();
+
+      check(s.queue.enqueue('  ')).isNull();
+      check(s.active).isNull();
+
+      s.attach([_file('a.txt')]);
+      final draft = s.queue.enqueue('');
+
+      check(draft).isNotNull();
+      check(draft!.text).equals('');
+      check(s.parked.map((held) => held.upload.fileName)).deepEquals(['a.txt']);
+      check(s.tray).isEmpty();
+    });
+
     test('is refused, and the composer left alone, when no response runs',
         () async {
       final s = await _Session.start();
@@ -601,6 +617,24 @@ void main() {
       check(s.engine.drains).equals(1);
     });
 
+    test(
+      'a draft of files alone adds its files, and no blank line, to the turn',
+      () async {
+        final s = await _Session.start();
+        s.queue.enqueue('first');
+        s.attach([_file('b.txt')]);
+        s.queue.enqueue('');
+
+        s.finishResponse();
+        await s.reaches(() => s.active == null);
+
+        final rows = await s.sentUserRows();
+        check(rows).length.equals(1);
+        check(rows.single.content).equals('first');
+        check(s.userFileIds(rows.single)).deepEquals(['id-b.txt']);
+      },
+    );
+
     test('carries each draft\'s context attachments into the one turn',
         () async {
       final s = await _Session.start();
@@ -652,15 +686,27 @@ void main() {
       final s = await _Session.start();
       s.attach([_file('bad.txt', status: FileUploadStatus.failed)]);
       final broken = s.queue.enqueue('has a bad file')!;
+      // A draft of files alone has nothing left once its file goes.
+      s.attach([_file('also-bad.txt', status: FileUploadStatus.failed)]);
+      final filesOnly = s.queue.enqueue('')!;
       s.queue.enqueue('fine');
 
       s.finishResponse();
       await s.settle();
       check(await s.sentUserRows()).isEmpty();
-      check(s.active!.drafts).length.equals(2);
+      check(s.active!.drafts).length.equals(3);
 
       check(s.queue.removeDraftAttachment(broken.id, broken.attachmentIds.single))
           .isTrue();
+      check(
+        s.queue.removeDraftAttachment(
+          filesOnly.id,
+          filesOnly.attachmentIds.single,
+        ),
+      ).isTrue();
+      check(s.active!.drafts.map((draft) => draft.id)).not(
+        (it) => it.contains(filesOnly.id),
+      );
       await s.until(() => s.active == null);
 
       check((await s.sentUserRows()).single.content)

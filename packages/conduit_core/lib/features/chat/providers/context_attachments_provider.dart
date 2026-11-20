@@ -88,6 +88,22 @@ class ContextAttachmentsNotifier extends Notifier<List<ChatContextAttachment>> {
     );
   }
 
+  /// Attaches the whole knowledge base [id], once.
+  void addKnowledgeBase({
+    required String id,
+    required String name,
+    String? description,
+  }) {
+    if (state.any((item) => item.isKnowledgeBase && item.id == id)) return;
+    add(
+      ChatContextAttachment.knowledgeBase(
+        id: id,
+        name: name,
+        description: description,
+      ),
+    );
+  }
+
   void addNote({required String noteId, required String displayName}) {
     final alreadyAttached = state.any(
       (attachment) =>
