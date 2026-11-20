@@ -134,7 +134,8 @@ pub fn fade_out(window: &objc2_app_kit::NSWindow, secs: f64) {
 /// (on its frame view, over the titlebar too). Once every GPUI window has
 /// presented a frame in the new look, or after [`SWITCH_HOLD_MAX`], `then`
 /// runs (the app's appearance for AppKit's chrome, sidebar material and
-/// window rim) and the snapshots come off in the same transaction.
+/// window rim) and the snapshots come off in the same transaction. Without
+/// Screen Recording access there are no snapshots, and `then` runs at once.
 ///
 /// GPUI presents its frames outside Core Animation's transactions, so
 /// without the hold AppKit's parts would change a frame or two before the
@@ -214,6 +215,9 @@ fn snapshot_windows() -> Vec<Retained<objc2::runtime::AnyObject>> {
     let Some(mtm) = MainThreadMarker::new() else {
         return vec![];
     };
+    if !super::grab::capture_allowed() {
+        return vec![];
+    }
     let app = NSApplication::sharedApplication(mtm);
     let mut layers = vec![];
     for window in app.windows().iter() {
