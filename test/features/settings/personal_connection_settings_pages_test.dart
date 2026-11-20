@@ -407,23 +407,21 @@ void main() {
 
       await rig.change(_row('url'), 'https://beta.example');
       final moved = rig.row(_alpha, _row('key'))!;
-      expect(
-        moved.placeholder,
-        _l10n.personalConnectionsKeyRemovedForNewAddress,
-      );
+      // The wrapping subtitle, not the one-line placeholder, says it.
+      expect(moved.subtitle, _l10n.personalConnectionsKeyRemovedForNewAddress);
+      expect(moved.placeholder, _l10n.apiKey);
       expect(moved.disabled, isFalse);
       check(rig.row(_alpha, _row('key-mode'))).isNull();
 
       await rig.change(_row('url'), 'https://alpha.example/v2');
-      expect(
-        rig.row(_alpha, _row('key'))!.placeholder,
-        _l10n.personalConnectionsKeyKept,
-      );
+      final back = rig.row(_alpha, _row('key'))!;
+      expect(back.subtitle, isNull);
+      expect(back.placeholder, _l10n.personalConnectionsKeyKept);
       check(rig.row(_alpha, _row('key-mode'))).isNotNull();
 
       await rig.change(_row('path'), 'https://beta.example/openapi.json');
       expect(
-        rig.row(_alpha, _row('key'))!.placeholder,
+        rig.row(_alpha, _row('key'))!.subtitle,
         _l10n.personalConnectionsKeyRemovedForNewAddress,
       );
 

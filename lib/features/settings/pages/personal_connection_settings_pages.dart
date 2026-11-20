@@ -796,13 +796,16 @@ NativeSheetDetailConfig _buildEditorPage(
               sfSymbol: 'key',
               kind: NativeSheetItemKind.secureTextField,
               value: editor.keyText,
+              // The removal at another address is too long for the
+              // one-line field, so it wraps below it.
+              subtitle: keyGoes
+                  ? l10n.personalConnectionsKeyRemovedForNewAddress
+                  : null,
               // The stored key never reaches the form; the placeholder says
               // what happens to it instead.
               placeholder: removing
                   ? l10n.personalConnectionsKeyWillRemove
-                  : keyGoes
-                  ? l10n.personalConnectionsKeyRemovedForNewAddress
-                  : keeping
+                  : keeping && !keyGoes
                   ? l10n.personalConnectionsKeyKept
                   : l10n.apiKey,
               disabled: removing,
