@@ -165,8 +165,13 @@ OpenWebUiComposerPrompt? parseOpenWebUiAskUserPrompt(
   );
 }
 
-/// Whether the call [callId] in [output] is a request from one of Open WebUI
-/// 0.13.1's coding agents: it carries the agent's own request as `native`.
+/// Whether [item] holds a coding agent's own request: as `provider_data`
+/// from Open WebUI 0.13.4, as `native` from 0.13.1.
+bool _carriesAgentRequest(Map<String, dynamic> item) =>
+    item['provider_data'] != null || item['native'] != null;
+
+/// Whether the call [callId] in [output] is a request from one of Open WebUI's
+/// coding agents (0.13.1 and later).
 bool isOpenWebUiAgentRequest(
   List<Map<String, dynamic>>? output,
   String callId,
@@ -178,7 +183,7 @@ bool isOpenWebUiAgentRequest(
         item['type']?.toString() == 'function_call' &&
         (item['call_id']?.toString().trim() ?? item['id']?.toString().trim()) ==
             id &&
-        item['native'] != null,
+        _carriesAgentRequest(item),
   );
 }
 
@@ -273,7 +278,7 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
       if (name == 'ask_user') {
         final arguments = _decodeArguments(item['arguments']);
         final identity = 'saved:${message.id}:$callId';
-        final prompt = item['native'] != null
+        final prompt = _carriesAgentRequest(item)
             ? _parseAgentQuestions(arguments, identity: identity)
             : parseOpenWebUiAskUserPrompt(arguments, identity: identity);
         if (prompt == null) continue;

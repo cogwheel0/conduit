@@ -218,6 +218,37 @@ void main() {
       check(pending).isNull();
     });
 
+    // Open WebUI 0.13.4 saves the agent's request as `provider_data`, and
+    // still reads `native` on messages saved before.
+    test('an agent\'s request saved as provider_data is one', () {
+      final saved = {
+        ...request('ask_user', {
+          'questions': [
+            {'id': 'value', 'question': 'Enter a response'},
+          ],
+        }),
+        'provider_data': const {'request_id': 'r1'},
+      }..remove('native');
+
+      check(isOpenWebUiAgentRequest([saved], 'approval_1')).isTrue();
+      check(
+        isOpenWebUiAgentRequest([
+          request('agent_tool', const {}),
+        ], 'approval_1'),
+      ).isTrue();
+      check(
+        isOpenWebUiAgentRequest([
+          {...saved}..remove('provider_data'),
+        ], 'approval_1'),
+      ).isFalse();
+
+      final pending = findPendingOpenWebUiToolPrompt([
+        _assistant('assistant', [saved]),
+      ]);
+      check(pending).isNotNull();
+      check(pending!.prompt.questions.single.id).equals('value');
+    });
+
     test('a request the server already handed its answer is not asked '
         'again', () {
       check(
