@@ -491,6 +491,10 @@ typedef _ServerMessageSnapshot = ({
   List<String> followUps,
   bool isDone,
   String? errorContent,
+
+  /// The failed relay to one of the user's devices the saved error records,
+  /// if it records one.
+  TetherRelayFailure? errorRelay,
 });
 
 class _AssistantServerPatch {
@@ -542,6 +546,7 @@ Future<void> _handleReconnectRecovery({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
   })
   applyServerContent,
   required void Function() syncImages,
@@ -574,6 +579,7 @@ Future<void> _handleReconnectRecovery({
         source: 'Reconnect recovery',
         output: result.output,
         errorContent: result.errorContent,
+        errorRelay: result.errorRelay,
       );
       if (applied) {
         syncImages();
@@ -695,10 +701,14 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// Tether, as the request recorded when it was sent.
   bool viaTether = false,
 }) {
-  // A failure is read here, once, and the answer keeps what it was.
-  ChatMessageError answerError(String? content) => ChatMessageError(
+  // A failure is read here, once, and the answer keeps what it was. A saved
+  // error that already records its relay keeps that.
+  ChatMessageError answerError(
+    String? content, {
+    TetherRelayFailure? recorded,
+  }) => ChatMessageError(
     content: content,
-    relay: tetherRelayFailureOf(content, viaTether: viaTether),
+    relay: recorded ?? tetherRelayFailureOf(content, viaTether: viaTether),
   );
 
   // Track if streaming has been finished to avoid duplicate cleanup
@@ -2148,6 +2158,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final followUpsRaw = serverMsg['followUps'] ?? serverMsg['follow_ups'];
       final followUps = _parseFollowUpsField(followUpsRaw);
       final errorContent = extractServerErrorContent(serverMsg['error']);
+      final rawError = serverMsg['error'];
+      final errorRelay = rawError is Map
+          ? tetherRelayFailureFromJson(rawError[kTetherRelayErrorKey])
+          : null;
 
       // Check completion status
       final isDone =
@@ -2163,6 +2177,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: followUps,
         isDone: isDone,
         errorContent: errorContent,
+        errorRelay: errorRelay,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2220,6 +2235,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: const <String>[],
         isDone: true,
         errorContent: TemporaryChatUnavailable.userMessage,
+        errorRelay: null,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2267,6 +2283,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       followUps: const <String>[],
       isDone: lost,
       errorContent: lost ? TemporaryChatResume.connectionLostMessage : null,
+      errorRelay: null,
     );
   }
 
@@ -2359,6 +2376,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
   }) {
     if (isObsoleteStream) {
       return false;
@@ -2466,7 +2484,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             mergeMetadata: true,
             error: errorContent == null
                 ? null
-                : answerError(errorContent.isNotEmpty ? errorContent : null),
+                : answerError(
+                    errorContent.isNotEmpty ? errorContent : null,
+                    recorded: errorRelay,
+                  ),
           ),
         ) ||
         applied;
@@ -2736,6 +2757,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           source: source,
           output: result.output,
           errorContent: result.errorContent,
+          errorRelay: result.errorRelay,
         );
         if (applied) {
           syncImages();
@@ -3460,6 +3482,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 source: 'done recovery',
                 output: result.output,
                 errorContent: result.errorContent,
+                errorRelay: result.errorRelay,
               );
             }
             await refreshConversationSnapshot();
@@ -4541,6 +4564,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     source: 'httpStream premature-end recovery',
                     output: result.output,
                     errorContent: result.errorContent,
+                    errorRelay: result.errorRelay,
                   );
                   if (applied) {
                     syncImages();

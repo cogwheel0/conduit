@@ -1355,8 +1355,10 @@ void main() {
 
           await check(send(adapter)).throws<ChatCompletionHttpException>(
             (it) => it
-              ..has((e) => e.relay, 'relay')
-                  .equals(TetherRelayFailure.interrupted)
+              ..has(
+                (e) => e.relay,
+                'relay',
+              ).equals(TetherRelayFailure.interrupted)
               ..has((e) => e.mayPassLater, 'mayPassLater').isFalse(),
           );
         });

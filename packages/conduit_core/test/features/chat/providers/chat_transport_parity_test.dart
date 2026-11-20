@@ -347,6 +347,7 @@ ActiveChatStream _attach({
   String? activeConversationId = 'conv-1',
   SocketService? socketService,
   void Function(String? chatId, bool active)? onChatActiveChanged,
+  bool viaTether = false,
 }) {
   return attachUnifiedChunkedStreaming(
     session: session,
@@ -373,6 +374,7 @@ ActiveChatStream _attach({
     getMessages: log.getMessages,
     getVisibleStreamingContent: () => null,
     flushStreamingBuffer: log.flushStreamingBuffer,
+    viaTether: viaTether,
   );
 }
 
@@ -613,6 +615,53 @@ void main() {
       check(isHeldReplyUnresolvedError(reply.error?.content)).isTrue();
       check(log.finishCount).equals(1);
       check(requests.paths).not((it) => it.contains('/api/chat/completions'));
+    });
+
+    test('an answer read back after its stream ends keeps the relay its '
+        'saved error records', () async {
+      // A device's answer, whose stream ended early; the error saved with it
+      // records how its relay failed.
+      final log = _CallbackLog();
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          byteStream: const Stream<List<int>>.empty(),
+          abort: () async {},
+        ),
+        log: log,
+        api: _buildFakeApi(
+          pollResponse: {
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'messages': {
+                  'msg-1': {
+                    'id': 'msg-1',
+                    'role': 'assistant',
+                    'content': '',
+                    'done': true,
+                    'error': {
+                      'content': 'Open WebUI: Server Connection Error',
+                      'tetherRelay': 'busy',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ),
+        viaTether: true,
+      );
+
+      await pumpEventQueue();
+
+      check(log.messages.single.error).isNotNull()
+        ..has(
+          (it) => it.content,
+          'content',
+        ).equals('Open WebUI: Server Connection Error')
+        ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.busy);
     });
 
     test('taskSocket completion calls chatCompleted exactly once', () async {
