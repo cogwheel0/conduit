@@ -29,11 +29,25 @@ enum ReconcileReason {
 const int kReconcileMinIntervalSeconds = 86400;
 
 /// Safety valve (§7.5): if more than this fraction of the local server-keyed
-/// chats come back as reconcile candidates, abort the whole run rather than
-/// risk a mass purge from a server returning 401 for everything (e.g. a
-/// token-expiry storm slipping past the auth gate). A genuine bulk
-/// server-delete still reconciles on a later run once the set is smaller.
+/// chats come back as reconcile candidates, a sample of them is probed first
+/// (see [reconcileValveSample]). The run purges only when every sampled probe
+/// confirms its candidate gone, so a server that answers 401 for everything
+/// (e.g. a token-expiry storm slipping past the auth gate) purges nothing,
+/// while a genuine bulk delete on the server still reconciles.
 const double kReconcileMaxPurgeFraction = 0.5;
+
+/// How many candidates a run probes before it purges a candidate set that
+/// trips the safety valve.
+const int kReconcileValveSampleSize = 5;
+
+/// Up to [kReconcileValveSampleSize] of [candidates], spread evenly across
+/// the list.
+List<String> reconcileValveSample(List<String> candidates) {
+  final count = math.min(candidates.length, kReconcileValveSampleSize);
+  return [
+    for (var i = 0; i < count; i++) candidates[i * candidates.length ~/ count],
+  ];
+}
 
 /// Absolute floor below which the fraction valve NEVER trips: a high candidate
 /// fraction is only implausible when the candidate COUNT is also meaningful.
@@ -67,8 +81,9 @@ class ReconcileResult {
   /// (transient) — left untouched this run.
   final int skipped;
 
-  /// Safety valve or session-liveness guard tripped. Depending on when the
-  /// guard tripped, some earlier confirmed-gone candidates may have purged.
+  /// A sampled safety-valve probe or the session-liveness guard stopped the
+  /// run. Depending on when the guard tripped, some earlier confirmed-gone
+  /// candidates may have purged.
   final bool aborted;
 }
 
@@ -181,34 +196,7 @@ class DeletionReconcile {
       return const ReconcileResult(ran: true);
     }
 
-    // 3. Safety valve against a token-expiry mass-delete: if an implausibly
-    //    LARGE candidate set appears (both above an absolute floor AND a large
-    //    fraction), abort without purging. The floor keeps a legitimate
-    //    small-library deletion (e.g. a user's only chat) from being mistaken
-    //    for a mass-delete and blocked forever.
-    if (candidates.length >
-        math.max(
-          kReconcileMinCandidatesForValve,
-          localServerChats.length * kReconcileMaxPurgeFraction,
-        )) {
-      DebugLogger.warning(
-        'reconcile-aborted-safety-valve',
-        scope: 'sync/reconcile',
-        data: {
-          'candidates': candidates.length,
-          'local': localServerChats.length,
-        },
-      );
-      // Do NOT advance the throttle: this is an abnormal condition that should
-      // be retried, not suppressed for 24h.
-      return ReconcileResult(
-        ran: true,
-        candidates: candidates.length,
-        aborted: true,
-      );
-    }
-
-    // 4. Verify the session once before the purge phase, then probe + purge
+    // 3. Verify the session once before the purge phase, then probe + purge
     //    each candidate under its chat lock. If a probe observes an auth /
     //    terminal failure after the preflight check, stop trusting absence for
     //    the rest of the run and leave the throttle untouched.
@@ -242,6 +230,27 @@ class DeletionReconcile {
         aborted: true,
       );
     }
+
+    // 4. Safety valve against a token-expiry mass-delete: an implausibly
+    //    LARGE candidate set (both above an absolute floor AND a large
+    //    fraction) purges only after a sample of it is confirmed gone. The
+    //    floor keeps a small-library deletion (e.g. a user's only chat) off
+    //    this path.
+    if (candidates.length >
+            math.max(
+              kReconcileMinCandidatesForValve,
+              localServerChats.length * kReconcileMaxPurgeFraction,
+            ) &&
+        !await _sampleConfirmsGone(candidates, localServerChats.length)) {
+      // Do NOT advance the throttle: this is an abnormal condition that should
+      // be retried, not suppressed for 24h.
+      return ReconcileResult(
+        ran: true,
+        candidates: candidates.length,
+        aborted: true,
+      );
+    }
+
     for (final id in candidates) {
       if (sessionDead) {
         skipped++;
@@ -325,6 +334,33 @@ class DeletionReconcile {
       purged: purged,
       skipped: skipped,
     );
+  }
+
+  /// Whether every probe in [reconcileValveSample] of [candidates] reports
+  /// its chat gone. A chat that still exists or any probe failure, an auth
+  /// 401 or 403 included, means no.
+  Future<bool> _sampleConfirmsGone(List<String> candidates, int local) async {
+    for (final id in reconcileValveSample(candidates)) {
+      Object probe;
+      try {
+        if (!await _client.probeChatExists(id)) continue;
+        probe = 'exists';
+      } catch (error) {
+        probe = _probeStatusCode(error) ?? error.runtimeType.toString();
+      }
+      DebugLogger.warning(
+        'reconcile-aborted-safety-valve',
+        scope: 'sync/reconcile',
+        data: {
+          'candidates': candidates.length,
+          'local': local,
+          'chatId': id,
+          'probe': probe,
+        },
+      );
+      return false;
+    }
+    return true;
   }
 
   /// Pages BOTH the main and archived lists to exhaustion (page until a page
