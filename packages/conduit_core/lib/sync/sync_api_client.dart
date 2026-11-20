@@ -20,10 +20,18 @@ part 'sync_api_client.g.dart';
 /// 404 is NOT modeled as terminal here: for delete it means already-gone
 /// (success), for update it is handled inline (Phase 2: log + done).
 class SyncTerminalException implements Exception {
-  const SyncTerminalException({this.statusCode, required this.message});
+  const SyncTerminalException({
+    this.statusCode,
+    required this.message,
+    this.mayRecover = false,
+  });
 
   final int? statusCode;
   final String message;
+
+  /// Whether the check behind the refusal could not tell, so the drainer asks
+  /// about its parked op again, a few times with backoff.
+  final bool mayRecover;
 
   @override
   String toString() => 'SyncTerminalException($statusCode): $message';
@@ -396,6 +404,7 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
           throw SyncTerminalException(
             statusCode: code,
             message: 'deleteChatMessages forbidden',
+            mayRecover: ownership == ChatOwnership.unknown,
           );
         }
         rethrow;

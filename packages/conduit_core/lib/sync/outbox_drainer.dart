@@ -175,9 +175,11 @@ class OutboxDrainer {
   }
 
   /// Asks each adapter that can ([ParkedOpRecovery]) to re-arm its parked ops
-  /// that can go again. Runs before a drainer's first claim, and whenever the
-  /// connection returns. When one could not tell, or failed, it runs again on
-  /// a later drain after a backoff, at most [kParkedRecheckLimit] times.
+  /// that can go again. Runs before a drainer's first claim, whenever the
+  /// connection returns, and on a later drain after a worker parks an op on a
+  /// check that could not tell. When one could not tell, or failed, it runs
+  /// again on a later drain after a backoff, at most [kParkedRecheckLimit]
+  /// times.
   Future<void> _rearmRecoverableParked() async {
     var undecided = false;
     for (final adapter in _adapters) {
@@ -202,15 +204,27 @@ class OutboxDrainer {
       _parkedRechecks = 0;
       _parkedRecheckAt = null;
     } else if (_parkedRechecks < kParkedRecheckLimit) {
-      final delayMs = _backoff.delayMsForAttempt(_parkedRechecks);
-      _parkedRechecks++;
-      // At least a second: the drain that follows a re-arm never repeats it.
-      final delaySeconds = (delayMs / 1000).ceil();
-      _parkedRecheckAt =
-          _clock.nowEpochSeconds() + (delaySeconds < 1 ? 1 : delaySeconds);
+      _scheduleParkedRecheck();
     } else {
       _parkedRecheckAt = null;
     }
+  }
+
+  /// An op a worker parked on a check that could not tell
+  /// ([SyncTerminalException.mayRecover]) starts the rechecks afresh, keeping
+  /// one already due.
+  void _startParkedRechecks() {
+    _parkedRechecks = 0;
+    if (_parkedRecheckAt == null) _scheduleParkedRecheck();
+  }
+
+  void _scheduleParkedRecheck() {
+    final delayMs = _backoff.delayMsForAttempt(_parkedRechecks);
+    _parkedRechecks++;
+    // At least a second: the drain that follows a re-arm never repeats it.
+    final delaySeconds = (delayMs / 1000).ceil();
+    _parkedRecheckAt =
+        _clock.nowEpochSeconds() + (delaySeconds < 1 ? 1 : delaySeconds);
   }
 
   Future<void> _runPass() async {
@@ -419,6 +433,9 @@ class OutboxDrainer {
     final terminalStatus = _isTerminal(error);
     if (terminalStatus != null) {
       await _handleTerminal(op, kind, terminalStatus, message);
+      if (error is SyncTerminalException && error.mayRecover) {
+        _startParkedRechecks();
+      }
       return;
     }
 

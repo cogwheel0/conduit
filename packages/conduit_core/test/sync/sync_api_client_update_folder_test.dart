@@ -378,6 +378,70 @@ void main() {
       check((await db.outboxDao.opBySeq(seq))?.status)
           .equals(OutboxStatus.failed);
     });
+
+    test('parked mid-drain, goes again once a check can tell', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final refusing = _heldChatServer(sessionStatus: 200, owner: 'user-1');
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      var healthy = false;
+      final server = _RoutedAdapter(
+        (method, path) => healthy
+            ? owned.answer(method, path)
+            : path == '/api/v1/chats/c1'
+            ? throw _timeout(path)
+            : refusing.answer(method, path),
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _pendingDelete(db);
+
+      await drainer.drain();
+      check((await db.outboxDao.opBySeq(seq))?.status)
+          .equals(OutboxStatus.failed);
+      healthy = true;
+      clock.now += _pastAnyBackoff;
+      await drainer.drain();
+
+      check(server.requests.where((r) => r == _deleteA1)).length.equals(2);
+      check((await db.outboxDao.opBySeq(seq))?.status).isNull();
+    });
+
+    test("parked mid-drain as another account's isn't asked again", () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final server = _heldChatServer(sessionStatus: 200, owner: 'user-2');
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _pendingDelete(db);
+
+      await drainer.drain();
+      clock.now += _pastAnyBackoff;
+      await drainer.drain();
+
+      check(server.requests.where((r) => r == 'GET /api/v1/chats/c1')).length
+          .equals(1);
+      check((await db.outboxDao.opBySeq(seq))?.status)
+          .equals(OutboxStatus.failed);
+    });
   });
 
   group('getFolderById', () {
@@ -596,15 +660,18 @@ OutboxDrainer _chatDrainer(
   );
 }
 
+/// The delete of message `a1` of chat `c1`, waiting to go.
+Future<int> _pendingDelete(AppDatabase db) => db.outboxDao.enqueue(
+  kind: OutboxKind.deleteMessages,
+  chatId: 'c1',
+  payload: {
+    kDeleteMessagesIdsKey: ['a1'],
+  },
+);
+
 /// The delete of message `a1` of chat `c1`, parked on a refusal.
 Future<int> _parkedDelete(AppDatabase db) async {
-  final seq = await db.outboxDao.enqueue(
-    kind: OutboxKind.deleteMessages,
-    chatId: 'c1',
-    payload: {
-      kDeleteMessagesIdsKey: ['a1'],
-    },
-  );
+  final seq = await _pendingDelete(db);
   await db.outboxDao.markParked(seq, error: 'forbidden');
   return seq;
 }
