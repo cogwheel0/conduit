@@ -1914,6 +1914,7 @@ class MediaUploadController {
     }
     final source = await _inlineImageSource(
       filePath,
+      fileName: fileName,
       budget: kDirectMaxDecodedImageBytes - otherImageBytes,
       inflight: inflight,
     );
@@ -2235,6 +2236,7 @@ class MediaUploadController {
     }
     final source = await _inlineImageSource(
       filePath,
+      fileName: fileName,
       budget: kHermesMaxDecodedImageBytes - otherImageBytes,
       inflight: inflight,
     );
@@ -2335,20 +2337,22 @@ class MediaUploadController {
     }
   }
 
-  /// The file [filePath] goes inline from, with [budget] bytes of the
-  /// message's images left for it: itself when it fits, else a JPEG of it
-  /// when that fits, else null. Hermes and Direct measure an image before
-  /// encoding it, and a PNG is kept as picked, so a large screenshot meets
-  /// their limit here. The caller removes a JPEG made here once it is
-  /// encoded.
+  /// The file [filePath], the image named [fileName], goes inline from,
+  /// with [budget] bytes of the message's images left for it: itself when it
+  /// fits, else a JPEG of it when [convertsImageToFit] allows one and it
+  /// fits, else null. Hermes and Direct measure an image before encoding it,
+  /// and a PNG is kept as picked, so a large screenshot meets their limit
+  /// here. The caller removes a JPEG made here once it is encoded.
   Future<String?> _inlineImageSource(
     String filePath, {
+    required String fileName,
     required int budget,
     required _InflightUpload inflight,
   }) async {
     final sourceBytes = await File(filePath).length();
     _throwIfOperationNotActive(filePath, inflight);
     if (sourceBytes <= budget) return filePath;
+    if (!convertsImageToFit(fileName)) return null;
     final converted = await _ref.read(imageUploadConverterProvider)(filePath);
     if (converted == null) return null;
     var fits = false;

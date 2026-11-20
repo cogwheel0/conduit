@@ -60,6 +60,18 @@ bool convertsImageForUpload(String fileName, int sizeBytes) {
       sizeBytes > 500 * 1024;
 }
 
+/// Whether an image named [fileName], too large for where it is going, may
+/// go as a JPEG of it instead: a PNG or a JPEG, or a format converted anyway.
+/// A GIF or a WebP is refused, as a JPEG would lose its animation or its
+/// transparency.
+bool convertsImageToFit(String fileName) {
+  final extension = path.extension(fileName).toLowerCase();
+  return extension == '.png' ||
+      extension == '.jpg' ||
+      extension == '.jpeg' ||
+      alwaysConvertImageFormats.contains(extension);
+}
+
 /// Whether the JPEG made for [fileName] is sent in place of the original:
 /// always for a format models cannot read, otherwise only when it is smaller.
 bool keepsConvertedImage(

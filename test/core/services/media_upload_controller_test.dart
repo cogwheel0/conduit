@@ -3718,6 +3718,50 @@ void main() {
       },
     );
 
+    // As a JPEG, a GIF would lose its animation and a WebP its
+    // transparency, so one over the limit is refused instead.
+    for (final name in ['animation.gif', 'sticker.webp']) {
+      test('$name over the limit is refused, not made a JPEG', () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_media_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final image = File('${directory.path}/$name');
+        await _truncate(image, kHermesMaxDecodedImageBytes + 1);
+        var conversions = 0;
+        var encodeCalls = 0;
+        final container = await _hermesContainer(
+          capabilities: const HermesCapabilities(inputImages: true),
+          attachments: [_pendingImage(image, reportedBytes: 1)],
+          converter: (filePath) async {
+            conversions++;
+            return null;
+          },
+          encoder: (file) async {
+            encodeCalls++;
+            return 'data:image/jpeg;base64,AQID';
+          },
+        );
+        addTearDown(container.dispose);
+
+        await expectLater(
+          container
+              .read(mediaUploadControllerProvider)
+              .upload(filePath: image.path, fileName: name, fileSize: 1),
+          throwsA(
+            isA<HermesChatInputException>().having(
+              (error) => error.message,
+              'message',
+              'Hermes images must be 6 MB or less in total.',
+            ),
+          ),
+        );
+
+        expect(conversions, 0);
+        expect(encodeCalls, 0);
+      });
+    }
+
     test('aggregate image size uses local file stats', () async {
       final directory = await Directory.systemTemp.createTemp(
         'conduit_hermes_media_',
