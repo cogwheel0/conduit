@@ -597,19 +597,24 @@ void main() {
     expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
-  testWidgets('a load cut short by scrolling away is not asked for again', (
+  testWidgets('a load cut short by scrolling away goes on only to be kept', (
     tester,
   ) async {
     final api = _ServingApi()..hold = Completer<void>();
     final webViews = _installWebViews();
-    Future<void> mount() async {
-      await tester.pumpWidget(_harness(api));
+    Future<void> mount({String? cacheId = 'message:tool-call'}) async {
+      await tester.pumpWidget(_harness(api, cacheId: cacheId));
       await tester.pump();
       await tester.pump();
     }
 
     Future<void> unmount() =>
         tester.pumpWidget(_harness(api, child: const SizedBox()));
+
+    // Outside a saved chat nothing keeps the page, so it stops with its row.
+    await mount(cacheId: null);
+    await unmount();
+    expect(api.requests.single.cancelToken!.isCancelled, isTrue);
 
     await mount();
     await unmount();
@@ -620,7 +625,11 @@ void main() {
     await tester.pump();
     await mount();
 
-    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
+    expect(api.requests.last.cancelToken!.isCancelled, isFalse);
     expect(webViews.built.single.initialData!.data, contains('<p>app</p>'));
   });
 

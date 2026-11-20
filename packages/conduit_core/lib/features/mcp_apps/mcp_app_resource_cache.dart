@@ -117,13 +117,17 @@ class McpAppResourceCache {
   /// a row scrolled away mid-load does not ask again when it comes back;
   /// only [dispose] cancels it. A failure is remembered until [remove], so a
   /// failed app is not asked for again each time its row mounts. Without a
-  /// [key] nothing is shared or kept.
+  /// [key] nothing is shared or kept, and the request is its caller's alone:
+  /// [cancelToken] stops it.
   Future<McpAppCacheEntry> load(
     String? key, {
     required double height,
     required McpAppResourceFetch fetch,
+    CancelToken? cancelToken,
   }) async {
-    if (key == null) return (resource: await _fetch(fetch), height: height);
+    if (key == null) {
+      return (resource: await _fetch(fetch, cancelToken), height: height);
+    }
     await ready;
     if (_use(key) case final entry?) return entry;
     if (_failures[key] case final failure?) throw failure;
@@ -153,8 +157,11 @@ class McpAppResourceCache {
     }
   }
 
-  Future<OpenWebUiMcpAppResource> _fetch(McpAppResourceFetch fetch) async {
-    final token = CancelToken();
+  Future<OpenWebUiMcpAppResource> _fetch(
+    McpAppResourceFetch fetch, [
+    CancelToken? cancelToken,
+  ]) async {
+    final token = cancelToken ?? CancelToken();
     _tokens.add(token);
     try {
       while (true) {

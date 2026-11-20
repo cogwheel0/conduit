@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -64,6 +65,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   /// The current open; a load that finishes for an earlier one is dropped.
   Object? _attempt;
+
+  /// A load no cache keeps, which stops with this row.
+  CancelToken? _uncachedLoad;
   Timer? _startTimer;
   late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
@@ -171,6 +175,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   void _stop() {
     _startTimer?.cancel();
     _attempt = null;
+    _uncachedLoad?.cancel('closed');
+    _uncachedLoad = null;
     final host = _host;
     _host = null;
     host?.teardown();
@@ -224,6 +230,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       final loaded = await cache.load(
         key,
         height: _initialHeight,
+        cancelToken: key == null ? _uncachedLoad = CancelToken() : null,
         fetch: (client, token) async => OpenWebUiMcpAppResource.fromJson(
           await client.runMcpAppRequest(
             app,
