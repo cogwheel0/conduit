@@ -33,6 +33,11 @@ abstract class ModelSummary with _$ModelSummary {
     /// and later), listed under [ModelList.agents]; null for every other
     /// model. Its [name] is the picker's ("Codex · gpt-5.1").
     TerminalAgentDto? agent,
+
+    /// Where a model one of the user's own devices offers through Tether
+    /// comes from, as Open WebUI names it (`<device> · <connection>`); null
+    /// for every other model.
+    String? device,
   }) = _ModelSummary;
 
   factory ModelSummary.fromJson(Map<String, dynamic> json) =>

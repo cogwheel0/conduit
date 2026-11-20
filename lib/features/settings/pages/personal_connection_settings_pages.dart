@@ -132,7 +132,8 @@ NativeSheetDetailConfig buildPersonalConnectionsPage(
   const pageId = personalConnectionsPageId;
   const key = personalConnectionsListKey;
   final block = state.block;
-  if (!state.advanced || block != null) {
+  final moved = block == PersonalConnectionsBlock.movedToTether;
+  if (!state.advanced || (block != null && !moved)) {
     return NativeSheetDetailConfig(
       id: pageId,
       title: l10n.personalConnectionsTitle,
@@ -171,6 +172,7 @@ NativeSheetDetailConfig buildPersonalConnectionsPage(
       ],
     );
   }
+  if (moved) return _movedPage(l10n, snapshot);
   NativeSheetSectionConfig section(
     PersonalConnectionKind kind, {
     required String title,
@@ -254,6 +256,66 @@ NativeSheetDetailConfig buildPersonalConnectionsPage(
   );
 }
 
+/// The page on a server that moved personal connections to Tether: why
+/// they no longer apply, and the saved ones as they are, to read only.
+NativeSheetDetailConfig _movedPage(
+  AppLocalizations l10n,
+  PersonalConnectionsSnapshot snapshot,
+) {
+  const pageId = personalConnectionsPageId;
+  final saved = snapshot.toolServers.isNotEmpty || snapshot.terminals.isNotEmpty;
+  NativeSheetSectionConfig? section(PersonalConnectionKind kind, String title) {
+    final entries = snapshot.entriesOf(kind);
+    if (entries.isEmpty) return null;
+    return NativeSheetSectionConfig(
+      title: title,
+      items: [
+        for (final entry in entries)
+          _note(
+            personalConnectionRowId(
+              'saved',
+              personalConnectionEditorKey(kind, entry.identity),
+            ),
+            entry.displayName,
+            kind == PersonalConnectionKind.toolServer
+                ? 'wrench.and.screwdriver'
+                : 'terminal',
+            _entrySubtitle(l10n, entry, entry.enabled),
+          ),
+      ],
+    );
+  }
+
+  return NativeSheetDetailConfig(
+    id: pageId,
+    title: l10n.personalConnectionsTitle,
+    sections: [
+      NativeSheetSectionConfig(
+        footer: saved ? l10n.personalConnectionsSavedListUnused : null,
+        items: [
+          _note('$pageId-moved', l10n.personalConnectionsMovedToTether),
+        ],
+      ),
+      ?section(PersonalConnectionKind.toolServer, l10n.toolServers),
+      ?section(
+        PersonalConnectionKind.terminal,
+        l10n.personalConnectionsTerminals,
+      ),
+    ],
+  );
+}
+
+String _entrySubtitle(
+  AppLocalizations l10n,
+  PersonalConnectionEntry entry,
+  bool enabled,
+) => [
+  entry.editable
+      ? personalConnectionPublicEndpoint(entry.url)
+      : l10n.personalConnectionsUnsupported,
+  if (!enabled) l10n.disabled,
+].join('\n');
+
 NativeSheetItemConfig _entryRow(
   AppLocalizations l10n,
   PersonalConnectionsListState state,
@@ -265,12 +327,7 @@ NativeSheetItemConfig _entryRow(
   return NativeSheetItemConfig(
     id: personalConnectionEditorPageId(entry.kind, entry.identity),
     title: entry.displayName,
-    subtitle: [
-      entry.editable
-          ? personalConnectionPublicEndpoint(entry.url)
-          : l10n.personalConnectionsUnsupported,
-      if (!enabled) l10n.disabled,
-    ].join('\n'),
+    subtitle: _entrySubtitle(l10n, entry, enabled),
     sfSymbol: entry.kind == PersonalConnectionKind.toolServer
         ? 'wrench.and.screwdriver'
         : 'terminal',
@@ -979,6 +1036,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     void redraw(Object? _, Object? _) => _queueRedraw();
     _following.addAll([
       _ref.listen(personalConnectionsProvider, redraw),
+      _ref.listen(movedPersonalConnectionsProvider, redraw),
       _ref.listen(personalConnectionsAccessProvider, redraw),
       _ref.listen(personalConnectionsSessionProvider, redraw),
       _ref.listen(personalSelectionNoticeProvider, redraw),
@@ -1015,11 +1073,15 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
   }
 
   Future<void> _applyList(AppLocalizations l10n) async {
-    final connections = _ref.read(personalConnectionsProvider);
+    final block = _ref.read(personalConnectionsAccessProvider).block;
+    final moved = block == PersonalConnectionsBlock.movedToTether;
+    final connections = moved
+        ? _ref.read(movedPersonalConnectionsProvider)
+        : _ref.read(personalConnectionsProvider);
     final snapshot = connections.asData?.value;
     final state = PersonalConnectionsListState(
       advanced: _ref.read(appSettingsProvider).advancedFeaturesEnabled,
-      block: _ref.read(personalConnectionsAccessProvider).block,
+      block: block,
       snapshot: snapshot,
       loading: connections.isLoading,
       failed: connections.hasError && snapshot == null,
@@ -1029,26 +1091,29 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       notice: _notice,
       noticeIsError: _noticeIsError,
     );
-    _drawnFor = snapshot?.session;
+    // A list to read only has no switches to act for anyone.
+    _drawnFor = moved ? null : snapshot?.session;
     await _surface.applyDetail(
       buildPersonalConnectionsPage(l10n, state),
       detailSheets: [
-        for (final kind in PersonalConnectionKind.values) ...[
-          for (final entry
-              in snapshot?.entriesOf(kind) ?? const <PersonalConnectionEntry>[])
+        if (!moved)
+          for (final kind in PersonalConnectionKind.values) ...[
+            for (final entry
+                in snapshot?.entriesOf(kind) ??
+                    const <PersonalConnectionEntry>[])
+              buildNativeLoadingDetail(
+                l10n: l10n,
+                id: personalConnectionEditorPageId(kind, entry.identity),
+                title: entry.displayName,
+              ),
             buildNativeLoadingDetail(
               l10n: l10n,
-              id: personalConnectionEditorPageId(kind, entry.identity),
-              title: entry.displayName,
+              id: personalConnectionEditorPageId(kind, null),
+              title: kind == PersonalConnectionKind.toolServer
+                  ? l10n.personalConnectionsAddToolServer
+                  : l10n.personalConnectionsAddTerminal,
             ),
-          buildNativeLoadingDetail(
-            l10n: l10n,
-            id: personalConnectionEditorPageId(kind, null),
-            title: kind == PersonalConnectionKind.toolServer
-                ? l10n.personalConnectionsAddToolServer
-                : l10n.personalConnectionsAddTerminal,
-          ),
-        ],
+          ],
       ],
     );
   }
@@ -1362,7 +1427,9 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     if (key == personalConnectionsListKey) {
       switch (field) {
         case 'retry':
-          _ref.invalidate(personalConnectionsProvider);
+          _ref
+            ..invalidate(personalConnectionsProvider)
+            ..invalidate(movedPersonalConnectionsProvider);
         case 'cleared-ok':
           _ref.read(personalSelectionNoticeProvider.notifier).clear();
       }

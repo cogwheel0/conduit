@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -48,11 +49,21 @@ import 'package:conduit_core/services/worker_manager.dart';
 // Keep local verbosity toggle for socket logs
 const bool kSocketVerboseLogging = false;
 
-@visibleForTesting
-Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 2);
+/// How long a streaming chat's socket must stay quiet before the chat is
+/// polled for a missed `done`. Each poll that finds the reply still streaming
+/// doubles the wait, up to [_quietRecoveryMaxDelay]; any socket event for the
+/// reply starts the wait over.
+const Duration _quietRecoveryDelay = Duration(seconds: 10);
+const Duration _quietRecoveryMaxDelay = Duration(seconds: 60);
 
-@visibleForTesting
-int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
+/// How far apart recovery polls are, with no backoff, once the server has
+/// said the reply is over (a terminal `finish_reason`, or `chat:active`
+/// false) but `done` has not come.
+const Duration _endedRecoveryDelay = Duration(seconds: 2);
+
+/// How many polls in a row must find the same unfinished reply before an
+/// ended reply is finished from what it already shows.
+const int _stableNonTerminalRecoveryLimit = 3;
 
 final _plainContentUnescape = HtmlUnescape();
 
@@ -490,6 +501,13 @@ typedef _ServerMessageSnapshot = ({
   List<String> followUps,
   bool isDone,
   String? errorContent,
+
+  /// The failed relay to one of the user's devices the saved error records,
+  /// or else its code or words name.
+  TetherRelayFailure? errorRelay,
+
+  /// How many errors the stream had written when the read began.
+  int errorRevision,
 });
 
 class _AssistantServerPatch {
@@ -541,6 +559,8 @@ Future<void> _handleReconnectRecovery({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   })
   applyServerContent,
   required void Function() syncImages,
@@ -573,6 +593,8 @@ Future<void> _handleReconnectRecovery({
         source: 'Reconnect recovery',
         output: result.output,
         errorContent: result.errorContent,
+        errorRelay: result.errorRelay,
+        errorRevisionAtRead: result.errorRevision,
       );
       if (applied) {
         syncImages();
@@ -689,7 +711,30 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// the chat and the socket session, and adopting one would write a sibling's
   /// text into this answer.
   bool allowForeignMessageBinding = true,
+
+  /// Whether the answer's model is one of the user's devices offers through
+  /// Tether, as the request recorded when it was sent.
+  bool viaTether = false,
 }) {
+  // A failure is read here, once, and the answer keeps what it was. A saved
+  // error that already records its relay keeps that. [raw] is the error as
+  // it arrived, whose code may say what its words do not.
+  ChatMessageError answerError(
+    String? content, {
+    TetherRelayFailure? recorded,
+    Object? raw,
+  }) => ChatMessageError(
+    content: content,
+    relay:
+        recorded ??
+        tetherRelayFailureOf(raw, viaTether: viaTether) ??
+        tetherRelayFailureOf(content, viaTether: viaTether),
+  );
+
+  // Counts the errors this stream wrote. A read of the server's copy notes it
+  // when it starts, and touches the error only if no newer one came since.
+  var errorRevision = 0;
+
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
@@ -701,10 +746,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool localResourcesDisposed = false;
   bool backgroundExecutionStopped = false;
   bool normalCompletionReleaseInProgress = false;
-  Timer? terminalCompletionRecoveryTimer;
-  bool terminalRecoveryAllowContentOnlyTerminal = false;
-  bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
-  bool terminalRecoveryInferDoneFromMissingStreaming = false;
   Future<void>? chatCompletedSyncFuture;
   int stableNonTerminalTerminalRecoveryCount = 0;
   String? stableNonTerminalTerminalRecoverySignature;
@@ -876,6 +917,33 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool streamHasBeenSuperseded() {
     final currentTargetId = currentAssistantTargetId();
     return currentTargetId != null && currentTargetId != assistantMessageId;
+  }
+
+  /// Whether a socket event is about this reply: it names this chat or none,
+  /// this stream's session or none, and this message or none. The socket
+  /// service hands a handler any event that matches its session alone, so
+  /// each of the three is checked. Unlike [resolveTargetMessageIdForStream]
+  /// it never binds a message.
+  bool socketEventIsForThisReply(Map<String, dynamic> event) {
+    final chatId = activeConversationId;
+    final eventChatId =
+        extractEventChatId(event) ??
+        extractNestedEventId(event, 'channel_id', 'channelId');
+    if (eventChatId != null &&
+        eventChatId.isNotEmpty &&
+        chatId != null &&
+        chatId.isNotEmpty &&
+        eventChatId != chatId) {
+      return false;
+    }
+    if (!matchesCurrentStreamSession(extractEventSessionId(event))) {
+      return false;
+    }
+    final messageId = extractEventMessageId(event);
+    return messageId == null ||
+        messageId.isEmpty ||
+        messageId == assistantMessageId ||
+        messageId == boundRemoteMessageId;
   }
 
   String? resolveTargetMessageIdForStream(
@@ -1375,13 +1443,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   final hasSocketSignals = socketService != null;
-  late final void Function({
-    required String source,
-    bool allowContentOnlyTerminal,
-    bool allowStableNonTerminalLocalFallback,
-    bool inferDoneFromMissingStreaming,
-  })
-  scheduleTerminalCompletionRecovery;
+  late final _MissedDoneRecovery missedDoneRecovery;
+
+  // Only a task-socket stream waits on its socket for done.
+  void startMissedDoneRecovery() {
+    if (session.transport != ChatCompletionTransport.taskSocket ||
+        !(hasSocketSignals || socketSubscriptions.isNotEmpty)) {
+      return;
+    }
+    missedDoneRecovery.start();
+  }
 
   void resetTerminalCompletionRecoveryStability() {
     stableNonTerminalTerminalRecoveryCount = 0;
@@ -1671,7 +1742,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       applyAssistantServerPatch(
         targetId: targetId,
         buildPatch: (_) =>
-            _AssistantServerPatch(error: ChatMessageError(content: message)),
+            _AssistantServerPatch(error: answerError(message, raw: error)),
       );
     } else if (eventType == 'response.incomplete') {
       // Upstream contract (middleware.handle_responses_streaming_event): a
@@ -1781,7 +1852,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         applyAssistantServerPatch(
           targetId: assistantMessageId,
           buildPatch: (_) => _AssistantServerPatch(
-            error: ChatMessageError(content: error['message']?.toString()),
+            error: answerError(error['message']?.toString(), raw: error),
           ),
         );
 
@@ -1804,12 +1875,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     );
     hasCompletedStreamingUi = true;
     resetTerminalCompletionRecoveryStability();
-    if (session.transport == ChatCompletionTransport.taskSocket &&
-        (hasSocketSignals || socketSubscriptions.isNotEmpty)) {
-      scheduleTerminalCompletionRecovery(
-        source: 'taskSocket terminal finish_reason recovery',
-      );
-    }
   }
 
   // Shared helper to poll server for message content with exponential backoff.
@@ -2075,10 +2140,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     int attempt = 0,
     int maxAttempts = 3,
     bool inferDoneFromMissingStreaming = true,
+    bool rethrowLastFailure = false,
+    bool Function()? isCurrent,
   }) async {
     if (isObsoleteStream) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     try {
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -2086,7 +2154,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
 
       final resp = await api.dio.get('/api/v1/chats/$chatId');
-      if (isObsoleteStream) {
+      // A poll something newer made stale must not bind the reply's server
+      // message either.
+      if (isObsoleteStream || !(isCurrent?.call() ?? true)) {
         return null;
       }
       final data = resp.data as Map<String, dynamic>?;
@@ -2138,6 +2208,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final followUpsRaw = serverMsg['followUps'] ?? serverMsg['follow_ups'];
       final followUps = _parseFollowUpsField(followUpsRaw);
       final errorContent = extractServerErrorContent(serverMsg['error']);
+      final rawError = serverMsg['error'];
+      // Read here, from the whole of the saved error: what reaches the
+      // answer is its words.
+      final errorRelay = errorContent == null
+          ? null
+          : answerError(
+              errorContent,
+              recorded: rawError is Map
+                  ? tetherRelayFailureFromJson(rawError[kTetherRelayErrorKey])
+                  : null,
+              raw: rawError,
+            ).relay;
 
       // Check completion status
       final isDone =
@@ -2153,6 +2235,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: followUps,
         isDone: isDone,
         errorContent: errorContent,
+        errorRelay: errorRelay,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2171,9 +2255,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           attempt: attempt + 1,
           maxAttempts: maxAttempts,
           inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
+          rethrowLastFailure: rethrowLastFailure,
+          isCurrent: isCurrent,
         );
       }
 
+      if (rethrowLastFailure) rethrow;
       return null;
     }
   }
@@ -2197,6 +2284,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream || hasFinished || !sessionIsCurrent()) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     final TemporaryChatResume? resumed;
     try {
       resumed = await api.resumeTemporaryChat(chatId, sessionId: sessionId);
@@ -2210,6 +2298,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: const <String>[],
         isDone: true,
         errorContent: TemporaryChatUnavailable.userMessage,
+        errorRelay: null,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2257,6 +2347,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       followUps: const <String>[],
       isDone: lost,
       errorContent: lost ? TemporaryChatResume.connectionLostMessage : null,
+      errorRelay: null,
+      errorRevision: errorRevisionAtRead,
     );
   }
 
@@ -2321,6 +2413,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               current.error == nextError) {
             return current;
           }
+          if (current.error != nextError) errorRevision++;
           applied = true;
           return current.copyWith(
             content: nextContent,
@@ -2349,6 +2442,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   }) {
     if (isObsoleteStream) {
       return false;
@@ -2368,7 +2463,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     var applied = false;
 
-    if (errorContent != null) {
+    // An error that arrived while the copy was read is newer than it.
+    final adoptsError =
+        errorContent != null && errorRevision == errorRevisionAtRead;
+    if (adoptsError) {
       DebugLogger.log(
         '$source: adopting server error',
         scope: 'streaming/helper',
@@ -2446,19 +2544,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     applied =
         applyAssistantServerPatch(
           targetId: assistantMessageId,
-          buildPatch: (_) => _AssistantServerPatch(
+          buildPatch: (current) => _AssistantServerPatch(
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
-            metadata: errorContent == null
-                ? null
-                : {'openwebuiRecoverableError': !isDone},
+            metadata: adoptsError
+                ? {'openwebuiRecoverableError': !isDone}
+                : null,
             mergeMetadata: true,
-            error: errorContent == null
-                ? null
-                : errorContent.isNotEmpty
-                ? ChatMessageError(content: errorContent)
-                : const ChatMessageError(content: null),
+            // The server saves an error's words, not its code: the same words
+            // keep the relay already recorded here.
+            error: adoptsError
+                ? answerError(
+                    errorContent.isNotEmpty ? errorContent : null,
+                    recorded:
+                        errorRelay ??
+                        (errorContent.isNotEmpty &&
+                                current.error?.content == errorContent
+                            ? current.error?.relay
+                            : null),
+                  )
+                : null,
           ),
         ) ||
         applied;
@@ -2495,6 +2601,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     refreshingSnapshot = true;
+    final errorRevisionAtRead = errorRevision;
     try {
       // The server save already happened via POST /api/chat/completed; the
       // pull persists the resulting blob locally (under the chat lock) and
@@ -2614,6 +2721,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 current.content,
                 assistant.content,
               );
+          // An error that arrived while the copy was read is newer than it.
+          final adoptsError =
+              recoverAuthoritativeState && errorRevision == errorRevisionAtRead;
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -2634,8 +2744,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             isStreaming: recoverAuthoritativeState
                 ? recoveredStreamingState
                 : null,
-            error: recoverAuthoritativeState ? assistant.error : null,
-            clearError: recoverAuthoritativeState && assistant.error == null,
+            // The saved copy carries no relay: its error is read here, and
+            // the same words keep the relay already recorded.
+            error: adoptsError && assistant.error != null
+                ? answerError(
+                    assistant.error!.content,
+                    recorded:
+                        assistant.error!.relay ??
+                        (current.error?.content == assistant.error!.content
+                            ? current.error?.relay
+                            : null),
+                  )
+                : null,
+            clearError: adoptsError && assistant.error == null,
           );
         },
       );
@@ -2694,116 +2815,84 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return true;
   }
 
-  Future<void> recoverTaskSocketTerminalState({
+  /// The parts of this reply a recovery poll compares to tell whether
+  /// anything moved since the last one.
+  String localRecoverySignature() {
+    final messages = getMessages();
+    if (messages.isEmpty || messages.last.role != 'assistant') return '';
+    final comparisonSnapshot = readLocalMessageComparisonSnapshot(
+      messages.last,
+    );
+    final last = comparisonSnapshot.message;
+    return [
+      comparisonSnapshot.comparisonContent.trim(),
+      last.error?.content?.trim() ?? '',
+      last.followUps.join('\u001f'),
+      '${last.files?.length ?? 0}/${last.output?.length ?? 0}/'
+          '${last.embeds?.length ?? 0}/${last.codeExecutions.length}/'
+          '${last.sources.length}',
+      last.usage?.toString() ?? '',
+    ].join('\u0001');
+  }
+
+  /// Applies what a recovery poll found ([result] is null when it failed or
+  /// found no message) and finishes the reply when that is allowed. Returns
+  /// whether recovery has nothing left to do: the reply is finished, or the
+  /// server says it is done.
+  ///
+  /// With [countStableSnapshots], polls that keep finding the same unfinished
+  /// reply are counted, and [allowStableNonTerminalLocalFallback] lets the
+  /// reply finish from local content once they reach the limit. With
+  /// [allowLocalContentFallback] it finishes from local content whatever the
+  /// poll found.
+  bool settleTerminalRecoverySnapshot(
+    _ServerMessageSnapshot? result, {
     required String source,
-    bool allowContentOnlyTerminal = false,
-    bool allowLocalContentFallbackAfterPollFailedOrMissing = false,
-    bool allowLocalContentFallbackAfterNonTerminalSnapshot = false,
-    bool allowStableNonTerminalLocalFallback = true,
-    bool inferDoneFromMissingStreaming = true,
-    bool retryWhenSnapshotStillStreaming = false,
-  }) async {
-    if (isObsoleteStream) {
-      return;
-    }
-    bool pollFailedOrMissing = true;
-    bool snapshotIndicatedDone = false;
-    bool allowStableNonTerminalLocalFinish = false;
-    try {
-      final result = await pollServerForMessage(
-        inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
+    required bool allowContentOnlyTerminal,
+    bool allowLocalContentFallback = false,
+    bool allowStableNonTerminalLocalFallback = false,
+    bool countStableSnapshots = false,
+  }) {
+    var snapshotIndicatedDone = false;
+    String? stabilitySignature;
+    if (result != null) {
+      snapshotIndicatedDone = result.isDone;
+      final applied = applyServerContent(
+        result.content,
+        result.followUps,
+        finishIfDone: true,
+        isDone: result.isDone,
+        source: source,
+        output: result.output,
+        errorContent: result.errorContent,
+        errorRelay: result.errorRelay,
+        errorRevisionAtRead: result.errorRevision,
       );
+      if (applied) {
+        syncImages();
+      }
       if (hasFinished || isObsoleteStream) {
-        return;
+        return true;
       }
-
-      if (result != null) {
-        pollFailedOrMissing = false;
-        snapshotIndicatedDone = result.isDone;
-        final applied = applyServerContent(
+      if (!result.isDone && countStableSnapshots) {
+        stabilitySignature = [
           result.content,
-          result.followUps,
-          finishIfDone: true,
-          isDone: result.isDone,
-          source: source,
-          output: result.output,
-          errorContent: result.errorContent,
-        );
-        if (applied) {
-          syncImages();
-        }
-        if (hasFinished || isObsoleteStream) {
-          return;
-        }
-        if (!result.isDone && retryWhenSnapshotStillStreaming) {
-          final messages = getMessages();
-          final stabilitySignature =
-              messages.isEmpty || messages.last.role != 'assistant'
-              ? [
-                  result.content,
-                  result.followUps.join('\u001f'),
-                  result.errorContent ?? '',
-                ].join('\u0001')
-              : () {
-                  final comparisonSnapshot = readLocalMessageComparisonSnapshot(
-                    messages.last,
-                  );
-                  final last = comparisonSnapshot.message;
-                  return [
-                    result.content,
-                    result.followUps.join('\u001f'),
-                    result.errorContent ?? '',
-                    comparisonSnapshot.comparisonContent.trim(),
-                    last.error?.content?.trim() ?? '',
-                    last.followUps.join('\u001f'),
-                    '${last.files?.length ?? 0}/${last.output?.length ?? 0}/'
-                        '${last.embeds?.length ?? 0}/${last.codeExecutions.length}/'
-                        '${last.sources.length}',
-                    last.usage?.toString() ?? '',
-                  ].join('\u0001');
-                }();
-          if (stabilitySignature ==
-              stableNonTerminalTerminalRecoverySignature) {
-            stableNonTerminalTerminalRecoveryCount += 1;
-          } else {
-            stableNonTerminalTerminalRecoverySignature = stabilitySignature;
-            stableNonTerminalTerminalRecoveryCount = 1;
-          }
-          allowStableNonTerminalLocalFinish =
-              allowStableNonTerminalLocalFallback &&
-              stableNonTerminalTerminalRecoveryCount >=
-                  debugTaskSocketStableNonTerminalRecoveryLimit;
-        } else {
-          resetTerminalCompletionRecoveryStability();
-        }
-      } else {
-        resetTerminalCompletionRecoveryStability();
+          result.followUps.join('\u001f'),
+          result.errorContent ?? '',
+          localRecoverySignature(),
+        ].join('\u0001');
       }
-    } catch (e) {
-      DebugLogger.log('$source failed: $e', scope: 'streaming/helper');
+    } else if (countStableSnapshots) {
+      stabilitySignature = [
+        'poll-missing',
+        localRecoverySignature(),
+      ].join('\u0001');
     }
 
-    if (pollFailedOrMissing && retryWhenSnapshotStillStreaming) {
-      final messages = getMessages();
-      final stabilitySignature =
-          messages.isEmpty || messages.last.role != 'assistant'
-          ? 'poll-missing'
-          : () {
-              final comparisonSnapshot = readLocalMessageComparisonSnapshot(
-                messages.last,
-              );
-              final last = comparisonSnapshot.message;
-              return [
-                'poll-missing',
-                comparisonSnapshot.comparisonContent.trim(),
-                last.error?.content?.trim() ?? '',
-                last.followUps.join('\u001f'),
-                '${last.files?.length ?? 0}/${last.output?.length ?? 0}/'
-                    '${last.embeds?.length ?? 0}/${last.codeExecutions.length}/'
-                    '${last.sources.length}',
-                last.usage?.toString() ?? '',
-              ].join('\u0001');
-            }();
+    var allowStableNonTerminalLocalFinish = false;
+    if (stabilitySignature == null) {
+      resetTerminalCompletionRecoveryStability();
+    } else {
       if (stabilitySignature == stableNonTerminalTerminalRecoverySignature) {
         stableNonTerminalTerminalRecoveryCount += 1;
       } else {
@@ -2813,16 +2902,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       allowStableNonTerminalLocalFinish =
           allowStableNonTerminalLocalFallback &&
           stableNonTerminalTerminalRecoveryCount >=
-              debugTaskSocketStableNonTerminalRecoveryLimit;
-    } else if (pollFailedOrMissing) {
-      resetTerminalCompletionRecoveryStability();
+              _stableNonTerminalRecoveryLimit;
     }
 
     final shouldAllowLocalContentFallback =
         allowContentOnlyTerminal &&
-        (allowLocalContentFallbackAfterPollFailedOrMissing ||
+        (allowLocalContentFallback ||
             snapshotIndicatedDone ||
-            allowLocalContentFallbackAfterNonTerminalSnapshot ||
             allowStableNonTerminalLocalFinish);
     if (finishFromLocalState(
       allowContentOnlyTerminal: shouldAllowLocalContentFallback,
@@ -2830,80 +2916,118 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           snapshotIndicatedDone || shouldAllowLocalContentFallback,
     )) {
       Future.microtask(refreshConversationSnapshot);
-      return;
+      return true;
     }
+    return hasFinished || isObsoleteStream || snapshotIndicatedDone;
+  }
 
-    if (!hasFinished &&
-        !isObsoleteStream &&
-        retryWhenSnapshotStillStreaming &&
-        !snapshotIndicatedDone &&
-        !shouldAllowLocalContentFallback) {
-      scheduleTerminalCompletionRecovery(
+  // `chat:active` false: the server's task for this chat is gone, so whatever
+  // the reply shows now is all of it. A task-socket stream makes this poll
+  // through its recovery controller instead.
+  Future<void> recoverAfterChatInactive() async {
+    const source = 'taskSocket inactive recovery';
+    try {
+      final result = await pollServerForMessage();
+      if (hasFinished || isObsoleteStream) return;
+      settleTerminalRecoverySnapshot(
+        result,
         source: source,
-        allowContentOnlyTerminal: allowContentOnlyTerminal,
-        allowStableNonTerminalLocalFallback:
-            allowStableNonTerminalLocalFallback,
-        inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
+        allowContentOnlyTerminal: true,
+        allowLocalContentFallback: true,
       );
+    } catch (e) {
+      DebugLogger.log('$source failed: $e', scope: 'streaming/helper');
     }
   }
 
-  scheduleTerminalCompletionRecovery =
-      ({
-        required String source,
-        bool allowContentOnlyTerminal = true,
-        bool allowStableNonTerminalLocalFallback = true,
-        bool inferDoneFromMissingStreaming = true,
-      }) {
-        if (hasFinished || isObsoleteStream) {
-          return;
-        }
-        terminalRecoveryAllowContentOnlyTerminal = allowContentOnlyTerminal;
-        terminalRecoveryAllowStableNonTerminalLocalFallback =
-            allowStableNonTerminalLocalFallback;
-        terminalRecoveryInferDoneFromMissingStreaming =
-            inferDoneFromMissingStreaming;
-        if (terminalCompletionRecoveryTimer != null) {
-          return;
-        }
+  // One poll for a missed done. Under the quiet policy only the server's own
+  // done finishes the reply; once the server has ended it, stable snapshots
+  // may finish it from what it shows, and after chat:active false whatever
+  // it shows does. A failed request is reported back to be tried again,
+  // except on the last attempt, which counts as a missed poll. Nothing is
+  // applied, or bound, once something newer made the poll stale.
+  Future<_RecoveryPollResult> pollForMissedDone(
+    _RecoveryPoll poll, {
+    required bool lastAttempt,
+    required bool Function() isCurrent,
+  }) async {
+    final source = switch (poll) {
+      _RecoveryPoll.quiet => 'taskSocket quiet-socket recovery',
+      _RecoveryPoll.ended => 'taskSocket ended-reply recovery',
+      _RecoveryPoll.chatInactive => 'taskSocket inactive recovery',
+    };
+    final ended = poll != _RecoveryPoll.quiet;
+    DebugLogger.log(
+      '$source: polling for a missed done',
+      scope: 'streaming/helper',
+    );
+    _ServerMessageSnapshot? result;
+    try {
+      result = await pollServerForMessage(
+        maxAttempts: 1,
+        inferDoneFromMissingStreaming: ended,
+        rethrowLastFailure: true,
+        isCurrent: isCurrent,
+      );
+    } catch (_) {
+      if (!lastAttempt) return _RecoveryPollResult.failed;
+    }
+    if (hasFinished || isObsoleteStream) return _RecoveryPollResult.finished;
+    if (!isCurrent()) return _RecoveryPollResult.stillStreaming;
+    final settled = poll == _RecoveryPoll.chatInactive
+        ? settleTerminalRecoverySnapshot(
+            result,
+            source: source,
+            allowContentOnlyTerminal: true,
+            allowLocalContentFallback: true,
+          )
+        : settleTerminalRecoverySnapshot(
+            result,
+            source: source,
+            allowContentOnlyTerminal: ended,
+            allowStableNonTerminalLocalFallback: ended,
+            countStableSnapshots: true,
+          );
+    return settled
+        ? _RecoveryPollResult.finished
+        : _RecoveryPollResult.stillStreaming;
+  }
 
-        terminalCompletionRecoveryTimer = Timer(
-          debugTaskSocketTerminalRecoveryDelay,
-          () {
-            terminalCompletionRecoveryTimer = null;
-            if (hasFinished || isObsoleteStream) {
-              return;
-            }
-            if (currentAssistantTargetId() != assistantMessageId) {
-              return;
-            }
-            final recoveryAllowContentOnlyTerminal =
-                terminalRecoveryAllowContentOnlyTerminal;
-            final recoveryAllowStableNonTerminalLocalFallback =
-                terminalRecoveryAllowStableNonTerminalLocalFallback;
-            final recoveryInferDoneFromMissingStreaming =
-                terminalRecoveryInferDoneFromMissingStreaming;
-            terminalRecoveryAllowContentOnlyTerminal = false;
-            terminalRecoveryAllowStableNonTerminalLocalFallback = false;
-            terminalRecoveryInferDoneFromMissingStreaming = false;
-            DebugLogger.log(
-              '$source: recovering after missed done/inactive',
-              scope: 'streaming/helper',
-            );
-            unawaited(
-              recoverTaskSocketTerminalState(
-                source: source,
-                allowContentOnlyTerminal: recoveryAllowContentOnlyTerminal,
-                allowStableNonTerminalLocalFallback:
-                    recoveryAllowStableNonTerminalLocalFallback,
-                inferDoneFromMissingStreaming:
-                    recoveryInferDoneFromMissingStreaming,
-                retryWhenSnapshotStillStreaming: true,
-              ),
-            );
-          },
-        );
-      };
+  // A connect can hand the socket a new session that no reconnect announces
+  // (the network coming back in the background, say), so every transport
+  // signal moves the stream and its handlers to the socket's session.
+  void reconcileStreamSession() {
+    final service = socketService;
+    final chatId = activeConversationId;
+    if (service == null ||
+        !service.isConnected ||
+        chatId == null ||
+        chatId.isEmpty) {
+      return;
+    }
+    final newSessionId = service.sessionId;
+    if (newSessionId == null ||
+        newSessionId.isEmpty ||
+        newSessionId == currentStreamSessionId) {
+      return;
+    }
+    currentStreamSessionId = newSessionId;
+    service.updateSessionIdForConversation(chatId, newSessionId);
+  }
+
+  missedDoneRecovery = _MissedDoneRecovery(
+    socketService: socketService,
+    // Once done arrives nothing was missed; a blank reply's one-shot done
+    // recovery takes over.
+    mayRecover: () =>
+        !hasFinished &&
+        !completionDoneHandled &&
+        !isObsoleteStream &&
+        !localResourcesDisposed &&
+        currentAssistantTargetId() == assistantMessageId,
+    reconcileSession: reconcileStreamSession,
+    poll: pollForMissedDone,
+  );
 
   if (hasSocketSignals) {
     // Handle socket reconnection - update session IDs and check for missed events
@@ -2919,13 +3043,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
 
-      // Update handler registrations with new session ID (issue #172 fix)
-      final newSessionId = socketService.sessionId;
       final convId = activeConversationId;
-      if (newSessionId != null && convId != null && convId.isNotEmpty) {
-        currentStreamSessionId = newSessionId;
-        socketService.updateSessionIdForConversation(convId, newSessionId);
+      final temporaryChatId = convId != null && isTemporaryChat(convId)
+          ? convId
+          : null;
+      // A task-socket stream's recovery makes the catch-up poll, so that it
+      // overlaps no other and its retries wait while the socket is let go.
+      if (session.transport == ChatCompletionTransport.taskSocket &&
+          temporaryChatId == null) {
+        missedDoneRecovery.noteReconnected();
+        return;
       }
+      // Moves the handlers to the new session (issue #172).
+      missedDoneRecovery.noteTransportChanged();
 
       // Brief delay then check server for missed completion
       reconnectDelayTimer?.cancel();
@@ -2933,9 +3063,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (localResourcesDisposed) {
           return;
         }
-        final temporaryChatId = convId != null && isTemporaryChat(convId)
-            ? convId
-            : null;
         final resumeSessionId = socketService.sessionId;
         // Wrap async work in unawaited to handle errors properly
         unawaited(
@@ -2975,8 +3102,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   int imageCollectionRequestId = 0;
 
   void disposeSocketSubscriptions() {
-    terminalCompletionRecoveryTimer?.cancel();
-    terminalCompletionRecoveryTimer = null;
+    missedDoneRecovery.dispose();
     resetTerminalCompletionRecoveryStability();
 
     // Cancel HTTP subscription (if any — only taskSocket path creates one)
@@ -3438,6 +3564,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       delayedDoneRecoveryTimer = null;
       unawaited(() async {
         try {
+          // A missed-done poll from before done may still be out.
+          await missedDoneRecovery.idle;
           if (isObsoleteStream) {
             return;
           }
@@ -3452,6 +3580,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 source: 'done recovery',
                 output: result.output,
                 errorContent: result.errorContent,
+                errorRelay: result.errorRelay,
+                errorRevisionAtRead: result.errorRevision,
               );
             }
             await refreshConversationSnapshot();
@@ -3611,6 +3741,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           eventChatId != activeConversationId) {
         return;
       }
+      // Another message streaming in the same chat must not hold off this
+      // one's recovery.
+      if (socketEventIsForThisReply(ev)) missedDoneRecovery.noteActivity();
 
       if (isObsoleteStream) {
         return;
@@ -3783,6 +3916,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 settleVisibleStreamingContent();
               }
             }
+            // A blank reply has ended too. Recovery then waits for the
+            // server's answer rather than finishing it empty.
+            missedDoneRecovery.noteServerEnded();
+            startMissedDoneRecovery();
           }
           if (payload['done'] == true) {
             handleCompletionDone(
@@ -4093,10 +4230,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final filtered = message.statusHistory
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
+            final error = answerError(
+              errorContent.isNotEmpty ? errorContent : null,
+              raw: err ?? payload,
+            );
+            if (error != message.error) errorRevision++;
             return message.copyWith(
-              error: errorContent.isNotEmpty
-                  ? ChatMessageError(content: errorContent)
-                  : const ChatMessageError(content: null),
+              error: error,
               statusHistory: filtered,
               metadata: {
                 ...?message.metadata,
@@ -4232,14 +4372,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
             onChatActiveChanged?.call(activeConversationId, active);
             if (!active && !hasFinished) {
-              unawaited(
-                recoverTaskSocketTerminalState(
-                  source: 'taskSocket inactive recovery',
-                  allowContentOnlyTerminal: true,
-                  allowLocalContentFallbackAfterPollFailedOrMissing: true,
-                  allowLocalContentFallbackAfterNonTerminalSnapshot: true,
-                ),
-              );
+              if (session.transport == ChatCompletionTransport.taskSocket) {
+                missedDoneRecovery.noteChatInactive();
+                startMissedDoneRecovery();
+              } else {
+                unawaited(recoverAfterChatInactive());
+              }
             }
           }
         } catch (_) {}
@@ -4374,6 +4512,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       final data = ev['data'];
       if (data == null) return;
+      if (socketEventIsForThisReply(ev)) missedDoneRecovery.noteActivity();
       final type = data['type'];
       final payload = data['data'];
       if (isObsoleteStream) {
@@ -4406,9 +4545,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Register socket handlers directly. Events buffered before registration
   // are replayed synchronously via addChatEventHandler's built-in replay.
   if (socketService != null && !localResourcesDisposed) {
+    // The replay is checked against the stream's session, so take the
+    // socket's current one first: frames it buffered since it reconnected
+    // carry that one.
+    if (session.transport == ChatCompletionTransport.taskSocket) {
+      reconcileStreamSession();
+    }
     final chatSub = socketService.addChatEventHandler(
       conversationId: activeConversationId,
-      sessionId: sessionId,
+      sessionId: currentStreamSessionId,
       messageId: assistantMessageId,
       requireFocus: false,
       keepsAliveInBackground: true,
@@ -4429,7 +4574,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       final channelSub = socketService.addChannelEventHandler(
         conversationId: activeConversationId,
-        sessionId: sessionId,
+        sessionId: currentStreamSessionId,
         requireFocus: false,
         handler: channelEventsHandler,
       );
@@ -4437,6 +4582,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         channelSub.dispose();
       } else {
         addSocketSubscription(channelSub.dispose);
+        // After the handlers exist, so moving to the socket's session now
+        // moves them too.
+        if (session.transport == ChatCompletionTransport.taskSocket) {
+          missedDoneRecovery.listenToTransport();
+        }
       }
     }
   }
@@ -4535,6 +4685,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     source: 'httpStream premature-end recovery',
                     output: result.output,
                     errorContent: result.errorContent,
+                    errorRelay: result.errorRelay,
+                    errorRevisionAtRead: result.errorRevision,
                   );
                   if (applied) {
                     syncImages();
@@ -4666,12 +4818,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               '- waiting for socket done signal',
               scope: 'streaming/helper',
             );
-            scheduleTerminalCompletionRecovery(
-              source: 'taskSocket HTTP completion recovery',
-              allowContentOnlyTerminal: false,
-              allowStableNonTerminalLocalFallback: false,
-              inferDoneFromMissingStreaming: false,
-            );
+            startMissedDoneRecovery();
           }
         },
         onError: (error, stackTrace) async {
@@ -4741,8 +4888,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             applyAssistantServerPatch(
               targetId: assistantMessageId,
               buildPatch: (_) => _AssistantServerPatch(
-                error: ChatMessageError(
-                  content: errorMap['message']?.toString(),
+                error: answerError(
+                  errorMap['message']?.toString(),
+                  raw: errorMap,
                 ),
               ),
             );
@@ -5048,3 +5196,317 @@ UiNoticeLevel _noticeLevel(String type) => switch (type) {
   'warning' || 'warn' => UiNoticeLevel.warning,
   _ => UiNoticeLevel.info,
 };
+
+/// What a stream's missed-`done` recovery is waiting for.
+enum _RecoveryPolicy {
+  /// The socket went quiet: poll after [_quietRecoveryDelay], doubling up to
+  /// [_quietRecoveryMaxDelay]. Only the server's own `done` finishes the
+  /// reply.
+  quiet,
+
+  /// The server said the reply is over: poll every [_endedRecoveryDelay].
+  /// Stable snapshots may finish the reply from what it shows. A reply never
+  /// goes back to [quiet].
+  ended,
+}
+
+/// What one recovery poll is for, which decides what its snapshot may do.
+enum _RecoveryPoll {
+  /// Under [_RecoveryPolicy.quiet], or a reconnect's catch-up then: only the
+  /// server's own `done` finishes the reply.
+  quiet,
+
+  /// Under [_RecoveryPolicy.ended]: stable snapshots may finish the reply.
+  ended,
+
+  /// The poll `chat:active` false asks for: the server's task is gone, so
+  /// the reply finishes from whatever it shows.
+  chatInactive,
+}
+
+enum _RecoveryPollResult { finished, stillStreaming, failed }
+
+/// How long after a reconnect its catch-up poll waits.
+const Duration _reconnectCatchUpDelay = Duration(milliseconds: 500);
+
+/// Makes every poll that recovers a reply whose `done` the socket missed,
+/// one request at a time.
+///
+/// Its state is the policy, the quiet wait, the failed attempts, whether it
+/// is parked, the polls asked for (after `chat:active` false, or a
+/// reconnect), the request out and a generation. Every signal (socket events
+/// for the reply, the socket's health, reconnects and foreground or lease
+/// changes, poll results) goes through [_reschedule], which recomputes the
+/// one timer from that state and the socket's facts.
+///
+/// Each poll takes the next generation, and so does each signal that makes
+/// its answer stale: a socket event for the reply, or a policy change. Only
+/// a poll still current when it returns may apply its snapshot, bind the
+/// reply's server message, or set the next wait. A stale poll's request is
+/// still out, though, and no other starts until it returns: a poll that
+/// comes due meanwhile runs then.
+class _MissedDoneRecovery {
+  _MissedDoneRecovery({
+    required SocketService? socketService,
+    required bool Function() mayRecover,
+    required void Function() reconcileSession,
+    required Future<_RecoveryPollResult> Function(
+      _RecoveryPoll poll, {
+      required bool lastAttempt,
+      required bool Function() isCurrent,
+    })
+    poll,
+  }) : _socketService = socketService,
+       _mayRecover = mayRecover,
+       _reconcileSession = reconcileSession,
+       _poll = poll;
+
+  final SocketService? _socketService;
+  final bool Function() _mayRecover;
+  final void Function() _reconcileSession;
+  final Future<_RecoveryPollResult> Function(
+    _RecoveryPoll poll, {
+    required bool lastAttempt,
+    required bool Function() isCurrent,
+  })
+  _poll;
+
+  /// Failed requests tried again, 1 s and then 2 s later, before the poll
+  /// counts as missed.
+  static const int _retriesAfterFailure = 2;
+
+  _RecoveryPolicy _policy = _RecoveryPolicy.quiet;
+  Duration _quietDelay = _quietRecoveryDelay;
+  int _failedAttempts = 0;
+  bool _started = false;
+  bool _parked = false;
+  bool _finished = false;
+  bool _disposed = false;
+  bool _chatInactivePollDue = false;
+  bool _catchUpDue = false;
+  int _generation = 0;
+
+  /// The generation of the request out, or null when none is.
+  int? _requestGeneration;
+
+  /// A poll came due while a stale request was out, and runs when it returns.
+  bool _pollDue = false;
+  Completer<void>? _idle;
+  Timer? _timer;
+  final _transportSignals = <StreamSubscription<Object?>>[];
+
+  bool get _requestOut => _requestGeneration != null;
+
+  // In the background a socket that a lease keeps up can still miss done,
+  // so only a socket let go there (no lease, or no network) holds polls
+  // back. In the foreground they run even offline.
+  bool get _transportKept {
+    final service = _socketService;
+    return service == null ||
+        service.isAppForeground ||
+        service.mayMaintainTransport;
+  }
+
+  /// Completes when no recovery request is out, so that another poll for
+  /// the reply can start without overlapping one.
+  Future<void> get idle {
+    if (!_requestOut) return Future<void>.value();
+    return (_idle ??= Completer<void>()).future;
+  }
+
+  void listenToTransport() {
+    final service = _socketService;
+    if (service == null || _disposed) return;
+    _transportSignals
+      ..add(service.healthStream.listen((_) => noteTransportChanged()))
+      ..add(
+        service.transportPolicyChanges.listen((_) => noteTransportChanged()),
+      );
+    // The socket may have connected a new session since the stream took its
+    // own, with nothing left to announce it.
+    _reconcileSession();
+  }
+
+  void start() {
+    if (_started) return;
+    _started = true;
+    _reschedule();
+  }
+
+  /// A socket event for this reply: the socket is alive, so the wait starts
+  /// over, and a poll still out answers from before the event.
+  void noteActivity() {
+    if (_disposed) return;
+    _generation++;
+    _quietDelay = _quietRecoveryDelay;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  /// A terminal `finish_reason`.
+  void noteServerEnded() {
+    if (_disposed || _policy == _RecoveryPolicy.ended) return;
+    _policy = _RecoveryPolicy.ended;
+    _generation++;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  /// `chat:active` false: the reply has ended, and is polled right away.
+  void noteChatInactive() {
+    if (_disposed || _chatInactivePollDue) return;
+    _policy = _RecoveryPolicy.ended;
+    _chatInactivePollDue = true;
+    _generation++;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  /// The socket reconnected and may have missed events while it was down,
+  /// so the reply is polled shortly.
+  void noteReconnected() {
+    if (_disposed) return;
+    _reconcileSession();
+    _catchUpDue = true;
+    // The poll already due catches up.
+    if (_pollDue) return;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  void noteTransportChanged() {
+    if (_disposed) return;
+    _reconcileSession();
+    _reschedule();
+  }
+
+  void dispose() {
+    _disposed = true;
+    _stopWaiting();
+    for (final subscription in _transportSignals) {
+      unawaited(subscription.cancel());
+    }
+    _transportSignals.clear();
+  }
+
+  void _reschedule({bool restartWait = false}) {
+    if (_disposed || !_started || _finished) return;
+    if (!_mayRecover()) {
+      _stopWaiting();
+      return;
+    }
+    if (!_transportKept) {
+      _stopWaiting();
+      _parked = true;
+      return;
+    }
+    if (_parked) {
+      _parked = false;
+      _reconcileSession();
+      _quietDelay = _quietRecoveryDelay;
+      _failedAttempts = 0;
+      restartWait = true;
+    }
+    // A current poll's own result reschedules.
+    if (_requestGeneration == _generation) return;
+    if ((_timer != null || _pollDue) && !restartWait) return;
+    _stopWaiting();
+    _timer = Timer(_nextDelay, _fire);
+  }
+
+  Duration get _nextDelay {
+    if (_failedAttempts > 0) return Duration(seconds: _failedAttempts);
+    if (_chatInactivePollDue) return Duration.zero;
+    if (_catchUpDue) return _reconnectCatchUpDelay;
+    return _policy == _RecoveryPolicy.ended ? _endedRecoveryDelay : _quietDelay;
+  }
+
+  void _stopWaiting() {
+    _timer?.cancel();
+    _timer = null;
+    _pollDue = false;
+  }
+
+  void _fire() {
+    _timer = null;
+    if (_disposed || _finished || !_mayRecover()) return;
+    if (!_transportKept) {
+      _reschedule();
+      return;
+    }
+    if (_requestOut) {
+      _pollDue = true;
+      return;
+    }
+    final generation = ++_generation;
+    _requestGeneration = generation;
+    _catchUpDue = false;
+    final poll = _chatInactivePollDue
+        ? _RecoveryPoll.chatInactive
+        : _policy == _RecoveryPolicy.ended
+        ? _RecoveryPoll.ended
+        : _RecoveryPoll.quiet;
+    if (poll == _RecoveryPoll.quiet && _failedAttempts == 0) {
+      final doubled = _quietDelay * 2;
+      _quietDelay = doubled > _quietRecoveryMaxDelay
+          ? _quietRecoveryMaxDelay
+          : doubled;
+    }
+    unawaited(
+      _runPoll(
+        generation,
+        poll,
+        lastAttempt: _failedAttempts >= _retriesAfterFailure,
+      ),
+    );
+  }
+
+  Future<void> _runPoll(
+    int generation,
+    _RecoveryPoll poll, {
+    required bool lastAttempt,
+  }) async {
+    bool isCurrent() => !_disposed && generation == _generation;
+    _RecoveryPollResult result;
+    try {
+      result = await _poll(
+        poll,
+        lastAttempt: lastAttempt,
+        isCurrent: isCurrent,
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'missed-done recovery poll threw: $e',
+        scope: 'streaming/helper',
+      );
+      result = _RecoveryPollResult.stillStreaming;
+    }
+    _requestGeneration = null;
+    final due = _pollDue;
+    _pollDue = false;
+    if (!isCurrent()) {
+      // What made this poll stale scheduled the next one, which may have
+      // come due while it was out.
+      if (due) _fire();
+    } else {
+      switch (result) {
+        case _RecoveryPollResult.finished:
+          _finished = true;
+          _stopWaiting();
+        case _RecoveryPollResult.failed:
+          _failedAttempts++;
+        case _RecoveryPollResult.stillStreaming:
+          _failedAttempts = 0;
+          if (poll == _RecoveryPoll.chatInactive) {
+            _chatInactivePollDue = false;
+          }
+      }
+      _reschedule(restartWait: true);
+    }
+    if (!_requestOut) {
+      final idle = _idle;
+      _idle = null;
+      idle?.complete();
+    }
+  }
+}

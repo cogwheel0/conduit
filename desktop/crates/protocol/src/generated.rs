@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.75.0";
+pub const PROTOCOL_VERSION: &str = "1.76.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -1712,8 +1712,10 @@ pub struct MessageBlockDto {
     /// `error`: why, when hosts should say something other than `error`:
     /// `directToolsUnsupported` (the model refused tool definitions; advise
     /// turning web search off), `heldReplyStillRunning` (a polling-only
-    /// server may still be writing the reply; open the chat again later).
-    /// Absent otherwise.
+    /// server may still be writing the reply; open the chat again later),
+    /// and a failed relay to one of the user's Tether devices:
+    /// `tetherInterrupted` (it may have run; check before repeating it),
+    /// `tetherUnavailable`, `tetherBusy`. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#type: Option<String>,
     /// `status`: the timeline, oldest first.
@@ -5008,6 +5010,10 @@ pub struct ToolSummary {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// One of the user's own devices offers it through Tether, so the menu
+    /// lists it under Your Devices.
+    #[serde(default)]
+    pub device: bool,
 }
 
 /// What the composer may offer for the next turn.
@@ -5899,6 +5905,10 @@ pub struct DirectConnectionList {
     /// account, so the settings offer a section for them.
     #[serde(default)]
     pub open_web_ui_available: bool,
+    /// The signed-in server moved its users' direct connections to Tether
+    /// (Open WebUI 0.13.4 and later), so the settings say so where they were.
+    #[serde(default)]
+    pub open_web_ui_moved_to_tether: bool,
     /// The app was set up to use direct connections rather than an Open
     /// WebUI server (the welcome screen's choice).
     #[serde(default)]
@@ -8704,6 +8714,11 @@ pub enum PersonalAccess {
     /// The account is neither an admin nor granted `direct_tool_servers`.
     #[serde(rename = "noPermission")]
     NoPermission,
+    /// Open WebUI 0.13.4 and later take personal tools and terminals from the
+    /// user's Tether devices, and no longer use the list. It is still listed,
+    /// to read only (no `owner`).
+    #[serde(rename = "movedToTether")]
+    MovedToTether,
     /// A value this build does not know, from a newer daemon. It decodes
     /// only: it encodes as `"unknown"`, which the daemon refuses.
     #[serde(other, rename = "unknown")]
@@ -10107,6 +10122,11 @@ pub struct ModelSummary {
     /// model. Its `name` is the picker's ("Codex · gpt-5.1").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<TerminalAgentDto>,
+    /// Where a model one of the user's own devices offers through Tether
+    /// comes from, as Open WebUI names it (`<device> · <connection>`); null
+    /// for every other model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
 }
 
 /// Reply to `models.list`.
@@ -13116,6 +13136,10 @@ pub struct TerminalServerDto {
     /// Only usable from a chat that has been saved, not a new one.
     #[serde(default)]
     pub requires_saved_chat: bool,
+    /// One of the user's own devices, which the server reaches through
+    /// Tether: listed under Your Devices.
+    #[serde(default)]
+    pub device: bool,
 }
 
 fn default_terminal_server_dto_kind() -> String {

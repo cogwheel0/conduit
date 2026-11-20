@@ -2,7 +2,12 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../features/tether/tether_relay_failure.dart'
+    show payloadWithTetherRecord, withStoredTetherRecord;
 import '../../models/chat_comparison.dart' show kCompletionHeldMetadataKey;
+import '../../models/chat_message.dart'
+    show ChatMessageError, kCompletionViaTetherKey;
+
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
 import '../models/chat_transcript_window.dart';
@@ -256,7 +261,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<bool> markAssistantCompletionRefused({
     required String chatId,
     required String messageId,
-    required String error,
+    required ChatMessageError error,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
@@ -266,11 +271,29 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         payload
           ..['isStreaming'] = false
           ..['done'] = true
-          ..['error'] = <String, dynamic>{'content': error}
+          ..['error'] = error.toJson()
           ..['metadata'] = <String, dynamic>{
             ...metadata,
             'completionRefused': true,
           };
+      },
+    );
+  }
+
+  /// Records on an answer's row that its request went to a model one of the
+  /// user's devices offers ([kCompletionViaTetherKey]), for an answer whose
+  /// row a pull wrote after the request, and reads its stored error with it.
+  Future<bool> recordAnswerViaTether({
+    required String chatId,
+    required String messageId,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final recorded = payloadWithTetherRecord(payload);
+        payload['metadata'] = recorded['metadata'];
+        if (recorded['error'] != null) payload['error'] = recorded['error'];
       },
     );
   }
@@ -356,6 +379,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(currentMessageId: Value(assistant.id)),
       );
+      attachedDatabase.chatsDao.noteLocalTurn(chatId);
       return true;
     });
   }
@@ -620,7 +644,10 @@ LIMIT ?
         createdAt: row.createdAt,
         orderIndex: orderIndex,
         payload: jsonEncode(
-          withStoredMessageMeta(row.payload, existing?.payload),
+          withStoredTetherRecord(
+            withStoredMessageMeta(row.payload, existing?.payload),
+            existing?.payload,
+          ),
         ),
         dirty: const Value(false),
       ),

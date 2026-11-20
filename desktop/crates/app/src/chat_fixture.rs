@@ -69,6 +69,7 @@ impl Daemon for FixtureDaemon {
                         connection: None,
                         logo: None,
                         agent: None,
+                        device: None,
                     },
                     ModelSummary {
                         id: "fixture-model-2".into(),
@@ -79,6 +80,7 @@ impl Daemon for FixtureDaemon {
                         connection: None,
                         logo: None,
                         agent: None,
+                        device: None,
                     },
                 ],
                 selected_id: Some("fixture-model".into()),

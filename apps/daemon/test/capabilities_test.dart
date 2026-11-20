@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:conduit_core/features/navigation/models/account_features.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/account_features_provider.dart';
+import 'package:conduit_core/features/tether/tether_devices.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/navigation/routes.dart';
@@ -121,6 +122,28 @@ void main() {
     }
   });
 
+  test('a Tether device changing what it offers is announced', () {
+    final container = ProviderContainer(
+      overrides: [
+        accountFeaturesProvider.overrideWithValue(const AccountFeatures()),
+        openWebUiAccountAvailableProvider.overrideWithValue(false),
+        tetherDevicesProvider.overrideWith(_Devices.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final events = EventBus();
+    final announced = <String>[];
+    events.tap((event, _, _) => announced.add(event));
+    final service = CapabilitiesService(container, events: events);
+    addTearDown(service.dispose);
+    announced.clear();
+
+    (container.read(tetherDevicesProvider.notifier) as _Devices).bump();
+
+    // The window reads the terminals again on this.
+    expect(announced, <String>[ConduitEventSpecs.capabilitiesChanged.name]);
+  });
+
   group('over a running core', () {
     late Directory temporary;
     late CoreRuntime runtime;
@@ -214,4 +237,9 @@ final class _Config extends BackendConfigNotifier {
 
   @override
   Future<BackendConfig?> build() async => config;
+}
+
+/// Tether devices that change on cue.
+final class _Devices extends TetherDevices {
+  void bump() => state++;
 }

@@ -67,6 +67,30 @@ bool assistantMessageResponseCompleted(ChatMessage message) {
   return message.metadata?['responseDone'] == true;
 }
 
+/// How a request Open WebUI (0.13.4 and later) relayed to one of the user's
+/// devices through Tether failed.
+enum TetherRelayFailure {
+  /// The relay broke after the request went out (`tether_interrupted`): the
+  /// operation may have completed, so it must not be repeated blindly.
+  interrupted,
+
+  /// The device is offline, or no longer offers the connection (503).
+  unavailable,
+
+  /// The device is running as many relayed operations as it allows (429).
+  busy,
+}
+
+/// The key of [ChatMessageError.relay] in a message's `error` map, beside
+/// Open WebUI's own `content`.
+const String kTetherRelayErrorKey = 'tetherRelay';
+
+/// The key in an answer's `metadata` that records its request went to a
+/// model one of the user's devices offers, written on the answer when the
+/// request is made and kept with it in the local store. Whatever path the
+/// answer's failure arrives by, it is read with this.
+const String kCompletionViaTetherKey = 'completionViaTether';
+
 /// Error information for a chat message, matching OpenWebUI's error format.
 /// OpenWebUI stores errors as `{ error: { content: "..." } }` on messages.
 @freezed
@@ -74,11 +98,25 @@ abstract class ChatMessageError with _$ChatMessageError {
   const factory ChatMessageError({
     /// The error message content
     @JsonKey(fromJson: _nullableString) String? content,
+
+    /// A failed relay to one of the user's Tether devices, decided where the
+    /// failure arrived; null for any other failure.
+    @JsonKey(
+      name: kTetherRelayErrorKey,
+      fromJson: tetherRelayFailureFromJson,
+      includeIfNull: false,
+    )
+    TetherRelayFailure? relay,
   }) = _ChatMessageError;
 
   factory ChatMessageError.fromJson(Map<String, dynamic> json) =>
       _$ChatMessageErrorFromJson(json);
 }
+
+/// The [TetherRelayFailure] stored as [value], or null for none or one this
+/// version does not know.
+TetherRelayFailure? tetherRelayFailureFromJson(Object? value) =>
+    TetherRelayFailure.values.where((it) => it.name == value).firstOrNull;
 
 /// Parse ChatMessageError from various OpenWebUI formats.
 ChatMessageError? _chatMessageErrorFromJson(dynamic value) {
@@ -94,16 +132,18 @@ ChatMessageError? _chatMessageErrorFromJson(dynamic value) {
   }
 
   if (value is Map) {
+    final relay = tetherRelayFailureFromJson(value[kTetherRelayErrorKey]);
+
     // Most common: { content: "error message" }
     final content = value['content'];
     if (content is String && content.isNotEmpty) {
-      return ChatMessageError(content: content);
+      return ChatMessageError(content: content, relay: relay);
     }
 
     // Alternative: { message: "error message" }
     final message = value['message'];
     if (message is String && message.isNotEmpty) {
-      return ChatMessageError(content: message);
+      return ChatMessageError(content: message, relay: relay);
     }
 
     // Nested error: { error: { message: "..." } }
@@ -111,19 +151,19 @@ ChatMessageError? _chatMessageErrorFromJson(dynamic value) {
     if (nestedError is Map) {
       final nestedMessage = nestedError['message'];
       if (nestedMessage is String && nestedMessage.isNotEmpty) {
-        return ChatMessageError(content: nestedMessage);
+        return ChatMessageError(content: nestedMessage, relay: relay);
       }
     }
 
     // FastAPI detail format: { detail: "..." }
     final detail = value['detail'];
     if (detail is String && detail.isNotEmpty) {
-      return ChatMessageError(content: detail);
+      return ChatMessageError(content: detail, relay: relay);
     }
 
     // If it's a map but we couldn't extract content, still return an error
     // to indicate there was an error (matches legacy error === true behavior)
-    return const ChatMessageError(content: null);
+    return ChatMessageError(content: null, relay: relay);
   }
 
   return null;
@@ -132,12 +172,13 @@ ChatMessageError? _chatMessageErrorFromJson(dynamic value) {
 /// Convert ChatMessageError to OpenWebUI format for persistence.
 Map<String, dynamic>? _chatMessageErrorToJson(ChatMessageError? error) {
   if (error == null) return null;
-  if (error.content == null) {
+  final relay = error.relay;
+  return {
     // Legacy format - just return true to indicate error
     // But OpenWebUI expects a map, so return empty content
-    return const {'content': ''};
-  }
-  return {'content': error.content};
+    'content': error.content ?? '',
+    kTetherRelayErrorKey: ?relay?.name,
+  };
 }
 
 @freezed

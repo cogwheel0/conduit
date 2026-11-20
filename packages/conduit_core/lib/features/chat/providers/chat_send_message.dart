@@ -318,6 +318,7 @@ Future<void> _sendMessageInternal(
       if (directRoute != null) 'transport': kDirectTransport,
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
+      ...tetherAnswerRecord(selectedModel),
     },
   );
   final voiceReply = voice?.reply;
@@ -615,7 +616,7 @@ Future<void> _sendMessageInternal(
           : null;
       final failed = (visible ?? assistantPlaceholder).copyWith(
         isStreaming: false,
-        error: ChatMessageError(content: chatErrorContentForException(error)),
+        error: chatMessageErrorFor(error),
       );
       if (hermesOwner.isActive(ref)) {
         messagesNotifier.updateMessageById(assistantMessageId, (_) => failed);
@@ -900,7 +901,7 @@ Future<void> _sendMessageInternal(
           assistantPlaceholder;
       final failedSnapshot = failed.copyWith(
         isStreaming: false,
-        error: ChatMessageError(content: chatErrorContentForException(error)),
+        error: chatMessageErrorFor(error),
       );
       if (ownerIsActive) {
         if (unavailableOwner?.placeholderWasDurablyDeleted == true) {
@@ -1520,6 +1521,7 @@ Future<void> _sendMessageInternal(
           userMessage: userMessageMap,
           variables: promptVariables,
           files: _extractTopLevelRequestFiles(userMessageMap),
+          viaTether: answerViaTether(placeholder),
         );
       } on ChatCompletionHeld {
         // Only a saved chat is held, so it has an owner.
@@ -1571,6 +1573,7 @@ Future<void> _sendMessageInternal(
             // Inline sends have no requestCompletion outbox op that could
             // replay this POST when a legacy placeholder row is absent.
             requireDurableSubmittedMarker: false,
+            viaTether: answerViaTether(placeholder),
           );
         }
       } else {
@@ -1607,6 +1610,7 @@ Future<void> _sendMessageInternal(
           filterIds: filterIdsForApi,
           ownsActiveConversation: () =>
               activeOpenWebUiChatIdForMutation(ref, submittedOwner!) != null,
+          viaTether: answerViaTether(placeholder),
         );
         if (!attached) {
           if (isTemporary) {
@@ -1618,6 +1622,7 @@ Future<void> _sendMessageInternal(
               owner: submittedOwner!,
               assistantMessageId: assistantMessageId,
               requireDurableSubmittedMarker: false,
+              viaTether: answerViaTether(placeholder),
             );
           }
         }
@@ -1744,6 +1749,13 @@ Future<String> _temporaryChatIdForSession(
       .remapIdInPlace(fromId: chatId, toId: renewedId);
   return renewedId;
 }
+
+/// The error an answer that failed with [e] keeps: its words, and the failed
+/// relay to one of the user's devices the refusal reported.
+ChatMessageError chatMessageErrorFor(Object e) => ChatMessageError(
+  content: chatErrorContentForException(e),
+  relay: e is ChatCompletionHttpException ? e.relay : null,
+);
 
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {

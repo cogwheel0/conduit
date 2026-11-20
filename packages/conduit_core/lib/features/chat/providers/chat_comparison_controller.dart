@@ -383,6 +383,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
           kMessageModelIdxMetadataKey: index,
           if (models[index].name.trim().isNotEmpty)
             'modelName': models[index].name.trim(),
+          ...tetherAnswerRecord(models[index]),
         },
       ),
   ];
@@ -474,7 +475,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
         text: message,
         files: durableFiles,
         slots: slots,
-        modelNames: [for (final model in models) model.name],
+        models: models,
         now: now,
         chatParams: draftChatParams,
       );
@@ -562,7 +563,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
             payload: _durableComparisonAssistantPayload(
               slot: slots[index],
               parentId: userMessageId,
-              modelName: models[index].name,
+              model: models[index],
               timestamp: now,
             ),
           ),
@@ -626,15 +627,16 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
 Map<String, dynamic> _durableComparisonAssistantPayload({
   required ComparisonSlotSnapshot slot,
   required String parentId,
-  required String modelName,
+  required Model model,
   required int timestamp,
 }) => <String, dynamic>{
   ..._durableAssistantPayload(
     id: slot.assistantMessageId,
     parentId: parentId,
     modelId: slot.model,
-    modelName: modelName,
+    modelName: model.name,
     timestamp: timestamp,
+    viaTether: isTetherModel(model),
   ),
   // The column is what keeps two runs of one model apart, here and upstream.
   kMessageModelIdxMetadataKey: slot.modelIdx,
@@ -646,7 +648,7 @@ Map<String, dynamic> _buildDurableComparisonChatBlob({
   required String text,
   required List<Map<String, dynamic>> files,
   required List<ComparisonSlotSnapshot> slots,
-  required List<String> modelNames,
+  required List<Model> models,
   required int now,
   Map<String, dynamic> chatParams = const <String, dynamic>{},
 }) {
@@ -673,7 +675,7 @@ Map<String, dynamic> _buildDurableComparisonChatBlob({
           slots[index].assistantMessageId: _durableComparisonAssistantPayload(
             slot: slots[index],
             parentId: userMsgId,
-            modelName: modelNames[index],
+            model: models[index],
             timestamp: now,
           ),
       },
@@ -830,6 +832,19 @@ Future<void> runComparisonCompletion(
         : <String, dynamic>{'id': id, 'name': id};
   }
 
+  // The answers that recorded, when the turn was admitted, that one of the
+  // user's devices offers their model. A chat read back from the store keeps
+  // the answers it does not open on among another's versions, which hold no
+  // record: those are read from their own rows.
+  final viaTether = <String>{};
+  for (final id in slotIds) {
+    final shown = messages.where((message) => message.id == id).firstOrNull;
+    if ((shown != null && answerViaTether(shown)) ||
+        await _storedAnswerViaTether(owner, id)) {
+      viaTether.add(id);
+    }
+  }
+
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
@@ -842,7 +857,9 @@ Future<void> runComparisonCompletion(
       ref,
       owner: owner,
       slotIds: slotIds,
-      error: 'Comparing models needs a live connection to the server.',
+      error: const ChatMessageError(
+        content: 'Comparing models needs a live connection to the server.',
+      ),
       live: live,
     );
     throw const _QueuedCompletionDeferred(
@@ -973,6 +990,7 @@ Future<void> runComparisonCompletion(
         variables: promptVars,
         files: _extractTopLevelRequestFiles(userMessageMap),
         messageIds: comparisonTargets(group),
+        viaTether: viaTether.contains(primary.assistantMessageId),
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
@@ -991,6 +1009,23 @@ Future<void> runComparisonCompletion(
         assistantMessageIds: slotIds,
       );
       return;
+    } on ChatCompletionHttpException catch (refusal) {
+      // As for one answer: a status a later attempt may pass goes back to the
+      // outbox; any other refusal, a failed relay to a device's included,
+      // settles every answer, since sending it again could run it twice.
+      if (refusal.mayPassLater) rethrow;
+      await _refuseComparison(
+        ref,
+        owner: owner,
+        slotIds: slotIds,
+        error: chatMessageErrorFor(refusal),
+        live: live,
+      );
+      _checkSessionAfterRefusedCompletion(ref, refusal);
+      throw SyncTerminalException(
+        statusCode: refusal.statusCode,
+        message: refusal.toString(),
+      );
     }
     final completed = await _markComparisonAcceptedOrAbort(
       ref,
@@ -1107,6 +1142,7 @@ Future<void> runComparisonCompletion(
           for (final id in slotIds)
             if (id != slot.assistantMessageId) id,
         ],
+        viaTether: viaTether.contains(slot.assistantMessageId),
       );
       if (!attached) detached.add(slot.assistantMessageId);
     }
@@ -1241,7 +1277,7 @@ Future<void> _refuseComparison(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required List<String> slotIds,
-  required String error,
+  required ChatMessageError error,
   required bool live,
 }) async {
   final notifier =
@@ -1251,10 +1287,7 @@ Future<void> _refuseComparison(
     if (live) {
       notifier.updateMessageById(
         id,
-        (message) => message.copyWith(
-          isStreaming: false,
-          error: ChatMessageError(content: error),
-        ),
+        (message) => message.copyWith(isStreaming: false, error: error),
       );
     }
     try {
@@ -1288,7 +1321,7 @@ Future<Never> _rejectUnsupportedComparisonInterpreter(
     ref,
     owner: owner,
     slotIds: slotIds,
-    error: chatErrorContentForException(error),
+    error: chatMessageErrorFor(error),
     live: live,
   );
   throw SyncTerminalException(message: error.toString());
@@ -1414,13 +1447,13 @@ Future<List<String>?> _pullSubmittedOpenWebUiComparison(
     if (conversation == null) continue;
     // Every answer of the turn, whichever one is the chat's current branch:
     // the pulled messages hold the current one, its siblings sit in versions.
-    final landed = <String>{};
-    for (final message in conversation.messages) {
-      if (_headlessAssistantLanded(message)) landed.add(message.id);
-      for (final version in message.versions) {
-        if (_comparisonVersionLanded(version)) landed.add(version.id);
-      }
-    }
+    final landed = <String>{
+      for (final message in conversation.messages) ...[
+        if (_headlessAssistantLanded(message)) message.id,
+        for (final version in message.versions)
+          if (_comparisonVersionLanded(version)) version.id,
+      ],
+    };
     waiting = [
       for (final id in waiting)
         if (!landed.contains(id)) id,

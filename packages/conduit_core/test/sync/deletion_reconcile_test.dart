@@ -60,9 +60,11 @@ class _AuthFailingProbeClient extends FakeSyncApiClient {
   _AuthFailingProbeClient(
     super.server, {
     this.authFailureAfterSuccessfulProbes = 0,
+    this.statusCode = 401,
   });
 
   final int authFailureAfterSuccessfulProbes;
+  final int statusCode;
 
   @override
   Future<bool> probeChatExists(String id) async {
@@ -76,7 +78,7 @@ class _AuthFailingProbeClient extends FakeSyncApiClient {
       requestOptions: requestOptions,
       response: Response<Map<String, dynamic>>(
         requestOptions: requestOptions,
-        statusCode: 401,
+        statusCode: statusCode,
         data: const {'detail': 'token expired'},
       ),
     );
@@ -651,25 +653,97 @@ void main() {
   });
 
   group('safety valve against a token-expiry mass-delete', () {
-    test('aborts (purges nothing) when candidates exceed the floor AND half '
-        'the local set', () async {
-      // 8 local server chats, NONE on the server list -> all 8 candidates,
-      // above both the absolute floor (5) and 50% -> abort.
-      final ids = List.generate(8, (i) => 'c$i');
+    // 8 local server chats, none on the server list: above both the absolute
+    // floor (5) and half the local set.
+    final ids = List.generate(8, (i) => 'c$i');
+
+    test('a bulk server delete purges once every sampled probe confirms it '
+        'gone', () async {
       for (final id in ids) {
         await seedServerChat(db, id: id);
-        client.probe401GoneIds.add(id); // would be "gone" if probed
+      }
+      client.nullChatIds.addAll(ids.sublist(0, 4));
+      // Open WebUI answers a normal user's missing chat with a NOT_FOUND 401.
+      client.probe401GoneIds.addAll(ids.sublist(4));
+
+      final result = await reconcile.run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isFalse();
+      check(result.candidates).equals(8);
+      check(result.purged).equals(8);
+      for (final id in ids) {
+        check(await db.chatsDao.getChat(id)).isNull();
+      }
+      check(await db.syncMetaDao.getLastFullReconcileAt()).equals(clock.now);
+    });
+
+    test('aborts (purges nothing) when a sampled chat is still on the '
+        'server', () async {
+      // Half are gone and half are still on the server, so any sample of
+      // five out of eight meets at least one that still exists.
+      for (final (index, id) in ids.indexed) {
+        await seedServerChat(db, id: id);
+        if (index < 4) {
+          server.seedChat(
+            id: id,
+            blob: blobFor(id),
+            createdAt: 50,
+            updatedAt: 100,
+          );
+          client.hideFromListIds.add(id);
+        } else {
+          client.nullChatIds.add(id);
+        }
       }
 
       final result = await reconcile.run(ReconcileReason.manualRefresh);
+
       check(result.aborted).isTrue();
+      check(result.candidates).equals(8);
       check(result.purged).equals(0);
-      // Nothing probed (aborted before the probe loop).
-      check(client.probeChatExistsCalls).equals(0);
       for (final id in ids) {
         check(await db.chatsDao.getChat(id)).isNotNull();
       }
       // Abort does NOT advance the throttle (retried, not suppressed).
+      check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
+    });
+
+    for (final status in [401, 403]) {
+      test('aborts (purges nothing) when a sampled probe answers an auth '
+          '$status', () async {
+        final refusing = _AuthFailingProbeClient(server, statusCode: status);
+        for (final id in ids) {
+          await seedServerChat(db, id: id);
+        }
+
+        final result = await DeletionReconcile(
+          client: refusing,
+          db: db,
+          locks: locks,
+          clock: clock,
+        ).run(ReconcileReason.manualRefresh);
+
+        check(result.aborted).isTrue();
+        check(result.purged).equals(0);
+        check(refusing.probeChatExistsCalls).equals(1);
+        for (final id in ids) {
+          check(await db.chatsDao.getChat(id)).isNotNull();
+        }
+        check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
+      });
+    }
+
+    test('aborts (purges nothing) when a sampled probe fails', () async {
+      for (final id in ids) {
+        await seedServerChat(db, id: id);
+      }
+      client.probeThrowIds.addAll(ids);
+
+      final result = await reconcile.run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(result.purged).equals(0);
+      check(await db.chatsDao.getChat('c0')).isNotNull();
       check(await db.syncMetaDao.getLastFullReconcileAt()).equals(0);
     });
 

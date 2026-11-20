@@ -1052,8 +1052,10 @@ void main() {
     }, _RealHttpOverrides());
   });
 
+  // A device that joined or left while the app was away told a socket that
+  // wasn't there, so the reconnect asks for the device lists again.
   test(
-    'resume reconnect emits onReconnect after the new socket connects',
+    'resume reconnect emits onReconnect and reads the device lists again',
     () async {
       final lifecycle = FakeAppLifecycle();
       addTearDown(lifecycle.dispose);
@@ -1071,6 +1073,8 @@ void main() {
         reconnectCount += 1;
       });
       addTearDown(reconnectSub.cancel);
+      var deviceRefreshes = 0;
+      service.tetherDevicesChangedHandler = () => deviceRefreshes++;
 
       lifecycle.emit(AppLifecyclePhase.paused);
       lifecycle.emit(AppLifecyclePhase.resumed);
@@ -1078,12 +1082,14 @@ void main() {
 
       expect(socketFactory.sockets, hasLength(1));
       expect(reconnectCount, 0);
+      expect(deviceRefreshes, 0);
 
       socketFactory.sockets.single.id = 'session-after-resume';
       socketFactory.sockets.single.emitReserved('connect');
       await _flushMicrotasks(2);
 
       expect(reconnectCount, 1);
+      expect(deviceRefreshes, 1);
     },
   );
 
@@ -1327,6 +1333,83 @@ void main() {
     },
   );
 
+  // Each way a connection comes back after the first, as the socket that
+  // connects next.
+  for (final (label, comeBack)
+      in <(String, io.Socket Function(SocketService, List<io.Socket>))>[
+        (
+          'the network returns',
+          (service, sockets) {
+            service
+              ..updateNetworkAvailability(false)
+              ..updateNetworkAvailability(true);
+            return sockets.last;
+          },
+        ),
+        (
+          'Socket.IO reconnects it',
+          (service, sockets) {
+            sockets.single
+              ..connected = false
+              ..emitReserved('disconnect', 'transport close');
+            return sockets.single;
+          },
+        ),
+        (
+          'a chat needs it',
+          (service, sockets) {
+            sockets.single
+              ..connected = false
+              ..emitReserved('disconnect', 'transport close');
+            service.addChatEventHandler(
+              keepsAliveInBackground: true,
+              handler: (_, _) {},
+            );
+            return sockets.last;
+          },
+        ),
+      ]) {
+    test('a later connection is announced when $label', () {
+      fakeAsync((async) {
+        final socketFactory = _RecordingSocketFactory();
+        final service = SocketService(
+          serverConfig: _serverConfig,
+          socketFactory: socketFactory.create,
+        );
+        addTearDown(service.dispose);
+        var reconnectSignals = 0;
+        final reconnectSub = service.onReconnect.listen(
+          (_) => reconnectSignals++,
+        );
+        addTearDown(reconnectSub.cancel);
+        var deviceRefreshes = 0;
+        service.tetherDevicesChangedHandler = () => deviceRefreshes++;
+
+        unawaited(service.connect());
+        async.elapse(Duration.zero);
+        socketFactory.sockets.single
+          ..connected = true
+          ..id = 'first-session'
+          ..emitReserved('connect');
+        async.elapse(Duration.zero);
+        expect(reconnectSignals, 0);
+        expect(deviceRefreshes, 0);
+
+        final next = comeBack(service, socketFactory.sockets);
+        async.elapse(Duration.zero);
+        next
+          ..connected = true
+          ..id = 'next-session'
+          ..emitReserved('connect');
+        async.elapse(Duration.zero);
+
+        expect(service.sessionId, 'next-session');
+        expect(reconnectSignals, 1);
+        expect(deviceRefreshes, 1);
+      });
+    });
+  }
+
   group('bounded pre-handler replay', () {
     Map<String, dynamic> event(
       String chatId,
@@ -1544,20 +1627,59 @@ void main() {
     addTearDown(service.dispose);
 
     await service.connect();
+    final policyChanges = <(bool, bool)>[];
+    final policyStreamClosed = Completer<void>();
+    var awaitedPolicyChanges = 0;
+    Completer<void>? policyChangesReached;
+    final policySubscription = service.transportPolicyChanges.listen((_) {
+      policyChanges.add((
+        service.isAppForeground,
+        service.mayMaintainTransport,
+      ));
+      if (policyChanges.length == awaitedPolicyChanges) {
+        policyChangesReached?.complete();
+      }
+    }, onDone: policyStreamClosed.complete);
+    addTearDown(policySubscription.cancel);
+    Future<void> policyChangeCount(int count) {
+      if (policyChanges.length >= count) return Future<void>.value();
+      awaitedPolicyChanges = count;
+      return (policyChangesReached = Completer<void>()).future;
+    }
+
     final subscription = service.addChatEventHandler(
       sessionId: 'stream-session',
       requireFocus: false,
       keepsAliveInBackground: true,
       handler: (_, _) {},
     );
+    var policyChanged = policyChangeCount(1);
     lifecycle.emit(AppLifecyclePhase.paused);
 
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
+    expect(service.mayMaintainTransport, isTrue);
+    await policyChanged;
+    expect(policyChanges, [(false, true)]);
 
+    policyChanged = policyChangeCount(2);
     subscription.dispose();
     expect(socketFactory.sockets.single.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
+    expect(service.mayMaintainTransport, isFalse);
+    await policyChanged;
+    expect(policyChanges, [(false, true), (false, false)]);
+
+    policyChanged = policyChangeCount(3);
+    lifecycle.emit(AppLifecyclePhase.inactive);
+    await policyChanged;
+    expect(policyChanges, [(false, true), (false, false), (true, true)]);
+
+    // Closing the stream delivers anything still queued, so a duplicate of
+    // the last change shows here.
+    service.dispose();
+    await policyStreamClosed.future;
+    expect(policyChanges, [(false, true), (false, false), (true, true)]);
   });
 
   test('a handler lease does not create the initial transport', () async {

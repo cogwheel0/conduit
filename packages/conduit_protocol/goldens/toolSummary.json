@@ -1,5 +1,6 @@
 {
   "id": "weather",
   "name": "Weather",
-  "description": "Current conditions for a city"
+  "description": "Current conditions for a city",
+  "device": false
 }

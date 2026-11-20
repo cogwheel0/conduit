@@ -293,10 +293,16 @@ class PullSync {
   /// merge can tell a copy read before a push of the chat landed.
   final _pushVersionsAtFetch = Expando<int>();
 
+  /// [ChatsDao.localTurnVersion] when each raw response was requested, so
+  /// the merge can tell a copy read before this device stored a turn.
+  final _localTurnVersionsAtFetch = Expando<int>();
+
   /// How many times a pull reads a chat whose copy comes back older than a
-  /// push of it, which stores none of it (`ChatMergeWriteResult.staleRead`).
-  /// Past that the chat waits for the next cycle, which lists it again: the
-  /// push stamped it after this cycle's list was read.
+  /// push of it, or a turn stored here, which stores none of it
+  /// (`ChatMergeWriteResult.staleRead`). Past that the chat waits for the
+  /// next cycle, and the cycle holds the watermark: a turn stored here doesn't
+  /// stamp the server's copy as a push does, so a newer chat could otherwise
+  /// carry the watermark past this one's changes.
   static const _readsWhenStale = 2;
 
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
@@ -429,6 +435,7 @@ class PullSync {
     }
 
     var failedFetches = 0;
+    var staleFetches = 0;
     var foldedArchivedCount = 0;
 
     // Archived items: full-fetch when a synced body would otherwise go
@@ -508,13 +515,20 @@ class PullSync {
           // (deletion reconcile is Phase 3). Neither it nor a chat whose
           // every copy predated a push of it is recorded as fetched: nothing
           // of it was stored.
-          final stored = await _fetchAndMerge(
+          final fetched = await _fetchAndMerge(
             item.id,
             listLastReadAt: item.lastReadAt,
             readStateSince: readStateSince,
             hasPendingCreateHashes: hasPendingCreateHashes,
           );
-          if (stored) _fetchMemo?.recordFetched(item.id, item.updatedAt);
+          switch (fetched) {
+            case _ChatFetch.stored:
+              _fetchMemo?.recordFetched(item.id, item.updatedAt);
+            case _ChatFetch.stale:
+              staleFetches++;
+            case _ChatFetch.gone:
+              break;
+          }
         } catch (error, stackTrace) {
           failedFetches++;
           DebugLogger.error(
@@ -548,8 +562,9 @@ class PullSync {
 
     // 6. Watermark advance rule (REQ 5).
     final success = !archivedListFailed && failedFetches == 0;
-    final watermarkAdvanced = success && maxSeen > watermark;
-    if (success) {
+    final advances = success && staleFetches == 0;
+    final watermarkAdvanced = advances && maxSeen > watermark;
+    if (advances) {
       await _db.syncMetaDao.setPullWatermark(maxSeen);
     }
 
@@ -561,6 +576,7 @@ class PullSync {
       data: {
         'changed': changedCount,
         'failed': failedFetches,
+        'stale': staleFetches,
         'watermark': maxSeen,
         'advanced': watermarkAdvanced,
         'folders': foldersFeatureEnabled,
@@ -603,12 +619,14 @@ class PullSync {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
     final modelListVersion = _db.chatsDao.modelListVersion(id);
     final pushVersion = _db.chatsDao.pushVersion(id);
+    final localTurnVersion = _db.chatsDao.localTurnVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
       _modelListVersionsAtFetch[response] = modelListVersion;
       _pushVersionsAtFetch[response] = pushVersion;
+      _localTurnVersionsAtFetch[response] = localTurnVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -687,10 +705,9 @@ class PullSync {
   }
 
   /// Reads chat [id] and merges the copy under its lock, reading it again
-  /// while the copy predates a push of the chat (see [_readsWhenStale]).
-  /// Returns whether a copy was stored: false for a chat the server no
-  /// longer has, too.
-  Future<bool> _fetchAndMerge(
+  /// while the copy predates a push of the chat or a turn stored here (see
+  /// [_readsWhenStale]).
+  Future<_ChatFetch> _fetchAndMerge(
     String id, {
     required int? listLastReadAt,
     int? readStateSince,
@@ -698,21 +715,21 @@ class PullSync {
   }) async {
     for (var read = 1; read <= _readsWhenStale; read++) {
       final resp = await fetchChatRaw(id);
-      if (resp == null) return false;
+      if (resp == null) return _ChatFetch.gone;
       final merged = await _mergeChatResponse(
         resp,
         listLastReadAt: listLastReadAt,
         readStateSince: readStateSince,
         hasPendingCreateHashes: hasPendingCreateHashes,
       );
-      if (!merged.staleRead) return true;
+      if (!merged.staleRead) return _ChatFetch.stored;
       DebugLogger.log(
         'read-before-push',
         scope: 'sync/pull',
         data: {'chatId': id, 'read': read},
       );
     }
-    return false;
+    return _ChatFetch.stale;
   }
 
   /// Lock + one-transaction merge of a raw `ChatResponse` map (REQ 1/3).
@@ -844,6 +861,7 @@ class PullSync {
     // (REQ §10.1); the dirty read + decision + write are atomic under the chat
     // lock we already hold.
     final pushedAtFetch = _pushVersionsAtFetch[resp];
+    final turnsAtFetch = _localTurnVersionsAtFetch[resp];
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
@@ -852,9 +870,11 @@ class PullSync {
       listLastReadAt: listLastReadAt,
       readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
-      readBeforePush:
-          pushedAtFetch != null &&
-          pushedAtFetch != _db.chatsDao.pushVersion(id),
+      readBeforeLocalWrite:
+          (pushedAtFetch != null &&
+              pushedAtFetch != _db.chatsDao.pushVersion(id)) ||
+          (turnsAtFetch != null &&
+              turnsAtFetch != _db.chatsDao.localTurnVersion(id)),
     );
 
     // A stored copy stored the checklist events kept for the chat, or a
@@ -985,4 +1005,16 @@ class PullSync {
   static int? _asEpochSeconds(Object? value) {
     return _parseServerEpochSeconds(value);
   }
+}
+
+/// What a pull's read of one chat came to.
+enum _ChatFetch {
+  /// A copy was stored.
+  stored,
+
+  /// The server no longer has the chat.
+  gone,
+
+  /// Every copy read predated a push of the chat or a turn stored here.
+  stale,
 }

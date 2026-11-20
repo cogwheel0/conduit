@@ -29,6 +29,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart'
     show appSettingsProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/tether/tether_offers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
@@ -74,6 +75,7 @@ final class ComposerService {
             id: tool.id,
             name: tool.name,
             description: tool.description,
+            device: isTetherToolId(tool.id),
           ),
       ];
     } on Object catch (error) {

@@ -65,6 +65,11 @@ class ServerVersionCompat {
   /// task, and lists the agents a task's terminal offers.
   static const String automationAgentsVersion = '0.13.3';
 
+  /// The first Open WebUI release without Direct Connections and Direct
+  /// Integrations: the models, tool servers and terminals a user kept in
+  /// their own settings come from their Tether devices instead.
+  static const String directConnectionsRemovedVersion = '0.13.4';
+
   /// The first Open WebUI release that no longer reads `model_item` and
   /// `tool_servers` from a chat request, and passes them on to the provider
   /// with the rest of it.

@@ -1298,12 +1298,88 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return true;
   }
 
-  List<ChatMessage> _preserveFreshLocalMessageState(
-    List<ChatMessage> serverMessages,
-  ) {
-    if (state.isEmpty || serverMessages.isEmpty) {
-      return serverMessages;
+  /// The answers in the open chat recorded as asked of one of the user's
+  /// devices, by id, as the last copy of the chat read with this device's
+  /// records found them, on screen or among another's versions.
+  Set<String> _deviceAnswerIds = const <String>{};
+
+  /// [serverMessages] with what this device recorded on its own copies of
+  /// the answers (see [withTetherRecordOf]): Open WebUI's copies keep
+  /// neither that one of the user's devices was asked nor the relay that
+  /// failed.
+  ///
+  /// Matched by answer id, wherever either side keeps the answer: on screen
+  /// or among another answer's versions, as a comparison's other answers and
+  /// a regeneration's earlier ones are kept. A version holds no record of its
+  /// own, so [_deviceAnswerIds] keeps it for an answer seen on screen first.
+  List<ChatMessage> _withLocalTetherRecords(List<ChatMessage> serverMessages) {
+    final viaTether = <String>{};
+    final relayErrors = <String, ChatMessageError>{};
+    for (final message in state) {
+      if (message.role != 'assistant') continue;
+      for (final version in message.versions) {
+        if (_deviceAnswerIds.contains(version.id)) viaTether.add(version.id);
+        if (version.error case final error? when error.relay != null) {
+          relayErrors[version.id] = error;
+        }
+      }
+      if (answerViaTether(message)) viaTether.add(message.id);
+      if (message.error case final error? when error.relay != null) {
+        relayErrors[message.id] = error;
+      }
     }
+    _deviceAnswerIds = viaTether;
+    if (viaTether.isEmpty && relayErrors.isEmpty) return serverMessages;
+    bool recorded(String id) =>
+        viaTether.contains(id) || relayErrors.containsKey(id);
+
+    var changed = false;
+    final kept = <ChatMessage>[];
+    for (final message in serverMessages) {
+      // A resumed tail may be bound to the server's id for it.
+      final localId =
+          !recorded(message.id) &&
+              message.id == _boundRemoteMessageId &&
+              state.isNotEmpty
+          ? state.last.id
+          : message.id;
+      var next = recorded(localId)
+          ? withTetherRecordOf(
+              message,
+              localError: relayErrors[localId],
+              viaTether: viaTether.contains(localId),
+            )
+          : message;
+      final versions = next.versions;
+      final keptVersions = [
+        for (final version in versions)
+          recorded(version.id)
+              ? withTetherRecordOfVersion(
+                  version,
+                  localError: relayErrors[version.id],
+                  viaTether: viaTether.contains(version.id),
+                )
+              : version,
+      ];
+      for (var index = 0; index < versions.length; index++) {
+        if (!identical(keptVersions[index], versions[index])) {
+          next = next.copyWith(versions: keptVersions);
+          break;
+        }
+      }
+      changed = changed || !identical(next, message);
+      kept.add(next);
+    }
+    return changed ? List<ChatMessage>.unmodifiable(kept) : serverMessages;
+  }
+
+  List<ChatMessage> _preserveFreshLocalMessageState(
+    List<ChatMessage> incomingMessages,
+  ) {
+    if (state.isEmpty || incomingMessages.isEmpty) {
+      return incomingMessages;
+    }
+    final serverMessages = _withLocalTetherRecords(incomingMessages);
 
     final localTrailingUserId = state
         .where((message) => message.role == 'user')
@@ -3661,6 +3737,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ownsPendingPlaceholder: () =>
             _hasStreamingAssistant &&
             _stillOwnsReopenedTail(resumeOwner, last.id),
+        viaTether: answerViaTether(last),
       );
     } catch (error) {
       DebugLogger.log(
@@ -4877,9 +4954,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    final chatError = ChatMessageError(
-      content: chatErrorContentForException(error),
-    );
+    final chatError = chatMessageErrorFor(error);
     if (state.last.id == target.id) {
       updateMessageById(
         target.id,

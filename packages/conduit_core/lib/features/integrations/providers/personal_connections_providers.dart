@@ -15,6 +15,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 
 /// Why the personal connections screen is unavailable.
 enum PersonalConnectionsBlock {
@@ -26,6 +27,11 @@ enum PersonalConnectionsBlock {
 
   /// The account is neither an admin nor granted `direct_tool_servers`.
   noPermission,
+
+  /// Open WebUI 0.13.4 and later take personal tool servers and terminals
+  /// from the user's Tether devices and never read the list in the
+  /// account's settings. The list is still there to read.
+  movedToTether,
 }
 
 /// Whether the signed-in account may manage its own tool servers and
@@ -66,8 +72,18 @@ final personalConnectionsAccessProvider = Provider<PersonalConnectionsAccess>((
   if (config == null ||
       config.serverId != api.serverConfig.id ||
       config.enableDirectIntegrations != true) {
-    return const PersonalConnectionsAccess.blocked(
-      PersonalConnectionsBlock.serverDisabled,
+    final moved =
+        config != null &&
+        config.serverId == api.serverConfig.id &&
+        ServerVersionCompat.knownAtLeast(
+              config.version,
+              ServerVersionCompat.directConnectionsRemovedVersion,
+            ) ==
+            true;
+    return PersonalConnectionsAccess.blocked(
+      moved
+          ? PersonalConnectionsBlock.movedToTether
+          : PersonalConnectionsBlock.serverDisabled,
     );
   }
 
@@ -85,14 +101,48 @@ final personalConnectionsAccessProvider = Provider<PersonalConnectionsAccess>((
   );
 });
 
+/// Whether the account's saved tool servers and terminals are offered in the
+/// composer and join a request.
+///
+/// A refusal has not been decided until the active server has said so, as
+/// when a queued turn is replayed at launch, so it leaves them in: while its
+/// config is loading, or while the only config at hand is none or another
+/// server's, which the cache answers with before this server's arrives.
+/// A config this server gave before counts as its word.
+final personalConnectionsOfferedProvider = Provider<bool>((ref) {
+  return switch (ref.watch(personalConnectionsAccessProvider).block) {
+    null => true,
+    PersonalConnectionsBlock.serverDisabled => !_activeServerConfigIn(ref),
+    PersonalConnectionsBlock.noPermission =>
+      ref.watch(userPermissionsProvider).isLoading,
+    PersonalConnectionsBlock.noAccount ||
+    PersonalConnectionsBlock.movedToTether => false,
+  };
+});
+
+bool _activeServerConfigIn(Ref ref) {
+  final config = ref.watch(backendConfigProvider);
+  final serverId = ref.watch(
+    apiServiceProvider.select((api) => api?.serverConfig.id),
+  );
+  return !config.isLoading &&
+      serverId != null &&
+      config.asData?.value?.serverId == serverId;
+}
+
 /// Whether Settings offers Personal connections: the Advanced disclosure is on
-/// and the server and account allow them. Flutter Settings and the native iOS
-/// sheet both read this, so they cannot disagree about when the entry exists.
+/// and the server and account allow them, or the server moved them to Tether
+/// (the entry then says so). Flutter Settings and the native iOS sheet both
+/// read this, so they cannot disagree about when the entry exists.
 final personalConnectionsEntryVisibleProvider = Provider<bool>((ref) {
-  return ref.watch(
-        appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
-      ) &&
-      ref.watch(personalConnectionsAccessProvider).available;
+  if (!ref.watch(
+    appSettingsProvider.select((s) => s.advancedFeaturesEnabled),
+  )) {
+    return false;
+  }
+  final access = ref.watch(personalConnectionsAccessProvider);
+  return access.available ||
+      access.block == PersonalConnectionsBlock.movedToTether;
 });
 
 /// One tool server or terminal as the screen lists it.
@@ -266,34 +316,65 @@ class PersonalConnectionsSession {
     required this.authSnapshot,
     required this.accountName,
     required this.isCurrent,
+    this.readOnly = false,
   });
 
   final ApiService api;
   final ApiAuthSnapshot authSnapshot;
   final String accountName;
   final bool Function() isCurrent;
+
+  /// A claim to read the list only ([movedPersonalConnectionsProvider]):
+  /// nothing is written or probed under it.
+  final bool readOnly;
+}
+
+/// The signed-in account's claim, or null when there is no account to make
+/// one for.
+PersonalConnectionsSession? _claim(Ref ref, {required bool readOnly}) {
+  final api = ref.watch(apiServiceProvider);
+  ref.watch(openWebUiAuthSessionEpochProvider);
+  ref.watch(authTokenProvider3);
+  if (api == null) return null;
+  final ownership = captureOpenWebUiCacheOwnership(ref, api: api);
+  if (ownership == null) return null;
+  final user = ref.read(currentUserProvider2);
+  final name = user?.name?.trim() ?? '';
+  return PersonalConnectionsSession(
+    api: api,
+    authSnapshot: api.captureAuthSnapshot(),
+    accountName: name.isNotEmpty ? name : (user?.email.trim() ?? ''),
+    isCurrent: () => openWebUiCacheOwnershipIsCurrent(ref, ownership),
+    readOnly: readOnly,
+  );
 }
 
 /// Null unless the account may manage personal connections right now.
 final personalConnectionsSessionProvider =
     Provider<PersonalConnectionsSession?>((ref) {
-      final api = ref.watch(apiServiceProvider);
-      ref.watch(openWebUiAuthSessionEpochProvider);
-      ref.watch(authTokenProvider3);
-      if (api == null ||
-          !ref.watch(personalConnectionsAccessProvider).available) {
+      if (!ref.watch(personalConnectionsAccessProvider).available) {
         return null;
       }
-      final ownership = captureOpenWebUiCacheOwnership(ref, api: api);
-      if (ownership == null) return null;
-      final user = ref.read(currentUserProvider2);
-      final name = user?.name?.trim() ?? '';
-      return PersonalConnectionsSession(
-        api: api,
-        authSnapshot: api.captureAuthSnapshot(),
-        accountName: name.isNotEmpty ? name : (user?.email.trim() ?? ''),
-        isCurrent: () => openWebUiCacheOwnershipIsCurrent(ref, ownership),
+      return _claim(ref, readOnly: false);
+    });
+
+/// The tool servers and terminals the account kept in its settings, on a
+/// server that moved them to Tether ([PersonalConnectionsBlock.movedToTether])
+/// and no longer reads them: shown as they are, never written. Null on any
+/// other server.
+final movedPersonalConnectionsProvider =
+    FutureProvider<PersonalConnectionsSnapshot?>((ref) async {
+      if (ref.watch(personalConnectionsAccessProvider).block !=
+          PersonalConnectionsBlock.movedToTether) {
+        return null;
+      }
+      final session = _claim(ref, readOnly: true);
+      if (session == null) return null;
+      final settings = await session.api.getUserSettings(
+        authSnapshot: session.authSnapshot,
       );
+      if (!session.isCurrent()) return null;
+      return _snapshot(session, settings);
     });
 
 final personalConnectionsProvider =
@@ -319,11 +400,11 @@ class PersonalConnectionsController
   }
 
   /// Fails before anything is sent when [owner] is no longer the active
-  /// account. A claim is retired whenever the session provider rebuilds, which
+  /// account, or may only read the list. A claim is retired whenever the session provider rebuilds, which
   /// it does when the account, server or token changes and when the account
   /// loses the right to manage connections, so one check covers all of them.
   void _requireOwner(PersonalConnectionsSession owner) {
-    if (!ref.mounted || !owner.isCurrent()) {
+    if (!ref.mounted || owner.readOnly || !owner.isCurrent()) {
       throw const PersonalConnectionsOwnerChanged();
     }
   }

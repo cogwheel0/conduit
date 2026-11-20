@@ -128,6 +128,10 @@ class SocketServiceManager extends _$SocketServiceManager {
               isActive: isActive,
             );
           };
+      service.tetherDevicesChangedHandler = () {
+        if (!ref.mounted || !identical(_service, service)) return;
+        unawaited(ref.read(tetherDevicesProvider.notifier).changed());
+      };
       // A function can ask to carry on in a new chat on another model, which
       // happens only once the user agrees.
       service.chatHandoffHandler =
@@ -230,6 +234,7 @@ class SocketServiceManager extends _$SocketServiceManager {
     if (_service == null) return;
     _service!.toolExecutionHandler = null;
     _service!.chatHandoffHandler = null;
+    _service!.tetherDevicesChangedHandler = null;
     try {
       _service!.dispose();
     } catch (_) {}

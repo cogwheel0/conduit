@@ -51,6 +51,9 @@ final class DirectService {
       openWebUiAvailable: _container.read(
         openWebUiDirectConnectionsAvailableProvider,
       ),
+      openWebUiMovedToTether: _container.read(
+        openWebUiDirectConnectionsMovedToTetherProvider,
+      ),
       preferred:
           _container.read(preferredBackendProvider) == PreferredBackend.direct,
       usable: await _usable(profiles),

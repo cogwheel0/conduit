@@ -140,12 +140,20 @@ Future<void> runQueuedCompletion(
     return;
   }
 
+  // Recorded on the answer's row when the turn was admitted with its model
+  // picked; the model list may not have that device now.
+  final viaTether = await _storedAnswerViaTether(owner, assistantMessageId);
+  requireActiveOwner();
+
   // Ensure the (already-existing) assistant placeholder is loaded + streaming.
   await _preseedAssistantAndPersist(
     ref,
     existingAssistantId: assistantMessageId,
     modelId: effectiveModelId,
     modelName: effectiveModelName,
+    placeholderMetadata: <String, dynamic>{
+      if (viaTether) kCompletionViaTetherKey: true,
+    },
   );
   requireActiveOwner();
 
@@ -153,7 +161,6 @@ Future<void> runQueuedCompletion(
       (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
       : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
-
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
       sessionIdOverride ?? await _ensureConnectedSocketSessionId(socketService);
@@ -270,6 +277,7 @@ Future<void> runQueuedCompletion(
         userMessage: parentMsgMap,
         variables: promptVars2,
         files: _extractTopLevelRequestFiles(parentMsgMap),
+        viaTether: viaTether,
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
@@ -326,6 +334,7 @@ Future<void> runQueuedCompletion(
         owner: owner,
         assistantMessageId: assistantMessageId,
         submissionAlreadyMarked: true,
+        viaTether: viaTether,
       );
       return;
     }
@@ -364,6 +373,7 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       ownsActiveConversation: () =>
           activeOpenWebUiChatIdForMutation(ref, owner) != null,
+      viaTether: viaTether,
     );
     if (!attached) {
       await _finishSubmittedOpenWebUiCompletionHeadlessly(
@@ -372,6 +382,7 @@ Future<void> runQueuedCompletion(
         owner: owner,
         assistantMessageId: assistantMessageId,
         submissionAlreadyMarked: true,
+        viaTether: viaTether,
       );
     }
   } finally {
@@ -509,6 +520,8 @@ Future<void> runHeadlessCompletion(
       (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
       : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+  final viaTether = await _storedAnswerViaTether(owner, assistantMessageId);
+  requireCurrentOwner();
 
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
@@ -612,6 +625,7 @@ Future<void> runHeadlessCompletion(
       userMessage: parentMsgMap,
       variables: promptVars,
       files: _extractTopLevelRequestFiles(parentMsgMap),
+      viaTether: viaTether,
     );
   } on ChatCompletionStopped {
     await settleStoppedOpenWebUiCompletion(
@@ -653,6 +667,7 @@ Future<void> runHeadlessCompletion(
     owner: owner,
     assistantMessageId: assistantMessageId,
     submissionAlreadyMarked: true,
+    viaTether: viaTether,
   );
 }
 
@@ -887,7 +902,7 @@ Future<Never> _settleRefusedOpenWebUiCompletion(
       await owner.database?.messagesDao.markAssistantCompletionRefused(
         chatId: owner.chatId,
         messageId: assistantMessageId,
-        error: chatErrorContentForException(refusal),
+        error: chatMessageErrorFor(refusal),
       );
     });
   } catch (cause, stackTrace) {
@@ -922,6 +937,11 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   Duration recoveryDelay = const Duration(seconds: 2),
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
+
+  /// Whether the answer recorded, when its request was made, that it went
+  /// to a model one of the user's devices offers. An answer that had no row
+  /// then has the record written on the row its pull lands.
+  required bool viaTether,
 }) async {
   final chatId = owner.chatId;
   final markerPersisted =
@@ -977,6 +997,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
+    viaTether: viaTether,
     attempts: recoveryAttempts,
     delay: recoveryDelay,
   );
@@ -1026,6 +1047,7 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required String assistantMessageId,
+  bool viaTether = false,
   int attempts = 6,
   Duration delay = const Duration(seconds: 2),
 }) async {
@@ -1073,6 +1095,9 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
         .where((m) => m.id == assistantMessageId)
         .firstOrNull;
     if (asst != null && _headlessAssistantLanded(asst)) {
+      if (viaTether && !answerViaTether(asst)) {
+        await _recordLandedTetherAnswer(ref, owner: owner, answerId: asst.id);
+      }
       DebugLogger.log(
         'headless-completion-landed',
         scope: 'chat/completion',
@@ -1089,6 +1114,63 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
   return false;
 }
 
+/// Whether the answer [answerId] among [messages] records that its request
+/// goes to a model one of the user's devices offers.
+bool _answerRecordsViaTether(List<ChatMessage> messages, String answerId) =>
+    messages.any(
+      (message) => message.id == answerId && answerViaTether(message),
+    );
+
+/// Whether the stored row of a queued turn's answer records, as its
+/// admission wrote it, that its request goes to a model one of the user's
+/// devices offers. A row that cannot be read records nothing.
+Future<bool> _storedAnswerViaTether(
+  OpenWebUiCompletionOwner owner,
+  String answerId,
+) async {
+  try {
+    final row = await owner.database?.messagesDao.getMessage(
+      owner.chatId,
+      answerId,
+    );
+    final payload = row == null ? null : jsonDecode(row.payload);
+    final metadata = payload is Map ? payload['metadata'] : null;
+    return metadata is Map && metadata[kCompletionViaTetherKey] == true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// An answer asked of one of the user's devices before it had a row, as an
+/// inline send's or a regeneration's, gets its record on the row its pull
+/// wrote, which reads the server's saved error with it. An answer admitted
+/// with a row has kept its record through the pull.
+Future<void> _recordLandedTetherAnswer(
+  dynamic ref, {
+  required OpenWebUiCompletionOwner owner,
+  required String answerId,
+}) async {
+  try {
+    final locks = ref.read(chatLocksProvider) as ChatLocks;
+    await locks.runExclusive(owner.chatId, () async {
+      await owner.database?.messagesDao.recordAnswerViaTether(
+        chatId: owner.chatId,
+        messageId: answerId,
+      );
+    });
+  } catch (cause, stackTrace) {
+    DebugLogger.error(
+      'tether-answer-record-failed',
+      scope: 'chat/completion',
+      error: cause,
+      stackTrace: stackTrace,
+    );
+  }
+  if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+  (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+      .updateMessageById(answerId, withTetherRecord);
+}
+
 @visibleForTesting
 Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
   dynamic ref, {
@@ -1099,6 +1181,7 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
   Duration recoveryDelay = Duration.zero,
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
+  bool viaTether = false,
 }) {
   final owner = captureOpenWebUiCompletionOwner(ref, chatId: chatId);
   return _finishSubmittedOpenWebUiCompletionHeadlessly(
@@ -1110,6 +1193,7 @@ Future<void> finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
     recoveryDelay: recoveryDelay,
     requireDurableSubmittedMarker: requireDurableSubmittedMarker,
     submissionAlreadyMarked: submissionAlreadyMarked,
+    viaTether: viaTether,
   );
 }
 

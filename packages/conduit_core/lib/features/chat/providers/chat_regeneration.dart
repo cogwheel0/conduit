@@ -238,10 +238,7 @@ Future<void> _regenerateHermesMessage(
       'File attachments cannot be regenerated. Send the file again.',
     );
     installAssistant(
-      assistantMessage(
-        isStreaming: false,
-        error: ChatMessageError(content: chatErrorContentForException(error)),
-      ),
+      assistantMessage(isStreaming: false, error: chatMessageErrorFor(error)),
     );
     throw error;
   }
@@ -672,7 +669,7 @@ Future<void> _regenerateDirectMessage(
         assistant;
     final failedSnapshot = failed.copyWith(
       isStreaming: false,
-      error: ChatMessageError(content: chatErrorContentForException(error)),
+      error: chatMessageErrorFor(error),
     );
     if (ownerIsActive) {
       notifier.failLastStreamingAssistant(
@@ -1296,9 +1293,14 @@ Future<void> regenerateMessage(
         _openWebUiRegenerationAttemptMetadataKey: regenerationAttemptId,
         if (comparisonTarget != null)
           kMessageModelIdxMetadataKey: comparisonTarget.slot,
+        ...tetherAnswerRecord(selectedModel),
       },
     );
     regenerationPlaceholderWasEstablished = true;
+    final viaTether = _answerRecordsViaTether(
+      ref.read(chatMessagesProvider) as List<ChatMessage>,
+      assistantMessageId,
+    );
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -1528,6 +1530,7 @@ Future<void> regenerateMessage(
                     modelIdx: comparisonTarget.slot,
                   ),
                 ],
+          viaTether: viaTether,
         );
       } on ChatCompletionHeld {
         // Regenerated under a reply still running (on another device): the
@@ -1599,6 +1602,7 @@ Future<void> regenerateMessage(
             assistantMessageId: assistantMessageId,
             // Regeneration is an inline request, not a replayable outbox op.
             requireDurableSubmittedMarker: false,
+            viaTether: viaTether,
           );
         }
         return;
@@ -1648,6 +1652,7 @@ Future<void> regenerateMessage(
         ownsActiveConversation: () =>
             activeOpenWebUiChatIdForMutation(ref, regenerationOwner) != null,
         ownsPendingPlaceholder: ownsLiveRegenerationPlaceholder,
+        viaTether: viaTether,
       );
       if (!attached) {
         final ownerIsStillActive =
@@ -1668,6 +1673,7 @@ Future<void> regenerateMessage(
             owner: regenerationOwner,
             assistantMessageId: assistantMessageId,
             requireDurableSubmittedMarker: false,
+            viaTether: viaTether,
           );
         }
       } else {

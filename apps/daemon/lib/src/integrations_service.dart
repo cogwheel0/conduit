@@ -53,6 +53,7 @@ final class IntegrationsService {
         PersonalConnectionsBlock.serverDisabled =>
           PersonalAccess.serverDisabled,
         PersonalConnectionsBlock.noPermission => PersonalAccess.noPermission,
+        PersonalConnectionsBlock.movedToTether => PersonalAccess.movedToTether,
       };
 
   String _remember(PersonalConnectionsSession owner) {
@@ -126,12 +127,15 @@ final class IntegrationsService {
   PersonalConnections _list(
     PersonalConnectionsSnapshot snapshot, {
     bool savedForPreviousAccount = false,
+    bool moved = false,
   }) {
     final server = snapshot.session.api.serverConfig;
     final name = server.name.trim();
+    final readOnly = moved || snapshot.session.readOnly;
     return PersonalConnections(
-      access: PersonalAccess.allowed,
-      owner: _remember(snapshot.session),
+      access: readOnly ? PersonalAccess.movedToTether : PersonalAccess.allowed,
+      // A list to read only hands out no owner, so nothing can be changed.
+      owner: readOnly ? '' : _remember(snapshot.session),
       accountName: snapshot.accountName,
       serverName: name.isNotEmpty
           ? name
@@ -157,31 +161,37 @@ final class IntegrationsService {
     final account = AccountScope.capture(_container);
     final access = await _access();
     account.require('the personal connections are read');
-    if (!access.available) {
+    final moved = access.block == PersonalConnectionsBlock.movedToTether;
+    if (!access.available && !moved) {
       return PersonalConnections(access: _accessDto(access));
     }
+    final failed = PersonalConnections(
+      access: _accessDto(access),
+      failed: true,
+    );
     try {
-      _container.invalidate(personalConnectionsProvider);
-      final snapshot = await readSettled(
-        _container,
-        personalConnectionsProvider.future,
-      );
-      account.require('the personal connections are answered');
-      if (snapshot == null) {
-        return const PersonalConnections(
-          access: PersonalAccess.allowed,
-          failed: true,
+      final PersonalConnectionsSnapshot? snapshot;
+      if (moved) {
+        _container.invalidate(movedPersonalConnectionsProvider);
+        snapshot = await readSettled(
+          _container,
+          movedPersonalConnectionsProvider.future,
+        );
+      } else {
+        _container.invalidate(personalConnectionsProvider);
+        snapshot = await readSettled(
+          _container,
+          personalConnectionsProvider.future,
         );
       }
-      return _list(snapshot);
+      account.require('the personal connections are answered');
+      if (snapshot == null) return failed;
+      return _list(snapshot, moved: moved);
     } on RpcError {
       rethrow;
     } on Object {
       account.require('the personal connections are answered');
-      return const PersonalConnections(
-        access: PersonalAccess.allowed,
-        failed: true,
-      );
+      return failed;
     }
   }
 
