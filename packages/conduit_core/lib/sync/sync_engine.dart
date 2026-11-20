@@ -1137,6 +1137,23 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     } finally {
       _running = false;
       _clearCachedDrainerIfIdle();
+      // Read before the status is decided: the engine can be disposed, or its
+      // session change, while the watermark is read.
+      int? watermark;
+      if (ref.mounted &&
+          cycleEpoch == _sessionEpoch &&
+          (result?.success ?? false)) {
+        try {
+          watermark = await _readWatermark(cycleEpoch);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'watermark-state-read-failed',
+            scope: 'sync/engine',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
       if (ref.mounted && cycleEpoch != _sessionEpoch) {
         // Dependencies changed mid-cycle: this cycle's watermark/error belong
         // to the old session and must not be published as the new session's
@@ -1150,24 +1167,10 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
           );
         }
       } else if (ref.mounted) {
-        final previousStateWatermark = state.lastSuccessUpdatedAtWatermark;
-        var watermark = previousStateWatermark;
-        if (result?.success ?? false) {
-          try {
-            watermark =
-                (await _readWatermark(cycleEpoch)) ?? previousStateWatermark;
-          } catch (error, stackTrace) {
-            DebugLogger.error(
-              'watermark-state-read-failed',
-              scope: 'sync/engine',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          }
-        }
         state = SyncStatus(
           phase: SyncPhase.idle,
-          lastSuccessUpdatedAtWatermark: watermark,
+          lastSuccessUpdatedAtWatermark:
+              watermark ?? state.lastSuccessUpdatedAtWatermark,
           lastError:
               lastError ??
               ((result != null && !result.success)
