@@ -383,6 +383,10 @@ class AuthStateManager extends _$AuthStateManager {
   ({String accountId, BrowserSignInGrant grant, DateTime at})?
   _retryableBrowserGrant;
 
+  /// Lets [_retryableBrowserGrant] go once it can no longer be retried
+  /// ([_keepRetryableBrowserGrant]).
+  Timer? _retryableBrowserGrantExpiry;
+
   /// Browser sign-ins begun and not yet ended ([loginWithBrowser],
   /// [retryBrowserExchange]).
   int _browserSignInsUnderWay = 0;
@@ -447,9 +451,37 @@ class AuthStateManager extends _$AuthStateManager {
   }
 
   void _dropRetryableBrowserGrant() {
-    final grant = _retryableBrowserGrant?.grant;
-    _retryableBrowserGrant = null;
+    final grant = _takeRetryableBrowserGrant()?.grant;
     _releaseBrowserGrant(grant);
+  }
+
+  ({String accountId, BrowserSignInGrant grant, DateTime at})?
+  _takeRetryableBrowserGrant() {
+    final retry = _retryableBrowserGrant;
+    _retryableBrowserGrant = null;
+    _retryableBrowserGrantExpiry?.cancel();
+    _retryableBrowserGrantExpiry = null;
+    return retry;
+  }
+
+  /// Keeps [grant] for [retryBrowserExchange] until its retry window ends,
+  /// then lets it go: kept past it, it would only hold back revocations of
+  /// sessions it may share a grant with ([_mayShareHeldBrowserGrant]).
+  void _keepRetryableBrowserGrant({
+    required String accountId,
+    required BrowserSignInGrant grant,
+    required DateTime at,
+  }) {
+    _retryableBrowserGrantExpiry?.cancel();
+    _retryableBrowserGrant = (accountId: accountId, grant: grant, at: at);
+    final left = _browserGrantRetryWindow - DateTime.now().difference(at);
+    final expiry = Timer(left.isNegative ? Duration.zero : left, () {
+      if (ref.mounted && identical(_retryableBrowserGrant?.grant, grant)) {
+        _dropRetryableBrowserGrant();
+      }
+    });
+    _retryableBrowserGrantExpiry = expiry;
+    ref.onDispose(expiry.cancel);
   }
 
   /// Revokes [grant]'s refresh token once nothing keeps it: no session was
@@ -1560,8 +1592,7 @@ class AuthStateManager extends _$AuthStateManager {
       );
 
   Future<bool> _retryBrowserExchange({bool Function()? canCommit}) async {
-    final retry = _retryableBrowserGrant;
-    _retryableBrowserGrant = null;
+    final retry = _takeRetryableBrowserGrant();
     if (retry == null) return false;
     if (DateTime.now().difference(retry.at) > _browserGrantRetryWindow) {
       _releaseBrowserGrant(retry.grant);
@@ -1850,7 +1881,7 @@ class AuthStateManager extends _$AuthStateManager {
           );
     } on BrowserSignInException catch (error) {
       if (error.failure == BrowserSignInFailure.userNotFound && !stopped()) {
-        _retryableBrowserGrant = (
+        _keepRetryableBrowserGrant(
           accountId: accountId,
           grant: grant,
           at: grantedAt,

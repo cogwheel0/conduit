@@ -23,6 +23,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1432,6 +1433,54 @@ void main() {
         });
       }
     }
+
+    // Past what fakeTimeTest lets pass: the retry window is five minutes.
+    test('a grant kept for Retry stops holding a revocation back once it can '
+        'no longer be retried', () {
+      fakeAsync((async) {
+        Object? failure;
+        StackTrace? trace;
+        var done = false;
+        () async {
+          final rig = await _Rig.start();
+          when(() => rig.storage.browserSignInSessionFor('account-b'))
+              .thenAnswer((_) async => _session);
+          when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+              .thenAnswer((_) async => const []);
+          when(() => rig.storage.removeInactiveAccount('account-b'))
+              .thenAnswer((_) async => true);
+          rig.service
+            ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user')
+            ..exchangeError = const BrowserSignInException(
+              BrowserSignInFailure.userNotFound,
+            );
+          await check(
+            rig.auth.loginWithBrowser(config: _config),
+          ).throws<BrowserSignInException>();
+          await rig.auth.signOutAccount('account-b');
+          await pumpEventQueue();
+          check(rig.service.revoked).isEmpty();
+
+          await Future<void>.delayed(const Duration(minutes: 5, seconds: 1));
+          await rig.auth.browserRevocationsSettled;
+          check(
+            rig.service.revoked.map((session) => session.refreshToken),
+          ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
+        }().then(
+          (_) => done = true,
+          onError: (Object error, StackTrace stackTrace) {
+            failure = error;
+            trace = stackTrace;
+            done = true;
+          },
+        );
+        while (!done && async.elapsed < const Duration(minutes: 10)) {
+          async.elapse(const Duration(seconds: 1));
+        }
+        if (failure case final error?) Error.throwWithStackTrace(error, trace!);
+        check(done).isTrue();
+      });
+    });
 
     // The session the clear took, even when it could not be read before.
     for (final readable in [true, false]) {
