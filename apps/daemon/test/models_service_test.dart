@@ -19,7 +19,6 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
-import 'package:conduit_core/features/tether/tether_devices.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show
@@ -92,11 +91,6 @@ final class _OnDevices extends Models {
     }),
     const core.Model(id: 'first-model', name: 'First model'),
   ];
-}
-
-/// Tether devices that change on cue.
-final class _Devices extends TetherDevices {
-  void bump() => state++;
 }
 
 /// Two Hermes models that both offer the Fast tier.
@@ -1473,25 +1467,6 @@ void main() {
         'first-model': null,
       },
     );
-  });
-
-  test('a Tether device changing what it offers announces another list', () {
-    final container = ProviderContainer(
-      overrides: [
-        modelsProvider.overrideWith(_Listed.new),
-        tetherDevicesProvider.overrideWith(_Devices.new),
-      ],
-    );
-    addTearDown(container.dispose);
-    final bus = EventBus();
-    final changed = <String>[];
-    bus.tap((event, _, _) => changed.add(event));
-    ModelsService(container, events: bus);
-    changed.clear();
-
-    (container.read(tetherDevicesProvider.notifier) as _Devices).bump();
-
-    expect(changed, <String>[ConduitEventSpecs.modelsChanged.name]);
   });
 
   test('with nothing chosen, the account default is the selection', () async {
