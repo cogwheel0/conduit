@@ -36,25 +36,27 @@ final class _Selected extends SelectedModel {
   Model? build() => initial;
 }
 
+const _sketchPath = '/synthetic/tray/sketch.png';
+
 final class _Tray extends AttachedFilesNotifier {
   @override
   List<FileUploadState> build() => [
     FileUploadState(
-      file: File('/synthetic/tray/sketch.png'),
+      file: File(_sketchPath),
       fileName: 'sketch.png',
       fileSize: 3,
-      progress: 1,
-      status: FileUploadStatus.completed,
-      fileId: 'data:image/png;base64,AQID',
+      progress: 0.5,
+      status: FileUploadStatus.uploading,
       isImage: true,
     ),
   ];
 
-  /// Attaches [name] as the composer does once its file is ready.
-  void attach(String name) => state = [
+  /// Attaches [name], from [path] or else a share, as the composer does once
+  /// its file is ready.
+  void attach(String name, {String? path}) => state = [
     ...state,
     FileUploadState(
-      file: File('/synthetic/share/$name'),
+      file: File(path ?? '/synthetic/share/$name'),
       fileName: name,
       fileSize: 3,
       progress: 0,
@@ -121,24 +123,58 @@ void main() {
   });
 
   // New Chat names no model: the default restore picks one later, and a file
-  // attached meanwhile, such as a share, belongs to the new chat.
-  test('a new chat whose default is Hermes starts without the last chat\'s '
-      'files, and keeps one attached while the default was chosen', () async {
-    final container = containerWith(
-      _serverModel,
-      defaultModel: hermesSyntheticModel(),
-    );
-
-    startNewChat(container);
-    (container.read(attachedFilesProvider.notifier) as _Tray).attach(
+  // attached meanwhile, such as a share, belongs to the new chat. So does
+  // one picked again at the path of a file the chat leaves behind, while that
+  // file goes even when its upload moved on meanwhile.
+  for (final (attached, attach, kept) in [
+    (
+      'a share',
+      (_Tray tray) {
+        tray.updateFileState(
+          _sketchPath,
+          FileUploadState(
+            file: File(_sketchPath),
+            fileName: 'sketch.png',
+            fileSize: 3,
+            progress: 1,
+            status: FileUploadStatus.completed,
+            fileId: 'data:image/png;base64,AQID',
+            isImage: true,
+          ),
+        );
+        tray.attach('receipt.png');
+      },
       'receipt.png',
-    );
-    await pumpEventQueue();
+    ),
+    (
+      'the same file picked again',
+      (_Tray tray) {
+        tray.removeFile(_sketchPath);
+        tray.attach('sketch.png', path: _sketchPath);
+      },
+      'sketch.png',
+    ),
+  ]) {
+    test(
+      'a new chat whose default is Hermes starts without the last chat\'s '
+      'files, and keeps $attached attached while the default was chosen',
+      () async {
+        final container = containerWith(
+          _serverModel,
+          defaultModel: hermesSyntheticModel(),
+        );
 
-    check(isHermesModel(container.read(selectedModelProvider)!)).isTrue();
-    check(container.read(attachedFilesProvider).map((file) => file.fileName))
-        .deepEquals(['receipt.png']);
-  });
+        final restored = restoreDefaultModelForNewChat(container);
+        attach(container.read(attachedFilesProvider.notifier) as _Tray);
+        await restored;
+
+        check(isHermesModel(container.read(selectedModelProvider)!)).isTrue();
+        final files = container.read(attachedFilesProvider);
+        check(files.map((file) => file.fileName)).deepEquals([kept]);
+        check(files.single.status).equals(FileUploadStatus.pending);
+      },
+    );
+  }
 
   test('a new chat whose default is another backend keeps the tray', () async {
     final container = containerWith(
@@ -146,8 +182,7 @@ void main() {
       defaultModel: _otherServerModel,
     );
 
-    startNewChat(container);
-    await pumpEventQueue();
+    await restoreDefaultModelForNewChat(container);
 
     check(container.read(selectedModelProvider)).equals(_otherServerModel);
     check(container.read(attachedFilesProvider).map((file) => file.fileName))

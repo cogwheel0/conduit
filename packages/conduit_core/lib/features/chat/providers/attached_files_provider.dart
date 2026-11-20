@@ -139,8 +139,23 @@ enum FileUploadStatus { pending, uploading, completed, failed }
 
 // State notifier for managing attached files
 class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
+  /// The state [updateFileState] put in each one's place: the same file, its
+  /// upload further on.
+  final _successors = Expando<FileUploadState>();
+
   @override
   List<FileUploadState> build() => [];
+
+  /// What [captured] is now: itself, or the state that took its place as its
+  /// upload went on. A file attached anew at its path is another file.
+  FileUploadState latest(FileUploadState captured) {
+    var current = captured;
+    while (true) {
+      final next = _successors[current];
+      if (next == null) return current;
+      current = next;
+    }
+  }
 
   void addFiles(List<LocalAttachment> attachments) {
     final newStates = attachments
@@ -191,8 +206,16 @@ class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
   void updateFileState(String filePath, FileUploadState newState) {
     state = [
       for (final fileState in state)
-        if (fileState.file.path == filePath) newState else fileState,
+        if (fileState.file.path == filePath)
+          _succeed(fileState, newState)
+        else
+          fileState,
     ];
+  }
+
+  FileUploadState _succeed(FileUploadState previous, FileUploadState next) {
+    if (!identical(previous, next)) _successors[previous] = next;
+    return next;
   }
 
   void removeFile(String filePath) {
@@ -222,17 +245,16 @@ final attachedFilesProvider =
     );
 
 /// Takes the files now in the composer's tray, to retire at a chat boundary:
-/// the function it returns removes exactly those, and leaves any attached
-/// since. The app replaces it with its upload controller's, whose retirement
-/// also stops the files' uploads and removes their staged copies.
+/// the function it returns removes exactly those, however far their uploads
+/// got, and leaves any attached since, even at one's path. The app replaces
+/// it with its upload controller's, whose retirement also stops the files'
+/// uploads and removes their staged copies.
 final composerTrayCaptureProvider = Provider<void Function() Function()>(
   (ref) => () {
-    final captured = {
-      for (final file in ref.read(attachedFilesProvider)) file.file.path,
-    };
+    final captured = ref.read(attachedFilesProvider);
     return () {
       final notifier = ref.read(attachedFilesProvider.notifier);
-      captured.forEach(notifier.removeFile);
+      notifier.releaseIdentical(captured.map(notifier.latest));
     };
   },
 );
