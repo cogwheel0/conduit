@@ -811,40 +811,47 @@ void main() {
       ).deepEquals(['saved-refresh', 'rotated-refresh']);
     });
 
-    test('a rotation that could not be saved is not taken up by a session '
-        'of another provider with the same refresh token', () async {
-      idp.refreshTokenIssued = 'rotated-refresh';
-      saves(() async => throw StateError('keychain locked'));
-      await check(renew()).throws<StateError>();
-      final elsewhere = BrowserSignInSession(
-        serverId: 'server-1',
-        provider: 'oidc',
-        clientId: 'conduit',
-        issuer: 'https://other-id.example',
-        tokenEndpoint: _tokenEndpoint,
-        refreshToken: 'saved-refresh',
-        owuiUserId: 'user-a',
-      );
-      when(
-        () => storage.browserSignInSessionFor('account-b'),
-      ).thenAnswer((_) async => elsewhere);
-      when(
-        () => storage.getOpenWebUiRegistryStrict(),
-      ).thenAnswer((_) async => _registry(accountId: 'account-b'));
-      when(
-        () => storage.replaceBrowserSignInSessionIfCurrent(
-          'account-b',
-          expected: any(named: 'expected'),
-          next: any(named: 'next'),
-        ),
-      ).thenAnswer((_) async => true);
+    // Another provider's document, even one whose issuer reads as this one
+    // with its discovery suffix.
+    for (final issuer in [
+      'https://other-id.example',
+      '$_issuer/.well-known/openid-configuration',
+    ]) {
+      test('a rotation that could not be saved is not taken up by a session '
+          'of $issuer with the same refresh token', () async {
+        idp.refreshTokenIssued = 'rotated-refresh';
+        saves(() async => throw StateError('keychain locked'));
+        await check(renew()).throws<StateError>();
+        final elsewhere = BrowserSignInSession(
+          serverId: 'server-1',
+          provider: 'oidc',
+          clientId: 'conduit',
+          issuer: issuer,
+          tokenEndpoint: _tokenEndpoint,
+          refreshToken: 'saved-refresh',
+          owuiUserId: 'user-a',
+        );
+        when(
+          () => storage.browserSignInSessionFor('account-b'),
+        ).thenAnswer((_) async => elsewhere);
+        when(
+          () => storage.getOpenWebUiRegistryStrict(),
+        ).thenAnswer((_) async => _registry(accountId: 'account-b'));
+        when(
+          () => storage.replaceBrowserSignInSessionIfCurrent(
+            'account-b',
+            expected: any(named: 'expected'),
+            next: any(named: 'next'),
+          ),
+        ).thenAnswer((_) async => true);
 
-      await service.renew(accountId: 'account-b', api: api, storage: storage);
+        await service.renew(accountId: 'account-b', api: api, storage: storage);
 
-      check(
-        idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
-      ).deepEquals(['saved-refresh', 'saved-refresh']);
-    });
+        check(
+          idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
+        ).deepEquals(['saved-refresh', 'saved-refresh']);
+      });
+    }
 
     test('two callers at once share one refresh', () async {
       final release = Completer<void>();
