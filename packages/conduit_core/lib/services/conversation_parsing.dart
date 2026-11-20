@@ -674,12 +674,15 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   if (voice is Map) metadata[kMessageVoiceMetadataKey] = _coerceJsonMap(voice);
 
   // A sub-agent's or a timer's pending message is the server's own, not one
-  // the user is waiting on.
+  // the user is waiting on. Open WebUI answers a held message only while
+  // nothing answers it, and keeps the status on one regenerated meanwhile.
   metadata.remove(kMessageHeldByServerMetadataKey);
+  final children = historyMsg?['childrenIds'] ?? msgData['childrenIds'];
   if (role == 'user' &&
       meta is Map &&
       meta['status'] == 'pending' &&
-      meta['internal'] != true) {
+      meta['internal'] != true &&
+      (children is! List || children.isEmpty)) {
     metadata[kMessageHeldByServerMetadataKey] = true;
   }
 

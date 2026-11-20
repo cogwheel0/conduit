@@ -2115,11 +2115,17 @@ void main() {
               'meta': <String, dynamic>{},
               'metadata': {kMessageHeldByServerMetadataKey: true},
             }),
+            // Regenerated elsewhere while held: the server keeps the status,
+            // and answers held messages only while nothing answers them.
+            question('replied', {
+              'meta': {'status': 'pending'},
+              'childrenIds': ['reply'],
+            }),
           ],
         },
       });
       check(conversation.messages.map((m) => m.isHeldByServer).toList())
-          .deepEquals([true, false, false]);
+          .deepEquals([true, false, false, false]);
     },
   );
 
