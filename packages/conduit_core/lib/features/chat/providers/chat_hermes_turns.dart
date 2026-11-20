@@ -1077,7 +1077,7 @@ void _bindHermesSessionToConversation(
     nextConversation = markNativeHermesConversation(
       Conversation(
         id: nextConversationId,
-        title: _deriveHermesSessionTitle(input),
+        title: _deriveHermesSessionTitle(input, ownerMessages),
         createdAt: now,
         updatedAt: now,
         model: selectedModel?.id,
@@ -2006,7 +2006,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     try {
       // Title the session from the first user message when this is turn one.
       final title = existingMessages.isEmpty
-          ? _deriveHermesSessionTitle(input)
+          ? _deriveHermesSessionTitle(input, ownerMessages)
           : null;
       final createdSessionId = service is HermesDesktopTurnService
           ? await service.createDesktopSession(

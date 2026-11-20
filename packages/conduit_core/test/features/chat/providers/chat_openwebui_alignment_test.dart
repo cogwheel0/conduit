@@ -362,6 +362,43 @@ void main() {
       ]);
     });
 
+    // A temporary chat's request carries its whole history, and the server
+    // has no stored copy to rebuild it from: a turn of files alone that the
+    // builder skipped never reached the model.
+    test('a temporary chat sends a turn of files alone, with its image, '
+        'and still leaves out an empty answer', () async {
+      final api = _ImageFilesApi();
+
+      final messages = await buildOpenWebUiCompletionRequestMessagesForTest(
+        messages: [
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: '',
+            timestamp: DateTime.utc(2026, 11, 2),
+            attachmentIds: const ['image-shelf'],
+          ),
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.utc(2026, 11, 2),
+            isStreaming: true,
+          ),
+        ],
+        api: api,
+      );
+
+      check(messages).length.equals(1);
+      check(messages.single['role']).equals('user');
+      check(messages.single['content']).isA<List<dynamic>>().deepEquals([
+        {
+          'type': 'image_url',
+          'image_url': {'url': 'data:image/png;base64,c2hlbGY='},
+        },
+      ]);
+    });
+
     test(
       'direct assistant history stays raw when switching to OpenWebUI',
       () async {

@@ -4866,5 +4866,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요."
+  "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요.",
+  "knowledgeBaseEntire": "지식 베이스 전체",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }

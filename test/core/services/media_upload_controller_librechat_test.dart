@@ -154,6 +154,106 @@ void main() {
     expect(turnFile['width'], 1);
   });
 
+  // The picker compresses a large photo once; LibreChat's upload measured it
+  // and encoded it again.
+  test(
+    'a photo compressed when it was picked goes up to LibreChat as it is',
+    () async {
+      final fake = FakeLibreChatServer()..addUser();
+      final auth = LibreChatAuthService(_server, adapter: fake);
+      addTearDown(auth.close);
+      final signedIn = await auth.signIn(
+        email: 'dev@example.com',
+        password: 'devpassword',
+      ) as LibreChatSignedIn;
+      final handle = LibreChatSessionHandle(
+        session: signedIn.session,
+        store: _MemoryStore(),
+        renew: auth.renew,
+      );
+      addTearDown(handle.dispose);
+      final client = LibreChatHttpClient(
+        server: _server,
+        session: handle,
+        adapter: fake,
+      );
+      addTearDown(client.close);
+      final names = <String>[];
+      // Bytes that do not decode as an image go up on the files route.
+      for (final route in ['/api/files/images', '/api/files']) {
+        fake.on('POST', route, (request, match) {
+          final form = request.data as FormData;
+          names.addAll(form.files.map((file) => file.value.filename ?? ''));
+          return FakeLibreChatResponse.json({
+            'file_id': 'srv-2',
+            'filepath': '/images/user1/srv-2.jpg',
+            'filename': 'photo.jpg',
+            'type': 'image/jpeg',
+          });
+        });
+      }
+
+      final picked = await Directory.systemTemp.createTemp('conduit_img_');
+      addTearDown(() async {
+        if (await picked.exists()) await picked.delete(recursive: true);
+      });
+      final photo = File('${picked.path}/converted.jpg');
+      await photo.writeAsBytes(List<int>.filled(600 * 1024, 7));
+      final converted = <String>[];
+
+      final model = libreChatCatalog(
+        startupConfig: const <String, dynamic>{},
+        endpoints: const <String, dynamic>{
+          'Ollama': {'order': 1, 'type': 'custom'},
+        },
+        models: const {
+          'Ollama': ['llama3.2'],
+        },
+      ).single;
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWithValue(model),
+          libreChatApiServiceProvider.overrideWithValue(
+            LibreChatApiService(client),
+          ),
+          imageUploadConverterProvider.overrideWithValue((filePath) async {
+            converted.add(filePath);
+            return null;
+          }),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFiles([
+              FileUploadState(
+                file: photo,
+                fileName: 'photo.jpg',
+                fileSize: 600 * 1024,
+                progress: 0,
+                status: FileUploadStatus.pending,
+                isImage: true,
+              ),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(
+            filePath: photo.path,
+            fileName: 'photo.jpg',
+            fileSize: 600 * 1024,
+          );
+
+      expect(converted, isEmpty);
+      expect(names, ['photo.jpg']);
+      expect(
+        container.read(attachedFilesProvider).single.status,
+        FileUploadStatus.completed,
+      );
+    },
+  );
+
   test('a file larger than the LibreChat server takes is refused before it '
       'goes up', () async {
     final fake = FakeLibreChatServer()..addUser();

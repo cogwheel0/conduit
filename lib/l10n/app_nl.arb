@@ -5094,5 +5094,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres."
+  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres.",
+  "knowledgeBaseEntire": "Hele kennisbank",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }
