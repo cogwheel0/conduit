@@ -1144,8 +1144,6 @@ final class _GatedRecovery implements SyncEntityAdapter, ParkedOpRecovery {
       throw UnimplementedError();
   @override
   Future<void> pushOp(OutboxOp op) => throw UnimplementedError();
-  @override
-  Future<void> preparePull() => throw UnimplementedError();
 }
 
 /// Answers only delete all, and holds the answer until the test releases it.
