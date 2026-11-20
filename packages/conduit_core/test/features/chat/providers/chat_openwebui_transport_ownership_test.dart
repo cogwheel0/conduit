@@ -2558,46 +2558,74 @@ void main() {
       return jsonDecode(row!.payload) as Map<String, dynamic>;
     }
 
-    test('ends the open answer with the server\'s words', () async {
-      await _seedChat(db, chatId, assistantId: assistantId);
-      final api = _GatedCompletionApi(Completer<void>())
-        ..onSend = () =>
-            throw const ChatCompletionHttpException(400, 'Model not found');
-      final syncEngine = _PersistingSyncEngine(db, api);
-      final messages = <ChatMessage>[
-        _user('refused-user', 'Ask a model the server lacks'),
-        _streamingAssistant(assistantId, ''),
-      ];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
+    // A failed relay to one of the user's devices, in Open WebUI's own
+    // words, may have run there or never reached it. Either way the outbox
+    // must not send it again by itself.
+    for (final (status, detail, words) in const <(int, String, String?)>[
+      (400, 'Model not found', 'Model not found'),
+      (
+        503,
+        'Tether service is unavailable.',
+        'Tether service is unavailable.',
+      ),
+      (
+        429,
+        'Tether has too many active operations.',
+        'Tether has too many active operations.',
+      ),
+      // A body is not words to show.
+      (
+        502,
+        '{"error": "Tether connection interrupted: Connection lost. The '
+            'operation may have completed. Check its result before trying '
+            'again; do not automatically repeat it.", "code": '
+            '"tether_interrupted", "outcome": "unknown", "retryable": false}',
+        null,
+      ),
+    ]) {
+      test('ends the open answer with the server\'s words ($status)', () async {
+        await _seedChat(db, chatId, assistantId: assistantId);
+        final api = _GatedCompletionApi(Completer<void>())
+          ..onSend = () => throw ChatCompletionHttpException(status, detail);
+        final syncEngine = _PersistingSyncEngine(db, api);
+        final messages = <ChatMessage>[
+          _user('refused-user', 'Ask a model the server lacks'),
+          _streamingAssistant(assistantId, ''),
+        ];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: syncEngine,
+        );
+        addTearDown(container.dispose);
 
-      await check(
-        runQueuedCompletion(
-          container,
-          chatId: chatId,
-          assistantMessageId: assistantId,
-          model: 'model-1',
-        ),
-      ).throws<SyncTerminalException>();
+        await check(
+          runQueuedCompletion(
+            container,
+            chatId: chatId,
+            assistantMessageId: assistantId,
+            model: 'model-1',
+          ),
+        ).throws<SyncTerminalException>();
 
-      check(api.completionCalls).equals(1);
-      final answer = container.read(chatMessagesProvider).last;
-      check(answer.id).equals(assistantId);
-      check(answer.isStreaming).isFalse();
-      check(answer.error?.content).equals('Model not found');
-      final stored = await storedAnswer();
-      check(stored['isStreaming']).equals(false);
-      check((stored['error'] as Map<String, dynamic>)['content'])
-          .equals('Model not found');
-      check(syncEngine.pulls).equals(0);
-      check(api.sessionChecks).equals(0);
-    });
+        check(api.completionCalls).equals(1);
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.id).equals(assistantId);
+        check(answer.isStreaming).isFalse();
+        final shown = answer.error?.content;
+        check(shown).isNotNull();
+        if (words != null) check(shown).equals(words);
+        final stored = await storedAnswer();
+        check(stored['isStreaming']).equals(false);
+        check(
+          (stored['error'] as Map<String, dynamic>)['content'],
+        ).equals(shown);
+        check(syncEngine.pulls).equals(0);
+        check(api.sessionChecks).equals(0);
+      });
+    }
 
     test('ends a chat that is not open in its stored copy', () async {
       await _seedChat(db, chatId, assistantId: assistantId);
@@ -2686,57 +2714,6 @@ void main() {
       final stored = await storedAnswer();
       check(stored['error']).isNull();
     });
-
-    // Open WebUI's own words for a failed relay to one of the user's devices:
-    // the turn may have run, or never reached the device. Either way the
-    // outbox must not send it again by itself.
-    for (final relay in const <(int, String)>[
-      (503, 'Tether service is unavailable.'),
-      (429, 'Tether has too many active operations.'),
-      (
-        502,
-        '{"error": "Tether connection interrupted: Connection lost. The '
-            'operation may have completed. Check its result before trying '
-            'again; do not automatically repeat it.", "code": '
-            '"tether_interrupted", "outcome": "unknown", "retryable": false}',
-      ),
-    ]) {
-      test('settles a relay failure to a device (${relay.$1}) instead of '
-          'sending the turn again', () async {
-        await _seedChat(db, chatId, assistantId: assistantId);
-        final api = _GatedCompletionApi(Completer<void>())
-          ..onSend = () => throw ChatCompletionHttpException(relay.$1, relay.$2);
-        final syncEngine = _PersistingSyncEngine(db, api);
-        final messages = <ChatMessage>[
-          _user('relay-user', 'Ask the model on the garage computer'),
-          _streamingAssistant(assistantId, ''),
-        ];
-        final container = _container(
-          db: db,
-          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-          messages: messages,
-          api: api,
-          syncEngine: syncEngine,
-        );
-        addTearDown(container.dispose);
-
-        await check(
-          runQueuedCompletion(
-            container,
-            chatId: chatId,
-            assistantMessageId: assistantId,
-            model: 'model-1',
-          ),
-        ).throws<SyncTerminalException>();
-
-        check(api.completionCalls).equals(1);
-        final answer = container.read(chatMessagesProvider).last;
-        check(answer.isStreaming).isFalse();
-        check(answer.error?.content).isNotNull();
-        final stored = await storedAnswer();
-        check(stored['isStreaming']).equals(false);
-      });
-    }
 
     test('checks the session when the refusal may be the session\'s', () async {
       await _seedChat(db, chatId, assistantId: assistantId);
