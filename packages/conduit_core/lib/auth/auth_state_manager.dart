@@ -390,6 +390,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// ([_revokeAbandonedBrowserGrants]).
   final List<BrowserSignInGrant> _abandonedBrowserGrants = [];
 
+  /// Their revocations still out, each ended within the service's
+  /// revocation time limit.
+  final Set<Future<void>> _abandonedGrantRevocations = {};
+
   /// Whether this process has looked for browser sign-in sessions left
   /// behind by an operation interrupted part-way.
   bool _browserSessionSweepStarted = false;
@@ -487,18 +491,25 @@ class AuthStateManager extends _$AuthStateManager {
         if (grant.session(owuiUserId: '') case final session?)
           (session: session, route: route),
     ];
-    unawaited(
-      _revokeBrowserSessions(
-        sessions,
-        stillWanted: () =>
-            _browserSignInsUnderWay == 0 &&
-            !grants.any(_mayShareHeldBrowserGrant),
-      ).then((revoked) {
-        // A sign-in began meanwhile: they wait for it to end.
-        if (!revoked && ref.mounted) _abandonedBrowserGrants.addAll(grants);
-      }),
-    );
+    late final Future<void> revoking;
+    revoking =
+        _revokeBrowserSessions(
+          sessions,
+          stillWanted: () =>
+              _browserSignInsUnderWay == 0 &&
+              !grants.any(_mayShareHeldBrowserGrant),
+        ).then((revoked) {
+          // A sign-in began meanwhile: they wait for it to end.
+          if (!revoked && ref.mounted) _abandonedBrowserGrants.addAll(grants);
+        }).whenComplete(() => _abandonedGrantRevocations.remove(revoking));
+    _abandonedGrantRevocations.add(revoking);
+    unawaited(revoking);
   }
+
+  /// Waits for the revocations of abandoned grants already sent: a browser
+  /// sign-in begun before one lands could have its grant ended with it.
+  Future<void> _awaitAbandonedGrantRevocations() =>
+      Future.wait([..._abandonedGrantRevocations]);
 
   /// Whether [grant] may be of the grant of one a retry or second step
   /// holds: the same client and issuer, for the same provider user or one
@@ -1426,6 +1437,8 @@ class AuthStateManager extends _$AuthStateManager {
         _canCommitAuth(canCommit);
     bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
+      await _awaitAbandonedGrantRevocations();
+      if (stopped()) return false;
       await _ensureApiServiceAvailable();
       final api = ref.read(apiServiceProvider);
       if (api == null) {
