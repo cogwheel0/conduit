@@ -101,6 +101,24 @@ final personalConnectionsAccessProvider = Provider<PersonalConnectionsAccess>((
   );
 });
 
+/// Whether the account's saved tool servers and terminals are offered in the
+/// composer and join a request.
+///
+/// A refusal read while the server's config or the account's permissions are
+/// still loading has not been decided, as when a queued turn is replayed at
+/// launch, so it leaves them in.
+final personalConnectionsOfferedProvider = Provider<bool>((ref) {
+  return switch (ref.watch(personalConnectionsAccessProvider).block) {
+    null => true,
+    PersonalConnectionsBlock.serverDisabled =>
+      ref.watch(backendConfigProvider).isLoading,
+    PersonalConnectionsBlock.noPermission =>
+      ref.watch(userPermissionsProvider).isLoading,
+    PersonalConnectionsBlock.noAccount ||
+    PersonalConnectionsBlock.movedToTether => false,
+  };
+});
+
 /// Whether Settings offers Personal connections: the Advanced disclosure is on
 /// and the server and account allow them, or the server moved them to Tether
 /// (the entry then says so). Flutter Settings and the native iOS sheet both

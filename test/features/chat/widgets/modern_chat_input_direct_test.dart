@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -510,7 +511,7 @@ void main() {
     expect(find.text(l10n.composerYourDevices), findsOneWidget);
     expect(find.text('Studio Mac · Garage tools'), findsOneWidget);
     expect(find.text('Studio Mac'), findsOneWidget);
-    expect(find.text('Saved tide tools'), findsNothing);
+    expect(find.textContaining('saved-tools.example'), findsNothing);
   });
 
   for (final (state, tools) in <(String, ToolsList Function())>[
@@ -574,6 +575,74 @@ void main() {
       ).isTrue();
     });
   }
+
+  testWidgets('saved tool servers stay offered while the server has not yet '
+      'said whether it takes them, and follow its answer', (tester) async {
+    final api = _CountingUserSettingsApi()
+      ..settings = <String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            <String, dynamic>{
+              'url': 'https://saved-tools.example',
+              'path': 'openapi.json',
+              'config': <String, dynamic>{'enable': true},
+              'info': <String, dynamic>{'name': 'Saved tide tools'},
+            },
+          ],
+        },
+      };
+    addTearDown(api.dispose);
+    // The saved servers are listed last, below the panel's usual height.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final config = Completer<BackendConfig?>();
+    final container = ProviderContainer(
+      overrides: [
+        directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+        selectedModelProvider.overrideWithValue(
+          const Model(id: 'server-model', name: 'Server model'),
+        ),
+        apiServiceProvider.overrideWithValue(api),
+        backendConfigProvider.overrideWith(() => _HeldConfig(config.future)),
+        personalConnectionsAccessProvider.overrideWith(
+          (ref) => ref.watch(_accessProvider),
+        ),
+        toolsListProvider.overrideWith(_DeviceTools.new),
+        terminalAvailableServersProvider.overrideWith(
+          (ref) async => const <TerminalServerInfo>[],
+        ),
+        webSearchAvailableProvider.overrideWithValue(false),
+        imageGenerationAvailableProvider.overrideWithValue(false),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: ComposerAttachmentKeyboard(height: 2400)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // The server's config is still on its way, so the refusal is not its.
+    expect(find.textContaining('saved-tools.example'), findsWidgets);
+
+    config.complete(const BackendConfig(serverId: 'test'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('saved-tools.example'), findsNothing);
+
+    container
+        .read(_accessProvider.notifier)
+        .set(const PersonalConnectionsAccess.allowed());
+    await tester.pumpAndSettle();
+    expect(find.textContaining('saved-tools.example'), findsWidgets);
+  });
 
   testWidgets('Apple direct overflow loads local MCP tools', (tester) async {
     final registry = DirectModelRegistry();
@@ -2404,4 +2473,29 @@ final class _FailingTools extends ToolsList {
 final class _LoadingTools extends ToolsList {
   @override
   Future<List<Tool>> build() => Completer<List<Tool>>().future;
+}
+
+/// The server's config, answered only once [config] completes.
+final class _HeldConfig extends BackendConfigNotifier {
+  _HeldConfig(this.config);
+
+  final Future<BackendConfig?> config;
+
+  @override
+  Future<BackendConfig?> build() => config;
+}
+
+/// Whether the account may use personal connections, as a test sets it;
+/// refused as a server that has not switched them on until then.
+final _accessProvider = NotifierProvider<_Access, PersonalConnectionsAccess>(
+  _Access.new,
+);
+
+final class _Access extends Notifier<PersonalConnectionsAccess> {
+  @override
+  PersonalConnectionsAccess build() => const PersonalConnectionsAccess.blocked(
+    PersonalConnectionsBlock.serverDisabled,
+  );
+
+  void set(PersonalConnectionsAccess access) => state = access;
 }

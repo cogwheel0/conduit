@@ -199,6 +199,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
         PersonalConnectionsAccess,
         PersonalConnectionsBlock,
         personalConnectionsAccessProvider,
+        personalConnectionsOfferedProvider,
         personalSelectionNoticeProvider;
 import 'package:conduit_core/utils/system_prompt.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_storage.dart';
