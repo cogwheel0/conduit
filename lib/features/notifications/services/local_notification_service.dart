@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show immutable, visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -12,6 +12,7 @@ import '../../../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import 'package:conduit_core/features/calendar/calendar_reminder_scheduler.dart';
 import 'package:conduit_core/features/calendar/calendar_reminders.dart';
 import 'package:conduit_core/features/notifications/models/app_notification.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
@@ -94,91 +95,12 @@ class NotificationTap {
   });
 }
 
-/// A calendar reminder the device has scheduled, read back from its payload.
-///
-/// The payload is JSON with the occurrence's agenda key under
-/// `calendarReminder`, its account under `scope` and what it was scheduled as
-/// under `fingerprint`. It carries no `kind`, so [NotificationTap.tryDecode]
-/// ignores it and a tap just opens the app.
-@immutable
-class ScheduledCalendarReminder {
-  const ScheduledCalendarReminder({
-    required this.id,
-    required this.key,
-    required this.scope,
-    required this.fingerprint,
-  });
-
-  /// The OS notification id it is scheduled under.
-  final int id;
-
-  /// The event occurrence's agenda key ([CalendarReminder.key]).
-  final String key;
-
-  /// The account it was scheduled for ([NotificationScope] string).
-  final String scope;
-
-  /// What it was scheduled as ([calendarReminderFingerprint]), so a resync can
-  /// tell a reminder that still matches from one that has to be replaced.
-  final String fingerprint;
-
-  static String encode({
-    required String key,
-    required String scope,
-    required String fingerprint,
-  }) => jsonEncode({
-    'calendarReminder': key,
-    'scope': scope,
-    'fingerprint': fingerprint,
-  });
-
-  /// The reminder scheduled under [id] with [payload]; null for any other
-  /// notification.
-  static ScheduledCalendarReminder? tryDecode(int id, String? payload) {
-    if (payload == null || payload.isEmpty) return null;
-    try {
-      final map = jsonDecode(payload);
-      if (map is! Map) return null;
-      final key = map['calendarReminder'];
-      final scope = map['scope'];
-      final fingerprint = map['fingerprint'];
-      if (key is! String || key.isEmpty) return null;
-      if (scope is! String || NotificationScope.tryParse(scope) == null) {
-        return null;
-      }
-      return ScheduledCalendarReminder(
-        id: id,
-        key: key,
-        scope: scope,
-        fingerprint: fingerprint is String ? fingerprint : '',
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-}
-
-/// Everything a scheduled reminder shows or fires on, so a change to any of it
-/// schedules the reminder again. That includes whether it fires on the minute,
-/// so allowing exact alarms later moves the pending reminders onto them.
-String calendarReminderFingerprint(
-  CalendarReminder reminder, {
-  required String title,
-  required String body,
-  required bool exact,
-}) => [
-  reminder.fireAt.millisecondsSinceEpoch,
-  title,
-  body,
-  exact ? 'exact' : 'inexact',
-].join('|');
-
 /// Wraps a single [FlutterLocalNotificationsPlugin] instance for OS-level
 /// message notifications. Deliberately separate from
 /// `VoiceCallNotificationService` for now (that refactor is a follow-up); this
 /// owns its own `conduit_messages` channel and never requests permission at
 /// init — permission is requested only when the user opts in.
-class LocalNotificationService {
+class LocalNotificationService implements CalendarReminderPort {
   LocalNotificationService({DateTime Function() now = DateTime.now})
     : _idCounter = now().millisecondsSinceEpoch & 0x7fffffff;
 
@@ -417,6 +339,7 @@ class LocalNotificationService {
 
   /// Checks, and remembers, whether calendar reminders can fire on the
   /// minute ([exactRemindersAllowed]).
+  @override
   Future<bool> canScheduleExactReminders() async {
     if (!Platform.isAndroid) return _exactRemindersAllowed = true;
     if (!_initialized) await initialize();
@@ -461,6 +384,7 @@ class LocalNotificationService {
   /// [exact] is whether it may fire on the minute
   /// ([canScheduleExactReminders]); otherwise Android posts it at roughly that
   /// time. The app never prompts for the permission on its own.
+  @override
   Future<bool> scheduleCalendarReminder(
     CalendarReminder reminder, {
     required String scope,
@@ -527,6 +451,7 @@ class LocalNotificationService {
   }
 
   /// The calendar reminders scheduled and not yet posted, for every account.
+  @override
   Future<List<ScheduledCalendarReminder>> scheduledCalendarReminders() async {
     if (!Platform.isAndroid && !Platform.isIOS) {
       return const <ScheduledCalendarReminder>[];
@@ -540,6 +465,7 @@ class LocalNotificationService {
   }
 
   /// Unschedules the reminder scheduled under [id].
+  @override
   Future<void> cancelScheduled(int id) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();
@@ -548,6 +474,7 @@ class LocalNotificationService {
 
   /// Unschedules the calendar reminders of [scope], or of every account when
   /// [scope] is null. Reminders already posted stay.
+  @override
   Future<void> cancelCalendarReminders({String? scope}) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     try {
