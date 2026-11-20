@@ -21,24 +21,48 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
-final class _Models extends Models {
-  static int refreshes = 0;
+const _device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
 
+/// What a device that just connected offers, as Open WebUI 0.13.4 lists it.
+final _offeredModel = Model.fromJson(const <String, dynamic>{
+  'id': 'garage-llama',
+  'name': 'garage-llama',
+  'connection_type': 'local',
+  'tags': <dynamic>[
+    <String, dynamic>{'name': 'Studio Mac · Garage lab'},
+  ],
+  'base_url': 'tether://$_device',
+});
+const _offeredTool = Tool(
+  id: 'server:tether:$_device:garage_tools',
+  name: 'Studio Mac · Garage tools',
+);
+final _offeredTerminal = TerminalServerInfo(
+  kind: TerminalServerKind.system,
+  selectionId: 'tether:$_device',
+  systemServerId: 'tether:$_device',
+  baseUrl: Uri.parse('https://owui.example/api/v1/terminals/d'),
+  name: 'Studio Mac',
+);
+
+/// The models, which list the device's once read again.
+final class _Models extends Models {
   @override
   Future<List<Model>> build() async => const <Model>[];
 
   @override
-  Future<void> refresh() async => refreshes++;
+  Future<void> refresh() async =>
+      state = AsyncData<List<Model>>(<Model>[_offeredModel]);
 }
 
+/// The tools, which list the device's once read again.
 final class _Tools extends ToolsList {
-  static int refreshes = 0;
-
   @override
   Future<List<Tool>> build() async => const <Tool>[];
 
   @override
-  Future<void> refresh() async => refreshes++;
+  Future<void> refresh() async =>
+      state = const AsyncData<List<Tool>>(<Tool>[_offeredTool]);
 }
 
 /// Direct discovery, the first step of reading the models again: the first
@@ -143,17 +167,14 @@ void main() {
   });
 
   test('reads the models, tools and terminals again, then says so', () async {
-    _Models.refreshes = 0;
-    _Tools.refreshes = 0;
     var terminalReads = 0;
     final container = ProviderContainer(
       overrides: [
         modelsProvider.overrideWith(_Models.new),
         toolsListProvider.overrideWith(_Tools.new),
-        terminalAvailableServersProvider.overrideWith((ref) async {
-          terminalReads++;
-          return const <TerminalServerInfo>[];
-        }),
+        terminalAvailableServersProvider.overrideWith(
+          (ref) async => [if (terminalReads++ > 0) _offeredTerminal],
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -163,14 +184,20 @@ void main() {
     );
     addTearDown(terminals.close);
     await container.read(terminalAvailableServersProvider.future);
+    await container.read(modelsProvider.future);
+    await container.read(toolsListProvider.future);
     final before = container.read(tetherDevicesProvider);
 
     await container.read(tetherDevicesProvider.notifier).changed();
-    await container.read(terminalAvailableServersProvider.future);
 
-    check(_Models.refreshes).equals(1);
-    check(_Tools.refreshes).equals(1);
-    check(terminalReads).equals(2);
+    check(container.read(modelsProvider).value)
+        .isNotNull()
+        .deepEquals([_offeredModel]);
+    check(container.read(toolsListProvider).value)
+        .isNotNull()
+        .deepEquals([_offeredTool]);
+    check(await container.read(terminalAvailableServersProvider.future))
+        .deepEquals([_offeredTerminal]);
     check(container.read(tetherDevicesProvider)).equals(before + 1);
   });
 
@@ -239,11 +266,6 @@ void main() {
         await container.read(activeServerProvider.future);
         await container.read(toolsListProvider.future);
         final devices = container.read(tetherDevicesProvider.notifier);
-        const device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
-        const offered = Tool(
-          id: 'server:tether:$device:garage_tools',
-          name: 'Studio Mac · Garage tools',
-        );
 
         // The device connects, then leaves; the server answers the second
         // read first.
@@ -252,7 +274,7 @@ void main() {
         check(service.answers).length.equals(2);
         service.answers[1].complete(const <Tool>[]);
         await left;
-        service.answers[0].complete(const <Tool>[offered]);
+        service.answers[0].complete(const <Tool>[_offeredTool]);
         await connected;
 
         check(container.read(toolsListProvider).value).isNotNull().isEmpty();
