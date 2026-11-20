@@ -894,6 +894,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     return currentTargetId != null && currentTargetId != assistantMessageId;
   }
 
+  /// Whether a socket event names this stream's message, or no message.
+  /// Unlike [resolveTargetMessageIdForStream] it never binds one.
+  bool socketEventNamesThisMessage(
+    String? incomingMessageId,
+    String? incomingSessionId,
+  ) {
+    if (!matchesCurrentStreamSession(incomingSessionId)) return false;
+    return incomingMessageId == null ||
+        incomingMessageId.isEmpty ||
+        incomingMessageId == assistantMessageId ||
+        incomingMessageId == boundRemoteMessageId;
+  }
+
   String? resolveTargetMessageIdForStream(
     String? incomingMessageId, {
     required String eventType,
@@ -3673,7 +3686,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           eventChatId != activeConversationId) {
         return;
       }
-      noteSocketActivity();
+      // Another message streaming in the same chat must not hold off this
+      // one's recovery.
+      if (socketEventNamesThisMessage(messageId, incomingSessionId)) {
+        noteSocketActivity();
+      }
 
       if (isObsoleteStream) {
         return;
@@ -4438,7 +4455,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       final data = ev['data'];
       if (data == null) return;
-      noteSocketActivity();
+      if (socketEventNamesThisMessage(
+        extractEventMessageId(ev),
+        extractEventSessionId(ev),
+      )) {
+        noteSocketActivity();
+      }
       final type = data['type'];
       final payload = data['data'];
       if (isObsoleteStream) {

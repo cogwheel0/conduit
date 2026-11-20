@@ -456,9 +456,11 @@ ActiveChatStream _attach({
   void Function(String type, Map<String, dynamic> data)? onTerminalEvent,
   UiRequestPort uiRequests = const NullUiRequestPort(),
   DateTime Function() clock = DateTime.now,
+  bool allowForeignMessageBinding = true,
 }) {
   return attachUnifiedChunkedStreaming(
     clock: clock,
+    allowForeignMessageBinding: allowForeignMessageBinding,
     session: session,
     webSearchEnabled: webSearchEnabled,
     assistantMessageId: assistantMessageId,
@@ -502,6 +504,8 @@ class FakeSocketInjector {
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _handler;
   void Function(Map<String, dynamic>, void Function(dynamic)?)? _lastHandler;
   SocketReplayGapCallback? _replayGap;
+  void Function(Map<String, dynamic>, void Function(dynamic)?)?
+  _channelEventHandler;
   final _channelHandlers = <String, void Function(dynamic)>{};
   final _lastChannelHandlers = <String, void Function(dynamic)>{};
 
@@ -543,6 +547,14 @@ class FakeSocketInjector {
       'session_id': ?sessionId,
     };
     _lastHandler?.call(raw, null);
+  }
+
+  /// Injects a channel event through the handler the stream registered.
+  void emitChannelEvent(String type, dynamic payload, {String? messageId}) {
+    _channelEventHandler?.call({
+      'data': {'type': type, 'data': payload},
+      'message_id': ?messageId,
+    }, null);
   }
 
   /// Injects a raw channel event payload for a registered channel name.
@@ -594,10 +606,13 @@ class _MockSocketService implements SocketService {
     String? sessionId,
     bool requireFocus = true,
     required SocketChatEventHandler handler,
-  }) => SocketEventSubscription(
-    () => channelSubscriptionDisposeCount++,
-    handlerId: 'test-ch',
-  );
+  }) {
+    _injector._channelEventHandler = handler;
+    return SocketEventSubscription(
+      () => channelSubscriptionDisposeCount++,
+      handlerId: 'test-ch',
+    );
+  }
 
   final StreamController<void> reconnects = StreamController<void>.broadcast();
 
@@ -4626,11 +4641,15 @@ void main() {
         FakeSocketInjector socket,
         _MockSocketService service,
       })
-      attachTaskSocket(ApiService api) {
+      attachTaskSocket(
+        ApiService api, {
+        bool allowForeignMessageBinding = true,
+      }) {
         final log = _CallbackLog();
         final socket = FakeSocketInjector();
         final service = _MockSocketService(socket);
         _attach(
+          allowForeignMessageBinding: allowForeignMessageBinding,
           session: ChatCompletionSession.taskSocket(
             messageId: 'msg-1',
             sessionId: 'sess-1',
@@ -4739,6 +4758,57 @@ void main() {
           async.elapse(const Duration(seconds: 9));
           check(chatFetches(api)).equals(2);
           check(log.finishCount).equals(0);
+        });
+      });
+
+      test('events for another message in the chat do not hold off '
+          'recovery', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [_serverAssistantMessage(content: 'Recovered reply.')],
+            ),
+          );
+          // One of two replies streaming side by side, as for two models.
+          final (:log, :socket, service: _) = attachTaskSocket(
+            api,
+            allowForeignMessageBinding: false,
+          );
+          async.flushMicrotasks();
+
+          for (var i = 0; i < 4; i++) {
+            async.elapse(const Duration(seconds: 3));
+            socket.emitChatEvent('chat:completion', {
+              'choices': [
+                {
+                  'delta': {'content': 'other '},
+                },
+              ],
+            }, messageId: 'msg-2');
+            socket.emitChannelEvent('typing', {
+              'typing': true,
+            }, messageId: 'msg-2');
+          }
+
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals('Recovered reply.');
+        });
+      });
+
+      test('a channel event for this message holds off recovery', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(pollResponse: stillStreaming());
+          final (log: _, :socket, service: _) = attachTaskSocket(api);
+          async.flushMicrotasks();
+
+          async.elapse(const Duration(seconds: 9));
+          socket.emitChannelEvent('typing', {
+            'typing': true,
+          }, messageId: 'msg-1');
+          async.elapse(const Duration(seconds: 9));
+          check(chatFetches(api)).equals(0);
+          async.elapse(const Duration(seconds: 1));
+          check(chatFetches(api)).equals(1);
         });
       });
 
