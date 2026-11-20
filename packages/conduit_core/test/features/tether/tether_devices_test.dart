@@ -494,6 +494,38 @@ void main() {
           .deepEquals([_offeredModel]);
     });
 
+    // The list was restored from the cache once and refreshed, so a later
+    // build that restores it again refreshes nothing.
+    test("the models' cache, read again and answering after a device's "
+        'change', () async {
+      final workerManager = WorkerManager();
+      addTearDown(workerManager.dispose);
+      final api = _HeldModelsApi(workerManager);
+      final cache = _Answers<List<Model>>();
+      final storage = _Storage()..modelCacheReads = cache;
+      final container = signedIn(storage, api, models: true);
+      await container.read(activeServerProvider.future);
+      container.listen(modelsProvider, (_, _) {});
+      await cache.askedFor(1);
+      cache.asked[0].complete(<Model>[_offeredModel]);
+      await api.reads.askedFor(1);
+      api.reads.asked[0].complete(<Model>[_offeredModel]);
+      await container.read(modelsProvider.future);
+
+      container.invalidate(modelsProvider);
+      container.read(modelsProvider);
+      await cache.askedFor(2);
+      // The device leaves while the cache is read again.
+      final change = container.read(tetherDevicesProvider.notifier).changed();
+      await api.reads.askedFor(2);
+      api.reads.asked[1].complete(const <Model>[]);
+      await change;
+      cache.asked[1].complete(<Model>[_offeredModel]);
+      await pumpEventQueue();
+
+      check(container.read(modelsProvider).value).isNotNull().isEmpty();
+    });
+
     test("the tools' retired build, whose cache answers last", () async {
       final workerManager = WorkerManager();
       addTearDown(workerManager.dispose);

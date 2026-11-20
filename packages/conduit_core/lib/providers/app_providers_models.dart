@@ -237,6 +237,7 @@ class Models extends _$Models {
     }
     final storage = ref.watch(optimizedStorageServiceProvider);
     final cacheAsRead = _loads.cacheAsRead(current: current);
+    final cacheRead = _loads.sinceNow(current: current);
     try {
       final cached = await storage.getLocalModels();
       if (!current()) return const <Model>[];
@@ -245,6 +246,13 @@ class Models extends _$Models {
         return _returnWithSelectionReconciliation(
           _withLocalModels(const <Model>[], directModels: directModels),
           deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
+      // A read of the server that started while the cache was read is newer
+      // than what the cache holds.
+      if (cached.isNotEmpty && !cacheRead.isNewest) {
+        return await _publishedByNewerLoad(
+          _withLocalModels(const <Model>[], directModels: directModels),
         );
       }
       if (cached.isNotEmpty) {
