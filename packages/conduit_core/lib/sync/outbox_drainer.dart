@@ -145,8 +145,10 @@ class OutboxDrainer {
       while (true) {
         _rerun = false;
         // A drain asked for while this one runs is a rerun of it. The rerun a
-        // re-arm asks for repeats no recheck.
-        if (_drainAsked) {
+        // re-arm asks for repeats no recheck. One asked for while a re-arm
+        // runs looks once it ends, since an op parked meanwhile leaves a
+        // recheck that came due in place.
+        if (_drainAsked && _rearm == null) {
           _drainAsked = false;
           _recheckParkedIfDue();
         }

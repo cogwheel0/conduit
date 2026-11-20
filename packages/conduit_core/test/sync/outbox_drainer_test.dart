@@ -921,6 +921,51 @@ void main() {
       check(asked).isTrue();
       check(recovery.checks).equals(2);
     });
+
+    test('are checked by a drain asked for while a re-arm runs once it ends, '
+        'when one parked meanwhile', () async {
+      await seedServerChat('c1');
+      final update = await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+      client.failuresByChat['c1'] = [
+        const SyncTerminalException(
+          statusCode: 403,
+          message: 'ownership unknown',
+          mayRecover: true,
+        ),
+      ];
+      final recovery = _GatedChecks();
+      final drainer = buildDrainer(
+        adapters: [
+          ChatAdapter(
+            pull: PullSync(
+              client: client,
+              db: db,
+              locks: chatLocks,
+              remapper: remapper,
+            ),
+            push: push,
+          ),
+          recovery,
+        ],
+      );
+      var emptyClaims = 0;
+      claims.onEmptyClaim = () async {
+        switch (++emptyClaims) {
+          // The update parked while the first drain's re-arm waits, and its
+          // recheck is due by the drain asked for then.
+          case OutboxDrainer.kPoolSize:
+            clock.now += 3600;
+            unawaited(drainer.drain());
+          case const (OutboxDrainer.kPoolSize + 1):
+            recovery.gate.complete();
+        }
+      };
+
+      await drainer.drain();
+
+      check((await dao.opBySeq(update))!.status).equals(OutboxStatus.failed);
+      check(recovery.checks).equals(2);
+    });
   });
 
   group('offline handling', () {
@@ -1183,6 +1228,25 @@ final class _UndecidedOnce implements SyncEntityAdapter, ParkedOpRecovery {
   @override
   Future<bool> rearmRecoverable({required int nowEpochSeconds}) async =>
       ++checks == 1;
+
+  @override
+  bool ownsKind(OutboxKind kind) => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+/// Recovery that counts its checks, the first of which waits for [gate]; it
+/// re-arms nothing and owns no kind.
+final class _GatedChecks implements SyncEntityAdapter, ParkedOpRecovery {
+  final gate = Completer<void>();
+  int checks = 0;
+
+  @override
+  Future<bool> rearmRecoverable({required int nowEpochSeconds}) async {
+    if (++checks == 1) await gate.future;
+    return false;
+  }
 
   @override
   bool ownsKind(OutboxKind kind) => false;
