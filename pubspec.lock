@@ -560,10 +560,9 @@ packages:
   flutter_callkit_incoming:
     dependency: "direct main"
     description:
-      name: flutter_callkit_incoming
-      sha256: "2d47db2e8d32d333e0352d37b0a4e643f606a54f8a541db17af7c42f18c58318"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_callkit_incoming"
+      relative: true
+    source: path
     version: "3.1.6"
   flutter_driver:
     dependency: "direct main"

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <declare-styleable name="ripple_relativeLayout">
+        <attr name="ripple_color" format="color" />
+        <attr name="ripple_radius" format="dimension"/>
+        <attr name="ripple_duration" format="integer"/>
+        <attr name="ripple_amount" format="integer"/>
+        <attr name="ripple_scale" format="float"/>
+    </declare-styleable>
+</resources>

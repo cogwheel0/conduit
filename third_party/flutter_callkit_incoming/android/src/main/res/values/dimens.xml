@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="isTablet">false</bool>
+    <dimen name="base_margin_half">5dp</dimen>
+    <dimen name="base_margin">10dp</dimen>
+    <dimen name="base_margin_x1_5">15dp</dimen>
+    <dimen name="base_margin_x2">20dp</dimen>
+    <dimen name="base_margin_x2_5">25dp</dimen>
+    <dimen name="base_margin_x3">30dp</dimen>
+    <dimen name="base_margin_x3_5">35dp</dimen>
+    <dimen name="base_margin_x4">40dp</dimen>
+    <dimen name="base_margin_x4_8">48dp</dimen>
+    <dimen name="base_margin_x5">50dp</dimen>
+    <dimen name="base_margin_x6">60dp</dimen>
+
+    <dimen name="base_margin_revert_x5">-50dp</dimen>
+    <dimen name="size_avatar">120dp</dimen>
+    <dimen name="size_button">60dp</dimen>
+    <dimen name="size_button_x2">120dp</dimen>
+    <dimen name="size_button_x2_5">150dp</dimen>
+
+    <dimen name="size_text_name">24sp</dimen>
+    <dimen name="size_text_action">14sp</dimen>
+    <dimen name="size_text_sub">12sp</dimen>
+</resources>

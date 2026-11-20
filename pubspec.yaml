@@ -124,7 +124,9 @@ dependencies:
   connectivity_plus: ^7.3.0
   flutter_cache_manager: ^3.4.1
   http: ^1.5.0
-  flutter_callkit_incoming: ^3.1.6
+  # flutter_callkit_incoming 3.1.6, patched; see its PATCHES.md.
+  flutter_callkit_incoming:
+    path: third_party/flutter_callkit_incoming
   quick_actions: ^1.1.0
   html_unescape: ^2.0.0
   home_widget: ^0.10.0

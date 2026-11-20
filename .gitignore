@@ -107,6 +107,8 @@ coverage/
 # Generated files
 *.g.dart
 !lib/core/platform/conduit_platform_apis.g.dart
+# Published with the vendored plugin, which nothing here regenerates.
+!third_party/flutter_callkit_incoming/lib/**/*.g.dart
 *.freezed.dart
 lib/l10n/app_localizations.dart
 lib/l10n/app_localizations_*.dart

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <string name="text_accept">Accept</string>
+    <string name="text_decline">Decline</string>
+    <string name="text_missed_call">Missed call</string>
+    <string name="text_call_back">Call back</string>
+    <string name="text_calling">Calling…</string>
+    <string name="text_hang_up">Hang up</string>
+    <string name="text_title_post_notification">Notification Permission</string>
+    <string name="text_post_notification_message_required">Notification permission is required, Please allow notification permission from setting.</string>
+    <string name="explanation_for_special_use">Maintaining an active call notification for ongoing calls until user ends the call</string>
+</resources>
