@@ -29,6 +29,9 @@ final class _Configs extends HermesConfigController {
   /// What a token write throws; none stores it.
   Object? refusal;
 
+  /// Runs while the saved settings are being read.
+  void Function()? whileRead;
+
   @override
   ({
     HermesDesktopCredentialsWriter write,
@@ -49,6 +52,7 @@ final class _Configs extends HermesConfigController {
   @override
   Future<HermesConfig> savedConnectionConfig(String connectionId) async {
     if (connectionId != 'conn-1') throw StateError('no such connection');
+    whileRead?.call();
     return saved;
   }
 }
@@ -136,49 +140,63 @@ void main() {
   // A gateway's tokens outlive a profile change, and the live client keeps
   // rotating them: the refresh token the old settings were kept with is
   // spent, and a provider that detects reuse ends the session on seeing it.
-  // They go only where the gateway's current settings trust.
-  test('an old target on the same gateway uses its current tokens, over the '
-      'connection it trusts now', () async {
-    HermesConfig desktop(
-      String profile,
-      String refreshToken, {
-      required bool selfSigned,
-    }) => HermesConfig(
-      enabled: true,
-      connectionId: 'conn-1',
-      baseUrl: _home.baseUrl,
-      allowSelfSignedCertificates: selfSigned,
-      mode: HermesBackendMode.desktopGateway,
-      desktopAuthKind: HermesDesktopAuthKind.nativePkce,
-      desktopProfile: profile,
-      desktopCredentials: HermesDesktopCredentials(
-        nativeTokens: HermesDesktopTokenSet(
-          accessToken: 'access-$refreshToken',
-          refreshToken: refreshToken,
-          expiresAt: DateTime.utc(2030),
+  // They go only where the gateway's current settings trust, and only from
+  // settings read paired with their principal.
+  for (final (editedWhileRead, refreshToken, selfSigned) in [
+    (false, 'rotated-refresh', false),
+    (true, 'spent-refresh', true),
+  ]) {
+    test('an old target on the same gateway uses '
+        '${editedWhileRead ? 'its own tokens when an edit lands as the '
+                  'current ones are read' : 'its current tokens, over the '
+                  'connection it trusts now'}', () async {
+      HermesConfig desktop(
+        String profile,
+        String refreshToken, {
+        required bool selfSigned,
+      }) => HermesConfig(
+        enabled: true,
+        connectionId: 'conn-1',
+        baseUrl: _home.baseUrl,
+        allowSelfSignedCertificates: selfSigned,
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        desktopProfile: profile,
+        desktopCredentials: HermesDesktopCredentials(
+          nativeTokens: HermesDesktopTokenSet(
+            accessToken: 'access-$refreshToken',
+            refreshToken: refreshToken,
+            expiresAt: DateTime.utc(2030),
+          ),
         ),
-      ),
-    );
-    configs.saved = desktop('default', 'spent-refresh', selfSigned: true);
-    const old = HermesPushTarget(
-      connectionId: 'conn-1',
-      label: 'Home',
-      baseUrl: 'https://home.test',
-      mode: HermesBackendMode.desktopGateway,
-      credentialsRevision: 'p-1',
-    );
-    await factory().retain(old);
-    configs.saved = desktop('work', 'rotated-refresh', selfSigned: false);
-    profiles = [_profile(_home.baseUrl, 'p-2')];
-    container.invalidate(hermesConnectionsProvider);
+      );
+      configs.saved = desktop('default', 'spent-refresh', selfSigned: true);
+      const old = HermesPushTarget(
+        connectionId: 'conn-1',
+        label: 'Home',
+        baseUrl: 'https://home.test',
+        mode: HermesBackendMode.desktopGateway,
+        credentialsRevision: 'p-1',
+      );
+      await factory().retain(old);
+      configs.saved = desktop('work', 'rotated-refresh', selfSigned: false);
+      profiles = [_profile(_home.baseUrl, 'p-2')];
+      container.invalidate(hermesConnectionsProvider);
+      if (editedWhileRead) {
+        configs.whileRead = () {
+          profiles = [_profile(_home.baseUrl, 'p-3')];
+          container.invalidate(hermesConnectionsProvider);
+        };
+      }
 
-    final config = await factory().hermesConfigFor(old);
-    check(config.desktopProfile).equals('default');
-    check(
-      config.desktopCredentials?.nativeTokens?.refreshToken,
-    ).equals('rotated-refresh');
-    check(config.allowSelfSignedCertificates).isFalse();
-  });
+      final config = await factory().hermesConfigFor(old);
+      check(config.desktopProfile).equals('default');
+      check(
+        config.desktopCredentials?.nativeTokens?.refreshToken,
+      ).equals(refreshToken);
+      check(config.allowSelfSignedCertificates).equals(selfSigned);
+    });
+  }
 
   // The live client renews the same tokens as the app resumes, and stores
   // its rotation first: this client's is refused, which is no sign-out, and
@@ -237,7 +255,9 @@ void main() {
         check(await service.listJobs()).isEmpty();
         check(authorizations).deepEquals(['Bearer fresh-access']);
       } else {
-        await check(service.listJobs()).throws<Object>();
+        await check(
+          service.listJobs(),
+        ).throws<Object>((it) => it.identicalTo(refusal));
         check(authorizations).isEmpty();
       }
     });

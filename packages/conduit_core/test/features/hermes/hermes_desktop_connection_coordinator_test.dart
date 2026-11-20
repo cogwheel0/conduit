@@ -255,6 +255,21 @@ void main() {
       check(sheet.opened).isEmpty();
       check(browser.opened.single.path).equals('/auth/native/authorize');
       check(gateway.exchangedCodes).deepEquals(['one-time-code']);
+      check((await browser.page.future).status).equals(HttpStatus.ok);
+    });
+
+    test('without a browser sheet, a callback with an empty code says on its '
+        'page that sign-in failed, and fails', () async {
+      final browser = _CallbackBrowser(code: '');
+
+      await check(
+        signIn(_Sheet(supported: false), browser: browser),
+      ).throws<StateError>();
+
+      final page = await browser.page.future;
+      check(page.status).equals(HttpStatus.badRequest);
+      check(page.body).contains('could not be verified');
+      check(gateway.exchangedCodes).isEmpty();
     });
   });
 
@@ -447,23 +462,36 @@ void main() {
           expiresAt: now.add(const Duration(seconds: 30)),
         ),
       );
-      HermesDesktopApiService client() {
+      HermesDesktopApiService client({Completer<void>? renewing}) {
         final (:read, :write) = store.client();
+        void arrive() {
+          if (!(renewing?.isCompleted ?? true)) renewing!.complete();
+        }
+
         return service(
           rest,
           expiresAt: now.add(const Duration(seconds: 30)),
           saved: [],
-          readStoredTokens: read,
+          // Whichever it reaches first as it renews: the guard, or with
+          // none, the stored tokens.
+          readStoredTokens: () {
+            arrive();
+            return read();
+          },
           writeCredentials: write,
-          guardTokens: store.guard,
+          guardTokens: <T>(Future<T> Function() action) {
+            arrive();
+            return store.guard(action);
+          },
         );
       }
 
+      final pushRenewing = Completer<void>();
       final live = client();
-      final push = client();
+      final push = client(renewing: pushRenewing);
       final jobs = [live.listJobs(), push.listJobs()];
       await rest.refreshArrived.future;
-      await pumpEventQueue();
+      await pushRenewing.future;
       held.complete();
       await Future.wait(jobs);
 
@@ -488,6 +516,7 @@ void main() {
       );
       final other = store.client();
       final (:read, :write) = store.client();
+      Future<void>? competing;
       final gateway = service(
         _TokenRest(),
         expiresAt: DateTime.utc(2099),
@@ -495,19 +524,19 @@ void main() {
         browserAuth: _Sheet(),
         readStoredTokens: () async {
           final tokens = await read();
-          unawaited(
-            store.guard(
-              () => other.write(
-                HermesDesktopCredentials(
-                  nativeTokens: HermesDesktopTokenSet(
-                    accessToken: 'pushed-access',
-                    refreshToken: 'pushed-refresh',
-                    expiresAt: DateTime.utc(2099),
-                  ),
+          competing = store.guard(
+            () => other.write(
+              HermesDesktopCredentials(
+                nativeTokens: HermesDesktopTokenSet(
+                  accessToken: 'pushed-access',
+                  refreshToken: 'pushed-refresh',
+                  expiresAt: DateTime.utc(2099),
                 ),
               ),
             ),
           );
+          // Its chance to land before the save. Not awaited: under the
+          // sign-in's guard, it waits for the sign-in to end.
           await pumpEventQueue();
           return tokens;
         },
@@ -516,10 +545,37 @@ void main() {
       );
 
       check(await gateway.signInNative()).isNotNull();
-      await pumpEventQueue();
+      await competing;
 
       check(store.tokens?.refreshToken).equals('signed-in-refresh');
     });
+
+    // Another client stored tokens that have expired since, and Hermes
+    // can't renew them for now: the request fails, and nothing signs out.
+    test('a refused request whose renewal Hermes could not answer keeps the '
+        'expired tokens another client stored',
+        () => withClock(Clock.fixed(now), () async {
+      final rest = _TokenRest(
+        refreshStatus: HttpStatus.serviceUnavailable,
+        requestStatus: HttpStatus.unauthorized,
+      );
+      final saved = <HermesDesktopCredentials>[];
+      final gateway = service(
+        rest,
+        expiresAt: now.add(const Duration(hours: 1)),
+        saved: saved,
+        readStoredTokens: () async => HermesDesktopTokenSet(
+          accessToken: 'pushed-access',
+          refreshToken: 'pushed-refresh',
+          expiresAt: now.subtract(const Duration(minutes: 1)),
+        ),
+      );
+
+      await check(gateway.listJobs()).throws<DioException>();
+
+      check(saved).isEmpty();
+      check(rest.refreshTokensSent).deepEquals(['pushed-refresh']);
+    }));
 
     // Saving this client's rotation failed, so storage still holds the
     // refresh token it spent. That one is older, not newer: the client
@@ -793,22 +849,28 @@ final class _Gateway {
 }
 
 final class _CallbackBrowser implements OpenExternalUrlPort {
+  _CallbackBrowser({this.code = 'one-time-code'});
+
+  final String code;
   final opened = <Uri>[];
+
+  /// The page the listener answered the callback with, once it has.
+  final page = Completer<({int status, String body})>();
 
   @override
   Future<bool> open(Uri url) async {
     opened.add(url);
     final callback = Uri.parse(url.queryParameters['redirect_uri']!).replace(
-      queryParameters: {
-        'code': 'one-time-code',
-        'state': url.queryParameters['state']!,
-      },
+      queryParameters: {'code': code, 'state': url.queryParameters['state']!},
     );
     unawaited(() async {
       final client = HttpClient();
       try {
         final response = await (await client.getUrl(callback)).close();
-        await response.drain<void>();
+        page.complete((
+          status: response.statusCode,
+          body: await utf8.decodeStream(response),
+        ));
       } finally {
         client.close(force: true);
       }

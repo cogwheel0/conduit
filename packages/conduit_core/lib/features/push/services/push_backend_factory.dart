@@ -257,7 +257,6 @@ final class AppPushBackendFactory implements PushBackendFactory {
   @visibleForTesting
   Future<HermesConfig> hermesConfigFor(HermesPushTarget target) async {
     final connectionId = target.connectionId;
-    HermesConfig? saved;
     HermesConfig? current;
     String? identity;
     PushBackendException? unusable;
@@ -265,7 +264,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
       // The principal is read before and after the settings: an edit that
       // lands in between leaves them unpaired, and they are not used.
       final principal = _principalOf(connectionId);
-      final config = saved = await _hermesConfig(connectionId);
+      final config = await _hermesConfig(connectionId);
       if (principal != null && principal == _principalOf(connectionId)) {
         current = config;
         identity = HermesPushTarget.identityOf(
@@ -296,7 +295,8 @@ final class AppPushBackendFactory implements PushBackendFactory {
       return current;
     }
     final kept = _retainedHermes[connectionId]?[target.serverIdentity];
-    if (kept != null) return _withGatewayTokens(kept, saved);
+    // Only settings read paired with their principal lend their tokens.
+    if (kept != null) return _withGatewayTokens(kept, current);
     if (unusable != null) throw unusable;
     throw const PushBackendException(
       PushFailure(

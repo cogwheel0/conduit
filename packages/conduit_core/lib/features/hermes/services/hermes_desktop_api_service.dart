@@ -216,11 +216,17 @@ List<Map<String, dynamic>> preferLastUsableHermesTranscript(
   List<Map<String, dynamic>> candidate,
 ) => candidate.length < previous.length ? previous : candidate;
 
+/// Whether a request refused with [previous] may go again with [refreshed]:
+/// other tokens, not expired. A renewal Hermes could not answer leaves the
+/// held ones, or expired ones taken up from another client.
 @visibleForTesting
 bool hermesNativeRefreshAllowsRetry(
   HermesDesktopTokenSet? previous,
   HermesDesktopTokenSet? refreshed,
-) => refreshed != null && !identical(previous, refreshed);
+) =>
+    refreshed != null &&
+    !identical(previous, refreshed) &&
+    !refreshed.expiresWithin(Duration.zero);
 
 @visibleForTesting
 bool hermesSlashNeedsCommandDispatch(HermesDesktopRpcException error) =>

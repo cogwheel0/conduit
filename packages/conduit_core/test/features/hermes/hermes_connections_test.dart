@@ -1406,20 +1406,19 @@ void main() {
       final alpha = await controller.savedConnectionConfig(_a);
 
       final renewing = Completer<void>();
-      final first = controller.tokenAccessFor(beta).guard(
-        () => renewing.future,
-      );
+      final firstRunning = Completer<void>();
+      final first = controller.tokenAccessFor(beta).guard(() {
+        firstRunning.complete();
+        return renewing.future;
+      });
+      await firstRunning.future;
       var secondRan = false;
       final second = controller.tokenAccessFor(beta).guard(
         () async => secondRan = true,
       );
-      var otherRan = false;
-      await controller.tokenAccessFor(alpha).guard(
-        () async => otherRan = true,
-      );
-      await pumpEventQueue();
+      // Another connection's guard runs while Beta's is held.
+      await controller.tokenAccessFor(alpha).guard(() async {});
 
-      check(otherRan).isTrue();
       check(secondRan).isFalse();
       renewing.complete();
       await Future.wait([first, second]);

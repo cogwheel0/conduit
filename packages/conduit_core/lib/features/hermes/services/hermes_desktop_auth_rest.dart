@@ -269,19 +269,17 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       }
       throw StateError('Hermes sign-in callback closed.');
     })().timeout(const Duration(minutes: 5));
-    final code = request.uri.queryParameters['code'];
-    final returnedState = request.uri.queryParameters['state'];
+    // This sign-in's own callback: it signs in only with a code.
+    final code = request.uri.queryParameters['code'] ?? '';
     request.response
-      ..statusCode = code != null && returnedState == state ? 200 : 400
+      ..statusCode = code.isNotEmpty ? 200 : 400
       ..headers.contentType = ContentType.html
       ..write(
         '<!doctype html><title>Hermes</title>'
-        '<p>${code != null && returnedState == state ? 'Sign-in complete. You can close this window.' : 'Sign-in could not be verified.'}</p>',
+        '<p>${code.isNotEmpty ? 'Sign-in complete. You can close this window.' : 'Sign-in could not be verified.'}</p>',
       );
     await request.response.close();
-    if (code == null || code.isEmpty || returnedState != state) {
-      throw StateError('Hermes sign-in state did not match.');
-    }
+    if (code.isEmpty) throw StateError('Hermes sign-in returned no code.');
     return code;
   }
 
@@ -547,7 +545,9 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
               readErrorDetail: readErrorDetail,
             );
           }
-          if (nativeRetry == 0 && identical(previous, refreshed)) rethrow;
+          // Hermes did not refuse the refresh token: it could not renew
+          // for now, and what it left is held or already expired.
+          if (nativeRetry == 0 && refreshed != null) rethrow;
           await _saveTokens(null);
           throw HermesGatewaySignInRequired();
         }
