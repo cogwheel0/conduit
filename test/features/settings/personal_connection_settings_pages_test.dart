@@ -400,6 +400,37 @@ void main() {
       expect(stored['x_vendor'], <String, dynamic>{'tier': 2});
     });
 
+    test('an edit that moves the connection to another address says Save '
+        'removes the saved key, and leaves the key field open', () async {
+      final rig = await pump();
+      await rig.open(_alpha);
+
+      await rig.change(_row('url'), 'https://beta.example');
+      final moved = rig.row(_alpha, _row('key'))!;
+      expect(
+        moved.placeholder,
+        _l10n.personalConnectionsKeyRemovedForNewAddress,
+      );
+      expect(moved.disabled, isFalse);
+      check(rig.row(_alpha, _row('key-mode'))).isNull();
+
+      await rig.change(_row('url'), 'https://alpha.example/v2');
+      expect(
+        rig.row(_alpha, _row('key'))!.placeholder,
+        _l10n.personalConnectionsKeyKept,
+      );
+      check(rig.row(_alpha, _row('key-mode'))).isNotNull();
+
+      await rig.change(_row('path'), 'https://beta.example/openapi.json');
+      expect(
+        rig.row(_alpha, _row('key'))!.placeholder,
+        _l10n.personalConnectionsKeyRemovedForNewAddress,
+      );
+
+      await rig.change(_row('save'));
+      expect(rig.storedTools.single['key'] ?? '', isEmpty);
+    });
+
     test('an invalid URL stays in the form, says why, and sends '
         'nothing', () async {
       final rig = await pump();

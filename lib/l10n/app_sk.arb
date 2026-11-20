@@ -6979,5 +6979,6 @@
   "settingsAddAction": "Pridať",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "Uložený kľúč sa na novú adresu neodošle, preto sa odstráni. Zadajte kľúč pre túto adresu."
 }

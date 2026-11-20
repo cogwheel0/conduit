@@ -4831,5 +4831,6 @@
   "settingsAddAction": "추가",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요."
 }
