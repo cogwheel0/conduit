@@ -153,6 +153,11 @@ Future<void> runQueuedCompletion(
       (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
       : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+  // Read now, with the request: the model may leave the list before the
+  // answer fails.
+  final viaTether = isTetherModel(
+    _openWebUiRequestModel(ref, effectiveModelId, selected: selectedModel),
+  );
 
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
@@ -270,6 +275,7 @@ Future<void> runQueuedCompletion(
         userMessage: parentMsgMap,
         variables: promptVars2,
         files: _extractTopLevelRequestFiles(parentMsgMap),
+        viaTether: viaTether,
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
@@ -317,6 +323,7 @@ Future<void> runQueuedCompletion(
         owner: owner,
         assistantMessageId: assistantMessageId,
         submissionAlreadyMarked: true,
+        viaTether: viaTether,
       );
       return;
     }
@@ -355,9 +362,7 @@ Future<void> runQueuedCompletion(
       filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
       ownsActiveConversation: () =>
           activeOpenWebUiChatIdForMutation(ref, owner) != null,
-      viaTether: isTetherModel(
-        _openWebUiRequestModel(ref, effectiveModelId, selected: selectedModel),
-      ),
+      viaTether: viaTether,
     );
     if (!attached) {
       await _finishSubmittedOpenWebUiCompletionHeadlessly(
@@ -366,6 +371,7 @@ Future<void> runQueuedCompletion(
         owner: owner,
         assistantMessageId: assistantMessageId,
         submissionAlreadyMarked: true,
+        viaTether: viaTether,
       );
     }
   } finally {
@@ -503,6 +509,9 @@ Future<void> runHeadlessCompletion(
       (selectedModel != null && selectedModel.id == effectiveModelId)
       ? _buildLocalModelItem(selectedModel)
       : <String, dynamic>{'id': effectiveModelId, 'name': effectiveModelId};
+  final viaTether = isTetherModel(
+    _openWebUiRequestModel(ref, effectiveModelId, selected: selectedModel),
+  );
 
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
@@ -606,6 +615,7 @@ Future<void> runHeadlessCompletion(
       userMessage: parentMsgMap,
       variables: promptVars,
       files: _extractTopLevelRequestFiles(parentMsgMap),
+      viaTether: viaTether,
     );
   } on ChatCompletionStopped {
     await settleStoppedOpenWebUiCompletion(
@@ -638,6 +648,7 @@ Future<void> runHeadlessCompletion(
     owner: owner,
     assistantMessageId: assistantMessageId,
     submissionAlreadyMarked: true,
+    viaTether: viaTether,
   );
 }
 
@@ -723,7 +734,7 @@ Future<Never> _settleRefusedOpenWebUiCompletion(
       await owner.database?.messagesDao.markAssistantCompletionRefused(
         chatId: owner.chatId,
         messageId: assistantMessageId,
-        error: chatErrorContentForException(refusal),
+        error: chatMessageErrorFor(refusal),
       );
     });
   } catch (cause, stackTrace) {
@@ -758,6 +769,10 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
   Duration recoveryDelay = const Duration(seconds: 2),
   bool requireDurableSubmittedMarker = true,
   bool submissionAlreadyMarked = false,
+
+  /// Whether the request went to a model one of the user's devices offers,
+  /// as it recorded when it was sent.
+  bool viaTether = false,
 }) async {
   final chatId = owner.chatId;
   final markerPersisted =
@@ -813,6 +828,7 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
     ref,
     owner: owner,
     assistantMessageId: assistantMessageId,
+    viaTether: viaTether,
     attempts: recoveryAttempts,
     delay: recoveryDelay,
   );
@@ -864,6 +880,7 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
   required String assistantMessageId,
   int attempts = 6,
   Duration delay = const Duration(seconds: 2),
+  bool viaTether = false,
 }) async {
   final chatId = owner.chatId;
   if (!openWebUiCompletionContextIsCurrent(ref, owner)) {
@@ -909,6 +926,12 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
         .where((m) => m.id == assistantMessageId)
         .firstOrNull;
     if (asst != null && _headlessAssistantLanded(asst)) {
+      await _keepLandedRelayFailure(
+        ref,
+        owner: owner,
+        answer: asst,
+        viaTether: viaTether,
+      );
       DebugLogger.log(
         'headless-completion-landed',
         scope: 'chat/completion',
@@ -923,6 +946,45 @@ Future<bool?> _pullSubmittedOpenWebUiCompletion(
     data: {'chatId': chatId},
   );
   return false;
+}
+
+/// A turn finished without a stream sees its failure only in the answer the
+/// server saved, which records nothing about the user's devices: the relay
+/// it reports is read here, once, and kept with the stored error.
+Future<void> _keepLandedRelayFailure(
+  dynamic ref, {
+  required OpenWebUiCompletionOwner owner,
+  required ChatMessage answer,
+  required bool viaTether,
+}) async {
+  final error = answer.error;
+  final relay = tetherRelayFailureOf(error?.content, viaTether: viaTether);
+  if (error == null || relay == null || error.relay == relay) return;
+  try {
+    final locks = ref.read(chatLocksProvider) as ChatLocks;
+    await locks.runExclusive(owner.chatId, () async {
+      await owner.database?.messagesDao.recordAssistantRelayFailure(
+        chatId: owner.chatId,
+        messageId: answer.id,
+        relay: relay,
+      );
+    });
+  } catch (cause, stackTrace) {
+    DebugLogger.error(
+      'relay-failure-marker-failed',
+      scope: 'chat/completion',
+      error: cause,
+      stackTrace: stackTrace,
+    );
+  }
+  if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+  (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+      .updateMessageById(answer.id, (message) {
+        final shown = message.error;
+        return shown == null || shown.content != error.content
+            ? message
+            : message.copyWith(error: shown.copyWith(relay: relay));
+      });
 }
 
 @visibleForTesting

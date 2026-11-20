@@ -1,42 +1,32 @@
 /// How a request Open WebUI relayed to one of the user's devices through
 /// Tether failed, read from the server's own words (Open WebUI 0.13.4,
 /// `utils/tether.py`).
+///
+/// Read once, where the failure arrives, and kept with the message's error
+/// (`ChatMessageError.relay`): what shows the error reads that field.
 library;
 
 import 'dart:convert';
 
-import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_message.dart' show TetherRelayFailure;
 
-/// Set on an assistant message whose turn went to a model one of the user's
-/// devices offers (`isTetherModel`).
-const String kTetherTurnMetadataKey = 'tetherTurn';
+export 'package:conduit_core/models/chat_message.dart' show TetherRelayFailure;
 
 /// What Open WebUI 0.13.4's completion router reports for any failure before
 /// the model's answer began, a relay's included: the relay's own words never
 /// reach the client then (`routers/openai.py`, `generate_chat_completion`).
 const String _serverConnectionError = 'Open WebUI: Server Connection Error';
 
-enum TetherRelayFailure {
-  /// The relay broke after the request went out (`tether_interrupted`): the
-  /// operation may have completed, so it must not be repeated blindly.
-  interrupted,
-
-  /// The device is offline, or no longer offers the connection (503).
-  unavailable,
-
-  /// The device is running as many relayed operations as it allows (429).
-  busy,
-}
-
 /// The relay failure [error] reports, or null when it is not one.
 ///
 /// [error] is a message, or a body such as a tool's result or a terminal's
 /// 502 (`{"error": ..., "code": "tether_interrupted"}`).
 ///
-/// [viaTether] says the request went to one of the user's devices. The
-/// server's generic connection error then stands for a relay that failed
-/// before the device answered. Whether the device ran it cannot be told from
-/// that, so it reads as [TetherRelayFailure.interrupted].
+/// [viaTether] says the request went to one of the user's devices, as the
+/// request recorded when it was sent. The server's generic connection error
+/// then stands for a relay that failed before the device answered. Whether
+/// the device ran it cannot be told from that, so it reads as
+/// [TetherRelayFailure.interrupted].
 TetherRelayFailure? tetherRelayFailureOf(
   Object? error, {
   bool viaTether = false,
@@ -77,11 +67,3 @@ TetherRelayFailure? tetherRelayFailureOf(
   }
   return null;
 }
-
-/// The relay failure [answer]'s error reports, knowing whether its turn went
-/// to one of the user's devices ([kTetherTurnMetadataKey]).
-TetherRelayFailure? tetherRelayFailureOfAnswer(ChatMessage answer) =>
-    tetherRelayFailureOf(
-      answer.error?.content,
-      viaTether: answer.metadata?[kTetherTurnMetadataKey] == true,
-    );

@@ -3658,14 +3658,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ownsPendingPlaceholder: () =>
             _hasStreamingAssistant &&
             _stillOwnsReopenedTail(resumeOwner, last.id),
-        viaTether: switch (_openWebUiRequestModel(
-          ref,
-          resolvedModelId,
-          selected: selectedModel,
-        )) {
-          final model? => isTetherModel(model),
-          null => null,
-        },
+        viaTether: isTetherModel(
+          _openWebUiRequestModel(ref, resolvedModelId, selected: selectedModel),
+        ),
       );
     } catch (error) {
       DebugLogger.log(
@@ -4882,9 +4877,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    final chatError = ChatMessageError(
-      content: chatErrorContentForException(error),
-    );
+    final chatError = chatMessageErrorFor(error);
     if (state.last.id == target.id) {
       updateMessageById(
         target.id,

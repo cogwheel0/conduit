@@ -297,8 +297,6 @@ int messageBlockInputsHash(core.ChatMessage message) => Object.hash(
   _deep.hash(message.followUps),
   // A Hermes failure's card.
   _deep.hash(message.metadata?[kHermesErrorSurfaceMeta]),
-  // Whether an error is read as a failed relay to one of the user's devices.
-  message.metadata?[kTetherTurnMetadataKey],
 );
 
 int _versionInputsHash(core.ChatMessageVersion version) => Object.hash(

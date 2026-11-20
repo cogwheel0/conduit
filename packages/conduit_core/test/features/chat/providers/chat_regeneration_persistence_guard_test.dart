@@ -133,6 +133,7 @@ class _RecordingCompletionApi extends ApiService {
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
+    bool viaTether = false,
   }) async {
     completionCalls += 1;
     lastConversationId = conversationId;

@@ -1803,6 +1803,40 @@ void main() {
         check(error['content']).equals('Something went wrong');
       });
 
+      test("error keeps the failed relay to a user's device this app "
+          'saved with it', () {
+        Map<String, dynamic> parsedError(Object? relay) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'msg-1',
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 1700000000,
+                  'error': {
+                    'content': 'Open WebUI: Server Connection Error',
+                    'tetherRelay': relay,
+                  },
+                },
+              ],
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.first['error'] as Map<String, dynamic>;
+        }
+
+        check(parsedError('busy')).deepEquals({
+          'content': 'Open WebUI: Server Connection Error',
+          'tetherRelay': 'busy',
+        });
+        // One this version does not know is no relay at all.
+        check(parsedError('rerouted')).deepEquals({
+          'content': 'Open WebUI: Server Connection Error',
+        });
+      });
+
       test('error as bool true', () {
         final result = parseFullConversation({
           'id': 'conv-1',

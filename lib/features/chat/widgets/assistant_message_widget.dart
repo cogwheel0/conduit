@@ -13,7 +13,6 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
-import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/usage_summary.dart';
@@ -1866,11 +1865,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // a model can keep asking for tools after Conduit stopped offering them.
     // So does a failed relay to one of the user's Tether devices.
     final l10n = AppLocalizations.of(context)!;
-    final message = widget.message;
-    final relayFailure = switch (message is ChatMessage &&
-            !_viewingVersion(message)
-        ? tetherRelayFailureOfAnswer(message)
-        : tetherRelayFailureOf(errorContent)) {
+    final relayFailure = switch (error.relay) {
       TetherRelayFailure.interrupted => l10n.tetherRelayInterrupted,
       TetherRelayFailure.unavailable => l10n.tetherRelayUnavailable,
       TetherRelayFailure.busy => l10n.tetherRelayBusy,

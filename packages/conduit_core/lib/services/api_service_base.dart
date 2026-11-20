@@ -2084,6 +2084,7 @@ abstract class _ApiServiceBase {
     String? sessionId,
     String? conversationId,
     required Future<void> Function() abort,
+    required bool viaTether,
   }) async {
     final chatId = conversationId?.trim();
     if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
@@ -2123,7 +2124,7 @@ abstract class _ApiServiceBase {
         error.trim() == TemporaryChatUnavailable.serverDetail) {
       throw const TemporaryChatNeedsConnectionException();
     }
-    throw ChatCompletionHttpException(status, error);
+    throw ChatCompletionHttpException(status, error, viaTether: viaTether);
   }
 
   /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.

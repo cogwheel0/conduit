@@ -28,8 +28,6 @@ import '../providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/sidebar_active_tab_provider.dart';
-import 'package:conduit_core/features/tether/tether_relay_failure.dart'
-    show kTetherTurnMetadataKey;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 
@@ -314,8 +312,9 @@ Future<bool> dispatchChatTransport({
   List<String> slotSiblingIds = const <String>[],
 
   /// Whether the answer's model is one the user's devices offer through
-  /// Tether; null leaves what the answer says about that alone.
-  bool? viaTether,
+  /// Tether, as the request recorded when it was sent. A failure the stream
+  /// reports is read with it.
+  bool viaTether = false,
 }) async {
   bool ownsConversation() => ownsActiveConversation?.call() ?? true;
   bool ownsPending() =>
@@ -347,11 +346,6 @@ Future<bool> dispatchChatTransport({
         if (webSearchEnabled) 'webSearchFlow': true,
         if (imageGenerationEnabled) 'imageGenerationFlow': true,
       };
-      if (viaTether == true) {
-        mergedMeta[kTetherTurnMetadataKey] = true;
-      } else if (viaTether == false) {
-        mergedMeta.remove(kTetherTurnMetadataKey);
-      }
       return m.copyWith(metadata: mergedMeta);
     }
 
@@ -429,6 +423,7 @@ Future<bool> dispatchChatTransport({
     workerManager: workerManager,
     filterIds: filterIds,
     allowForeignMessageBinding: slot == null,
+    viaTether: viaTether,
     appendToLastMessage: (c) {
       if (!ownsConversation()) return;
       if (slot != null) {

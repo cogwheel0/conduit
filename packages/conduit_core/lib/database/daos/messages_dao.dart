@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../models/chat_message.dart'
+    show ChatMessageError, TetherRelayFailure, kTetherRelayErrorKey;
+
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
 import '../models/chat_transcript_window.dart';
@@ -235,7 +238,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   Future<bool> markAssistantCompletionRefused({
     required String chatId,
     required String messageId,
-    required String error,
+    required ChatMessageError error,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
@@ -245,11 +248,32 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         payload
           ..['isStreaming'] = false
           ..['done'] = true
-          ..['error'] = <String, dynamic>{'content': error}
+          ..['error'] = error.toJson()
           ..['metadata'] = <String, dynamic>{
             ...metadata,
             'completionRefused': true,
           };
+      },
+    );
+  }
+
+  /// Keeps [relay] with the error of an answer read back from the server,
+  /// which saves the error without it.
+  Future<bool> recordAssistantRelayFailure({
+    required String chatId,
+    required String messageId,
+    required TetherRelayFailure relay,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        final error = payload['error'];
+        if (error is! Map) return;
+        payload['error'] = <String, dynamic>{
+          ...error.cast<String, dynamic>(),
+          kTetherRelayErrorKey: relay.name,
+        };
       },
     );
   }

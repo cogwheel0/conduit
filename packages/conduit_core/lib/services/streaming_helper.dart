@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -689,7 +690,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// the chat and the socket session, and adopting one would write a sibling's
   /// text into this answer.
   bool allowForeignMessageBinding = true,
+
+  /// Whether the answer's model is one of the user's devices offers through
+  /// Tether, as the request recorded when it was sent.
+  bool viaTether = false,
 }) {
+  // A failure is read here, once, and the answer keeps what it was.
+  ChatMessageError answerError(String? content) => ChatMessageError(
+    content: content,
+    relay: tetherRelayFailureOf(content, viaTether: viaTether),
+  );
+
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
@@ -1670,8 +1681,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           : text;
       applyAssistantServerPatch(
         targetId: targetId,
-        buildPatch: (_) =>
-            _AssistantServerPatch(error: ChatMessageError(content: message)),
+        buildPatch: (_) => _AssistantServerPatch(error: answerError(message)),
       );
     } else if (eventType == 'response.incomplete') {
       // Upstream contract (middleware.handle_responses_streaming_event): a
@@ -1781,7 +1791,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         applyAssistantServerPatch(
           targetId: assistantMessageId,
           buildPatch: (_) => _AssistantServerPatch(
-            error: ChatMessageError(content: error['message']?.toString()),
+            error: answerError(error['message']?.toString()),
           ),
         );
 
@@ -2456,9 +2466,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             mergeMetadata: true,
             error: errorContent == null
                 ? null
-                : errorContent.isNotEmpty
-                ? ChatMessageError(content: errorContent)
-                : const ChatMessageError(content: null),
+                : answerError(errorContent.isNotEmpty ? errorContent : null),
           ),
         ) ||
         applied;
@@ -4094,9 +4102,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
             return message.copyWith(
-              error: errorContent.isNotEmpty
-                  ? ChatMessageError(content: errorContent)
-                  : const ChatMessageError(content: null),
+              error: answerError(errorContent.isNotEmpty ? errorContent : null),
               statusHistory: filtered,
               metadata: {
                 ...?message.metadata,
@@ -4741,9 +4747,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             applyAssistantServerPatch(
               targetId: assistantMessageId,
               buildPatch: (_) => _AssistantServerPatch(
-                error: ChatMessageError(
-                  content: errorMap['message']?.toString(),
-                ),
+                error: answerError(errorMap['message']?.toString()),
               ),
             );
             wrappedFinishStreaming();

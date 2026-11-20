@@ -283,24 +283,37 @@ void main() {
     });
 
     test("a failed relay to one of the user's devices is named for the "
-        "window's words", () {
-      for (final (text, type) in const <(String, String)>[
-        (
-          'Tether connection interrupted: Connection lost. The operation may '
-              'have completed. Check its result before trying again; do not '
-              'automatically repeat it.',
-          'tetherInterrupted',
-        ),
-        ('Tether service is unavailable.', 'tetherUnavailable'),
-        ('Tether has too many active operations.', 'tetherBusy'),
+        "window's words, from what the answer recorded", () {
+      const text = 'Open WebUI: Server Connection Error';
+      for (final (relay, type) in const <(TetherRelayFailure, String)>[
+        (TetherRelayFailure.interrupted, 'tetherInterrupted'),
+        (TetherRelayFailure.unavailable, 'tetherUnavailable'),
+        (TetherRelayFailure.busy, 'tetherBusy'),
       ]) {
         final dtos = MessageBlocks().forMessage(
-          answer(content: '').copyWith(error: ChatMessageError(content: text)),
+          answer(content: '').copyWith(
+            error: ChatMessageError(content: text, relay: relay),
+          ),
         );
         final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
         expect(error.type, type);
         expect(error.error, text);
       }
+
+      // Words alone are the server's to show.
+      final dtos = MessageBlocks().forMessage(
+        answer(content: '').copyWith(
+          error: const ChatMessageError(
+            content: 'Tether service is unavailable.',
+          ),
+        ),
+      );
+      final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
+      expect(const [
+        'tetherInterrupted',
+        'tetherUnavailable',
+        'tetherBusy',
+      ], isNot(contains(error.type)));
     });
 
     test('a reasoning header that kept its timing in the summary', () {

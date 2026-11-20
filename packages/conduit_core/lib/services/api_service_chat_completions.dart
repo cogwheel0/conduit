@@ -124,6 +124,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     /// Ask the server for several answers in this one request. The first entry
     /// is the primary answer ([responseMessageId] and [model]).
     List<ChatCompletionTarget>? messageIds,
+
+    /// Whether [model] is one of the user's devices offers through Tether.
+    /// A refusal is read with it ([ChatCompletionHttpException.relay]).
+    bool viaTether = false,
   }) async {
     // Generate unique IDs
     final messageId =
@@ -347,6 +351,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           sessionId: sessionId,
           conversationId: conversationId,
           abort: abort,
+          viaTether: viaTether,
         );
       }
 
@@ -380,6 +385,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           sessionId: sessionId,
           conversationId: conversationId,
           abort: abort,
+          viaTether: viaTether,
         );
       }
     } else {

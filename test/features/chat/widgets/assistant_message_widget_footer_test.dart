@@ -2085,30 +2085,28 @@ void main() {
     tester,
   ) async {
     final l10n = lookupAppLocalizations(const Locale('en'));
-    // Open WebUI 0.13.4's own words for each way the relay can fail.
-    for (final (error, words) in <(String, String)>[
-      (
-        'Tether connection interrupted: Connection lost. The operation may '
-            'have completed. Check its result before trying again; do not '
-            'automatically repeat it.',
-        l10n.tetherRelayInterrupted,
-      ),
-      ('Tether service is unavailable.', l10n.tetherRelayUnavailable),
-      ('Tether has too many active operations.', l10n.tetherRelayBusy),
+    const error = 'Open WebUI: Server Connection Error';
+    // What the answer recorded when its failure arrived.
+    for (final (relay, words) in <(TetherRelayFailure?, String)>[
+      (TetherRelayFailure.interrupted, l10n.tetherRelayInterrupted),
+      (TetherRelayFailure.unavailable, l10n.tetherRelayUnavailable),
+      (TetherRelayFailure.busy, l10n.tetherRelayBusy),
+      // Without it the server's words are shown as they are.
+      (null, error),
     ]) {
       final message = ChatMessage(
         id: 'assistant-relay-failed',
         role: 'assistant',
         content: '',
         timestamp: DateTime(2024, 1, 1),
-        error: ChatMessageError(content: error),
+        error: ChatMessageError(content: error, relay: relay),
       );
 
       await tester.pumpWidget(_buildAssistantHarness(message));
       await tester.pumpAndSettle();
 
       expect(find.text(words), findsOneWidget);
-      expect(find.text(error), findsNothing);
+      if (relay != null) expect(find.text(error), findsNothing);
     }
   });
 

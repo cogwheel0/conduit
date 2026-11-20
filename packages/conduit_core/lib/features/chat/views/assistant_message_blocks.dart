@@ -9,7 +9,6 @@ import '../../hermes/models/hermes_inline_diff.dart';
 import '../../hermes/services/hermes_run_transport.dart'
     show hermesErrorSurfaceOf;
 import '../../mcp_apps/openwebui_mcp_app.dart';
-import '../../tether/tether_relay_failure.dart';
 import '../../web_embed/web_embed_document.dart'
     show isRemoteWebEmbedSource, resolveRemoteWebEmbedUri;
 import '../../../services/structured_output.dart' show displayedChatFiles;
@@ -396,7 +395,7 @@ List<AssistantBlock> assistantMessageBlocks(
     attachmentIds: message.attachmentIds,
     statusHistory: message.statusHistory,
     error: message.error,
-    relayFailure: tetherRelayFailureOfAnswer(message),
+    relayFailure: message.error?.relay,
     hermesError: hermesErrorSurfaceOf(message),
     changedFiles: hermesChangedFiles(message.statusHistory),
     codeExecutions: message.codeExecutions,
@@ -420,7 +419,7 @@ List<AssistantBlock> assistantVersionBlocks(ChatMessageVersion version) =>
       attachmentIds: null,
       statusHistory: const <ChatStatusUpdate>[],
       error: version.error,
-      relayFailure: tetherRelayFailureOf(version.error?.content),
+      relayFailure: version.error?.relay,
       codeExecutions: version.codeExecutions,
       sources: version.sources,
       followUps: version.followUps,

@@ -6,6 +6,8 @@ import 'package:drift/drift.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/chat_message.dart'
+    show kTetherRelayErrorKey;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -893,9 +895,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
     for (final row in incoming) {
       incomingIds.add(row.id);
-      final payload = jsonEncode(row.payload);
-      final dirty = dirtyIds.contains(row.id);
       final existing = existingById[row.id];
+      final payload = jsonEncode(
+        existing == null
+            ? row.payload
+            : _keepRecordedTetherRelay(existing.payload, row.payload),
+      );
+      final dirty = dirtyIds.contains(row.id);
       if (existing == null) {
         inserts.add(_messageCompanion(row, payload: payload, dirty: dirty));
         continue;
@@ -938,6 +944,38 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
     });
+  }
+
+  /// [incoming] with the failed relay to one of the user's devices that the
+  /// stored copy recorded for the same error. Open WebUI saves an answer's
+  /// error itself, without it.
+  Map<String, dynamic> _keepRecordedTetherRelay(
+    String storedPayload,
+    Map<String, dynamic> incoming,
+  ) {
+    final incomingError = incoming['error'];
+    if (incomingError is! Map || incomingError[kTetherRelayErrorKey] != null) {
+      return incoming;
+    }
+    final Object? stored;
+    try {
+      stored = jsonDecode(storedPayload);
+    } on FormatException {
+      return incoming;
+    }
+    final storedError = stored is Map ? stored['error'] : null;
+    if (storedError is! Map) return incoming;
+    final relay = storedError[kTetherRelayErrorKey];
+    if (relay == null || storedError['content'] != incomingError['content']) {
+      return incoming;
+    }
+    return <String, dynamic>{
+      ...incoming,
+      'error': <String, dynamic>{
+        ...incomingError.cast<String, dynamic>(),
+        kTetherRelayErrorKey: relay,
+      },
+    };
   }
 
   MessagesCompanion _messageCompanion(

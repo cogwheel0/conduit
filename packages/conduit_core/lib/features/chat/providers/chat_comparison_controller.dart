@@ -842,7 +842,9 @@ Future<void> runComparisonCompletion(
       ref,
       owner: owner,
       slotIds: slotIds,
-      error: 'Comparing models needs a live connection to the server.',
+      error: const ChatMessageError(
+        content: 'Comparing models needs a live connection to the server.',
+      ),
       live: live,
     );
     throw const _QueuedCompletionDeferred(
@@ -973,6 +975,7 @@ Future<void> runComparisonCompletion(
         variables: promptVars,
         files: _extractTopLevelRequestFiles(userMessageMap),
         messageIds: comparisonTargets(group),
+        viaTether: isTetherModel(modelFor(primary.model)),
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
@@ -1233,7 +1236,7 @@ Future<void> _refuseComparison(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required List<String> slotIds,
-  required String error,
+  required ChatMessageError error,
   required bool live,
 }) async {
   final notifier =
@@ -1243,10 +1246,7 @@ Future<void> _refuseComparison(
     if (live) {
       notifier.updateMessageById(
         id,
-        (message) => message.copyWith(
-          isStreaming: false,
-          error: ChatMessageError(content: error),
-        ),
+        (message) => message.copyWith(isStreaming: false, error: error),
       );
     }
     try {
@@ -1280,7 +1280,7 @@ Future<Never> _rejectUnsupportedComparisonInterpreter(
     ref,
     owner: owner,
     slotIds: slotIds,
-    error: chatErrorContentForException(error),
+    error: chatMessageErrorFor(error),
     live: live,
   );
   throw SyncTerminalException(message: error.toString());

@@ -7,10 +7,23 @@ enum ChatCompletionTransport { httpStream, taskSocket, jsonCompletion }
 
 /// A completion request Open WebUI refused with an HTTP error status.
 final class ChatCompletionHttpException implements Exception {
-  const ChatCompletionHttpException(this.statusCode, this.detail);
+  const ChatCompletionHttpException(
+    this.statusCode,
+    this.detail, {
+    this.viaTether = false,
+  });
 
   final int statusCode;
   final String detail;
+
+  /// Whether the request went to a model one of the user's devices offers,
+  /// as it recorded when it was sent.
+  final bool viaTether;
+
+  /// The failed relay to one of the user's devices this refusal reports, or
+  /// null for any other refusal. The answer keeps it with its error.
+  TetherRelayFailure? get relay =>
+      tetherRelayFailureOf(detail, viaTether: viaTether);
 
   /// Whether the refusal could mean the session ended. Open WebUI refuses an
   /// ended session with 401 or 403, but also passes a model provider's own
@@ -29,7 +42,7 @@ final class ChatCompletionHttpException implements Exception {
           statusCode == 502 ||
           statusCode == 503 ||
           statusCode == 504) &&
-      tetherRelayFailureOf(detail) == null;
+      relay == null;
 
   @override
   String toString() => 'Chat completion failed ($statusCode): $detail';

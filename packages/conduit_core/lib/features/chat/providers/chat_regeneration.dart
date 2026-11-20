@@ -238,10 +238,7 @@ Future<void> _regenerateHermesMessage(
       'File attachments cannot be regenerated. Send the file again.',
     );
     installAssistant(
-      assistantMessage(
-        isStreaming: false,
-        error: ChatMessageError(content: chatErrorContentForException(error)),
-      ),
+      assistantMessage(isStreaming: false, error: chatMessageErrorFor(error)),
     );
     throw error;
   }
@@ -672,7 +669,7 @@ Future<void> _regenerateDirectMessage(
         assistant;
     final failedSnapshot = failed.copyWith(
       isStreaming: false,
-      error: ChatMessageError(content: chatErrorContentForException(error)),
+      error: chatMessageErrorFor(error),
     );
     if (ownerIsActive) {
       notifier.failLastStreamingAssistant(
@@ -1526,6 +1523,7 @@ Future<void> regenerateMessage(
                   modelIdx: comparisonTarget.slot,
                 ),
               ],
+        viaTether: isTetherModel(selectedModel),
       );
       submittedSession = session;
 
@@ -1574,6 +1572,7 @@ Future<void> regenerateMessage(
             assistantMessageId: assistantMessageId,
             // Regeneration is an inline request, not a replayable outbox op.
             requireDurableSubmittedMarker: false,
+            viaTether: isTetherModel(selectedModel),
           );
         }
         return;
@@ -1644,6 +1643,7 @@ Future<void> regenerateMessage(
             owner: regenerationOwner,
             assistantMessageId: assistantMessageId,
             requireDurableSubmittedMarker: false,
+            viaTether: isTetherModel(selectedModel),
           );
         }
       } else {

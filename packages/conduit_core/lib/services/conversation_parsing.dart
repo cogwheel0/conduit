@@ -7,6 +7,8 @@ import 'package:conduit_core/database/chat_database_repository.dart'
     show kChatStorageKindMetadataKey;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/chat_message.dart'
+    show kTetherRelayErrorKey, tetherRelayFailureFromJson;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
@@ -487,6 +489,19 @@ Map<String, dynamic>? _parseSiblingAsVersion(
 /// OpenWebUI stores errors in a separate 'error' field with 'content' inside.
 /// Returns a map suitable for ChatMessageError.fromJson().
 Map<String, dynamic>? _extractErrorData(
+  Map<String, dynamic> msgData,
+  Map<String, dynamic>? historyMsg,
+) {
+  final data = _extractErrorContent(msgData, historyMsg);
+  final errorRaw = msgData['error'] ?? historyMsg?['error'];
+  final relay = errorRaw is Map
+      ? tetherRelayFailureFromJson(errorRaw[kTetherRelayErrorKey])
+      : null;
+  if (data == null || relay == null) return data;
+  return {...data, kTetherRelayErrorKey: relay.name};
+}
+
+Map<String, dynamic>? _extractErrorContent(
   Map<String, dynamic> msgData,
   Map<String, dynamic>? historyMsg,
 ) {
