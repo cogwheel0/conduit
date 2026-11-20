@@ -1512,7 +1512,7 @@ class RpcSession {
     );
     _on(
       ConduitMethodSpecs.terminalSelect,
-      (p) => _requireTerminals().select(p.serverId),
+      (p) => _requireTerminals().select(p.serverId, scopeId: p.scopeId),
     );
     _on(
       ConduitMethodSpecs.terminalAttach,

@@ -134,14 +134,41 @@ pub fn computer_status(rpc: &Rpc, chat_id: String, cx: &mut App) -> Task<Option<
     })
 }
 
-/// Selects `server` for chats (None: no terminal), as the composer's
-/// Terminal section toggles it. Answers the servers as they now stand.
+/// The composer's Terminal section for `chat` (None: a new chat): each
+/// terminal's id, name and whether chats use it. One that needs a saved
+/// chat waits until the chat is saved, as mobile's section does.
+pub fn offered(
+    servers: &[TerminalServerDto],
+    selected: Option<&str>,
+    chat: Option<&str>,
+) -> Vec<(String, String, bool)> {
+    servers
+        .iter()
+        .filter(|t| chat.is_some() || !t.requires_saved_chat)
+        .map(|t| {
+            let name = if t.name.trim().is_empty() {
+                t.id.clone()
+            } else {
+                t.name.clone()
+            };
+            (t.id.clone(), name, selected == Some(t.id.as_str()))
+        })
+        .collect()
+}
+
+/// Selects `server` for chats (None: no terminal) from `chat` (None: no
+/// chat, or a new one), as the composer's Terminal section toggles it.
+/// Answers the servers as they now stand.
 pub fn select_server(
     rpc: &Rpc,
     server: Option<String>,
+    chat: Option<String>,
     cx: &mut App,
 ) -> Task<Option<TerminalServers>> {
-    let call = rpc.call::<methods::TerminalSelect>(&TerminalSelect { server_id: server });
+    let call = rpc.call::<methods::TerminalSelect>(&TerminalSelect {
+        server_id: server,
+        scope_id: chat.unwrap_or_default(),
+    });
     cx.background_executor().spawn(async move {
         match call.await {
             Ok(servers) => Some(servers),
@@ -153,16 +180,17 @@ pub fn select_server(
     })
 }
 
-/// The composer's Terminal section: `id` becomes the terminal chats use,
-/// or (it was already) none, as mobile's toggle does.
-pub fn toggle_terminal(id: String, cx: &mut App) {
+/// The composer's Terminal section in `chat` (None: a new chat): `id`
+/// becomes the terminal chats use, or (it was already) none, as mobile's
+/// toggle does.
+pub fn toggle_terminal(id: String, chat: Option<String>, cx: &mut App) {
     let Some(stores) = cx.try_global::<crate::AppState>().map(|s| s.stores.clone()) else {
         return;
     };
     let selected = stores.areas.read(cx).terminal_selected.clone();
     let next = (selected.as_deref() != Some(id.as_str())).then_some(id);
     let rpc = stores.connection.read(cx).rpc();
-    let asked = select_server(&rpc, next, cx);
+    let asked = select_server(&rpc, next, chat, cx);
     cx.spawn(async move |cx| {
         if let Some(servers) = asked.await {
             cx.update(|cx| {
@@ -173,4 +201,61 @@ pub fn toggle_terminal(id: String, cx: &mut App) {
         }
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn terminal(id: &str, name: &str, requires_saved_chat: bool) -> TerminalServerDto {
+        TerminalServerDto {
+            id: id.into(),
+            name: name.into(),
+            kind: "system".into(),
+            requires_saved_chat,
+        }
+    }
+
+    /// A terminal that needs a saved chat (Open WebUI 0.13.4's chat-scoped
+    /// template) is offered to a saved chat, and selected from it.
+    #[gpui_kit::test]
+    fn a_saved_chat_is_offered_its_own_terminal_and_selects_it(cx: &mut TestAppContext) {
+        let servers = [
+            terminal("box", "", false),
+            terminal("per-chat", "Chat bench", true),
+        ];
+        assert_eq!(
+            offered(&servers, Some("box"), None),
+            [("box".to_string(), "box".to_string(), true)],
+            "a new chat was offered a terminal it cannot use"
+        );
+        assert_eq!(
+            offered(&servers, Some("box"), Some("chat-lighthouse")),
+            [
+                ("box".to_string(), "box".to_string(), true),
+                ("per-chat".to_string(), "Chat bench".to_string(), false),
+            ]
+        );
+
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::TerminalSelect>(TerminalServers::default());
+        let rpc = daemon.rpc();
+        let asked = cx.update(|cx| {
+            select_server(
+                &rpc,
+                Some("per-chat".into()),
+                Some("chat-lighthouse".into()),
+                cx,
+            )
+        });
+        assert!(cx.foreground_executor().block_test(asked).is_some());
+        assert_eq!(
+            daemon.calls::<methods::TerminalSelect>(),
+            [serde_json::json!({"serverId": "per-chat", "scopeId": "chat-lighthouse"})],
+            "the daemon was not told which chat the terminal is for"
+        );
+    }
 }
