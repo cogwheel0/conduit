@@ -3450,7 +3450,7 @@ void main() {
       final merged = await db.chatsDao.mergeServerChat(
         server: stale,
         refreshWhenClean: true,
-        readBeforePush: pushesAtRead != db.chatsDao.pushVersion(chatId),
+        readBeforeLocalWrite: pushesAtRead != db.chatsDao.pushVersion(chatId),
       );
 
       check(merged.staleRead).isTrue();
