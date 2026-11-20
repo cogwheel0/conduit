@@ -223,6 +223,7 @@ void main() {
       ('tried again while the session owns the chat', 200, 'user-1', false),
       ('terminal once the chat is another account\'s', 200, 'user-2', true),
       ('terminal once the session is refused', 401, 'user-1', true),
+      ('tried again while the session can\'t be read', 503, 'user-1', false),
     ]) {
       test('a 401 is $label', () async {
         final client = _buildClient(
@@ -291,36 +292,8 @@ void main() {
           owner: owner,
           deleteStatus: 200,
         );
-        final client = _buildClient(server);
-        final locks = ConversationLocks();
-        final drainer = OutboxDrainer(
-          db: db,
-          clock: _FixedClock(),
-          backoff: Backoff(jitter: () => 0.0),
-          isOnline: () => true,
-          completion: _NoCompletions(),
-          adapters: [
-            ChatAdapter(
-              pull: PullSync(client: client, db: db, locks: locks),
-              push: PushSync(
-                client: client,
-                db: db,
-                chatLocks: locks,
-                folderLocks: FolderLocks(),
-                clock: _FixedClock(),
-                remapper: remapper,
-              ),
-            ),
-          ],
-        );
-        final seq = await db.outboxDao.enqueue(
-          kind: OutboxKind.deleteMessages,
-          chatId: 'c1',
-          payload: {
-            kDeleteMessagesIdsKey: ['a1'],
-          },
-        );
-        await db.outboxDao.markParked(seq, error: 'forbidden');
+        final drainer = _chatDrainer(db, _buildClient(server), remapper);
+        final seq = await _parkedDelete(db);
 
         await drainer.onConnectivityRegained();
 
@@ -331,6 +304,80 @@ void main() {
             .equals(sentAgain ? null : OutboxStatus.failed);
       });
     }
+
+    test('parked, goes again on a later drain once a check that timed out '
+        'can tell', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      var chatReads = 0;
+      final server = _RoutedAdapter(
+        (method, path) => path == '/api/v1/chats/c1' && chatReads++ == 0
+            ? throw _timeout(path)
+            : owned.answer(method, path),
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _parkedDelete(db);
+
+      await drainer.drain();
+      check(server.requests).not((it) => it.contains(_deleteA1));
+      clock.now += _pastAnyBackoff;
+      await drainer.drain();
+
+      check(server.requests).contains(_deleteA1);
+      check((await db.outboxDao.opBySeq(seq))?.status).isNull();
+    });
+
+    test('a check that keeps timing out is asked again a few times, and once '
+        'more with the connection', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      final server = _RoutedAdapter(
+        (method, path) => path == '/api/v1/chats/c1'
+            ? throw _timeout(path)
+            : owned.answer(method, path),
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _parkedDelete(db);
+      int checks() =>
+          server.requests.where((r) => r == 'GET /api/v1/chats/c1').length;
+
+      for (var i = 0; i < OutboxDrainer.kParkedRecheckLimit + 3; i++) {
+        await drainer.drain();
+        clock.now += _pastAnyBackoff;
+      }
+      check(checks()).equals(1 + OutboxDrainer.kParkedRecheckLimit);
+      await drainer.onConnectivityRegained();
+
+      check(checks()).equals(2 + OutboxDrainer.kParkedRecheckLimit);
+      check((await db.outboxDao.opBySeq(seq))?.status)
+          .equals(OutboxStatus.failed);
+    });
   });
 
   group('getFolderById', () {
@@ -370,6 +417,16 @@ class _FixedClock implements SyncClock {
   @override
   int nowEpochSeconds() => 1000;
 }
+
+class _MovableClock implements SyncClock {
+  int now = 1000;
+
+  @override
+  int nowEpochSeconds() => now;
+}
+
+/// Seconds past the longest backoff a drainer waits ([Backoff.capMs]).
+const _pastAnyBackoff = 301;
 
 class _RecordingAdapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
@@ -500,4 +557,54 @@ SyncApiClient _buildClient(HttpClientAdapter adapter) {
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();
   return ApiSyncApiClient(service);
+}
+
+const _deleteA1 = 'DELETE /api/v1/chats/c1/messages/a1';
+
+DioException _timeout(String path) => DioException.receiveTimeout(
+  timeout: const Duration(seconds: 30),
+  requestOptions: RequestOptions(path: path),
+);
+
+/// A drainer of [db] whose only adapter is the chat one, sending as [client].
+OutboxDrainer _chatDrainer(
+  AppDatabase db,
+  SyncApiClient client,
+  IdRemapper remapper, {
+  SyncClock? clock,
+}) {
+  final locks = ConversationLocks();
+  return OutboxDrainer(
+    db: db,
+    clock: clock ?? _FixedClock(),
+    backoff: Backoff(jitter: () => 0.0),
+    isOnline: () => true,
+    completion: _NoCompletions(),
+    adapters: [
+      ChatAdapter(
+        pull: PullSync(client: client, db: db, locks: locks),
+        push: PushSync(
+          client: client,
+          db: db,
+          chatLocks: locks,
+          folderLocks: FolderLocks(),
+          clock: _FixedClock(),
+          remapper: remapper,
+        ),
+      ),
+    ],
+  );
+}
+
+/// The delete of message `a1` of chat `c1`, parked on a refusal.
+Future<int> _parkedDelete(AppDatabase db) async {
+  final seq = await db.outboxDao.enqueue(
+    kind: OutboxKind.deleteMessages,
+    chatId: 'c1',
+    payload: {
+      kDeleteMessagesIdsKey: ['a1'],
+    },
+  );
+  await db.outboxDao.markParked(seq, error: 'forbidden');
+  return seq;
 }

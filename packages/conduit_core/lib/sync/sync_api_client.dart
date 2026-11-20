@@ -47,12 +47,24 @@ class SyncRejectedException implements Exception {
   String toString() => 'SyncRejectedException($statusCode): ${detail ?? ''}';
 }
 
+/// What the server says about a session owning a chat.
+enum ChatOwnership {
+  /// It reads the chat as the session's own.
+  owns,
+
+  /// It says the chat is not the session's: it refuses the session or the
+  /// chat, has no such chat, or names another owner.
+  notOwner,
+
+  /// It could not be asked, or did not answer in a way that tells.
+  unknown,
+}
+
 /// A [SyncApiClient] that can tell whether its session still owns a chat.
 abstract interface class ChatOwnershipProbe {
   /// Whether the session this client sends as still reads chat [chatId] as
-  /// its owner, as Open WebUI's message delete requires. False when the
-  /// server says it does not, and when that can't be read.
-  Future<bool> sessionOwnsChat(String chatId);
+  /// its owner, as Open WebUI's message delete requires.
+  Future<ChatOwnership> chatOwnership(String chatId);
 }
 
 /// Thin client seam so `PullSync`/`PushSync` are unit-testable against
@@ -375,8 +387,10 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
         if (code == 404) continue;
         if (code == 401 || code == 403) {
           // Open WebUI 0.13.4 also answers 401 for a delete whose write
-          // failed (routers/chats.py:1683-1687).
-          if (await _sessionOwnsChat(chatId, authSnapshot)) rethrow;
+          // failed (routers/chats.py:1683-1687). Only an owner the server
+          // says is not this session parks it.
+          final ownership = await _chatOwnership(chatId, authSnapshot);
+          if (ownership != ChatOwnership.notOwner) rethrow;
           throw SyncTerminalException(
             statusCode: code,
             message: 'deleteChatMessages forbidden',
@@ -388,10 +402,10 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   }
 
   @override
-  Future<bool> sessionOwnsChat(String chatId) =>
-      _sessionOwnsChat(chatId, api.captureAuthSnapshot());
+  Future<ChatOwnership> chatOwnership(String chatId) =>
+      _chatOwnership(chatId, api.captureAuthSnapshot());
 
-  Future<bool> _sessionOwnsChat(
+  Future<ChatOwnership> _chatOwnership(
     String chatId,
     ApiAuthSnapshot authSnapshot,
   ) async {
@@ -401,9 +415,21 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
         suppressAuthFailureNotification: true,
       );
       final chat = await api.getChatRaw(chatId, authSnapshot: authSnapshot);
-      return user.id.isNotEmpty && chat?['user_id'] == user.id;
+      if (chat == null) return ChatOwnership.notOwner;
+      final owner = chat['user_id'];
+      if (user.id.isEmpty || owner is! String || owner.isEmpty) {
+        return ChatOwnership.unknown;
+      }
+      return owner == user.id ? ChatOwnership.owns : ChatOwnership.notOwner;
+    } on DioException catch (e) {
+      // Open WebUI answers 401 for a chat the session may not read
+      // (routers/chats.py:1477).
+      return switch (e.response?.statusCode) {
+        401 || 403 || 404 => ChatOwnership.notOwner,
+        _ => ChatOwnership.unknown,
+      };
     } catch (_) {
-      return false;
+      return ChatOwnership.unknown;
     }
   }
 

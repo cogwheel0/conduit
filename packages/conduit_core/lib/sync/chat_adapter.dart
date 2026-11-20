@@ -68,7 +68,7 @@ class ChatAdapter implements SyncEntityAdapter, ParkedOpRecovery {
       _pull.mergeChatResponseForAdapter(raw);
 
   @override
-  Future<void> rearmRecoverable({required int nowEpochSeconds}) =>
+  Future<bool> rearmRecoverable({required int nowEpochSeconds}) =>
       _push.rearmOwnedMessageDeletes(nowEpochSeconds: nowEpochSeconds);
 
   @override

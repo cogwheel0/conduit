@@ -61,8 +61,9 @@ class SyncListItem {
 /// what refused them has passed.
 abstract interface class ParkedOpRecovery {
   /// Re-arms each of this adapter's parked ops that can now go
-  /// ([OutboxDao.requeueParked]).
-  Future<void> rearmRecoverable({required int nowEpochSeconds});
+  /// ([OutboxDao.requeueParked]). Returns whether one could not be told
+  /// either way, and is worth asking about again.
+  Future<bool> rearmRecoverable({required int nowEpochSeconds});
 }
 
 /// The honest shared surface of the two real sync entities — chats and notes

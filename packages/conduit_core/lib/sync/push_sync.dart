@@ -417,25 +417,34 @@ class PushSync {
   /// Sends again each `deleteMessages` op parked on a refusal whose chat this
   /// session still owns ([ChatOwnershipProbe]): Open WebUI refuses a delete
   /// whose write failed as it refuses one the session may not make. One whose
-  /// chat it can't say it owns stays parked.
-  Future<void> rearmOwnedMessageDeletes({required int nowEpochSeconds}) async {
+  /// chat it doesn't own, or can't say it owns, stays parked. Returns whether
+  /// a chat's check could not tell, so a later pass may ask again.
+  Future<bool> rearmOwnedMessageDeletes({required int nowEpochSeconds}) async {
     final probe = switch (_client) {
       final ChatOwnershipProbe probe => probe,
       _ => null,
     };
-    if (probe == null) return;
-    final owned = <String, bool>{};
+    if (probe == null) return false;
+    final ownership = <String, ChatOwnership>{};
+    var undecided = false;
     for (final op in await _db.outboxDao.parkedOfKind(
       OutboxKind.deleteMessages,
     )) {
       final chatId = op.chatId;
       if (chatId == null) continue;
-      if (!(owned[chatId] ??= await probe.sessionOwnsChat(chatId))) continue;
-      await _db.outboxDao.requeueParked(
-        op.seq,
-        nowEpochSeconds: nowEpochSeconds,
-      );
+      switch (ownership[chatId] ??= await probe.chatOwnership(chatId)) {
+        case ChatOwnership.owns:
+          await _db.outboxDao.requeueParked(
+            op.seq,
+            nowEpochSeconds: nowEpochSeconds,
+          );
+        case ChatOwnership.unknown:
+          undecided = true;
+        case ChatOwnership.notOwner:
+          break;
+      }
     }
+    return undecided;
   }
 
   // ---- folderUpsert / folderDelete (§7.6) ----

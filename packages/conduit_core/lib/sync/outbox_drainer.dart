@@ -65,6 +65,11 @@ class OutboxDrainer {
   /// N=5 (§7.2): requestCompletion parks after this many failed attempts.
   static const int kCompletionMaxAttempts = 5;
 
+  /// How many times a re-arm of parked ops whose checks could not tell is
+  /// repeated, each on a later drain after a backoff. Past it they wait for
+  /// the connection to return, or for the next drainer.
+  static const int kParkedRecheckLimit = 5;
+
   /// Short retry window for a sync op that failed only because we were
   /// offline (pure sync ops retry indefinitely; this just paces re-checks).
   static const int _offlineRetrySeconds = 5;
@@ -99,6 +104,11 @@ class OutboxDrainer {
   /// `inFlight`.
   bool _recovered = false;
 
+  /// The repeats of an undecided re-arm so far ([kParkedRecheckLimit]), and
+  /// when the next is due: null when none is.
+  int _parkedRechecks = 0;
+  int? _parkedRecheckAt;
+
   /// §B5: `SyncApiClient` write methods throw [SyncTerminalException] for
   /// 401/403 (not owner / no perm). Treat those as terminal; everything else
   /// is transient and retried with backoff.
@@ -116,6 +126,7 @@ class OutboxDrainer {
     }
     _draining = true;
     try {
+      await _recheckParkedIfDue();
       await _recoverStrandedOnce();
       do {
         _rerun = false;
@@ -151,22 +162,34 @@ class OutboxDrainer {
   Future<void> onConnectivityRegained() async {
     final now = _clock.nowEpochSeconds();
     await _db.outboxDao.resetBackoffForPending(nowEpochSeconds: now);
+    _parkedRechecks = 0;
     // A first drain re-arms them itself.
     if (_recovered) await _rearmRecoverableParked();
     await drain();
   }
 
+  Future<void> _recheckParkedIfDue() async {
+    final due = _parkedRecheckAt;
+    if (due == null || _clock.nowEpochSeconds() < due) return;
+    await _rearmRecoverableParked();
+  }
+
   /// Asks each adapter that can ([ParkedOpRecovery]) to re-arm its parked ops
   /// that can go again. Runs before a drainer's first claim, and whenever the
-  /// connection returns. One that fails leaves them parked.
+  /// connection returns. When one could not tell, or failed, it runs again on
+  /// a later drain after a backoff, at most [kParkedRecheckLimit] times.
   Future<void> _rearmRecoverableParked() async {
+    var undecided = false;
     for (final adapter in _adapters) {
       if (adapter is! ParkedOpRecovery) continue;
       try {
-        await (adapter as ParkedOpRecovery).rearmRecoverable(
+        if (await (adapter as ParkedOpRecovery).rearmRecoverable(
           nowEpochSeconds: _clock.nowEpochSeconds(),
-        );
+        )) {
+          undecided = true;
+        }
       } catch (error, stack) {
+        undecided = true;
         DebugLogger.error(
           'parked ops not re-armed',
           scope: 'outbox/drain',
@@ -174,6 +197,19 @@ class OutboxDrainer {
           stackTrace: stack,
         );
       }
+    }
+    if (!undecided) {
+      _parkedRechecks = 0;
+      _parkedRecheckAt = null;
+    } else if (_parkedRechecks < kParkedRecheckLimit) {
+      final delayMs = _backoff.delayMsForAttempt(_parkedRechecks);
+      _parkedRechecks++;
+      // At least a second: the drain that follows a re-arm never repeats it.
+      final delaySeconds = (delayMs / 1000).ceil();
+      _parkedRecheckAt =
+          _clock.nowEpochSeconds() + (delaySeconds < 1 ? 1 : delaySeconds);
+    } else {
+      _parkedRecheckAt = null;
     }
   }
 
