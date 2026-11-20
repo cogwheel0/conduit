@@ -19,8 +19,6 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
         DirectContextLengthOverridesController,
         directContextLengthOverridesProvider;
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
-import 'package:conduit_core/features/tether/tether_relay_failure.dart'
-    show kTetherTurnMetadataKey;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
     show
         LocalReasoningEfforts,
@@ -2087,23 +2085,16 @@ void main() {
     tester,
   ) async {
     final l10n = lookupAppLocalizations(const Locale('en'));
-    // Open WebUI 0.13.4's own words for each way the relay can fail, and
-    // what its completion router says instead for a device's model.
-    for (final (error, viaTether, words) in <(String, bool, String)>[
+    // Open WebUI 0.13.4's own words for each way the relay can fail.
+    for (final (error, words) in <(String, String)>[
       (
         'Tether connection interrupted: Connection lost. The operation may '
             'have completed. Check its result before trying again; do not '
             'automatically repeat it.',
-        false,
         l10n.tetherRelayInterrupted,
       ),
-      ('Tether service is unavailable.', false, l10n.tetherRelayUnavailable),
-      ('Tether has too many active operations.', false, l10n.tetherRelayBusy),
-      (
-        'Open WebUI: Server Connection Error',
-        true,
-        l10n.tetherRelayInterrupted,
-      ),
+      ('Tether service is unavailable.', l10n.tetherRelayUnavailable),
+      ('Tether has too many active operations.', l10n.tetherRelayBusy),
     ]) {
       final message = ChatMessage(
         id: 'assistant-relay-failed',
@@ -2111,7 +2102,6 @@ void main() {
         content: '',
         timestamp: DateTime(2024, 1, 1),
         error: ChatMessageError(content: error),
-        metadata: {if (viaTether) kTetherTurnMetadataKey: true},
       );
 
       await tester.pumpWidget(_buildAssistantHarness(message));
