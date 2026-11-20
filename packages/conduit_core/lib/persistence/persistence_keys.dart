@@ -102,9 +102,6 @@ final class PreferenceKeys {
   static const String ttsSpeechRate = 'tts_speech_rate';
   static const String ttsSpeed = 'tts_speed';
 
-  /// Set once [ttsSpeed] has been carried over to the pace Android's engine
-  /// speaks at since its bridge converts Apple's rate scale.
-  static const String ttsAndroidPaceMigrated = 'tts_android_pace_migrated_v1';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'

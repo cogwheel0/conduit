@@ -513,56 +513,6 @@ void main() {
     });
   });
 
-  group('SettingsService Android device speech pace', () {
-    setUp(() async {
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
-    });
-
-    tearDown(PreferencesStore.debugReset);
-
-    // Android's engine played every speed at half the voice's pace; the
-    // bridge now speaks 1x at the voice's own, so a saved device speed
-    // halves to keep sounding as it did.
-    for (final (saved, kept) in [
-      (1.0, 0.5),
-      (1.5, 0.75),
-      (0.75, 0.375),
-      (2.0, 1.0),
-    ]) {
-      test('a device speed of ${saved}x becomes ${kept}x, once', () async {
-        await PreferencesStore.put(PreferenceKeys.ttsSpeed, saved);
-        await SettingsService.migrateAndroidDeviceSpeed();
-        await SettingsService.migrateAndroidDeviceSpeed();
-        check((await SettingsService.loadSettings()).ttsSpeed).equals(kept);
-      });
-    }
-
-    test('a rate saved before speeds keeps the pace Android gave it', () async {
-      await PreferencesStore.put(PreferenceKeys.ttsSpeechRate, 0.8);
-      await SettingsService.migrateAndroidDeviceSpeed();
-      check((await SettingsService.loadSettings()).ttsSpeed).equals(0.8);
-    });
-
-    test(
-      'a server voice keeps its speed, and stays put after a switch',
-      () async {
-        await PreferencesStore.put(PreferenceKeys.ttsEngine, 'server');
-        await PreferencesStore.put(PreferenceKeys.ttsSpeed, 1.5);
-        await SettingsService.migrateAndroidDeviceSpeed();
-        await PreferencesStore.put(PreferenceKeys.ttsEngine, 'device');
-        await SettingsService.migrateAndroidDeviceSpeed();
-        check((await SettingsService.loadSettings()).ttsSpeed).equals(1.5);
-      },
-    );
-
-    test('a new install keeps the voice\'s own pace', () async {
-      await SettingsService.migrateAndroidDeviceSpeed();
-      check(PreferencesStore.containsKey(PreferenceKeys.ttsSpeed)).isFalse();
-      check((await SettingsService.loadSettings()).ttsSpeed).equals(1.0);
-    });
-  });
-
   group('SettingsService OpenRouter image model persistence', () {
     setUp(() async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
