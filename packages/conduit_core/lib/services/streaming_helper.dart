@@ -48,8 +48,14 @@ import 'package:conduit_core/services/worker_manager.dart';
 // Keep local verbosity toggle for socket logs
 const bool kSocketVerboseLogging = false;
 
+/// How long a streaming chat's socket must stay quiet before the chat is
+/// polled for a missed `done`. Each poll that finds the reply still streaming
+/// doubles the wait, up to [_terminalRecoveryMaxDelay]; any socket event for
+/// the chat starts the wait over.
 @visibleForTesting
-Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 2);
+Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 10);
+
+const Duration _terminalRecoveryMaxDelay = Duration(seconds: 60);
 
 @visibleForTesting
 int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
@@ -702,6 +708,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool backgroundExecutionStopped = false;
   bool normalCompletionReleaseInProgress = false;
   Timer? terminalCompletionRecoveryTimer;
+  String terminalRecoverySource = '';
+  Duration terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
+  bool terminalRecoveryParkedInBackground = false;
   bool terminalRecoveryAllowContentOnlyTerminal = false;
   bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
   bool terminalRecoveryInferDoneFromMissingStreaming = false;
@@ -2848,6 +2857,63 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  void fireTerminalCompletionRecovery() {
+    terminalCompletionRecoveryTimer = null;
+    if (hasFinished || isObsoleteStream) {
+      return;
+    }
+    if (currentAssistantTargetId() != assistantMessageId) {
+      return;
+    }
+    if (socketService?.isAppForeground == false) {
+      terminalRecoveryParkedInBackground = true;
+      return;
+    }
+    final source = terminalRecoverySource;
+    final recoveryAllowContentOnlyTerminal =
+        terminalRecoveryAllowContentOnlyTerminal;
+    final recoveryAllowStableNonTerminalLocalFallback =
+        terminalRecoveryAllowStableNonTerminalLocalFallback;
+    final recoveryInferDoneFromMissingStreaming =
+        terminalRecoveryInferDoneFromMissingStreaming;
+    terminalRecoveryAllowContentOnlyTerminal = false;
+    terminalRecoveryAllowStableNonTerminalLocalFallback = false;
+    terminalRecoveryInferDoneFromMissingStreaming = false;
+    final doubled = terminalRecoveryPollDelay * 2;
+    terminalRecoveryPollDelay = doubled > _terminalRecoveryMaxDelay
+        ? _terminalRecoveryMaxDelay
+        : doubled;
+    DebugLogger.log(
+      '$source: recovering after missed done/inactive',
+      scope: 'streaming/helper',
+    );
+    unawaited(
+      recoverTaskSocketTerminalState(
+        source: source,
+        allowContentOnlyTerminal: recoveryAllowContentOnlyTerminal,
+        allowStableNonTerminalLocalFallback:
+            recoveryAllowStableNonTerminalLocalFallback,
+        inferDoneFromMissingStreaming: recoveryInferDoneFromMissingStreaming,
+        retryWhenSnapshotStillStreaming: true,
+      ),
+    );
+  }
+
+  void armTerminalCompletionRecoveryTimer() {
+    terminalCompletionRecoveryTimer?.cancel();
+    terminalCompletionRecoveryTimer = Timer(
+      terminalRecoveryPollDelay,
+      fireTerminalCompletionRecovery,
+    );
+  }
+
+  void noteSocketActivity() {
+    terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
+    if (terminalCompletionRecoveryTimer != null) {
+      armTerminalCompletionRecoveryTimer();
+    }
+  }
+
   scheduleTerminalCompletionRecovery =
       ({
         required String source,
@@ -2863,46 +2929,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             allowStableNonTerminalLocalFallback;
         terminalRecoveryInferDoneFromMissingStreaming =
             inferDoneFromMissingStreaming;
-        if (terminalCompletionRecoveryTimer != null) {
+        if (terminalCompletionRecoveryTimer != null ||
+            terminalRecoveryParkedInBackground) {
           return;
         }
-
-        terminalCompletionRecoveryTimer = Timer(
-          debugTaskSocketTerminalRecoveryDelay,
-          () {
-            terminalCompletionRecoveryTimer = null;
-            if (hasFinished || isObsoleteStream) {
-              return;
-            }
-            if (currentAssistantTargetId() != assistantMessageId) {
-              return;
-            }
-            final recoveryAllowContentOnlyTerminal =
-                terminalRecoveryAllowContentOnlyTerminal;
-            final recoveryAllowStableNonTerminalLocalFallback =
-                terminalRecoveryAllowStableNonTerminalLocalFallback;
-            final recoveryInferDoneFromMissingStreaming =
-                terminalRecoveryInferDoneFromMissingStreaming;
-            terminalRecoveryAllowContentOnlyTerminal = false;
-            terminalRecoveryAllowStableNonTerminalLocalFallback = false;
-            terminalRecoveryInferDoneFromMissingStreaming = false;
-            DebugLogger.log(
-              '$source: recovering after missed done/inactive',
-              scope: 'streaming/helper',
-            );
-            unawaited(
-              recoverTaskSocketTerminalState(
-                source: source,
-                allowContentOnlyTerminal: recoveryAllowContentOnlyTerminal,
-                allowStableNonTerminalLocalFallback:
-                    recoveryAllowStableNonTerminalLocalFallback,
-                inferDoneFromMissingStreaming:
-                    recoveryInferDoneFromMissingStreaming,
-                retryWhenSnapshotStillStreaming: true,
-              ),
-            );
-          },
-        );
+        terminalRecoverySource = source;
+        armTerminalCompletionRecoveryTimer();
       };
 
   if (hasSocketSignals) {
@@ -2925,6 +2957,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       if (newSessionId != null && convId != null && convId.isNotEmpty) {
         currentStreamSessionId = newSessionId;
         socketService.updateSessionIdForConversation(convId, newSessionId);
+      }
+
+      // The socket service reconnects (or re-announces a kept connection)
+      // after every return from the background, so this is where a recovery
+      // parked there picks up again.
+      if (terminalRecoveryParkedInBackground) {
+        terminalRecoveryParkedInBackground = false;
+        terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
+        armTerminalCompletionRecoveryTimer();
       }
 
       // Brief delay then check server for missed completion
@@ -3611,6 +3652,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           eventChatId != activeConversationId) {
         return;
       }
+      noteSocketActivity();
 
       if (isObsoleteStream) {
         return;
@@ -4374,6 +4416,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
       final data = ev['data'];
       if (data == null) return;
+      noteSocketActivity();
       final type = data['type'];
       final payload = data['data'];
       if (isObsoleteStream) {

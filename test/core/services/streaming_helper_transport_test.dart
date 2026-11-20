@@ -18,6 +18,7 @@ import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_time.dart';
@@ -605,6 +606,9 @@ class _MockSocketService implements SocketService {
 
   @override
   bool get isConnected => true;
+
+  @override
+  bool isAppForeground = true;
 
   @override
   String? get sessionId => 'test-session';
@@ -4609,6 +4613,129 @@ void main() {
           .isGreaterThan(0);
       check(log.messages.last.content).equals('Recovered from poll');
       check(log.finishCount).equals(1);
+    });
+
+    group('taskSocket recovery polls only a quiet socket', () {
+      ({
+        _CallbackLog log,
+        FakeSocketInjector socket,
+        _MockSocketService service,
+      })
+      attachTaskSocket(ApiService api) {
+        final log = _CallbackLog();
+        final socket = FakeSocketInjector();
+        final service = _MockSocketService(socket);
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          activeConversationId: 'conv-1',
+          socketService: service,
+        );
+        return (log: log, socket: socket, service: service);
+      }
+
+      int chatFetches(ApiService api) =>
+          (api.dio.httpClientAdapter as _StubAdapter).requestCount(
+            method: 'GET',
+            path: '/api/v1/chats/conv-1',
+          );
+
+      void emitDelta(FakeSocketInjector socket) {
+        socket.emitChatEvent('chat:completion', {
+          'choices': [
+            {
+              'delta': {'content': 'more '},
+            },
+          ],
+        }, messageId: 'msg-1');
+      }
+
+      Map<String, dynamic> stillStreaming() => _serverConversationResponse(
+        messages: [_serverAssistantMessage(content: 'partial', done: false)],
+      );
+
+      test('a socket that keeps delivering events is not polled, and one '
+          'that then misses done is recovered after 10 s of quiet', () {
+        fakeAsync((async) {
+          final recovered = '${'more ' * 24}and the end.';
+          final api = _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [_serverAssistantMessage(content: recovered)],
+            ),
+          );
+          final (:log, :socket, service: _) = attachTaskSocket(api);
+          async.flushMicrotasks();
+
+          for (var i = 0; i < 24; i++) {
+            async.elapse(const Duration(seconds: 5));
+            emitDelta(socket);
+          }
+          check(chatFetches(api)).equals(0);
+
+          async.elapse(const Duration(seconds: 9));
+          check(chatFetches(api)).equals(0);
+          check(log.finishCount).equals(0);
+
+          async.elapse(const Duration(seconds: 1));
+          check(chatFetches(api)).isGreaterThan(0);
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals(recovered);
+        });
+      });
+
+      test('a quiet socket is polled at 10 s, then backs off to 60 s, and a '
+          'socket event starts the 10 s wait again', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(pollResponse: stillStreaming());
+          final (:log, :socket, service: _) = attachTaskSocket(api);
+          async.flushMicrotasks();
+
+          final pollSeconds = <int>[];
+          for (var second = 1; second <= 200; second++) {
+            async.elapse(const Duration(seconds: 1));
+            while (pollSeconds.length < chatFetches(api)) {
+              pollSeconds.add(second);
+            }
+          }
+          check(pollSeconds).deepEquals([10, 30, 70, 130, 190]);
+
+          emitDelta(socket);
+          async.elapse(const Duration(seconds: 9));
+          check(chatFetches(api)).equals(5);
+          async.elapse(const Duration(seconds: 1));
+          check(chatFetches(api)).equals(6);
+          check(log.finishCount).equals(0);
+        });
+      });
+
+      test('polling pauses in the background and resumes after the '
+          'reconnect that follows a return to the foreground', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(pollResponse: stillStreaming());
+          final (:log, socket: _, :service) = attachTaskSocket(api);
+          async.flushMicrotasks();
+          service.isAppForeground = false;
+
+          async.elapse(const Duration(minutes: 5));
+          check(chatFetches(api)).equals(0);
+
+          service.isAppForeground = true;
+          service.reconnects.add(null);
+          async.elapse(const Duration(seconds: 1));
+          // The reconnect's own catch-up poll.
+          check(chatFetches(api)).equals(1);
+
+          async.elapse(const Duration(seconds: 9));
+          check(chatFetches(api)).equals(2);
+          check(log.finishCount).equals(0);
+        });
+      });
     });
 
     test(
