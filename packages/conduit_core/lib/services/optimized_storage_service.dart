@@ -378,6 +378,37 @@ class OptimizedStorageService {
     return session == null ? null : (accountId: accountId, session: session);
   }
 
+  /// [_takeBrowserSessionUnlocked], for a change that has already deleted
+  /// the saved sign-in the session renews. One it cannot read or delete
+  /// renews nothing without that sign-in, so it never fails the change: the
+  /// sweep ([sweepOrphanBrowserSignInSessions]) takes it later, and returns
+  /// it for revocation.
+  Future<StoredBrowserSignInSession?> _takeOrphanedBrowserSessionUnlocked(
+    String accountId,
+  ) async {
+    const scope = 'storage/optimized/browser-sign-in';
+    try {
+      final session = BrowserSignInSession.tryDecode(
+        await _retrySecureStorageRead(
+          () => _secureCredentialStorage.getBrowserSignInSession(accountId),
+          scope: scope,
+        ),
+      );
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.deleteBrowserSignInSession(accountId),
+        scope: scope,
+      );
+      return session == null ? null : (accountId: accountId, session: session);
+    } catch (error) {
+      DebugLogger.warning(
+        'browser-session-end-failed',
+        scope: scope,
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
+  }
+
   // These fail-closed read fences are intentionally independent of
   // [CacheManager]. A failed Keychain/preferences delete must not become
   // readable again because a cache entry expired, was evicted, or a caller
@@ -953,11 +984,17 @@ class OptimizedStorageService {
   /// session: every caller ends the account's session, and the refresh token
   /// must not outlive the saved sign-in it renews.
   Future<void> _deleteVaultedSessionUnlocked(String accountId) async {
+    await _deleteVaultUnlocked(accountId);
+    await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+  }
+
+  /// Drops [accountId]'s vaulted session alone, for a caller that has
+  /// taken its browser sign-in session already.
+  Future<void> _deleteVaultUnlocked(String accountId) async {
     // Dropped on purpose (a sign-out, say): not a session to keep.
     if (_sessionLeftInVaultFor == accountId) _sessionLeftInVaultFor = null;
     await _secureCredentialStorage.deleteServerToken(accountId);
     await _secureCredentialStorage.deleteServerCredentials(accountId);
-    await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
   }
 
   /// Before a commit replaces the live slots for [targetAccountId], files
@@ -1330,7 +1367,9 @@ class OptimizedStorageService {
     final dropped = await _authStateLock.synchronized(() async {
       final owner = _rawStoredActiveServerId(bypassReadSuppression: true);
       await _deleteSavedCredentialsUnlocked();
-      return owner == null ? null : await _takeBrowserSessionUnlocked(owner);
+      return owner == null
+          ? null
+          : await _takeOrphanedBrowserSessionUnlocked(owner);
     });
     _notifyBrowserSessionsDropped([?dropped]);
   }
@@ -1382,7 +1421,7 @@ class OptimizedStorageService {
       await _deleteSavedCredentialsUnlocked();
       final owner = current['serverId'];
       if (owner != null && owner.isNotEmpty) {
-        dropped = await _takeBrowserSessionUnlocked(owner);
+        dropped = await _takeOrphanedBrowserSessionUnlocked(owner);
       }
       return true;
     });
@@ -1414,7 +1453,7 @@ class OptimizedStorageService {
           }
 
           await _deleteSavedCredentialsUnlocked();
-          dropped = await _takeBrowserSessionUnlocked(serverId);
+          dropped = await _takeOrphanedBrowserSessionUnlocked(serverId);
           if (_rawStoredActiveServerId(bypassReadSuppression: true) ==
               serverId) {
             await _writeActiveServerIdWithoutConfigSync(null);
@@ -1617,7 +1656,7 @@ class OptimizedStorageService {
       if (undo == null) {
         final session = await _takeBrowserSessionUnlocked(account.id);
         if (session != null) dropped?.add(session);
-        await _deleteVaultedSessionUnlocked(account.id);
+        await _deleteVaultUnlocked(account.id);
       } else {
         await _deleteVaultedSessionUndoablyUnlocked(account.id, undo);
       }
@@ -2267,10 +2306,18 @@ class OptimizedStorageService {
             _stagedServerConfigCandidate = stagedBeforeCommit;
             rethrow;
           }
-          dropped = _droppedBrowserSessions(
-            vaultUndo,
-            kept: {?browserSessionReplacement?.refreshToken},
-          );
+          dropped = [
+            ..._droppedBrowserSessions(
+              vaultUndo,
+              kept: {?browserSessionReplacement?.refreshToken},
+            ),
+            // Refused as issued under other settings: kept nowhere, so
+            // nothing else would revoke its refresh token.
+            if (browserSessionCommit case BrowserSessionReplace(
+              :final session,
+            ) when browserSessionReplacement == null)
+              (accountId: targetConfig.id, session: session),
+          ];
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
@@ -3666,12 +3713,18 @@ class OptimizedStorageService {
           BrowserSignInSession? session;
           try {
             session = BrowserSignInSession.tryDecode(
-              await _secureCredentialStorage.getBrowserSignInSession(
-                account.id,
+              await _retrySecureStorageRead(
+                () => _secureCredentialStorage.getBrowserSignInSession(
+                  account.id,
+                ),
+                scope: 'storage/optimized/browser-sign-in',
               ),
             );
           } catch (_) {
-            // Read only to revoke it; it is deleted all the same.
+            // The new settings may still renew it: left to the sweep, and a
+            // renewal checks it against them first. With none, it is read
+            // only to revoke it, and deleted all the same.
+            if (config != null) continue;
           }
           // The same settings put another way, as the issuer they found
           // typed in, can still renew it.
@@ -3733,9 +3786,12 @@ class OptimizedStorageService {
       if (await _readBrowserSessionUnlocked(accountId) != expected) {
         return false;
       }
-      await _secureCredentialStorage.saveBrowserSignInSession(
-        accountId,
-        next.encode(),
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.saveBrowserSignInSession(
+          accountId,
+          next.encode(),
+        ),
+        scope: 'storage/optimized/browser-sign-in',
       );
       return true;
     });

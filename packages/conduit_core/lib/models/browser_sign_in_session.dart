@@ -18,6 +18,7 @@ final class BrowserSignInSession {
     required this.provider,
     required this.clientId,
     required this.issuer,
+    this.enteredIssuer,
     required this.tokenEndpoint,
     this.revocationEndpoint,
     required this.refreshToken,
@@ -37,6 +38,11 @@ final class BrowserSignInSession {
 
   /// The issuer of the identity provider's discovery document.
   final String issuer;
+
+  /// The issuer the server's settings named when it was issued, as entered;
+  /// null when discovery found it. A Microsoft tenant's document names its
+  /// issuer by the tenant's ID, whatever name it was entered by.
+  final String? enteredIssuer;
   final String tokenEndpoint;
   final String? revocationEndpoint;
   final String refreshToken;
@@ -61,9 +67,11 @@ final class BrowserSignInSession {
       return false;
     }
     final configured = config.issuer;
-    return configured == null ||
-        normalizeBrowserSignInIssuer(configured) ==
-            normalizeBrowserSignInIssuer(issuer);
+    if (configured == null) return true;
+    final wanted = normalizeBrowserSignInIssuer(configured);
+    final entered = enteredIssuer;
+    return wanted == normalizeBrowserSignInIssuer(issuer) ||
+        (entered != null && wanted == normalizeBrowserSignInIssuer(entered));
   }
 
   /// Whether [other] may hold a refresh token of the same grant: the same
@@ -95,6 +103,7 @@ final class BrowserSignInSession {
     provider: provider,
     clientId: clientId,
     issuer: issuer,
+    enteredIssuer: enteredIssuer,
     tokenEndpoint: tokenEndpoint,
     revocationEndpoint: revocationEndpoint,
     refreshToken: refreshToken ?? this.refreshToken,
@@ -109,6 +118,7 @@ final class BrowserSignInSession {
     'provider': provider,
     'clientId': clientId,
     'issuer': issuer,
+    if (enteredIssuer != null) 'enteredIssuer': enteredIssuer,
     'tokenEndpoint': tokenEndpoint,
     if (revocationEndpoint != null) 'revocationEndpoint': revocationEndpoint,
     'refreshToken': refreshToken,
@@ -139,6 +149,7 @@ final class BrowserSignInSession {
     final revocationEndpoint = json['revocationEndpoint'];
     final scope = json['scope'];
     final subject = json['subject'];
+    final enteredIssuer = json['enteredIssuer'];
     if (serverId == null ||
         provider == null ||
         !browserSignInProviderPattern.hasMatch(provider) ||
@@ -149,7 +160,8 @@ final class BrowserSignInSession {
         owuiUserId == null ||
         (revocationEndpoint != null && revocationEndpoint is! String) ||
         (scope != null && scope is! String) ||
-        (subject != null && subject is! String)) {
+        (subject != null && subject is! String) ||
+        (enteredIssuer != null && enteredIssuer is! String)) {
       return null;
     }
     return BrowserSignInSession(
@@ -157,6 +169,10 @@ final class BrowserSignInSession {
       provider: provider,
       clientId: clientId,
       issuer: issuer,
+      enteredIssuer: switch (enteredIssuer) {
+        final String value when value.isNotEmpty => value,
+        _ => null,
+      },
       tokenEndpoint: tokenEndpoint,
       revocationEndpoint: switch (revocationEndpoint) {
         final String value when value.isNotEmpty => value,
@@ -189,6 +205,7 @@ final class BrowserSignInSession {
       other.provider == provider &&
       other.clientId == clientId &&
       other.issuer == issuer &&
+      other.enteredIssuer == enteredIssuer &&
       other.tokenEndpoint == tokenEndpoint &&
       other.revocationEndpoint == revocationEndpoint &&
       other.refreshToken == refreshToken &&
@@ -202,6 +219,7 @@ final class BrowserSignInSession {
     provider,
     clientId,
     issuer,
+    enteredIssuer,
     tokenEndpoint,
     revocationEndpoint,
     refreshToken,

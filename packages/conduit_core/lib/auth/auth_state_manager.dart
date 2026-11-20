@@ -414,11 +414,51 @@ class AuthStateManager extends _$AuthStateManager {
   AuthState get _current =>
       state.asData?.value ?? const AuthState(status: AuthStatus.initial);
 
-  int _beginAuthAttempt() {
+  /// [keepTwoStep] keeps the pending second step, for the attempt that
+  /// finishes it.
+  int _beginAuthAttempt({bool keepTwoStep = false}) {
     // Any newer attempt, a sign-out included, ends a pending second step.
-    _pendingTwoStep = null;
+    if (!keepTwoStep) _dropPendingTwoStep();
     _authAttemptSafetyEpoch = _sessionSafetyEpoch;
     return ++_authAttemptRevision;
+  }
+
+  void _dropPendingTwoStep() {
+    final grant = _pendingTwoStep?.browserGrant;
+    _pendingTwoStep = null;
+    _releaseBrowserGrant(grant);
+  }
+
+  void _dropRetryableBrowserGrant() {
+    final grant = _retryableBrowserGrant?.grant;
+    _retryableBrowserGrant = null;
+    _releaseBrowserGrant(grant);
+  }
+
+  /// Revokes [grant]'s refresh token once nothing keeps it: no session was
+  /// stored from it, and neither a retry nor a second step holds it. Left
+  /// as it is, it would stay live at the identity provider, with nothing on
+  /// the device to end it.
+  ///
+  /// One whose provider user is unknown is left alone: it may be of the
+  /// grant of a session still stored ([BrowserSignInSession.sharesGrantWith]),
+  /// which revoking it could end.
+  void _releaseBrowserGrant(BrowserSignInGrant? grant) {
+    if (grant == null ||
+        grant.subject == null ||
+        identical(_retryableBrowserGrant?.grant, grant) ||
+        identical(_pendingTwoStep?.browserGrant, grant) ||
+        !ref.mounted) {
+      return;
+    }
+    // Open WebUI never signed it in as anyone.
+    final session = grant.session(owuiUserId: '');
+    if (session == null) return;
+    unawaited(
+      _revokeBrowserSessions([
+        (session: session, route: ref.read(apiServiceProvider)?.serverConfig),
+      ]),
+    );
   }
 
   /// True when a newer auth attempt (login / logout / token-invalidation, each
@@ -1306,7 +1346,7 @@ class AuthStateManager extends _$AuthStateManager {
   }) async {
     final attemptRevision = _beginAuthAttempt();
     _browserSignInAttempt = attemptRevision;
-    _retryableBrowserGrant = null;
+    _dropRetryableBrowserGrant();
     bool mayCommit() =>
         _cancelledBrowserSignInAttempt != attemptRevision &&
         _canCommitAuth(canCommit);
@@ -1337,14 +1377,22 @@ class AuthStateManager extends _$AuthStateManager {
             loginHint: target.loginHint,
             stopped: stopped,
           );
-      if (grant == null || stopped()) return false;
-      return await _commitBrowserGrant(
-        accountId: accountId,
-        grant: grant,
-        grantedAt: DateTime.now(),
-        attemptRevision: attemptRevision,
-        canCommit: mayCommit,
-      );
+      if (grant == null) return false;
+      var committed = false;
+      try {
+        committed =
+            !stopped() &&
+            await _commitBrowserGrant(
+              accountId: accountId,
+              grant: grant,
+              grantedAt: DateTime.now(),
+              attemptRevision: attemptRevision,
+              canCommit: mayCommit,
+            );
+        return committed;
+      } finally {
+        if (!committed) _releaseBrowserGrant(grant);
+      }
     } catch (error, stackTrace) {
       return _failBrowserSignIn(
         error,
@@ -1378,8 +1426,9 @@ class AuthStateManager extends _$AuthStateManager {
   Future<bool> retryBrowserExchange({bool Function()? canCommit}) async {
     final retry = _retryableBrowserGrant;
     _retryableBrowserGrant = null;
-    if (retry == null ||
-        DateTime.now().difference(retry.at) > _browserGrantRetryWindow) {
+    if (retry == null) return false;
+    if (DateTime.now().difference(retry.at) > _browserGrantRetryWindow) {
+      _releaseBrowserGrant(retry.grant);
       return false;
     }
     final attemptRevision = _beginAuthAttempt();
@@ -1389,13 +1438,18 @@ class AuthStateManager extends _$AuthStateManager {
         _canCommitAuth(canCommit);
     bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
-      return await _commitBrowserGrant(
-        accountId: retry.accountId,
-        grant: retry.grant,
-        grantedAt: retry.at,
-        attemptRevision: attemptRevision,
-        canCommit: mayCommit,
-      );
+      var committed = false;
+      try {
+        return committed = await _commitBrowserGrant(
+          accountId: retry.accountId,
+          grant: retry.grant,
+          grantedAt: retry.at,
+          attemptRevision: attemptRevision,
+          canCommit: mayCommit,
+        );
+      } finally {
+        if (!committed) _releaseBrowserGrant(retry.grant);
+      }
     } catch (error, stackTrace) {
       return _failBrowserSignIn(
         error,
@@ -1729,7 +1783,7 @@ class AuthStateManager extends _$AuthStateManager {
         _settleAtTwoStep();
         Error.throwWithStackTrace(error, stackTrace);
       }
-      if (!_authAttemptSuperseded(attemptRevision)) _pendingTwoStep = null;
+      if (!_authAttemptSuperseded(attemptRevision)) _dropPendingTwoStep();
       return false;
     }
     final failure = switch (error) {
@@ -1906,7 +1960,7 @@ class AuthStateManager extends _$AuthStateManager {
       }
 
       if (_retryableBrowserGrant?.accountId == accountId) {
-        _retryableBrowserGrant = null;
+        _dropRetryableBrowserGrant();
       }
       // Read before storage deletes it with the account, and revoked once
       // the account is gone. No renewal runs between: one would rotate the
@@ -3963,9 +4017,8 @@ class AuthStateManager extends _$AuthStateManager {
   /// to remember.
   Future<bool> finishTwoStepSignIn(OpenWebUiTwoStepSession session) async {
     final pending = _pendingTwoStep;
-    _beginAuthAttempt();
     // Kept until the session is signed in to, so a failed attempt can retry.
-    _pendingTwoStep = pending;
+    _beginAuthAttempt(keepTwoStep: true);
     _update(
       (current) => current.copyWith(
         status: AuthStatus.loading,
@@ -4972,7 +5025,7 @@ class AuthStateManager extends _$AuthStateManager {
     // A plain logout ends the account's browser sign-in session too: storage
     // tells of the session its clear takes, which is revoked then. Signing
     // out of every account revokes them all itself.
-    _retryableBrowserGrant = null;
+    _dropRetryableBrowserGrant();
     // Renewals of the account wait until the logout ends: one that rotated
     // the refresh token as the clear took the session would leave the new one
     // stored nowhere, and unrevoked. The clear waits for the hold.
