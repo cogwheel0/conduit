@@ -758,6 +758,11 @@ String mcpAppBridgeScript({
     attributeOldValue: true, attributeFilter: ['class', 'style']});
   // A pane scrolling inside the page moves the regions in it without a resize.
   addEventListener('scroll', () => reportRects(false), {capture: true, passive: true});
+  // A transform, an animation or a style sheet moves regions with no event to
+  // follow, so they are measured again while there are any.
+  setInterval(() => {
+    if (canvases.length && !document.hidden) reportRects(false);
+  }, 250);
   // The page's parent is the page itself in a web view: what it posts over
   // the MCP Apps bridge goes to Conduit, and anything else, such as a
   // library's own scheduling, stays the page's.
