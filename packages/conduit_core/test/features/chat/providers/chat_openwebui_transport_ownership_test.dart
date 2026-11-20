@@ -3623,95 +3623,71 @@ void main() {
       db.chatsDao.notePushLanded(chatId);
     }
 
-    test('a copy read straight from the server leaves out an empty answer '
-        'whose delete is asked for and lands while it is read', () async {
-      await seedTurn();
-      final api = _ServerChatApi(assistantId, {
-        userId: _historyEntry(
-          userId,
-          'user',
-          'Say the word: heron',
-          childrenIds: [assistantId],
-        ),
-        assistantId: _historyEntry(
-          assistantId,
-          'assistant',
-          '',
-          parentId: userId,
-          done: false,
-        ),
-      });
-      api.whileReading = () {
-        api.whileReading = null;
-        return deleteLands(api, assistantId);
-      };
-      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
-      );
-      addTearDown(container.dispose);
-
-      final refreshed = await pullChatOrFetch(container, chatId);
-
-      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
-    });
-
-    test('a copy read straight from the server leaves out an empty answer '
-        'whose delete is asked for and lands while the last read pushes allow '
-        'is out', () async {
-      await seedTurn();
-      final api = _ServerChatApi(assistantId, {
-        userId: _historyEntry(
-          userId,
-          'user',
-          'Say the word: heron',
-          childrenIds: [assistantId],
-        ),
-        assistantId: _historyEntry(
-          assistantId,
-          'assistant',
-          '',
-          parentId: userId,
-          done: false,
-        ),
-      });
-      api.whileDeleting = () async => api.deleteMessage(assistantId);
-      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
-      );
-      addTearDown(container.dispose);
-      final owner = captureOpenWebUiCompletionOwner(container, chatId: chatId);
-      var reads = 0;
-      api.whileReading = () async {
-        // Pushes of the chat land while the first two reads are out; while
-        // the third is, the held turn's settle deletes its empty answer.
-        if (++reads < 3) return db.chatsDao.notePushLanded(chatId);
-        api.whileReading = null;
-        await settleHeldOpenWebUiCompletion(
-          container,
+    // A held turn's settle deletes its empty answer while the first read is
+    // out, or while the last is that pushes of the chat landing during the
+    // reads before it allow.
+    for (final (label, landsAt) in [
+      ('it is read', 1),
+      ('the last read pushes allow is out', 3),
+    ]) {
+      test('a copy read straight from the server leaves out an empty answer '
+          'whose delete is asked for and lands while $label', () async {
+        await seedTurn();
+        final api = _ServerChatApi(assistantId, {
+          userId: {
+            ..._historyEntry(
+              userId,
+              'user',
+              'Say the word: heron',
+              childrenIds: [assistantId],
+            ),
+            // Open WebUI keeps the question pending until it answers it.
+            'meta': {'status': 'pending'},
+          },
+          assistantId: _historyEntry(
+            assistantId,
+            'assistant',
+            '',
+            parentId: userId,
+            done: false,
+          ),
+        });
+        api.whileDeleting = () async => api.deleteMessage(assistantId);
+        final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
           api: api,
-          owner: owner,
-          questionId: userId,
-          assistantMessageIds: const [assistantId],
+          syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
         );
-      };
+        addTearDown(container.dispose);
+        final owner = captureOpenWebUiCompletionOwner(
+          container,
+          chatId: chatId,
+        );
+        var reads = 0;
+        api.whileReading = () async {
+          if (++reads < landsAt) return db.chatsDao.notePushLanded(chatId);
+          api.whileReading = null;
+          await settleHeldOpenWebUiCompletion(
+            container,
+            api: api,
+            owner: owner,
+            questionId: userId,
+            assistantMessageIds: const [assistantId],
+          );
+        };
 
-      final refreshed = await pullChatOrFetch(container, chatId);
+        final refreshed = await pullChatOrFetch(container, chatId);
 
-      check(reads).equals(3);
-      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
-      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
-      check(refreshed.messages.single.isHeldByServer).isTrue();
-    });
+        check(reads).equals(landsAt);
+        check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+        check(refreshed!.messages.map((m) => m.id).toList())
+            .deepEquals([userId]);
+        check(refreshed.messages.single.isHeldByServer).isTrue();
+      });
+    }
 
     // A long chat's tree is parsed by a worker, and a delete asked for while
     // it parses counts too.
