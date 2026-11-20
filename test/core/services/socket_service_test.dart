@@ -1369,41 +1369,44 @@ void main() {
           },
         ),
       ]) {
-    test('a later connection is announced when $label', () async {
-      final socketFactory = _RecordingSocketFactory();
-      final service = SocketService(
-        serverConfig: _serverConfig,
-        socketFactory: socketFactory.create,
-      );
-      addTearDown(service.dispose);
-      var reconnectSignals = 0;
-      final reconnectSub = service.onReconnect.listen(
-        (_) => reconnectSignals++,
-      );
-      addTearDown(reconnectSub.cancel);
-      var deviceRefreshes = 0;
-      service.tetherDevicesChangedHandler = () => deviceRefreshes++;
+    test('a later connection is announced when $label', () {
+      fakeAsync((async) {
+        final socketFactory = _RecordingSocketFactory();
+        final service = SocketService(
+          serverConfig: _serverConfig,
+          socketFactory: socketFactory.create,
+        );
+        addTearDown(service.dispose);
+        var reconnectSignals = 0;
+        final reconnectSub = service.onReconnect.listen(
+          (_) => reconnectSignals++,
+        );
+        addTearDown(reconnectSub.cancel);
+        var deviceRefreshes = 0;
+        service.tetherDevicesChangedHandler = () => deviceRefreshes++;
 
-      await service.connect();
-      socketFactory.sockets.single
-        ..connected = true
-        ..id = 'first-session'
-        ..emitReserved('connect');
-      await _flushMicrotasks(2);
-      expect(reconnectSignals, 0);
-      expect(deviceRefreshes, 0);
+        unawaited(service.connect());
+        async.elapse(Duration.zero);
+        socketFactory.sockets.single
+          ..connected = true
+          ..id = 'first-session'
+          ..emitReserved('connect');
+        async.elapse(Duration.zero);
+        expect(reconnectSignals, 0);
+        expect(deviceRefreshes, 0);
 
-      final next = comeBack(service, socketFactory.sockets);
-      await _flushMicrotasks(2);
-      next
-        ..connected = true
-        ..id = 'next-session'
-        ..emitReserved('connect');
-      await _flushMicrotasks(2);
+        final next = comeBack(service, socketFactory.sockets);
+        async.elapse(Duration.zero);
+        next
+          ..connected = true
+          ..id = 'next-session'
+          ..emitReserved('connect');
+        async.elapse(Duration.zero);
 
-      expect(service.sessionId, 'next-session');
-      expect(reconnectSignals, 1);
-      expect(deviceRefreshes, 1);
+        expect(service.sessionId, 'next-session');
+        expect(reconnectSignals, 1);
+        expect(deviceRefreshes, 1);
+      });
     });
   }
 
