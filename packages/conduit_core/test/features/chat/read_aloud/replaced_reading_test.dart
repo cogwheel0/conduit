@@ -302,16 +302,13 @@ void main() {
 
         check(engine.waiting).deepEquals(['New one.']);
         await deleted.future;
-        check(
-          Zone.root.run(() => File(finishedEarly).existsSync()),
-        ).isFalse();
+        check(Zone.root.run(() => File(finishedEarly).existsSync())).isFalse();
         check(File(stillWriting).existsSync()).isFalse();
         engine.answerFirst();
         await replacing;
         await pumpEventQueue();
-        check(
-          player.clips.map((clip) => clip.uri),
-        ).deepEquals([File(engine.lastPath!).uri]);
+        check(player.clips.map((clip) => clip.uri))
+            .deepEquals([File(engine.lastPath!).uri]);
         check(player.playing).isTrue();
         check(events.whereType<TtsError>()).length.equals(1);
       },
