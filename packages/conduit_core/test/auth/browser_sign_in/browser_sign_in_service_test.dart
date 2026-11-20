@@ -110,8 +110,12 @@ final class _Idp {
   /// Whether the discovery document lists a token introspection endpoint.
   bool introspects = false;
 
+  /// Completes once the first request reaches the provider.
+  final reached = Completer<void>();
+
   late final MockClient client = MockClient((request) async {
     requests.add(request);
+    if (!reached.isCompleted) reached.complete();
     await answerAfter;
     if (unreachable) throw http.ClientException('offline');
     final url = request.url.toString();
@@ -326,7 +330,7 @@ void main() {
       var calledOff = false;
 
       final grant = authorize(stopped: () => calledOff);
-      await pumpEventQueue();
+      await idp.reached.future;
       calledOff = true;
       found.complete();
 
@@ -336,6 +340,8 @@ void main() {
 
     test('finds the provider Open WebUI uses, signs in to it in the browser, '
         'and redeems the code', () async {
+      // A session it must not send.
+      api.updateAuthToken('session-jwt');
       final grant = await authorize(
         prompt: 'login',
         loginHint: 'a@example.test',
@@ -384,6 +390,16 @@ void main() {
           ..has((s) => s.refreshToken, 'refreshToken').equals('idp-refresh')
           ..has((s) => s.tokenEndpoint, 'tokenEndpoint').equals(_tokenEndpoint);
         check(grant.toString()).not((s) => s.contains('idp-access'));
+        // Without a refresh token, there is nothing to keep.
+        final unrenewable = BrowserSignInGrant(
+          serverId: 'server-1',
+          provider: 'oidc',
+          clientId: 'conduit',
+          issuer: _issuer,
+          tokenEndpoint: Uri.parse(_tokenEndpoint),
+          accessToken: 'idp-access',
+        );
+        check(unrenewable.session(owuiUserId: 'user-a')).isNull();
       },
     );
 
@@ -414,18 +430,6 @@ void main() {
       check(
         grant.session(owuiUserId: 'user-a')?.subject,
       ).equals('idp-user-1');
-    });
-
-    test('a grant without a refresh token keeps no session', () {
-      final grant = BrowserSignInGrant(
-        serverId: 'server-1',
-        provider: 'oidc',
-        clientId: 'conduit',
-        issuer: _issuer,
-        tokenEndpoint: Uri.parse(_tokenEndpoint),
-        accessToken: 'idp-access',
-      );
-      check(grant.session(owuiUserId: 'user-a')).isNull();
     });
 
     test('closing the browser is no failure', () async {
@@ -532,6 +536,8 @@ void main() {
         service.exchange(api: api, provider: 'oidc', accessToken: 'idp-access');
 
     test('answers with a session', () async {
+      // A session it must not send.
+      api.updateAuthToken('session-jwt');
       final answer = await exchange();
       check(answer)
           .isA<BrowserSignInSessionToken>()
@@ -1100,14 +1106,27 @@ void main() {
       check(browser.opened).isEmpty();
     });
 
-    test('an exchange that is off', () async {
-      exchangeAnswer = () =>
-          _json(403, {'detail': 'Token exchange is disabled'});
-      final diagnosis = await service.diagnose(api: api, config: _config);
-      check(diagnosis.exchangeFailure)
-          .equals(BrowserSignInFailure.exchangeDisabled);
-      check(diagnosis.ready).isFalse();
-    });
+    // A working exchange refuses the token Test makes up; something that
+    // takes it is no exchange a sign-in can use.
+    for (final (name, answer, failure) in [
+      (
+        'an exchange that is off',
+        () => _json(403, {'detail': 'Token exchange is disabled'}),
+        BrowserSignInFailure.exchangeDisabled,
+      ),
+      (
+        'something that takes a token no provider issued',
+        () => _json(200, {'ok': true}),
+        BrowserSignInFailure.failed,
+      ),
+    ]) {
+      test(name, () async {
+        exchangeAnswer = answer;
+        final diagnosis = await service.diagnose(api: api, config: _config);
+        check(diagnosis.exchangeFailure).equals(failure);
+        check(diagnosis.ready).isFalse();
+      });
+    }
 
     test('an exchange that only trusts listed clients, with a provider '
         'that cannot say which client a token was issued to', () async {

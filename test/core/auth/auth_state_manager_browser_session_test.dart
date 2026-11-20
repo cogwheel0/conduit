@@ -1137,14 +1137,14 @@ void main() {
       await inBrowser.future;
       older.complete();
       check(await cancelled).isFalse();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(rig.service.revoked).isEmpty();
 
       // Closed without signing in.
       rig.service.grant = null;
       browser.complete();
       check(await signIn).isFalse();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(revokedTokens(rig)).deepEquals(['idp-refresh']);
     });
 
@@ -1164,11 +1164,11 @@ void main() {
       ).throws<OpenWebUiTwoStepRequired>();
       older.complete();
       check(await cancelled).isFalse();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(rig.service.revoked).isEmpty();
 
       rig.auth.cancelTwoStepSignIn();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(
         revokedTokens(rig),
       ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
@@ -1220,7 +1220,7 @@ void main() {
       await exchanging.future;
       older.complete();
       check(await cancelled).isFalse();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(rig.service.revoked).isEmpty();
 
       rig.storage.storedSessions = [
@@ -1240,7 +1240,7 @@ void main() {
       ];
       newer.complete();
       check(await signIn).isTrue();
-      await rig.auth.abandonedGrantRevocationsSettled;
+      await rig.auth.browserRevocationsSettled;
       check(rig.service.revoked).isEmpty();
     });
 
@@ -1266,8 +1266,8 @@ void main() {
         unknown.auth.loginWithBrowser(config: _config),
       ).throws<BrowserSignInException>();
 
-      await signedIn.auth.abandonedGrantRevocationsSettled;
-      await unknown.auth.abandonedGrantRevocationsSettled;
+      await signedIn.auth.browserRevocationsSettled;
+      await unknown.auth.browserRevocationsSettled;
       check(signedIn.service.revoked).isEmpty();
       check(unknown.service.revoked).isEmpty();
     });
@@ -1287,6 +1287,35 @@ void main() {
       await pumpEventQueue();
 
       check(rig.service.revoked).deepEquals([_session]);
+    });
+
+    // Revoking a session can end every grant of its user at some providers:
+    // signing back in waits for it, so the new one isn't ended with it.
+    test('a browser sign-in waits for a revocation still out before it opens '
+        'the browser', () async {
+      final rig = await _Rig.start();
+      when(() => rig.storage.browserSignInSessionFor('account-b'))
+          .thenAnswer((_) async => _session);
+      when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+          .thenAnswer((_) async => const []);
+      when(() => rig.storage.removeInactiveAccount('account-b'))
+          .thenAnswer((_) async => true);
+      final sent = Completer<void>();
+      final sending = Completer<void>();
+      rig.service
+        ..revoking = sent
+        ..duringRevoke = sending.complete;
+      await rig.auth.signOutAccount('account-b');
+      await sending.future;
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      // Its chance to open the browser too soon.
+      await pumpEventQueue();
+      check(rig.service.browserOpened).equals(0);
+
+      sent.complete();
+      check(await signIn).isTrue();
+      check(rig.service.browserOpened).equals(1);
     });
 
     // The session the clear took, even when it could not be read before.
