@@ -4518,9 +4518,14 @@ void main() {
       'taskSocket terminal finish_reason recovers when done is missed',
       () async {
         final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+        final previousEndedDelay = debugTaskSocketEndedReplyRecoveryDelay;
         debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+        debugTaskSocketEndedReplyRecoveryDelay = const Duration(
+          milliseconds: 10,
+        );
         addTearDown(() {
           debugTaskSocketTerminalRecoveryDelay = previousDelay;
+          debugTaskSocketEndedReplyRecoveryDelay = previousEndedDelay;
         });
 
         final log = _CallbackLog();
@@ -4736,6 +4741,80 @@ void main() {
           check(log.finishCount).equals(0);
         });
       });
+
+      test('after a terminal finish_reason with no done, polls come 2 s apart '
+          'and the reply finishes after three stable ones', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [
+                {
+                  ..._serverAssistantMessage(content: 'Hello there.'),
+                  'done': false,
+                  'isStreaming': true,
+                },
+              ],
+            ),
+          );
+          final (:log, :socket, service: _) = attachTaskSocket(api);
+          async.flushMicrotasks();
+
+          socket.emitChatEvent('chat:completion', {
+            'choices': [
+              {
+                'delta': {'content': 'Hello there.'},
+                'finish_reason': 'stop',
+              },
+            ],
+          }, messageId: 'msg-1');
+          async.elapse(const Duration(seconds: 2));
+          check(chatFetches(api)).equals(1);
+          async.elapse(const Duration(seconds: 2));
+          check(chatFetches(api)).equals(2);
+          check(log.finishCount).equals(0);
+
+          async.elapse(const Duration(seconds: 2));
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals('Hello there.');
+        });
+      });
+
+      test('after chat:active false with no done, the next poll comes 2 s '
+          'later', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(
+            pollResponses: [
+              _serverConversationResponse(
+                messages: [
+                  {
+                    ..._serverAssistantMessage(),
+                    'done': false,
+                    'isStreaming': true,
+                  },
+                ],
+              ),
+              _serverConversationResponse(
+                messages: [_serverAssistantMessage(content: 'Saved reply.')],
+              ),
+            ],
+          );
+          final (:log, :socket, service: _) = attachTaskSocket(api);
+          async.flushMicrotasks();
+
+          socket.emitChatEvent('chat:active', {
+            'active': false,
+          }, messageId: 'msg-1');
+          async.elapse(Duration.zero);
+          // The inactive recovery's own poll finds nothing to finish with.
+          check(chatFetches(api)).equals(1);
+          check(log.finishCount).equals(0);
+
+          async.elapse(const Duration(seconds: 2));
+          check(chatFetches(api)).equals(2);
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals('Saved reply.');
+        });
+      });
     });
 
     test(
@@ -4809,11 +4888,14 @@ void main() {
 
     test('taskSocket terminal recovery keeps streaming open when polled snapshot is not done', () async {
       final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousEndedDelay = debugTaskSocketEndedReplyRecoveryDelay;
       final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
       debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketEndedReplyRecoveryDelay = const Duration(milliseconds: 10);
       debugTaskSocketStableNonTerminalRecoveryLimit = 4;
       addTearDown(() {
         debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketEndedReplyRecoveryDelay = previousEndedDelay;
         debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
       });
 
@@ -4892,11 +4974,14 @@ void main() {
 
     test('taskSocket terminal recovery keeps streaming open when poll is unavailable and follow-ups arrive late', () async {
       final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousEndedDelay = debugTaskSocketEndedReplyRecoveryDelay;
       final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
       debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketEndedReplyRecoveryDelay = const Duration(milliseconds: 10);
       debugTaskSocketStableNonTerminalRecoveryLimit = 6;
       addTearDown(() {
         debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketEndedReplyRecoveryDelay = previousEndedDelay;
         debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
       });
 
@@ -4959,11 +5044,14 @@ void main() {
 
     test('taskSocket terminal recovery finishes once the poll-miss retry limit is exhausted', () async {
       final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousEndedDelay = debugTaskSocketEndedReplyRecoveryDelay;
       final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
       debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketEndedReplyRecoveryDelay = const Duration(milliseconds: 10);
       debugTaskSocketStableNonTerminalRecoveryLimit = 1;
       addTearDown(() {
         debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketEndedReplyRecoveryDelay = previousEndedDelay;
         debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
       });
 
@@ -5006,11 +5094,14 @@ void main() {
 
     test('taskSocket terminal recovery eventually finishes after a stable non-terminal snapshot repeats', () async {
       final previousDelay = debugTaskSocketTerminalRecoveryDelay;
+      final previousEndedDelay = debugTaskSocketEndedReplyRecoveryDelay;
       final previousLimit = debugTaskSocketStableNonTerminalRecoveryLimit;
       debugTaskSocketTerminalRecoveryDelay = const Duration(milliseconds: 10);
+      debugTaskSocketEndedReplyRecoveryDelay = const Duration(milliseconds: 10);
       debugTaskSocketStableNonTerminalRecoveryLimit = 2;
       addTearDown(() {
         debugTaskSocketTerminalRecoveryDelay = previousDelay;
+        debugTaskSocketEndedReplyRecoveryDelay = previousEndedDelay;
         debugTaskSocketStableNonTerminalRecoveryLimit = previousLimit;
       });
 

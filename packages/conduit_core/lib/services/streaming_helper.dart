@@ -57,6 +57,12 @@ Duration debugTaskSocketTerminalRecoveryDelay = const Duration(seconds: 10);
 
 const Duration _terminalRecoveryMaxDelay = Duration(seconds: 60);
 
+/// How far apart recovery polls are, with no backoff, once the server has
+/// said the reply is over (a terminal `finish_reason`, or `chat:active`
+/// false) but `done` has not come.
+@visibleForTesting
+Duration debugTaskSocketEndedReplyRecoveryDelay = const Duration(seconds: 2);
+
 @visibleForTesting
 int debugTaskSocketStableNonTerminalRecoveryLimit = 3;
 
@@ -711,6 +717,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   String terminalRecoverySource = '';
   Duration terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
   bool terminalRecoveryParkedInBackground = false;
+  bool serverEndedReply = false;
   bool terminalRecoveryAllowContentOnlyTerminal = false;
   bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
   bool terminalRecoveryInferDoneFromMissingStreaming = false;
@@ -1389,6 +1396,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     bool allowContentOnlyTerminal,
     bool allowStableNonTerminalLocalFallback,
     bool inferDoneFromMissingStreaming,
+    bool afterServerEndedReply,
   })
   scheduleTerminalCompletionRecovery;
 
@@ -1817,6 +1825,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         (hasSocketSignals || socketSubscriptions.isNotEmpty)) {
       scheduleTerminalCompletionRecovery(
         source: 'taskSocket terminal finish_reason recovery',
+        afterServerEndedReply: true,
       );
     }
   }
@@ -2902,9 +2911,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void armTerminalCompletionRecoveryTimer() {
     terminalCompletionRecoveryTimer?.cancel();
     terminalCompletionRecoveryTimer = Timer(
-      terminalRecoveryPollDelay,
+      serverEndedReply
+          ? debugTaskSocketEndedReplyRecoveryDelay
+          : terminalRecoveryPollDelay,
       fireTerminalCompletionRecovery,
     );
+  }
+
+  void noteServerEndedReply() {
+    if (serverEndedReply) return;
+    serverEndedReply = true;
+    if (terminalCompletionRecoveryTimer != null) {
+      armTerminalCompletionRecoveryTimer();
+    }
   }
 
   void noteSocketActivity() {
@@ -2920,10 +2939,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         bool allowContentOnlyTerminal = true,
         bool allowStableNonTerminalLocalFallback = true,
         bool inferDoneFromMissingStreaming = true,
+        bool afterServerEndedReply = false,
       }) {
         if (hasFinished || isObsoleteStream) {
           return;
         }
+        if (afterServerEndedReply) noteServerEndedReply();
         terminalRecoveryAllowContentOnlyTerminal = allowContentOnlyTerminal;
         terminalRecoveryAllowStableNonTerminalLocalFallback =
             allowStableNonTerminalLocalFallback;
@@ -4274,6 +4295,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
             onChatActiveChanged?.call(activeConversationId, active);
             if (!active && !hasFinished) {
+              noteServerEndedReply();
               unawaited(
                 recoverTaskSocketTerminalState(
                   source: 'taskSocket inactive recovery',
