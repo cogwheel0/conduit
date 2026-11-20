@@ -80,6 +80,8 @@ class RequestCompletionPayload {
     this.chatSettings,
     this.comparison,
     this.stopped = false,
+    this.held = false,
+    this.heldQuestionId,
   });
 
   /// The placeholder assistant message id — the SAME id used for the in-memory
@@ -121,6 +123,14 @@ class RequestCompletionPayload {
   /// later run of the app, and its answer is settled as stopped instead.
   final bool stopped;
 
+  /// The request went out and the server held its question [heldQuestionId]
+  /// behind a reply still running ([ChatsDao.recordHeldTurn]). Every later
+  /// attempt only settles the turn, its empty answers' delete included, and
+  /// never sends it again. Kept here, beside the op, because a pull rewrites
+  /// the answers' rows.
+  final bool held;
+  final String? heldQuestionId;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'assistantMessageId': assistantMessageId,
     'model': model,
@@ -135,6 +145,8 @@ class RequestCompletionPayload {
     if (chatSettings != null) 'chatSettings': chatSettings!.toJson(),
     if (comparison != null) 'comparison': comparison!.toJson(),
     if (stopped) 'stopped': true,
+    if (held) 'held': true,
+    if (heldQuestionId != null) 'heldQuestionId': heldQuestionId,
   };
 
   static RequestCompletionPayload fromJson(Map<String, dynamic> json) {
@@ -162,6 +174,10 @@ class RequestCompletionPayload {
           ? ComparisonGroupSnapshot.fromJson(json['comparison'])
           : null,
       stopped: json['stopped'] == true,
+      held: json['held'] == true,
+      heldQuestionId: json['heldQuestionId'] is String
+          ? json['heldQuestionId'] as String
+          : null,
     );
   }
 

@@ -599,11 +599,20 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
   /// Messages deleted from the server's copy, as `chatId/messageId`.
   final List<String> deletedMessages = <String>[];
 
+  /// Every delete asked for, as `chatId/messageId`, landed or not.
+  final List<String> deleteAttempts = <String>[];
+
   /// What the next deletes fail with, one each.
   final List<Object> deleteFailures = <Object>[];
 
+  /// What the next delete of a message fails with, by message id.
+  final Map<String, Object> deleteFailuresFor = <String, Object>{};
+
   /// Runs while a delete is out, before it lands.
   Future<void> Function()? whileDeleting;
+
+  /// Whether the server holds the request once [releasePost] lets it go.
+  bool holdOnRelease = false;
 
   @override
   Future<void> deleteConversationMessage(
@@ -611,6 +620,9 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
     String messageId, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    deleteAttempts.add('$conversationId/$messageId');
+    final failure = deleteFailuresFor.remove(messageId);
+    if (failure != null) throw failure;
     if (deleteFailures.isNotEmpty) throw deleteFailures.removeAt(0);
     await whileDeleting?.call();
     deletedMessages.add('$conversationId/$messageId');
@@ -670,6 +682,7 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
     onSend?.call();
     if (!postEntered.isCompleted) postEntered.complete();
     await releasePost.future;
+    if (holdOnRelease) throw const ChatCompletionHeld();
     return ChatCompletionSession.jsonCompletion(
       messageId: responseMessageId!,
       conversationId: conversationId,
@@ -1078,9 +1091,13 @@ class _OrderedDrainSyncEngine extends _PersistingSyncEngine {
 
   final List<String> events;
 
+  /// Completes once a drain was asked for.
+  final Completer<void> drained = Completer<void>();
+
   @override
   Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
     events.add('drain');
+    if (!drained.isCompleted) drained.complete();
   }
 }
 
@@ -3116,6 +3133,20 @@ void main() {
           (jsonDecode(op.payload) as Map)[kDeleteMessagesIdsKey],
     ];
 
+    // Queues the turn's op; each attempt reads it as the drainer does.
+    Future<Future<Map<String, dynamic>> Function()> queue(
+      RequestCompletionPayload payload,
+    ) async {
+      final seq = await db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: chatId,
+        payload: payload.toJson(),
+      );
+      return () async =>
+          jsonDecode((await db.outboxDao.opBySeq(seq))!.payload)
+              as Map<String, dynamic>;
+    }
+
     test('an empty answer the server could not delete yet is deleted '
         'later, and the question still waits', () async {
       await seedTurn();
@@ -3127,12 +3158,13 @@ void main() {
         _user(userId, 'Say the word: heron'),
         _streamingAssistant(assistantId, ''),
       ];
+      final engine = _OrderedDrainSyncEngine(db, api, drains);
       final container = _container(
         db: db,
         active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
         messages: messages,
         api: api,
-        syncEngine: _OrderedDrainSyncEngine(db, api, drains),
+        syncEngine: engine,
       );
       addTearDown(container.dispose);
 
@@ -3142,7 +3174,7 @@ void main() {
         assistantMessageId: assistantId,
         model: 'model-1',
       );
-      await pumpEventQueue();
+      await engine.drained.future;
 
       check(api.completionCalls).equals(1);
       final shown = container.read(chatMessagesProvider);
@@ -3252,28 +3284,35 @@ void main() {
           (ref) => ChatRequestCompletionRunner(ref),
         ),
       );
-      final payload = const RequestCompletionPayload(
-        assistantMessageId: assistantId,
-        model: 'model-1',
-      ).toJson();
+      final attempt = await queue(
+        const RequestCompletionPayload(
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ),
+      );
 
       // As a send stores it, under its question.
       await (db.update(db.messages)..where((t) => t.id.equals(assistantId)))
           .write(const MessagesCompanion(parentId: Value(userId)));
-      // The server holds the question, and the local settle then fails.
+      // The server holds the question, its empty answer's delete fails, and
+      // the local settle then fails too.
+      api.deleteFailures.add(deleteFailure());
       await db.customStatement(
         'CREATE TRIGGER held_settle_fails BEFORE DELETE ON messages '
         "WHEN OLD.id = '$assistantId' "
         "BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
       );
-      await check(runner.run(chatId: chatId, payload: payload)).throws();
+      await check(runner.run(chatId: chatId, payload: await attempt()))
+          .throws();
       await db.customStatement('DROP TRIGGER held_settle_fails');
-      // The empty answer is gone from the server by the retry.
-      api.deleteFailures.add(deleteFailure(status: 404));
 
-      await runner.run(chatId: chatId, payload: payload);
+      await runner.run(chatId: chatId, payload: await attempt());
 
       check(api.completionCalls).equals(1);
+      check(api.deleteAttempts)
+          .deepEquals(['$chatId/$assistantId', '$chatId/$assistantId']);
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+      check(await heldDeletes()).isEmpty();
       check(await storedMessage(assistantId)).isNull();
       check((await storedMessage(userId))!['meta'])
           .isA<Map>()
@@ -3343,42 +3382,148 @@ void main() {
           (ref) => ChatRequestCompletionRunner(ref),
         ),
       );
-      final payload = const RequestCompletionPayload(
-        assistantMessageId: assistantId,
-        model: 'model-1',
-        comparison: ComparisonGroupSnapshot(
-          userMessageId: userId,
-          slots: [
-            ComparisonSlotSnapshot(
-              assistantMessageId: assistantId,
-              model: 'model-1',
-              modelIdx: 0,
-            ),
-            ComparisonSlotSnapshot(
-              assistantMessageId: otherId,
-              model: 'model-1',
-              modelIdx: 1,
-            ),
-          ],
+      final attempt = await queue(
+        const RequestCompletionPayload(
+          assistantMessageId: assistantId,
+          model: 'model-1',
+          comparison: ComparisonGroupSnapshot(
+            userMessageId: userId,
+            slots: [
+              ComparisonSlotSnapshot(
+                assistantMessageId: assistantId,
+                model: 'model-1',
+                modelIdx: 0,
+              ),
+              ComparisonSlotSnapshot(
+                assistantMessageId: otherId,
+                model: 'model-1',
+                modelIdx: 1,
+              ),
+            ],
+          ),
         ),
-      ).toJson();
+      );
 
+      // One empty answer leaves the server, the other's delete fails, and the
+      // local settle then fails.
+      api.deleteFailuresFor[otherId] = deleteFailure();
       await db.customStatement(
         'CREATE TRIGGER held_settle_fails BEFORE DELETE ON messages '
         "WHEN OLD.id = '$assistantId' "
         "BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
       );
-      await check(runner.run(chatId: chatId, payload: payload)).throws();
+      await check(runner.run(chatId: chatId, payload: await attempt()))
+          .throws();
       await db.customStatement('DROP TRIGGER held_settle_fails');
-      api.deleteFailures
-        ..add(deleteFailure(status: 404))
-        ..add(deleteFailure(status: 404));
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+      api.deleteFailuresFor[assistantId] = deleteFailure(status: 404);
 
-      await runner.run(chatId: chatId, payload: payload);
+      await runner.run(chatId: chatId, payload: await attempt());
+
+      check(api.completionCalls).equals(1);
+      check(api.deleteAttempts.skip(2)).contains('$chatId/$otherId');
+      check(api.deletedMessages)
+          .deepEquals(['$chatId/$assistantId', '$chatId/$otherId']);
+      check(await heldDeletes()).isEmpty();
+      check(await storedMessage(assistantId)).isNull();
+      check(await storedMessage(otherId)).isNull();
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+    });
+
+    test('a settle that fails after a pull during the delete is finished by '
+        'the retry, which never sends the question again', () async {
+      await seedTurn();
+      // As a send stores it, under its question, in a chat last pulled.
+      await (db.update(db.messages)..where((t) => t.id.equals(assistantId)))
+          .write(const MessagesCompanion(parentId: Value(userId)));
+      await (db.update(db.chats)..where((t) => t.id.equals(chatId))).write(
+        const ChatsCompanion(serverUpdatedAt: Value(1)),
+      );
+      final attempt = await queue(
+        const RequestCompletionPayload(
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ),
+      );
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      api.whileDeleting = () async {
+        api.whileDeleting = null;
+        // The server's copy still has the empty answer, as this device
+        // pushed it, without anything marked here since.
+        await db.chatsDao.mergeServerChat(
+          server: ChatBlobMapper.blobToRows(
+            chatId: chatId,
+            title: 'A',
+            createdAt: 1,
+            updatedAt: 2,
+            blob: <String, dynamic>{
+              'title': 'A',
+              'history': <String, dynamic>{
+                'currentId': assistantId,
+                'messages': <String, dynamic>{
+                  userId: <String, dynamic>{
+                    'id': userId,
+                    'parentId': null,
+                    'childrenIds': <String>[],
+                    'role': 'user',
+                    'content': 'Say the word: heron',
+                    'timestamp': 1,
+                    'meta': <String, dynamic>{'status': 'pending'},
+                  },
+                  assistantId: <String, dynamic>{
+                    'id': assistantId,
+                    'parentId': userId,
+                    'childrenIds': <String>[],
+                    'role': 'assistant',
+                    'content': '',
+                    'timestamp': 1,
+                    'done': false,
+                  },
+                },
+              },
+            },
+          ),
+          refreshWhenClean: true,
+        );
+        // The local settle then fails.
+        await db.customStatement(
+          'CREATE TRIGGER held_settle_fails BEFORE UPDATE ON messages '
+          "WHEN OLD.id = '$userId' "
+          "BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+        );
+      };
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      final runner = container.read(
+        Provider<RequestCompletionRunner>(
+          (ref) => ChatRequestCompletionRunner(ref),
+        ),
+      );
+
+      await check(runner.run(chatId: chatId, payload: await attempt()))
+          .throws();
+      await db.customStatement('DROP TRIGGER held_settle_fails');
+
+      await runner.run(chatId: chatId, payload: await attempt());
 
       check(api.completionCalls).equals(1);
       check(await storedMessage(assistantId)).isNull();
-      check(await storedMessage(otherId)).isNull();
+      check((await storedMessage(userId))!['meta'])
+          .isA<Map>()
+          .deepEquals({'status': 'pending'});
       final shown = container.read(chatMessagesProvider);
       check(shown.map((m) => m.id).toList()).deepEquals([userId]);
       check(shown.single.isHeldByServer).isTrue();
@@ -3506,8 +3651,11 @@ void main() {
       check(api.deletedMessages).isEmpty();
     });
 
-    test('a regeneration the server holds waits as a send does when its '
-        'question has only an earlier hold\'s empty answer', () async {
+    const earlierHoldId = 'earlier-hold';
+
+    // A question whose earlier hold left its empty answer stored: the settle
+    // of that hold failed. [marked]: whether that answer's row says so.
+    Future<void> seedEarlierHold({bool marked = true}) async {
       await _seedChat(db, chatId);
       await db
           .into(db.messages)
@@ -3524,15 +3672,15 @@ void main() {
                 'role': 'user',
                 'content': 'Say the word: heron',
                 'timestamp': 1,
+                'childrenIds': <String>[earlierHoldId],
               }),
             ),
           );
-      // The earlier hold's answer is still stored: its settle failed.
       await db
           .into(db.messages)
           .insert(
             MessagesCompanion.insert(
-              id: 'earlier-hold',
+              id: earlierHoldId,
               chatId: chatId,
               role: 'assistant',
               content: '',
@@ -3540,34 +3688,59 @@ void main() {
               createdAt: 1,
               orderIndex: 1,
               payload: jsonEncode(<String, dynamic>{
-                'id': 'earlier-hold',
+                'id': earlierHoldId,
                 'role': 'assistant',
                 'content': '',
                 'timestamp': 1,
-                'metadata': <String, dynamic>{
-                  'completionSubmitted': true,
-                  'completionHeld': true,
-                },
+                if (marked)
+                  'metadata': <String, dynamic>{
+                    'completionSubmitted': true,
+                    'completionHeld': true,
+                  },
               }),
             ),
           );
+    }
+
+    // The transcript as a regeneration of the earlier hold's answer leaves
+    // it: that answer hidden.
+    List<ChatMessage> earlierHoldShown({bool marked = true}) => [
+      _user(userId, 'Say the word: heron'),
+      ChatMessage(
+        id: earlierHoldId,
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: 'model-1',
+        metadata: {
+          'archivedVariant': true,
+          if (marked) ...{'completionSubmitted': true, 'completionHeld': true},
+        },
+      ),
+    ];
+
+    Future<void> checkWaitsAsASendDoes(
+      ProviderContainer container,
+      _GatedCompletionApi api,
+    ) async {
+      check(api.completionCalls).equals(1);
+      final placeholder = api.assistantMessageId!;
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+      check(api.deletedMessages).deepEquals(['$chatId/$placeholder']);
+      check(await storedMessage(earlierHoldId)).isNull();
+      final question = (await storedMessage(userId))!;
+      check(question['meta']).isA<Map>().deepEquals({'status': 'pending'});
+      check(question['childrenIds']).isA<List>().isEmpty();
+    }
+
+    test('a regeneration the server holds waits as a send does when its '
+        'question has only an earlier hold\'s empty answer', () async {
+      await seedEarlierHold();
       final api = _GatedCompletionApi(Completer<void>())
         ..onSend = () => throw const ChatCompletionHeld();
-      final messages = <ChatMessage>[
-        _user(userId, 'Say the word: heron'),
-        ChatMessage(
-          id: 'earlier-hold',
-          role: 'assistant',
-          content: '',
-          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
-          model: 'model-1',
-          metadata: const {
-            'archivedVariant': true,
-            'completionSubmitted': true,
-            'completionHeld': true,
-          },
-        ),
-      ];
+      final messages = earlierHoldShown();
       final container = _container(
         db: db,
         active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
@@ -3579,16 +3752,139 @@ void main() {
 
       await regenerateMessage(container, 'Say the word: heron', null);
 
-      check(api.completionCalls).equals(1);
+      await checkWaitsAsASendDoes(container, api);
+    });
+
+    // The transcript's copy of the earlier hold's answer is the one the send
+    // showed, which no mark reaches.
+    for (final (label, storedMarked, deleteWaits) in [
+      ('its stored copy', true, false),
+      ('its delete still to land', false, true),
+    ]) {
+      test('a regeneration the server holds waits when only $label tells the '
+          'earlier hold', () async {
+        await seedEarlierHold(marked: storedMarked);
+        if (deleteWaits) {
+          await db.outboxDao.enqueue(
+            kind: OutboxKind.deleteMessages,
+            chatId: chatId,
+            payload: {
+              kDeleteMessagesIdsKey: [earlierHoldId],
+            },
+          );
+        }
+        final api = _GatedCompletionApi(Completer<void>())
+          ..onSend = () => throw const ChatCompletionHeld();
+        final messages = earlierHoldShown(marked: false);
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+
+        await regenerateMessage(container, 'Say the word: heron', null);
+
+        await checkWaitsAsASendDoes(container, api);
+      });
+    }
+
+    test('a regeneration held after another chat opened is read from its own '
+        'chat', () async {
+      await seedEarlierHold();
+      final releasePost = Completer<void>();
+      final api = _GatedCompletionApi(releasePost)..holdOnRelease = true;
+      final messages = earlierHoldShown();
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+
+      final regenerating = regenerateMessage(
+        container,
+        'Say the word: heron',
+        null,
+      );
+      await api.postEntered.future;
       final placeholder = api.assistantMessageId!;
-      final shown = container.read(chatMessagesProvider);
-      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
-      check(shown.single.isHeldByServer).isTrue();
+      // Its message ids are its own: this one shares the question's, and
+      // answers it.
+      final other = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        ChatMessage(
+          id: 'other-answer',
+          role: 'assistant',
+          content: 'egret',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+        ),
+      ];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('other-chat', other, ChatStorageKind.openWebUi));
+      container.read(chatMessagesProvider.notifier).setMessages(other);
+      releasePost.complete();
+      await regenerating;
+
       check(api.deletedMessages).deepEquals(['$chatId/$placeholder']);
       check((await storedMessage(userId))!['meta'])
           .isA<Map>()
           .deepEquals({'status': 'pending'});
+      check(_snapshot(container.read(chatMessagesProvider)))
+          .equals(_snapshot(other));
     });
+
+    // Open WebUI 0.13.4 holds a regeneration as it holds a new message
+    // unless the request names the answer it regenerates. Held, a question
+    // that has an answer would lose it: the server answers the held copy
+    // under new ids.
+    for (final (label, answered) in [
+      ('one with an answer says what it regenerates', true),
+      ('one waiting on an earlier hold does not', false),
+    ]) {
+      test('a regeneration on Open WebUI 0.13.4: $label', () async {
+        if (answered) {
+          await _seedChat(db, chatId);
+        } else {
+          await seedEarlierHold();
+        }
+        final api = _WireCompletionApi()
+          ..configBody = {..._interpreterConfig(), 'version': '0.13.4'};
+        await api.getBackendConfig();
+        final messages = answered
+            ? <ChatMessage>[
+                _user(userId, 'Say the word: heron'),
+                ChatMessage(
+                  id: 'earlier-answer',
+                  role: 'assistant',
+                  content: 'egret',
+                  timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                  model: 'model-1',
+                ),
+              ]
+            : earlierHoldShown();
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+
+        await regenerateMessage(container, 'Say the word: heron', null);
+
+        check(api.completionBodies).length.equals(1);
+        check(api.sentBody['regeneration_message_id'])
+            .equals(answered ? api.assistantMessageId : null);
+      });
+    }
 
     Future<ProviderContainer> openOnWire(_WireCompletionApi api) async {
       await seedTurn();
@@ -3679,9 +3975,11 @@ void main() {
       ]);
     });
 
-    for (final (label, keepsLocalTip) in [
-      ('', false),
-      (', even where the pull kept the tip here', true),
+    for (final (label, keepsLocalTip, stillPending) in [
+      ('', false, false),
+      (', even where the pull kept the tip here', true, false),
+      // Regenerated elsewhere: the server keeps the question's status.
+      (', and the question no longer waits', false, true),
     ]) {
       test('an answer a pull stores meanwhile stays the answer$label', () async {
         await seedTurn();
@@ -3711,6 +4009,11 @@ void main() {
                       'role': 'user',
                       'content': 'Say the word: heron',
                       'timestamp': 1,
+                      if (stillPending)
+                        'meta': <String, dynamic>{
+                          'status': 'pending',
+                          'origin': 'web',
+                        },
                     },
                     'server-answer': <String, dynamic>{
                       'id': 'server-answer',
@@ -3768,6 +4071,13 @@ void main() {
         check(stored.messages.first.isHeldByServer).isFalse();
         check((await db.chatsDao.getChat(chatId))!.currentMessageId)
             .equals('server-answer');
+        if (stillPending) {
+          check((await storedMessage(userId))!['meta'])
+              .isA<Map>()
+              .deepEquals({'origin': 'web'});
+        }
+        check(container.read(chatMessagesProvider).single.isHeldByServer)
+            .isFalse();
       });
     }
   });

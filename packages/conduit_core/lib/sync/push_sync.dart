@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -5,6 +7,8 @@ import 'package:conduit_core/database/daos/outbox_dao.dart'
     show kFolderExpandedKey;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kCompletionHeldMetadataKey;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -216,7 +220,15 @@ class PushSync {
       }
       final messages = await _db.messagesDao.getForChat(chatId);
       final capturedMessageIds = [for (final m in messages) m.id];
-      final rows = chatRowsFromDb(chat, messages);
+      // A held turn's empty answers never go back: Open WebUI answers a held
+      // message only while nothing answers it. One whose delete landed may
+      // still be here, its settle unfinished.
+      final heldAnswers = {
+        ...await _db.outboxDao.unsentMessageDeletes(chatId),
+        for (final m in messages)
+          if (_isHeldAnswer(m)) m.id,
+      };
+      final rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
       final blob = ChatBlobMapper.rowsToBlob(rows);
 
       final resp = await _client.updateChat(chatId, blob);
@@ -359,6 +371,17 @@ class PushSync {
         data: {'chatId': chatId, 'desired': desired, 'actual': liveArchived},
       );
       await _storeChatArchiveMirror(chatId, liveArchived);
+    }
+  }
+
+  static bool _isHeldAnswer(MessageRow message) {
+    if (message.role != 'assistant') return false;
+    try {
+      final payload = jsonDecode(message.payload);
+      final metadata = payload is Map ? payload['metadata'] : null;
+      return metadata is Map && metadata[kCompletionHeldMetadataKey] == true;
+    } on FormatException {
+      return false;
     }
   }
 

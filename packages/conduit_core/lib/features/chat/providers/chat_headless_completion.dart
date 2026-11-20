@@ -679,9 +679,11 @@ Future<void> runHeadlessCompletion(
 /// outbox pushed them with the question before the request, and Open WebUI
 /// answers a held question only while nothing answers it. A delete that fails
 /// stays in the outbox, retried until it lands ([ChatsDao.settleHeldTurn]).
-/// The question stays, held, and the request is never sent again: the
-/// answers are marked held ([kCompletionHeldMetadataKey]) before anything
-/// else, so a retry of the turn after a failed settle only settles it again.
+/// The question stays, held, and the request is never sent again: the hold
+/// is recorded in the outbox before anything else ([ChatsDao.recordHeldTurn]),
+/// where no pull reaches it, so a retry of the turn after a failed settle
+/// only settles it again. A question the server answered meanwhile is not
+/// shown waiting.
 ///
 /// [earlierHoldIds] are the empty answers an earlier hold of the question
 /// left, which a regeneration of it hid: they leave the transcript too.
@@ -703,14 +705,16 @@ Future<void> settleHeldOpenWebUiCompletion(
     data: {'chatId': owner.chatId, 'assistantMessageIds': answerIds},
   );
   final database = owner.database;
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
   var heldRecorded = true;
   try {
-    for (final id in answerIds) {
-      await database?.messagesDao.markAssistantCompletionHeld(
-        chatId: owner.chatId,
-        messageId: id,
+    await locks.runExclusive(owner.chatId, () async {
+      await database?.chatsDao.recordHeldTurn(
+        owner.chatId,
+        questionId: questionId,
+        assistantMessageIds: answerIds,
       );
-    }
+    });
   } catch (error, stackTrace) {
     heldRecorded = false;
     DebugLogger.error(
@@ -722,6 +726,7 @@ Future<void> settleHeldOpenWebUiCompletion(
     );
   }
   final unsent = <String>[];
+  var answeredMeanwhile = false;
   try {
     for (final id in answerIds) {
       if (api is! ApiService) {
@@ -753,15 +758,16 @@ Future<void> settleHeldOpenWebUiCompletion(
       // the empty answer, and a pull stores nothing of it.
       database?.chatsDao.notePushLanded(owner.chatId);
     }
-    final locks = ref.read(chatLocksProvider) as ChatLocks;
     await locks.runExclusive(owner.chatId, () async {
-      await database?.chatsDao.settleHeldTurn(
-        owner.chatId,
-        questionId: questionId,
-        assistantMessageIds: answerIds,
-        earlierHoldIds: earlierHolds,
-        unsentServerDeletes: unsent,
-      );
+      answeredMeanwhile =
+          await database?.chatsDao.settleHeldTurn(
+            owner.chatId,
+            questionId: questionId,
+            assistantMessageIds: answerIds,
+            earlierHoldIds: earlierHolds,
+            unsentServerDeletes: unsent,
+          ) ??
+          false;
     });
   } catch (error) {
     if (heldRecorded) rethrow;
@@ -808,6 +814,7 @@ Future<void> settleHeldOpenWebUiCompletion(
         }
       }
     }
+    if (answeredMeanwhile) return;
     notifier.updateMessageById(
       questionId,
       (question) => question.copyWith(

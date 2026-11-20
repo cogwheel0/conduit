@@ -2069,26 +2069,118 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Records that the server held the question [questionId] of a turn
+  /// instead of answering it, before anything else of the turn's settle
+  /// ([settleHeldTurn]) runs: its empty answers [assistantMessageIds] are
+  /// marked held ([kCompletionHeldMetadataKey]), the `requestCompletion` op
+  /// that sent them only settles from now on
+  /// ([RequestCompletionPayload.held]), their delete on the server waits in a
+  /// `deleteMessages` op until it lands, and the question says it waits, as
+  /// the server's copy does.
+  ///
+  /// A pull rewrites the answers' rows, so what the settle must not lose is
+  /// kept in the outbox, which no pull touches: while the delete waits a pull
+  /// leaves the answers out ([OutboxDao.unsentMessageDeletes]), and a retry
+  /// of the turn after a settle that failed reads the op and never sends the
+  /// question again. A push of the chat meanwhile leaves them out too, and
+  /// keeps the question waiting. Caller holds the chat lock.
+  Future<void> recordHeldTurn(
+    String chatId, {
+    required String? questionId,
+    required Iterable<String> assistantMessageIds,
+  }) {
+    return transaction(() async {
+      final answerIds = assistantMessageIds.toSet();
+      if (answerIds.isEmpty) return;
+      for (final id in answerIds) {
+        await attachedDatabase.messagesDao.markAssistantCompletionHeld(
+          chatId: chatId,
+          messageId: id,
+        );
+      }
+      final completions =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name),
+              ))
+              .get();
+      for (final op in completions) {
+        if (!_requestCompletionAssistantIds(op.payload)
+            .any(answerIds.contains)) {
+          continue;
+        }
+        final payload = _decodeJsonObject(op.payload);
+        if (payload['held'] == true) continue;
+        await (update(
+          _outboxDao.outboxOps,
+        )..where((t) => t.seq.equals(op.seq))).write(
+          OutboxOpsCompanion(
+            payload: Value(
+              jsonEncode({
+                ...payload,
+                'held': true,
+                'heldQuestionId': ?questionId,
+              }),
+            ),
+          ),
+        );
+      }
+      final waiting = await _outboxDao.unsentMessageDeletes(chatId);
+      final unrecorded = [
+        for (final id in answerIds)
+          if (!waiting.contains(id)) id,
+      ];
+      if (unrecorded.isNotEmpty) {
+        await _outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {kDeleteMessagesIdsKey: unrecorded},
+        );
+      }
+      if (questionId == null) return;
+      final question =
+          await (select(messages)..where(
+                (t) => t.chatId.equals(chatId) & t.id.equals(questionId),
+              ))
+              .getSingleOrNull();
+      if (question == null) return;
+      final payload = _decodeJsonObject(question.payload);
+      final meta = payload['meta'];
+      if (meta is Map && meta['status'] == 'pending') return;
+      payload['meta'] = <String, dynamic>{
+        if (meta is Map)
+          for (final entry in meta.entries) entry.key.toString(): entry.value,
+        'status': 'pending',
+      };
+      await (update(messages)
+            ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
+          .write(MessagesCompanion(payload: Value(jsonEncode(payload))));
+    });
+  }
+
   /// Settles a turn whose question [questionId] the server holds until a reply
   /// running in its chat ends ([kMessageHeldByServerMetadataKey]): its empty
   /// answers [assistantMessageIds] go, and the question keeps the server's
   /// `meta.status: 'pending'`, so a later push of the chat keeps the hold.
   ///
-  /// Those of them still on the server ([unsentServerDeletes]: their delete
-  /// failed) are deleted there by a `deleteMessages` op, retried until it
-  /// lands: Open WebUI answers the question only once nothing answers it.
+  /// Their delete on the server waits in a `deleteMessages` op
+  /// ([recordHeldTurn]) for those of them still there
+  /// ([unsentServerDeletes]: their delete failed), retried until it lands:
+  /// Open WebUI answers the question only once nothing answers it. The
+  /// others leave that op.
   ///
   /// Its answers are only those and [earlierHoldIds], the empty ones an
-  /// earlier hold of it left. A question with any other child has been
-  /// answered meanwhile, by an answer a pull stored: it is not held, and
-  /// keeps that answer. Otherwise the chat's current message moves to the
-  /// question only from one of its answers, so a branch picked meanwhile
-  /// stays picked.
+  /// earlier hold of it left, which go too: their own op deletes them on the
+  /// server. A question with any other child has been answered meanwhile, by
+  /// an answer a pull stored: it does not wait, and keeps that answer. True
+  /// then. Otherwise the chat's current message moves to the question only
+  /// from one of its answers, so a branch picked meanwhile stays picked.
   ///
   /// Nothing is marked for a push. The server answers the question under new
   /// ids, and a push of this copy after that would bring the held question
   /// back for it to answer twice. Caller holds the chat lock.
-  Future<void> settleHeldTurn(
+  Future<bool> settleHeldTurn(
     String chatId, {
     required String? questionId,
     required Iterable<String> assistantMessageIds,
@@ -2097,40 +2189,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }) {
     return transaction(() async {
       final answerIds = assistantMessageIds.toList(growable: false);
-      final answers = answerIds.isEmpty
-          ? const <MessageRow>[]
-          : await (select(messages)..where(
-                  (t) =>
-                      t.chatId.equals(chatId) &
-                      t.id.isIn(answerIds) &
-                      t.role.equals('assistant'),
-                ))
-                .get();
-      if (answers.isNotEmpty) {
+      final formerAnswers = <String>{...answerIds, ...earlierHoldIds};
+      if (formerAnswers.isNotEmpty) {
         await (delete(messages)..where(
               (t) =>
                   t.chatId.equals(chatId) &
-                  t.id.isIn([for (final row in answers) row.id]),
+                  t.id.isIn(formerAnswers.toList()) &
+                  t.role.equals('assistant'),
             ))
             .go();
       }
-      final unsent = unsentServerDeletes.toList(growable: false);
-      if (unsent.isNotEmpty) {
-        await _outboxDao.enqueue(
-          kind: OutboxKind.deleteMessages,
-          chatId: chatId,
-          payload: {kDeleteMessagesIdsKey: unsent},
-        );
-      }
+      await _keepHeldDeletes(
+        chatId,
+        answerIds: answerIds,
+        unsent: unsentServerDeletes.toSet(),
+      );
 
-      if (questionId == null) return;
+      if (questionId == null) return false;
       final question =
           await (select(messages)..where(
                 (t) => t.chatId.equals(chatId) & t.id.equals(questionId),
               ))
               .getSingleOrNull();
-      if (question == null) return;
-      final formerAnswers = <String>{...answerIds, ...earlierHoldIds};
+      if (question == null) return false;
       // The newest answer the server wrote meanwhile, if a pull stored one.
       final answerMeanwhile =
           (await (selectOnly(messages)
@@ -2150,16 +2231,18 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       if (children is List) {
         payload['childrenIds'] = [
           for (final child in children)
-            if (!answerIds.contains(child)) child,
+            if (!formerAnswers.contains(child)) child,
         ];
       }
+      final meta = <String, dynamic>{
+        if (payload['meta'] case final Map meta)
+          for (final entry in meta.entries) entry.key.toString(): entry.value,
+      };
       if (!answeredMeanwhile) {
-        final meta = payload['meta'];
-        payload['meta'] = <String, dynamic>{
-          if (meta is Map)
-            for (final entry in meta.entries) entry.key.toString(): entry.value,
-          'status': 'pending',
-        };
+        payload['meta'] = {...meta, 'status': 'pending'};
+      } else if (meta['status'] == 'pending') {
+        // A copy the server answered elsewhere may still say it waits.
+        payload['meta'] = meta..remove('status');
       }
       await (update(messages)
             ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
@@ -2175,7 +2258,68 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           ),
         );
       }
+      return answeredMeanwhile;
     });
+  }
+
+  /// Leaves the server delete of each of [answerIds] waiting in a
+  /// `deleteMessages` op only when it is [unsent]: a landed one leaves every
+  /// op not in flight, and an unsent one no op records yet gets one.
+  Future<void> _keepHeldDeletes(
+    String chatId, {
+    required List<String> answerIds,
+    required Set<String> unsent,
+  }) async {
+    final landed = {
+      for (final id in answerIds)
+        if (!unsent.contains(id)) id,
+    };
+    if (landed.isNotEmpty) {
+      final waiting =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.deleteMessages.name) &
+                    t.status.equals(OutboxStatus.inFlight).not(),
+              ))
+              .get();
+      for (final op in waiting) {
+        final payload = _decodeJsonObject(op.payload);
+        final ids = payload[kDeleteMessagesIdsKey];
+        if (ids is! List || !ids.any(landed.contains)) continue;
+        final kept = [
+          for (final id in ids)
+            if (!landed.contains(id)) id,
+        ];
+        if (kept.isEmpty) {
+          await (delete(
+            _outboxDao.outboxOps,
+          )..where((t) => t.seq.equals(op.seq))).go();
+        } else {
+          await (update(
+            _outboxDao.outboxOps,
+          )..where((t) => t.seq.equals(op.seq))).write(
+            OutboxOpsCompanion(
+              payload: Value(
+                jsonEncode({...payload, kDeleteMessagesIdsKey: kept}),
+              ),
+            ),
+          );
+        }
+      }
+    }
+    final recorded = await _outboxDao.unsentMessageDeletes(chatId);
+    final unrecorded = [
+      for (final id in answerIds)
+        if (unsent.contains(id) && !recorded.contains(id)) id,
+    ];
+    if (unrecorded.isNotEmpty) {
+      await _outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {kDeleteMessagesIdsKey: unrecorded},
+      );
+    }
   }
 
   /// Cancels one queued assistant completion from the chat UI. Unlike

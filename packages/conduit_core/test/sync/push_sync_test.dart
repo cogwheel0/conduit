@@ -1256,6 +1256,65 @@ void main() {
       check(msgs.every((m) => !m.dirty)).isTrue();
     });
 
+    test('keeps a held turn waiting while its settle is unfinished', () async {
+      // Open WebUI answers a held message only while nothing answers it, and
+      // that answer's delete may have landed with the settle unfinished.
+      server.seedChat(
+        id: 'srv-held',
+        blob: {
+          'title': 'Title srv-held',
+          'history': {'messages': <String, dynamic>{}, 'currentId': null},
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      await seedLocalChat(db, id: 'srv-held', messageCount: 1);
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'srv-held-a1',
+              chatId: 'srv-held',
+              parentId: const Value('srv-held-m1'),
+              role: 'assistant',
+              content: '',
+              createdAt: 1002,
+              orderIndex: 1,
+              payload: jsonEncode(<String, dynamic>{
+                'id': 'srv-held-a1',
+                'parentId': 'srv-held-m1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1002,
+              }),
+            ),
+          );
+      await (db.update(db.chats)..where((t) => t.id.equals('srv-held'))).write(
+        const ChatsCompanion(currentMessageId: Value('srv-held-a1')),
+      );
+      await db.chatsDao.recordHeldTurn(
+        'srv-held',
+        questionId: 'srv-held-m1',
+        assistantMessageIds: const ['srv-held-a1'],
+      );
+      // Its delete landed.
+      await (db.delete(
+        db.outboxOps,
+      )..where((t) => t.kind.equals(OutboxKind.deleteMessages.name))).go();
+
+      await push.pushUpdateChat('srv-held');
+
+      final stored = server.getChatById('srv-held')!;
+      final history = (stored['chat'] as Map)['history'] as Map;
+      final messages = history['messages'] as Map;
+      check(messages.keys.toSet()).deepEquals({'srv-held-m1'});
+      check(history['currentId']).equals('srv-held-m1');
+      check((messages['srv-held-m1'] as Map)['meta'])
+          .isA<Map>()
+          .deepEquals({'status': 'pending'});
+    });
+
     test('defers update when the chat body is only an envelope stub', () async {
       server.seedChat(
         id: 'stub',

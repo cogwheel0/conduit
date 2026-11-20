@@ -126,6 +126,22 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
 
     requireCurrentConversationOwner();
 
+    if (decoded.held) {
+      // The request went out and the server held its question; settling it
+      // did not finish. A Stop since reaches nothing on the server.
+      await settleHeldOpenWebUiCompletion(
+        _liveOwnerOf(owner) ?? _ref,
+        api: owner.api,
+        owner: owner,
+        questionId: decoded.heldQuestionId,
+        assistantMessageIds: <String>{
+          assistantMessageId,
+          ...?decoded.comparison?.slots.map((slot) => slot.assistantMessageId),
+        },
+      );
+      return;
+    }
+
     if (decoded.stopped) {
       await settleStoppedOpenWebUiCompletion(
         _ref,
@@ -244,17 +260,6 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         'completion-placeholder-absent',
         scope: 'chat/completion',
         data: {'chatId': chatId, 'assistantMessageId': assistantMessageId},
-      );
-      return;
-    }
-    if (_placeholderMarkedHeld(placeholder)) {
-      // The server held the question, and settling it did not finish.
-      await settleHeldOpenWebUiCompletion(
-        _liveOwnerOf(owner) ?? _ref,
-        api: owner.api,
-        owner: owner,
-        questionId: placeholder.parentId,
-        assistantMessageIds: [assistantMessageId],
       );
       return;
     }
@@ -448,18 +453,6 @@ extension on ChatRequestCompletionRunner {
       );
       return;
     }
-    final held = rows.values.where(_placeholderMarkedHeld).firstOrNull;
-    if (held != null) {
-      // The server held the question, and settling it did not finish.
-      await settleHeldOpenWebUiCompletion(
-        _liveOwnerOf(owner) ?? _ref,
-        api: owner.api,
-        owner: owner,
-        questionId: held.parentId,
-        assistantMessageIds: rows.keys,
-      );
-      return;
-    }
     final unfinished = [
       for (final id in slotIds)
         if (rows[id] != null && !_placeholderMarkedComplete(rows[id]!)) id,
@@ -595,11 +588,6 @@ bool _placeholderMarkedComplete(MessageRow placeholder) {
   return metadata['responseDone'] == true ||
       payload['done'] == true ||
       payload['isStreaming'] == false;
-}
-
-bool _placeholderMarkedHeld(MessageRow placeholder) {
-  final payload = _decodeMessagePayload(placeholder.payload);
-  return _asJsonMap(payload['metadata'])[kCompletionHeldMetadataKey] == true;
 }
 
 bool _placeholderMarkedSubmitted(MessageRow placeholder) {

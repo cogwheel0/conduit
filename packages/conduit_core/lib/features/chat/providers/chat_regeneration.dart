@@ -1461,6 +1461,20 @@ Future<void> regenerateMessage(
         useModelIdForModels: openWebUiDirectRoute != null,
       );
     } catch (_) {}
+    // Open WebUI holds a regeneration under a reply still running as it holds
+    // a new message, and answers the held copy under new ids: an answer the
+    // question has would be left behind. Such a regeneration names the
+    // answer it asks for, which the server never holds; one whose question
+    // has none yet waits as a send does if held. Null when it has one.
+    final questionId = parentMsgMap?['id']?.toString() ?? lastUserMessageId;
+    final earlierHolds = isTemporary
+        ? const <String>{}
+        : await _heldQuestionEarlierHolds(
+            ref,
+            regenerationOwner,
+            questionId: questionId,
+            placeholderId: assistantMessageId,
+          );
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -1531,19 +1545,16 @@ Future<void> regenerateMessage(
                   ),
                 ],
           viaTether: viaTether,
+          regenerationMessageId: earlierHolds == null
+              ? assistantMessageId
+              : null,
         );
       } on ChatCompletionHeld {
         // Regenerated under a reply still running (on another device): the
         // server holds the question, and answers it once that reply ends
-        // only while nothing answers it. One with an answer of its own fails
-        // as any regeneration does, and keeps that answer.
-        final questionId = parentMsgMap?['id']?.toString() ?? lastUserMessageId;
-        final earlierHolds = await _heldQuestionEarlierHolds(
-          ref,
-          regenerationOwner,
-          questionId: questionId,
-          placeholderId: assistantMessageId,
-        );
+        // only while nothing answers it. One with an answer of its own, held
+        // by a server not known to read what it names, fails as any
+        // regeneration does, and keeps that answer here.
         if (earlierHolds == null) rethrow;
         await settleHeldOpenWebUiCompletion(
           ref,
@@ -1720,8 +1731,14 @@ Future<void> regenerateMessage(
 }
 
 /// The answers of question [questionId] besides [placeholderId] when all of
-/// them are empty ones a hold of it left ([kCompletionHeldMetadataKey]), in
-/// the transcript and the stored chat; null once one of them answers it.
+/// them are empty ones a hold of it left, and null once one of them answers
+/// it. An earlier hold's answer is marked held ([kCompletionHeldMetadataKey])
+/// in the transcript or the stored chat, or its delete still waits in the
+/// outbox: the transcript's copy is the one its send showed, which no mark
+/// reaches.
+///
+/// The transcript is read only while it shows [owner]'s chat: message ids
+/// are a chat's own, and another chat may hold the same ones.
 Future<Set<String>?> _heldQuestionEarlierHolds(
   dynamic ref,
   OpenWebUiCompletionOwner owner, {
@@ -1730,37 +1747,55 @@ Future<Set<String>?> _heldQuestionEarlierHolds(
 }) async {
   final earlierHolds = <String>{};
   if (questionId == null) return earlierHolds;
+  final shownAnswers = <ChatMessage>[];
+  if (activeOpenWebUiChatIdForMutation(ref, owner) != null) {
+    final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
+    final at = shown.indexWhere((m) => m.id == questionId);
+    if (at >= 0) {
+      for (final later in shown.skip(at + 1)) {
+        if (later.role == 'user') break;
+        if (later.role == 'assistant') shownAnswers.add(later);
+      }
+    }
+  }
+  final database = owner.database;
+  final rows =
+      await database?.messagesDao.getForChat(owner.chatId) ??
+      const <MessageRow>[];
+  final waiting =
+      await database?.outboxDao.unsentMessageDeletes(owner.chatId) ??
+      const <String>{};
+  bool markedHeld(Object? metadata) =>
+      metadata is Map && metadata[kCompletionHeldMetadataKey] == true;
+  final storedHolds = <String>{};
+  final storedAnswers = <String>[];
+  for (final row in rows) {
+    if (row.parentId != questionId || row.role != 'assistant') continue;
+    storedAnswers.add(row.id);
+    Object? metadata;
+    try {
+      final payload = jsonDecode(row.payload);
+      if (payload is Map) metadata = payload['metadata'];
+    } catch (_) {}
+    if (markedHeld(metadata)) storedHolds.add(row.id);
+  }
   // Whether [id] answers the question: false for an earlier hold's, noted.
-  bool answers(String id, Object? metadata) {
+  bool answers(String id, {Object? metadata}) {
     if (id == placeholderId) return false;
-    if (metadata is Map && metadata[kCompletionHeldMetadataKey] == true) {
+    if (markedHeld(metadata) ||
+        storedHolds.contains(id) ||
+        waiting.contains(id)) {
       earlierHolds.add(id);
       return false;
     }
     return true;
   }
 
-  final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
-  final at = shown.indexWhere((m) => m.id == questionId);
-  if (at >= 0) {
-    for (final later in shown.skip(at + 1)) {
-      if (later.role == 'user') break;
-      if (later.role == 'assistant' && answers(later.id, later.metadata)) {
-        return null;
-      }
-    }
+  for (final answer in shownAnswers) {
+    if (answers(answer.id, metadata: answer.metadata)) return null;
   }
-  final rows =
-      await owner.database?.messagesDao.getForChat(owner.chatId) ??
-      const <MessageRow>[];
-  for (final row in rows) {
-    if (row.parentId != questionId || row.role != 'assistant') continue;
-    Object? metadata;
-    try {
-      final payload = jsonDecode(row.payload);
-      if (payload is Map) metadata = payload['metadata'];
-    } catch (_) {}
-    if (answers(row.id, metadata)) return null;
+  for (final id in storedAnswers) {
+    if (answers(id)) return null;
   }
   return earlierHolds;
 }

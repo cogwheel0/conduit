@@ -206,8 +206,8 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Marks a placeholder whose question the server held instead of answering
-  /// ([kCompletionHeldMetadataKey]). Written before the rest of the held
-  /// settle, so a retry of the turn after a failed settle only settles it.
+  /// ([kCompletionHeldMetadataKey]), as part of the hold's record
+  /// ([ChatsDao.recordHeldTurn]).
   Future<bool> markAssistantCompletionHeld({
     required String chatId,
     required String messageId,
