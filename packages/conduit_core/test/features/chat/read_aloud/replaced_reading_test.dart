@@ -279,30 +279,46 @@ void main() {
 
   test('a reading whose render fails drops the renders still under way, so '
       'the next reading\'s goes first', () async {
-    await startReadingWithRendersUnderWay();
-    final finishedEarly = engine.pathOf('Old three.');
-    final stillWriting = engine.pathOf('Old four.');
-    final failed = manager.events.firstWhere((event) => event is TtsError);
+    // The clip that landed is deleted by the failed reading's cleanup, which
+    // nothing awaits; [deleted] marks when it is gone.
+    final deleted = Completer<void>();
+    String? landed;
+    await IOOverrides.runZoned(
+      () async {
+        await startReadingWithRendersUnderWay();
+        final finishedEarly = landed = engine.pathOf('Old three.');
+        final stillWriting = engine.pathOf('Old four.');
+        final failed = manager.events.firstWhere((event) => event is TtsError);
 
-    // The third chunk lands before the second fails, the fourth never does.
-    engine.answer('Old three.');
-    engine.failFirst();
-    await failed;
-    check(manager.isPlaying).isFalse();
-    check(player.clips.map((clip) => clip.tag)).deepEquals([0]);
-    final replacing = manager.speak('New one.', seekable: true);
-    await pumpEventQueue();
+        // The third chunk lands before the second fails, the fourth never
+        // does.
+        engine.answer('Old three.');
+        engine.failFirst();
+        await failed;
+        check(manager.isPlaying).isFalse();
+        check(player.clips.map((clip) => clip.tag)).deepEquals([0]);
+        final replacing = manager.speak('New one.', seekable: true);
+        await pumpEventQueue();
 
-    check(engine.waiting).deepEquals(['New one.']);
-    check(File(finishedEarly).existsSync()).isFalse();
-    check(File(stillWriting).existsSync()).isFalse();
-    engine.answerFirst();
-    await replacing;
-    await pumpEventQueue();
-    check(player.clips.map((clip) => clip.uri))
-        .deepEquals([File(engine.lastPath!).uri]);
-    check(player.playing).isTrue();
-    check(events.whereType<TtsError>()).length.equals(1);
+        check(engine.waiting).deepEquals(['New one.']);
+        await deleted.future;
+        check(
+          Zone.root.run(() => File(finishedEarly).existsSync()),
+        ).isFalse();
+        check(File(stillWriting).existsSync()).isFalse();
+        engine.answerFirst();
+        await replacing;
+        await pumpEventQueue();
+        check(
+          player.clips.map((clip) => clip.uri),
+        ).deepEquals([File(engine.lastPath!).uri]);
+        check(player.playing).isTrue();
+        check(events.whereType<TtsError>()).length.equals(1);
+      },
+      createFile: (path) => path == landed
+          ? _GatedFile(path, Future<void>.value(), deleted)
+          : Zone.root.run(() => File(path)),
+    );
   });
 
   test('a render asked for while a failed reading\'s renders are being '
