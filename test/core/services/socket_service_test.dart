@@ -1544,6 +1544,14 @@ void main() {
     addTearDown(service.dispose);
 
     await service.connect();
+    final policyChanges = <(bool, bool)>[];
+    final policySubscription = service.transportPolicyChanges.listen(
+      (_) => policyChanges.add((
+        service.isAppForeground,
+        service.mayMaintainTransport,
+      )),
+    );
+    addTearDown(policySubscription.cancel);
     final subscription = service.addChatEventHandler(
       sessionId: 'stream-session',
       requireFocus: false,
@@ -1555,11 +1563,19 @@ void main() {
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
     expect(service.mayMaintainTransport, isTrue);
+    await _flushMicrotasks();
+    expect(policyChanges, [(false, true)]);
 
     subscription.dispose();
     expect(socketFactory.sockets.single.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
     expect(service.mayMaintainTransport, isFalse);
+    await _flushMicrotasks();
+    expect(policyChanges, [(false, true), (false, false)]);
+
+    lifecycle.emit(AppLifecyclePhase.inactive);
+    await _flushMicrotasks();
+    expect(policyChanges, [(false, true), (false, false), (true, true)]);
   });
 
   test('a handler lease does not create the initial transport', () async {

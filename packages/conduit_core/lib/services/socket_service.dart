@@ -485,6 +485,8 @@ class SocketService {
     final phase = lifecycle.current;
     _isAppForeground = phase == null || phase.isForeground;
     _wasBackgrounded = phase != null && phase.isBackground;
+    _publishedForeground = _isAppForeground;
+    _publishedMayMaintainTransport = _mayMaintainTransport;
     _lifecycleSubscription = lifecycle.changes.listen(_onLifecyclePhase);
   }
 
@@ -517,6 +519,7 @@ class SocketService {
           }
         }
     }
+    _publishTransportPolicy();
   }
 
   Future<void> _reconnectAfterResume() async {
@@ -671,6 +674,29 @@ class SocketService {
   /// app is in the foreground or a background activity lease holds it.
   bool get mayMaintainTransport => _mayMaintainTransport;
 
+  final _transportPolicyController = StreamController<void>.broadcast();
+  bool _publishedForeground = true;
+  bool _publishedMayMaintainTransport = true;
+
+  /// Emits when [isAppForeground] or [mayMaintainTransport] changes. A return
+  /// to the foreground while offline, for one, connects nothing, so neither
+  /// [healthStream] nor [onReconnect] says it happened.
+  Stream<void> get transportPolicyChanges => _transportPolicyController.stream;
+
+  void _publishTransportPolicy() {
+    final foreground = _isAppForeground;
+    final mayMaintain = _mayMaintainTransport;
+    if (foreground == _publishedForeground &&
+        mayMaintain == _publishedMayMaintainTransport) {
+      return;
+    }
+    _publishedForeground = foreground;
+    _publishedMayMaintainTransport = mayMaintain;
+    if (!_transportPolicyController.isClosed) {
+      _transportPolicyController.add(null);
+    }
+  }
+
   /// Starts a connection that has no caller awaiting its result while still
   /// observing every asynchronous failure. Lifecycle/provider kicks are
   /// intentionally best-effort, but an ignored error Future would otherwise
@@ -738,6 +764,7 @@ class SocketService {
   }
 
   void _applyTransportActivityPolicy() {
+    _publishTransportPolicy();
     if (_mayMaintainTransport) {
       _setAutomaticReconnection(true);
       if (isConnected) _startHeartbeat();
@@ -1198,6 +1225,7 @@ class SocketService {
     _backgroundLeaseHandlerIds.clear();
     _reconnectController.close();
     _healthController.close();
+    _transportPolicyController.close();
     _connectionCompleter?.completeError(StateError('Service disposed'));
     _connectionCompleter = null;
     final pendingForcedConnect = _pendingForcedConnect;
