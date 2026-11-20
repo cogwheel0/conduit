@@ -93,6 +93,38 @@ class _HeldSnapshotApi extends ApiService {
   }
 }
 
+/// Answers a read of the chat only once [release] completes, with [chat].
+class _HeldPollAdapter implements HttpClientAdapter {
+  _HeldPollAdapter(this.chat);
+
+  final Map<String, dynamic> chat;
+  final asked = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelOnError,
+  ) async {
+    final body = options.method == 'GET' ? chat : const <String, dynamic>{};
+    if (options.method == 'GET') {
+      if (!asked.isCompleted) asked.complete();
+      await release.future;
+    }
+    return ResponseBody(
+      Stream.value(utf8.encode(jsonEncode(body))),
+      200,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Records every request's path, then lets [_inner] answer it.
 class _PathRecordingAdapter implements HttpClientAdapter {
   _PathRecordingAdapter(this._inner);
@@ -832,10 +864,72 @@ void main() {
           .equals(TetherRelayFailure.interrupted);
     });
 
-    test('a failure keeps the relay its code named when a snapshot read '
-        'before it arrived brings the saved copy of the same words without '
-        'the code', () async {
-      const words = 'Connection lost';
+    // What a snapshot read before the failure arrived saved: the failure's
+    // words without its code, or no error yet.
+    const words = 'Connection lost';
+    for (final (label, saved) in <(String, ChatMessageError?)>[
+      ('the same words without the code', ChatMessageError(content: words)),
+      ('no error', null),
+    ]) {
+      test('a failure keeps the relay its code named when a snapshot read '
+          'before it arrived brings $label', () async {
+        final api = _HeldSnapshotApi(
+          Conversation(
+            id: 'conv-1',
+            title: 'Relay',
+            createdAt: DateTime.utc(2026, 11, 20),
+            updatedAt: DateTime.utc(2026, 11, 20),
+            messages: [
+              ChatMessage(
+                id: 'msg-1',
+                role: 'assistant',
+                content: '',
+                timestamp: DateTime.utc(2026, 11, 20),
+                metadata: const {'responseDone': true},
+                error: saved,
+              ),
+            ],
+          ),
+        );
+        final log = _CallbackLog();
+        final registrar = FakeSocketInjector();
+        _attach(
+          session: ChatCompletionSession.taskSocket(
+            messageId: 'msg-1',
+            sessionId: 'sess-1',
+            conversationId: 'conv-1',
+            taskId: 'task-1',
+          ),
+          log: log,
+          api: api,
+          socketService: _MockSocketService(registrar),
+        );
+
+        registrar.replayGap();
+        await api.asked.future;
+        registrar.emitChatEvent(
+          'chat:message:error',
+          const {
+            'error': {'content': words, 'code': 'tether_interrupted'},
+            'done': true,
+          },
+          conversationId: 'conv-1',
+          sessionId: 'sess-1',
+          messageId: 'msg-1',
+        );
+        api.release.complete();
+        await pumpEventQueue();
+
+        check(log.messages.single.error).isNotNull()
+          ..has((it) => it.content, 'content').equals(words)
+          ..has(
+            (it) => it.relay,
+            'relay',
+          ).equals(TetherRelayFailure.interrupted);
+      });
+    }
+
+    test('a snapshot read after an error that saved none clears it', () async {
       final api = _HeldSnapshotApi(
         Conversation(
           id: 'conv-1',
@@ -846,10 +940,9 @@ void main() {
             ChatMessage(
               id: 'msg-1',
               role: 'assistant',
-              content: '',
+              content: 'Done',
               timestamp: DateTime.utc(2026, 11, 20),
               metadata: const {'responseDone': true},
-              error: const ChatMessageError(content: words),
             ),
           ],
         ),
@@ -868,19 +961,72 @@ void main() {
         socketService: _MockSocketService(registrar),
       );
 
-      registrar.replayGap();
-      await api.asked.future;
+      // A tool's setup failed, and the answer went on.
       registrar.emitChatEvent(
         'chat:message:error',
         const {
-          'error': {'content': words, 'code': 'tether_interrupted'},
-          'done': true,
+          'error': {'content': words},
+          'done': false,
         },
         conversationId: 'conv-1',
         sessionId: 'sess-1',
         messageId: 'msg-1',
       );
+      registrar.replayGap();
+      await api.asked.future;
       api.release.complete();
+      await pumpEventQueue();
+
+      check(log.messages.single)
+        ..has((it) => it.content, 'content').equals('Done')
+        ..has((it) => it.error, 'error').isNull();
+    });
+
+    test("a poll read before a failure keeps the failure's relay", () async {
+      final server = _HeldPollAdapter({
+        'id': 'conv-1',
+        'chat': {
+          'history': {
+            'messages': {
+              'msg-1': {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'done': true,
+                'error': {'content': words},
+              },
+            },
+          },
+        },
+      });
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        // The stream ends without its [DONE], so the chat is read again.
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: const Stream<List<int>>.empty(),
+          abort: () async {},
+        ),
+        log: log,
+        api: _buildFakeApi()..dio.httpClientAdapter = server,
+        socketService: _MockSocketService(registrar),
+      );
+
+      await server.asked.future;
+      registrar.emitChatEvent(
+        'chat:message:error',
+        const {
+          'error': {'content': words, 'code': 'tether_interrupted'},
+          'done': false,
+        },
+        conversationId: 'conv-1',
+        sessionId: 'sess-1',
+        messageId: 'msg-1',
+      );
+      server.release.complete();
       await pumpEventQueue();
 
       check(log.messages.single.error).isNotNull()

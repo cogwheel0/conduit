@@ -495,6 +495,9 @@ typedef _ServerMessageSnapshot = ({
   /// The failed relay to one of the user's devices the saved error records,
   /// or else its code or words name.
   TetherRelayFailure? errorRelay,
+
+  /// How many errors the stream had written when the read began.
+  int errorRevision,
 });
 
 class _AssistantServerPatch {
@@ -547,6 +550,7 @@ Future<void> _handleReconnectRecovery({
     List<Map<String, dynamic>>? output,
     String? errorContent,
     TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   })
   applyServerContent,
   required void Function() syncImages,
@@ -580,6 +584,7 @@ Future<void> _handleReconnectRecovery({
         output: result.output,
         errorContent: result.errorContent,
         errorRelay: result.errorRelay,
+        errorRevisionAtRead: result.errorRevision,
       );
       if (applied) {
         syncImages();
@@ -715,6 +720,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         tetherRelayFailureOf(raw, viaTether: viaTether) ??
         tetherRelayFailureOf(content, viaTether: viaTether),
   );
+
+  // Counts the errors this stream wrote. A read of the server's copy notes it
+  // when it starts, and touches the error only if no newer one came since.
+  var errorRevision = 0;
 
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
@@ -2105,6 +2114,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     try {
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -2192,6 +2202,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         isDone: isDone,
         errorContent: errorContent,
         errorRelay: errorRelay,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2236,6 +2247,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream || hasFinished || !sessionIsCurrent()) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     final TemporaryChatResume? resumed;
     try {
       resumed = await api.resumeTemporaryChat(chatId, sessionId: sessionId);
@@ -2250,6 +2262,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         isDone: true,
         errorContent: TemporaryChatUnavailable.userMessage,
         errorRelay: null,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2298,6 +2311,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       isDone: lost,
       errorContent: lost ? TemporaryChatResume.connectionLostMessage : null,
       errorRelay: null,
+      errorRevision: errorRevisionAtRead,
     );
   }
 
@@ -2362,6 +2376,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               current.error == nextError) {
             return current;
           }
+          if (current.error != nextError) errorRevision++;
           applied = true;
           return current.copyWith(
             content: nextContent,
@@ -2391,6 +2406,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     List<Map<String, dynamic>>? output,
     String? errorContent,
     TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   }) {
     if (isObsoleteStream) {
       return false;
@@ -2410,7 +2426,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     var applied = false;
 
-    if (errorContent != null) {
+    // An error that arrived while the copy was read is newer than it.
+    final adoptsError =
+        errorContent != null && errorRevision == errorRevisionAtRead;
+    if (adoptsError) {
       DebugLogger.log(
         '$source: adopting server error',
         scope: 'streaming/helper',
@@ -2492,16 +2511,16 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
-            metadata: errorContent == null
-                ? null
-                : {'openwebuiRecoverableError': !isDone},
+            metadata: adoptsError
+                ? {'openwebuiRecoverableError': !isDone}
+                : null,
             mergeMetadata: true,
-            error: errorContent == null
-                ? null
-                : answerError(
+            error: adoptsError
+                ? answerError(
                     errorContent.isNotEmpty ? errorContent : null,
                     recorded: errorRelay,
-                  ),
+                  )
+                : null,
           ),
         ) ||
         applied;
@@ -2538,6 +2557,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     refreshingSnapshot = true;
+    final errorRevisionAtRead = errorRevision;
     try {
       // The server save already happened via POST /api/chat/completed; the
       // pull persists the resulting blob locally (under the chat lock) and
@@ -2657,6 +2677,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 current.content,
                 assistant.content,
               );
+          // An error that arrived while the copy was read is newer than it.
+          final adoptsError =
+              recoverAuthoritativeState && errorRevision == errorRevisionAtRead;
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -2679,7 +2702,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 : null,
             // The saved copy carries no relay: its error is read here, and
             // the same words keep the relay already recorded.
-            error: recoverAuthoritativeState && assistant.error != null
+            error: adoptsError && assistant.error != null
                 ? answerError(
                     assistant.error!.content,
                     recorded:
@@ -2689,7 +2712,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                             : null),
                   )
                 : null,
-            clearError: recoverAuthoritativeState && assistant.error == null,
+            clearError: adoptsError && assistant.error == null,
           );
         },
       );
@@ -2783,6 +2806,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           output: result.output,
           errorContent: result.errorContent,
           errorRelay: result.errorRelay,
+          errorRevisionAtRead: result.errorRevision,
         );
         if (applied) {
           syncImages();
@@ -3508,6 +3532,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 output: result.output,
                 errorContent: result.errorContent,
                 errorRelay: result.errorRelay,
+                errorRevisionAtRead: result.errorRevision,
               );
             }
             await refreshConversationSnapshot();
@@ -4149,11 +4174,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final filtered = message.statusHistory
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
+            final error = answerError(
+              errorContent.isNotEmpty ? errorContent : null,
+              raw: err ?? payload,
+            );
+            if (error != message.error) errorRevision++;
             return message.copyWith(
-              error: answerError(
-                errorContent.isNotEmpty ? errorContent : null,
-                raw: err ?? payload,
-              ),
+              error: error,
               statusHistory: filtered,
               metadata: {
                 ...?message.metadata,
@@ -4593,6 +4620,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     output: result.output,
                     errorContent: result.errorContent,
                     errorRelay: result.errorRelay,
+                    errorRevisionAtRead: result.errorRevision,
                   );
                   if (applied) {
                     syncImages();
