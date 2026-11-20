@@ -3683,8 +3683,9 @@ void main() {
           'conduit_img_',
         );
         addTearDown(() async {
-          if (await conversion.exists())
+          if (await conversion.exists()) {
             await conversion.delete(recursive: true);
+          }
         });
         final jpeg = File('${conversion.path}/converted.jpg');
         await jpeg.writeAsBytes([1, 2, 3]);
