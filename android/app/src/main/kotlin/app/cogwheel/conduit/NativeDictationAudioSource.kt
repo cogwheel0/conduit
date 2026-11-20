@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
@@ -20,8 +21,9 @@ import kotlinx.coroutines.withContext
  * fails explicitly instead of blocking capture behind a full input pipe. */
 internal class NativeDictationAudioSource private constructor(
     private val recorder: AudioRecord,
+    private val echoCanceler: AcousticEchoCanceler?,
     private val pipe: NativePcmPipe,
-    private val onAudio: (ByteArray) -> Unit,
+    private val onAudio: ((ByteArray) -> Unit)?,
     private val onFailure: () -> Unit,
 ) {
     val descriptor: ParcelFileDescriptor get() = pipe.input
@@ -42,7 +44,7 @@ internal class NativeDictationAudioSource private constructor(
                     val count = recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
                     if (stopping.get()) break
                     check(count > 0 && count % 2 == 0)
-                    onAudio(buffer.copyOf(count))
+                    onAudio?.invoke(buffer.copyOf(count))
                     var offset = 0
                     while (offset < count) {
                         offset += pipe.write(buffer, offset, count - offset)
@@ -68,6 +70,7 @@ internal class NativeDictationAudioSource private constructor(
         } finally {
             try {
                 recorder.release()
+                echoCanceler?.let { runCatching { it.release() } }
                 pipe.closeOutput()
             } finally {
                 stopped.complete(Unit)
@@ -80,9 +83,22 @@ internal class NativeDictationAudioSource private constructor(
     }
 
     companion object {
-        /** Allocates an unstarted recorder; the caller owns stop and descriptor closure. */
+        /**
+         * Allocates an unstarted recorder; the caller owns stop and descriptor
+         * closure. [onAudio], when given, receives every chunk as well.
+         *
+         * In a [voiceCall] the assistant answers out loud, often on the
+         * loudspeaker, so the microphone is the voice-communication source
+         * with the platform's echo canceller, which takes the call's own
+         * output back out. A phone that cannot open that source records as
+         * dictation does.
+         */
         @SuppressLint("MissingPermission")
-        fun create(onAudio: (ByteArray) -> Unit, onFailure: () -> Unit): NativeDictationAudioSource {
+        fun create(
+            voiceCall: Boolean,
+            onAudio: ((ByteArray) -> Unit)?,
+            onFailure: () -> Unit,
+        ): NativeDictationAudioSource {
             val format = AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(16000)
@@ -90,18 +106,44 @@ internal class NativeDictationAudioSource private constructor(
                 .build()
             val minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             check(minimum > 0)
-            val recorder = AudioRecord.Builder()
-                .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
-                .setAudioFormat(format)
-                .setBufferSizeInBytes(maxOf(minimum, 5120))
-                .build()
+            val sources = if (voiceCall) {
+                listOf(MediaRecorder.AudioSource.VOICE_COMMUNICATION, MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            } else {
+                listOf(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            }
+            val recorder = sources.firstNotNullOfOrNull { source ->
+                openRecorder(source, format, maxOf(minimum, 5120))
+            }
+            checkNotNull(recorder)
+            var echoCanceler: AcousticEchoCanceler? = null
             try {
-                check(recorder.state == AudioRecord.STATE_INITIALIZED)
-                return NativeDictationAudioSource(recorder, NativePcmPipe.create(), onAudio, onFailure)
+                if (recorder.audioSource == MediaRecorder.AudioSource.VOICE_COMMUNICATION &&
+                    AcousticEchoCanceler.isAvailable()
+                ) {
+                    echoCanceler = runCatching {
+                        AcousticEchoCanceler.create(recorder.audioSessionId)?.apply { enabled = true }
+                    }.getOrNull()
+                }
+                return NativeDictationAudioSource(recorder, echoCanceler, NativePcmPipe.create(), onAudio, onFailure)
             } catch (error: Exception) {
                 recorder.release()
+                echoCanceler?.release()
                 throw error
             }
+        }
+
+        @SuppressLint("MissingPermission")
+        private fun openRecorder(source: Int, format: AudioFormat, bufferSize: Int): AudioRecord? {
+            val recorder = runCatching {
+                AudioRecord.Builder()
+                    .setAudioSource(source)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(bufferSize)
+                    .build()
+            }.getOrNull() ?: return null
+            if (recorder.state == AudioRecord.STATE_INITIALIZED) return recorder
+            recorder.release()
+            return null
         }
     }
 }

@@ -1489,6 +1489,96 @@ void main() {
     },
   );
 
+  test(
+    'barge-in ignores the assistant reply heard back through the microphone',
+    () async {
+      final input = _FakeVoiceInputService()..nativeLocalStt = true;
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      var stopGenerationCalls = 0;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(voiceBargeInEnabled: true),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          stopGenerationProvider.overrideWithValue(() {
+            stopGenerationCalls += 1;
+          }),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('first assistant turn', close: false);
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      tts.emitChunkStarted(0);
+      await _until(
+        () => container
+            .read(chatVoiceModeControllerProvider)
+            .spokenResponse
+            .trim()
+            .isNotEmpty,
+      );
+
+      // On a loudspeaker without echo cancellation, the recognizer hears the
+      // reply and returns it as a transcript: lower case, no punctuation, and
+      // sometimes a word misheard (#900).
+      final spoken = RegExp(r"[\w']+")
+          .allMatches(
+            container
+                .read(chatVoiceModeControllerProvider)
+                .spokenResponse
+                .toLowerCase(),
+          )
+          .map((match) => match[0]!)
+          .toList();
+      check(spoken.length).isGreaterOrEqual(4);
+      await input.completeCurrent(spoken.join(' '), close: false);
+      await input.completeCurrent(
+        [...spoken.take(spoken.length - 1), 'penguin'].join(' '),
+        close: false,
+      );
+      await input.completeCurrent('wait, what about penguins', close: false);
+      await _until(
+        () =>
+            container
+                .read(chatMessagesProvider)
+                .where((message) => message.role == 'user')
+                .length ==
+            2,
+      );
+
+      final userMessages = container
+          .read(chatMessagesProvider)
+          .where((message) => message.role == 'user')
+          .map((message) => message.content)
+          .toList();
+      check(userMessages).deepEquals(<String>[
+        'first assistant turn',
+        'wait, what about penguins',
+      ]);
+      check(stopGenerationCalls).equals(1);
+      await controller.stop();
+    },
+  );
+
   test('tracks the spoken assistant chunk and word progress', () async {
     final input = _FakeVoiceInputService();
     final tts = _FakeTextToSpeechService()..holdCompletion = true;

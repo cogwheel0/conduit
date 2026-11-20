@@ -9,6 +9,7 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:meta/meta.dart';
 import 'package:riverpod/misc.dart' show Override;
@@ -1599,12 +1600,16 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           _pendingFinalTranscripts.clear();
           return;
         }
-        if (assistantActive) {
-          await _interruptAssistantForBargeIn(token);
+        if (assistantActive && _isEchoOfSpeech(transcript)) {
+          DebugLogger.info('barge-in-echo-ignored', scope: 'chat/voice_mode');
+        } else {
+          if (assistantActive) {
+            await _interruptAssistantForBargeIn(token);
+          }
+          if (!_isCurrent(token) || state.isMuted) return;
+          _lastSubmittedTranscript = transcript;
+          await _sendTranscript(transcript, token);
         }
-        if (!_isCurrent(token) || state.isMuted) return;
-        _lastSubmittedTranscript = transcript;
-        await _sendTranscript(transcript, token);
       } finally {
         _sendingTranscript = false;
       }
@@ -1615,6 +1620,20 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       }
       transcript = pending;
     }
+  }
+
+  /// Whether [transcript] is the reply coming back through the microphone.
+  ///
+  /// Where the platform cancels no echo (Android before 13 listens through
+  /// the recognizer's own microphone), a reply on the loudspeaker is heard
+  /// and transcribed. It is compared with the chunk being spoken and the one
+  /// before it, since the recognizer finishes an utterance after a pause.
+  bool _isEchoOfSpeech(String transcript) {
+    final index = _activeAssistantSpeechChunkIndex;
+    final chunks = _assistantSpeechChunks;
+    if (index < 0 || index >= chunks.length) return false;
+    final spoken = chunks.sublist(index > 0 ? index - 1 : 0, index + 1);
+    return _isEcho(_speechWords(transcript), _speechWords(spoken.join(' ')));
   }
 
   void _enqueuePendingFinalTranscript(String transcript) {
@@ -2486,4 +2505,39 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       await callKit?.endCall(callId);
     } catch (_) {}
   }
+}
+
+final _speechWordPattern = RegExp(
+  r"[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*",
+  unicode: true,
+);
+
+/// [text]'s words, lower case, without punctuation, as recognizers write them.
+List<String> _speechWords(String text) => _speechWordPattern
+    .allMatches(text.toLowerCase())
+    .map((match) => match[0]!.replaceAll('’', "'"))
+    .toList(growable: false);
+
+/// Whether [heard] reads as a run of [spoken]: one word in four may be
+/// misheard, dropped or added, as a recognizer does with speech it hears
+/// through a loudspeaker. Three words or fewer must match exactly.
+bool _isEcho(List<String> heard, List<String> spoken) {
+  if (heard.isEmpty || spoken.isEmpty) return false;
+  // Word edit distance from [heard] to the closest run of [spoken] (Sellers):
+  // a run may start and end anywhere, so the first row and the minimum over
+  // the last row are free.
+  var previous = List<int>.filled(spoken.length + 1, 0);
+  for (var i = 1; i <= heard.length; i++) {
+    final current = List<int>.filled(spoken.length + 1, i);
+    for (var j = 1; j <= spoken.length; j++) {
+      final substitution =
+          previous[j - 1] + (heard[i - 1] == spoken[j - 1] ? 0 : 1);
+      current[j] = math.min(
+        substitution,
+        math.min(previous[j], current[j - 1]) + 1,
+      );
+    }
+    previous = current;
+  }
+  return previous.reduce(math.min) <= heard.length ~/ 4;
 }

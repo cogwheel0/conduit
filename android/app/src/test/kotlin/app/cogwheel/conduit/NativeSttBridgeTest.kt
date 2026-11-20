@@ -3,6 +3,8 @@ package app.cogwheel.conduit
 import android.content.Intent
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AudioEffect
 import android.os.Bundle
 import android.speech.RecognitionService
 import android.speech.RecognitionSupport
@@ -13,6 +15,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Duration
 import java.util.Locale
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +30,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowAudioEffect
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadows.ShadowSpeechRecognizer
 
@@ -163,11 +167,56 @@ class NativeSttBridgeTest {
         assertFalse(events.any { it["type"] == "error" })
     }
 
-    private fun start(localeId: String?, support: RecognitionSupport? = null): SpeechRecognizer {
+    @Test
+    @Config(sdk = [33])
+    fun aCallFeedsTheRecognizerItsOwnMicrophone() {
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start("en-US", inCall = true))
+
+        // The platform recognizer's own microphone has no echo canceller, so
+        // on the loudspeaker it hears the assistant and barges in on it (#900).
+        assertTrue(shadow.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+        // Nothing asked to keep the audio, so none of it goes to Dart.
+        ShadowLooper.idleMainLooper()
+        assertFalse(events.any { it["type"] == "audio" })
+    }
+
+    // Robolectric only tracks audio effects up to Android 10.
+    @Test
+    @Config(sdk = [29])
+    fun aCallRecordsThroughTheEchoCanceller() = runBlocking {
+        ShadowAudioEffect.addEffect(
+            AudioEffect.Descriptor(
+                AudioEffect.EFFECT_TYPE_AEC.toString(),
+                "00000000-0000-0000-0000-00000000ec00",
+                AudioEffect.EFFECT_INSERT,
+                "Echo canceller",
+                "Test",
+            )
+        )
+
+        val call = NativeDictationAudioSource.create(voiceCall = true, onAudio = null, onFailure = {})
+        val effect = ShadowAudioEffect.getAudioEffects().single()
+        assertTrue(effect is AcousticEchoCanceler && effect.enabled)
+        call.stop()
+        call.closeDescriptor()
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+
+        val dictation = NativeDictationAudioSource.create(voiceCall = false, onAudio = null, onFailure = {})
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+        dictation.stop()
+        dictation.closeDescriptor()
+    }
+
+    private fun start(
+        localeId: String?,
+        support: RecognitionSupport? = null,
+        inCall: Boolean = false,
+    ): SpeechRecognizer {
         val result = IgnoreResult()
         bridge.onMethodCall(MethodCall("start", mapOf(
             "localeId" to localeId,
-            "allowOnlineFallback" to false
+            "allowOnlineFallback" to false,
+            "preserveAudioSession" to inCall,
         )), result)
         // Startup briefly crosses Dispatchers.IO before binding the system
         // recognizer. Drain the main looper until that callback returns.

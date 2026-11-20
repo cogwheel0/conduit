@@ -97,6 +97,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 val accumulateResults = call.argument<Boolean>("accumulateResults") ?: true
                 val allowOnlineFallback = call.argument<Boolean>("allowOnlineFallback") ?: true
                 val emitAudio = call.argument<Boolean>("emitAudio") ?: false
+                // Dart preserves the session for a voice call, whose
+                // coordinator owns the audio mode and route.
+                val voiceCall = call.argument<Boolean>("preserveAudioSession") ?: false
                 scope.launch {
                     pendingStarts += 1
                     try { start(
@@ -105,6 +108,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                         accumulateResults,
                         allowOnlineFallback,
                         emitAudio,
+                        voiceCall,
                         result
                     ) } finally { pendingStarts -= 1 }
                 }
@@ -224,8 +228,13 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         accumulateResults: Boolean,
         allowOnlineFallback: Boolean,
         emitAudio: Boolean,
+        voiceCall: Boolean,
         result: MethodChannel.Result
     ) {
+        // A call listens through its own echo-cancelled microphone, which
+        // recognizers only take as an input from Android 13 (ML Kit, which
+        // needs Android 12, always takes it).
+        val ownMicrophone = emitAudio || voiceCall
         val generation = recognitionGeneration + 1
         recognitionGeneration = generation
         stopInternal(emitDone = false, awaitCompletion = false)
@@ -258,8 +267,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         if (prepared == null) {
             if (platformRecognizerAvailable(allowOnlineFallback)) {
                 try {
-                    if (emitAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        val source = createPcmSource(generation)
+                    if (ownMicrophone && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val source = createPcmSource(generation, voiceCall, emitAudio)
                         if (!isCurrentGeneration(generation)) {
                             source.stop()
                             source.closeDescriptor()
@@ -282,7 +291,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     } else {
                         "android_speech"
                     }
-                    result.success(available(engineName) + ("audioRecoverySupported" to (pcmSource != null)))
+                    result.success(
+                        available(engineName) + ("audioRecoverySupported" to (emitAudio && pcmSource != null))
+                    )
                 } catch (error: Throwable) {
                     retirePcmSource(pcmSource)
                     Log.w(TAG, "Android speech recognition startup failed", error)
@@ -301,7 +312,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
         val (recognizer, engineName) = prepared
         val source = try {
-            if (emitAudio) createPcmSource(generation) else null
+            if (ownMicrophone) createPcmSource(generation, voiceCall, emitAudio) else null
         } catch (error: Exception) {
             recognizer.close()
             result.success(unavailable("Unable to preserve microphone audio"))
@@ -372,7 +383,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 }
             }
         }
-        result.success(available(engineName) + ("audioRecoverySupported" to (source != null)))
+        result.success(available(engineName) + ("audioRecoverySupported" to (emitAudio && source != null)))
     }
 
     /** Prefers advanced recognition; only a current generation receives ownership. */
@@ -1030,12 +1041,17 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     /** Allocates off-main, gates delivery by generation, and retires cancelled allocations. */
-    private suspend fun createPcmSource(generation: Int): NativeDictationAudioSource {
+    private suspend fun createPcmSource(
+        generation: Int,
+        voiceCall: Boolean,
+        emitAudio: Boolean,
+    ): NativeDictationAudioSource {
         var allocated: NativeDictationAudioSource? = null
         try {
             return withContext(Dispatchers.IO) {
                 NativeDictationAudioSource.create(
-                    onAudio = { bytes ->
+                    voiceCall = voiceCall,
+                    onAudio = if (!emitAudio) null else { bytes ->
                         mainHandler.post {
                             if (pcmGeneration == generation) {
                                 eventSink?.success(mapOf("type" to "audio", "pcm" to bytes))
