@@ -43,6 +43,30 @@ const Set<String> allSupportedImageFormats = {
   ...alwaysConvertImageFormats,
 };
 
+/// Whether an image named [fileName] of [sizeBytes] is re-encoded as JPEG
+/// before it is sent: always in a format models cannot read, and when it is
+/// a JPEG over 500 KiB. PNG, GIF and WebP go as picked: as JPEG a screenshot's
+/// text blurs, often in a larger file, and transparency and animation are
+/// lost.
+bool convertsImageForUpload(String fileName, int sizeBytes) {
+  final extension = path.extension(fileName).toLowerCase();
+  if (alwaysConvertImageFormats.contains(extension)) return true;
+  return (extension == '.jpg' || extension == '.jpeg') &&
+      sizeBytes > 500 * 1024;
+}
+
+/// Whether the JPEG made for [fileName] is sent in place of the original:
+/// always for a format models cannot read, otherwise only when it is smaller.
+bool keepsConvertedImage(
+  String fileName, {
+  required int originalBytes,
+  required int convertedBytes,
+}) =>
+    alwaysConvertImageFormats.contains(
+      path.extension(fileName).toLowerCase(),
+    ) ||
+    convertedBytes < originalBytes;
+
 /// Represents a locally selected attachment with a user-facing display name.
 class LocalAttachment {
   LocalAttachment({required this.file, required this.displayName});

@@ -45,4 +45,59 @@ void main() {
       ).isFalse();
     });
   });
+
+  group('image upload encoding', () {
+    const large = 2 * 1024 * 1024;
+
+    test('a PNG, GIF or WebP goes as picked, however large', () {
+      for (final name in ['screenshot.png', 'loop.GIF', 'sticker.webp']) {
+        check(convertsImageForUpload(name, large)).isFalse();
+      }
+    });
+
+    test('a large JPEG is compressed, a small one is not', () {
+      check(convertsImageForUpload('photo.jpg', large)).isTrue();
+      check(convertsImageForUpload('photo.JPEG', large)).isTrue();
+      check(convertsImageForUpload('photo.jpg', 100 * 1024)).isFalse();
+    });
+
+    test('a format models cannot read is always converted', () {
+      check(convertsImageForUpload('photo.heic', 10)).isTrue();
+      check(convertsImageForUpload('scan.bmp', 10)).isTrue();
+    });
+
+    test('a compressed JPEG is kept only when it is smaller', () {
+      check(
+        keepsConvertedImage(
+          'photo.jpg',
+          originalBytes: 900,
+          convertedBytes: 600,
+        ),
+      ).isTrue();
+      check(
+        keepsConvertedImage(
+          'photo.jpg',
+          originalBytes: 600,
+          convertedBytes: 900,
+        ),
+      ).isFalse();
+      check(
+        keepsConvertedImage(
+          'photo.jpg',
+          originalBytes: 600,
+          convertedBytes: 600,
+        ),
+      ).isFalse();
+    });
+
+    test('a converted HEIC is kept even when it is larger', () {
+      check(
+        keepsConvertedImage(
+          'photo.heic',
+          originalBytes: 600,
+          convertedBytes: 900,
+        ),
+      ).isTrue();
+    });
+  });
 }

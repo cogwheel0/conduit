@@ -871,6 +871,80 @@ void main() {
     },
   );
 
+  // A screenshot stays a PNG, and a photo is compressed only when the JPEG
+  // comes out smaller.
+  test('a large PNG goes up as picked, a JPEG only when compressing shrinks it',
+      () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_image_policy_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final conversionDirectory = await Directory.systemTemp.createTemp(
+      'conduit_img_',
+    );
+    addTearDown(() async {
+      if (await conversionDirectory.exists()) {
+        await conversionDirectory.delete(recursive: true);
+      }
+    });
+    final screenshot = File('${directory.path}/screenshot.png');
+    final photo = File('${directory.path}/photo.jpg');
+    final larger = File('${conversionDirectory.path}/converted.jpg');
+    await screenshot.writeAsBytes([1, 2, 3]);
+    await photo.writeAsBytes([1, 2, 3]);
+    await larger.writeAsBytes([1, 2, 3, 4, 5, 6]);
+    final converted = <String>[];
+    final uploaded = <String>[];
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploaded.add(fileName);
+        return 'server-$fileName';
+      },
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+        imageUploadConverterProvider.overrideWithValue((filePath) async {
+          converted.add(p.basename(filePath));
+          return larger.path;
+        }),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(screenshot, reportedBytes: 3),
+            _pendingImage(photo, reportedBytes: 3),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    for (final (file, name, mime) in [
+      (screenshot, 'screenshot.png', 'image/png'),
+      (photo, 'photo.jpg', 'image/jpeg'),
+    ]) {
+      await controller
+          .upload(
+            filePath: file.path,
+            fileName: name,
+            fileSize: 600 * 1024,
+            mimeType: mime,
+          )
+          .timeout(const Duration(seconds: 1));
+    }
+
+    expect(converted, ['photo.jpg']);
+    expect(uploaded, ['screenshot.png', 'photo.jpg']);
+    expect(await larger.exists(), isFalse);
+  });
+
   test(
     'durable queue ownership survives synchronous publication failure',
     () async {

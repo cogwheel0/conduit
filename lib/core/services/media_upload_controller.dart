@@ -1350,10 +1350,8 @@ class MediaUploadController {
     String? uploadMimeType = mimeType;
     String? convertedTempPath;
     if (isImage) {
-      final shouldConvert = await _shouldConvertImage(lowerName, fileSize);
-      _throwIfOperationNotActive(filePath, inflight);
-      if (shouldConvert) {
-        final convertedPath = await _ref.read(imageUploadConverterProvider)(
+      if (convertsImageForUpload(lowerName, fileSize ?? 0)) {
+        var convertedPath = await _ref.read(imageUploadConverterProvider)(
           filePath,
         );
         if (!_isOperationActive(filePath, inflight)) {
@@ -1361,6 +1359,12 @@ class MediaUploadController {
             await cleanupTerminalAttachmentFile(convertedPath);
           }
           throw const MediaUploadCancelledException();
+        }
+        if (convertedPath != null &&
+            !await _keepsConversion(fileName, filePath, convertedPath)) {
+          await cleanupTerminalAttachmentFile(convertedPath);
+          _throwIfOperationNotActive(filePath, inflight);
+          convertedPath = null;
         }
         if (convertedPath != null) {
           final replacementResult =
@@ -2001,8 +2005,14 @@ class MediaUploadController {
     var uploadName = fileName;
     var uploadMime = mimeType ?? _libreChatMimeType(fileName);
     String? convertedPath;
-    if (isImage && await _shouldConvertImage(fileName.toLowerCase(), null)) {
+    if (isImage &&
+        convertsImageForUpload(fileName, await File(filePath).length())) {
       convertedPath = await _ref.read(imageUploadConverterProvider)(filePath);
+      if (convertedPath != null &&
+          !await _keepsConversion(fileName, filePath, convertedPath)) {
+        await cleanupTerminalAttachmentFile(convertedPath);
+        convertedPath = null;
+      }
       if (convertedPath != null) {
         uploadPath = convertedPath;
         final dot = fileName.lastIndexOf('.');
@@ -2289,38 +2299,23 @@ class MediaUploadController {
     }
   }
 
-  /// Whether [lowerName] should be converted to JPEG before upload (carried
-  /// verbatim from `task_worker._shouldConvertImage`).
-  Future<bool> _shouldConvertImage(String lowerName, int? fileSize) async {
-    const alwaysConvert = {
-      '.heic',
-      '.heif',
-      '.dng',
-      '.raw',
-      '.cr2',
-      '.nef',
-      '.arw',
-      '.orf',
-      '.rw2',
-      '.bmp',
-    };
-    if (alwaysConvert.any(lowerName.endsWith)) {
+  /// Whether the JPEG at [convertedPath] goes up in place of [filePath], an
+  /// image named [fileName]. The name decides: a staged path need not keep
+  /// the picked file's extension. A size that cannot be read keeps the JPEG.
+  Future<bool> _keepsConversion(
+    String fileName,
+    String filePath,
+    String convertedPath,
+  ) async {
+    try {
+      return keepsConvertedImage(
+        fileName,
+        originalBytes: await File(filePath).length(),
+        convertedBytes: await File(convertedPath).length(),
+      );
+    } on FileSystemException {
       return true;
     }
-
-    const neverConvert = {'.webp', '.gif'};
-    if (neverConvert.any(lowerName.endsWith)) {
-      return false;
-    }
-
-    const optimizeThreshold = 500 * 1024;
-    const optimizableFormats = {'.jpg', '.jpeg', '.png'};
-    if (optimizableFormats.any(lowerName.endsWith)) {
-      final size = fileSize ?? 0;
-      return size > optimizeThreshold;
-    }
-
-    return false;
   }
 }
 

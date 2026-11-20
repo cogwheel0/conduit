@@ -311,13 +311,10 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
     try {
       final picker = ImagePicker();
-      final image = await picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-      );
+      final image = await picker.pickImage(source: ImageSource.camera);
 
       if (image != null) {
-        _attachFile(File(image.path));
+        _attach(await compressPickedImage(_pickedAttachment(image)));
         _focusComposer();
       }
     } catch (error, stackTrace) {
@@ -350,12 +347,13 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
 
     try {
       final picker = ImagePicker();
-      final images = await picker.pickMultiImage(imageQuality: 85);
+      final images = await picker.pickMultiImage();
 
       if (images.isNotEmpty) {
-        for (final image in images) {
-          _attachFile(File(image.path));
-        }
+        final attachments = await Future.wait(
+          images.map((image) => compressPickedImage(_pickedAttachment(image))),
+        );
+        attachments.forEach(_attach);
         _focusComposer();
       }
     } catch (error, stackTrace) {
@@ -413,18 +411,19 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
     await Future<void>.delayed(const Duration(milliseconds: 50));
   }
 
-  void _attachFile(File file) {
+  LocalAttachment _pickedAttachment(XFile image) => LocalAttachment(
+    file: File(image.path),
+    displayName: path.basename(image.path),
+  );
+
+  void _attach(LocalAttachment attachment) {
     if (!ref.mounted) return;
 
     // Warm the attachment service
     ref.read(fileAttachmentServiceProvider);
     final notifier = ref.read(attachedFilesProvider.notifier);
     final mediaUpload = ref.read(mediaUploadControllerProvider);
-
-    final attachment = LocalAttachment(
-      file: file,
-      displayName: path.basename(file.path),
-    );
+    final file = attachment.file;
 
     notifier.addFiles([attachment]);
 

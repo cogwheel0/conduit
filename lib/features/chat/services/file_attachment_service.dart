@@ -11,7 +11,11 @@ import 'package:path/path.dart' as path;
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart'
+    show cleanupTerminalAttachmentFile;
 
+import '../../../core/services/media_upload_controller.dart'
+    show convertImageForUpload;
 import '../../../shared/utils/file_type_utils.dart';
 
 import 'package:conduit_core/services/worker_manager.dart';
@@ -239,6 +243,33 @@ LocalAttachment _localAttachmentFromXFile(
   );
 }
 
+/// [picked] as it is attached: as a JPEG when [convertsImageForUpload] calls
+/// for one and [keepsConvertedImage] keeps it, otherwise as picked. The
+/// picker's own `imageQuality` is not used: on Android it turns a PNG into a
+/// JPEG, which blurs a screenshot's text and is often larger.
+Future<LocalAttachment> compressPickedImage(LocalAttachment picked) async {
+  try {
+    final size = await picked.file.length();
+    if (!convertsImageForUpload(picked.displayName, size)) return picked;
+    final converted = await convertImageForUpload(picked.file.path);
+    if (converted == null) return picked;
+    if (!keepsConvertedImage(
+      picked.displayName,
+      originalBytes: size,
+      convertedBytes: await File(converted).length(),
+    )) {
+      await cleanupTerminalAttachmentFile(converted);
+      return picked;
+    }
+    return LocalAttachment(
+      file: File(converted),
+      displayName: '${path.basenameWithoutExtension(picked.displayName)}.jpg',
+    );
+  } on FileSystemException {
+    return picked;
+  }
+}
+
 class FileAttachmentService {
   final ImagePicker _imagePicker = ImagePicker();
 
@@ -358,11 +389,12 @@ class FileAttachmentService {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85,
       );
 
       if (image == null) return null;
-      return _localAttachmentFromXFile(image, fallbackPrefix: 'photo');
+      return await compressPickedImage(
+        _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+      );
     } catch (e) {
       throw Exception('Failed to pick image: $e');
     }
@@ -370,13 +402,14 @@ class FileAttachmentService {
 
   Future<List<LocalAttachment>> _pickImagesWithImagePicker() async {
     try {
-      final images = await _imagePicker.pickMultiImage(imageQuality: 85);
-      return images
-          .map(
-            (image) =>
-                _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
-          )
-          .toList();
+      final images = await _imagePicker.pickMultiImage();
+      return await Future.wait(
+        images.map(
+          (image) => compressPickedImage(
+            _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+          ),
+        ),
+      );
     } catch (e) {
       throw Exception('Failed to pick images: $e');
     }
@@ -387,11 +420,12 @@ class FileAttachmentService {
     try {
       final XFile? photo = await _imagePicker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 85,
       );
 
       if (photo == null) return null;
-      return _localAttachmentFromXFile(photo, fallbackPrefix: 'photo');
+      return await compressPickedImage(
+        _localAttachmentFromXFile(photo, fallbackPrefix: 'photo'),
+      );
     } catch (e) {
       throw Exception('Failed to take photo: $e');
     }
@@ -566,10 +600,11 @@ class MockFileAttachmentService {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85,
       );
       if (image == null) return null;
-      return _localAttachmentFromXFile(image, fallbackPrefix: 'photo');
+      return await compressPickedImage(
+        _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+      );
     } catch (e) {
       throw Exception('Failed to pick image: $e');
     }
@@ -577,13 +612,14 @@ class MockFileAttachmentService {
 
   Future<List<LocalAttachment>> pickImages() async {
     try {
-      final images = await _imagePicker.pickMultiImage(imageQuality: 85);
-      return images
-          .map(
-            (image) =>
-                _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
-          )
-          .toList();
+      final images = await _imagePicker.pickMultiImage();
+      return await Future.wait(
+        images.map(
+          (image) => compressPickedImage(
+            _localAttachmentFromXFile(image, fallbackPrefix: 'photo'),
+          ),
+        ),
+      );
     } catch (e) {
       throw Exception('Failed to pick images: $e');
     }
@@ -593,10 +629,11 @@ class MockFileAttachmentService {
     try {
       final XFile? photo = await _imagePicker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 85,
       );
       if (photo == null) return null;
-      return _localAttachmentFromXFile(photo, fallbackPrefix: 'photo');
+      return await compressPickedImage(
+        _localAttachmentFromXFile(photo, fallbackPrefix: 'photo'),
+      );
     } catch (e) {
       throw Exception('Failed to take photo: $e');
     }
