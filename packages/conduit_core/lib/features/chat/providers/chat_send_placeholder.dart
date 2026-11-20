@@ -914,7 +914,8 @@ _AttachmentFactsMap _durableAttachmentFactsFromState(
   dynamic ref,
   List<String> attachments,
 ) {
-  final ids = attachments.where((id) => !id.startsWith('data:image/')).toSet();
+  // A data-URL image is named only by the file it came from.
+  final ids = attachments.toSet();
   if (ids.isEmpty) return <String, _AttachmentFacts>{};
 
   final facts = <String, _AttachmentFacts>{};
@@ -1001,7 +1002,7 @@ List<Map<String, dynamic>> _durableFilesFor(
   return [
     for (final id in attachments)
       if (id.startsWith('data:image/'))
-        <String, dynamic>{'type': 'image', 'url': id}
+        <String, dynamic>{'type': 'image', 'url': id, 'name': ?facts[id]?.name}
       else
         _durableFileFor(id, facts[id] ?? const _AttachmentFacts()),
   ];

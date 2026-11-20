@@ -221,5 +221,13 @@ void main() {
       ..add(const DirectStreamDone());
     await adapter.finish();
     await send;
+
+    // The image the message is saved with keeps its name after the send.
+    final userMessage = container
+        .read(chatMessagesProvider)
+        .firstWhere((message) => message.role == 'user');
+    check(userMessage.files).isNotNull().deepEquals([
+      {'type': 'image', 'url': image, 'name': 'chart.png'},
+    ]);
   });
 }
