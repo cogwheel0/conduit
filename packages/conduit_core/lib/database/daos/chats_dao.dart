@@ -2056,6 +2056,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
                   t.id.isIn([for (final row in placeholders) row.id]),
             ))
             .go();
+        await _dropFromLegacyMessages(chatId, {
+          for (final row in placeholders) row.id,
+        });
 
         final chat = await getChat(chatId);
         if (chat != null &&
@@ -2261,6 +2264,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
                   t.role.equals('assistant'),
             ))
             .go();
+        await _dropFromLegacyMessages(chatId, formerAnswers);
       }
       await _keepHeldDeletes(
         chatId,
@@ -2324,6 +2328,24 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       }
       return (answeredMeanwhile: answeredMeanwhile, removed: formerAnswers);
     });
+  }
+
+  /// Removes [ids] from the legacy top-level `messages` list chat [chatId]
+  /// keeps from the server's copy: a later push sends that list as it is,
+  /// once no delete is left to say they are gone. An envelope that can't be
+  /// read is left as it is.
+  Future<void> _dropFromLegacyMessages(String chatId, Set<String> ids) async {
+    final chat = await getChat(chatId);
+    if (chat == null) return;
+    final envelope = _decodeJsonObject(chat.rawExtra);
+    final legacy = envelope['messages'];
+    final kept = ChatRows.legacyMessagesWithout(legacy, ids);
+    if (identical(kept, legacy)) return;
+    await (update(chats)..where((t) => t.id.equals(chatId))).write(
+      ChatsCompanion(
+        rawExtra: Value(jsonEncode({...envelope, 'messages': kept})),
+      ),
+    );
   }
 
   /// Leaves the server delete of each of [answerIds] waiting in a
@@ -2455,6 +2477,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
                   t.id.isIn([for (final row in placeholders) row.id]),
             ))
             .go();
+        await _dropFromLegacyMessages(chatId, {
+          for (final row in placeholders) row.id,
+        });
 
         final chat = await getChat(chatId);
         final tip = chat == null

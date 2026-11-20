@@ -1828,6 +1828,7 @@ void main() {
     ChatRows heldTurnRows({
       int updatedAt = 1,
       Map<String, dynamic>? questionMeta,
+      bool legacyList = false,
     }) {
       return ChatBlobMapper.blobToRows(
         chatId: 'c1',
@@ -1836,6 +1837,21 @@ void main() {
         updatedAt: updatedAt,
         blob: <String, dynamic>{
           'title': 'Pantry',
+          if (legacyList)
+            'messages': <Map<String, dynamic>>[
+              {
+                'id': 'u1',
+                'role': 'user',
+                'content': 'And the pantry?',
+                'childrenIds': <String>['a1'],
+              },
+              {
+                'id': 'a1',
+                'parentId': 'u1',
+                'role': 'assistant',
+                'content': '',
+              },
+            ],
           'history': <String, dynamic>{
             'currentId': 'a1',
             'messages': <String, dynamic>{
@@ -1925,6 +1941,59 @@ void main() {
         ..has((p) => p.heldQuestionId, 'heldQuestionId').equals('u1')
         ..has((p) => p.heldEarlierIds, 'heldEarlierIds').deepEquals(['a0']);
     });
+
+    // A push sends the chat's legacy top-level message list as it is
+    // stored, once no delete is left to say the empty answer is gone.
+    for (final (label, remove) in <(String, Future<void> Function())>[
+      (
+        'its settle',
+        () => db.chatsDao.settleHeldTurn(
+          'c1',
+          questionId: 'u1',
+          assistantMessageIds: ['a1'],
+        ),
+      ),
+      ('a Stop', () => db.chatsDao.cancelPendingCompletion('c1')),
+      (
+        'dismissing its parked turn',
+        () =>
+            db.chatsDao.cancelQueuedCompletion('c1', assistantMessageId: 'a1'),
+      ),
+    ]) {
+      test('the stored legacy message list loses it with $label', () async {
+        await db.chatsDao.upsertServerChat(
+          rows: heldTurnRows(legacyList: true),
+        );
+        final seq = await db.outboxDao.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a1',
+            model: 'model-1',
+          ).toJson(),
+        );
+        if (label.startsWith('dismissing')) {
+          await db.outboxDao.markParked(seq, error: 'refused');
+        }
+
+        await remove();
+
+        final pushed = ChatBlobMapper.rowsToBlob(
+          chatRowsFromDb(
+            (await db.chatsDao.getChat('c1'))!,
+            await db.messagesDao.getForChat('c1'),
+          ),
+        );
+        check(pushed['messages']).isA<List>().deepEquals([
+          {
+            'id': 'u1',
+            'role': 'user',
+            'content': 'And the pantry?',
+            'childrenIds': <String>[],
+          },
+        ]);
+      });
+    }
 
     test('a branch picked while it settles stays picked', () async {
       await seedHeldTurn();

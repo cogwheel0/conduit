@@ -242,17 +242,13 @@ class ChatRows {
   /// with no usable `currentId` is read from it.
   ChatRows withoutMessages(Set<String> ids) {
     final legacy = chat.rawExtra['messages'];
+    final keptLegacy = legacyMessagesWithout(legacy, ids);
     final named =
         unmappableMessages.keys.any(ids.contains) ||
         messages.any(
           (message) => ids.contains(message.id) || _namesChildren(message, ids),
         ) ||
-        (legacy is List &&
-            legacy.any(
-              (entry) =>
-                  entry is Map &&
-                  (ids.contains(entry['id']) || _listsAny(entry, ids)),
-            ));
+        !identical(keptLegacy, legacy);
     if (!named) return this;
     final parents = <String, String?>{
       for (final entry in unmappableMessages.entries)
@@ -281,27 +277,9 @@ class ChatRows {
         currentMessageId: currentId,
         createdAt: chat.createdAt,
         updatedAt: chat.updatedAt,
-        rawExtra: legacy is List
-            ? <String, dynamic>{
-                ...chat.rawExtra,
-                'messages': [
-                  for (final entry in legacy)
-                    if (entry is! Map)
-                      entry
-                    else if (!ids.contains(entry['id']))
-                      _listsAny(entry, ids)
-                          ? <String, dynamic>{
-                              for (final e in entry.entries)
-                                e.key.toString(): e.value,
-                              'childrenIds': [
-                                for (final child in entry['childrenIds'])
-                                  if (!ids.contains(child)) child,
-                              ],
-                            }
-                          : entry,
-                ],
-              }
-            : chat.rawExtra,
+        rawExtra: identical(keptLegacy, legacy)
+            ? chat.rawExtra
+            : <String, dynamic>{...chat.rawExtra, 'messages': keptLegacy},
       ),
       messages: [
         for (final message in messages)
@@ -322,6 +300,35 @@ class ChatRows {
       historyHadCurrentId: historyHadCurrentId,
       historyExtra: historyExtra,
     );
+  }
+
+  /// [legacy], a chat's top-level `messages` list, without the messages
+  /// [ids], and without them in any entry's `childrenIds`. [legacy] itself
+  /// when it names none of them, or is no list.
+  static Object? legacyMessagesWithout(Object? legacy, Set<String> ids) {
+    if (legacy is! List ||
+        !legacy.any(
+          (entry) =>
+              entry is Map &&
+              (ids.contains(entry['id']) || _listsAny(entry, ids)),
+        )) {
+      return legacy;
+    }
+    return [
+      for (final entry in legacy)
+        if (entry is! Map)
+          entry
+        else if (!ids.contains(entry['id']))
+          _listsAny(entry, ids)
+              ? <String, dynamic>{
+                  for (final e in entry.entries) e.key.toString(): e.value,
+                  'childrenIds': [
+                    for (final child in entry['childrenIds'])
+                      if (!ids.contains(child)) child,
+                  ],
+                }
+              : entry,
+    ];
   }
 
   static bool _namesChildren(MessageRowData message, Set<String> ids) =>
