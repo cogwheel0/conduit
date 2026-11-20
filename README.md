@@ -120,10 +120,11 @@ later, and skip any sign-in you don't need.
 **Direct connections** cover OpenAI-compatible endpoints (Chat Completions or
 Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
 OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
-one. Direct connections you already configured in Open WebUI come along
-automatically. Open WebUI 0.13.4 moved them to its Tether app: the models your
-devices offer through Tether appear with the server's own, labelled with the
-device. Keys and custom headers stay in platform secure storage.
+one. Keys and custom headers stay in platform secure storage. Direct
+connections you configured on an Open WebUI server before 0.13.4 come along
+automatically. Open WebUI 0.13.4 moved direct connections to Tether, its
+companion app: the models your devices offer through Tether appear with the
+server's other models, labelled with the device.
 
 **Apple On-Device** is an iOS-only Direct provider backed by Apple's local
 SystemLanguageModel. It requires iOS 26 and Apple Intelligence, works offline,
