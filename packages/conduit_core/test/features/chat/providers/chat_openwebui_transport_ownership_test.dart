@@ -3308,9 +3308,15 @@ void main() {
         _streamingAssistant(assistantId, '').copyWith(
           versions: [
             ChatMessageVersion(
+              id: 'answer-earlier',
+              content: 'egret',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            ),
+            ChatMessageVersion(
               id: 'answer-elsewhere',
               content: 'heron',
               timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+              model: 'model-2',
             ),
           ],
         ),
@@ -3327,7 +3333,60 @@ void main() {
 
       final refreshed = await pullChatOrFetch(container, chatId);
 
-      check(refreshed!.messages.single.isHeldByServer).isFalse();
+      // The server's newest answer shows in the empty one's place, as Open
+      // WebUI makes its parent's last child current once the delete lands.
+      check(refreshed!.messages.map((m) => m.id).toList())
+          .deepEquals([userId, 'answer-elsewhere']);
+      check(refreshed.messages.first.isHeldByServer).isFalse();
+      final answer = refreshed.messages.last;
+      check(answer.role).equals('assistant');
+      check(answer.content).equals('heron');
+      check(answer.model).equals('model-2');
+      check(answer.isStreaming).isFalse();
+      check(answer.versions.map((v) => v.id)).deepEquals(['answer-earlier']);
+    });
+
+    test('a copy read straight from the server leaves the empty answer out of '
+        'the versions of an answer it keeps', () async {
+      await seedTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerCopyApi([
+        _user(userId, 'Say the word: heron'),
+        ChatMessage(
+          id: 'answer-elsewhere',
+          role: 'assistant',
+          content: 'heron',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          versions: [
+            ChatMessageVersion(
+              id: assistantId,
+              content: '',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            ),
+          ],
+        ),
+      ]);
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(refreshed!.messages.map((m) => m.id).toList())
+          .deepEquals([userId, 'answer-elsewhere']);
+      check(refreshed.messages.last.versions).isEmpty();
     });
 
     // A delete that lands while the read is out leaves no op behind, but the

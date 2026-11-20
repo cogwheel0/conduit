@@ -961,6 +961,24 @@ void main() {
       check(each.messages).isEmpty();
     });
 
+    // As Open WebUI's own delete does: the parent's last child is current,
+    // and on down its last children.
+    test('a left-out current message moves to the newest kept branch', () {
+      final rows = rowsOf({
+        'q1': message('q1', children: ['a1', 'p1']),
+        'a1': message(
+          'a1',
+          parentId: 'q1',
+          role: 'assistant',
+          children: ['q2'],
+        ),
+        'q2': message('q2', parentId: 'a1'),
+        'p1': message('p1', parentId: 'q1', role: 'assistant'),
+      }, currentId: 'p1').withoutMessages({'p1'});
+
+      check(rows.chat.currentMessageId).equals('q2');
+    });
+
     test('an entry that is not a row leaves too, and its parent stops '
         'naming it', () {
       // `p1` has no role, so it cannot be a row; `x1` is unrelated garbage

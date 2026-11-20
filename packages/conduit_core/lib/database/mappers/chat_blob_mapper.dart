@@ -236,7 +236,9 @@ class ChatRows {
 
   /// These rows without the messages [ids], entries that are not rows
   /// included, and without any mention of them: a row's `childrenIds` drops
-  /// them, and a `currentId` naming one moves to its nearest ancestor kept.
+  /// them, and a `currentId` naming one moves to its nearest ancestor kept,
+  /// then on down the last of each one's kept children, as Open WebUI's own
+  /// delete moves it: an answer kept beside a removed one stays shown.
   /// Ancestors that lead back to a removed message leave no `currentId`.
   /// The legacy top-level `messages` list loses them the same way: a copy
   /// with no usable `currentId` is read from it.
@@ -266,6 +268,20 @@ class ChatRows {
         break;
       }
       currentId = parents[currentId];
+    }
+    if (currentId != chat.currentMessageId) {
+      final kept = {
+        for (final message in messages)
+          if (!ids.contains(message.id)) message.id: message,
+      };
+      while (currentId != null && visited.add(currentId)) {
+        final children = kept[currentId]?.payload['childrenIds'];
+        final next = children is List
+            ? children.whereType<String>().where(kept.containsKey).lastOrNull
+            : null;
+        if (next == null) break;
+        currentId = next;
+      }
     }
     return ChatRows(
       chat: ChatRowData(

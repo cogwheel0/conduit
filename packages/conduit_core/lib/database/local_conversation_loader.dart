@@ -2,7 +2,13 @@ import 'dart:async';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kMessageHeldByServerMetadataKey;
+    show
+        kMessageAuthorIdMetadataKey,
+        kMessageHeldByServerMetadataKey,
+        kMessageMergedMetadataKey,
+        kMessageModelIdxMetadataKey,
+        kMessageUnfinishedAnswerAuthorsMetadataKey,
+        kMessageUnfinishedAnswersMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 
@@ -240,9 +246,11 @@ Future<Set<String>> unsentMessageDeletesOf(
 
 /// [conversation], read straight from the server, without the messages whose
 /// delete there has not landed yet, as a pull leaves them out: the server's
-/// copy still has them. [pendingBefore] is what was pending when the read
-/// started: a delete that lands while the read is out leaves no op behind,
-/// but the copy may still have the message.
+/// copy still has them, as answers and among answers' versions. A left-out
+/// answer's newest other version shows in its place, where a pull moves the
+/// chat's current message too. [pendingBefore] is what was pending when the
+/// read started: a delete that lands while the read is out leaves no op
+/// behind, but the copy may still have the message.
 Future<Conversation> withoutUnsentMessageDeletes(
   AppDatabase? database,
   Conversation conversation, {
@@ -253,29 +261,32 @@ Future<Conversation> withoutUnsentMessageDeletes(
     ...pendingBefore,
     ...await database.outboxDao.unsentMessageDeletes(conversation.id),
   };
-  if (!conversation.messages.any((m) => ids.contains(m.id))) {
+  if (!conversation.messages.any(
+    (m) => ids.contains(m.id) || m.versions.any((v) => ids.contains(v.id)),
+  )) {
     return conversation;
   }
   // Only a held turn's settle leaves such a delete waiting, so a question
   // whose only answer here was one of those waits again: the copy read it as
-  // answered by that empty answer. One another device answered meanwhile keeps
-  // that answer among the empty one's versions, and does not wait.
+  // answered by that empty answer. One another device answered meanwhile has
+  // that answer among the empty one's versions, shown in its place, and does
+  // not wait.
   final kept = <ChatMessage>[];
   final waiting = <int>{};
   for (final message in conversation.messages) {
-    if (ids.contains(message.id)) {
-      final answeredElsewhere = message.versions.any(
-        (version) => !ids.contains(version.id),
-      );
-      if (!answeredElsewhere && kept.isNotEmpty && kept.last.role == 'user') {
+    final shown = ids.contains(message.id)
+        ? _answerInPlaceOf(message, ids)
+        : _withoutVersions(message, ids);
+    if (shown == null) {
+      if (kept.isNotEmpty && kept.last.role == 'user') {
         waiting.add(kept.length - 1);
       }
       continue;
     }
-    if (message.role == 'assistant' && kept.isNotEmpty) {
+    if (shown.role == 'assistant' && kept.isNotEmpty) {
       waiting.remove(kept.length - 1);
     }
-    kept.add(message);
+    kept.add(shown);
   }
   for (final index in waiting) {
     final question = kept[index];
@@ -284,6 +295,95 @@ Future<Conversation> withoutUnsentMessageDeletes(
     );
   }
   return conversation.copyWith(messages: kept);
+}
+
+/// The answer shown in place of [leftOut], an answer left out by [ids]: the
+/// last of its versions not left out, as Open WebUI makes the last child of
+/// its parent current once the delete lands, keeping the others as versions.
+/// Null when none is left. A version keeps no status history, no
+/// attachments, and of the message's metadata only what is passed here.
+ChatMessage? _answerInPlaceOf(ChatMessage leftOut, Set<String> ids) {
+  final versions = [
+    for (final version in leftOut.versions)
+      if (!ids.contains(version.id)) version,
+  ];
+  if (versions.isEmpty) return null;
+  final shown = versions.removeLast();
+  final group = _withoutUnfinished(leftOut.metadata, ids);
+  final authors = group?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+  final author = authors is Map ? authors[shown.id] : null;
+  return ChatMessage(
+    id: shown.id,
+    role: leftOut.role,
+    content: shown.content,
+    timestamp: shown.timestamp,
+    model: shown.model,
+    files: shown.files,
+    output: shown.output,
+    embeds: shown.embeds,
+    sources: shown.sources,
+    followUps: shown.followUps,
+    codeExecutions: shown.codeExecutions,
+    usage: shown.usage,
+    error: shown.error,
+    versions: versions,
+    metadata: {
+      // What the answers share: their question, and which still run.
+      for (final key in const [
+        'parentId',
+        kMessageUnfinishedAnswersMetadataKey,
+        kMessageUnfinishedAnswerAuthorsMetadataKey,
+      ])
+        key: ?group?[key],
+      'modelName': ?shown.modelName,
+      kMessageModelIdxMetadataKey: ?shown.modelIdx,
+      kMessageMergedMetadataKey: ?shown.merged,
+      kMessageAuthorIdMetadataKey: ?(author is String ? author : null),
+    },
+  );
+}
+
+/// [message] without the versions [ids] leaves out.
+ChatMessage _withoutVersions(ChatMessage message, Set<String> ids) {
+  if (!message.versions.any((version) => ids.contains(version.id))) {
+    return message;
+  }
+  return message.copyWith(
+    versions: [
+      for (final version in message.versions)
+        if (!ids.contains(version.id)) version,
+    ],
+    metadata: _withoutUnfinished(message.metadata, ids),
+  );
+}
+
+/// [metadata] without [ids] among the answers it says still run.
+Map<String, dynamic>? _withoutUnfinished(
+  Map<String, dynamic>? metadata,
+  Set<String> ids,
+) {
+  if (metadata == null) return null;
+  final unfinished = metadata[kMessageUnfinishedAnswersMetadataKey];
+  final authors = metadata[kMessageUnfinishedAnswerAuthorsMetadataKey];
+  final left = [
+    if (unfinished is List)
+      for (final id in unfinished)
+        if (!ids.contains(id)) id,
+  ];
+  final leftAuthors = {
+    if (authors is Map)
+      for (final entry in authors.entries)
+        if (!ids.contains(entry.key)) entry.key: entry.value,
+  };
+  return {
+    for (final entry in metadata.entries)
+      if (entry.key != kMessageUnfinishedAnswersMetadataKey &&
+          entry.key != kMessageUnfinishedAnswerAuthorsMetadataKey)
+        entry.key: entry.value,
+    if (left.isNotEmpty) kMessageUnfinishedAnswersMetadataKey: left,
+    if (leftAuthors.isNotEmpty)
+      kMessageUnfinishedAnswerAuthorsMetadataKey: leftAuthors,
+  };
 }
 
 /// DB-first conversation open (CDT-RFC-001 Phase 1, acceptance 1).
