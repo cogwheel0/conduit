@@ -81,6 +81,12 @@ class Models extends _$Models {
 
   @override
   Future<List<Model>> build() async {
+    // This build's own Ref: [ref] reads the provider's current one, so after
+    // an await only this one tells whether Riverpod retired the build. A
+    // retired build runs on, but reads, publishes and saves nothing more:
+    // the build that replaced it does.
+    final buildRef = ref;
+    bool current() => buildRef.mounted;
     // Reviewer mode returns mock models
     if (ref.watch(reviewerModeProvider)) {
       return _demoModels();
@@ -120,6 +126,7 @@ class Models extends _$Models {
           stackTrace: stackTrace,
         );
       }
+      if (!current()) return const <Model>[];
     }
     final directModels = ref.watch(
       directModelDiscoveryProvider.select((value) {
@@ -193,7 +200,10 @@ class Models extends _$Models {
         );
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(
+        const <Model>[],
+        load: _loads.sinceNow(current: current),
+      );
       return _returnWithSelectionReconciliation(
         const <Model>[],
         deferDirectSelection: deferDirectSelectionReconciliation,
@@ -226,9 +236,10 @@ class Models extends _$Models {
       );
     }
     final storage = ref.watch(optimizedStorageServiceProvider);
-    final cacheAsRead = _loads.cacheAsRead();
+    final cacheAsRead = _loads.cacheAsRead(current: current);
     try {
       final cached = await storage.getLocalModels();
+      if (!current()) return const <Model>[];
       if (cacheOwnership != null &&
           !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
         return _returnWithSelectionReconciliation(
@@ -285,17 +296,21 @@ class Models extends _$Models {
         stackTrace: stackTrace,
       );
     }
+    if (!current()) return const <Model>[];
 
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(
+        const <Model>[],
+        load: _loads.sinceNow(current: current),
+      );
       return _returnWithSelectionReconciliation(
         _withLocalModels(const <Model>[], directModels: directModels),
         deferDirectSelection: deferDirectSelectionReconciliation,
       );
     }
 
-    final load = _loads.start();
+    final load = _loads.start(current: current);
     final result = await AsyncValue.guard(() => _load(api, load));
     load.finish();
     if (!load.isNewest) {
@@ -778,18 +793,17 @@ class Models extends _$Models {
     return models.where((model) => !model.isHidden).toList();
   }
 
-  /// Writes [models] to the cache for [load], or, without one, while no read
-  /// has started since.
+  /// Writes [models] to the cache for [load] ([ListLoad.write]).
   void _persistModelsAsync(
     List<Model> models, {
     OpenWebUiCacheOwnershipSnapshot? ownership,
-    ListLoad? load,
+    required ListLoad load,
   }) {
     bool owned() =>
         ownership == null || openWebUiCacheOwnershipIsCurrent(ref, ownership);
     if (!owned()) return;
     final storage = ref.read(optimizedStorageServiceProvider);
-    final write = (load ?? _loads.sinceNow()).write(() async {
+    final write = load.write(() async {
       if (owned()) await storage.saveLocalModels(models);
     });
     unawaited(

@@ -19,6 +19,10 @@ part 'tools_providers.g.dart';
 class ToolsList extends _$ToolsList {
   @override
   Future<List<Tool>> build() async {
+    // This build's own Ref: [ref] reads the provider's current one, so after
+    // an await only this one tells whether Riverpod retired the build.
+    final buildRef = ref;
+    bool current() => buildRef.mounted;
     final isAuthenticated = ref.watch(isAuthenticatedProvider2);
     if (!isAuthenticated) {
       return const <Tool>[];
@@ -37,6 +41,9 @@ class ToolsList extends _$ToolsList {
       return const <Tool>[];
     }
     final cached = await storage.getLocalTools();
+    // A retired build runs on, but reads, publishes and saves nothing more:
+    // the build that replaced it does.
+    if (!current()) return const <Tool>[];
     if (cacheOwnership != null &&
         !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
       return const <Tool>[];
@@ -51,7 +58,7 @@ class ToolsList extends _$ToolsList {
       return const [];
     }
 
-    final load = _loads.start();
+    final load = _loads.start(current: current);
     final result = await AsyncValue.guard(
       () => _fetchAndPersist(toolsService, load),
     );

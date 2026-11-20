@@ -161,22 +161,28 @@ final class _TerminalsOffered extends TerminalFeatureEnabledNotifier {
 
 /// A cache that starts empty and keeps every list written to it. The next
 /// tool list written waits for [holdNextToolsSave] when one is set, as a
-/// write does while the database opens.
+/// write does while the database opens. Reads of the cache are answered when
+/// a test says, through [modelCacheReads] and [toolCacheReads], when set, as
+/// a read does while a worker decodes the stored list.
 final class _Storage implements OptimizedStorageService {
   final savedModels = <List<Model>>[];
   List<Tool>? savedTools;
   Completer<void>? holdNextToolsSave;
   final toolsSaveHeld = Completer<void>();
+  _Answers<List<Model>>? modelCacheReads;
+  _Answers<List<Tool>>? toolCacheReads;
 
   @override
-  Future<List<Model>> getLocalModels() async => const <Model>[];
+  Future<List<Model>> getLocalModels() async =>
+      await modelCacheReads?.ask() ?? const <Model>[];
 
   @override
   Future<void> saveLocalModels(List<Model> models) async =>
       savedModels.add(models);
 
   @override
-  Future<List<Tool>> getLocalTools() async => const <Tool>[];
+  Future<List<Tool>> getLocalTools() async =>
+      await toolCacheReads?.ask() ?? const <Tool>[];
 
   @override
   Future<void> saveLocalTools(List<Tool> tools) async {
@@ -436,6 +442,70 @@ void main() {
         check(storage.savedTools).isNotNull().isEmpty();
       },
     );
+
+    // A build the list's dependencies retired still runs on: its cache read
+    // answering after the build that replaced it must not let it read the
+    // server as the newest, leaving the live build nothing to publish.
+    test("the models' retired build, whose cache answers last", () async {
+      final workerManager = WorkerManager();
+      addTearDown(workerManager.dispose);
+      final api = _HeldModelsApi(workerManager);
+      final cache = _Answers<List<Model>>();
+      final storage = _Storage()..modelCacheReads = cache;
+      final container = signedIn(storage, api, models: true);
+      await container.read(activeServerProvider.future);
+      container.listen(modelsProvider, (_, _) {});
+      await cache.askedFor(1);
+
+      container.invalidate(modelsProvider);
+      container.read(modelsProvider);
+      await cache.askedFor(2);
+      cache.asked[1].complete(const <Model>[]);
+      await api.reads.askedFor(1);
+      cache.asked[0].complete(const <Model>[]);
+      await pumpEventQueue();
+      for (final read in api.reads.asked) {
+        read.complete(<Model>[_offeredModel]);
+      }
+      await pumpEventQueue();
+
+      check(container.read(modelsProvider).value)
+          .isNotNull()
+          .deepEquals([_offeredModel]);
+      check(storage.savedModels.lastOrNull)
+          .isNotNull()
+          .deepEquals([_offeredModel]);
+    });
+
+    test("the tools' retired build, whose cache answers last", () async {
+      final workerManager = WorkerManager();
+      addTearDown(workerManager.dispose);
+      final api = _HeldModelsApi(workerManager);
+      final tools = _HeldToolsService(api);
+      final cache = _Answers<List<Tool>>();
+      final storage = _Storage()..toolCacheReads = cache;
+      final container = signedIn(storage, api, tools: tools);
+      await container.read(activeServerProvider.future);
+      container.listen(toolsListProvider, (_, _) {});
+      await cache.askedFor(1);
+
+      container.invalidate(toolsListProvider);
+      container.read(toolsListProvider);
+      await cache.askedFor(2);
+      cache.asked[1].complete(const <Tool>[]);
+      await tools.reads.askedFor(1);
+      cache.asked[0].complete(const <Tool>[]);
+      await pumpEventQueue();
+      for (final read in tools.reads.asked) {
+        read.complete(const <Tool>[_offeredTool]);
+      }
+      await pumpEventQueue();
+
+      check(container.read(toolsListProvider).value)
+          .isNotNull()
+          .deepEquals([_offeredTool]);
+      check(storage.savedTools).isNotNull().deepEquals([_offeredTool]);
+    });
 
     test(
       "the terminals' first read, answering after a device's change",
