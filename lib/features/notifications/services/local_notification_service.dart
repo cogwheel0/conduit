@@ -402,7 +402,11 @@ class LocalNotificationService implements CalendarReminderPort {
         title: title,
         body: body,
         scheduledDate: tz.TZDateTime.from(reminder.fireAt, tz.UTC),
-        notificationDetails: _calendarDetails(scope, playSound: playSound),
+        notificationDetails: _calendarDetails(
+          scope,
+          reminder,
+          playSound: playSound,
+        ),
         androidScheduleMode: exact
             ? AndroidScheduleMode.exactAllowWhileIdle
             : AndroidScheduleMode.inexactAllowWhileIdle,
@@ -444,7 +448,11 @@ class LocalNotificationService implements CalendarReminderPort {
         id: nextNotificationId(),
         title: title,
         body: body,
-        notificationDetails: _calendarDetails(scope, playSound: playSound),
+        notificationDetails: _calendarDetails(
+          scope,
+          reminder,
+          playSound: playSound,
+        ),
         payload: ScheduledCalendarReminder.encode(
           key: reminder.key,
           scope: scope,
@@ -464,7 +472,8 @@ class LocalNotificationService implements CalendarReminderPort {
   }
 
   NotificationDetails _calendarDetails(
-    String scope, {
+    String scope,
+    CalendarReminder reminder, {
     required bool playSound,
   }) {
     final l10n = currentAppLocalizations();
@@ -478,6 +487,9 @@ class LocalNotificationService implements CalendarReminderPort {
         category: AndroidNotificationCategory.reminder,
         icon: '@mipmap/ic_launcher',
         playSound: playSound,
+        // Android lists posted notifications without their payload; the tag
+        // is what [cancelScope] finds them by.
+        tag: '$scope|calendar|${reminder.key}',
       ),
       iOS: DarwinNotificationDetails(
         presentAlert: true,
@@ -510,26 +522,6 @@ class LocalNotificationService implements CalendarReminderPort {
     await _plugin.cancel(id: id);
   }
 
-  /// Unschedules the calendar reminders of [scope], or of every account when
-  /// [scope] is null. Reminders already posted stay.
-  Future<void> cancelCalendarReminders({String? scope}) async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
-    try {
-      for (final reminder in await scheduledCalendarReminders()) {
-        if (scope == null || reminder.scope == scope) {
-          await _plugin.cancel(id: reminder.id);
-        }
-      }
-    } catch (e, st) {
-      DebugLogger.error(
-        'failed to cancel calendar reminders',
-        error: e,
-        stackTrace: st,
-        scope: 'notifications/calendar',
-      );
-    }
-  }
-
   /// Clears all posted message notifications — used when signing out of
   /// everything, so nothing deep-links into data that is gone.
   Future<void> cancelAll() async {
@@ -544,6 +536,7 @@ class LocalNotificationService implements CalendarReminderPort {
   /// see [NotificationScope]), leaving every other one in place. Notifications
   /// posted before they carried a scope go too, where they can still be told
   /// apart (iOS): which account they belong to is no longer known.
+  @override
   Future<void> cancelScope(String scope) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_initialized) await initialize();

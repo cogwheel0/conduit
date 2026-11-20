@@ -42,9 +42,13 @@ class _FakeNotifications implements CalendarReminderPort {
   /// Reminders the user saw: posted at once, or fired from the schedule.
   final delivered = <String>[];
 
+  /// The posted reminders still in the notification list, by account.
+  final onScreen = <({String scope, String key})>{};
+
   /// Reminders handed to the plugin with a time that had passed.
   final rejected = <String>[];
   int _nextId = 100;
+  /// Holds the next schedule or post call until completed.
   Completer<void>? holdSchedule;
   final enteredSchedule = Completer<void>();
   bool exactAllowed = false;
@@ -98,8 +102,16 @@ class _FakeNotifications implements CalendarReminderPort {
     required String body,
     required bool playSound,
   }) async {
+    if (!enteredSchedule.isCompleted) enteredSchedule.complete();
+    await holdSchedule?.future;
     delivered.add(reminder.key);
+    onScreen.add((scope: scope, key: reminder.key));
     return true;
+  }
+
+  @override
+  Future<void> cancelScope(String scope) async {
+    onScreen.removeWhere((posted) => posted.scope == scope);
   }
 
   /// What the OS does once a scheduled reminder is due: posts it and drops it
@@ -356,6 +368,39 @@ void main() {
       await withClock(Clock.fixed(_now), scheduler.sync);
 
       check(h.notifications.scheduled).isEmpty();
+    });
+
+    test('a sign-out during a sync leaves none of that account\'s reminders '
+        'behind', () async {
+      final h = _Harness()
+        ..agenda = [_event('due', startInMinutes: 5), _event('later')];
+      final hold = Completer<void>();
+      h.notifications.holdSchedule = hold;
+
+      final syncing = h.sync();
+      await h.notifications.enteredSchedule.future;
+      h.account = null;
+      await h.scheduler.signedOut(_scope);
+      hold.complete();
+      await syncing;
+
+      check(h.notifications.keysIn(_scope)).isEmpty();
+      check(h.notifications.onScreen).isEmpty();
+    });
+
+    test('an account switch during a sync keeps that account\'s reminders',
+        () async {
+      final h = _Harness()..agenda = [_event('a'), _event('b')];
+      final hold = Completer<void>();
+      h.notifications.holdSchedule = hold;
+
+      final syncing = h.sync();
+      await h.notifications.enteredSchedule.future;
+      h.account = (scope: _otherScope, userId: 'someone-else');
+      hold.complete();
+      await syncing;
+
+      check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
     test('calls during a sync fold into one more run', () async {
