@@ -756,11 +756,15 @@ class BrowserSignInService {
   /// ([BrowserSignInSession.sharesGrantWith]) is left alone: a provider that
   /// ends the whole grant would end that one too. So is everything when what
   /// is stored cannot be read.
-  Future<void> revokeEnded(
+  ///
+  /// [stillWanted] is asked once that was read, right before they go: when
+  /// it says no, none goes, and this returns false.
+  Future<bool> revokeEnded(
     List<BrowserSessionRevocation> sessions, {
     required OptimizedStorageService storage,
+    bool Function()? stillWanted,
   }) async {
-    if (sessions.isEmpty) return;
+    if (sessions.isEmpty) return true;
     // A rotation of an ended session that could not be saved ends with it.
     final ended = [...sessions];
     for (final entry in sessions) {
@@ -777,8 +781,9 @@ class BrowserSignInService {
         'browser-session-revoke-skipped',
         scope: 'auth/browser-sign-in',
       );
-      return;
+      return true;
     }
+    if (!(stillWanted?.call() ?? true)) return false;
     final revocable = [
       for (final entry in ended)
         if (!stored.any((kept) => kept.session.sharesGrantWith(entry.session)))
@@ -794,6 +799,7 @@ class BrowserSignInService {
       for (final entry in revocable)
         revokeBestEffort(entry.session, route: entry.route),
     ]);
+    return true;
   }
 
   /// Asks the identity provider to revoke [session]'s refresh token, when it

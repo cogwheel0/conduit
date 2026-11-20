@@ -1099,7 +1099,39 @@ void main() {
       });
     }
 
-    test('but not while a newer sign-in holds a grant it may share', () async {
+    // Revoking a grant can end every grant of its user at some providers:
+    // an older one waits for a newer sign-in to end, from its browser on.
+    test('once a newer sign-in begun meanwhile ends without storing one '
+        'of its grant', () async {
+      final rig = await _Rig.start();
+      rig.service.grant = _grant(subject: 'idp-user');
+      final older = Completer<void>();
+      rig.service.exchanging = older;
+      final cancelled = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.cancelBrowserSignIn();
+
+      final browser = Completer<void>();
+      rig.service.browserOpen = browser;
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      older.complete();
+      check(await cancelled).isFalse();
+      await pumpEventQueue();
+      check(rig.service.revoked).isEmpty();
+
+      // Closed without signing in.
+      rig.service.grant = null;
+      browser.complete();
+      check(await signIn).isFalse();
+      await pumpEventQueue();
+      check(
+        rig.service.revoked.map((session) => session.refreshToken),
+      ).deepEquals(['idp-refresh']);
+    });
+
+    test('but not once a newer sign-in stores a session of its grant',
+        () async {
       final rig = await _Rig.start();
       rig.service.grant = _grant(subject: 'idp-user');
       final older = Completer<void>();
@@ -1120,6 +1152,21 @@ void main() {
       await pumpEventQueue();
       check(rig.service.revoked).isEmpty();
 
+      rig.storage.storedSessions = [
+        (
+          accountId: 'account-a',
+          session: const BrowserSignInSession(
+            serverId: 'server-1',
+            provider: 'oidc',
+            clientId: 'conduit',
+            issuer: 'https://id.example',
+            tokenEndpoint: 'https://id.example/token',
+            refreshToken: 'idp-refresh-2',
+            owuiUserId: 'user-a',
+            subject: 'idp-user',
+          ),
+        ),
+      ];
       newer.complete();
       check(await signIn).isTrue();
       await pumpEventQueue();
