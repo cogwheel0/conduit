@@ -235,6 +235,11 @@ abstract class ChatMessageDto with _$ChatMessageDto {
     /// offline, or retried after failing. Null once it has gone (or for
     /// any other message).
     QueuedCompletionDto? queued,
+
+    /// A question the server holds until a reply still running in the chat
+    /// ends, and answers then (Open WebUI 0.13.4). False for any other
+    /// message.
+    @Default(false) bool held,
   }) = _ChatMessageDto;
 
   factory ChatMessageDto.fromJson(Map<String, dynamic> json) =>

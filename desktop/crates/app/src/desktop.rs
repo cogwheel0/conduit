@@ -240,6 +240,7 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
                     ok: true,
                     code: None,
                     queued: false,
+                    held: false,
                 };
                 cx.defer(move |cx| on_turn_finished(&finished, cx));
             }
@@ -1204,7 +1205,10 @@ pub(crate) fn notification_scope(cx: &App) -> Option<String> {
 /// The answer notification for `finished`, raised while `asked` was the
 /// account in charge, as the core routes it.
 pub(crate) fn notify_turn_finished(finished: &TurnFinished, asked: Option<String>, cx: &mut App) {
-    let Some(kind) = notify::kind_for(notify::Outcome::of(finished.ok, finished.queued)) else {
+    let Some(kind) = notify::kind_for(notify::Outcome::of(
+        finished.ok,
+        finished.queued || finished.held,
+    )) else {
         return;
     };
     let on_screen = on_screen(cx);
@@ -2620,6 +2624,7 @@ mod route_tests {
             ok: true,
             code: None,
             queued: false,
+            held: false,
         };
         let mut held = crate::intents::HeldNotifications::default();
         held.begin();

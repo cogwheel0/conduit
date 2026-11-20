@@ -43,5 +43,6 @@
     "failed": false,
     "offline": true,
     "reasoningEffortRejected": false
-  }
+  },
+  "held": false
 }

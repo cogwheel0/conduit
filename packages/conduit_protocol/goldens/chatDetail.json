@@ -32,7 +32,8 @@
       "retryWithoutEffort": false,
       "comparison": [],
       "mergeableIds": [],
-      "siblingIds": []
+      "siblingIds": [],
+      "held": false
     }
   ],
   "readOnly": true,

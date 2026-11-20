@@ -7,6 +7,7 @@ import 'dart:io';
 
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -224,5 +225,93 @@ void main() {
         if (message.role == 'user') message.content,
     ], asked);
     expect(completed, hasLength(7));
+  });
+
+  test('a message the server holds behind another device\'s answer waits, '
+      'and its answer comes with the chat', () async {
+    // Open WebUI 0.13.4 keeps a message sent under an answer still running,
+    // and answers it under new ids once that answer ends. The chat's scope
+    // hears that answer, so it stays however long the other answer runs.
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = Duration.zero;
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    const chatId = 'chat-pantry';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    final completed = <String>[];
+    final finished = <TurnFinished>[];
+    var changed = 0;
+    events.attach('probe', (envelope) {
+      switch (envelope.event) {
+        case ConduitEvents.turnCompleted:
+          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+        case ConduitEvents.turnFinished:
+          finished.add(TurnFinished.fromJson(envelope.payload));
+      }
+    });
+    // A tap, so the count is current when [until] looks after an event.
+    final untap = events.tap((event, _, _) {
+      if (event == ConduitEvents.chatsChanged) changed++;
+    });
+    addTearDown(untap);
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is the kettle on?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    await until(() => completed.isNotEmpty);
+
+    final elsewhere = chats.runElsewhere(chatId);
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'And the pantry?',
+        ),
+      ),
+    );
+    await until(
+      () => finished.any((f) => f.messageId == sent.assistantMessageId),
+    );
+
+    final ended = finished.lastWhere(
+      (f) => f.messageId == sent.assistantMessageId,
+    );
+    expect((ended.ok, ended.held), (true, true));
+    expect(completed, isNot(contains(sent.assistantMessageId)));
+    expect(chats.heldCompletions, hasLength(1));
+    expect(chats.deletedMessages, ['$chatId/${sent.assistantMessageId}']);
+    // Messages typed meanwhile queue behind it, as behind a running answer.
+    expect(turns.queueGet(chatId).offer, isTrue);
+    // The scope's own copy: reading the chat would pull it, and hear the
+    // answer that way rather than as the scope does.
+    final waiting = turns.openMessages(chatId)!;
+    expect(waiting.last.content, 'And the pantry?');
+    expect(waiting.last.isHeldByServer, isTrue);
+    expect(waiting.map((m) => m.id), isNot(contains(sent.assistantMessageId)));
+
+    await pumpEventQueue();
+    final before = changed;
+    elsewhere.complete();
+    await until(() => changed > before);
+
+    final chatsService = ChatsService(runtime.container, events: events);
+    final answered = (await chatsService.get(chatId))!.messages;
+    expect(
+      <String>[
+        for (final message in answered)
+          if (message.role == 'user') message.content,
+      ],
+      ['Is the kettle on?', 'Write the shopping list', 'And the pantry?'],
+    );
+    expect(answered.where((m) => m.held), isEmpty);
+    expect(answered.last.content, chats.answer);
+    // The server answered it: it was never asked again.
+    expect(chats.completions, hasLength(2));
   });
 }

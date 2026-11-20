@@ -1504,6 +1504,7 @@ mod tests {
             files: vec![],
             blocks: vec![],
             queued: None,
+            held: false,
         }
     }
 

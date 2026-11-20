@@ -246,6 +246,13 @@ abstract class TurnFinished with _$TurnFinished {
     /// is ready yet, so no "answer ready"; when it goes out, its own
     /// `turn.*` events follow. [ok] stays true: nothing failed.
     @Default(false) bool queued,
+
+    /// The server holds the question until a reply still running in the
+    /// chat ends (Open WebUI 0.13.4), and answers it then under new ids:
+    /// [messageId] is gone, and the chat's stored copy shows the question
+    /// waiting ([ChatMessageDto.held]) until `chats.changed` brings the
+    /// answer. Nothing is ready yet, so no "answer ready"; [ok] stays true.
+    @Default(false) bool held,
   }) = _TurnFinished;
 
   factory TurnFinished.fromJson(Map<String, dynamic> json) =>

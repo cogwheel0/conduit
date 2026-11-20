@@ -169,6 +169,7 @@ fn chat_value() -> Value {
                     vec![]
                 },
                 queued: None,
+                held: false,
             }
         })
         .collect();
@@ -531,6 +532,7 @@ pub fn run(
             ok: true,
             code: None,
             queued: false,
+            held: false,
         });
         store.update(cx, |s, cx| s.on_event(&done, cx));
         cx.background_executor().timer(Duration::from_secs(1)).await;

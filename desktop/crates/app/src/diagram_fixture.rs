@@ -86,6 +86,7 @@ fn chat_value() -> Value {
                     vec![]
                 },
                 queued: None,
+                held: false,
             }
         })
         .collect();

@@ -559,6 +559,7 @@
   "desktopVideoFullScreen": "Vollbildmodus aktivieren",
   "desktopQueuedRemove": "Entfernen",
   "desktopQueuedFailedMessage": "Versuche die Antwort erneut oder entferne sie.",
+  "desktopHeldMessageWaiting": "Wartet, bis die aktuelle Antwort fertig ist",
   "desktopCitationMore": "+{count}",
   "@desktopSourcesCount": {
     "placeholders": {

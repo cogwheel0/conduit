@@ -4104,6 +4104,11 @@ pub struct ChatMessageDto {
     /// any other message).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued: Option<QueuedCompletionDto>,
+    /// A question the server holds until a reply still running in the chat
+    /// ends, and answers then (Open WebUI 0.13.4). False for any other
+    /// message.
+    #[serde(default)]
+    pub held: bool,
 }
 
 /// One model's column of a Compare Models answer.
@@ -13553,6 +13558,13 @@ pub struct TurnFinished {
     /// `turn.*` events follow. `ok` stays true: nothing failed.
     #[serde(default)]
     pub queued: bool,
+    /// The server holds the question until a reply still running in the
+    /// chat ends (Open WebUI 0.13.4), and answers it then under new ids:
+    /// `messageId` is gone, and the chat's stored copy shows the question
+    /// waiting (`ChatMessageDto.held`) until `chats.changed` brings the
+    /// answer. Nothing is ready yet, so no "answer ready"; `ok` stays true.
+    #[serde(default)]
+    pub held: bool,
 }
 
 /// Payload of `turn.completed`.

@@ -346,6 +346,9 @@ pub struct RowItem {
     pub siblings: Vec<String>,
     /// An answer waiting to go out (sent while offline, or failed).
     pub queued: Option<QueuedCompletionDto>,
+    /// A question the server holds until a reply still running in the chat
+    /// ends, and answers then.
+    pub held: bool,
 }
 
 /// One model's answer in a Compare Models row.
@@ -1147,6 +1150,20 @@ impl ChatStore {
                 self.fetch(cx);
                 self.rebuild(cx);
             }
+            // The server holds the question until another reply ends, and
+            // the answer this overlay waited for is gone: the stored copy,
+            // fetched now, shows the question waiting.
+            Event::TurnFinished(e) if e.chat_id == self.chat_id && e.held => {
+                if self
+                    .live
+                    .as_ref()
+                    .is_some_and(|live| live.message_id == e.message_id)
+                {
+                    self.live = None;
+                }
+                self.fetch(cx);
+                self.rebuild(cx);
+            }
             // Unscoped; a fallback for a lost `turn.completed`/`turn.failed`.
             // A queued hand-off (`queued`) ends the overlay as a finished
             // answer would: the stored row, fetched now, shows it queued.
@@ -1567,6 +1584,7 @@ impl ChatStore {
                     mergeable: m.mergeable_ids.clone(),
                     siblings: m.sibling_ids.clone(),
                     queued: if assistant { m.queued.clone() } else { None },
+                    held: !assistant && m.held,
                 })
             }
             Row::Pending => {
@@ -2573,6 +2591,7 @@ mod tests {
                 vec![]
             },
             queued: None,
+            held: false,
         }
     }
 
@@ -3077,6 +3096,7 @@ mod tests {
                     ok: true,
                     code: None,
                     queued: false,
+                    held: false,
                 }),
                 cx,
             );

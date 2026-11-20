@@ -52,5 +52,6 @@
   "siblingIds": [
     "msg-a1",
     "msg-b1"
-  ]
+  ],
+  "held": false
 }
