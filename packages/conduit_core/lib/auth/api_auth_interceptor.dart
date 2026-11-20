@@ -121,6 +121,11 @@ class ApiAuthInterceptor extends Interceptor {
   ApiAuthSnapshot captureSnapshot() =>
       ApiAuthSnapshot._(_authToken, _authRevision);
 
+  /// Whether [snapshot] is still the session requests go as: false once
+  /// another has replaced it, when a request bound to it is refused.
+  bool snapshotIsCurrent(ApiAuthSnapshot snapshot) =>
+      snapshot._revision == _authRevision && snapshot._token == _authToken;
+
   String _endpointPath(String rawPath) {
     final parsed = Uri.tryParse(rawPath);
     final path = parsed?.path ?? rawPath.split(RegExp(r'[?#]')).first;
@@ -201,9 +206,7 @@ class ApiAuthInterceptor extends Interceptor {
     final authMode = _authModeFor(path);
     _removeServerCredentials(options);
     final snapshot = options.extra[authSnapshotExtraKey];
-    if (snapshot is ApiAuthSnapshot &&
-        (snapshot._revision != _authRevision ||
-            snapshot._token != _authToken)) {
+    if (snapshot is ApiAuthSnapshot && !snapshotIsCurrent(snapshot)) {
       handler.reject(
         DioException(
           requestOptions: options,

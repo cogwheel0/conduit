@@ -318,6 +318,8 @@ abstract class _ApiServiceBase {
   /// request from silently adopting a later account's token on the same
   /// [ApiService] instance.
   ApiAuthSnapshot captureAuthSnapshot() => _authInterceptor.captureSnapshot();
+  bool _authSnapshotIsCurrent(ApiAuthSnapshot authSnapshot) =>
+      _authInterceptor.snapshotIsCurrent(authSnapshot);
   Options _withAuthSnapshot(Options options, ApiAuthSnapshot? authSnapshot) {
     if (authSnapshot == null) return options;
     options.extra = <String, dynamic>{
@@ -748,13 +750,17 @@ abstract class _ApiServiceBase {
     required String model,
     required Map<String, dynamic> userMessage,
     Map<String, dynamic>? modelItem,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     _traceApi(
       'Persisting legacy pending turn for chat=$conversationId '
       'assistant=$assistantMessageId',
     );
 
-    final response = await _dio.get('/api/v1/chats/$conversationId');
+    final response = await _dio.get(
+      '/api/v1/chats/$conversationId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final rawConversation = _coerceJsonMap(response.data);
     final rawChat = _coerceJsonMap(rawConversation?['chat']);
     if (rawConversation == null || rawChat == null) {
@@ -858,7 +864,11 @@ abstract class _ApiServiceBase {
     }
     chat['models'] = models;
 
-    await _dio.post('/api/v1/chats/$conversationId', data: {'chat': chat});
+    await _dio.post(
+      '/api/v1/chats/$conversationId',
+      data: {'chat': chat},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<void> _setConversationToggle({
@@ -1974,9 +1984,10 @@ abstract class _ApiServiceBase {
   /// when the chat does not hold it.
   Future<Map<String, dynamic>?> _readSavedReply(
     String chatId,
-    String messageId,
-  ) async {
-    final chat = await getChatRaw(chatId);
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final chat = await getChatRaw(chatId, authSnapshot: authSnapshot);
     final history = chat?['chat'] is Map ? chat!['chat']['history'] : null;
     final messages = history is Map ? history['messages'] : null;
     final candidate = messages is Map ? messages[messageId] : null;
@@ -2009,6 +2020,7 @@ abstract class _ApiServiceBase {
     required String messageId,
     String? sessionId,
     required Future<void> Function() abort,
+    ApiAuthSnapshot? authSnapshot,
   }) {
     var cancelled = false;
     Timer? pause;
@@ -2031,7 +2043,11 @@ abstract class _ApiServiceBase {
         if (read > 0) await sleep(_heldReplyPollDelay(read));
         if (cancelled) return;
         try {
-          final reply = await _readSavedReply(chatId, messageId);
+          final reply = await _readSavedReply(
+            chatId,
+            messageId,
+            authSnapshot: authSnapshot,
+          );
           if (cancelled) return;
           if (_savedReplyFinished(reply)) {
             finished = true;
@@ -2137,12 +2153,17 @@ abstract class _ApiServiceBase {
     String? conversationId,
     required Future<void> Function() abort,
     required bool viaTether,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     final chatId = conversationId?.trim();
     if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
       Map<String, dynamic>? reply;
       try {
-        reply = await _readSavedReply(chatId, messageId);
+        reply = await _readSavedReply(
+          chatId,
+          messageId,
+          authSnapshot: authSnapshot,
+        );
       } catch (e) {
         DebugLogger.warning(
           'error-status-reply-read-failed',

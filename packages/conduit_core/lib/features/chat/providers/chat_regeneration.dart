@@ -1548,6 +1548,7 @@ Future<void> regenerateMessage(
           regenerationMessageId: earlierHolds == null
               ? assistantMessageId
               : null,
+          authSnapshot: regenerationOwner.authSnapshot,
         );
       } on ChatCompletionHeld {
         // Regenerated under a reply still running (on another device): the

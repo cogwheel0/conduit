@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
@@ -135,6 +137,7 @@ class _RecordingCompletionApi extends ApiService {
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
     String? regenerationMessageId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     completionCalls += 1;
     lastConversationId = conversationId;

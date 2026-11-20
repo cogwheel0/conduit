@@ -658,6 +658,7 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
     String? regenerationMessageId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     completionCalls += 1;
     assistantMessageId = responseMessageId;
@@ -1087,6 +1088,9 @@ class _AnswersReadHook extends QueryInterceptor {
   bool landed = false;
   Completer<void>? _sent;
 
+  /// Runs once, as the answers have been read.
+  void Function()? onRead;
+
   @override
   Future<List<Map<String, Object?>>> runSelect(
     QueryExecutor executor,
@@ -1094,10 +1098,16 @@ class _AnswersReadHook extends QueryInterceptor {
     List<Object?> args,
   ) async {
     final rows = await executor.runSelect(statement, args);
-    final landing = land;
-    if (landing != null &&
+    final answersRead =
         statement.contains('FROM "messages"') &&
-        statement.contains('"parent_id" = ?')) {
+        statement.contains('"parent_id" = ?');
+    final read = onRead;
+    if (read != null && answersRead) {
+      onRead = null;
+      read();
+    }
+    final landing = land;
+    if (landing != null && answersRead) {
       land = null;
       final sent = _sent = Completer<void>();
       unawaited(Zone.root.run(landing).then((_) => landed = true));
@@ -4020,6 +4030,49 @@ void main() {
             .equals(answered ? api.assistantMessageId : null);
       });
     }
+
+    test('a regeneration goes only as the account that started it', () async {
+      final reads = _AnswersReadHook();
+      await db.close();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+      await _seedChat(db, chatId);
+      final api = _WireCompletionApi(keepAuthInterceptor: true)
+        ..configBody = {..._interpreterConfig(), 'version': '0.13.4'}
+        ..updateAuthToken('account-a-token');
+      await api.getBackendConfig();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        ChatMessage(
+          id: 'earlier-answer',
+          role: 'assistant',
+          content: 'egret',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+        ),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      // The token is replaced before the app's session says so.
+      reads.onRead = () => api.updateAuthToken('account-b-token');
+
+      final failure = await regenerateMessage(
+        container,
+        'Say the word: heron',
+        null,
+      ).then<Object?>((_) => null, onError: (Object error) => error);
+
+      check([
+        for (final request in api.credentials)
+          if (request.path == '/api/chat/completions') request.authorization,
+      ]).isEmpty();
+      check(failure).isA<ChatCompletionStopped>();
+    });
 
     Future<ProviderContainer> openOnWire(_WireCompletionApi api) async {
       await seedTurn();
@@ -13674,6 +13727,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
     String? regenerationMessageId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     requests.add(
       _FanOutRequest(
@@ -13723,6 +13777,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
         files: files,
         messageIds: messageIds,
         viaTether: viaTether,
+        authSnapshot: authSnapshot,
       );
     }
     await holdResponse?.future;

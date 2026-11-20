@@ -1522,6 +1522,7 @@ Future<void> _sendMessageInternal(
           variables: promptVariables,
           files: _extractTopLevelRequestFiles(userMessageMap),
           viaTether: answerViaTether(placeholder),
+          authSnapshot: submittedOwner?.authSnapshot,
         );
       } on ChatCompletionHeld {
         // Only a saved chat is held, so it has an owner.

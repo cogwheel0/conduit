@@ -991,6 +991,7 @@ Future<void> runComparisonCompletion(
         files: _extractTopLevelRequestFiles(userMessageMap),
         messageIds: comparisonTargets(group),
         viaTether: viaTether.contains(primary.assistantMessageId),
+        authSnapshot: owner.authSnapshot,
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(

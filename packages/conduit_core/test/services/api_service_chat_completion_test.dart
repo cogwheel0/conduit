@@ -1849,6 +1849,48 @@ void main() {
     }
   });
 
+  // An account switch does not stop a send: the request itself must refuse
+  // to go as the account that signed in meanwhile.
+  test('a request is not sent as an account that signs in during its version '
+      'read', () async {
+    final inner = _QueuedFakeAdapter([
+      _FakeAdapter.json({
+        'status': true,
+        'version': '0.13.4',
+        'features': <String, dynamic>{},
+      }),
+      _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+    ]);
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'test',
+        name: 'Test Server',
+        url: 'http://localhost:9999',
+      ),
+      workerManager: WorkerManager(),
+      authToken: 'account-a',
+    );
+    api.dio.httpClientAdapter = _HookedAdapter(inner, (options) {
+      if (options.path == '/api/config') api.updateAuthToken('account-b');
+    });
+
+    final failure = await api
+        .sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          responseMessageId: 'assistant-2',
+          regenerationMessageId: 'assistant-2',
+        )
+        .then<Object?>((_) => null, onError: (Object error) => error);
+
+    check([
+      for (final request in inner.requests)
+        (request.path, request.headers['Authorization']),
+    ]).deepEquals([('/api/config', 'Bearer account-a')]);
+    check(failure).isA<ChatCompletionStopped>();
+  });
+
   // Open WebUI read and removed both before 0.13.4. From 0.13.4 it passes
   // them through to the provider, and a strict provider refuses the request.
   group('model_item and tool_servers', () {

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -241,6 +243,7 @@ class _RecordingCompletionApi extends ApiService {
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
     String? regenerationMessageId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     completionCalls += 1;
     lastEnableImageGeneration = enableImageGeneration;

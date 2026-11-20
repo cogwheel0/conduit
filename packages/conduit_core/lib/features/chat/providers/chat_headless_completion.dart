@@ -278,6 +278,7 @@ Future<void> runQueuedCompletion(
         variables: promptVars2,
         files: _extractTopLevelRequestFiles(parentMsgMap),
         viaTether: viaTether,
+        authSnapshot: owner.authSnapshot,
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
@@ -626,6 +627,7 @@ Future<void> runHeadlessCompletion(
       variables: promptVars,
       files: _extractTopLevelRequestFiles(parentMsgMap),
       viaTether: viaTether,
+      authSnapshot: owner.authSnapshot,
     );
   } on ChatCompletionStopped {
     await settleStoppedOpenWebUiCompletion(
