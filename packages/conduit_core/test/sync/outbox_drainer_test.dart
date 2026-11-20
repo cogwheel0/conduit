@@ -801,16 +801,21 @@ void main() {
         );
         client.failuresByChat['c1'] = [StateError('transient')];
         final drainer = buildDrainer(backoff: Backoff(jitter: () => 0.999999));
+        final pushes = db.chatsDao.pushVersion('c1');
 
         await drainer.drain();
         final waiting = (await dao.pendingForChat('c1')).single;
         check(waiting.attempts).equals(1);
         check(waiting.nextAttemptAt).equals(clock.now + 2);
+        check(db.chatsDao.pushVersion('c1')).equals(pushes);
 
         clock.now += 2;
         await drainer.drain();
 
         check(await dao.pendingForChat('c1')).isEmpty();
+        // Landed as a push does: a copy of the chat read before it still has
+        // the answer, and a pull stores nothing of it.
+        check(db.chatsDao.pushVersion('c1')).equals(pushes + 1);
         final history =
             (server.getChatById('c1')!['chat'] as Map)['history'] as Map;
         check((history['messages'] as Map).keys.toList()).deepEquals(['u1']);

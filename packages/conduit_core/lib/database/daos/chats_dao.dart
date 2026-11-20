@@ -483,8 +483,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     /// `updated_at` says.
     bool readBeforePush = false,
   }) {
-    final serverChat = server.chat;
     return transaction(() async {
+      // A message whose delete has not landed yet stays out: the server's
+      // copy may still hold it, such as a held question's empty answer.
+      final serverRows = server.withoutMessages(
+        await _outboxDao.unsentMessageDeletes(server.chat.id),
+      );
+      final serverChat = serverRows.chat;
       final existing = await getChat(serverChat.id);
       // The list may predate a read or unread made here since.
       final listedReadAt =
@@ -518,7 +523,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
               if (m.dirty) m.id,
           };
           final result = mergeChat(
-            server: server,
+            server: serverRows,
             local: local,
             base: serverChat.updatedAt - 1,
             chatEnvelopeDirty: true,
@@ -550,7 +555,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           );
         }
         await _writeChatRows(
-          rows: server,
+          rows: serverRows,
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,
@@ -608,7 +613,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       }
 
       final result = mergeChat(
-        server: server,
+        server: serverRows,
         local: local,
         base: base,
         chatEnvelopeDirty: existing.dirty,
@@ -626,7 +631,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           !existing.dirty &&
           dirtyMessageIds.isEmpty) {
         await _writeChatRows(
-          rows: server,
+          rows: serverRows,
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,

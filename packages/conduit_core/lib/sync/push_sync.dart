@@ -379,7 +379,9 @@ class PushSync {
   /// Deletes [messageIds] from the server's copy of [chatId]. A message (or
   /// chat) already gone counts as deleted ([SyncApiClient.deleteChatMessage]).
   /// The local rows are not touched: whoever recorded the op already removed
-  /// them.
+  /// them, and a pull keeps them out while the op waits
+  /// ([OutboxDao.unsentMessageDeletes]). Once the deletes land, a copy read
+  /// before them is a stale read, as one read before a push is.
   Future<void> pushDeleteMessages(
     String chatId,
     List<String> messageIds,
@@ -387,6 +389,7 @@ class PushSync {
     for (final messageId in messageIds) {
       await _client.deleteChatMessage(chatId, messageId);
     }
+    _db.chatsDao.notePushLanded(chatId);
   }
 
   // ---- folderUpsert / folderDelete (§7.6) ----

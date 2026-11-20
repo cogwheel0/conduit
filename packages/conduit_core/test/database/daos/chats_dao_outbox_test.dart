@@ -1823,12 +1823,17 @@ void main() {
   group('a turn the server holds behind a running reply', () {
     // Open WebUI 0.13.4 answers the question later, under new ids, and only
     // once nothing answers it.
-    Future<void> seedHeldTurn() async {
-      final rows = ChatBlobMapper.blobToRows(
+    /// The chat as the server holds it at [updatedAt], with the question's
+    /// [questionMeta]: its empty answer `a1` is still there.
+    ChatRows heldTurnRows({
+      int updatedAt = 1,
+      Map<String, dynamic>? questionMeta,
+    }) {
+      return ChatBlobMapper.blobToRows(
         chatId: 'c1',
         title: 'Pantry',
         createdAt: 1,
-        updatedAt: 1,
+        updatedAt: updatedAt,
         blob: <String, dynamic>{
           'title': 'Pantry',
           'history': <String, dynamic>{
@@ -1849,6 +1854,7 @@ void main() {
                 'role': 'user',
                 'content': 'And the pantry?',
                 'timestamp': 2,
+                'meta': ?questionMeta,
               },
               'a1': <String, dynamic>{
                 'id': 'a1',
@@ -1862,8 +1868,10 @@ void main() {
           },
         },
       );
-      await db.chatsDao.upsertServerChat(rows: rows);
     }
+
+    Future<void> seedHeldTurn() =>
+        db.chatsDao.upsertServerChat(rows: heldTurnRows());
 
     test('an empty answer the server kept is deleted there later', () async {
       await seedHeldTurn();
@@ -1905,6 +1913,42 @@ void main() {
 
       check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('b0');
       check(await db.outboxDao.pendingForChat('c1')).isEmpty();
+    });
+
+    test('a pull while its delete waits does not bring the empty answer '
+        'back', () async {
+      await seedHeldTurn();
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        unsentServerDeletes: ['a1'],
+      );
+
+      // The server's copy, newer, still has the answer: the delete has not
+      // landed. The question is held there.
+      await db.chatsDao.mergeServerChat(
+        server: heldTurnRows(
+          updatedAt: 2,
+          questionMeta: <String, dynamic>{'status': 'pending'},
+        ),
+      );
+
+      check(await db.messagesDao.getMessage('c1', 'a1')).isNull();
+      final question = jsonDecode(
+        (await db.messagesDao.getMessage('c1', 'u1'))!.payload,
+      );
+      check(question['childrenIds']).isA<List>().isEmpty();
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u1');
+      check(chat.serverUpdatedAt).equals(2);
+      final conversation = assembleConversation(
+        chat,
+        await db.messagesDao.getForChat('c1'),
+      );
+      check(conversation.messages.last)
+        ..has((m) => m.id, 'id').equals('u1')
+        ..has((m) => m.isHeldByServer, 'held').isTrue();
     });
   });
 }

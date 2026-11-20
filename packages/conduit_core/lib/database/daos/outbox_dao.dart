@@ -819,6 +819,26 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   Future<bool> hasUnconfirmedUpdate(String chatId) async =>
       (await _updateOpsFor(chatId)).isNotEmpty;
 
+  /// The messages of chat [chatId] that a `deleteMessages` op has still to
+  /// delete on the server (pending, in flight, or parked as failed). The
+  /// server's copy may still hold them, and a pull keeps them out.
+  Future<Set<String>> unsentMessageDeletes(String chatId) async {
+    final ops =
+        await (select(outboxOps)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.kind.equals(OutboxKind.deleteMessages.name),
+            ))
+            .get();
+    return {
+      for (final op in ops)
+        if (_decodePayload(op.payload)[kDeleteMessagesIdsKey]
+            case final List ids)
+          for (final id in ids)
+            if (id is String) id,
+    };
+  }
+
   Future<bool> _hasPendingUpdateFlag(String chatId, String flag) async {
     final ops = await _updateOpsFor(chatId);
     return ops.any((op) => _decodePayload(op.payload)[flag] == true);

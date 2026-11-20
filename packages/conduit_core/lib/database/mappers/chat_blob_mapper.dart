@@ -233,6 +233,70 @@ class ChatRows {
   /// preserved verbatim here under its original key, and [rowsToBlob] will
   /// not overwrite it.
   final Map<String, dynamic> historyExtra;
+
+  /// These rows without the messages [ids], and without any mention of them:
+  /// a parent's `childrenIds` drops them, and a `currentId` naming one moves
+  /// to its nearest ancestor kept.
+  ChatRows withoutMessages(Set<String> ids) {
+    if (!messages.any((message) => ids.contains(message.id))) return this;
+    final parents = {
+      for (final message in messages) message.id: message.parentId,
+    };
+    var currentId = chat.currentMessageId;
+    while (currentId != null && ids.contains(currentId)) {
+      currentId = parents[currentId];
+    }
+    return ChatRows(
+      chat: ChatRowData(
+        id: chat.id,
+        title: chat.title,
+        folderId: chat.folderId,
+        pinned: chat.pinned,
+        archived: chat.archived,
+        currentMessageId: currentId,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        rawExtra: chat.rawExtra,
+      ),
+      messages: [
+        for (final message in messages)
+          if (!ids.contains(message.id)) _withoutChildren(message, ids),
+      ],
+      unmappableMessages: unmappableMessages,
+      unmappableMessageOrder: unmappableMessageOrder,
+      blobHadTitle: blobHadTitle,
+      blobTitleValue: blobTitleValue,
+      blobHadHistory: blobHadHistory,
+      historyHadMessages: historyHadMessages,
+      historyHadCurrentId: historyHadCurrentId,
+      historyExtra: historyExtra,
+    );
+  }
+
+  static MessageRowData _withoutChildren(
+    MessageRowData message,
+    Set<String> ids,
+  ) {
+    final children = message.payload['childrenIds'];
+    if (children is! List || !children.any(ids.contains)) return message;
+    return MessageRowData(
+      id: message.id,
+      chatId: message.chatId,
+      parentId: message.parentId,
+      role: message.role,
+      content: message.content,
+      model: message.model,
+      createdAt: message.createdAt,
+      orderIndex: message.orderIndex,
+      payload: <String, dynamic>{
+        ...message.payload,
+        'childrenIds': [
+          for (final child in children)
+            if (!ids.contains(child)) child,
+        ],
+      },
+    );
+  }
 }
 
 /// Pure mapping between Open WebUI chat blobs and normalized rows
