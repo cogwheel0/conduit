@@ -542,11 +542,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
         configuration.maximumCallGroups = data.maximumCallGroups
         configuration.maximumCallsPerCallGroup = data.maximumCallsPerCallGroup
         
-        configuration.supportedHandleTypes = [
-            CXHandle.HandleType.generic,
-            CXHandle.HandleType.emailAddress,
-            CXHandle.HandleType.phoneNumber
-        ]
+        configuration.supportedHandleTypes = [CXHandle.HandleType.generic]
         if #available(iOS 11.0, *) {
             configuration.includesCallsInRecents = data.includesCallsInRecents
         }

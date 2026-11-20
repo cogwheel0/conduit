@@ -294,6 +294,8 @@ class CallKitService implements VoiceCallKitPort {
       ios: const IOSParams(
         iconName: '',
         handleType: 'generic',
+        // Calling back from the Phone app's Recents only opens Conduit (#590).
+        includesCallsInRecents: false,
         supportsVideo: false,
         audioSessionMode: 'voiceChat',
         audioSessionActive: false,
