@@ -269,18 +269,21 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// Keeps [relay] with the error of an answer read back from the server,
-  /// which saves the error without it.
+  /// which saves the error without it. [errorContent] is the error's words
+  /// the relay was read from: a stored error a later pull put in their place
+  /// is left as it is.
   Future<bool> recordAssistantRelayFailure({
     required String chatId,
     required String messageId,
     required TetherRelayFailure relay,
+    required String? errorContent,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
       mutate: (payload) {
         final error = payload['error'];
-        if (error is! Map) return;
+        if (error is! Map || error['content'] != errorContent) return;
         payload['error'] = <String, dynamic>{
           ...error.cast<String, dynamic>(),
           kTetherRelayErrorKey: relay.name,

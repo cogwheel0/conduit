@@ -264,6 +264,7 @@ void main() {
         chatId: chatId,
         messageId: answerId,
         relay: TetherRelayFailure.interrupted,
+        errorContent: serverWords,
       );
 
       await serverCopy(const {'content': serverWords}, updatedAt: 2);
@@ -290,12 +291,30 @@ void main() {
       });
     });
 
+    test('is not put on another error a pull stored meanwhile', () async {
+      // The relay was read from the server's generic words; before it is
+      // recorded, a later pull stored another error in their place.
+      await serverCopy(const {'content': 'Access denied'}, updatedAt: 1);
+      await db.messagesDao.recordAssistantRelayFailure(
+        chatId: chatId,
+        messageId: answerId,
+        relay: TetherRelayFailure.interrupted,
+        errorContent: serverWords,
+      );
+
+      check(await storedError())
+          .isNotNull()
+          .has((it) => it.relay, 'relay')
+          .isNull();
+    });
+
     test('goes once the server reports another error', () async {
       await serverCopy(const {'content': serverWords}, updatedAt: 1);
       await db.messagesDao.recordAssistantRelayFailure(
         chatId: chatId,
         messageId: answerId,
         relay: TetherRelayFailure.interrupted,
+        errorContent: serverWords,
       );
 
       await serverCopy(const {'content': 'Model not found'}, updatedAt: 2);

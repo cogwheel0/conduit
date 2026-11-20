@@ -978,6 +978,7 @@ Future<void> _keepLandedRelayFailure(
         chatId: owner.chatId,
         messageId: answerId,
         relay: relay,
+        errorContent: error.content,
       );
     });
   } catch (cause, stackTrace) {
