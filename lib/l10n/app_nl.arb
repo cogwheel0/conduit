@@ -5094,5 +5094,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres."
+  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres.",
+  "chatHeldMessageWaiting": "Wacht tot het huidige antwoord klaar is",
+  "@chatHeldMessageWaiting": {
+    "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  }
 }

@@ -5094,5 +5094,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "La clé enregistrée ne sera pas envoyée à la nouvelle adresse et sera donc supprimée. Saisissez une clé pour cette adresse."
+  "personalConnectionsKeyRemovedForNewAddress": "La clé enregistrée ne sera pas envoyée à la nouvelle adresse et sera donc supprimée. Saisissez une clé pour cette adresse.",
+  "chatHeldMessageWaiting": "En attente de la fin de la réponse en cours",
+  "@chatHeldMessageWaiting": {
+    "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  }
 }
