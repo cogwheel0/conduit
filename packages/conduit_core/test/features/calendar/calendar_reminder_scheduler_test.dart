@@ -118,10 +118,9 @@ class _FakeNotifications implements CalendarReminderPort {
     onScreen.removeWhere((posted) => posted.scope == scope);
   }
 
-  /// What the OS does once a scheduled reminder is due: posts it and drops it
-  /// from the pending list.
-  void fireDue() {
-    final now = clock.now();
+  /// What the OS does once a scheduled reminder is due at [now]: posts it and
+  /// drops it from the pending list.
+  void fireDue(DateTime now) {
     scheduled.removeWhere((r) {
       if (scheduledAt[r.key]!.isAfter(now)) return false;
       delivered.add(r.key);
@@ -240,7 +239,7 @@ void main() {
       await h.sync();
 
       h.now = _now.add(const Duration(minutes: 52));
-      h.notifications.fireDue();
+      h.notifications.fireDue(h.now);
       h.restart();
       await h.sync();
 
