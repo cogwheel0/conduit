@@ -16,10 +16,9 @@ class ChatContextAttachment {
   });
 
   /// A whole knowledge base, as Open WebUI's own client attaches one: the
-  /// model draws on every file in it. The phone attaches single files from a
-  /// base instead ([ChatContextAttachmentType.knowledge] with a [fileId]);
-  /// a client whose `#` picks a whole base sends this. [description]
-  /// travels with it, as the web client sends it.
+  /// model draws on every file in it. A single file from a base is
+  /// [ChatContextAttachmentType.knowledge] with a [fileId] instead.
+  /// [description] travels with it, as the web client sends it.
   const ChatContextAttachment.knowledgeBase({
     required this.id,
     required String name,

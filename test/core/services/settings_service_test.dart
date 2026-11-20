@@ -494,7 +494,8 @@ void main() {
       (null, 1.0),
       (0.5, 1.0),
       (0.6, 1.25),
-      (0.25, 0.75),
+      (0.25, 0.5),
+      (0.9, 1.75),
       (2.0, 2.0),
     ]) {
       test('a saved rate of $rate loads as ${speed}x', () async {

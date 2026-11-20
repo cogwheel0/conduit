@@ -9772,5 +9772,9 @@
   "personalConnectionsKeyRemovedForNewAddress": "Zapisany klucz nie zostanie wysłany na nowy adres, więc zostanie usunięty. Wpisz klucz dla tego adresu.",
   "@personalConnectionsKeyRemovedForNewAddress": {
     "description": "Hint shown instead of a stored key when the edit moves the connection to another address: Save removes the saved key there, so the user must enter one for the new address."
+  },
+  "knowledgeBaseEntire": "Cała baza wiedzy",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

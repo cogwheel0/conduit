@@ -6994,5 +6994,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "保存済みのキーは新しいアドレスには送信されないため、削除されます。このアドレス用のキーを入力してください。"
+  "personalConnectionsKeyRemovedForNewAddress": "保存済みのキーは新しいアドレスには送信されないため、削除されます。このアドレス用のキーを入力してください。",
+  "knowledgeBaseEntire": "ナレッジベース全体",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }

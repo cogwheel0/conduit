@@ -1323,6 +1323,15 @@ abstract class ImageGalleryHostApi {
   void saveImage(String path, String mimeType, String displayName);
 }
 
+/// Android only. The certificate authorities the user installed in Settings,
+/// each as PEM text.
+@HostApi()
+abstract class UserCertificatesHostApi {
+  /// Async so the host reads the store off its main thread.
+  @async
+  List<String> userCaCertificates();
+}
+
 @HostApi()
 abstract class NativeSheetHostApi {
   void setTheme(PlatformNativeSheetTheme theme);

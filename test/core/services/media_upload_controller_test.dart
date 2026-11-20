@@ -73,6 +73,53 @@ void main() {
     expect(encodeCalls, 0);
   });
 
+  test(
+    'a PNG over the Direct limit goes as a JPEG of it when that fits',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_direct_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final screenshot = File('${directory.path}/screenshot.png');
+      await _truncate(screenshot, kDirectMaxDecodedImageBytes + 1);
+      final conversion = await Directory.systemTemp.createTemp('conduit_img_');
+      addTearDown(() async {
+        if (await conversion.exists()) await conversion.delete(recursive: true);
+      });
+      final jpeg = File('${conversion.path}/converted.jpg');
+      await jpeg.writeAsBytes([1, 2, 3]);
+      final encoded = <String>[];
+      final container = _directContainer(
+        attachments: [_pendingImage(screenshot, reportedBytes: 1)],
+        encoder: (file) async {
+          encoded.add(file.path);
+          return 'data:image/jpeg;base64,AQID';
+        },
+        extraOverrides: [
+          imageUploadConverterProvider.overrideWithValue(
+            (filePath) async => jpeg.path,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(
+            filePath: screenshot.path,
+            fileName: 'screenshot.png',
+            fileSize: 1,
+          );
+
+      expect(encoded, [jpeg.path]);
+      expect(
+        container.read(attachedFilesProvider).single.status,
+        FileUploadStatus.completed,
+      );
+      expect(await conversion.exists(), isFalse);
+    },
+  );
+
   test('direct upload stats every pending image for aggregate limit', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',
@@ -870,6 +917,143 @@ void main() {
       expect(durableRows.single.filePath, converted.path);
     },
   );
+
+  // A screenshot stays a PNG, and a photo is compressed only when the JPEG
+  // comes out smaller.
+  test('a large PNG goes up as picked, a JPEG only when compressing shrinks it',
+      () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final directory = await Directory.systemTemp.createTemp(
+      'conduit_image_policy_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final conversionDirectory = await Directory.systemTemp.createTemp(
+      'conduit_img_',
+    );
+    addTearDown(() async {
+      if (await conversionDirectory.exists()) {
+        await conversionDirectory.delete(recursive: true);
+      }
+    });
+    final screenshot = File('${directory.path}/screenshot.png');
+    final photo = File('${directory.path}/photo.jpg');
+    final larger = File('${conversionDirectory.path}/converted.jpg');
+    await screenshot.writeAsBytes([1, 2, 3]);
+    await photo.writeAsBytes([1, 2, 3]);
+    await larger.writeAsBytes([1, 2, 3, 4, 5, 6]);
+    final converted = <String>[];
+    final uploaded = <String>[];
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploaded.add(fileName);
+        return 'server-$fileName';
+      },
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+        imageUploadConverterProvider.overrideWithValue((filePath) async {
+          converted.add(p.basename(filePath));
+          return larger.path;
+        }),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(screenshot, reportedBytes: 3),
+            _pendingImage(photo, reportedBytes: 3),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    for (final (file, name, mime) in [
+      (screenshot, 'screenshot.png', 'image/png'),
+      (photo, 'photo.jpg', 'image/jpeg'),
+    ]) {
+      await controller.upload(
+        filePath: file.path,
+        fileName: name,
+        fileSize: 600 * 1024,
+        mimeType: mime,
+      );
+    }
+
+    expect(converted, ['photo.jpg']);
+    expect(uploaded, ['screenshot.png', 'photo.jpg']);
+    expect(await larger.exists(), isFalse);
+  });
+
+  // The picker compresses a large photo once, into a JPEG of its own. One
+  // that stays over 500 KiB was encoded again on its way up, and the upload
+  // deleted it while the tray still showed it.
+  test('a photo compressed when it was picked goes up as it is, and stays '
+      'for the tray until it is removed', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final picked = await Directory.systemTemp.createTemp('conduit_img_');
+    addTearDown(() async {
+      if (await picked.exists()) await picked.delete(recursive: true);
+    });
+    final photo = File('${picked.path}/converted.jpg');
+    await photo.writeAsBytes(List<int>.filled(600 * 1024, 7));
+    final converted = <String>[];
+    final uploaded = <String>[];
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploaded.add(fileName);
+        return 'server-$fileName';
+      },
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+        imageUploadConverterProvider.overrideWithValue((filePath) async {
+          converted.add(filePath);
+          return null;
+        }),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(photo, reportedBytes: 600 * 1024),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    await controller.upload(
+      filePath: photo.path,
+      fileName: 'photo.jpg',
+      fileSize: 600 * 1024,
+      mimeType: 'image/jpeg',
+    );
+
+    expect(converted, isEmpty);
+    expect(uploaded, ['photo.jpg']);
+    final attached = container.read(attachedFilesProvider).single;
+    expect(attached.status, FileUploadStatus.completed);
+    expect(await photo.exists(), isTrue);
+    // Its row stays too, to clean the photo up after a restart.
+    expect(await database.attachmentQueueDao.getAll(), hasLength(1));
+
+    await controller.removeAttachment(photo.path);
+
+    expect(await photo.exists(), isFalse);
+    expect(queue.queue, isEmpty, reason: 'the photo is gone, its row stayed');
+    expect(await database.attachmentQueueDao.getAll(), isEmpty);
+  });
 
   test(
     'durable queue ownership survives synchronous publication failure',
@@ -3484,6 +3668,119 @@ void main() {
       expect(encodeCalls, 0);
     });
 
+    // A PNG is kept as picked, so Hermes's 6 MB is the first limit a large
+    // screenshot meets. A JPEG of it goes instead when that fits. Another
+    // PNG not sent yet counts as its JPEG once its file leaves no room: it
+    // goes as one too.
+    for (final (screenshots, label) in [
+      (1, 'a PNG over the limit goes'),
+      (2, 'each of two PNGs over the limit go'),
+    ]) {
+      test('$label as a JPEG of it, which is then removed', () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_media_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final pending = <File>[];
+        for (var index = 0; index < screenshots; index++) {
+          final screenshot = File('${directory.path}/screenshot-$index.png');
+          await _truncate(screenshot, kHermesMaxDecodedImageBytes + 1);
+          pending.add(screenshot);
+        }
+        final screenshot = pending.first;
+        final conversions = <Directory>[];
+        addTearDown(() async {
+          for (final conversion in conversions) {
+            if (await conversion.exists()) {
+              await conversion.delete(recursive: true);
+            }
+          }
+        });
+        final encoded = <String>[];
+        final container = await _hermesContainer(
+          capabilities: const HermesCapabilities(inputImages: true),
+          attachments: [
+            for (final file in pending) _pendingImage(file, reportedBytes: 1),
+          ],
+          converter: (filePath) async {
+            final conversion = await Directory.systemTemp.createTemp(
+              'conduit_img_',
+            );
+            conversions.add(conversion);
+            final jpeg = File('${conversion.path}/converted.jpg');
+            await jpeg.writeAsBytes([1, 2, 3]);
+            return jpeg.path;
+          },
+          encoder: (file) async {
+            encoded.add(file.path);
+            return 'data:image/jpeg;base64,AQID';
+          },
+        );
+        addTearDown(container.dispose);
+
+        await container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: screenshot.path,
+              fileName: 'screenshot-0.png',
+              fileSize: 1,
+            );
+
+        expect(encoded, ['${conversions.first.path}/converted.jpg']);
+        final stored = container.read(attachedFilesProvider).first;
+        expect(stored.status, FileUploadStatus.completed);
+        expect(stored.base64DataUrl, 'data:image/jpeg;base64,AQID');
+        expect(stored.file.path, screenshot.path);
+        for (final conversion in conversions) {
+          expect(await conversion.exists(), isFalse);
+        }
+      });
+    }
+
+    // As a JPEG, a GIF would lose its animation and a WebP its
+    // transparency, so one over the limit is refused instead.
+    for (final name in ['animation.gif', 'sticker.webp']) {
+      test('$name over the limit is refused, not made a JPEG', () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_media_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final image = File('${directory.path}/$name');
+        await _truncate(image, kHermesMaxDecodedImageBytes + 1);
+        var conversions = 0;
+        var encodeCalls = 0;
+        final container = await _hermesContainer(
+          capabilities: const HermesCapabilities(inputImages: true),
+          attachments: [_pendingImage(image, reportedBytes: 1)],
+          converter: (filePath) async {
+            conversions++;
+            return null;
+          },
+          encoder: (file) async {
+            encodeCalls++;
+            return 'data:image/jpeg;base64,AQID';
+          },
+        );
+        addTearDown(container.dispose);
+
+        await expectLater(
+          container
+              .read(mediaUploadControllerProvider)
+              .upload(filePath: image.path, fileName: name, fileSize: 1),
+          throwsA(
+            isA<HermesChatInputException>().having(
+              (error) => error.message,
+              'message',
+              'Hermes images must be 6 MB or less in total.',
+            ),
+          ),
+        );
+
+        expect(conversions, 0);
+        expect(encodeCalls, 0);
+      });
+    }
+
     test('aggregate image size uses local file stats', () async {
       final directory = await Directory.systemTemp.createTemp(
         'conduit_hermes_media_',
@@ -3768,10 +4065,13 @@ Future<ProviderContainer> _hermesContainer({
   required List<FileUploadState> attachments,
   required DirectImageDataUrlEncoder encoder,
   AttachmentUploadQueue? uploadQueue,
+  ImageUploadConverter? converter,
 }) async {
   final container = ProviderContainer(
     overrides: [
       apiServiceProvider.overrideWithValue(null),
+      if (converter != null)
+        imageUploadConverterProvider.overrideWithValue(converter),
       selectedModelProvider.overrideWith(
         () => _SeededSelectedModel(hermesSyntheticModel()),
       ),

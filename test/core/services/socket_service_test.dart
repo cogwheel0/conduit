@@ -1544,20 +1544,59 @@ void main() {
     addTearDown(service.dispose);
 
     await service.connect();
+    final policyChanges = <(bool, bool)>[];
+    final policyStreamClosed = Completer<void>();
+    var awaitedPolicyChanges = 0;
+    Completer<void>? policyChangesReached;
+    final policySubscription = service.transportPolicyChanges.listen((_) {
+      policyChanges.add((
+        service.isAppForeground,
+        service.mayMaintainTransport,
+      ));
+      if (policyChanges.length == awaitedPolicyChanges) {
+        policyChangesReached?.complete();
+      }
+    }, onDone: policyStreamClosed.complete);
+    addTearDown(policySubscription.cancel);
+    Future<void> policyChangeCount(int count) {
+      if (policyChanges.length >= count) return Future<void>.value();
+      awaitedPolicyChanges = count;
+      return (policyChangesReached = Completer<void>()).future;
+    }
+
     final subscription = service.addChatEventHandler(
       sessionId: 'stream-session',
       requireFocus: false,
       keepsAliveInBackground: true,
       handler: (_, _) {},
     );
+    var policyChanged = policyChangeCount(1);
     lifecycle.emit(AppLifecyclePhase.paused);
 
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
+    expect(service.mayMaintainTransport, isTrue);
+    await policyChanged;
+    expect(policyChanges, [(false, true)]);
 
+    policyChanged = policyChangeCount(2);
     subscription.dispose();
     expect(socketFactory.sockets.single.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
+    expect(service.mayMaintainTransport, isFalse);
+    await policyChanged;
+    expect(policyChanges, [(false, true), (false, false)]);
+
+    policyChanged = policyChangeCount(3);
+    lifecycle.emit(AppLifecyclePhase.inactive);
+    await policyChanged;
+    expect(policyChanges, [(false, true), (false, false), (true, true)]);
+
+    // Closing the stream delivers anything still queued, so a duplicate of
+    // the last change shows here.
+    service.dispose();
+    await policyStreamClosed.future;
+    expect(policyChanges, [(false, true), (false, false), (true, true)]);
   });
 
   test('a handler lease does not create the initial transport', () async {

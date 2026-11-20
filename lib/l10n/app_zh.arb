@@ -5172,5 +5172,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "已保存的密钥不会发送到新地址，因此将被移除。请为此地址输入密钥。"
+  "personalConnectionsKeyRemovedForNewAddress": "已保存的密钥不会发送到新地址，因此将被移除。请为此地址输入密钥。",
+  "knowledgeBaseEntire": "整个知识库",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }

@@ -400,6 +400,23 @@ final class HermesDesktopApiService
   StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
   int _desktopContract = 0;
 
+  /// The socket whose gateway [_desktopContract] describes.
+  int? _desktopContractSocket;
+
+  /// The socket on which [_learnDesktopUploadContract] got its answer.
+  int? _uploadContractProbedSocket;
+
+  /// The `file.attach` question still waiting for its answer, and the
+  /// socket it was asked on.
+  ({int socket, Future<void> answer})? _uploadContractQuestion;
+
+  /// Whether anything has asked if the gateway takes uploads; from then on
+  /// each new socket's gateway is asked too.
+  bool _uploadContractAsked = false;
+
+  /// The contract [desktopContracts] last gave its listeners.
+  int _publishedDesktopContract = 0;
+
   /// Starts reconciling the desktop transport across foreground changes.
   ///
   /// Takes the lifecycle from the host rather than `WidgetsBinding`: this
@@ -484,10 +501,12 @@ final class HermesDesktopApiService
       onDone: controller.close,
     );
     controller
-      ..add(_desktopContract)
+      ..add(_publishedDesktopContract)
       ..onCancel = subscription.cancel;
   });
-  int get desktopContract => _desktopContract;
+
+  /// The contract of the gateway on the current socket; 0 until it is known.
+  int get desktopContract => _currentDesktopContract;
   bool get supportsAuthoritativeRunning => _authoritativeRunning;
   bool get supportsMcpCredentialUpdate => _supportsMcpRpcLifecycle;
   HermesDesktopRpcClient get rpc => _rpc;

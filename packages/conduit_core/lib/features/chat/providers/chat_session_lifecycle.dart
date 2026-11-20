@@ -44,8 +44,37 @@ List<String> selectedFilterIdsForModel(dynamic ref, Model model) {
       .toList(growable: false);
 }
 
+/// Takes the composer's files, to retire later; see
+/// [composerTrayCaptureProvider].
+void Function() _captureComposerTray(dynamic ref) =>
+    (ref.read(composerTrayCaptureProvider) as void Function() Function())();
+
+/// Empties the composer's tray when a new chat starts on Hermes or leaves a
+/// Hermes chat. The tray outlives a chat, so files picked for one Hermes chat
+/// were already attached in the next. A new chat whose model comes from the
+/// default restore is settled by [restoreDefaultModelForNewChat].
+void clearHermesTrayForNewChat(dynamic ref, {Model? next}) {
+  final current = ref.read(selectedModelProvider) as Model?;
+  if ((next != null && isHermesModel(next)) ||
+      (current != null && isHermesModel(current))) {
+    _captureComposerTray(ref)();
+  }
+}
+
+/// [restoreDefaultModel] for a new chat. When the default it picks is
+/// Hermes, the files the tray held as the chat began are retired; any
+/// attached while it was chosen, such as a share, stay with the new chat.
+Future<void> restoreDefaultModelForNewChat(dynamic ref) async {
+  final retirePreviousFiles = _captureComposerTray(ref);
+  await restoreDefaultModel(ref);
+  if (ref is Ref && !ref.mounted) return;
+  final selected = ref.read(selectedModelProvider) as Model?;
+  if (selected != null && isHermesModel(selected)) retirePreviousFiles();
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
+  clearHermesTrayForNewChat(ref, next: modelForNewConversation);
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);
@@ -72,7 +101,7 @@ void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
         .set(modelForNewConversation, allowHidden: true);
   } else {
     // Reset to default model for new conversations (fixes #296)
-    restoreDefaultModel(ref);
+    restoreDefaultModelForNewChat(ref);
   }
 
   ref.read(temporaryChatEnabledProvider.notifier).startNewChat();
@@ -82,6 +111,7 @@ void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
 /// this does NOT reset to the default model (which would race past and clobber
 /// the Hermes selection); it resolves and selects the Hermes model explicitly.
 Future<void> startNewHermesChat(dynamic ref) async {
+  _captureComposerTray(ref)();
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);

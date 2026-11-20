@@ -51,7 +51,7 @@ abstract class VoiceSettings with _$VoiceSettings {
     String? serverVoice,
 
     /// One speech speed for every voice, as a multiple of the voice's own
-    /// pace: one of core's `ttsSpeedPresets` (0.75, 1, 1.25, 1.5, 2).
+    /// pace: one of core's `ttsSpeedPresets` (0.25 to 2, in quarters).
     @Default(1.0) double speed,
     @Default(1.0) double pitch,
     @Default(1.0) double volume,

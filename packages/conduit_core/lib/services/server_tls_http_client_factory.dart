@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/user_trusted_certificates.dart';
 
 // Was Flutter's kIsWeb. This file configures a dart:io HttpClient, so on
 // web the whole path is inapplicable rather than merely different -- which
@@ -84,6 +85,7 @@ class ServerTlsHttpClientFactory {
     }
 
     final context = SecurityContext(withTrustedRoots: true);
+    UserTrustedCertificates.applyTo(context);
     final certificatePem = serverConfig.mtlsCertificateChainPem!.trim();
     final privateKeyPem = serverConfig.mtlsPrivateKeyPem!.trim();
     final password = _normalizePassword(serverConfig.mtlsPrivateKeyPassword);

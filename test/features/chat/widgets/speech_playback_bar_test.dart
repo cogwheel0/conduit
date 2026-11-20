@@ -280,8 +280,8 @@ void main() {
       find.byKey(const ValueKey('speech-playback-speed')),
     );
     expect(menu().buttonLabel, '1×');
-    // 0.75×, 1×, 1.25×, 1.5×, 2×.
-    menu().onSelected!(4);
+    // 0.25×, 0.5×, 0.75×, 1×, 1.25×, 1.5×, 1.75×, 2×.
+    menu().onSelected!(7);
     await tester.pumpAndSettle();
     expect(settings.read(appSettingsProvider).ttsSpeed, 2.0);
     expect(menu().buttonLabel, '2×');
