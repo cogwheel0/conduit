@@ -5,6 +5,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/share_staging_cleanup.dart'
+    show cleanupTerminalAttachmentFile;
 import 'package:conduit_core/utils/account_profile_form.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/profile_avatar.dart';
@@ -310,14 +312,20 @@ Future<_ProfileEdit?> _editPhoto(
   try {
     final attachment = await service?.pickImage() as LocalAttachment?;
     if (attachment == null) return null;
-    final dataUrl = service is FileAttachmentService
-        ? await service.convertImageToDataUrl(
-            attachment.file,
-            enableCompression: true,
-            maxWidth: 250,
-            maxHeight: 250,
-          )
-        : await convertImageFileToDataUrl(attachment.file);
+    final String? dataUrl;
+    try {
+      dataUrl = service is FileAttachmentService
+          ? await service.convertImageToDataUrl(
+              attachment.file,
+              enableCompression: true,
+              maxWidth: 250,
+              maxHeight: 250,
+            )
+          : await convertImageFileToDataUrl(attachment.file);
+    } finally {
+      // Removes only a JPEG the picker made of the photo, never the photo.
+      await cleanupTerminalAttachmentFile(attachment.file.path);
+    }
     if (dataUrl == null || dataUrl.isEmpty) {
       if (context.mounted) {
         UiUtils.showMessage(context, l10n.avatarUploadFailed);

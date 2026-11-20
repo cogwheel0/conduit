@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -165,6 +169,49 @@ final class _DeclinedSwitchDesktopApi extends HermesApiService
     previousModel: 'other-model',
     previousProvider: 'synthetic-provider',
   );
+}
+
+/// A Hermes over Responses that records what each turn asked and answers at
+/// once.
+final class _AnsweringResponsesHermesApi extends HermesApiService {
+  _AnsweringResponsesHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  final inputs = <HermesChatInput>[];
+
+  @override
+  Future<HermesResponseStream> streamResponseWithReasoning(
+    HermesChatInput input, {
+    String? instructions,
+    String? sessionId,
+    String? conversation,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
+  }) async {
+    inputs.add(input);
+    return HermesResponseStream(
+      events: Stream<HermesRunEvent>.fromIterable(const [HermesRunDone()]),
+      sessionId: 'session-1',
+    );
+  }
+}
+
+final class _Tray extends AttachedFilesNotifier {
+  _Tray(this.files);
+
+  final List<FileUploadState> files;
+
+  @override
+  List<FileUploadState> build() => files;
 }
 
 final _pricierModel = hermesDesktopModel(
@@ -356,5 +403,59 @@ void main() {
     check(note.model).equals(_otherModel.id);
     check(note.metadata?['modelName']).equals('Other');
     check(note.metadata?[kHermesModelSwitchKeptKey]).equals(true);
+  });
+
+  // A chat begun with only a picture is named for it, not "New Hermes chat".
+  test('a Hermes send without words is titled by its files', () async {
+    final image = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+    final service = _AnsweringResponsesHermesApi();
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(service),
+        hermesCapabilitiesProvider.overrideWith(
+          (ref) async => const HermesCapabilities(inputImages: true),
+        ),
+        selectedModelProvider.overrideWith(_SelectedHermesModel.new),
+        reviewerModeProvider.overrideWithValue(false),
+        attachedFilesProvider.overrideWith(
+          () => _Tray([
+            FileUploadState(
+              file: File('/synthetic/tray/chart.png'),
+              fileName: 'chart.png',
+              fileSize: 3,
+              progress: 1,
+              status: FileUploadStatus.completed,
+              fileId: image,
+              isImage: true,
+              base64DataUrl: image,
+            ),
+          ]),
+        ),
+        webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+        imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+        codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(hermesConfigProvider);
+    await container.read(hermesCapabilitiesProvider.future);
+
+    await durableSend(container, '', [image]);
+
+    final asked = service.inputs.single as HermesMultimodalChatInput;
+    check(asked.parts.single).isA<HermesInputImagePart>();
+    check(container.read(chatMessagesProvider).first.content).equals('');
+    check(
+      container.read(activeConversationProvider)?.title,
+    ).equals('chart.png');
   });
 }

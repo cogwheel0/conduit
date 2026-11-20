@@ -685,6 +685,87 @@ void main() {
     expect(sendNow.onPressed, isNull);
   });
 
+  // Send takes files without words, and so does Queue. The row has no words
+  // to show for such a draft, so it names its files.
+  testQueue('files alone are queued, and the row names them', (tester) async {
+    final rig = await _pump(tester);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final picked = File('${directory.path}/receipt.png')..writeAsBytesSync([1]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'receipt.png'),
+    ]);
+    await tester.pump();
+
+    await tester.tap(find.text(queueLabel));
+    await tester.pumpAndSettle();
+
+    expect(rig.drafts.single.text, '');
+    expect(rig.container.read(attachedFilesProvider), isEmpty);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('chat-draft-queue-row')),
+        matching: find.text('receipt.png'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testQueue('Enter queues files alone, as Queue does', (tester) async {
+    final rig = await _pump(tester);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final picked = File('${directory.path}/receipt.png')..writeAsBytesSync([1]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'receipt.png'),
+    ]);
+    await rig.type('');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.drafts.single.text, '');
+    expect(rig.container.read(attachedFilesProvider), isEmpty);
+  });
+
+  // Send waits for every file, and so does Enter: the send would leave out a
+  // file still uploading.
+  testQueue('Enter sends nothing while a file is still uploading', (
+    tester,
+  ) async {
+    final rig = await _pump(tester, streaming: false);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final done = File('${directory.path}/done.png')..writeAsBytesSync([1]);
+    final busy = File('${directory.path}/busy.png')..writeAsBytesSync([2]);
+    final tray = rig.container.read(attachedFilesProvider.notifier);
+    tray.addFiles([
+      LocalAttachment(file: done, displayName: 'done.png'),
+      LocalAttachment(file: busy, displayName: 'busy.png'),
+    ]);
+    tray.updateFileState(
+      done.path,
+      FileUploadState(
+        file: done,
+        fileName: 'done.png',
+        fileSize: 1,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: 'file-done',
+        isImage: true,
+      ),
+    );
+    await rig.type('with both');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.typed, 'with both');
+    expect(rig.container.read(attachedFilesProvider), hasLength(2));
+  });
+
   testQueue('a failed file can be uploaded again from its own draft', (
     tester,
   ) async {

@@ -166,6 +166,10 @@ Future<void> _sendMessageInternal(
     ref,
     attachments ?? const <String>[],
   );
+  final directAttachmentNames = <String>[
+    for (final attachment in attachments ?? const <String>[])
+      ?directAttachmentFacts[attachment]?.name,
+  ];
   Stream<RemapEvent>? directRemapEvents;
   SyncEngine? directOpenWebUiSyncEngine;
   if (sendMutationOwner.usesOpenWebUiContext) {
@@ -235,10 +239,19 @@ Future<void> _sendMessageInternal(
   final serverFileIds = <String>[];
 
   if (attachments != null && preparedHermesTurn == null) {
+    final trayNames = <String, String>{
+      for (final file
+          in ref.read(attachedFilesProvider) as List<FileUploadState>)
+        ?file.fileId: file.fileName,
+    };
     for (final attachment in attachments) {
       if (attachment.startsWith('data:image/')) {
         // Legacy base64 format - keep for backwards compatibility
-        legacyBase64Images.add({'type': 'image', 'url': attachment});
+        legacyBase64Images.add({
+          'type': 'image',
+          'url': attachment,
+          'name': ?trayNames[attachment],
+        });
       } else if (!(preparedDirectDocuments?.attachmentIds.contains(
             attachment,
           ) ??
@@ -369,6 +382,7 @@ Future<void> _sendMessageInternal(
           openWebUiSyncEngine: directOpenWebUiSyncEngine,
           pendingFolderId:
               pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
+          attachmentNames: directAttachmentNames,
         );
       } finally {
         await owner?.releaseDatabaseLease();
@@ -678,6 +692,7 @@ Future<void> _sendMessageInternal(
         openWebUiSyncEngine: directOpenWebUiSyncEngine,
         pendingFolderId:
             pendingFolderIdOverride ?? ref.read(pendingFolderIdProvider),
+        attachmentNames: directAttachmentNames,
       );
       final runOwner = owner;
       if (runOwner == null) return;

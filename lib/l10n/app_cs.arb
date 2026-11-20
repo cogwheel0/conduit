@@ -7018,5 +7018,9 @@
   "chatHeldMessageWaiting": "Čeká na dokončení aktuální odpovědi",
   "@chatHeldMessageWaiting": {
     "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  },
+  "knowledgeBaseEntire": "Celá znalostní báze",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
   }
 }

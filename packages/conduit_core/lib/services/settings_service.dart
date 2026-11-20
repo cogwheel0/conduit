@@ -954,11 +954,20 @@ const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
 
 /// Data class for app settings
 /// The speech speeds offered, as multiples of the voice's own pace.
-const List<double> ttsSpeedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
+const List<double> ttsSpeedPresets = [
+  0.25,
+  0.5,
+  0.75,
+  1.0,
+  1.25,
+  1.5,
+  1.75,
+  2.0,
+];
 
-/// The offered speed nearest [speed].
+/// The offered speed nearest [speed], the faster one when two are as near.
 double nearestTtsSpeed(double speed) => ttsSpeedPresets.reduce(
-  (best, next) => (next - speed).abs() < (best - speed).abs() ? next : best,
+  (best, next) => (next - speed).abs() <= (best - speed).abs() ? next : best,
 );
 
 /// The speed for the device engine [rate] an older install saved, where 0.5
