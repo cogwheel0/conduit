@@ -1185,6 +1185,11 @@ void main() {
           sessionIdOverride: 'socket-1',
         ),
       ).throws<ChatCompletionHeld>();
+
+      // Nothing streams, so its Stop is not kept: a later Stop of the answer
+      // reaches no request.
+      api.cancelStreamingMessage('assistant-1');
+      check(adapter.lastRequest!.cancelToken!.isCancelled).isFalse();
     });
 
     test('JSON null uses an empty HTTP stream for recovery', () async {
@@ -1805,6 +1810,39 @@ void main() {
           .deepEquals(userMessage2);
       check(cachedLegacyBody.containsKey('user_message')).isFalse();
     });
+  });
+
+  // Open WebUI 0.13.4 holds a regeneration under a reply still running unless
+  // it names the answer it regenerates. An older server passes the field on
+  // to the provider, which may refuse it.
+  test('a regeneration names its answer to 0.13.4 and later only', () async {
+    for (final (version, named) in const [
+      ('0.13.3', false),
+      ('0.13.4', true),
+      (null, false),
+    ]) {
+      final server = _VersionedServer(
+        version: version,
+        completions: [
+          _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+      await api.getBackendConfig();
+
+      await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-2',
+        regenerationMessageId: 'assistant-2',
+      );
+
+      check(
+        server.completionBodies.single['regeneration_message_id'],
+        because: version,
+      ).equals(named ? 'assistant-2' : null);
+    }
   });
 
   // Open WebUI read and removed both before 0.13.4. From 0.13.4 it passes

@@ -128,6 +128,12 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     /// Whether [model] is one of the user's devices offers through Tether.
     /// A refusal is read with it ([ChatCompletionHttpException.relay]).
     bool viaTether = false,
+
+    /// The new answer of a regeneration whose question has an answer already.
+    /// Open WebUI 0.13.4 would hold it under a reply still running, as a new
+    /// message, and answer the held copy under new ids, leaving that answer
+    /// behind. Sent only to a server known to read it.
+    String? regenerationMessageId,
   }) async {
     // Generate unique IDs
     final messageId =
@@ -253,6 +259,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         variables: variables,
         files: files,
         messageIds: messageIds,
+        regenerationMessageId: _holdsMessages == true
+            ? regenerationMessageId
+            : null,
         metadataFormat: metadataFormat,
         includeClientModelFields: includeClientModelFields,
       );
@@ -392,13 +401,24 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       _chatRequestMetadataFormat ??= metadataFormat;
     }
 
-    final session = await classifyChatCompletionResponse(
-      resp,
-      messageId: messageId,
-      sessionId: sessionId,
-      conversationId: conversationId,
-      abort: abort,
-    );
+    final ChatCompletionSession session;
+    try {
+      session = await classifyChatCompletionResponse(
+        resp,
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        abort: abort,
+      );
+    } on ChatCompletionHeld {
+      // Nothing streams, so no Stop is kept for its answers.
+      for (final id in answerIds) {
+        if (identical(_streamCancelActions[id], abort)) {
+          _streamCancelActions.remove(id);
+        }
+      }
+      rethrow;
+    }
     _traceApi(
       'sendMessageSession: transport=${session.transport.name}, '
       'taskId=${session.taskId}, messageId=${session.messageId}',

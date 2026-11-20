@@ -126,6 +126,9 @@ abstract class _ApiServiceBase {
   // Whether chat requests carry `model_item` and `tool_servers`: null until
   // the server's version, or a refusal of them, says.
   bool? _sendsClientModelFields;
+  // Whether the server holds messages sent under a running reply, and reads
+  // `regeneration_message_id`: null until its version says.
+  bool? _holdsMessages;
   // Public getter for dio instance
   Dio get dio => _dio;
   // Public getter for base URL
@@ -1268,6 +1271,12 @@ abstract class _ApiServiceBase {
     if (passedOn != null) {
       _sendsClientModelFields = !passedOn;
     }
+    _holdsMessages =
+        ServerVersionCompat.knownAtLeast(
+          rawVersion?.toString(),
+          ServerVersionCompat.heldMessagesVersion,
+        ) ??
+        _holdsMessages;
   }
 
   _ChatRequestMetadataFormat? _inferChatRequestMetadataFormatFromVersion(
@@ -1582,6 +1591,7 @@ abstract class _ApiServiceBase {
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
+    String? regenerationMessageId,
     _ChatRequestMetadataFormat metadataFormat =
         _ChatRequestMetadataFormat.modernV09,
     bool includeClientModelFields = true,
@@ -1896,6 +1906,9 @@ abstract class _ApiServiceBase {
         if (userMessage != null) {
           data['parent_message'] = userMessage;
         }
+    }
+    if (regenerationMessageId != null) {
+      data['regeneration_message_id'] = regenerationMessageId;
     }
 
     data['background_tasks'] = backgroundTasks ?? <String, dynamic>{};

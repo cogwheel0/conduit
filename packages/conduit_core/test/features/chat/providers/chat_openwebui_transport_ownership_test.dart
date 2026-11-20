@@ -644,6 +644,7 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
+    String? regenerationMessageId,
   }) async {
     completionCalls += 1;
     assistantMessageId = responseMessageId;
@@ -13227,6 +13228,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
+    String? regenerationMessageId,
   }) async {
     requests.add(
       _FanOutRequest(

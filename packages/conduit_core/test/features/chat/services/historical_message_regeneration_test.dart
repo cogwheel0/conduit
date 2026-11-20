@@ -240,6 +240,7 @@ class _RecordingCompletionApi extends ApiService {
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
     bool viaTether = false,
+    String? regenerationMessageId,
   }) async {
     completionCalls += 1;
     lastEnableImageGeneration = enableImageGeneration;
