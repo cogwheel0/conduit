@@ -314,6 +314,54 @@ void main() {
       ]);
     });
 
+    test('a saved chat fetches none of its history images, which its '
+        'request leaves out; a temporary chat still sends them', () async {
+      final history = [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'What is on the shelf?',
+          timestamp: DateTime.utc(2026, 11, 2),
+          attachmentIds: const ['image-shelf'],
+        ),
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'A blue teapot.',
+          timestamp: DateTime.utc(2026, 11, 2),
+        ),
+        ChatMessage(
+          id: 'user-2',
+          role: 'user',
+          content: 'And beside it?',
+          timestamp: DateTime.utc(2026, 11, 2),
+        ),
+      ];
+      final api = _ImageFilesApi();
+
+      final saved = await buildOpenWebUiCompletionRequestMessagesForTest(
+        messages: history,
+        api: api,
+        isTemporary: false,
+      );
+      check(saved).isEmpty();
+      check(api.asked).isEmpty();
+
+      final temporary = await buildOpenWebUiCompletionRequestMessagesForTest(
+        messages: history,
+        api: api,
+      );
+      check(api.asked)
+          .deepEquals(const ['info image-shelf', 'content image-shelf']);
+      check(temporary.first['content']).isA<List<dynamic>>().deepEquals([
+        {'type': 'text', 'text': 'What is on the shelf?'},
+        {
+          'type': 'image_url',
+          'image_url': {'url': 'data:image/png;base64,c2hlbGY='},
+        },
+      ]);
+    });
+
     test(
       'direct assistant history stays raw when switching to OpenWebUI',
       () async {
@@ -678,6 +726,25 @@ class _Tray extends AttachedFilesNotifier {
 
   @override
   List<FileUploadState> build() => files;
+}
+
+/// Serves one stored PNG, keeping each request it is asked.
+class _ImageFilesApi {
+  final asked = <String>[];
+
+  Future<Map<String, dynamic>> getFileInfo(String id) async {
+    asked.add('info $id');
+    return {
+      'id': id,
+      'filename': 'shelf.png',
+      'meta': {'content_type': 'image/png'},
+    };
+  }
+
+  Future<String> getFileContent(String id) async {
+    asked.add('content $id');
+    return 'c2hlbGY=';
+  }
 }
 
 /// Answers `getFileInfo` from [records], as Open WebUI's files API does.

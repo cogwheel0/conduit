@@ -123,6 +123,9 @@ abstract class _ApiServiceBase {
   bool _disposed = false;
   _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
   bool _runsOutletFiltersInline = false;
+  // Whether chat requests carry `model_item` and `tool_servers`: null until
+  // the server's version, or a refusal of them, says.
+  bool? _sendsClientModelFields;
   // Public getter for dio instance
   Dio get dio => _dio;
   // Public getter for base URL
@@ -1250,6 +1253,13 @@ abstract class _ApiServiceBase {
     if (inferred != null) {
       _chatRequestMetadataFormat = inferred;
     }
+    final passedOn = ServerVersionCompat.knownAtLeast(
+      rawVersion?.toString(),
+      ServerVersionCompat.clientModelFieldsPassedOnVersion,
+    );
+    if (passedOn != null) {
+      _sendsClientModelFields = !passedOn;
+    }
   }
 
   _ChatRequestMetadataFormat? _inferChatRequestMetadataFormatFromVersion(
@@ -1566,6 +1576,7 @@ abstract class _ApiServiceBase {
     List<ChatCompletionTarget>? messageIds,
     _ChatRequestMetadataFormat metadataFormat =
         _ChatRequestMetadataFormat.modernV09,
+    bool includeClientModelFields = true,
   }) {
     bool isImageFile(Map<String, dynamic> file) {
       if (file['type'] == 'image') {
@@ -1759,7 +1770,7 @@ abstract class _ApiServiceBase {
     // Include model_item with real server routing data (pipe, actions,
     // filters, etc.). This is critical for pipe models which need
     // model_item.pipe to be routed to the pipe function on the backend.
-    if (modelItem != null) {
+    if (modelItem != null && includeClientModelFields) {
       data['model_item'] = modelItem;
     }
 
@@ -1814,9 +1825,11 @@ abstract class _ApiServiceBase {
       // own tool-calling mode, so it is deliberately not applied a second time.
     }
 
-    data['tool_servers'] = toolServers ?? <Map<String, dynamic>>[];
-    if (toolServers != null && toolServers.isNotEmpty) {
-      _traceApi('Including tool_servers in request (${toolServers.length})');
+    if (includeClientModelFields) {
+      data['tool_servers'] = toolServers ?? <Map<String, dynamic>>[];
+      if (toolServers != null && toolServers.isNotEmpty) {
+        _traceApi('Including tool_servers in request (${toolServers.length})');
+      }
     }
 
     if (allFiles.isNotEmpty) {
@@ -1890,16 +1903,19 @@ abstract class _ApiServiceBase {
     return data;
   }
 
-  bool _isUnsupportedModernChatMetadataError(String error) {
+  /// Whether [error] refuses one of [fields] as a field the request may not
+  /// carry, as a strict server or provider words it.
+  bool _refusesRequestField(String error, List<String> fields) {
     final normalized = error.toLowerCase();
-    if (!normalized.contains('user_message')) {
+    if (!fields.any(normalized.contains)) {
       return false;
     }
 
     return normalized.contains('unsupported') ||
         normalized.contains('extra_forbidden') ||
         normalized.contains('extra inputs') ||
-        normalized.contains('not permitted');
+        normalized.contains('not permitted') ||
+        normalized.contains('unrecognized');
   }
 
   /// Reply [messageId] of saved chat [chatId] as the server holds it, or null

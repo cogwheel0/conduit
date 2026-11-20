@@ -216,6 +216,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       }
     }
 
+    var includeClientModelFields = _sendsClientModelFields ?? true;
+    // Another send can learn the version while this one waits on its refusal.
+    final versionUnknown = _sendsClientModelFields == null;
+
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
@@ -246,6 +250,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         files: files,
         messageIds: messageIds,
         metadataFormat: metadataFormat,
+        includeClientModelFields: includeClientModelFields,
       );
 
       _traceApi(
@@ -325,9 +330,16 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       final error = await _decodeChatCompletionError(resp);
       final shouldRetryWithLegacy =
           metadataFormat == _ChatRequestMetadataFormat.modernV09 &&
-          _isUnsupportedModernChatMetadataError(error);
+          _refusesRequestField(error, const ['user_message']);
+      // A server whose version is not known yet may be one that passes these
+      // on to a provider that refuses them.
+      final shouldRetryWithoutClientModelFields =
+          !shouldRetryWithLegacy &&
+          includeClientModelFields &&
+          versionUnknown &&
+          _refusesRequestField(error, const ['model_item', 'tool_servers']);
 
-      if (!shouldRetryWithLegacy) {
+      if (!shouldRetryWithLegacy && !shouldRetryWithoutClientModelFields) {
         return _recoverSavedReplyOrThrow(
           status: status,
           error: error,
@@ -338,14 +350,22 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         );
       }
 
-      _traceApi(
-        'sendMessageSession: retrying with legacy pre-v0.9 chat metadata '
-        'after error: $error',
-      );
-
-      metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
-      _chatRequestMetadataFormat = metadataFormat;
-      await ensureLegacyPendingTurnPersistedUnlessStopped();
+      if (shouldRetryWithLegacy) {
+        _traceApi(
+          'sendMessageSession: retrying with legacy pre-v0.9 chat metadata '
+          'after error: $error',
+        );
+        metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
+        _chatRequestMetadataFormat = metadataFormat;
+        await ensureLegacyPendingTurnPersistedUnlessStopped();
+      } else {
+        _traceApi(
+          'sendMessageSession: retrying without model_item and tool_servers '
+          'after error: $error',
+        );
+        includeClientModelFields = false;
+        _sendsClientModelFields = false;
+      }
       final retryResponse = await post(metadataFormat);
       if (retryResponse == null) return readSavedReply();
       resp = retryResponse;

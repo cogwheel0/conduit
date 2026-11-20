@@ -171,6 +171,40 @@ class _TimeoutResponse extends _FakeAdapter {
   }
 }
 
+/// Answers `/api/config` with [version], and each chat completion with the
+/// next of [completions], whose bodies it keeps; anything else gets `{}`.
+class _VersionedServer implements HttpClientAdapter {
+  _VersionedServer({required this.version, required this.completions});
+
+  final String? version;
+  final List<_FakeAdapter> completions;
+  final completionBodies = <Map<String, dynamic>>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) {
+    final answer = switch (options.path) {
+      '/api/chat/completions' => completions.removeAt(0),
+      '/api/config' => _FakeAdapter.json({
+        'status': true,
+        'version': version,
+        'features': <String, dynamic>{},
+      }),
+      _ => _FakeAdapter.json({}),
+    };
+    if (options.path == '/api/chat/completions') {
+      completionBodies.add(Map<String, dynamic>.from(options.data as Map));
+    }
+    return answer.fetch(options, requestStream, cancelOnError);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 /// Builds an [ApiService] for testing whose Dio adapter is [adapter].
 ApiService _buildApiServiceForTest(HttpClientAdapter adapter) {
   final service = ApiService(
@@ -1704,6 +1738,112 @@ void main() {
           .isA<Map<String, dynamic>>()
           .deepEquals(userMessage2);
       check(cachedLegacyBody.containsKey('user_message')).isFalse();
+    });
+  });
+
+  // Open WebUI read and removed both before 0.13.4. From 0.13.4 it passes
+  // them through to the provider, and a strict provider refuses the request.
+  group('model_item and tool_servers', () {
+    const modelItem = <String, dynamic>{'id': _model, 'name': 'Test model'};
+    const toolServers = <Map<String, dynamic>>[
+      {'url': 'https://tools.example.test', 'specs': <Object>[]},
+    ];
+    _FakeAdapter accepted() =>
+        _FakeAdapter.json({'task_id': 'task-1', 'status': true});
+
+    Future<ChatCompletionSession> send(ApiService api) =>
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          modelItem: modelItem,
+          toolServers: toolServers,
+        );
+
+    test('go to a server before 0.13.4 and not to a later one', () async {
+      for (final (version, carried) in const [
+        ('0.13.3', true),
+        ('0.13.4', false),
+        ('v0.14.0', false),
+      ]) {
+        final server = _VersionedServer(
+          version: version,
+          completions: [accepted()],
+        );
+        final api = _buildApiServiceForTest(server);
+        await api.getBackendConfig();
+
+        await send(api);
+
+        final body = server.completionBodies.single;
+        check(body.containsKey('model_item'), because: version).equals(carried);
+        check(
+          body.containsKey('tool_servers'),
+          because: version,
+        ).equals(carried);
+      }
+    });
+
+    test('a server of unknown version whose provider refuses them is asked '
+        'once more without them, and is not sent them again', () async {
+      final server = _VersionedServer(
+        version: null,
+        completions: [
+          _FakeAdapter.json({
+            'error': {
+              'message': 'model_item: Extra inputs are not permitted',
+              'type': 'invalid_request_error',
+            },
+          }, statusCode: 400),
+          accepted(),
+          accepted(),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+
+      final session = await send(api);
+      await send(api);
+
+      check(session.taskId).equals('task-1');
+      check([
+        for (final body in server.completionBodies)
+          (body.containsKey('model_item'), body.containsKey('tool_servers')),
+      ]).deepEquals(const [(true, true), (false, false), (false, false)]);
+    });
+
+    test('two sends refused before the version is known both ask again '
+        'without them', () async {
+      final refused = {
+        'error': {
+          'message': 'model_item: Extra inputs are not permitted',
+          'type': 'invalid_request_error',
+        },
+      };
+      final server = _VersionedServer(
+        version: null,
+        completions: [
+          _FakeAdapter.json(refused, statusCode: 400),
+          _FakeAdapter.json(refused, statusCode: 400),
+          accepted(),
+          accepted(),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+
+      final sessions = await Future.wait([send(api), send(api)]);
+
+      check([for (final s in sessions) s.taskId]).deepEquals(const [
+        'task-1',
+        'task-1',
+      ]);
+      check([
+        for (final body in server.completionBodies)
+          (body.containsKey('model_item'), body.containsKey('tool_servers')),
+      ]).deepEquals(const [
+        (true, true),
+        (true, true),
+        (false, false),
+        (false, false),
+      ]);
     });
   });
 
