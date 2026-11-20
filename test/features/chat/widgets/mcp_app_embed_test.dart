@@ -219,6 +219,54 @@ Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   return app;
 }
 
+/// An app opened under a 400 pt stand-in for its web view at the top of
+/// the chat, whose 600 pt viewport is the test screen's. Drags on the
+/// stand-in go to the app's recognizer; each side counts the drags it wins.
+final class _DragProbe {
+  _DragProbe(this.app);
+
+  final _OpenApp app;
+  late final HorizontalDragGestureRecognizer recognizer;
+  int appDrags = 0;
+  int chatDrags = 0;
+
+  static Future<_DragProbe> open(WidgetTester tester) async {
+    final webViews = _installWebViews();
+    _DragProbe? probe;
+    await tester.pumpWidget(
+      _harness(
+        _ServingApi(),
+        child: Column(
+          children: [
+            GestureDetector(
+              onVerticalDragUpdate: (_) => probe?.chatDrags++,
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (event) => probe?.recognizer.addPointer(event),
+                child: const SizedBox(width: 800, height: 400),
+              ),
+            ),
+            const McpAppEmbed(app: _app, cacheId: 'message:tool-call'),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final app = _OpenApp(webViews);
+    app.view.onWebViewCreated!(app.controller);
+    final opened = _DragProbe(app);
+    opened.recognizer =
+        app.view.gestureRecognizers!.single.constructor()
+            as HorizontalDragGestureRecognizer;
+    addTearDown(opened.recognizer.dispose);
+    opened.recognizer
+      ..onDown = (_) {}
+      ..onStart = (_) => opened.appDrags++;
+    return probe = opened;
+  }
+}
+
 final _sessionEpoch = Object();
 
 Widget _harness(
@@ -905,8 +953,8 @@ void main() {
     testWidgets('canvases own pans while ordinary content scrolls ($method)', (
       tester,
     ) async {
-      final app = await _openApp(tester, _ServingApi());
-      await app.post({
+      final probe = await _DragProbe.open(tester);
+      await probe.app.post({
         'jsonrpc': '2.0',
         'method': method,
         'params': {
@@ -916,40 +964,52 @@ void main() {
           ],
         },
       });
-      final recognizer =
-          app.view.gestureRecognizers!.single.constructor()
-              as HorizontalDragGestureRecognizer;
-      addTearDown(recognizer.dispose);
-      var appDrags = 0;
-      var chatDrags = 0;
-      recognizer.onDown = (_) {};
-      recognizer.onStart = (_) => appDrags++;
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: GestureDetector(
-            onVerticalDragUpdate: (_) => chatDrags++,
-            child: Listener(
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: recognizer.addPointer,
-              child: const SizedBox.expand(),
-            ),
-          ),
-        ),
-      );
+      await tester.pump();
       await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
-      expect(appDrags, 1);
-      expect(chatDrags, 0);
+      expect(probe.appDrags, 1);
+      expect(probe.chatDrags, 0);
       await tester.dragFrom(const Offset(100, 200), const Offset(60, -100));
-      expect(appDrags, 2);
-      expect(chatDrags, 0);
+      expect(probe.appDrags, 2);
+      expect(probe.chatDrags, 0);
       await tester.dragFrom(const Offset(300, 200), const Offset(0, -100));
-      expect(appDrags, 2);
-      expect(chatDrags, greaterThan(0));
+      expect(probe.appDrags, 2);
+      expect(probe.chatDrags, greaterThan(0));
       await tester.dragFrom(const Offset(300, 200), const Offset(100, 0));
-      expect(appDrags, 3);
+      expect(probe.appDrags, 3);
     });
   }
+
+  testWidgets('a region as tall as the chat leaves it vertical drags', (
+    tester,
+  ) async {
+    final probe = await _DragProbe.open(tester);
+    Future<void> reportRegion(double height) => probe.app.post({
+      'jsonrpc': '2.0',
+      'method': 'conduit/canvas-rects',
+      'params': {
+        '_conduitCanvasRects': [
+          [0, 0, 800, height],
+        ],
+      },
+    });
+
+    // A wrapper around the whole app, as tall as the chat's viewport or more.
+    for (final height in [600.0, 2000.0]) {
+      await reportRegion(height);
+      await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+      expect(probe.appDrags, 0);
+      expect(probe.chatDrags, greaterThan(0));
+    }
+    probe.chatDrags = 0;
+    await tester.dragFrom(const Offset(100, 200), const Offset(100, 0));
+    expect(probe.appDrags, 1);
+
+    // A map shorter than the chat keeps its vertical pans.
+    await reportRegion(300);
+    await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+    expect(probe.appDrags, 2);
+    expect(probe.chatDrags, 0);
+  });
 
   testWidgets('resize rounding noise and unrenderable heights are ignored', (
     tester,

@@ -108,11 +108,22 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   List<Rect> _canvasRects = const [];
   late final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
     Factory<OneSequenceGestureRecognizer>(
-      () => _McpAppDragGestureRecognizer(
-        (position) => _canvasRects.any((rect) => rect.contains(position)),
-      ),
+      () => _McpAppDragGestureRecognizer(_ownsDrag),
     ),
   };
+
+  // A region as tall as the chat's viewport, such as an app-wide wrapper,
+  // could fill the screen and leave the reader nowhere to scroll the chat
+  // past the app, so only a shorter one keeps vertical drags.
+  bool _ownsDrag(Offset position) {
+    final chat = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+    final limit = chat != null && chat.hasViewportDimension
+        ? chat.viewportDimension
+        : double.infinity;
+    return _canvasRects.any(
+      (rect) => rect.height < limit && rect.contains(position),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -681,7 +692,10 @@ String mcpAppBridgeScript({
   const nativePostMessage = window.postMessage.bind(window);
   // Explicit touch policies reserve vertical gestures for maps and DOM controls.
   // Ordinary charts/content retain browser vertical panning and scroll the chat.
-  const canvasRects = () => Array.from(document.querySelectorAll('*'))
+  // A policy on <html> or <body> covers the whole page rather than marking a
+  // canvas, and touch-action is not inherited, so the elements in it are read
+  // on their own.
+  const canvasRects = () => Array.from(document.querySelectorAll('body *'))
     .filter(element => {
       const action = getComputedStyle(element).touchAction;
       return action !== 'auto' && action !== 'manipulation' &&
