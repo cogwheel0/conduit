@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+
 /// Just enough of an Open WebUI server on a loopback port to sign in to:
 /// health, config, password sign-in (with a second step for the users in
 /// `twoStep`, whose `mfa/verify` takes any code), the current user and
@@ -448,7 +450,7 @@ final class FakeOwuiChats {
   /// second of the last one still reads as one.
   void _touch(String chatId) {
     final row = stored[chatId]!;
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final now = clock.now().millisecondsSinceEpoch ~/ 1000;
     final last = row['updated_at'] as int? ?? 0;
     row['updated_at'] = now > last ? now : last + 1;
   }
@@ -702,7 +704,7 @@ final class FakeOwuiChats {
       'childrenIds': <String>[answerId],
       'role': 'user',
       'content': question,
-      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
     };
     messages[answerId] = <String, dynamic>{
       'id': answerId,
@@ -711,7 +713,7 @@ final class FakeOwuiChats {
       'role': 'assistant',
       'content': 'Eggs,',
       'model': 'kettle-model',
-      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
       'done': false,
     };
     history['currentId'] = answerId;
@@ -793,7 +795,7 @@ final class FakeOwuiChats {
       'role': 'user',
       'content': waiting.map((m) => m['content']).join('\n\n'),
       'meta': <String, dynamic>{},
-      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
     };
     messages[answerId] = <String, dynamic>{
       'id': answerId,
@@ -802,7 +804,7 @@ final class FakeOwuiChats {
       'role': 'assistant',
       'content': answer,
       'model': 'kettle-model',
-      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
       'done': true,
     };
     history['currentId'] = answerId;
