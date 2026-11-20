@@ -406,35 +406,30 @@ void main() {
     });
   });
 
-  // 0.13.4 passes both on to the provider instead of reading them.
-  for (final (version, carried) in const [
-    ('0.13.3', true),
-    ('0.13.4', false),
-  ]) {
-    group('against a fake Open WebUI $version', () {
-      setUp(() => signIn(version: version));
+  // 0.13.4 passes both on to the provider instead of reading them. The core
+  // tests cover each version; this one shows conduitd's client reads it.
+  group('against a fake Open WebUI 0.13.4', () {
+    setUp(() => signIn(version: '0.13.4'));
 
-      test('a send ${carried ? 'carries' : 'leaves out'} model_item and '
-          'tool_servers', () async {
-        owui.chats.seed('chat-kitchen', userId: 'user-ada');
+    test('a send leaves out model_item and tool_servers', () async {
+      owui.chats.seed('chat-kitchen', userId: 'user-ada');
 
-        await clock.during(
-          turns.send(
-            const SendTurn(
-              chatId: 'chat-kitchen',
-              model: 'kettle-model',
-              text: 'Milk?',
-            ),
+      await clock.during(
+        turns.send(
+          const SendTurn(
+            chatId: 'chat-kitchen',
+            model: 'kettle-model',
+            text: 'Milk?',
           ),
-        );
-        await clock.during(owui.chats.admissionAsked.future);
+        ),
+      );
+      await clock.during(owui.chats.admissionAsked.future);
 
-        final asked = owui.chats.completions.single;
-        expect(asked.containsKey('model_item'), carried);
-        expect(asked.containsKey('tool_servers'), carried);
-      });
+      final asked = owui.chats.completions.single;
+      expect(asked.containsKey('model_item'), isFalse);
+      expect(asked.containsKey('tool_servers'), isFalse);
     });
-  }
+  });
 
   group('against a fake Open WebUI before 0.9', () {
     setUp(() => signIn(version: '0.8.5'));
