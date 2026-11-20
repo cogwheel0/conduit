@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kMessageHeldByServerMetadataKey;
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
@@ -253,12 +256,30 @@ Future<Conversation> withoutUnsentMessageDeletes(
   if (!conversation.messages.any((m) => ids.contains(m.id))) {
     return conversation;
   }
-  return conversation.copyWith(
-    messages: [
-      for (final message in conversation.messages)
-        if (!ids.contains(message.id)) message,
-    ],
-  );
+  // Only a held turn's settle leaves such a delete waiting, so a question
+  // whose only answer here was one of those waits again: the copy read it as
+  // answered by that empty answer.
+  final kept = <ChatMessage>[];
+  final waiting = <int>{};
+  for (final message in conversation.messages) {
+    if (ids.contains(message.id)) {
+      if (kept.isNotEmpty && kept.last.role == 'user') {
+        waiting.add(kept.length - 1);
+      }
+      continue;
+    }
+    if (message.role == 'assistant' && kept.isNotEmpty) {
+      waiting.remove(kept.length - 1);
+    }
+    kept.add(message);
+  }
+  for (final index in waiting) {
+    final question = kept[index];
+    kept[index] = question.copyWith(
+      metadata: {...?question.metadata, kMessageHeldByServerMetadataKey: true},
+    );
+  }
+  return conversation.copyWith(messages: kept);
 }
 
 /// DB-first conversation open (CDT-RFC-001 Phase 1, acceptance 1).

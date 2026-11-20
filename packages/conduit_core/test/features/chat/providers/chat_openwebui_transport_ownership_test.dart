@@ -3331,6 +3331,9 @@ void main() {
         check(
           refreshed!.messages.map((m) => m.id).toList(),
         ).deepEquals([userId]);
+        // The copy answered the question with that empty answer, so it read
+        // as answered; without it, the question waits again.
+        check(refreshed.messages.single.isHeldByServer).isTrue();
       });
     }
 
