@@ -1302,24 +1302,63 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// the answers (see [withTetherRecordOf]): Open WebUI's copies keep
   /// neither that one of the user's devices was asked nor the relay that
   /// failed.
+  ///
+  /// Matched by answer id, wherever either side keeps the answer: on screen
+  /// or among another answer's versions, as a comparison's other answers and
+  /// a regeneration's earlier ones are kept.
   List<ChatMessage> _withLocalTetherRecords(List<ChatMessage> serverMessages) {
-    final recorded = <String, ChatMessage>{
-      for (final message in state)
-        if (message.role == 'assistant' &&
-            (answerViaTether(message) || message.error?.relay != null))
-          message.id: message,
-    };
-    if (recorded.isEmpty) return serverMessages;
+    final viaTether = <String>{};
+    final relayErrors = <String, ChatMessageError>{};
+    for (final message in state) {
+      if (message.role != 'assistant') continue;
+      for (final version in message.versions) {
+        if (version.error case final error? when error.relay != null) {
+          relayErrors[version.id] = error;
+        }
+      }
+      if (answerViaTether(message)) viaTether.add(message.id);
+      if (message.error case final error? when error.relay != null) {
+        relayErrors[message.id] = error;
+      }
+    }
+    if (viaTether.isEmpty && relayErrors.isEmpty) return serverMessages;
+    bool recorded(String id) =>
+        viaTether.contains(id) || relayErrors.containsKey(id);
+
     var changed = false;
     final kept = <ChatMessage>[];
     for (final message in serverMessages) {
       // A resumed tail may be bound to the server's id for it.
-      final local =
-          recorded[message.id] ??
-          (message.id == _boundRemoteMessageId
-              ? recorded[state.last.id]
-              : null);
-      final next = local == null ? message : withTetherRecordOf(message, local);
+      final localId =
+          !recorded(message.id) &&
+              message.id == _boundRemoteMessageId &&
+              state.isNotEmpty
+          ? state.last.id
+          : message.id;
+      var next = recorded(localId)
+          ? withTetherRecordOf(
+              message,
+              localError: relayErrors[localId],
+              viaTether: viaTether.contains(localId),
+            )
+          : message;
+      final versions = next.versions;
+      final keptVersions = [
+        for (final version in versions)
+          recorded(version.id)
+              ? withTetherRecordOfVersion(
+                  version,
+                  localError: relayErrors[version.id],
+                  viaTether: viaTether.contains(version.id),
+                )
+              : version,
+      ];
+      for (var index = 0; index < versions.length; index++) {
+        if (!identical(keptVersions[index], versions[index])) {
+          next = next.copyWith(versions: keptVersions);
+          break;
+        }
+      }
       changed = changed || !identical(next, message);
       kept.add(next);
     }

@@ -117,23 +117,53 @@ ChatMessage withTetherRecord(ChatMessage answer) {
 }
 
 /// [incoming], a copy of an answer the server saved, with what this device
-/// recorded on its own copy [local]: that the request went to one of the
-/// user's devices, and the relay failure the same error was read as. Open
-/// WebUI saves neither.
-ChatMessage withTetherRecordOf(ChatMessage incoming, ChatMessage local) {
-  final error = incoming.error;
-  final earlier = local.error;
-  final kept =
-      error != null &&
-          error.relay == null &&
-          earlier?.relay != null &&
-          earlier!.content == error.content
-      ? incoming.copyWith(error: error.copyWith(relay: earlier.relay))
-      : incoming;
-  return answerViaTether(local) || answerViaTether(incoming)
-      ? withTetherRecord(kept)
-      : kept;
+/// recorded on its own copy of it: that the request went to one of the
+/// user's devices ([viaTether]), and the relay failure the same error was
+/// read as ([localError]). Open WebUI saves neither.
+ChatMessage withTetherRecordOf(
+  ChatMessage incoming, {
+  ChatMessageError? localError,
+  bool viaTether = false,
+}) {
+  final error = _withRelayOf(incoming.error, localError);
+  final kept = identical(error, incoming.error)
+      ? incoming
+      : incoming.copyWith(error: error);
+  return viaTether || answerViaTether(incoming) ? withTetherRecord(kept) : kept;
 }
+
+/// [incoming], an answer the server's copy keeps among another answer's
+/// versions, as [withTetherRecordOf] keeps an answer: a version records no
+/// request of its own, so [viaTether] is what this device recorded on its
+/// copy of the answer.
+ChatMessageVersion withTetherRecordOfVersion(
+  ChatMessageVersion incoming, {
+  ChatMessageError? localError,
+  bool viaTether = false,
+}) {
+  var error = _withRelayOf(incoming.error, localError);
+  if (viaTether && error != null && error.relay == null) {
+    final relay = tetherRelayFailureOf(error.content, viaTether: true);
+    if (relay != null) error = error.copyWith(relay: relay);
+  }
+  return identical(error, incoming.error)
+      ? incoming
+      : incoming.copyWith(error: error);
+}
+
+/// [incoming] with the relay failure [local], this device's copy of the same
+/// error, was read as, when [incoming] records none. Another error, though
+/// it replaced that one, does not take it.
+ChatMessageError? _withRelayOf(
+  ChatMessageError? incoming,
+  ChatMessageError? local,
+) =>
+    incoming != null &&
+        incoming.relay == null &&
+        local?.relay != null &&
+        local!.content == incoming.content
+    ? incoming.copyWith(relay: local.relay)
+    : incoming;
 
 /// [payload], a stored answer, as [withTetherRecord] makes it, its error
 /// read from the whole of what the server saved.

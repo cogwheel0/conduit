@@ -343,5 +343,72 @@ void main() {
         check(answer.error?.relay).equals(TetherRelayFailure.interrupted);
       });
     }
+
+    // A comparison's answers, or a regeneration's: the server's copy keeps
+    // the answers the chat does not open on among the versions of the one
+    // it does.
+    for (final kept in ['among its versions', 'on screen beside it']) {
+      test("a device's failed answer keeps its relay when the server's copy "
+          'of the chat is read again with it among the versions of another '
+          '(this device kept it $kept)', () async {
+        final question = _message('user-1', 'user', 'Compare');
+        final failed = ChatMessageVersion(
+          id: 'answer-b',
+          content: '',
+          timestamp: DateTime.utc(2026, 11, 20),
+          model: _deviceModel.id,
+          error: const ChatMessageError(
+            content: _generic,
+            relay: TetherRelayFailure.interrupted,
+          ),
+        );
+        final shown = _message('answer-a', 'assistant', 'An answer');
+        final container = _openChatContainer(
+          api: _FakeApiService(_chat(const [])),
+        );
+        container.read(chatMessagesProvider);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _chat([
+                question,
+                if (kept == 'among its versions')
+                  shown.copyWith(versions: [failed])
+                else ...[
+                  shown,
+                  _message(
+                    'answer-b',
+                    'assistant',
+                    '',
+                  ).copyWith(model: _deviceModel.id, error: failed.error),
+                ],
+              ]),
+            );
+        await pumpEventQueue();
+
+        // Open WebUI's copy keeps the same error, with no relay.
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _chat([
+                question,
+                shown.copyWith(
+                  content: 'An answer, finished',
+                  versions: [
+                    failed.copyWith(
+                      error: const ChatMessageError(content: _generic),
+                    ),
+                  ],
+                ),
+              ]),
+            );
+        await pumpEventQueue();
+
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.content).equals('An answer, finished');
+        check(answer.versions.single.error?.relay)
+            .equals(TetherRelayFailure.interrupted);
+      });
+    }
   });
 }
