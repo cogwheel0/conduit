@@ -558,9 +558,17 @@ class SocketService {
     if (!shouldSignalReconnect) return;
 
     _signalReconnectOnConnect = false;
+    _announceReconnect();
+  }
+
+  /// Tells listeners a connection came back so they refresh what it may have
+  /// missed. That includes the user's devices: one that joined or left
+  /// meanwhile sent its `terminals:changed` to a socket that wasn't there.
+  void _announceReconnect() {
     if (!_reconnectController.isClosed) {
       _reconnectController.add(null);
     }
+    tetherDevicesChangedHandler?.call();
   }
 
   void _clearPendingResumeReconnect() {
@@ -1425,9 +1433,7 @@ class SocketService {
     _connectionCompleter = null;
 
     // Notify listeners that a reconnection occurred so they can refresh state
-    if (!_reconnectController.isClosed) {
-      _reconnectController.add(null);
-    }
+    _announceReconnect();
     _clearPendingResumeReconnect();
 
     // Emit health update

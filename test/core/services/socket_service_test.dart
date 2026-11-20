@@ -1052,8 +1052,11 @@ void main() {
     }, _RealHttpOverrides());
   });
 
+  // A device that joined or left while the app was away told a socket that
+  // wasn't there, so the reconnect asks for the device lists again.
   test(
-    'resume reconnect emits onReconnect after the new socket connects',
+    'resume reconnect emits onReconnect after the new socket connects, and '
+    'reads the device lists again',
     () async {
       final lifecycle = FakeAppLifecycle();
       addTearDown(lifecycle.dispose);
@@ -1071,6 +1074,8 @@ void main() {
         reconnectCount += 1;
       });
       addTearDown(reconnectSub.cancel);
+      var deviceRefreshes = 0;
+      service.tetherDevicesChangedHandler = () => deviceRefreshes++;
 
       lifecycle.emit(AppLifecyclePhase.paused);
       lifecycle.emit(AppLifecyclePhase.resumed);
@@ -1078,12 +1083,14 @@ void main() {
 
       expect(socketFactory.sockets, hasLength(1));
       expect(reconnectCount, 0);
+      expect(deviceRefreshes, 0);
 
       socketFactory.sockets.single.id = 'session-after-resume';
       socketFactory.sockets.single.emitReserved('connect');
       await _flushMicrotasks(2);
 
       expect(reconnectCount, 1);
+      expect(deviceRefreshes, 1);
     },
   );
 
