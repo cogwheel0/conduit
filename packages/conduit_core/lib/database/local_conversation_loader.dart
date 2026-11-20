@@ -381,7 +381,8 @@ Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
   final kept = <ChatMessage>[];
   final waiting = <int>{};
   for (final message in conversation.messages) {
-    final shown = ids.contains(message.id)
+    final leftOut = ids.contains(message.id);
+    final shown = leftOut
         ? _answerInPlaceOf(message, ids)
         : _withoutVersions(message, ids);
     if (shown == null) {
@@ -394,6 +395,9 @@ Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
       waiting.remove(kept.length - 1);
     }
     kept.add(shown);
+    // What followed the left-out answer is its own branch, not the one shown
+    // in its place, whose turns only the server's tree holds.
+    if (leftOut) break;
   }
   for (final index in waiting) {
     kept[index] = _heldAgain(kept[index]);

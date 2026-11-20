@@ -3875,6 +3875,76 @@ void main() {
       });
     }
 
+    // Another client continued under the empty answer while its delete
+    // waited. Those turns are the empty answer's branch, not its sibling's.
+    test(
+      'a fallback read stops at the sibling shown for the empty answer',
+      () async {
+        await seedTurn();
+        await db.outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {
+            kDeleteMessagesIdsKey: [assistantId],
+          },
+        );
+        final api = _ServerChatApi('answer-2', {
+          userId: _historyEntry(
+            userId,
+            'user',
+            'Say the word: heron',
+            childrenIds: ['answer-elsewhere', assistantId],
+          ),
+          'answer-elsewhere': _historyEntry(
+            'answer-elsewhere',
+            'assistant',
+            'heron',
+            parentId: userId,
+          ),
+          assistantId: _historyEntry(
+            assistantId,
+            'assistant',
+            '',
+            parentId: userId,
+            childrenIds: ['question-2'],
+          ),
+          'question-2': _historyEntry(
+            'question-2',
+            'user',
+            'And again?',
+            parentId: assistantId,
+            childrenIds: ['answer-2'],
+          ),
+          'answer-2': _historyEntry(
+            'answer-2',
+            'assistant',
+            'egret',
+            parentId: 'question-2',
+          ),
+        });
+        final request = RequestOptions(path: '/api/v1/chats/$chatId');
+        api.rawError = DioException(
+          requestOptions: request,
+          type: DioExceptionType.badResponse,
+          response: Response<Object?>(requestOptions: request, statusCode: 503),
+        );
+        final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+        );
+        addTearDown(container.dispose);
+
+        final refreshed = await pullChatOrFetch(container, chatId);
+
+        check(refreshed!.messages.map((m) => m.id).toList())
+            .deepEquals([userId, 'answer-elsewhere']);
+      },
+    );
+
     test('a copy read straight from the server is read only as the account '
         'that asked for it', () async {
       final reads = _OutboxReadTap();
