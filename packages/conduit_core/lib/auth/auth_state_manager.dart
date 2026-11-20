@@ -28,6 +28,7 @@ import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/models/browser_sign_in_session.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -475,8 +476,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// revoking an older one can end at providers that revoke a whole grant.
   /// Asked again once what is stored was read, right before they go. One
   /// that may share its grant with one a retry or second step holds waits
-  /// until that one is let go of or stored.
+  /// until that one is let go of or stored. Sends the other revocations held
+  /// back for the same reasons too ([_sendDeferredBrowserRevocations]).
   void _revokeAbandonedBrowserGrants() {
+    _sendDeferredBrowserRevocations();
     if (_browserSignInsUnderWay > 0 ||
         _abandonedBrowserGrants.isEmpty ||
         !ref.mounted) {
@@ -532,14 +535,37 @@ class AuthStateManager extends _$AuthStateManager {
   /// Whether [grant] may be of the grant of one a retry or second step
   /// holds: the same client and issuer, for the same provider user or one
   /// not known.
-  bool _mayShareHeldBrowserGrant(BrowserSignInGrant grant) {
-    bool related(BrowserSignInGrant? other) =>
-        other != null &&
-        !identical(other, grant) &&
-        other.clientId == grant.clientId &&
-        normalizeBrowserSignInIssuer(other.issuer) ==
-            normalizeBrowserSignInIssuer(grant.issuer) &&
-        (other.subject == null || other.subject == grant.subject);
+  bool _mayShareHeldBrowserGrant(BrowserSignInGrant grant) =>
+      _mayShareHeldGrantOf(
+        clientId: grant.clientId,
+        issuer: grant.issuer,
+        subject: grant.subject,
+        except: grant,
+      );
+
+  /// Whether [session] may be of the grant of one a retry or second step
+  /// holds, as [_mayShareHeldBrowserGrant] tells for a grant. One whose
+  /// provider user is not known may be.
+  bool _mayShareHeldBrowserGrantOfSession(BrowserSignInSession session) =>
+      _mayShareHeldGrantOf(
+        clientId: session.clientId,
+        issuer: session.issuer,
+        subject: session.subject,
+      );
+
+  bool _mayShareHeldGrantOf({
+    required String clientId,
+    required String issuer,
+    required String? subject,
+    BrowserSignInGrant? except,
+  }) {
+    bool related(BrowserSignInGrant? held) =>
+        held != null &&
+        !identical(held, except) &&
+        held.clientId == clientId &&
+        normalizeBrowserSignInIssuer(held.issuer) ==
+            normalizeBrowserSignInIssuer(issuer) &&
+        (held.subject == null || subject == null || held.subject == subject);
     return related(_retryableBrowserGrant?.grant) ||
         related(_pendingTwoStep?.browserGrant);
   }
@@ -1440,7 +1466,6 @@ class AuthStateManager extends _$AuthStateManager {
     } finally {
       _browserSignInsUnderWay--;
       _revokeAbandonedBrowserGrants();
-      _sendDeferredBrowserRevocations();
     }
   }
 
@@ -2425,19 +2450,26 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Revokes [sessions] once nothing stored shares their grants
   /// ([BrowserSignInService.revokeEnded]): every revocation goes through
-  /// here. Ones asked for while a browser sign-in is under way wait until
-  /// none is, as [_revokeAbandonedBrowserGrants] explains. False when
-  /// [stillWanted] called them off; [stillWanted]'s caller waits on its own.
+  /// here. Ones asked for while a browser sign-in is under way, or that may
+  /// share a grant a retry or second step holds, wait until neither is so,
+  /// as [_revokeAbandonedBrowserGrants] explains. False when [stillWanted]
+  /// called them off; [stillWanted]'s caller waits on its own.
   Future<bool> _revokeBrowserSessions(
     List<BrowserSessionRevocation> sessions, {
     bool Function()? stillWanted,
   }) async {
     if (sessions.isEmpty || !ref.mounted) return true;
-    if (_browserSignInsUnderWay > 0) {
-      if (stillWanted != null) return false;
+    bool heldBack() =>
+        _browserSignInsUnderWay > 0 ||
+        sessions.any(
+          (revocation) =>
+              _mayShareHeldBrowserGrantOfSession(revocation.session),
+        );
+    if (stillWanted == null && heldBack()) {
       _deferredBrowserRevocations.addAll(sessions);
       return true;
     }
+    if (_browserSignInsUnderWay > 0) return false;
     final BrowserSignInService service;
     final OptimizedStorageService storage;
     try {
@@ -2450,8 +2482,9 @@ class AuthStateManager extends _$AuthStateManager {
     final revoking = service.revokeEnded(
       sessions,
       storage: storage,
-      stillWanted: () =>
-          _browserSignInsUnderWay == 0 && (stillWanted?.call() ?? true),
+      stillWanted: stillWanted == null
+          ? () => !heldBack()
+          : () => _browserSignInsUnderWay == 0 && stillWanted(),
     );
     _browserRevocations.add(revoking);
     final bool revoked;
@@ -2461,23 +2494,34 @@ class AuthStateManager extends _$AuthStateManager {
       _browserRevocations.remove(revoking);
     }
     if (revoked || stillWanted != null) return revoked;
-    // A browser sign-in began while what is stored was read.
+    // Held back while what is stored was read.
     _deferredBrowserRevocations.addAll(sessions);
     _sendDeferredBrowserRevocations();
     return true;
   }
 
-  /// Sends the revocations [_revokeBrowserSessions] held back, once no
-  /// browser sign-in is under way.
+  /// Sends the revocations [_revokeBrowserSessions] held back once no
+  /// browser sign-in is under way, but for those that may share a grant a
+  /// retry or second step still holds.
   void _sendDeferredBrowserRevocations() {
     if (_browserSignInsUnderWay > 0 ||
         _deferredBrowserRevocations.isEmpty ||
         !ref.mounted) {
       return;
     }
-    final sessions = [..._deferredBrowserRevocations];
-    _deferredBrowserRevocations.clear();
-    unawaited(_revokeBrowserSessions(sessions));
+    final going = <BrowserSessionRevocation>[];
+    final waiting = <BrowserSessionRevocation>[];
+    for (final revocation in _deferredBrowserRevocations) {
+      (_mayShareHeldBrowserGrantOfSession(revocation.session)
+              ? waiting
+              : going)
+          .add(revocation);
+    }
+    if (going.isEmpty) return;
+    _deferredBrowserRevocations
+      ..clear()
+      ..addAll(waiting);
+    unawaited(_revokeBrowserSessions(going));
   }
 
   /// Holds renewals of [accountIds] ([BrowserSignInService.holdRenewalsOf]),

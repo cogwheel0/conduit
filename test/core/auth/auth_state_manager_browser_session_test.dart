@@ -1369,6 +1369,69 @@ void main() {
       check(rig.service.revoked).deepEquals([_session]);
     });
 
+    for (final (ending, endsIt, letGo)
+        in <(String, void Function(_Service), Future<void> Function(_Rig))>[
+          (
+            'kept for Retry',
+            (service) => service.exchangeError = const BrowserSignInException(
+              BrowserSignInFailure.userNotFound,
+            ),
+            // A sign-in through the browser again, closed without one.
+            (rig) async {
+              rig.service
+                ..grant = null
+                ..exchangeError = null;
+              await rig.auth.loginWithBrowser(config: _config);
+            },
+          ),
+          (
+            'kept for its second step',
+            (service) => service.answer = () => const BrowserSignInSecondStep(
+              OpenWebUiTwoStepChallenge(
+                kind: OpenWebUiTwoStepKind.verify,
+                challengeToken: 'user-a.challenge',
+                expiresIn: Duration(minutes: 5),
+              ),
+            ),
+            (rig) async => rig.auth.cancelTwoStepSignIn(),
+          ),
+        ]) {
+      for (final during in [true, false]) {
+        test('a revocation asked for ${during ? 'while' : 'after'} a browser '
+            'sign-in gets a grant $ending waits until it is let go', () async {
+          final rig = await _Rig.start();
+          when(() => rig.storage.browserSignInSessionFor('account-b'))
+              .thenAnswer((_) async => _session);
+          when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+              .thenAnswer((_) async => const []);
+          when(() => rig.storage.removeInactiveAccount('account-b'))
+              .thenAnswer((_) async => true);
+          rig.service
+            ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user')
+            ..browserOpen = Completer<void>();
+          endsIt(rig.service);
+
+          final signIn = rig.auth.loginWithBrowser(config: _config);
+          await pumpEventQueue();
+          if (during) await rig.auth.signOutAccount('account-b');
+          rig.service.browserOpen!.complete();
+          await check(signIn).throws<Object>();
+          if (!during) await rig.auth.signOutAccount('account-b');
+          await pumpEventQueue();
+          await rig.auth.browserRevocationsSettled;
+          // Its grant may be the one held, which revoking it could end.
+          check(rig.service.revoked).isEmpty();
+
+          await letGo(rig);
+          await pumpEventQueue();
+          await rig.auth.browserRevocationsSettled;
+          check(
+            rig.service.revoked.map((session) => session.refreshToken),
+          ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
+        });
+      }
+    }
+
     // The session the clear took, even when it could not be read before.
     for (final readable in [true, false]) {
       test('revokes the refresh token on a plain logout'
