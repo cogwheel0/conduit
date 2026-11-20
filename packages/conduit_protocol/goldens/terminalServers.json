@@ -4,7 +4,15 @@
       "id": "t1",
       "name": "Box",
       "kind": "system",
-      "requiresSavedChat": false
+      "requiresSavedChat": false,
+      "device": false
+    },
+    {
+      "id": "tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d",
+      "name": "Studio Mac",
+      "kind": "system",
+      "requiresSavedChat": false,
+      "device": true
     }
   ],
   "selectedId": "t1"

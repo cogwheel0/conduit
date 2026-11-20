@@ -19,6 +19,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/tether/tether_devices.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show
@@ -70,6 +71,32 @@ final class _Listed extends Models {
     core.Model(id: 'first-model', name: 'First model'),
     core.Model(id: 'preferred-model', name: 'Preferred'),
   ];
+}
+
+/// A model one of the user's devices offers, as Open WebUI 0.13.4 lists it,
+/// beside one of the server's own.
+final class _OnDevices extends Models {
+  @override
+  Future<List<core.Model>> build() async => [
+    core.Model.fromJson(const <String, dynamic>{
+      'id': 'qwen3:8b',
+      'name': 'qwen3:8b',
+      'owned_by': 'openai',
+      'connection_type': 'local',
+      'tags': <dynamic>[
+        <String, dynamic>{'name': 'Studio Mac · Garage lab'},
+      ],
+      'owner_id': 'user-1',
+      'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+      'service': 'garage_lab',
+    }),
+    const core.Model(id: 'first-model', name: 'First model'),
+  ];
+}
+
+/// Tether devices that change on cue.
+final class _Devices extends TetherDevices {
+  void bump() => state++;
 }
 
 /// Two Hermes models that both offer the Fast tier.
@@ -1429,6 +1456,42 @@ void main() {
     final list = await ModelsService(container).list();
 
     expect(list.models.map((model) => model.id), [_cached.id]);
+  });
+
+  test("a model one of the user's devices offers says which device", () async {
+    final container = ProviderContainer(
+      overrides: [modelsProvider.overrideWith(_OnDevices.new)],
+    );
+    addTearDown(container.dispose);
+
+    final list = await ModelsService(container).list();
+
+    expect(
+      {for (final model in list.models) model.id: model.device},
+      <String, String?>{
+        'qwen3:8b': 'Studio Mac · Garage lab',
+        'first-model': null,
+      },
+    );
+  });
+
+  test('a Tether device changing what it offers announces another list', () {
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(_Listed.new),
+        tetherDevicesProvider.overrideWith(_Devices.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    final bus = EventBus();
+    final changed = <String>[];
+    bus.tap((event, _, _) => changed.add(event));
+    ModelsService(container, events: bus);
+    changed.clear();
+
+    (container.read(tetherDevicesProvider.notifier) as _Devices).bump();
+
+    expect(changed, <String>[ConduitEventSpecs.modelsChanged.name]);
   });
 
   test('with nothing chosen, the account default is the selection', () async {

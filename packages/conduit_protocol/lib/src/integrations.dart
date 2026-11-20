@@ -18,6 +18,11 @@ enum PersonalAccess {
 
   /// The account is neither an admin nor granted `direct_tool_servers`.
   noPermission,
+
+  /// Open WebUI 0.13.4 and later take personal tools and terminals from the
+  /// user's Tether devices, and no longer use the list. It is still listed,
+  /// to read only (no `owner`).
+  movedToTether,
 }
 
 /// One personal tool server (OpenAPI) or terminal, with what its editor

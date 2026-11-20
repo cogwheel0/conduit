@@ -15,12 +15,14 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
     hide PersonalConnectionTestResult;
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -1309,6 +1311,47 @@ void _withAnAccount() {
       expect(options.tools.map((t) => t.name), contains('Seed catalogue'));
     });
 
+    test('a server that moved personal connections to Tether lists them to '
+        'read only, and the composer offers none', () async {
+      user = _avaAdmin;
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(_TetherServer.new),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+          movedPersonalConnectionsProvider.overrideWith(
+            (ref) => _Connections(() => api).build(),
+          ),
+        ],
+      );
+
+      final list = await IntegrationsService(container).list();
+      expect(list.access, PersonalAccess.movedToTether);
+      expect(list.owner, isEmpty);
+      expect(list.toolServers.map((t) => t.name), <String>['Seed catalogue']);
+      final options = await ComposerService(container).options();
+      expect(options.tools.map((t) => t.name), isNot(contains('Seed catalogue')));
+    });
+
+    test("the composer marks the tools the user's devices offer", () async {
+      user = _avaAdmin;
+      final container = containerWith(
+        extra: [toolsListProvider.overrideWith(_DeviceTools.new)],
+      );
+
+      final options = await ComposerService(container).options();
+
+      expect(
+        {for (final tool in options.tools) tool.name: tool.device},
+        containsPair('Studio Mac · Garage tools', true),
+      );
+      expect(
+        {for (final tool in options.tools) tool.name: tool.device},
+        containsPair('Weather', false),
+      );
+    });
+
     test('an account switch while the composer reads the config again is '
         'refused', () async {
       user = _avaAdmin;
@@ -1636,6 +1679,25 @@ final class _PreSignInConfig extends BackendConfigNotifier {
       BackendConfig(serverId: _server.id, enableDirectIntegrations: true),
     );
   }
+}
+
+/// The server's tools, one of them a Tether device's (as 0.13.4 names it).
+final class _DeviceTools extends ToolsList {
+  @override
+  Future<List<Tool>> build() async => const <Tool>[
+    Tool(id: 'weather', name: 'Weather'),
+    Tool(
+      id: 'server:tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d:garage_tools',
+      name: 'Studio Mac · Garage tools',
+    ),
+  ];
+}
+
+/// Open WebUI 0.13.4, which reports no direct integrations.
+final class _TetherServer extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, version: '0.13.4');
 }
 
 /// The account's personal connections: one enabled tool server.

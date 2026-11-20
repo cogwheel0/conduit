@@ -47,6 +47,25 @@ void main() {
     expect((await failed).openWebUiLoadFailed, isTrue);
     expect((await fine).openWebUiLoadFailed, isFalse);
   });
+
+  test('a server that moved direct connections to Tether says so', () async {
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWith((ref) => null),
+        directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
+        openWebUiDirectConnectionsMovedToTetherProvider.overrideWithValue(true),
+        effectiveDirectConnectionProfilesFutureProvider.overrideWith(
+          (ref) async => const <DirectConnectionProfile>[],
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final list = await DirectService(container).list();
+
+    expect(list.openWebUiAvailable, isFalse);
+    expect(list.openWebUiMovedToTether, isTrue);
+  });
 }
 
 final class _NoProfiles extends DirectConnectionProfilesController {

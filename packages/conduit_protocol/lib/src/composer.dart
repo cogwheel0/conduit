@@ -12,6 +12,10 @@ abstract class ToolSummary with _$ToolSummary {
     required String id,
     required String name,
     String? description,
+
+    /// One of the user's own devices offers it through Tether, so the menu
+    /// lists it under Your Devices.
+    @Default(false) bool device,
   }) = _ToolSummary;
 
   factory ToolSummary.fromJson(Map<String, dynamic> json) =>

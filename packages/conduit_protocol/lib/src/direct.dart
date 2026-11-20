@@ -84,6 +84,10 @@ abstract class DirectConnectionList with _$DirectConnectionList {
     /// account, so the settings offer a section for them.
     @Default(false) bool openWebUiAvailable,
 
+    /// The signed-in server moved its users' direct connections to Tether
+    /// (Open WebUI 0.13.4 and later), so the settings say so where they were.
+    @Default(false) bool openWebUiMovedToTether,
+
     /// The app was set up to use direct connections rather than an Open
     /// WebUI server (the welcome screen's choice).
     @Default(false) bool preferred,

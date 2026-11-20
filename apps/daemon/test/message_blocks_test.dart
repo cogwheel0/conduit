@@ -282,6 +282,27 @@ void main() {
       expect(error.type, 'heldReplyStillRunning');
     });
 
+    test("a failed relay to one of the user's devices is named for the "
+        "window's words", () {
+      for (final (text, type) in const <(String, String)>[
+        (
+          'Tether connection interrupted: Connection lost. The operation may '
+              'have completed. Check its result before trying again; do not '
+              'automatically repeat it.',
+          'tetherInterrupted',
+        ),
+        ('Tether service is unavailable.', 'tetherUnavailable'),
+        ('Tether has too many active operations.', 'tetherBusy'),
+      ]) {
+        final dtos = MessageBlocks().forMessage(
+          answer(content: '').copyWith(error: ChatMessageError(content: text)),
+        );
+        final error = dtos.firstWhere((b) => b.kind == MessageBlockKind.error);
+        expect(error.type, type);
+        expect(error.error, text);
+      }
+    });
+
     test('a reasoning header that kept its timing in the summary', () {
       final dtos = MessageBlocks().forMessage(
         answer(

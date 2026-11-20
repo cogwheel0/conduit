@@ -421,6 +421,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
         logo: 'meta',
         connection: 'Home Ollama',
       ),
+      ModelSummary(
+        id: 'qwen3:8b',
+        name: 'qwen3:8b',
+        device: 'Studio Mac · Garage lab',
+      ),
     ],
     selectedId: 'gpt-4o',
   ),
@@ -532,6 +537,11 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     name: 'Weather',
     description: 'Current conditions for a city',
   ),
+  'toolSummaryDevice': const ToolSummary(
+    id: 'server:tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d:garage_tools',
+    name: 'Studio Mac · Garage tools',
+    device: true,
+  ),
   'chatFile': const ChatFileDto(
     id: 'file-1',
     name: 'diagram.png',
@@ -594,6 +604,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     localHistory: true,
     openWebUiAvailable: true,
+    openWebUiMovedToTether: true,
     preferred: true,
     usable: true,
     openWebUiLoadFailed: true,
@@ -1397,7 +1408,14 @@ final Map<String, Object> protocolFixtures = <String, Object>{
   ),
   'terminalScope': const TerminalScope(scopeId: 'c1'),
   'terminalServers': const TerminalServers(
-    servers: <TerminalServerDto>[TerminalServerDto(id: 't1', name: 'Box')],
+    servers: <TerminalServerDto>[
+      TerminalServerDto(id: 't1', name: 'Box'),
+      TerminalServerDto(
+        id: 'tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+        name: 'Studio Mac',
+        device: true,
+      ),
+    ],
     selectedId: 't1',
   ),
   'terminalSelect': const TerminalSelect(serverId: 't1'),
@@ -3296,6 +3314,19 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     cleared: <String>['Old Gauge'],
   ),
+  'personalConnectionsMoved': const PersonalConnections(
+    access: PersonalAccess.movedToTether,
+    accountName: 'Harbour Admin',
+    serverName: 'Local',
+    toolServers: <PersonalConnectionDto>[
+      PersonalConnectionDto(
+        kind: PersonalKind.toolServer,
+        identity: 'conduit-0b1c',
+        name: 'Tide Tables',
+        endpoint: 'https://tides.example',
+      ),
+    ],
+  ),
   'personalConnectionDraft': const PersonalConnectionDraft(
     name: 'Buoy Readings',
     url: 'http://127.0.0.1:19341/personal',
@@ -5001,6 +5032,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'turnFinishedQueued': TurnFinished.fromJson,
       'stopTurn': StopTurn.fromJson,
       'toolSummary': ToolSummary.fromJson,
+      'toolSummaryDevice': ToolSummary.fromJson,
       'chatFile': ChatFileDto.fromJson,
       'chatUsage': ChatUsageDto.fromJson,
       'chatSource': ChatSourceDto.fromJson,
@@ -5482,6 +5514,7 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'webhookRef': WebhookRef.fromJson,
       'personalConnectionDto': PersonalConnectionDto.fromJson,
       'personalConnections': PersonalConnections.fromJson,
+      'personalConnectionsMoved': PersonalConnections.fromJson,
       'personalConnectionDraft': PersonalConnectionDraft.fromJson,
       'personalConnectionSave': PersonalConnectionSave.fromJson,
       'personalConnectionTest': PersonalConnectionTest.fromJson,

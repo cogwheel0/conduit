@@ -10,6 +10,7 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/features/tether/tether_devices.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -62,6 +63,12 @@ final class CapabilitiesService {
       appleOnDeviceEnabledProvider,
       (_, _) => _update(),
     );
+    // What the account's Tether devices offer changed: the server's
+    // terminals with them, which windows read again on this.
+    _devices = _container.listen<int>(
+      tetherDevicesProvider,
+      (_, _) => _events?.emit(ConduitEventSpecs.capabilitiesChanged, null),
+    );
     _update();
   }
 
@@ -76,6 +83,7 @@ final class CapabilitiesService {
   late final ProviderSubscription<PrimaryAccountKind> _primary;
   late final ProviderSubscription<bool> _apple;
   late final ProviderSubscription<bool> _appleOn;
+  late final ProviderSubscription<int> _devices;
 
   Capabilities _current = Capabilities.none;
 
@@ -128,6 +136,7 @@ final class CapabilitiesService {
     _primary.close();
     _apple.close();
     _appleOn.close();
+    _devices.close();
   }
 
   /// The protocol's flags for [features]. [config] is the signed-in Open

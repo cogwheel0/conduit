@@ -106,6 +106,26 @@ void main() {
     return (next, away);
   }
 
+  test("a terminal on one of the user's devices is listed as one", () async {
+    // As Open WebUI 0.13.4 lists a Tether device's own terminal: no
+    // address for a terminal the user owns.
+    server.moreTerminals.add(<String, dynamic>{
+      'id': 'tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+      'url': '',
+      'name': 'Studio Mac',
+      'config': <String, dynamic>{'chat_uploads': 'filesystem'},
+    });
+    final terminals = TerminalsService(container);
+    addTearDown(terminals.dispose);
+
+    final listed = await terminals.servers('');
+
+    expect(
+      {for (final s in listed.servers) s.name: s.device},
+      <String, bool>{'Workbench': false, 'Studio Mac': true},
+    );
+  });
+
   group('live terminal watches', () {
     test('go through the sign-in proxy with its header and cookie', () async {
       final events = EventBus();
@@ -318,6 +338,9 @@ final class _GatedServer {
   final List<Object?> shortcuts = <Object?>[];
   Completer<void>? desktopHold;
 
+  /// Terminals listed after the server's own ("box").
+  final List<Map<String, dynamic>> moreTerminals = <Map<String, dynamic>>[];
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   static Future<_GatedServer> start({
@@ -386,6 +409,7 @@ final class _GatedServer {
       case ('GET', '/api/v1/terminals/'):
         body = <Map<String, dynamic>>[
           <String, dynamic>{'id': 'box', 'name': 'Workbench'},
+          ...moreTerminals,
         ];
       case ('GET', '/api/v1/terminals/box/api/config'):
         body = <String, dynamic>{

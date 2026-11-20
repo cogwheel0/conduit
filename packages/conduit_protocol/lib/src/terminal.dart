@@ -17,6 +17,10 @@ abstract class TerminalServerDto with _$TerminalServerDto {
 
     /// Only usable from a chat that has been saved, not a new one.
     @Default(false) bool requiresSavedChat,
+
+    /// One of the user's own devices, which the server reaches through
+    /// Tether: listed under Your Devices.
+    @Default(false) bool device,
   }) = _TerminalServerDto;
 
   factory TerminalServerDto.fromJson(Map<String, dynamic> json) =>

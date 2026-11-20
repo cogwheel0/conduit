@@ -1,0 +1,28 @@
+{
+  "access": "movedToTether",
+  "owner": "",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [
+    {
+      "kind": "toolServer",
+      "identity": "conduit-0b1c",
+      "name": "Tide Tables",
+      "endpoint": "https://tides.example",
+      "enabled": true,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false,
+      "fingerprint": ""
+    }
+  ],
+  "terminals": [],
+  "cleared": [],
+  "failed": false,
+  "savedForPreviousAccount": false
+}

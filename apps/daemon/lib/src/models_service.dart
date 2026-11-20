@@ -41,6 +41,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/settings_service.dart'
     show appSettingsProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/tether/tether_devices.dart';
+import 'package:conduit_core/features/tether/tether_offers.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -338,6 +340,8 @@ final class ModelsService {
       if (previous == next) return;
       _announce();
     });
+    // A Tether device changed what it offers, its models read again.
+    _container.listen<int>(tetherDevicesProvider, (_, _) => _announce());
     List<String>? last;
     _container.listen<AsyncValue<List<core.Model>>>(modelsProvider, (_, next) {
       final models = next.value;
@@ -1187,6 +1191,7 @@ final class ModelsService {
     connection: model.metadata?['direct'] == true
         ? (model.metadata?['directProfileName'] as String?)
         : null,
+    device: tetherModelDeviceTag(model),
     logo: _logo(model),
     agent: terminalAgentDto(
       model.id,

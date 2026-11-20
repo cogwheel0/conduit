@@ -223,8 +223,10 @@ abstract class MessageBlockDto with _$MessageBlockDto {
     /// `error`: why, when hosts should say something other than [error]:
     /// `directToolsUnsupported` (the model refused tool definitions; advise
     /// turning web search off), `heldReplyStillRunning` (a polling-only
-    /// server may still be writing the reply; open the chat again later).
-    /// Absent otherwise.
+    /// server may still be writing the reply; open the chat again later),
+    /// and a failed relay to one of the user's Tether devices:
+    /// `tetherInterrupted` (it may have run; check before repeating it),
+    /// `tetherUnavailable`, `tetherBusy`. Absent otherwise.
     String? type,
 
     /// `status`: the timeline, oldest first.
