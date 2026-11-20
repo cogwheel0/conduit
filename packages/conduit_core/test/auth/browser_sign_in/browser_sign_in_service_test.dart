@@ -231,8 +231,10 @@ BrowserSignInSession _subjectSession(
   subject: subject,
 );
 
-OpenWebUiRegistry _registry({BrowserSignInConfig? config = _config}) =>
-    OpenWebUiRegistry(
+OpenWebUiRegistry _registry({
+  BrowserSignInConfig? config = _config,
+  String accountId = 'account-a',
+}) => OpenWebUiRegistry(
       servers: [
         OpenWebUiServer(
           id: 'server-1',
@@ -243,7 +245,7 @@ OpenWebUiRegistry _registry({BrowserSignInConfig? config = _config}) =>
           browserSignIn: config,
         ),
       ],
-      accounts: [OpenWebUiAccount(id: 'account-a', serverId: 'server-1')],
+      accounts: [OpenWebUiAccount(id: accountId, serverId: 'server-1')],
     );
 
 void main() {
@@ -715,6 +717,57 @@ void main() {
         _session(),
         _session(refreshToken: 'rotated-refresh'),
       ]);
+    });
+
+    test('a rotation that could not be saved is revoked with the session '
+        'that spent it', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => throw StateError('keychain locked'));
+      await check(renew()).throws<StateError>();
+      when(
+        () => storage.browserSignInSessionsForRevocation(),
+      ).thenAnswer((_) async => const []);
+
+      await service.revokeEnded([
+        (session: _session(), route: api.serverConfig),
+      ], storage: storage);
+
+      check(
+        idp.requests
+            .where((request) => request.url.toString() == _revocation)
+            .map((request) => request.bodyFields['token']),
+      ).unorderedEquals(['saved-refresh', 'rotated-refresh']);
+    });
+
+    test('a rotation that could not be saved goes with the session that '
+        'spent it, as a merge moves it to another account', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => throw StateError('keychain locked'));
+      await check(renew()).throws<StateError>();
+      when(
+        () => storage.browserSignInSessionFor('account-b'),
+      ).thenAnswer((_) async => _session());
+      when(
+        () => storage.getOpenWebUiRegistryStrict(),
+      ).thenAnswer((_) async => _registry(accountId: 'account-b'));
+      when(
+        () => storage.replaceBrowserSignInSessionIfCurrent(
+          'account-b',
+          expected: any(named: 'expected'),
+          next: any(named: 'next'),
+        ),
+      ).thenAnswer((_) async => true);
+
+      final renewal = await service.renew(
+        accountId: 'account-b',
+        api: api,
+        storage: storage,
+      );
+
+      check(renewal.session.refreshToken).equals('rotated-refresh');
+      check(
+        idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
+      ).deepEquals(['saved-refresh', 'rotated-refresh']);
     });
 
     test('two callers at once share one refresh', () async {
