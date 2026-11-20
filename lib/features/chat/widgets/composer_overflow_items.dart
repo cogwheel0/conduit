@@ -15,6 +15,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/features/tether/tether_offers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -86,6 +87,9 @@ enum ComposerOverflowSection {
   attachments('attachments'),
   features('features'),
   tools('tools'),
+
+  /// What the user's own devices offer through Tether (Open WebUI 0.13.4).
+  devices('devices'),
   filters('filters');
 
   const ComposerOverflowSection(this.nativeValue);
@@ -98,6 +102,7 @@ enum ComposerOverflowSection {
     ComposerOverflowSection.attachments => null,
     ComposerOverflowSection.features => null,
     ComposerOverflowSection.tools => l10n.tools,
+    ComposerOverflowSection.devices => l10n.composerYourDevices,
     ComposerOverflowSection.filters => l10n.filters,
   };
 }
@@ -377,7 +382,9 @@ List<ComposerOverflowItem> buildComposerOverflowToolItems({
       ComposerOverflowItem(
         id: ComposerOverflowActionIds.tool(tool.id),
         kind: ComposerOverflowItemKind.toggle,
-        section: ComposerOverflowSection.tools,
+        section: isTetherToolId(tool.id)
+            ? ComposerOverflowSection.devices
+            : ComposerOverflowSection.tools,
         label: tool.name,
         subtitle: composerOverflowToolDescription(tool),
         cupertinoIcon: composerOverflowToolCupertinoIcon(tool),
@@ -483,7 +490,7 @@ Set<int> _selectedToolServerIndices(
 }
 
 /// Personal tool servers and terminals, in the tools section like the ordinary
-/// tools, so the native panel renders them without a new section.
+/// tools; a terminal on one of the user's devices goes under Your devices.
 List<ComposerOverflowItem> buildComposerOverflowConnectionItems({
   required AppLocalizations l10n,
   required ComposerPersonalConnections connections,
@@ -514,7 +521,9 @@ List<ComposerOverflowItem> buildComposerOverflowConnectionItems({
       ComposerOverflowItem(
         id: ComposerOverflowActionIds.terminal(server),
         kind: ComposerOverflowItemKind.toggle,
-        section: ComposerOverflowSection.tools,
+        section: server.isTetherDevice
+            ? ComposerOverflowSection.devices
+            : ComposerOverflowSection.tools,
         label: server.displayName,
         subtitle: server.subtitle,
         cupertinoIcon: CupertinoIcons.chevron_left_slash_chevron_right,

@@ -133,6 +133,15 @@ String? modelPickerSubtitle(
   return description == null || description.isEmpty ? null : description;
 }
 
+/// The tags a model picker shows beside [model]: its own, without the
+/// device [modelPickerSubtitle] already names.
+List<String> modelPickerTags(Model model) {
+  final device = tetherModelDeviceTag(model);
+  final tags = model.modelTags;
+  if (device == null) return tags;
+  return [for (final tag in tags) if (tag != device) tag];
+}
+
 /// The id segment after the last `/` (`openai/gpt-5-mini` → `gpt-5-mini`),
 /// or the whole value when that segment would be empty.
 String _lastSegment(String value) {

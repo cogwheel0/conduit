@@ -13,6 +13,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/usage_summary.dart';
@@ -1860,7 +1861,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // wording: a model that can't call tools rejects web search's tool
     // definitions, a provider can refuse a request for too many images, and
     // a model can keep asking for tools after Conduit stopped offering them.
+    // So does a failed relay to one of the user's Tether devices.
     final l10n = AppLocalizations.of(context)!;
+    final relayFailure = switch (tetherRelayFailureOf(errorContent)) {
+      TetherRelayFailure.interrupted => l10n.tetherRelayInterrupted,
+      TetherRelayFailure.unavailable => l10n.tetherRelayUnavailable,
+      TetherRelayFailure.busy => l10n.tetherRelayBusy,
+      null => null,
+    };
     final displayText = isDirectToolsUnsupportedError(errorContent)
         ? l10n.directModelToolsUnsupported
         : isDirectTooManyImagesError(errorContent)
@@ -1869,10 +1877,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? l10n.directToolLoopNoAnswer
         : isHeldReplyUnresolvedError(errorContent)
         ? l10n.heldReplyStillRunning
-        : (errorContent != null && errorContent.isNotEmpty)
-        ? errorContent
-        // If no content, show a generic error message
-        : 'An error occurred while generating this response.';
+        : relayFailure ??
+              ((errorContent != null && errorContent.isNotEmpty)
+                  ? errorContent
+                  // If no content, show a generic error message
+                  : 'An error occurred while generating this response.');
 
     return Container(
       padding: const EdgeInsets.all(Spacing.md),

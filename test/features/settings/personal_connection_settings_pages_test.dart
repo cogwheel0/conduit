@@ -8,6 +8,7 @@ import 'package:conduit/features/settings/settings_page_module.dart';
 import 'package:conduit/features/settings/settings_pages.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/auth/openwebui_account_summaries.dart';
+import 'package:conduit_core/features/integrations/personal_connection_edits.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -203,6 +204,39 @@ void main() {
         personalConnectionsSessionProvider.overrideWith(
           (ref) => ref.watch(signedIn),
         ),
+        movedPersonalConnectionsProvider.overrideWith((ref) async {
+          if (access.block != PersonalConnectionsBlock.movedToTether) {
+            return null;
+          }
+          final settings = await api.getUserSettings();
+          List<PersonalConnectionEntry> entries(PersonalConnectionKind kind) {
+            final list = effectivePersonalServerList(settings, kind.settingsKey);
+            return [
+              for (var index = 0; index < list.length; index++)
+                PersonalConnectionEntry(
+                  kind: kind,
+                  index: index,
+                  identity: personalConnectionIdentity(kind, list, index),
+                  raw: personalConnectionMap(list[index])!,
+                  list: list,
+                ),
+            ];
+          }
+
+          return PersonalConnectionsSnapshot(
+            session: PersonalConnectionsSession(
+              api: api,
+              authSnapshot: api.captureAuthSnapshot(),
+              accountName: 'Alex',
+              isCurrent: () => true,
+              readOnly: true,
+            ),
+            serverId: api.serverConfig.id,
+            accountName: 'Alex',
+            toolServers: entries(_tools),
+            terminals: entries(_terminals),
+          );
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -275,6 +309,45 @@ void main() {
         rig.titles(_alpha).single,
         _l10n.personalConnectionsUnavailablePermission,
       );
+    });
+  });
+
+  group('a server that moved them to Tether', () {
+    const moved = PersonalConnectionsAccess.blocked(
+      PersonalConnectionsBlock.movedToTether,
+    );
+
+    test('says so, and lists the saved ones to read only', () async {
+      final rig = await pump(access: moved);
+      rig.container.listen(movedPersonalConnectionsProvider, (_, _) {});
+      await rig.settle(rig.container.read(movedPersonalConnectionsProvider.future));
+
+      await rig.open(_list);
+
+      final rows = rig.rows(_list);
+      expect(rows.first.title, _l10n.personalConnectionsMovedToTether);
+      expect(
+        rig.page(_list).sections.first.footer,
+        _l10n.personalConnectionsSavedListUnused,
+      );
+      expect(
+        rows.map((row) => row.title),
+        containsAll(<String>['Alpha tools', 'Build box']),
+      );
+      // Nothing opens an editor, adds one or switches one.
+      expect(rows.every((row) => row.kind == NativeSheetItemKind.info), isTrue);
+      expect(rows.every((row) => row.rowActions.isEmpty), isTrue);
+      expect(rig.row(_list, _newTool), isNull);
+      expect(rig.writes, isEmpty);
+    });
+
+    test('an editor opened by a link says why instead', () async {
+      final rig = await pump(access: moved);
+
+      await rig.open(_alpha);
+
+      expect(rig.titles(_alpha).single, _l10n.personalConnectionsMovedToTether);
+      expect(rig.writes, isEmpty);
     });
   });
 

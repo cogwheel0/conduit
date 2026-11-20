@@ -16,6 +16,10 @@ import 'package:conduit/features/chat/widgets/expanded_text_editor.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -442,6 +446,70 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.userSettingsCalls, 0);
+  });
+
+  testWidgets("a server that moved personal connections to Tether offers its "
+      "devices' tools and terminals, and no personal tool server", (
+    tester,
+  ) async {
+    const device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
+    final api = _CountingUserSettingsApi()
+      ..settings = <String, dynamic>{
+        'ui': <String, dynamic>{
+          'toolServers': <dynamic>[
+            <String, dynamic>{
+              'url': 'https://saved-tools.example',
+              'path': 'openapi.json',
+              'config': <String, dynamic>{'enable': true},
+              'info': <String, dynamic>{'name': 'Saved tide tools'},
+            },
+          ],
+        },
+      };
+    addTearDown(api.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+          selectedModelProvider.overrideWithValue(
+            const Model(id: 'server-model', name: 'Server model'),
+          ),
+          apiServiceProvider.overrideWithValue(api),
+          personalConnectionsAccessProvider.overrideWithValue(
+            const PersonalConnectionsAccess.blocked(
+              PersonalConnectionsBlock.movedToTether,
+            ),
+          ),
+          toolsListProvider.overrideWith(_DeviceTools.new),
+          terminalAvailableServersProvider.overrideWith(
+            (ref) async => [
+              TerminalServerInfo(
+                kind: TerminalServerKind.system,
+                selectionId: 'tether:$device',
+                systemServerId: 'tether:$device',
+                baseUrl: Uri.parse('https://owui.example/api/v1/terminals/d'),
+                name: 'Studio Mac',
+              ),
+            ],
+          ),
+          webSearchAvailableProvider.overrideWithValue(false),
+          imageGenerationAvailableProvider.overrideWithValue(false),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: ComposerAttachmentKeyboard()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = AppLocalizationsEn();
+    expect(find.text(l10n.composerYourDevices), findsOneWidget);
+    expect(find.text('Studio Mac · Garage tools'), findsOneWidget);
+    expect(find.text('Studio Mac'), findsOneWidget);
+    expect(find.text('Saved tide tools'), findsNothing);
   });
 
   testWidgets('Apple direct overflow loads local MCP tools', (tester) async {
@@ -2237,11 +2305,12 @@ final class _CountingUserSettingsApi extends ApiService {
 
   final WorkerManager _workerManager;
   int userSettingsCalls = 0;
+  Map<String, dynamic> settings = const <String, dynamic>{};
 
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     userSettingsCalls++;
-    return const <String, dynamic>{};
+    return settings;
   }
 
   @override
@@ -2249,4 +2318,17 @@ final class _CountingUserSettingsApi extends ApiService {
     super.dispose();
     _workerManager.dispose();
   }
+}
+
+/// The server's tools: one of the server's own and one a Tether device
+/// offers, as Open WebUI 0.13.4 names them.
+final class _DeviceTools extends ToolsList {
+  @override
+  Future<List<Tool>> build() async => const <Tool>[
+    Tool(id: 'tide_lookup', name: 'Tide lookup'),
+    Tool(
+      id: 'server:tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d:garage_tools',
+      name: 'Studio Mac · Garage tools',
+    ),
+  ];
 }

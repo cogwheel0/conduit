@@ -2081,6 +2081,37 @@ void main() {
     expect(find.text('boom'), findsOneWidget);
   });
 
+  testWidgets("a failed relay to one of the user's devices is said plainly", (
+    tester,
+  ) async {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    // Open WebUI 0.13.4's own words for each way the relay can fail.
+    for (final (error, words) in <(String, String)>[
+      (
+        'Tether connection interrupted: Connection lost. The operation may '
+            'have completed. Check its result before trying again; do not '
+            'automatically repeat it.',
+        l10n.tetherRelayInterrupted,
+      ),
+      ('Tether service is unavailable.', l10n.tetherRelayUnavailable),
+      ('Tether has too many active operations.', l10n.tetherRelayBusy),
+    ]) {
+      final message = ChatMessage(
+        id: 'assistant-relay-failed',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime(2024, 1, 1),
+        error: ChatMessageError(content: error),
+      );
+
+      await tester.pumpWidget(_buildAssistantHarness(message));
+      await tester.pumpAndSettle();
+
+      expect(find.text(words), findsOneWidget);
+      expect(find.text(error), findsNothing);
+    }
+  });
+
   testWidgets('starting a new stream clears stale footer actions immediately', (
     tester,
   ) async {

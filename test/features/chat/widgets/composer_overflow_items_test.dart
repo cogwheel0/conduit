@@ -122,6 +122,66 @@ void main() {
     expect(action.stateLabel, l10n.switchOnLabel);
   });
 
+  test("the tools and terminals the user's devices offer are grouped as "
+      'Your devices', () {
+    // As Open WebUI 0.13.4 lists what a Tether device offers.
+    const device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
+    final actions = buildIosKeyboardAttachmentActions(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(),
+      hermesMode: false,
+      directMode: false,
+      webSearchAvailable: false,
+      webSearchEnabled: false,
+      imageGenerationAvailable: false,
+      imageGenerationEnabled: false,
+      availableTools: const [
+        Tool(id: 'weather', name: 'Weather'),
+        Tool(
+          id: 'server:tether:$device:garage_tools',
+          name: 'Studio Mac · Garage tools',
+        ),
+        Tool(id: 'server:mcp:tether:$device:notes', name: 'Studio Mac · Notes'),
+      ],
+      selectedToolIds: const [],
+      availableFilters: const [],
+      selectedFilterIds: const [],
+      connections: ComposerPersonalConnections(
+        owner: const ComposerConnectionsOwner(),
+        terminals: [
+          TerminalServerInfo(
+            kind: TerminalServerKind.system,
+            selectionId: 'shared-box',
+            systemServerId: 'shared-box',
+            baseUrl: Uri.parse('https://owui.example/api/v1/terminals/box'),
+            name: 'Shared box',
+          ),
+          TerminalServerInfo(
+            kind: TerminalServerKind.system,
+            selectionId: 'tether:$device',
+            systemServerId: 'tether:$device',
+            baseUrl: Uri.parse('https://owui.example/api/v1/terminals/d'),
+            name: 'Studio Mac',
+          ),
+        ],
+      ),
+    );
+
+    Map<String, String> sections(String sectionKey) => {
+      for (final action in actions)
+        if (action.section == sectionKey) action.label: action.sectionTitle!,
+    };
+    expect(sections('tools'), {
+      'Weather': l10n.tools,
+      'Shared box': l10n.tools,
+    });
+    expect(sections('devices'), {
+      'Studio Mac · Garage tools': l10n.composerYourDevices,
+      'Studio Mac · Notes': l10n.composerYourDevices,
+      'Studio Mac': l10n.composerYourDevices,
+    });
+  });
+
   test('iOS rows say whether they toggle or run a command, with localized '
       'section headings', () {
     final actions = buildIosKeyboardAttachmentActions(

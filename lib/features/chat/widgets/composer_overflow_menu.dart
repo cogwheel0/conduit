@@ -13,6 +13,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../terminal/providers/terminal_providers.dart';
@@ -362,6 +363,27 @@ class _ComposerAttachmentKeyboardState
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
+    // Personal tool servers join a request only where the server takes them.
+    final personalToolServers =
+        !restrictedMode &&
+        ref.watch(personalConnectionsAccessProvider).available;
+    Widget terminalTile(TerminalServerInfo server) => _buildToggleTile(
+      icon: Platform.isIOS
+          ? CupertinoIcons.chevron_left_slash_chevron_right
+          : Icons.terminal_rounded,
+      title: server.displayName,
+      subtitle: server.subtitle,
+      value: selectedTerminalId == server.selectionId,
+      onChanged: (_) async {
+        await ref.read(terminalSelectionControllerProvider).toggle(server);
+      },
+    );
+    final deviceTerminals = <TerminalServerInfo>[
+      for (final server
+          in availableTerminalServersAsync?.asData?.value ??
+              const <TerminalServerInfo>[])
+        if (server.isTetherDevice) server,
+    ];
     final toolsAsync = widget.localAttachmentsOnly
         ? null
         : directMode
@@ -381,22 +403,40 @@ class _ComposerAttachmentKeyboardState
                 availableTools: tools,
                 selectedToolIds: selectedToolIds,
               );
-              if (toolItems.isEmpty) {
+              if (toolItems.isEmpty && deviceTerminals.isEmpty) {
                 return _buildInfoCard(l10n.noToolsAvailable);
               }
-              final tiles = toolItems.map((item) {
-                return _buildOverflowItemTile(
-                  item: item,
-                  onChanged: (selected) {
-                    setComposerOverflowSelection(
-                      ref,
-                      actionId: item.id,
-                      selected: selected,
-                    );
-                  },
-                );
-              }).toList();
-              return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
+              Widget tile(ComposerOverflowItem item) => _buildOverflowItemTile(
+                item: item,
+                onChanged: (selected) {
+                  setComposerOverflowSelection(
+                    ref,
+                    actionId: item.id,
+                    selected: selected,
+                  );
+                },
+              );
+              final tiles = [
+                for (final item in toolItems)
+                  if (item.section == ComposerOverflowSection.tools) tile(item),
+              ];
+              final deviceTiles = [
+                for (final item in toolItems)
+                  if (item.section == ComposerOverflowSection.devices)
+                    tile(item),
+                for (final server in deviceTerminals) terminalTile(server),
+              ];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ...withVerticalSpacing(tiles, Spacing.xxs),
+                  if (deviceTiles.isNotEmpty) ...[
+                    if (tiles.isNotEmpty) const SizedBox(height: Spacing.sm),
+                    _buildSectionLabel(l10n.composerYourDevices),
+                    ...withVerticalSpacing(deviceTiles, Spacing.xxs),
+                  ],
+                ],
+              );
             },
             loading: () => directMode
                 ? const SizedBox.shrink()
@@ -414,10 +454,12 @@ class _ComposerAttachmentKeyboardState
             future: userSettingsFuture,
             builder: (context, snapshot) {
               final settings = snapshot.data;
-              final directToolServers = effectivePersonalServerList(
-                settings,
-                PersonalConnectionKind.toolServer.settingsKey,
-              );
+              final directToolServers = personalToolServers
+                  ? effectivePersonalServerList(
+                      settings,
+                      PersonalConnectionKind.toolServer.settingsKey,
+                    )
+                  : const <dynamic>[];
               final directToolTiles = <Widget>[];
               for (var index = 0; index < directToolServers.length; index++) {
                 final server = directToolServers[index];
@@ -456,28 +498,12 @@ class _ComposerAttachmentKeyboardState
                 );
               }
 
+              // A device's terminals are listed with its tools, above.
               final terminalTiles = availableTerminalServersAsync!.maybeWhen(
-                data: (servers) {
-                  return servers
-                      .map((server) {
-                        final isSelected =
-                            selectedTerminalId == server.selectionId;
-                        return _buildToggleTile(
-                          icon: Platform.isIOS
-                              ? CupertinoIcons.chevron_left_slash_chevron_right
-                              : Icons.terminal_rounded,
-                          title: server.displayName,
-                          subtitle: server.subtitle,
-                          value: isSelected,
-                          onChanged: (_) async {
-                            await ref
-                                .read(terminalSelectionControllerProvider)
-                                .toggle(server);
-                          },
-                        );
-                      })
-                      .toList(growable: false);
-                },
+                data: (servers) => [
+                  for (final server in servers)
+                    if (!server.isTetherDevice) terminalTile(server),
+                ],
                 orElse: () => const <Widget>[],
               );
 

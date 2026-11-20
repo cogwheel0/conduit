@@ -51,6 +51,7 @@ final class DirectSettingsView {
     this.mcpServers = const AsyncData(<DirectMcpServer>[]),
     this.openWebUi = const AsyncData(null),
     this.showOpenWebUi = false,
+    this.movedToTether = false,
     this.syncWithOpenWebUi = false,
     this.appleOnDevice,
     this.applePcc,
@@ -82,6 +83,7 @@ final class DirectSettingsView {
           ? read(openWebUiDirectConnectionsProvider)
           : const AsyncData(null),
       showOpenWebUi: showOpenWebUi,
+      movedToTether: read(openWebUiDirectConnectionsMovedToTetherProvider),
       syncWithOpenWebUi:
           read(directHistoryPolicyProvider) ==
           DirectHistoryPolicy.syncWithOpenWebUI,
@@ -111,6 +113,9 @@ final class DirectSettingsView {
 
   /// Whether an Open WebUI account keeps providers of its own.
   final bool showOpenWebUi;
+
+  /// Whether the account's server moved those providers to Tether.
+  final bool movedToTether;
   final bool syncWithOpenWebUi;
 
   /// Each Apple model's status, or null where it is not offered.
@@ -426,6 +431,18 @@ NativeSheetDetailConfig buildDirectConnectionsPage(
           ],
         ),
       ],
+      if (!view.showOpenWebUi && view.movedToTether)
+        NativeSheetSectionConfig(
+          title: l10n.openWebUiDirectConnectionsSectionTitle,
+          items: [
+            NativeSheetItemConfig(
+              id: '$pageId-openwebui-moved',
+              title: l10n.openWebUiDirectConnectionsMovedToTether,
+              sfSymbol: 'info.circle',
+              kind: NativeSheetItemKind.info,
+            ),
+          ],
+        ),
       NativeSheetSectionConfig(
         title: view.showOpenWebUi
             ? l10n.deviceDirectConnectionsSectionTitle
