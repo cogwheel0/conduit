@@ -142,9 +142,10 @@ pub fn offered(
     selected: Option<&str>,
     chat: Option<&str>,
 ) -> Vec<(String, String, bool)> {
+    let saved = chat.is_some_and(is_saved_chat);
     servers
         .iter()
-        .filter(|t| chat.is_some() || !t.requires_saved_chat)
+        .filter(|t| saved || !t.requires_saved_chat)
         .map(|t| {
             let name = if t.name.trim().is_empty() {
                 t.id.clone()
@@ -154,6 +155,18 @@ pub fn offered(
             (t.id.clone(), name, selected == Some(t.id.as_str()))
         })
         .collect()
+}
+
+/// Whether `chat` is one the server holds, by core's
+/// `isSavedTerminalChatScopeId`, which conduitd's `terminal.select` applies:
+/// a temporary chat keeps a local id and the server has no chat for it.
+fn is_saved_chat(chat: &str) -> bool {
+    let id = chat.trim();
+    !id.is_empty()
+        && id != "sidebar-terminal"
+        && !["local:", "temporary:", "channel:"]
+            .iter()
+            .any(|prefix| id.starts_with(prefix))
 }
 
 /// Selects `server` for chats (None: no terminal) from `chat` (None: no
@@ -231,6 +244,13 @@ mod tests {
             offered(&servers, Some("box"), None),
             [("box".to_string(), "box".to_string(), true)],
             "a new chat was offered a terminal it cannot use"
+        );
+        // A temporary chat keeps a local id (restored by Go Back too), and
+        // the server holds no chat for it.
+        assert_eq!(
+            offered(&servers, Some("box"), Some("local:tide-chart")),
+            [("box".to_string(), "box".to_string(), true)],
+            "a temporary chat was offered a terminal that needs a saved chat"
         );
         assert_eq!(
             offered(&servers, Some("box"), Some("chat-lighthouse")),
