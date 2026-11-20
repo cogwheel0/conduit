@@ -224,8 +224,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       final loaded = await cache.load(
         key,
         height: _initialHeight,
-        fetch: (token) async => OpenWebUiMcpAppResource.fromJson(
-          await api.runMcpAppRequest(
+        fetch: (client, token) async => OpenWebUiMcpAppResource.fromJson(
+          await client.runMcpAppRequest(
             app,
             method: 'ui/resource',
             cancelToken: token,
@@ -249,12 +249,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         app: widget.app,
         resource: resource,
         runRequest: (method, params) async {
-          // The account's current client, which a token refresh replaces;
-          // another account's client never serves this page.
-          final current =
-              mounted && identical(ref.read(mcpAppResourceCacheProvider), cache)
-              ? ref.read(apiServiceProvider)
-              : null;
+          final current = mounted ? cache.client : null;
           if (current == null) {
             throw const McpAppRpcException('The app was closed.');
           }

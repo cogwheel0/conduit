@@ -6,6 +6,9 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor;
@@ -58,6 +61,37 @@ final class _HeldCacheWrites extends QueryInterceptor {
   }
 }
 
+final class _HeldCacheRead extends QueryInterceptor {
+  final started = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('app_cache') && !started.isCompleted) {
+      started.complete();
+      await release.future;
+    }
+    return executor.runSelect(statement, args);
+  }
+}
+
+ApiService _client() {
+  final client = ApiService(
+    serverConfig: const ServerConfig(
+      id: 's',
+      name: 'S',
+      url: 'http://localhost:0',
+    ),
+    workerManager: WorkerManager(),
+  );
+  addTearDown(client.dispose);
+  return client;
+}
+
 void main() {
   late Directory directory;
   late List<AppDatabase> databases;
@@ -71,8 +105,14 @@ void main() {
     return database;
   }
 
-  Future<McpAppResourceCache> cache(AppDatabase database) async {
-    final result = McpAppResourceCache(database: database);
+  Future<McpAppResourceCache> cache(
+    AppDatabase database, {
+    ApiService? client,
+  }) async {
+    final result = McpAppResourceCache(
+      database: database,
+      client: () => client,
+    );
     caches.add(result);
     await result.ready;
     return result;
@@ -196,9 +236,9 @@ void main() {
   }
 
   test('a failed load is remembered until it is removed', () async {
-    final first = await cache(open('a'));
+    final first = await cache(open('a'), client: _client());
     var requests = 0;
-    Future<OpenWebUiMcpAppResource> refuse(CancelToken _) async {
+    Future<OpenWebUiMcpAppResource> refuse(ApiService _, CancelToken _) async {
       requests++;
       throw const McpAppRpcException('Invalid app binding.');
     }
@@ -226,10 +266,10 @@ void main() {
   });
 
   test('a load nobody waits for any more still fills the cache', () async {
-    final first = await cache(open('a'));
+    final first = await cache(open('a'), client: _client());
     final response = Completer<OpenWebUiMcpAppResource>();
     var requests = 0;
-    Future<OpenWebUiMcpAppResource> fetch(CancelToken _) {
+    Future<OpenWebUiMcpAppResource> fetch(ApiService _, CancelToken _) {
       requests++;
       return response.future;
     }
@@ -248,15 +288,49 @@ void main() {
     expect(requests, 1);
   });
 
+  test(
+    'a load asks through the client there is when its request starts',
+    () async {
+      final reads = _HeldCacheRead();
+      final database = AppDatabase(
+        NativeDatabase.memory().interceptWith(reads),
+      );
+      databases.add(database);
+      var current = _client();
+      final first = McpAppResourceCache(
+        database: database,
+        client: () => current,
+      );
+      caches.add(first);
+      final asked = <ApiService>[];
+      final load = first.load(
+        'call',
+        height: 300,
+        fetch: (client, _) async {
+          asked.add(client);
+          return _resource;
+        },
+      );
+      await reads.started.future;
+      // A token refresh replaces the client while the cache reads the disk.
+      current = _client();
+      reads.release.complete();
+
+      expect((await load).resource, same(_resource));
+      expect(asked, [same(current)]);
+    },
+  );
+
   test('closing the cache cancels the loads on their way', () async {
-    final first = McpAppResourceCache();
+    final client = _client();
+    final first = McpAppResourceCache(client: () => client);
     caches.add(first);
     final tokens = <CancelToken>[];
     unawaited(
       first.load(
         'call',
         height: 300,
-        fetch: (token) {
+        fetch: (_, token) {
           tokens.add(token);
           return Completer<OpenWebUiMcpAppResource>().future;
         },

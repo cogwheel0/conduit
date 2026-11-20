@@ -76,10 +76,20 @@ final class _ServingApi extends ApiService {
 
   final String? csp;
   String html;
-  final requests = <({String method, Map<String, dynamic> params})>[];
+  final requests =
+      <
+        ({String method, Map<String, dynamic> params, CancelToken? cancelToken})
+      >[];
 
   /// While set, the page is sent only once it completes.
   Completer<void>? hold;
+  bool _closed = false;
+
+  @override
+  void dispose() {
+    _closed = true;
+    super.dispose();
+  }
 
   @override
   Future<Map<String, dynamic>> runMcpAppRequest(
@@ -88,9 +98,11 @@ final class _ServingApi extends ApiService {
     Map<String, dynamic> params = const <String, dynamic>{},
     CancelToken? cancelToken,
   }) async {
-    requests.add((method: method, params: params));
+    requests.add((method: method, params: params, cancelToken: cancelToken));
     if (method == 'ui/resource') {
       await hold?.future;
+      // As Dio's closed adapter refuses a request it had not sent yet.
+      if (_closed) throw const McpAppRpcException('The app request failed.');
       return {
         'html': html,
         'csp': ?csp,
@@ -742,6 +754,30 @@ void main() {
     await tester.pumpAndSettle();
     await call;
     expect(refreshed.requests.map((request) => request.method), ['tools/call']);
+  });
+
+  testWidgets('a load the refreshed client closed is asked again, not failed', (
+    tester,
+  ) async {
+    final webViews = _installWebViews();
+    final stale = _ServingApi()..hold = Completer<void>();
+    await tester.pumpWidget(_harness(stale));
+    await tester.pump();
+    await tester.pump();
+
+    // A token refresh replaces the client while the page is on its way.
+    final refreshed = _ServingApi();
+    await tester.pumpWidget(_harness(refreshed));
+    stale.dispose();
+    stale.hold!.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey<String>('mcp-app-card')), findsNothing);
+    expect(refreshed.requests.map((request) => request.method), [
+      'ui/resource',
+    ]);
+    expect(webViews.built.single.initialData!.data, contains('<p>app</p>'));
   });
 
   testWidgets('size notifications expand long apps and shrink dynamically', (

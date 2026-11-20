@@ -12,22 +12,38 @@ import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'openwebui_mcp_app.dart';
 
 typedef McpAppCacheEntry = ({OpenWebUiMcpAppResource resource, double height});
 
+/// Asks [client] for an app's page.
+typedef McpAppResourceFetch = Future<OpenWebUiMcpAppResource> Function(
+  ApiService client,
+  CancelToken token,
+);
+
 final mcpAppResourceCacheProvider = Provider((ref) {
   // One cache per signed-in account. A new API client for the same account,
   // such as after a token refresh, keeps it and the apps it serves.
-  ref
-    ..watch(apiServiceProvider.select((api) => api?.serverConfig.id))
-    ..watch(currentUserProvider2.select((user) => user?.id));
+  final serverId = ref.watch(
+    apiServiceProvider.select((api) => api?.serverConfig.id),
+  );
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
   final database = ref.watch(appDatabaseProvider);
   final cache = McpAppResourceCache(
     database: database,
     manager: database == null ? null : ref.read(databaseManagerProvider),
+    client: () {
+      final api = ref.read(apiServiceProvider);
+      // Not another account's, even before this cache is replaced.
+      return api?.serverConfig.id == serverId &&
+              ref.read(currentUserProvider2)?.id == userId
+          ? api
+          : null;
+    },
   );
   ref.onDispose(cache.dispose);
   return cache;
@@ -36,9 +52,13 @@ final mcpAppResourceCacheProvider = Provider((ref) {
 /// The invocation cache, backed by the existing account-private cache table.
 /// Account sign-out/removal purges its database through the normal lifecycle.
 class McpAppResourceCache {
-  McpAppResourceCache({AppDatabase? database, DatabaseManager? manager})
-    : _database = database,
-      _manager = manager {
+  McpAppResourceCache({
+    AppDatabase? database,
+    DatabaseManager? manager,
+    ApiService? Function()? client,
+  }) : _database = database,
+       _manager = manager,
+       _client = client {
     ready = _queue(_load);
   }
 
@@ -61,6 +81,7 @@ class McpAppResourceCache {
   static const _maxFailures = 256;
   final AppDatabase? _database;
   final DatabaseManager? _manager;
+  final ApiService? Function()? _client;
   final _entries = <String, McpAppCacheEntry>{};
   final _sizes = <String, int>{};
   final _heightWrites = <String, Map<String, num>>{};
@@ -76,6 +97,10 @@ class McpAppResourceCache {
   Future<void> get settled => _pending;
   McpAppCacheEntry? operator [](String? key) => _entries[key];
 
+  /// The account's client for a new request, which a token refresh
+  /// replaces; null once this cache is closed or the account has none.
+  ApiService? get client => _disposed ? null : _client?.call();
+
   Future<McpAppCacheEntry?> read(String? key) async {
     await ready;
     return _use(key);
@@ -83,6 +108,10 @@ class McpAppResourceCache {
 
   /// [key]'s entry: the cached one, the request already on its way for it,
   /// or a new one through [fetch], stored at [height].
+  ///
+  /// [fetch] gets the [client] there is when the request starts, which may
+  /// be after a wait for the disk. When a token refresh replaces that client
+  /// before it answers, the request is made again through the new one.
   ///
   /// The request finishes into the cache even when its caller has gone, so
   /// a row scrolled away mid-load does not ask again when it comes back;
@@ -92,7 +121,7 @@ class McpAppResourceCache {
   Future<McpAppCacheEntry> load(
     String? key, {
     required double height,
-    required Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
+    required McpAppResourceFetch fetch,
   }) async {
     if (key == null) return (resource: await _fetch(fetch), height: height);
     await ready;
@@ -104,14 +133,15 @@ class McpAppResourceCache {
   Future<McpAppCacheEntry> _fetchInto(
     String key,
     double height,
-    Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
+    McpAppResourceFetch fetch,
   ) async {
     try {
       final entry = (resource: await _fetch(fetch), height: height);
       put(key, entry);
       return entry;
     } catch (error) {
-      if (!_disposed) {
+      // Without a client the failure is not the app's.
+      if (client != null) {
         _failures[key] = error;
         if (_failures.length > _maxFailures) {
           _failures.remove(_failures.keys.first);
@@ -123,14 +153,21 @@ class McpAppResourceCache {
     }
   }
 
-  Future<OpenWebUiMcpAppResource> _fetch(
-    Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
-  ) async {
-    if (_disposed) throw StateError('The MCP App cache is closed.');
+  Future<OpenWebUiMcpAppResource> _fetch(McpAppResourceFetch fetch) async {
     final token = CancelToken();
     _tokens.add(token);
     try {
-      return await fetch(token);
+      while (true) {
+        final current = client;
+        if (current == null) {
+          throw StateError('No client serves the MCP App cache.');
+        }
+        try {
+          return await fetch(current, token);
+        } catch (_) {
+          if (token.isCancelled || identical(client, current)) rethrow;
+        }
+      }
     } finally {
       _tokens.remove(token);
     }
