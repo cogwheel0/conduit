@@ -1669,7 +1669,8 @@ class PlatformBrowserAuthResult {
 
 /// iOS and Android. Runs a sign-in page in the system browser, where
 /// passkeys and security keys work, and returns the redirect it ends on.
-/// Never throws: every ending is a [PlatformBrowserAuthResult].
+/// The host ends every sign-in with a [PlatformBrowserAuthResult]; only a
+/// failure of the channel itself throws, as a `PlatformException`.
 @HostApi()
 abstract class BrowserAuthHostApi {
   /// Completes when the browser reaches the redirect, is dismissed, or

@@ -8138,7 +8138,8 @@ abstract class PushFlutterApi {
 
 /// iOS and Android. Runs a sign-in page in the system browser, where
 /// passkeys and security keys work, and returns the redirect it ends on.
-/// Never throws: every ending is a [PlatformBrowserAuthResult].
+/// The host ends every sign-in with a [PlatformBrowserAuthResult]; only a
+/// failure of the channel itself throws, as a `PlatformException`.
 class BrowserAuthHostApi {
   /// Constructor for [BrowserAuthHostApi]. The [binaryMessenger] named argument is
   /// available for dependency injection. If it is left null, the default
