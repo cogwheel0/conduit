@@ -5698,7 +5698,8 @@ interface ImageGalleryHostApi {
  * Generated interface from Pigeon that represents a handler of messages from Flutter.
  */
 interface UserCertificatesHostApi {
-  fun userCaCertificates(): List<String>
+  /** Async so the host reads the store off its main thread. */
+  fun userCaCertificates(callback: (Result<List<String>>) -> Unit)
 
   companion object {
     /** The codec used by UserCertificatesHostApi. */
@@ -5713,12 +5714,15 @@ interface UserCertificatesHostApi {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { _, reply ->
-            val wrapped: List<Any?> = try {
-              listOf(api.userCaCertificates())
-            } catch (exception: Throwable) {
-              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            api.userCaCertificates{ result: Result<List<String>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

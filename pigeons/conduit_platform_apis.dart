@@ -1327,6 +1327,8 @@ abstract class ImageGalleryHostApi {
 /// each as PEM text.
 @HostApi()
 abstract class UserCertificatesHostApi {
+  /// Async so the host reads the store off its main thread.
+  @async
   List<String> userCaCertificates();
 }
 

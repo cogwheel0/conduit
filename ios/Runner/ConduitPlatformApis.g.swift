@@ -5476,7 +5476,8 @@ class ImageGalleryHostApiSetup {
 ///
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol UserCertificatesHostApi {
-  func userCaCertificates() throws -> [String]
+  /// Async so the host reads the store off its main thread.
+  func userCaCertificates(completion: @escaping (Result<[String], Error>) -> Void)
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -5485,14 +5486,17 @@ class UserCertificatesHostApiSetup {
   /// Sets up an instance of `UserCertificatesHostApi` to handle messages through the `binaryMessenger`.
   static func setUp(binaryMessenger: FlutterBinaryMessenger, api: UserCertificatesHostApi?, messageChannelSuffix: String = "") {
     let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    /// Async so the host reads the store off its main thread.
     let userCaCertificatesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       userCaCertificatesChannel.setMessageHandler { _, reply in
-        do {
-          let result = try api.userCaCertificates()
-          reply(wrapResult(result))
-        } catch {
-          reply(wrapError(error))
+        api.userCaCertificates { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
         }
       }
     } else {

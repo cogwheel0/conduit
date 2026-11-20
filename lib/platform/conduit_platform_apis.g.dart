@@ -6529,6 +6529,7 @@ class UserCertificatesHostApi {
 
   final String pigeonVar_messageChannelSuffix;
 
+  /// Async so the host reads the store off its main thread.
   Future<List<String>> userCaCertificates() async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates$pigeonVar_messageChannelSuffix';
