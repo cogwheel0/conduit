@@ -21,9 +21,10 @@ class TetherDevices extends Notifier<int> {
 
   /// A device connected, left, was renamed or changed what it offers
   /// (Open WebUI's `terminals:changed`): the server lists its models, tools
-  /// and terminals among its own, so all three are read again.
+  /// and terminals among its own, so all three are read again, the
+  /// terminals an open chat's scope holds included.
   Future<void> changed() async {
-    ref.invalidate(terminalAvailableServersProvider);
+    ref.read(terminalsChangedProvider.notifier).changed();
     Future<void> refresh(String list, Future<void> Function() read) async {
       try {
         await read();

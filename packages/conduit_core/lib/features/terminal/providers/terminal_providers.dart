@@ -32,11 +32,27 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 final terminalAvailableServersProvider =
     FutureProvider<List<TerminalServerInfo>>(_terminalAvailableServers);
 
+/// Moves on when the server's terminals may have changed while nothing a
+/// terminal list watches did, as when one of the user's Tether devices
+/// connects or leaves. Every [terminalAvailableServersProvider] watches it,
+/// a chat session scope's included, so each is read again.
+final terminalsChangedProvider = NotifierProvider<TerminalsChanged, int>(
+  TerminalsChanged.new,
+);
+
+class TerminalsChanged extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void changed() => state++;
+}
+
 /// The reads of [terminalAvailableServersProvider], one per build. Each chat
 /// session scope has its own ([chatSessionScopedTerminalOverrides]).
 final _terminalListLoadsProvider = Provider<ListLoads>((ref) => ListLoads());
 
 Future<List<TerminalServerInfo>> _terminalAvailableServers(Ref ref) {
+  ref.watch(terminalsChangedProvider);
   final service = ref.watch(terminalServiceProvider);
   final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
   if (service == null) {

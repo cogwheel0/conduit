@@ -233,29 +233,44 @@ void main() {
     check(delivered).equals(0);
   });
 
-  test('reads the models, tools and terminals again, then says so', () async {
-    var terminalReads = 0;
+  test('reads the models, tools and terminals again, an open chat\'s own '
+      'terminals included, then says so', () async {
+    final workerManager = WorkerManager();
+    addTearDown(workerManager.dispose);
+    final terminals = _HeldTerminalService(_HeldModelsApi(workerManager));
     final container = ProviderContainer(
       overrides: [
         modelsProvider.overrideWith(_Models.new),
         toolsListProvider.overrideWith(_Tools.new),
-        terminalAvailableServersProvider.overrideWith(
-          (ref) async => [if (terminalReads++ > 0) _offeredTerminal],
-        ),
+        terminalServiceProvider.overrideWithValue(terminals),
+        terminalFeatureEnabledProvider.overrideWith(_TerminalsOffered.new),
       ],
     );
     addTearDown(container.dispose);
-    final terminals = container.listen(
-      terminalAvailableServersProvider,
-      (_, _) {},
+    // A chat session scope holds the terminals the server offers its chat.
+    final chat = ProviderContainer(
+      parent: container,
+      overrides: chatSessionScopedTerminalOverrides(),
     );
-    addTearDown(terminals.close);
-    await container.read(terminalAvailableServersProvider.future);
+    addTearDown(chat.dispose);
+    final scopes = [container, chat];
+    for (final scope in scopes) {
+      scope.listen(terminalAvailableServersProvider, (_, _) {});
+    }
+    await terminals.reads.askedFor(2);
+    for (final read in terminals.reads.asked) {
+      read.complete(const <TerminalServerInfo>[]);
+    }
     await container.read(modelsProvider.future);
     await container.read(toolsListProvider.future);
     final before = container.read(tetherDevicesProvider);
 
     await container.read(tetherDevicesProvider.notifier).changed();
+    await pumpEventQueue();
+    check(terminals.reads.asked).length.equals(4);
+    for (final read in terminals.reads.asked.skip(2)) {
+      read.complete([_offeredTerminal]);
+    }
 
     check(container.read(modelsProvider).value)
         .isNotNull()
@@ -263,8 +278,10 @@ void main() {
     check(container.read(toolsListProvider).value)
         .isNotNull()
         .deepEquals([_offeredTool]);
-    check(await container.read(terminalAvailableServersProvider.future))
-        .deepEquals([_offeredTerminal]);
+    for (final scope in scopes) {
+      check(await scope.read(terminalAvailableServersProvider.future))
+          .deepEquals([_offeredTerminal]);
+    }
     check(container.read(tetherDevicesProvider)).equals(before + 1);
   });
 
