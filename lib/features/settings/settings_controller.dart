@@ -39,6 +39,8 @@ import '../../shared/theme/theme_providers.dart';
 import '../../shared/utils/ui_utils.dart';
 import '../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../shared/widgets/sign_out_options_dialog.dart';
+import '../auth/widgets/browser_sign_in_settings_sheet.dart'
+    show showServerBrowserSignInSettings;
 import '../chat/providers/text_to_speech_provider.dart';
 import '../notifications/services/calendar_reminder_scheduler.dart';
 import '../notifications/services/local_notification_service.dart';
@@ -50,7 +52,10 @@ import '../push/widgets/push_target_actions.dart'
 import 'settings_page_module.dart';
 import 'pages/push_page_ids.dart' show pushTargetSignInActionId;
 import 'pages/server_address_settings_pages.dart'
-    show serverAddressesAddAccountActionId, serverAddressesPageId;
+    show
+        serverAddressesAddAccountActionId,
+        serverAddressesPageId,
+        serverBrowserSignInActionId;
 import 'settings_pages.dart';
 
 /// Which Settings an event came from.
@@ -281,6 +286,10 @@ class SettingsController {
       case serverAddressesAddAccountActionId:
         if (context == null || value is! String) return true;
         openAddAccount(context, ref, serverId: value);
+        return true;
+      case serverBrowserSignInActionId:
+        if (context == null || value is! String) return true;
+        await showServerBrowserSignInSettings(context, ref, serverId: value);
         return true;
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;

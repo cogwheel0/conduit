@@ -1,9 +1,12 @@
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/browser_auth_port.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -48,6 +51,9 @@ class AdaptiveAuthHarness {
     this.accountsController,
     this.savedServersError,
     this.replyBeingWritten = false,
+    this.browserSupported = false,
+    this.browserSignInConfig,
+    this.chosenBrowserSignIn,
   }) {
     when(() => _storage.getSavedCredentials()).thenAnswer(
       (_) async => savedUsername == null ? null : {'username': savedUsername!},
@@ -58,6 +64,12 @@ class AdaptiveAuthHarness {
     when(() => _storage.saveLocalUser(null)).thenAnswer((_) async {});
     when(() => _storage.saveLocalUserAvatar(null)).thenAnswer((_) async {});
     when(() => _storage.getReviewerMode()).thenAnswer((_) async => false);
+    when(
+      () => _storage.droppedBrowserSessions,
+    ).thenAnswer((_) => const Stream.empty());
+    when(
+      () => _storage.sweepOrphanBrowserSignInSessions(),
+    ).thenAnswer((_) async => const []);
     if (savedServersError case final error?) {
       when(
         () => _storage.getOpenWebUiRegistryStrict(),
@@ -124,6 +136,16 @@ class AdaptiveAuthHarness {
   /// How many times the replies being written were stopped.
   int repliesStopped = 0;
 
+  /// Whether the device has a system browser that can sign in.
+  final bool browserSupported;
+
+  /// The browser sign-in settings saved for the server's accounts, if any.
+  final BrowserSignInConfig? browserSignInConfig;
+
+  /// Browser sign-in settings chosen on Add Server, handed to the sign-in
+  /// page with the server.
+  final BrowserSignInConfig? chosenBrowserSignIn;
+
   /// The device storage, for a test to see what was saved.
   OptimizedStorageService get storage => _storage;
   final _MockOptimizedStorageService _storage = _MockOptimizedStorageService();
@@ -153,6 +175,7 @@ class AdaptiveAuthHarness {
                 : AuthenticationPage(
                     serverConfig: server,
                     backendConfig: backendConfig,
+                    browserSignIn: chosenBrowserSignIn,
                   ),
           ),
         ),
@@ -224,6 +247,14 @@ class AdaptiveAuthHarness {
             accountsController!,
           ),
         activeServerProvider.overrideWith((_) async => server),
+        if (browserSupported) ...[
+          browserAuthPortProvider.overrideWithValue(
+            const _SupportedBrowserAuthPort(),
+          ),
+          browserSignInConfigProvider.overrideWith(
+            (ref, account) async => browserSignInConfig,
+          ),
+        ],
         appleOnDeviceStatusProvider.overrideWith(
           (_) async => appleOnDeviceStatus ?? _unavailableAppleStatus(),
         ),
@@ -268,6 +299,25 @@ class AdaptiveAuthHarness {
     ErrorWidget.builder = _previousErrorWidgetBuilder;
     FlutterError.onError = _previousFlutterOnError;
   }
+}
+
+/// A system browser that is there, and never asked: the sign-in actions are
+/// replaced in the tests that sign in.
+final class _SupportedBrowserAuthPort implements BrowserAuthPort {
+  const _SupportedBrowserAuthPort();
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<BrowserAuthResult> authorize(
+    Uri url, {
+    required Uri redirectUri,
+    bool preferEphemeral = false,
+  }) async => const BrowserAuthResult.cancelled();
+
+  @override
+  Future<void> cancel() async {}
 }
 
 final class _AddingAccountFrom extends AccountAdditionOrigin {

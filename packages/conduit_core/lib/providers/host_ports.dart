@@ -77,6 +77,14 @@ final cookieJarProvider = Provider<CookieJarPort>(
   (ref) => const NullCookieJarPort(),
 );
 
+/// Runs a sign-in page in the system browser, where passkeys work.
+///
+/// Defaults to "no system browser", which hides the browser sign-in entry
+/// points. `main.dart` binds the Pigeon bridge on iOS and Android.
+final browserAuthPortProvider = Provider<BrowserAuthPort>(
+  (ref) => const NullBrowserAuthPort(),
+);
+
 /// Reports whether the device has any network interface.
 ///
 /// Defaults to assuming one exists: without an OS signal the core falls back

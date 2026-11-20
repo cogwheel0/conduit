@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:mcp_dart/mcp_dart.dart' as mcp;
 
+import 'package:conduit_core/auth/oidc/oidc_pkce.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_server_store.dart';
 
@@ -66,9 +65,9 @@ final class DirectMcpOAuthCoordinator {
     final generation = (_generations[server.id] ?? 0) + 1;
     _generations[server.id] = generation;
     final listener = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final state = _randomValue(32);
-    final verifier = _randomValue(32);
-    final callbackPath = '$_callbackPathPrefix${_randomValue(16)}';
+    final state = oidcRandomToken();
+    final verifier = oidcRandomToken();
+    final callbackPath = '$_callbackPathPrefix${oidcRandomToken(byteCount: 16)}';
     final redirectUri = Uri(
       scheme: 'http',
       host: '127.0.0.1',
@@ -99,7 +98,7 @@ final class DirectMcpOAuthCoordinator {
           'response_type': 'code',
           'client_id': clientId,
           'redirect_uri': redirectUri.toString(),
-          'code_challenge': _pkceChallenge(verifier),
+          'code_challenge': oidcS256Challenge(verifier),
           'code_challenge_method': 'S256',
           'state': state,
           'resource': metadata.resource.toString(),
@@ -953,17 +952,6 @@ final class _OAuthCallback {
 /// hanging on a callback that will never arrive. `direct_mcp_providers`
 /// injects the real one.
 Future<bool> _refuseToLaunch(Uri uri) async => false;
-
-String _randomValue(int byteCount) {
-  final random = Random.secure();
-  return base64UrlEncode(
-    List<int>.generate(byteCount, (_) => random.nextInt(256)),
-  ).replaceAll('=', '');
-}
-
-String _pkceChallenge(String verifier) =>
-    base64UrlEncode(sha256.convert(utf8.encode(verifier)).bytes)
-        .replaceAll('=', '');
 
 Uri _wellKnown(Uri base, String path, {bool preserveQuery = false}) => Uri(
   scheme: base.scheme,

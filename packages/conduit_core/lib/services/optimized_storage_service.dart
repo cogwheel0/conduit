@@ -6,8 +6,11 @@ import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
 
+import 'package:conduit_core/auth/auth_types.dart';
 import 'package:conduit_core/auth/openwebui_account_owner_marker.dart';
 import 'package:conduit_core/models/backend_config.dart';
+import 'package:conduit_core/models/browser_sign_in_config.dart';
+import 'package:conduit_core/models/browser_sign_in_session.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -96,11 +99,55 @@ final class _ForeignSignInNotFiled implements Exception {
 /// What the vault slots a commit wrote or deleted held before it did, by
 /// account id; null for a slot that was empty. A rollback puts back exactly
 /// this, so an account that merely shared the commit's vault keeps its
-/// session.
+/// session. Browser sign-in sessions are per account too, and roll back with
+/// the vault.
 final class _VaultUndo {
   final Map<String, String?> tokens = <String, String?>{};
   final Map<String, String?> credentials = <String, String?>{};
+  final Map<String, String?> browserSessions = <String, String?>{};
 }
+
+/// What a session commit does with the browser sign-in session of the
+/// account it commits: the identity provider's refresh token, kept while the
+/// account's saved sign-in is a browser sign-in.
+///
+/// [OptimizedStorageService.commitExistingServerSession] defaults to [keep]
+/// for a commit that keeps the saved sign-in as it was, and to [delete] for
+/// any other.
+sealed class BrowserSessionCommit {
+  const BrowserSessionCommit();
+
+  /// Ends it: the saved sign-in the commit leaves is not a browser sign-in.
+  static const BrowserSessionCommit delete = BrowserSessionDelete();
+
+  /// Leaves it as it is: the commit renews a browser sign-in, whose rotated
+  /// refresh token was saved before it, or keeps the saved sign-in as it was.
+  static const BrowserSessionCommit keep = BrowserSessionKeep();
+
+  /// Replaces it with [session], from the browser sign-in being committed.
+  const factory BrowserSessionCommit.replace(BrowserSignInSession session) =
+      BrowserSessionReplace;
+}
+
+final class BrowserSessionDelete extends BrowserSessionCommit {
+  const BrowserSessionDelete();
+}
+
+final class BrowserSessionKeep extends BrowserSessionCommit {
+  const BrowserSessionKeep();
+}
+
+final class BrowserSessionReplace extends BrowserSessionCommit {
+  const BrowserSessionReplace(this.session);
+
+  final BrowserSignInSession session;
+}
+
+/// A browser sign-in session as stored for [accountId].
+typedef StoredBrowserSignInSession = ({
+  String accountId,
+  BrowserSignInSession session,
+});
 
 /// Signals that a staged session could not be returned to a known durable
 /// server/token pair after its forward commit had started.
@@ -273,6 +320,94 @@ class OptimizedStorageService {
   int _sessionRevocationRevision = 0;
   int _nextServerConfigCandidateTransactionId = 0;
   _StagedServerConfigCandidate? _stagedServerConfigCandidate;
+
+  final StreamController<List<StoredBrowserSignInSession>>
+  _droppedBrowserSessionsController =
+      StreamController<List<StoredBrowserSignInSession>>.broadcast();
+
+  /// The browser sign-in sessions storage drops on its own: a commit that
+  /// replaces or ends an account's saved sign-in, a saved sign-in deleted
+  /// after it stopped working, an account a merge takes over. Their refresh
+  /// tokens are gone from the device, so the identity provider can be asked
+  /// to revoke them. Each change is told once it is committed, never while
+  /// it could still be rolled back.
+  ///
+  /// Also told: sessions of accounts whose server moved, as a save of the
+  /// server configs drops them, and the live session a rollback that cannot
+  /// finish ends.
+  ///
+  /// Not told: a sign-out, the sweep, and [setServerBrowserSignIn], which
+  /// return the sessions they end to their callers instead.
+  Stream<List<StoredBrowserSignInSession>> get droppedBrowserSessions =>
+      _droppedBrowserSessionsController.stream;
+
+  void _notifyBrowserSessionsDropped(
+    List<StoredBrowserSignInSession> sessions,
+  ) {
+    if (sessions.isEmpty) return;
+    _droppedBrowserSessionsController.add(List.unmodifiable(sessions));
+  }
+
+  /// The browser sign-in sessions a committed change dropped, from what
+  /// [undo] recorded of them first. One whose refresh token is still saved,
+  /// as [kept], was replaced in place and is not dropped.
+  List<StoredBrowserSignInSession> _droppedBrowserSessions(
+    _VaultUndo undo, {
+    Set<String> kept = const <String>{},
+  }) => [
+    for (final MapEntry(key: accountId, value: prior)
+        in undo.browserSessions.entries)
+      if (BrowserSignInSession.tryDecode(prior) case final session?
+          when !kept.contains(session.refreshToken))
+        (accountId: accountId, session: session),
+  ];
+
+  /// Deletes [accountId]'s browser sign-in session, returning it when it
+  /// could be read: read only to be revoked, so a failed read is no reason
+  /// to keep it.
+  Future<StoredBrowserSignInSession?> _takeBrowserSessionUnlocked(
+    String accountId,
+  ) async {
+    BrowserSignInSession? session;
+    try {
+      session = BrowserSignInSession.tryDecode(
+        await _secureCredentialStorage.getBrowserSignInSession(accountId),
+      );
+    } catch (_) {}
+    await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+    return session == null ? null : (accountId: accountId, session: session);
+  }
+
+  /// [_takeBrowserSessionUnlocked], for a change that has already deleted
+  /// the saved sign-in the session renews. One it cannot read or delete
+  /// renews nothing without that sign-in, so it never fails the change: the
+  /// sweep ([sweepOrphanBrowserSignInSessions]) takes it later, and returns
+  /// it for revocation.
+  Future<StoredBrowserSignInSession?> _takeOrphanedBrowserSessionUnlocked(
+    String accountId,
+  ) async {
+    const scope = 'storage/optimized/browser-sign-in';
+    try {
+      final session = BrowserSignInSession.tryDecode(
+        await _retrySecureStorageRead(
+          () => _secureCredentialStorage.getBrowserSignInSession(accountId),
+          scope: scope,
+        ),
+      );
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.deleteBrowserSignInSession(accountId),
+        scope: scope,
+      );
+      return session == null ? null : (accountId: accountId, session: session);
+    } catch (error) {
+      DebugLogger.warning(
+        'browser-session-end-failed',
+        scope: scope,
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return null;
+    }
+  }
 
   // These fail-closed read fences are intentionally independent of
   // [CacheManager]. A failed Keychain/preferences delete must not become
@@ -845,8 +980,17 @@ class OptimizedStorageService {
     return hasToken || hasCredentials;
   }
 
-  /// Drops [accountId]'s vaulted session, if any.
+  /// Drops [accountId]'s vaulted session, if any, and its browser sign-in
+  /// session: every caller ends the account's session, and the refresh token
+  /// must not outlive the saved sign-in it renews.
   Future<void> _deleteVaultedSessionUnlocked(String accountId) async {
+    await _deleteVaultUnlocked(accountId);
+    await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+  }
+
+  /// Drops [accountId]'s vaulted session alone, for a caller that has
+  /// taken its browser sign-in session already.
+  Future<void> _deleteVaultUnlocked(String accountId) async {
     // Dropped on purpose (a sign-out, say): not a session to keep.
     if (_sessionLeftInVaultFor == accountId) _sessionLeftInVaultFor = null;
     await _secureCredentialStorage.deleteServerToken(accountId);
@@ -938,7 +1082,31 @@ class OptimizedStorageService {
   ) async {
     await _rememberVaultedTokenUnlocked(undo, accountId);
     await _rememberVaultedCredentialsUnlocked(undo, accountId);
+    await _rememberBrowserSessionUnlocked(undo, accountId);
     await _deleteVaultedSessionUnlocked(accountId);
+  }
+
+  /// Drops [accountId]'s browser sign-in session alone, recording it in
+  /// [undo] first.
+  Future<void> _deleteBrowserSessionUndoablyUnlocked(
+    String accountId,
+    _VaultUndo undo,
+  ) async {
+    await _rememberBrowserSessionUnlocked(undo, accountId);
+    await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+  }
+
+  /// Records what [accountId]'s browser sign-in session is before the first
+  /// change. A failed read throws, as for the vault.
+  Future<void> _rememberBrowserSessionUnlocked(
+    _VaultUndo undo,
+    String accountId,
+  ) async {
+    if (undo.browserSessions.containsKey(accountId)) return;
+    undo.browserSessions[accountId] = await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getBrowserSignInSession(accountId),
+      scope: 'storage/optimized/vault-undo',
+    );
   }
 
   /// Records what [accountId]'s vaulted token is before the first change.
@@ -1009,13 +1177,26 @@ class OptimizedStorageService {
               ),
       );
     }
+    for (final MapEntry(key: accountId, value: prior)
+        in undo.browserSessions.entries) {
+      await restore(
+        () => prior == null || prior.isEmpty
+            ? _secureCredentialStorage.deleteBrowserSignInSession(accountId)
+            : _secureCredentialStorage.saveBrowserSignInSession(
+                accountId,
+                prior,
+              ),
+      );
+    }
   }
 
-  /// Empties the vault, tokens and saved sign-ins alike. Sign-out calls
-  /// this; see [SecureCredentialStorage.deleteAllServerTokens].
+  /// Empties the vault, tokens and saved sign-ins alike, and every browser
+  /// sign-in session. Sign-out calls this; see
+  /// [SecureCredentialStorage.deleteAllServerTokens].
   Future<void> clearTokenVault() => _authStateLock.synchronized(() async {
     await _secureCredentialStorage.deleteAllServerTokens();
     await _secureCredentialStorage.deleteAllServerCredentials();
+    await _secureCredentialStorage.deleteAllBrowserSignInSessions();
   });
 
   /// Server ids holding a vaulted session, for the UI's "signed in" markers.
@@ -1178,8 +1359,20 @@ class OptimizedStorageService {
     return credentials;
   }
 
-  Future<void> deleteSavedCredentials() =>
-      _authStateLock.synchronized(_deleteSavedCredentialsUnlocked);
+  /// Deletes the saved sign-in, and the active account's browser sign-in
+  /// session, which only ever renews it. The saved sign-in is not read
+  /// first, so a locked Keychain can't keep it; one left by another account
+  /// before accounts existed leaves that account's session to the sweep.
+  Future<void> deleteSavedCredentials() async {
+    final dropped = await _authStateLock.synchronized(() async {
+      final owner = _rawStoredActiveServerId(bypassReadSuppression: true);
+      await _deleteSavedCredentialsUnlocked();
+      return owner == null
+          ? null
+          : await _takeOrphanedBrowserSessionUnlocked(owner);
+    });
+    _notifyBrowserSessionsDropped([?dropped]);
+  }
 
   Future<void> _deleteSavedCredentialsUnlocked() async {
     // Mirror token deletion's same-process fail-closed fence. The durable
@@ -1207,8 +1400,14 @@ class OptimizedStorageService {
   /// [expected] (serverId/username/password). Read + conditional delete run
   /// under [_authStateLock], so a newer login that saved different credentials
   /// isn't clobbered. Returns true if it deleted.
-  Future<bool> deleteSavedCredentialsIfMatches(Map<String, String> expected) {
-    return _authStateLock.synchronized(() async {
+  ///
+  /// The browser sign-in session of the account they name goes with them: it
+  /// only ever renews a saved browser sign-in.
+  Future<bool> deleteSavedCredentialsIfMatches(
+    Map<String, String> expected,
+  ) async {
+    StoredBrowserSignInSession? dropped;
+    final deleted = await _authStateLock.synchronized(() async {
       final current = await _retrySecureStorageRead(
         () => _getSavedCredentialsStrictUnlocked(bypassReadSuppression: true),
         scope: 'storage/optimized/credentials-compare-delete',
@@ -1220,8 +1419,14 @@ class OptimizedStorageService {
           current['password'] == expected['password'];
       if (!matches) return false;
       await _deleteSavedCredentialsUnlocked();
+      final owner = current['serverId'];
+      if (owner != null && owner.isNotEmpty) {
+        dropped = await _takeOrphanedBrowserSessionUnlocked(owner);
+      }
       return true;
     });
+    _notifyBrowserSessionsDropped([?dropped]);
+    return deleted;
   }
 
   /// Clears an exact saved credential only while its server id is still absent.
@@ -1231,25 +1436,35 @@ class OptimizedStorageService {
   /// cannot turn a stale provider observation into deletion of valid data.
   Future<bool> deleteSavedCredentialsIfMatchesAndServerMissing(
     Map<String, String> expected,
-  ) {
-    return _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(() async {
-        final serverId = expected['serverId'];
-        if (serverId == null) return false;
-        final configs = await _getServerConfigsStrictUnlocked();
-        if (configs.any((config) => config.id == serverId)) return false;
+  ) async {
+    StoredBrowserSignInSession? dropped;
+    try {
+      return await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          final serverId = expected['serverId'];
+          if (serverId == null) return false;
+          final configs = await _getServerConfigsStrictUnlocked();
+          if (configs.any((config) => config.id == serverId)) return false;
 
-        final payload = await _secureCredentialStorage
-            .getSavedCredentialsPayloadStrict();
-        if (!_savedCredentialsPayloadMatches(payload, expected)) return false;
+          final payload = await _secureCredentialStorage
+              .getSavedCredentialsPayloadStrict();
+          if (!_savedCredentialsPayloadMatches(payload, expected)) {
+            return false;
+          }
 
-        await _deleteSavedCredentialsUnlocked();
-        if (_rawStoredActiveServerId(bypassReadSuppression: true) == serverId) {
-          await _writeActiveServerIdWithoutConfigSync(null);
-        }
-        return true;
-      }),
-    );
+          await _deleteSavedCredentialsUnlocked();
+          dropped = await _takeOrphanedBrowserSessionUnlocked(serverId);
+          if (_rawStoredActiveServerId(bypassReadSuppression: true) ==
+              serverId) {
+            await _writeActiveServerIdWithoutConfigSync(null);
+          }
+          return true;
+        }),
+      );
+    } finally {
+      // Gone for good once taken, whatever the write after it does.
+      _notifyBrowserSessionsDropped([?dropped]);
+    }
   }
 
   Future<bool> hasCredentials() async {
@@ -1266,12 +1481,18 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Preference helpers (Hive-backed)
   // ---------------------------------------------------------------------------
-  Future<void> saveServerConfigs(List<ServerConfig> configs) {
-    return _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(
-        () => _saveServerConfigsLocked(configs),
-      ),
-    );
+  Future<void> saveServerConfigs(List<ServerConfig> configs) async {
+    // Dropped for good once dropped, whatever becomes of the save.
+    final droppedBrowserSessions = <StoredBrowserSignInSession>[];
+    try {
+      await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(
+          () => _saveServerConfigsLocked(configs, droppedBrowserSessions),
+        ),
+      );
+    } finally {
+      _notifyBrowserSessionsDropped(droppedBrowserSessions);
+    }
   }
 
   /// Saves the connection [id] as [edit] makes it from the connection as
@@ -1282,22 +1503,34 @@ class OptimizedStorageService {
   Future<ServerConfig?> editServerConfig(
     String id,
     ServerConfig Function(ServerConfig stored) edit,
-  ) {
-    return _authStateLock.synchronized(
-      () => _serverConfigsLock.synchronized(() async {
-        final configs = await _getServerConfigsStrictUnlocked();
-        final index = configs.indexWhere((config) => config.id == id);
-        if (index < 0) return null;
-        final edited = edit(configs[index]);
-        await _saveServerConfigsLocked([...configs]..[index] = edited);
-        return edited;
-      }),
-    );
+  ) async {
+    final droppedBrowserSessions = <StoredBrowserSignInSession>[];
+    try {
+      return await _authStateLock.synchronized(
+        () => _serverConfigsLock.synchronized(() async {
+          final configs = await _getServerConfigsStrictUnlocked();
+          final index = configs.indexWhere((config) => config.id == id);
+          if (index < 0) return null;
+          final edited = edit(configs[index]);
+          await _saveServerConfigsLocked(
+            [...configs]..[index] = edited,
+            droppedBrowserSessions,
+          );
+          return edited;
+        }),
+      );
+    } finally {
+      _notifyBrowserSessionsDropped(droppedBrowserSessions);
+    }
   }
 
   /// [saveServerConfigs]'s write. Call with [_authStateLock] and
-  /// [_serverConfigsLock] held.
-  Future<void> _saveServerConfigsLocked(List<ServerConfig> configs) async {
+  /// [_serverConfigsLock] held. The browser sign-in sessions it drops are
+  /// added to [droppedBrowserSessions].
+  Future<void> _saveServerConfigsLocked(
+    List<ServerConfig> configs,
+    List<StoredBrowserSignInSession> droppedBrowserSessions,
+  ) async {
     final currentConfigs = await _getServerConfigsStrictUnlocked();
     final sanitizedConfigs = configs
         .map(
@@ -1382,6 +1615,7 @@ class OptimizedStorageService {
     await _dropVaultedSessionsOfMovedAccountsUnlocked(
       current: currentConfigs,
       next: nextConfigs,
+      dropped: droppedBrowserSessions,
     );
     await _saveServerConfigsUnlocked(sanitizedConfigs);
     if (rawActiveServerId != nextActiveId) {
@@ -1399,11 +1633,16 @@ class OptimizedStorageService {
   /// old bearer to the new origin. [next] is what the save will store, not
   /// what was passed to it, since accounts on one server share its endpoint.
   /// [skip] keeps its vault; [undo] records what went, for a rollback.
+  ///
+  /// Without [undo] the drop is final: each browser sign-in session it
+  /// drops is added to [dropped], for the caller to tell of
+  /// ([droppedBrowserSessions]) however the rest of its change goes.
   Future<void> _dropVaultedSessionsOfMovedAccountsUnlocked({
     required List<ServerConfig> current,
     required List<ServerConfig> next,
     String? skip,
     _VaultUndo? undo,
+    List<StoredBrowserSignInSession>? dropped,
   }) async {
     for (final account in current) {
       if (account.id == skip) continue;
@@ -1415,7 +1654,9 @@ class OptimizedStorageService {
         continue;
       }
       if (undo == null) {
-        await _deleteVaultedSessionUnlocked(account.id);
+        final session = await _takeBrowserSessionUnlocked(account.id);
+        if (session != null) dropped?.add(session);
+        await _deleteVaultUnlocked(account.id);
       } else {
         await _deleteVaultedSessionUndoablyUnlocked(account.id, undo);
       }
@@ -1438,10 +1679,10 @@ class OptimizedStorageService {
 
   /// What a sign-out that keeps server details keeps of [registry]: every
   /// server with all its routes in order, their URLs, labels and certificate
-  /// policy, and every account, no longer proven to be anyone and without
-  /// captured cookies. Custom headers and client identities are secrets and
-  /// go. Built from the registry, not from its projections, which carry only
-  /// the route each account is using.
+  /// policy, and its browser sign-in settings, and every account, no longer
+  /// proven to be anyone and without captured cookies. Custom headers and
+  /// client identities are secrets and go. Built from the registry, not from
+  /// its projections, which carry only the route each account is using.
   OpenWebUiRegistry _retainNonSecretServerDetails(OpenWebUiRegistry registry) {
     return OpenWebUiRegistry(
       servers: [
@@ -1459,6 +1700,9 @@ class OptimizedStorageService {
                       endpoint.allowSelfSignedCertificates,
                 ),
             ],
+            // A public client's id and issuer are not secrets; the refresh
+            // tokens issued to it are, and go with the wipe.
+            browserSignIn: server.browserSignIn,
           ),
       ],
       accounts: [
@@ -1521,8 +1765,9 @@ class OptimizedStorageService {
     bool Function(OpenWebUiRegistry stored)? joins,
     void Function()? onRollbackUncertain,
     void Function()? onWriting,
-  }) {
-    return _authStateLock.synchronized(
+  }) async {
+    var dropped = const <StoredBrowserSignInSession>[];
+    final selected = await _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         bool ownsAttempt() => canCommit?.call() ?? true;
         if (!ownsAttempt()) return false;
@@ -1574,6 +1819,10 @@ class OptimizedStorageService {
               existing.copyWith(isActive: false),
           selected,
         ];
+        final pruned = [
+          for (final existing in previousConfigs)
+            if (existing.id != selected.id && abandoned(existing)) existing.id,
+        ];
         _refuseTakenConnection(
           registry,
           registry.mergeServerConfigs(
@@ -1621,6 +1870,11 @@ class OptimizedStorageService {
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
 
           await _deleteSavedCredentialsUnlocked();
+          // A browser sign-in session renews only the saved sign-in just
+          // dropped, and one left by an account pruned here renews nothing.
+          for (final accountId in [selected.id, ...pruned]) {
+            await _deleteBrowserSessionUndoablyUnlocked(accountId, vaultUndo);
+          }
           if (!ownsAttempt()) throw const _StagedAuthAttemptSuperseded();
 
           // The candidate's headers were explicitly supplied and already used
@@ -1643,6 +1897,7 @@ class OptimizedStorageService {
             _stagedServerConfigCandidate = previousStage;
             rethrow;
           }
+          dropped = _droppedBrowserSessions(vaultUndo);
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
@@ -1715,6 +1970,8 @@ class OptimizedStorageService {
         }
       }),
     );
+    if (selected) _notifyBrowserSessionsDropped(dropped);
+    return selected;
   }
 
   /// Refuses ([ServerConnectionTaken]) a write that would save [next] over
@@ -1839,6 +2096,14 @@ class OptimizedStorageService {
   /// failure after mutation starts, rollback deletes the candidate token,
   /// restores the exact raw active id/config list/remembered credentials, and
   /// restores the previous token only after every ownership write succeeds.
+  ///
+  /// [browserSession] says what becomes of the account's browser sign-in
+  /// session; see [BrowserSessionCommit] for the default. It is written beside
+  /// the saved sign-in and rolled back with it. One to keep or replace needs
+  /// a saved browser sign-in: [rememberedCredentials] of that auth type, or,
+  /// to keep, the saved sign-in kept as it was. A replacement issued under
+  /// other browser sign-in settings than the server has now is dropped
+  /// instead: it could not renew the session.
   Future<bool> commitExistingServerSession({
     required ServerSessionOwnershipSnapshot ownership,
     required String token,
@@ -1846,9 +2111,11 @@ class OptimizedStorageService {
     required FutureOr<void> Function() publish,
     Map<String, String>? rememberedCredentials,
     Map<String, String>? expectedSavedCredentials,
+    BrowserSessionCommit? browserSession,
     void Function()? onRollbackUncertain,
-  }) {
-    return _authStateLock.synchronized(
+  }) async {
+    var dropped = const <StoredBrowserSignInSession>[];
+    final committed = await _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         if (!canCommit() || _serverOwnershipRevision != ownership.revision) {
           return false;
@@ -1918,6 +2185,33 @@ class OptimizedStorageService {
             'Remembered credentials must belong to the validated server',
           );
         }
+        final browserSessionCommit =
+            browserSession ??
+            (expectedSavedCredentials != null && rememberedCredentials == null
+                ? BrowserSessionCommit.keep
+                : BrowserSessionCommit.delete);
+        final remembersBrowserSignIn =
+            rememberedCredentials?['authType'] == AuthTypes.ssoBrowser;
+        final keepsSavedSignIn =
+            rememberedCredentials == null && expectedSavedCredentials != null;
+        final browserSessionAllowed = switch (browserSessionCommit) {
+          BrowserSessionDelete() => true,
+          BrowserSessionKeep() => remembersBrowserSignIn || keepsSavedSignIn,
+          BrowserSessionReplace() => remembersBrowserSignIn,
+        };
+        if (!browserSessionAllowed) {
+          throw ArgumentError(
+            'A browser sign-in session needs a saved browser sign-in',
+          );
+        }
+        final browserSessionReplacement = switch (browserSessionCommit) {
+          BrowserSessionReplace(:final session) => _browserSessionForAccount(
+            previousRegistry.registry,
+            targetConfig.id,
+            session,
+          ),
+          _ => null,
+        };
 
         final committedConfigs = previousConfigs
             .map(
@@ -1971,13 +2265,34 @@ class OptimizedStorageService {
               serverId: targetConfig.id,
               username: rememberedCredentials['username']!,
               password: rememberedCredentials['password']!,
-              authType: rememberedCredentials['authType'] ?? 'credentials',
+              // A browser sign-in whose session was dropped can't renew:
+              // saved as one, it would claim it could.
+              authType:
+                  browserSessionCommit is BrowserSessionReplace &&
+                      browserSessionReplacement == null
+                  ? AuthTypes.sso
+                  : rememberedCredentials['authType'] ??
+                        AuthTypes.credentials,
             );
             if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
           } else if (expectedSavedCredentials == null) {
             credentialsWritten = true;
             await _deleteSavedCredentialsUnlocked();
             if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
+          }
+
+          if (browserSessionCommit is! BrowserSessionKeep) {
+            await _rememberBrowserSessionUnlocked(vaultUndo, targetConfig.id);
+            if (browserSessionReplacement == null) {
+              await _secureCredentialStorage.deleteBrowserSignInSession(
+                targetConfig.id,
+              );
+            } else {
+              await _secureCredentialStorage.saveBrowserSignInSession(
+                targetConfig.id,
+                browserSessionReplacement.encode(),
+              );
+            }
           }
 
           await _saveAuthTokenUnlocked(token);
@@ -1991,6 +2306,18 @@ class OptimizedStorageService {
             _stagedServerConfigCandidate = stagedBeforeCommit;
             rethrow;
           }
+          dropped = [
+            ..._droppedBrowserSessions(
+              vaultUndo,
+              kept: {?browserSessionReplacement?.refreshToken},
+            ),
+            // Refused as issued under other settings: kept nowhere, so
+            // nothing else would revoke its refresh token.
+            if (browserSessionCommit case BrowserSessionReplace(
+              :final session,
+            ) when browserSessionReplacement == null)
+              (accountId: targetConfig.id, session: session),
+          ];
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
@@ -2073,6 +2400,8 @@ class OptimizedStorageService {
         }
       }),
     );
+    if (committed) _notifyBrowserSessionsDropped(dropped);
+    return committed;
   }
 
   /// Full transport identity used to pin a token commit to the exact stored
@@ -2246,8 +2575,9 @@ class OptimizedStorageService {
     required bool Function() canCommit,
     required FutureOr<void> Function() publish,
     void Function()? onRollbackUncertain,
-  }) {
-    return _authStateLock.synchronized(
+  }) async {
+    var dropped = const <StoredBrowserSignInSession>[];
+    final committed = await _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         final staged = _stagedServerConfigCandidate;
         if (!_ownsStagedServerConfigCandidate(
@@ -2331,8 +2661,10 @@ class OptimizedStorageService {
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
           // Proxy/trusted-header sessions cannot safely inherit a remembered
-          // credential belonging to the previous account or server.
+          // credential belonging to the previous account or server, nor a
+          // browser sign-in session that renewed one.
           await _deleteSavedCredentialsUnlocked();
+          await _deleteBrowserSessionUndoablyUnlocked(candidate.id, vaultUndo);
           if (!canCommit()) throw const _StagedAuthAttemptSuperseded();
 
           await _saveServerConfigsUnlocked(committedConfigs);
@@ -2362,6 +2694,7 @@ class OptimizedStorageService {
             _stagedServerConfigCandidate = staged;
             rethrow;
           }
+          dropped = _droppedBrowserSessions(vaultUndo);
           return true;
         } on _StagedAuthAttemptSuperseded catch (commitError) {
           if (persistenceStarted) {
@@ -2436,6 +2769,8 @@ class OptimizedStorageService {
         }
       }),
     );
+    if (committed) _notifyBrowserSessionsDropped(dropped);
+    return committed;
   }
 
   /// Discards an in-memory candidate if the caller still owns its transaction.
@@ -2585,7 +2920,24 @@ class OptimizedStorageService {
     // not prevent the password delete or the durable proxy-cookie/legacy
     // bearer scrub.
     await attempt(_deleteAuthTokenUnlocked);
+    String? liveSignInOwner;
+    try {
+      liveSignInOwner = _savedCredentialsServerId(
+        await _secureCredentialStorage.getSavedCredentialsPayloadStrict(),
+      );
+    } catch (_) {}
     await attempt(_deleteSavedCredentialsUnlocked);
+    // The browser sign-in session that renewed the saved sign-in renews
+    // nothing now. Nothing puts it back, so it is told as dropped.
+    final browserSessionOwner = liveSignInOwner ?? activeServerId;
+    StoredBrowserSignInSession? droppedBrowserSession;
+    if (browserSessionOwner != null) {
+      await attempt(() async {
+        droppedBrowserSession = await _takeBrowserSessionUnlocked(
+          browserSessionOwner,
+        );
+      });
+    }
     final sanitized = (
       registry: registry.registry.withoutCapturedHeaders(),
       readsSuppressed: registry.readsSuppressed,
@@ -2604,6 +2956,7 @@ class OptimizedStorageService {
     // If that restore failed, whatever the commit wrote is still there.
     if (restoreConfigs) await attempt(_scrubServerConfigAuthArtifactsUnlocked);
     _sessionRevocationRevision++;
+    _notifyBrowserSessionsDropped([?droppedBrowserSession]);
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -2800,6 +3153,7 @@ class OptimizedStorageService {
   }
 
   /// Saves [server]'s name and routes: added, removed, reordered or edited.
+  /// Its browser sign-in settings stay as stored; see [setServerBrowserSignIn].
   ///
   /// Accounts keep their sessions. Adding a route is the user saying this
   /// URL reaches the same server; the caller checks that before saving. A
@@ -2925,7 +3279,7 @@ class OptimizedStorageService {
       return;
     }
     await _saveServerUnlocked(
-      OpenWebUiServer(id: stored.id, name: stored.name, endpoints: endpoints),
+      stored.withEndpoints(endpoints),
       session: session,
       registry: registry,
     );
@@ -2960,7 +3314,17 @@ class OptimizedStorageService {
     final next = OpenWebUiRegistry(
       servers: [
         for (final existing in registry.servers)
-          existing.id == server.id ? server : existing,
+          // Its browser sign-in settings change only through
+          // [setServerBrowserSignIn], which ends the sessions issued under
+          // the old ones.
+          existing.id == server.id
+              ? OpenWebUiServer(
+                  id: server.id,
+                  name: server.name,
+                  endpoints: server.endpoints,
+                  browserSignIn: stored.browserSignIn,
+                )
+              : existing,
       ],
       accounts: [
         for (final account in registry.accounts)
@@ -3245,6 +3609,342 @@ class OptimizedStorageService {
     return ids;
   }
 
+  // ---------------------------------------------------------------------------
+  // Browser sign-in
+  // ---------------------------------------------------------------------------
+
+  /// [session] when it was issued under the browser sign-in settings that
+  /// [accountId]'s server has in [registry]; else null.
+  BrowserSignInSession? _browserSessionForAccount(
+    OpenWebUiRegistry registry,
+    String accountId,
+    BrowserSignInSession session,
+  ) {
+    final account = registry.account(accountId);
+    final server = account == null ? null : registry.server(account.serverId);
+    if (account != null &&
+        session.matches(
+          serverId: account.serverId,
+          config: server?.browserSignIn,
+        )) {
+      return session;
+    }
+    DebugLogger.warning(
+      'browser-session-not-for-server',
+      scope: 'storage/optimized/browser-sign-in',
+    );
+    return null;
+  }
+
+  /// The browser sign-in settings of the server [config]'s account is on.
+  /// An account not saved yet gets those of the server it joins when saved:
+  /// one with an address that carries [config]. Null when that server has
+  /// none, or no server does. Strict: a failed read throws.
+  Future<BrowserSignInConfig?> browserSignInConfigFor(ServerConfig config) =>
+      _synchronizedServerConfigsRead(() async {
+        final registry = await _retrySecureStorageRead(
+          _getRegistryStrictUnlocked,
+          scope: 'storage/optimized/registry',
+        );
+        final account = registry.account(config.id);
+        if (account != null) {
+          return registry.server(account.serverId)?.browserSignIn;
+        }
+        for (final server in registry.servers) {
+          if (server.endpoints.any((endpoint) => endpoint.carries(config))) {
+            return server.browserSignIn;
+          }
+        }
+        return null;
+      });
+
+  /// Sets [serverId]'s browser sign-in settings, or removes them when
+  /// [config] is null.
+  ///
+  /// Every account and route of the server shares them. A change of
+  /// provider, client or issuer, or a removal, ends the browser sign-in
+  /// sessions of every account on the server that the new settings don't
+  /// still describe: their refresh tokens were issued under the old settings
+  /// and cannot renew under the new. Their saved sign-ins stay until those
+  /// expire. The sessions ended are returned for the caller to revoke at the
+  /// identity provider. Settings equal to the stored ones change nothing.
+  ///
+  /// Throws only when the settings could not be saved. A session that could
+  /// not be ended once they were is left to the sweep.
+  Future<List<StoredBrowserSignInSession>> setServerBrowserSignIn(
+    String serverId,
+    BrowserSignInConfig? config,
+  ) {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final registry = await _registryForWriteUnlocked();
+        final server = registry.server(serverId);
+        if (server == null) {
+          throw StateError('That server is no longer saved.');
+        }
+        if (server.browserSignIn == config) {
+          return const <StoredBrowserSignInSession>[];
+        }
+        await _saveRegistryUnlocked(
+          OpenWebUiRegistry(
+            servers: [
+              for (final existing in registry.servers)
+                existing.id == serverId
+                    ? OpenWebUiServer(
+                        id: existing.id,
+                        name: existing.name,
+                        endpoints: existing.endpoints,
+                        browserSignIn: config,
+                      )
+                    : existing,
+            ],
+            accounts: registry.accounts,
+          ),
+          authorizeReads: !_serverConfigsReadSuppressed,
+          // No route, client identity or session moves.
+          ownershipChanged: false,
+        );
+
+        // Saved: from here on, ending the sessions is best effort. One that
+        // stays is no longer renewable under these settings, and the sweep
+        // ([sweepOrphanBrowserSignInSessions]) takes it next time.
+        final ended = <StoredBrowserSignInSession>[];
+        for (final account in registry.accountsOn(serverId)) {
+          BrowserSignInSession? session;
+          try {
+            session = BrowserSignInSession.tryDecode(
+              await _retrySecureStorageRead(
+                () => _secureCredentialStorage.getBrowserSignInSession(
+                  account.id,
+                ),
+                scope: 'storage/optimized/browser-sign-in',
+              ),
+            );
+          } catch (_) {
+            // The new settings may still renew it: left to the sweep, and a
+            // renewal checks it against them first. With none, it is read
+            // only to revoke it, and deleted all the same.
+            if (config != null) continue;
+          }
+          // The same settings put another way, as the issuer they found
+          // typed in, can still renew it.
+          if (session != null &&
+              session.matches(serverId: account.serverId, config: config)) {
+            continue;
+          }
+          try {
+            await _retrySecureStorageWrite(
+              () => _secureCredentialStorage.deleteBrowserSignInSession(
+                account.id,
+              ),
+              scope: 'storage/optimized/browser-sign-in',
+            );
+          } catch (error) {
+            DebugLogger.warning(
+              'browser-session-end-failed',
+              scope: 'storage/optimized/browser-sign-in',
+              data: {'errorType': error.runtimeType.toString()},
+            );
+            continue;
+          }
+          if (session != null) {
+            ended.add((accountId: account.id, session: session));
+          }
+        }
+        return ended;
+      }),
+    );
+  }
+
+  /// [accountId]'s browser sign-in session: null when it has none, or holds
+  /// one this build cannot read, which could not renew it either. Strict: a
+  /// failed read throws.
+  Future<BrowserSignInSession?> browserSignInSessionFor(String accountId) =>
+      _authStateLock.synchronized(() => _readBrowserSessionUnlocked(accountId));
+
+  Future<BrowserSignInSession?> _readBrowserSessionUnlocked(
+    String accountId,
+  ) async => BrowserSignInSession.tryDecode(
+    await _retrySecureStorageRead(
+      () => _secureCredentialStorage.getBrowserSignInSession(accountId),
+      scope: 'storage/optimized/browser-sign-in',
+    ),
+  );
+
+  /// Replaces [accountId]'s browser sign-in session with [next] only while
+  /// it is still [expected]; returns whether it did.
+  ///
+  /// A renewal saves the refresh token the identity provider rotated before
+  /// it uses it, and must not write over a session that a sign-in, sign-out
+  /// or other renewal has replaced or ended since it read [expected].
+  Future<bool> replaceBrowserSignInSessionIfCurrent(
+    String accountId, {
+    required BrowserSignInSession expected,
+    required BrowserSignInSession next,
+  }) {
+    return _authStateLock.synchronized(() async {
+      if (await _readBrowserSessionUnlocked(accountId) != expected) {
+        return false;
+      }
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.saveBrowserSignInSession(
+          accountId,
+          next.encode(),
+        ),
+        scope: 'storage/optimized/browser-sign-in',
+      );
+      return true;
+    });
+  }
+
+  /// Deletes [accountId]'s browser sign-in session only while it is still
+  /// [expected], as [replaceBrowserSignInSessionIfCurrent] replaces it;
+  /// returns whether it did.
+  Future<bool> deleteBrowserSignInSessionIfCurrent(
+    String accountId, {
+    required BrowserSignInSession expected,
+  }) {
+    return _authStateLock.synchronized(() async {
+      if (await _readBrowserSessionUnlocked(accountId) != expected) {
+        return false;
+      }
+      await _secureCredentialStorage.deleteBrowserSignInSession(accountId);
+      return true;
+    });
+  }
+
+  /// Every stored browser sign-in session, the active account's and the
+  /// others' alike, for a sign-out of every account to revoke: read before
+  /// the sign-out deletes them. One this build cannot read is skipped.
+  Future<List<StoredBrowserSignInSession>>
+  browserSignInSessionsForRevocation() {
+    return _authStateLock.synchronized(() async {
+      final stored = await _retrySecureStorageRead(
+        _secureCredentialStorage.browserSignInSessions,
+        scope: 'storage/optimized/browser-sign-in',
+      );
+      return [
+        for (final MapEntry(key: accountId, value: payload) in stored.entries)
+          if (BrowserSignInSession.tryDecode(payload) case final session?)
+            (accountId: accountId, session: session),
+      ];
+    });
+  }
+
+  /// Deletes the browser sign-in sessions nothing can renew any more: one
+  /// whose account is gone, one this build cannot read, one its server's
+  /// browser sign-in settings no longer describe, and one whose account's
+  /// saved sign-in -- live for the account the live slots belong to, in the
+  /// vault for the others -- is not a browser sign-in.
+  ///
+  /// Every operation that ends a saved sign-in ends its session too; this
+  /// catches what one interrupted part-way left behind. Run once per
+  /// process, at startup. Returns the readable sessions it deleted, for the
+  /// caller to revoke.
+  Future<List<StoredBrowserSignInSession>> sweepOrphanBrowserSignInSessions() {
+    return _authStateLock.synchronized(
+      () => _serverConfigsLock.synchronized(() async {
+        final stored = await _retrySecureStorageRead(
+          _secureCredentialStorage.browserSignInSessions,
+          scope: 'storage/optimized/browser-sign-in',
+        );
+        if (stored.isEmpty) return const <StoredBrowserSignInSession>[];
+        // After a wipe whose delete failed, what it meant to leave.
+        final registry =
+            _registryLeftByWipe ??
+            await _retrySecureStorageRead<OpenWebUiRegistry>(
+              () => _getRegistryStrictUnlocked(bypassReadSuppression: true),
+              scope: 'storage/optimized/registry',
+            );
+        final activeId = _effectiveActiveServerId(
+          configs: registry.projectAll(selectedEndpoints: _endpointSelection()),
+          rawActiveServerId: _rawStoredActiveServerId(
+            bypassReadSuppression: true,
+          ),
+        );
+        final live = _savedCredentialsReadSuppressed
+            ? null
+            : await _retrySecureStorageRead(
+                _secureCredentialStorage.getSavedCredentialsPayloadStrict,
+                scope: 'storage/optimized/browser-sign-in',
+              );
+        final liveOwner = live == null || live.isEmpty
+            ? null
+            : _savedCredentialsServerId(live) ?? activeId;
+
+        // Every read first: one that fails then deletes nothing, so no
+        // session leaves the device without being returned for revocation.
+        final doomed = <String, BrowserSignInSession?>{};
+        for (final MapEntry(key: accountId, value: payload) in stored.entries) {
+          final session = BrowserSignInSession.tryDecode(payload);
+          final account = registry.account(accountId);
+          if (session != null &&
+              account != null &&
+              session.matches(
+                serverId: account.serverId,
+                config: registry.server(account.serverId)?.browserSignIn,
+              )) {
+            final credentials = liveOwner == accountId
+                ? live
+                : await _retrySecureStorageRead(
+                    () => _secureCredentialStorage.getServerCredentialsPayload(
+                      accountId,
+                    ),
+                    scope: 'storage/optimized/browser-sign-in',
+                  );
+            if (_savedCredentialsAuthType(credentials) ==
+                AuthTypes.ssoBrowser) {
+              continue;
+            }
+          }
+          doomed[accountId] = session;
+        }
+        final swept = <StoredBrowserSignInSession>[];
+        for (final MapEntry(key: accountId, value: session) in doomed.entries) {
+          try {
+            await _secureCredentialStorage.deleteBrowserSignInSession(
+              accountId,
+            );
+          } catch (error, stackTrace) {
+            // Left for the next sweep; the ones deleted are still returned.
+            DebugLogger.error(
+              'browser-session-sweep-delete-failed',
+              scope: 'storage/optimized/browser-sign-in',
+              error: error,
+              stackTrace: stackTrace,
+            );
+            continue;
+          }
+          if (session != null) {
+            swept.add((accountId: accountId, session: session));
+          }
+        }
+        if (swept.isNotEmpty) {
+          DebugLogger.info(
+            'browser-sessions-swept',
+            scope: 'storage/optimized/browser-sign-in',
+            data: {'count': swept.length},
+          );
+        }
+        return swept;
+      }),
+    );
+  }
+
+  /// The auth type of a saved sign-in payload; null when there is none.
+  String? _savedCredentialsAuthType(String? payload) {
+    if (payload == null || payload.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is Map<String, dynamic>) {
+        return decoded['authType']?.toString() ?? AuthTypes.credentials;
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   /// Forgets [accountId]: its live or vaulted session and saved sign-in, its
   /// record, and its server once no account is left on it.
   ///
@@ -3455,8 +4155,9 @@ class OptimizedStorageService {
     String targetAccountId, {
     required String expectedSourceAccountId,
     String? expectedToken,
-  }) {
-    return _authStateLock.synchronized(
+  }) async {
+    var dropped = const <StoredBrowserSignInSession>[];
+    final merged = await _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         // The session checked to be the target's user, and no newer one
         // committed since: a merge moves the live session to the target. A
@@ -3499,6 +4200,16 @@ class OptimizedStorageService {
           // The source goes, and what was kept aside under its id with it,
           // as when an account is removed: left, nothing would reach it.
           await _deleteVaultedSessionUndoablyUnlocked(source.id, vaultUndo);
+          // Except the browser sign-in session that renews the live session:
+          // it moves to the target with it, in place of the target's own.
+          final sourceBrowserSession = vaultUndo.browserSessions[source.id];
+          if (sourceBrowserSession != null && sourceBrowserSession.isNotEmpty) {
+            await _secureCredentialStorage.saveBrowserSignInSession(
+              target.id,
+              sourceBrowserSession,
+            );
+          }
+          final moved = BrowserSignInSession.tryDecode(sourceBrowserSession);
           final payload = _savedCredentialsReadSuppressed
               ? null
               : await _secureCredentialStorage
@@ -3536,6 +4247,12 @@ class OptimizedStorageService {
           );
           registryWritten = true;
           await _writeActiveServerIdWithoutConfigSync(target.id);
+          // The target's own browser sign-in session made way for the one
+          // that moved to it.
+          dropped = _droppedBrowserSessions(
+            vaultUndo,
+            kept: {?moved?.refreshToken},
+          );
         } catch (error, stackTrace) {
           // Whose the live session is cannot be told any more. End it rather
           // than leave it with an account it may not belong to.
@@ -3552,6 +4269,14 @@ class OptimizedStorageService {
               } catch (_) {}
             }
             await _restoreVaultUnlocked(vaultUndo);
+            // The source's browser sign-in session renewed the live session
+            // just ended; restored, it would renew nothing. Nothing puts it
+            // back, so it is told as dropped.
+            try {
+              _notifyBrowserSessionsDropped([
+                ?await _takeBrowserSessionUnlocked(source.id),
+              ]);
+            } catch (_) {}
             Error.throwWithStackTrace(
               ServerConfigSessionRollbackException(
                 commitError: error,
@@ -3598,6 +4323,8 @@ class OptimizedStorageService {
         return true;
       }),
     );
+    if (merged) _notifyBrowserSessionsDropped(dropped);
+    return merged;
   }
 
   /// Runs a config read under [_serverConfigsLock], and under
@@ -4493,8 +5220,17 @@ class OptimizedStorageService {
   /// mTLS client identity are prerequisites for reaching the sign-in page at
   /// all. Session credentials embedded in configs (the legacy apiKey bearer
   /// and captured proxy Cookie headers) are deliberately revoked.
+  ///
+  /// The browser sign-in sessions it deletes are told of on
+  /// [droppedBrowserSessions], to be revoked: it finishes a sign-out that was
+  /// cut short before it could revoke them.
   Future<void> clearAuthData() async {
-    await _authStateLock.synchronized(_clearAuthDataUnlocked);
+    final dropped = <StoredBrowserSignInSession>[];
+    try {
+      await _authStateLock.synchronized(() => _clearAuthDataUnlocked(dropped));
+    } finally {
+      _notifyBrowserSessionsDropped(dropped);
+    }
 
     DebugLogger.log(
       'Auth data cleared (non-auth server settings preserved)',
@@ -4507,11 +5243,17 @@ class OptimizedStorageService {
   /// the race where a logout observes a loading login, then deletes the new
   /// token immediately after that login commits.
   Future<bool> clearAuthDataIf({required bool Function() canClear}) async {
-    final cleared = await _authStateLock.synchronized(() async {
-      if (!canClear()) return false;
-      await _clearAuthDataUnlocked();
-      return true;
-    });
+    final dropped = <StoredBrowserSignInSession>[];
+    final bool cleared;
+    try {
+      cleared = await _authStateLock.synchronized(() async {
+        if (!canClear()) return false;
+        await _clearAuthDataUnlocked(dropped);
+        return true;
+      });
+    } finally {
+      _notifyBrowserSessionsDropped(dropped);
+    }
     if (cleared) {
       DebugLogger.log(
         'Auth data conditionally cleared',
@@ -4526,14 +5268,26 @@ class OptimizedStorageService {
   /// Its live token and saved sign-in go, along with anything vaulted under
   /// its id and its captured proxy cookies. Every other account stays signed
   /// in: their sessions are in the vault, untouched.
+  ///
+  /// The account's browser sign-in session goes too, told of on
+  /// [droppedBrowserSessions] once taken, to be revoked: what this clear
+  /// took, whatever became of a read of it before, or of the steps after.
   Future<bool> clearActiveAccountAuthDataIf({
     required bool Function() canClear,
   }) async {
-    final cleared = await _authStateLock.synchronized(() async {
-      if (!canClear()) return false;
-      await _clearActiveAccountAuthDataUnlocked();
-      return true;
-    });
+    StoredBrowserSignInSession? droppedBrowserSession;
+    final bool cleared;
+    try {
+      cleared = await _authStateLock.synchronized(() async {
+        if (!canClear()) return false;
+        await _clearActiveAccountAuthDataUnlocked(
+          onBrowserSessionDropped: (session) => droppedBrowserSession = session,
+        );
+        return true;
+      });
+    } finally {
+      _notifyBrowserSessionsDropped([?droppedBrowserSession]);
+    }
     if (cleared) {
       DebugLogger.log(
         'Active account auth data conditionally cleared',
@@ -4543,7 +5297,9 @@ class OptimizedStorageService {
     return cleared;
   }
 
-  Future<void> _clearActiveAccountAuthDataUnlocked() async {
+  Future<void> _clearActiveAccountAuthDataUnlocked({
+    void Function(StoredBrowserSignInSession session)? onBrowserSessionDropped,
+  }) async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -4593,7 +5349,31 @@ class OptimizedStorageService {
       await attempt(() async {
         final (_, activeId) = await activeAccount();
         if (activeId == null) return;
-        await attempt(() => _deleteVaultedSessionUnlocked(activeId));
+        // Read before either delete below reaches it, and told of once one
+        // of them has: the vault's cleanup deletes it too.
+        StoredBrowserSignInSession? session;
+        try {
+          if (BrowserSignInSession.tryDecode(
+                await _secureCredentialStorage.getBrowserSignInSession(
+                  activeId,
+                ),
+              )
+              case final read?) {
+            session = (accountId: activeId, session: read);
+          }
+        } catch (_) {}
+        var sessionDeleted = false;
+        await attempt(() async {
+          await _secureCredentialStorage.deleteBrowserSignInSession(activeId);
+          sessionDeleted = true;
+        });
+        await attempt(() async {
+          await _deleteVaultedSessionUnlocked(activeId);
+          sessionDeleted = true;
+        });
+        if (sessionDeleted && session != null) {
+          onBrowserSessionDropped?.call(session);
+        }
         await attempt(
           () => _scrubServerConfigAuthArtifactsUnlocked(accountId: activeId),
         );
@@ -4630,7 +5410,10 @@ class OptimizedStorageService {
     }
   }
 
-  Future<void> _clearAuthDataUnlocked() async {
+  /// Adds the browser sign-in sessions it deletes to [droppedBrowserSessions].
+  Future<void> _clearAuthDataUnlocked(
+    List<StoredBrowserSignInSession> droppedBrowserSessions,
+  ) async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -4656,6 +5439,39 @@ class OptimizedStorageService {
       // has to say so.
       await attempt(_secureCredentialStorage.deleteAllServerTokens);
       await attempt(_secureCredentialStorage.deleteAllServerCredentials);
+      // Read first, to be revoked once deleted. Unread, they are deleted all
+      // the same.
+      var browserSessions = const <String, String>{};
+      try {
+        browserSessions = await _secureCredentialStorage
+            .browserSignInSessions();
+      } catch (error) {
+        DebugLogger.warning(
+          'browser-sessions-unread-before-clear',
+          scope: 'storage/optimized',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      // Each told of once deleted, and tried again for one a passing refusal
+      // kept.
+      void tell(String accountId) {
+        final payload = browserSessions[accountId];
+        if (BrowserSignInSession.tryDecode(payload) case final session?) {
+          droppedBrowserSessions.add((accountId: accountId, session: session));
+        }
+      }
+
+      try {
+        await _secureCredentialStorage.deleteAllBrowserSignInSessions(
+          onDeleted: tell,
+        );
+      } catch (_) {
+        await attempt(
+          () => _secureCredentialStorage.deleteAllBrowserSignInSessions(
+            onDeleted: tell,
+          ),
+        );
+      }
       await attempt(_scrubServerConfigAuthArtifactsUnlocked);
       _stagedServerConfigCandidate = null;
     });

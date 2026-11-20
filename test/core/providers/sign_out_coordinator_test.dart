@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -6,6 +7,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/models/browser_sign_in_session.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/database_opener.dart';
@@ -107,6 +109,61 @@ final _libreChatAccount = LibreChatAccount.forUser(
   const LibreChatServer(baseUrl: 'https://chat.example.com'),
   const LibreChatUser(id: 'lc-user'),
 );
+
+const _browserSession = BrowserSignInSession(
+  serverId: 'server-1',
+  provider: 'oidc',
+  clientId: 'conduit',
+  issuer: 'https://id.example',
+  tokenEndpoint: 'https://id.example/token',
+  revocationEndpoint: 'https://id.example/revoke',
+  refreshToken: 'refresh-token',
+  owuiUserId: 'user-a',
+);
+
+/// Holds browser sign-in sessions, and records which it was asked to
+/// revoke.
+final class _BrowserSignedInAuthStateManager extends _ClearedAuthStateManager {
+  _BrowserSignedInAuthStateManager(super.outcome);
+
+  final revoked = <BrowserSignInSession>[];
+
+  /// Completes once the sign-out lets renewals run again.
+  Future<void>? renewalsHeldUntil;
+
+  /// Whether the wipe ran while renewals were held.
+  bool? clearedWhileHeld;
+
+  @override
+  Future<List<BrowserSessionRevocation>> browserSignInSessionsForRevocation({
+    Future<void>? holdRenewalsUntil,
+  }) async {
+    renewalsHeldUntil = holdRenewalsUntil;
+    return const [(session: _browserSession, route: null)];
+  }
+
+  @override
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) async {
+    var released = false;
+    unawaited(renewalsHeldUntil?.then((_) => released = true));
+    await pumpEventQueue();
+    clearedWhileHeld = renewalsHeldUntil != null && !released;
+    return super.logoutAndClearAppData(
+      keepServerDetails: keepServerDetails,
+      beforeClear: beforeClear,
+    );
+  }
+
+  @override
+  Future<void> revokeBrowserSignInSessions(
+    List<BrowserSessionRevocation> sessions,
+  ) async {
+    revoked.addAll(sessions.map((entry) => entry.session));
+  }
+}
 
 final class _EmptyDirectProfiles extends DirectConnectionProfilesController {
   @override
@@ -373,6 +430,47 @@ void main() {
     check(signedOut).deepEquals([null]);
   });
 
+  for (final (outcome, revokes) in [
+    (FullAppDataClearOutcome.cleared, true),
+    (FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete, true),
+    (FullAppDataClearOutcome.incomplete, false),
+    (FullAppDataClearOutcome.ownershipYielded, false),
+  ]) {
+    test('a sign-out that ends ${outcome.name} '
+        '${revokes ? 'revokes' : 'keeps'} the browser sign-in refresh '
+        'tokens', () async {
+      final auth = _BrowserSignedInAuthStateManager(outcome);
+      final container = ProviderContainer(
+        overrides: [
+          authStateManagerProvider.overrideWith(() => auth),
+          directConnectionProfilesProvider.overrideWith(
+            _EmptyDirectProfiles.new,
+          ),
+          hermesConfigProvider.overrideWith(_EmptyHermesConfig.new),
+          directLocalDatabasePurgeProvider.overrideWithValue(() async {}),
+          openWebUiDatabaseSweepProvider.overrideWithValue(() async {}),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(authStateManagerProvider.future);
+      await container.read(directConnectionProfilesProvider.future);
+      container.read(hermesConfigProvider);
+
+      await container
+          .read(signOutCoordinatorProvider)
+          .signOut(keepServerDetails: true);
+      await pumpEventQueue();
+
+      check(auth.revoked).deepEquals(revokes ? [_browserSession] : []);
+      // No renewal rotated a refresh token between the read and the wipe,
+      // and renewals run again once it is done.
+      check(auth.clearedWhileHeld).equals(true);
+      var released = false;
+      await auth.renewalsHeldUntil!.then((_) => released = true);
+      check(released).isTrue();
+    });
+  }
+
   test('an incomplete clear leaves the restart marker armed', () async {
     final container = ProviderContainer(
       overrides: [
@@ -401,9 +499,12 @@ void main() {
     'failed direct-local purge keeps destructive-clear barriers closed',
     () async {
       final signedOut = <String?>[];
+      final auth = _BrowserSignedInAuthStateManager(
+        FullAppDataClearOutcome.cleared,
+      );
       final container = ProviderContainer(
         overrides: [
-          authStateManagerProvider.overrideWith(_ClearedAuthStateManager.new),
+          authStateManagerProvider.overrideWith(() => auth),
           directConnectionProfilesProvider.overrideWith(
             _EmptyDirectProfiles.new,
           ),
@@ -440,8 +541,11 @@ void main() {
           assistantMessageId: 'assistant',
         ), 'profile'),
       ).throws<StateError>();
-      // Signed out all the same: no account's notifications stay posted.
+      // Signed out all the same: no account's notifications stay posted, and
+      // the browser sign-in the wipe took is still revoked.
       check(signedOut).deepEquals([null]);
+      await pumpEventQueue();
+      check(auth.revoked).deepEquals([_browserSession]);
     },
   );
 

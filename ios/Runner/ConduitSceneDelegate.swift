@@ -48,6 +48,8 @@ import UIKit
     self.window = window
     window.makeKeyAndVisible()
 
+    // The connection options can't be filtered, so a stray sign-in redirect
+    // that launched the app reaches the router, which drops it.
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     handleInitialShareUrlContexts(connectionOptions.urlContexts)
   }
@@ -71,7 +73,10 @@ import UIKit
     openURLContexts URLContexts: Set<UIOpenURLContext>
   ) {
     let unhandledContexts = Set(URLContexts.filter { context in
-      !handleShareUrl(context.url)
+      // A sign-in redirect only counts inside its browser session; one that
+      // arrives here is stale or forged, and must not reach Flutter's router.
+      !BrowserAuthBridge.isStrayCallback(context.url)
+        && !handleShareUrl(context.url)
     })
 
     if !unhandledContexts.isEmpty {

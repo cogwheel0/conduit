@@ -49,6 +49,64 @@ void main() {
       }
     });
 
+    test('browser sign-in routes reach the server without a session', () async {
+      // The login route says where a provider signs in, and the exchange
+      // route trades its token for a session: both before one exists. The
+      // address's headers and the account's proxy cookie still go.
+      for (final path in [
+        '/oauth/oidc/login',
+        '/oauth/microsoft/login',
+        '/oauth/my_idp-2/login',
+        '/api/v1/auths/oauth/google/token/exchange',
+      ]) {
+        for (final token in [null, 'other-session']) {
+          final interceptor = ApiAuthInterceptor(
+            serverUrl: _serverUrl,
+            authToken: token,
+            customHeaders: const {
+              'X-Tenant': 'one',
+              'Cookie': 'proxy_session=abc',
+            },
+          );
+          final handler = _TestRequestInterceptorHandler();
+
+          interceptor.onRequest(
+            RequestOptions(baseUrl: _serverUrl, path: path),
+            handler,
+          );
+          final forwarded = await handler.forwardedRequest;
+
+          expect(forwarded, isNotNull, reason: '$path ($token)');
+          expect(
+            forwarded!.headers.containsKey('Authorization'),
+            isFalse,
+            reason: '$path ($token)',
+          );
+          expect(forwarded.headers['X-Tenant'], 'one');
+          expect(forwarded.headers['Cookie'], 'proxy_session=abc');
+        }
+      }
+    });
+
+    test('only the browser sign-in routes are public', () async {
+      for (final path in [
+        '/oauth/OIDC/login',
+        '/oauth/oidc/login/callback',
+        '/oauth/oidc/callback',
+        '/oauth/a.b/login',
+        '/api/v1/auths/oauth/oidc/token/exchange/more',
+        '/api/v1/auths/oauth/oidc/token',
+      ]) {
+        final interceptor = ApiAuthInterceptor(serverUrl: _serverUrl);
+        final handler = _TestRequestInterceptorHandler();
+
+        interceptor.onRequest(RequestOptions(path: path), handler);
+        final rejected = await handler.rejectedError;
+
+        expect(rejected?.response?.statusCode, 401, reason: path);
+      }
+    });
+
     test(
       'optional config request attaches auth header when token exists',
       () async {
@@ -320,7 +378,7 @@ void main() {
           serverUrl: _serverUrl,
           authToken: 'token',
           customHeaders: headers,
-          onAuthTokenInvalid: () => authFailureCount++,
+          onAuthTokenInvalid: (_) => authFailureCount++,
         );
         final requestHandler = _TestRequestInterceptorHandler();
         interceptor.onRequest(
@@ -356,7 +414,7 @@ void main() {
       final interceptor = ApiAuthInterceptor(
         serverUrl: _serverUrl,
         authToken: 'token',
-        onAuthTokenInvalid: () {
+        onAuthTokenInvalid: (_) {
           authFailureCount++;
         },
       );
@@ -391,7 +449,7 @@ void main() {
         final interceptor = ApiAuthInterceptor(
           serverUrl: _serverUrl,
           authToken: 'account-a',
-          onAuthTokenInvalid: () {
+          onAuthTokenInvalid: (_) {
             authFailureCount++;
           },
         );
@@ -428,7 +486,7 @@ void main() {
           serverUrl: _serverUrl,
           authToken: 'account-a',
           customHeaders: const {'Cookie': 'proxy_session=secret'},
-          onAuthTokenInvalid: () {
+          onAuthTokenInvalid: (_) {
             authFailureCount++;
           },
         );
@@ -474,7 +532,7 @@ void main() {
           authToken: 'account-a',
           customHeaders: const {'Cookie': 'proxy_session=secret'},
           shouldSuppressCookieCustomHeader: () => suppressCookie,
-          onAuthTokenInvalid: () => authFailureCount++,
+          onAuthTokenInvalid: (_) => authFailureCount++,
         );
         final requestHandler = _TestRequestInterceptorHandler();
         interceptor.onRequest(
@@ -510,7 +568,7 @@ void main() {
         final interceptor = ApiAuthInterceptor(
           serverUrl: _serverUrl,
           authToken: 'token',
-          onAuthTokenInvalid: () {
+          onAuthTokenInvalid: (_) {
             authFailureCount++;
           },
         );
@@ -537,7 +595,7 @@ void main() {
         final interceptor = ApiAuthInterceptor(
           serverUrl: _serverUrl,
           authToken: 'token',
-          onAuthTokenInvalid: () {
+          onAuthTokenInvalid: (_) {
             authFailureCount++;
           },
         );
@@ -575,7 +633,7 @@ void main() {
         final interceptor = ApiAuthInterceptor(
           serverUrl: _serverUrl,
           authToken: 'token',
-          onAuthTokenInvalid: () {
+          onAuthTokenInvalid: (_) {
             authFailureCount++;
           },
         );
@@ -598,12 +656,95 @@ void main() {
       },
     );
 
+    test('a failure says whether a proxy or the server refused', () async {
+      Future<List<AuthFailureKind>> failures(
+        int statusCode, {
+        Map<String, List<String>> headers = const {},
+        Map<String, String> customHeaders = const {},
+      }) async {
+        final kinds = <AuthFailureKind>[];
+        final interceptor = ApiAuthInterceptor(
+          serverUrl: _serverUrl,
+          authToken: 'token',
+          customHeaders: customHeaders,
+          onAuthTokenInvalid: kinds.add,
+        );
+        final requestHandler = _TestRequestInterceptorHandler();
+        interceptor.onRequest(
+          RequestOptions(path: '/api/v1/auths/'),
+          requestHandler,
+        );
+        final dispatched = (await requestHandler.forwardedRequest)!;
+        final handler = _TestErrorInterceptorHandler();
+        interceptor.onError(
+          DioException(
+            requestOptions: dispatched,
+            response: Response<dynamic>(
+              requestOptions: dispatched,
+              statusCode: statusCode,
+              headers: Headers.fromMap(headers),
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+          handler,
+        );
+        await handler.done;
+        return kinds;
+      }
+
+      const json = {
+        'content-type': ['application/json'],
+      };
+      const page = {
+        'content-type': ['text/html; charset=utf-8'],
+      };
+      expect(await failures(401, headers: json), [
+        AuthFailureKind.sessionRejected,
+      ]);
+      expect(await failures(403), [AuthFailureKind.sessionRejected]);
+      expect(await failures(401, headers: page), [AuthFailureKind.proxyPage]);
+      expect(await failures(403, headers: page), [AuthFailureKind.proxyPage]);
+      expect(
+        await failures(
+          302,
+          headers: const {
+            'location': ['https://auth.example/login'],
+          },
+          customHeaders: const {'Cookie': 'proxy_session=abc'},
+        ),
+        [AuthFailureKind.proxySessionExpired],
+      );
+    });
+
+    test('a refused browser sign-in never reports the session', () async {
+      var authFailureCount = 0;
+      final interceptor = ApiAuthInterceptor(
+        serverUrl: _serverUrl,
+        authToken: 'token',
+        customHeaders: const {'Cookie': 'proxy_session=abc'},
+        onAuthTokenInvalid: (_) => authFailureCount++,
+      );
+
+      await _failRequest(
+        interceptor,
+        RequestOptions(path: '/api/v1/auths/oauth/oidc/token/exchange'),
+        403,
+      );
+      await _failRequest(
+        interceptor,
+        RequestOptions(path: '/oauth/oidc/login'),
+        401,
+      );
+
+      expect(authFailureCount, 0);
+    });
+
     test('403 on non-session endpoints does not notify auth failure', () async {
       var authFailureCount = 0;
       final interceptor = ApiAuthInterceptor(
         serverUrl: _serverUrl,
         authToken: 'token',
-        onAuthTokenInvalid: () {
+        onAuthTokenInvalid: (_) {
           authFailureCount++;
         },
       );

@@ -120,6 +120,20 @@ final openWebUiAccountsProvider = FutureProvider<List<OpenWebUiAccountEntry>>((
   ];
 });
 
+/// The browser sign-in settings of the server [config]'s account is on, or
+/// joins when saved (see [OptimizedStorageService.browserSignInConfigFor]).
+/// Re-read with [serverConfigsProvider]: invalidate that after
+/// [OptimizedStorageService.setServerBrowserSignIn].
+final browserSignInConfigProvider =
+    FutureProvider.family<BrowserSignInConfig?, ServerConfig>((
+      ref,
+      config,
+    ) async {
+      await ref.watch(serverConfigsProvider.future);
+      final storage = ref.watch(optimizedStorageServiceProvider);
+      return storage.browserSignInConfigFor(config);
+    });
+
 final serverConnectionStateProvider = Provider<bool>((ref) {
   final activeServer = ref.watch(activeServerProvider);
   return activeServer.maybeWhen(
