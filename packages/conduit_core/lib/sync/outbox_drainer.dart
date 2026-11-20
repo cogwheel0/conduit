@@ -99,6 +99,10 @@ class OutboxDrainer {
   /// Completed by a drain asked for while one waits on a re-arm.
   Completer<void>? _rerunAsked;
 
+  /// Whether a drain was asked for since the last pass looked whether a
+  /// recheck of parked ops is due ([_recheckParkedIfDue]).
+  bool _drainAsked = false;
+
   bool get isDraining => _draining;
 
   /// Stranded-`inFlight` recovery runs exactly once per process, before the
@@ -130,6 +134,7 @@ class OutboxDrainer {
   /// `SyncEngine._startCycle`). A re-arm of parked ops runs beside the
   /// workers, and the drain lasts until it ends, so what it re-arms is sent.
   Future<void> drain() async {
+    _drainAsked = true;
     if (_draining) {
       _askRerun();
       return;
@@ -139,8 +144,12 @@ class OutboxDrainer {
       await _recoverStrandedOnce();
       while (true) {
         _rerun = false;
-        // Each pass: a drain asked for while this one runs is a rerun of it.
-        _recheckParkedIfDue();
+        // A drain asked for while this one runs is a rerun of it. The rerun a
+        // re-arm asks for repeats no recheck.
+        if (_drainAsked) {
+          _drainAsked = false;
+          _recheckParkedIfDue();
+        }
         await _runPass();
         if (_rerun) continue;
         final rearm = _rearm;
