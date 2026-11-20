@@ -187,15 +187,27 @@ void main() {
 }
 
 /// The auth state once its first restore, and the background sign-in it
-/// starts, have finished.
+/// starts, have finished: the first state that is not loading.
 Future<AuthState> _settledAuth(ProviderContainer container) async {
-  await container.read(authStateManagerProvider.future);
-  for (var i = 0; i < 200; i++) {
-    final auth = container.read(authStateManagerProvider).requireValue;
-    if (!auth.isLoading && auth.status != AuthStatus.loading) return auth;
-    await Future<void>.delayed(const Duration(milliseconds: 5));
+  final settled = Completer<AuthState>();
+  final listening = container.listen<AsyncValue<AuthState>>(
+    authStateManagerProvider,
+    (_, next) {
+      final auth = next.value;
+      if (auth != null &&
+          !auth.isLoading &&
+          auth.status != AuthStatus.loading &&
+          !settled.isCompleted) {
+        settled.complete(auth);
+      }
+    },
+    fireImmediately: true,
+  );
+  try {
+    return await settled.future;
+  } finally {
+    listening.close();
   }
-  return container.read(authStateManagerProvider).requireValue;
 }
 
 final class _Storage extends Mock implements OptimizedStorageService {}

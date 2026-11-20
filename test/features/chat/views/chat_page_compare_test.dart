@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit/features/chat/views/chat_page.dart';
@@ -103,6 +104,8 @@ void main() {
     bool newChat = false,
     bool reviewer = false,
     Model? model,
+    List<ChatMessage> transcript = const <ChatMessage>[],
+    String? followUp,
     List<Override> overrides = const <Override>[],
   }) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
@@ -157,7 +160,7 @@ void main() {
         activeConversationProvider.overrideWith(
           () => _Active(newChat ? null : chat),
         ),
-        chatMessagesProvider.overrideWith(_Messages.new),
+        chatMessagesProvider.overrideWith(() => _Messages(transcript)),
         optimizedStorageServiceProvider.overrideWithValue(_Storage()),
         isChatStreamingProvider.overrideWith((ref) => false),
         isOnlineProvider.overrideWithValue(true),
@@ -192,6 +195,11 @@ void main() {
     );
     await settle(tester);
 
+    if (followUp != null) {
+      await tester.tap(find.text(followUp));
+      await settle(tester);
+      return container;
+    }
     await tester.enterText(find.byType(TextField), 'compare this');
     if (ordinarySend) {
       await tester.pump();
@@ -305,6 +313,60 @@ void main() {
       }
     },
   );
+
+  testPage('a tapped follow-up is sent with the tools picked for the chat', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(
+      () => db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'stored-chat',
+              title: 'A chat',
+              createdAt: 1,
+              updatedAt: 1,
+              bodySynced: const Value(true),
+            ),
+          ),
+    );
+    await compareOnPage(
+      tester,
+      db: db,
+      followUp: 'Is the water hot yet?',
+      transcript: [
+        ChatMessage(
+          id: 'user-1',
+          role: 'user',
+          content: 'Is the kettle on?',
+          timestamp: DateTime.utc(2026, 11, 3),
+        ),
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'It is.',
+          timestamp: DateTime.utc(2026, 11, 3),
+          model: 'alpha',
+          followUps: const ['Is the water hot yet?'],
+        ),
+      ],
+      overrides: [
+        selectedToolIdsProvider.overrideWith(
+          () => _PickedTools(const ['kettle-tools']),
+        ),
+      ],
+    );
+
+    final ops = await tester.runAsync(() => db.select(db.outboxOps).get());
+    final completions = [
+      for (final op in ops!)
+        if (op.kind == 'requestCompletion')
+          jsonDecode(op.payload) as Map<String, dynamic>,
+    ];
+    expect(completions, hasLength(1));
+    expect(completions.single['toolIds'], ['kettle-tools']);
+  });
 
   // An Open WebUI Direct turn goes through the server, which never says
   // when it reached its run: its draft is let go once the send is accepted,
@@ -467,8 +529,21 @@ class _Active extends ActiveConversationNotifier {
 }
 
 class _Messages extends ChatMessagesNotifier {
+  _Messages([this.initial = const <ChatMessage>[]]);
+
+  final List<ChatMessage> initial;
+
   @override
-  List<ChatMessage> build() => const <ChatMessage>[];
+  List<ChatMessage> build() => initial;
+}
+
+class _PickedTools extends SelectedToolIds {
+  _PickedTools(this.ids);
+
+  final List<String> ids;
+
+  @override
+  List<String> build() => ids;
 }
 
 class _Storage extends Fake implements OptimizedStorageService {

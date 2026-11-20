@@ -81,6 +81,9 @@ pub struct TaskEditor {
     pub fields: Option<AutomationFields>,
     pub issues: Vec<String>,
     pub attempted: bool,
+    /// Counts the Saves refused for an issue: each refusal is heard, even
+    /// in the words of the one before (draft checks add nothing).
+    refusals: u64,
     pub changed: bool,
     pub saving: bool,
     pub failure: Option<String>,
@@ -187,6 +190,7 @@ impl TaskEditor {
             fields: None,
             issues: vec![],
             attempted: false,
+            refusals: 0,
             changed: false,
             saving: false,
             failure: None,
@@ -615,6 +619,7 @@ impl TaskEditor {
                     }
                     Ok(state) => {
                         s.attempted = true;
+                        s.refusals += 1;
                         if state.issues.iter().any(|i| i == "scheduleIncomplete")
                             && s.fields
                                 .as_ref()
@@ -652,11 +657,10 @@ impl TaskEditor {
                 .text_size(px(cx.conduit().metrics.small))
                 .text_color(cx.conduit().roles.danger)
                 .child(SharedString::from(issue_text(found, l)))
-                .child(live_text(
-                    "live",
-                    Some(issue_text(found, l).into()),
-                    Priority::High,
-                ))
+                .child(
+                    live_text("live", Some(issue_text(found, l).into()), Priority::High)
+                        .attempt(self.refusals),
+                )
                 .into_any_element(),
         )
     }
@@ -1346,12 +1350,17 @@ impl Render for TaskEditor {
             body.push(
                 forms::form_group(
                     vec![
-                        forms::field(
+                        forms::field_answered(
                             l.scheduled_task_name_label(),
                             &self.name,
                             None,
-                            self.issue("nameRequired")
-                                .then(|| l.scheduled_task_name_required().into()),
+                            forms::Answer {
+                                error: self
+                                    .issue("nameRequired")
+                                    .then(|| l.scheduled_task_name_required().into()),
+                                attempt: self.refusals,
+                            },
+                            false,
                             window,
                             cx,
                         )
@@ -2042,6 +2051,44 @@ mod tests {
             vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
                 .is_none()
         );
+    }
+
+    /// A Save refused twice for the same issue, with no edit between, is
+    /// heard twice; a redraw says nothing more.
+    #[gpui_kit::test]
+    fn each_refused_save_is_heard(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({
+                "fields": p["fields"], "changed": false, "saved": false,
+                "issues": ["promptRequired"]
+            }))
+        });
+        let save = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| {
+                let window = sheet::current_window(cx).expect("the sheet's window");
+                let _ = window.update(cx, |_, window, cx| {
+                    task.update(cx, |e, cx| e.save(window, cx))
+                });
+            });
+            vcx.run_until_parked();
+            draw_sheet(vcx);
+        };
+        let refused = L10n::new("en").scheduled_task_prompt_required();
+        let heard = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| AnnouncementLog::texts(cx))
+                .iter()
+                .filter(|t| t.as_ref() == refused)
+                .count()
+        };
+        save(vcx);
+        assert_eq!(heard(vcx), 1);
+        save(vcx);
+        draw_sheet(vcx);
+        assert_eq!(heard(vcx), 2, "the second refusal was not heard");
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and

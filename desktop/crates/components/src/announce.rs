@@ -12,7 +12,9 @@
 //!   changes. GPUI has no `aria-live` (AccessKit's macOS adapter only
 //!   speaks nodes marked live, and GPUI never marks any), so a node's
 //!   `Role::Alert` or `Role::Status` alone is silent: put a `live_text`
-//!   beside it with the same words.
+//!   beside it with the same words. A region that shows what an action
+//!   answered gives it the action's [`LiveText::attempt`], so a retry
+//!   answered in the same words is heard again.
 //!
 //! An [`AnnouncementLog`] global, when installed, keeps every announcement,
 //! so tests and the E2E passes can check what VoiceOver would have heard.
@@ -90,9 +92,9 @@ pub fn announce(text: impl Into<SharedString>, priority: Priority, cx: &mut App)
 }
 
 /// A live region of `text`: announced when it first draws with text, and
-/// whenever the text changes after. `None` keeps quiet, and the next text
-/// counts as new. `id` must be stable across frames (with the ids of the
-/// elements around it, it names the region).
+/// whenever the text (or its [`LiveText::attempt`]) changes after. `None`
+/// keeps quiet, and the next text counts as new. `id` must be stable across
+/// frames (with the ids of the elements around it, it names the region).
 pub fn live_text(
     id: impl Into<ElementId>,
     text: Option<SharedString>,
@@ -101,6 +103,7 @@ pub fn live_text(
     LiveText {
         id: id.into(),
         text: text.filter(|t| !t.trim().is_empty()),
+        attempt: 0,
         priority,
     }
 }
@@ -109,8 +112,24 @@ pub fn live_text(
 pub struct LiveText {
     id: ElementId,
     text: Option<SharedString>,
+    attempt: u64,
     priority: Priority,
 }
+
+impl LiveText {
+    /// Which completed action the text answers: a count its view adds one
+    /// to as each request, Save or step finishes, and never on a redraw. A
+    /// new attempt is heard even in the words of the last one (a retry that
+    /// failed the same way); the same attempt drawn again stays quiet.
+    pub fn attempt(mut self, attempt: u64) -> Self {
+        self.attempt = attempt;
+        self
+    }
+}
+
+/// What a live region showed on a frame: its text and the attempt it
+/// answered.
+type Shown = (Option<SharedString>, u64);
 
 impl IntoElement for LiveText {
     type Element = Self;
@@ -121,9 +140,9 @@ impl IntoElement for LiveText {
 }
 
 /// Whether a live region showing `now`, after `before` on the previous
-/// frame, speaks.
-fn speaks(before: Option<&SharedString>, now: Option<&SharedString>) -> bool {
-    now.is_some() && before != now
+/// frame, speaks: it has text, and the text or the attempt is new.
+fn speaks(before: Option<&Shown>, now: &Shown) -> bool {
+    now.0.is_some() && before != Some(now)
 }
 
 impl Element for LiveText {
@@ -167,13 +186,11 @@ impl Element for LiveText {
         let Some(global_id) = global_id else {
             return;
         };
-        let now = self.text.clone();
-        let speak =
-            window.with_element_state(global_id, |before: Option<Option<SharedString>>, _| {
-                let before = before.flatten();
-                (speaks(before.as_ref(), now.as_ref()), now.clone())
-            });
-        if speak && let Some(text) = now {
+        let now: Shown = (self.text.clone(), self.attempt);
+        let speak = window.with_element_state(global_id, |before: Option<Shown>, _| {
+            (speaks(before.as_ref(), &now), now.clone())
+        });
+        if speak && let Some(text) = now.0 {
             announce(text, self.priority, cx);
         }
     }
@@ -288,26 +305,31 @@ mod tests {
 
     #[test]
     fn a_live_region_speaks_new_and_changed_text_only() {
-        let a: SharedString = "Wrong password.".into();
-        let b: SharedString = "Too many tries.".into();
-        assert!(speaks(None, Some(&a)));
-        assert!(!speaks(Some(&a), Some(&a)));
-        assert!(speaks(Some(&a), Some(&b)));
-        assert!(!speaks(Some(&a), None));
-        assert!(!speaks(None, None));
+        let a = |n| (Some(SharedString::from("Wrong password.")), n);
+        let b = |n| (Some(SharedString::from("Too many tries.")), n);
+        let none = |n| (None, n);
+        assert!(speaks(None, &a(0)));
+        assert!(!speaks(Some(&a(0)), &a(0)));
+        assert!(speaks(Some(&a(0)), &b(0)));
+        assert!(!speaks(Some(&a(0)), &none(0)));
+        assert!(!speaks(None, &none(0)));
+        // A new attempt answered in the same words is heard; none still
+        // says nothing.
+        assert!(speaks(Some(&a(0)), &a(1)));
+        assert!(!speaks(Some(&a(0)), &none(1)));
     }
 
     struct Form {
         error: Option<SharedString>,
+        attempt: u64,
     }
 
     impl Render for Form {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div().id("form").size_full().child(live_text(
-                "error",
-                self.error.clone(),
-                Priority::High,
-            ))
+            div()
+                .id("form")
+                .size_full()
+                .child(live_text("error", self.error.clone(), Priority::High).attempt(self.attempt))
         }
     }
 
@@ -319,7 +341,10 @@ mod tests {
     #[gpui_kit::test]
     fn a_live_region_in_a_window_announces_once_per_change(cx: &mut TestAppContext) {
         cx.update(AnnouncementLog::install);
-        let (view, vcx) = cx.add_window_view(|_, _| Form { error: None });
+        let (view, vcx) = cx.add_window_view(|_, _| Form {
+            error: None,
+            attempt: 0,
+        });
         draw(vcx);
         assert_eq!(vcx.update(|_, cx| AnnouncementLog::len(cx)), 0);
 
@@ -357,5 +382,17 @@ mod tests {
                 priority: Priority::High
             })
         );
+
+        // A retry answered in the same words, with no frame between: the
+        // next attempt is heard once, and its redraws stay quiet.
+        vcx.update(|_, cx| {
+            view.update(cx, |f, cx| {
+                f.attempt += 1;
+                cx.notify();
+            })
+        });
+        draw(vcx);
+        draw(vcx);
+        assert_eq!(vcx.update(|_, cx| AnnouncementLog::len(cx)), 3);
     }
 }

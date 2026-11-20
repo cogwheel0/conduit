@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.72.0";
+pub const PROTOCOL_VERSION: &str = "1.73.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -10201,6 +10201,10 @@ pub struct SelectModel {
     /// chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_id: Option<String>,
+    /// The new chat is a temporary one (`ModelListQuery.temporary`): its
+    /// pick is its own, never New Chat's, and it offers no coding agent.
+    #[serde(default)]
+    pub temporary: bool,
 }
 
 /// A group of models under "More Models"; `label` is empty for the

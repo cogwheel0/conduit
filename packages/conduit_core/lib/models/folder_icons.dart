@@ -127,13 +127,19 @@ FolderIconOption? folderIconOptionForAlias(String? alias) {
   return null;
 }
 
-bool _looksLikeRenderedGlyph(String value) {
-  final normalized = value.trim();
-  if (normalized.isEmpty) {
-    return false;
-  }
-  return !RegExp(r'^[a-z0-9_:+-]+$', caseSensitive: false).hasMatch(normalized);
-}
+/// One or more emoji, as typed or picked: a pictograph (with its
+/// presentation selector, skin tone, tag sequence or ZWJ joins), a flag of
+/// two regional indicators, or a keycap.
+final RegExp _emojiSequence = RegExp(
+  r'^(?:\p{Regional_Indicator}{2}'
+  r'|[#*0-9]\uFE0F?\u20E3'
+  r'|\p{Extended_Pictographic}[\uFE0F\p{Emoji_Modifier}]?[\u{E0020}-\u{E007F}]*'
+  r'(?:\u200D\p{Extended_Pictographic}[\uFE0F\p{Emoji_Modifier}]?)*)+$',
+  unicode: true,
+);
+
+bool _looksLikeRenderedGlyph(String value) =>
+    _emojiSequence.hasMatch(value.trim());
 
 /// The emoji drawn for a saved icon alias: a curated option's, any other
 /// shortcode Open WebUI knows (a folder's icon chosen on the web, such as

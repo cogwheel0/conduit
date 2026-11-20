@@ -2,10 +2,16 @@
 # Publishes appcast.xml to the hosting release.env names (APPCAST_HOSTING),
 # so the feed URL every installed copy reads (SUFeedURL) serves it.
 #
-#   desktop/packaging/macos/publish-appcast.sh APPCAST.xml [--push]
+#   SPARKLE_PUBLIC_ED_KEY=<key> desktop/packaging/macos/publish-appcast.sh APPCAST.xml [--push]
 #
 # Without --push it only says what it would do. With --push it needs `gh`
 # signed in (GH_TOKEN in CI) with contents: write on RELEASE_REPO.
+#
+# First, either way, the feed's own signature is checked with
+# SPARKLE_PUBLIC_ED_KEY, the public key installed copies have (lib.sh
+# verify_feed): they refuse a feed that is not signed with it
+# (SURequireSignedFeed), so an unsigned one, one signed with another key, or
+# one changed after it was signed is never published.
 #
 #   release-asset  uploads appcast.xml to the fixed release APPCAST_RELEASE_TAG
 #                  (a prerelease, so it never becomes the repository's
@@ -31,6 +37,11 @@ push=0
 [ "${2:-}" = "--push" ] && push=1
 [ -f "$xml" ] || die "usage: publish-appcast.sh APPCAST.xml [--push]"
 xmllint --noout "$xml"
+[ -n "${SPARKLE_PUBLIC_ED_KEY:-}" ] ||
+  die "SPARKLE_PUBLIC_ED_KEY is not set: the public key installed copies have, to check the feed's signature with"
+verify_feed "$xml" "$SPARKLE_PUBLIC_ED_KEY" ||
+  die "$xml is not signed with SPARKLE_PUBLIC_ED_KEY: installed copies would refuse it; nothing was published"
+log "the feed's signature verifies with SPARKLE_PUBLIC_ED_KEY"
 url="$(appcast_url)"
 
 run() {

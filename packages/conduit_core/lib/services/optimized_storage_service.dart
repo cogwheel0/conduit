@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:collection/collection.dart' show MapEquality;
+import 'package:collection/collection.dart' show ListEquality, MapEquality;
 import 'package:hive_ce/hive.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:conduit_core/conduit_core.dart';
@@ -187,6 +187,27 @@ final class OptimizedStorageDatabaseHandle {
     _released = true;
     return onRelease?.call() ?? Future<void>.value();
   }
+}
+
+/// The registry and the active account as storage holds them under a
+/// write's locks ([OptimizedStorageService.editServerEndpoints]).
+typedef StoredAtWrite =
+    void Function(OpenWebUiRegistry registry, String? activeAccountId);
+
+/// Thrown by a save of a server's routes that would give one of them the
+/// connection of a route of [serverId], another saved server: the same URL,
+/// headers, certificate policy and client identity
+/// ([OpenWebUiEndpoint.sameConnection]). Two saved servers never reach Open
+/// WebUI the same way, or an account added on one of them would be filed
+/// under whichever matched first. Nothing is saved.
+final class ServerConnectionTaken implements Exception {
+  const ServerConnectionTaken(this.serverId);
+
+  /// The saved server whose connection it is.
+  final String serverId;
+
+  @override
+  String toString() => 'ServerConnectionTaken($serverId)';
 }
 
 /// Optimized storage service backed by Hive for non-sensitive data and
@@ -1484,9 +1505,13 @@ class OptimizedStorageService {
     // one account moves every other account on that server too.
     // Through the routes in use, as the current configs were projected.
     final selection = _endpointSelection();
-    final nextConfigs = (await _registryForWriteUnlocked())
-        .mergeServerConfigs(sanitizedConfigs, selectedEndpoints: selection)
-        .projectAll(selectedEndpoints: selection);
+    final stored = await _registryForWriteUnlocked();
+    final merged = stored.mergeServerConfigs(
+      sanitizedConfigs,
+      selectedEndpoints: selection,
+    );
+    _refuseTakenConnection(stored, merged);
+    final nextConfigs = merged.projectAll(selectedEndpoints: selection);
     final rawActiveServerId = _rawStoredActiveServerId();
     final currentActiveId = _effectiveActiveServerId(
       configs: currentConfigs,
@@ -1759,6 +1784,13 @@ class OptimizedStorageService {
           for (final existing in previousConfigs)
             if (existing.id != selected.id && abandoned(existing)) existing.id,
         ];
+        _refuseTakenConnection(
+          registry,
+          registry.mergeServerConfigs(
+            nextConfigs,
+            selectedEndpoints: _endpointSelection(),
+          ),
+        );
 
         final previousStage = _stagedServerConfigCandidate;
         var persistenceStarted = false;
@@ -1901,6 +1933,20 @@ class OptimizedStorageService {
     );
     if (selected) _notifyBrowserSessionsDropped(dropped);
     return selected;
+  }
+
+  /// Refuses ([ServerConnectionTaken]) a write that would save [next] over
+  /// [stored] with a route of one saved server reached as another server's
+  /// is ([OpenWebUiRegistry.connectionTakenSince]). [_saveRegistryUnlocked]
+  /// asks it of every write; a write that moves a session or credentials
+  /// first (a sign-in, a saved account list) asks it before those too, so a
+  /// refusal leaves them as they were.
+  void _refuseTakenConnection(
+    OpenWebUiRegistry stored,
+    OpenWebUiRegistry next,
+  ) {
+    final taken = next.connectionTakenSince(stored);
+    if (taken != null) throw ServerConnectionTaken(taken);
   }
 
   /// Saves [configs] as the complete account list.
@@ -2508,6 +2554,14 @@ class OptimizedStorageService {
             if (config.id != candidate.id) config.copyWith(isActive: false),
           committedCandidate,
         ];
+        final stored = await _registryForWriteUnlocked();
+        _refuseTakenConnection(
+          stored,
+          stored.mergeServerConfigs(
+            committedConfigs,
+            selectedEndpoints: _endpointSelection(),
+          ),
+        );
 
         late final _RegistrySnapshot previousRegistry;
         String? previousToken;
@@ -3075,13 +3129,18 @@ class OptimizedStorageService {
   /// For edits made from a list on screen: two started before the first
   /// lands would otherwise each save the list as it was, and the second
   /// would bring back what the first removed.
+  ///
+  /// [atWrite], when given, is told the registry and the active account as
+  /// they stand under the write's locks, right before [edit] runs: what a
+  /// check [edit] makes judges the write by.
   Future<void> editServerEndpoints(
     String serverId,
-    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit,
-  ) {
+    List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
+    StoredAtWrite? atWrite,
+  }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(
-        () => _editServerEndpointsUnlocked(serverId, edit),
+        () => _editServerEndpointsUnlocked(serverId, edit, atWrite: atWrite),
       ),
     );
   }
@@ -3102,6 +3161,7 @@ class OptimizedStorageService {
     required String routeId,
     required Map<String, String> headers,
     required int sessionRevision,
+    StoredAtWrite? atWrite,
   }) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
@@ -3119,6 +3179,7 @@ class OptimizedStorageService {
         await _editServerEndpointsUnlocked(
           serverId,
           edit,
+          atWrite: atWrite,
           session: (
             accountId: accountId,
             routeId: routeId,
@@ -3137,17 +3198,38 @@ class OptimizedStorageService {
     String serverId,
     List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint> endpoints) edit, {
     _RouteSession? session,
+    StoredAtWrite? atWrite,
   }) async {
     final registry = await _registryForWriteUnlocked();
     final stored = registry.server(serverId);
     if (stored == null) {
       throw StateError('That server is no longer saved.');
     }
+    if (atWrite != null) {
+      atWrite(registry, await _effectiveActiveServerIdUnlocked());
+    }
     // [edit] runs right before the write, nothing awaited between: a check
     // it makes (and throws on) holds for what is written.
     final endpoints = edit(stored.endpoints);
     if (endpoints.isEmpty) {
       throw ArgumentError('A server needs at least one route.');
+    }
+    // Already as this edit leaves it (a save tried again after its answer
+    // was lost): nothing is written, so a write that fails cannot undo it.
+    // Not while reads are fenced: only a write that lands lifts the fence.
+    if (!_serverConfigsReadSuppressed &&
+        const ListEquality<OpenWebUiEndpoint>().equals(
+          endpoints,
+          stored.endpoints,
+        ) &&
+        (session == null ||
+            const MapEquality<String, String>().equals(
+              registry
+                  .account(session.accountId)
+                  ?.capturedHeaders[session.routeId],
+              session.headers,
+            ))) {
+      return;
     }
     await _saveServerUnlocked(
       stored.withEndpoints(endpoints),
@@ -3157,6 +3239,11 @@ class OptimizedStorageService {
   }
 
   /// Saves [server], keeping [session]'s headers on its route when given.
+  ///
+  /// Throws [ServerConnectionTaken], saving nothing, when a route it adds,
+  /// or changes how it is reached, has another saved server's connection.
+  /// Routes it leaves as they are never count, so a rename, reorder or
+  /// removal still saves.
   Future<void> _saveServerUnlocked(
     OpenWebUiServer server, {
     _RouteSession? session,
@@ -4295,18 +4382,32 @@ class OptimizedStorageService {
     // Before the write, which projects the configs it caches through it.
     if (selectionChanged) _selectedEndpoints = Map.of(snapshot.selection);
     try {
-      await _saveRegistryUnlocked(snapshot.registry, authorizeReads: false);
+      await _saveRegistryUnlocked(
+        snapshot.registry,
+        authorizeReads: false,
+        checkRoutes: false,
+      );
     } finally {
       if (selectionChanged) await _writeEndpointHint();
     }
     _serverConfigsReadSuppressed = snapshot.readsSuppressed;
   }
 
+  ///
+  /// Every write here refuses ([ServerConnectionTaken]) to give a route the
+  /// connection of another saved server's ([_refuseTakenConnection]), except
+  /// those that put back what was stored or only take secrets away (a
+  /// rollback, a sign-out, a wipe: [checkRoutes] false), which must never be
+  /// refused.
   Future<void> _saveRegistryUnlocked(
     OpenWebUiRegistry registry, {
     bool authorizeReads = true,
     bool ownershipChanged = true,
+    bool checkRoutes = true,
   }) async {
+    if (checkRoutes) {
+      _refuseTakenConnection(await _registryForWriteUnlocked(), registry);
+    }
     await _secureCredentialStorage.saveOpenWebUiRegistry(registry.encode());
     _registryLeftByWipe = null;
     _registryMigrationSettled = true;
@@ -5245,7 +5346,11 @@ class OptimizedStorageService {
     final registry = await _registryForWriteUnlocked();
     final scrubbed = registry.withoutCapturedHeaders(accountId: accountId);
     if (scrubbed != registry || _registryLeftByWipe != null) {
-      await _saveRegistryUnlocked(scrubbed, authorizeReads: false);
+      await _saveRegistryUnlocked(
+        scrubbed,
+        authorizeReads: false,
+        checkRoutes: false,
+      );
     }
   }
 
@@ -5497,7 +5602,11 @@ class OptimizedStorageService {
             (serverId, endpointId) =>
                 retainedRegistry.server(serverId)?.endpoint(endpointId) == null,
           );
-        await _saveRegistryUnlocked(retainedRegistry, authorizeReads: false);
+        await _saveRegistryUnlocked(
+          retainedRegistry,
+          authorizeReads: false,
+          checkRoutes: false,
+        );
         configsRestored = true;
       });
       await attempt(() async {

@@ -1660,6 +1660,36 @@ void main() {
     );
 
     test(
+      'cancelling it while it is in flight keeps it, marked stopped, and its '
+      'placeholders, for every later attempt to read',
+      () async {
+        await seedServerChat('c1');
+        await admit();
+        final op = (await db.outboxDao.pendingForChat(
+          'c1',
+        )).singleWhere((op) => op.kind == OutboxKind.requestCompletion.name);
+        await (db.update(db.outboxDao.outboxOps)
+              ..where((t) => t.seq.equals(op.seq)))
+            .write(
+              const OutboxOpsCompanion(status: Value(OutboxStatus.inFlight)),
+            );
+
+        final removed = await db.chatsDao.cancelPendingCompletion('c1');
+
+        check(removed).equals(0);
+        final stored = (await db.outboxDao.opBySeq(op.seq))!;
+        check(
+          RequestCompletionPayload.fromJson(
+            jsonDecode(stored.payload) as Map<String, dynamic>,
+          ).stopped,
+        ).isTrue();
+        check(
+          (await db.messagesDao.getForChat('c1')).map((m) => m.id).toSet(),
+        ).deepEquals({'m1', 'u2', ...slotIds});
+      },
+    );
+
+    test(
       'cancelling a damaged snapshot still clears every readable placeholder',
       () async {
         await seedServerChat('c1');

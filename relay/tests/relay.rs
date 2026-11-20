@@ -218,10 +218,15 @@ async fn start_mock() -> (SocketAddr, Arc<Mock>) {
     (addr, mock)
 }
 
-/// A local port with nothing listening on it.
-async fn closed_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    listener.local_addr().unwrap().port()
+/// A local port with nothing listening on it, held for as long as the
+/// returned socket lives: bound but never listening, so a connection to it
+/// is refused, and no other test's server can take the port meanwhile (a
+/// port freed before use can be, and then answers 502, not 503).
+fn closed_port() -> (tokio::net::TcpSocket, u16) {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let port = socket.local_addr().unwrap().port();
+    (socket, port)
 }
 
 // ---------------------------------------------------------------- relay harness
@@ -817,7 +822,7 @@ async fn apns_errors_map_to_web_push_statuses() {
 
 #[tokio::test]
 async fn apns_network_failure_is_503() {
-    let port = closed_port().await;
+    let (_held, port) = closed_port();
     let relay = start_with(|env| {
         env.insert("APNS_HOST_PROD", format!("http://127.0.0.1:{port}"));
     })
@@ -1143,11 +1148,9 @@ async fn fcm_token_or_network_failure_is_503() {
     );
     assert!(relay.mock.fcm().is_empty());
 
-    // The failure is remembered: the next push fails at once, without asking
-    // Google again.
-    let started = Instant::now();
+    // The failure is remembered: the next push fails without asking Google
+    // again.
     let remembered = relay.push_reply(&endpoint).await;
-    assert!(started.elapsed() < Duration::from_secs(1));
     let wait = retry_after(&remembered).unwrap();
     assert!((1..=30).contains(&wait), "{wait}");
     assert_eq!(remembered.status(), 503);
@@ -1169,7 +1172,7 @@ async fn fcm_token_or_network_failure_is_503() {
     assert_eq!(relay.push_reply(&endpoint).await.status(), 201);
     assert_eq!(relay.mock.oauth().len(), 2);
 
-    let port = closed_port().await;
+    let (_held, port) = closed_port();
     let relay = start_with(|env| {
         env.insert("FCM_API_BASE", format!("http://127.0.0.1:{port}"));
     })

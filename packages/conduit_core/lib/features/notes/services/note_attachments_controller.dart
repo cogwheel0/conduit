@@ -195,9 +195,12 @@ class NoteAttachmentsController {
   /// the answer, and no file is touched after [close] has returned.
   Future<T> _admit<T>(Future<T> Function() writer, T closed) {
     if (_disposed) return Future<T>.value(closed);
-    final Future<T> work = writer();
-    _track(work);
-    return work;
+    // Registered before it runs: a [close] it reaches before its first wait
+    // (a listener it notifies) waits for it too.
+    final done = Completer<T>();
+    _track(done.future);
+    Future<T>.sync(writer).then(done.complete, onError: done.completeError);
+    return done.future;
   }
 
   /// [dispose], then waits until every writer has stopped, whether this

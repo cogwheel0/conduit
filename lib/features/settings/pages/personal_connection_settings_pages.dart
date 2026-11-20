@@ -368,6 +368,24 @@ final class _ConnectionEditor {
   bool get hasStoredKey =>
       (existing?.raw['key']?.toString() ?? '').trim().isNotEmpty;
 
+  /// Whether Save removes the stored key that the form keeps, because the
+  /// edit moves the connection, or where its document is fetched from, to
+  /// another origin.
+  bool get keyGoesWithMove {
+    final stored = existing?.raw;
+    final opened = this.opened;
+    if (stored == null ||
+        opened == null ||
+        !hasStoredKey ||
+        keyMode != PersonalConnectionSecretMode.keep) {
+      return false;
+    }
+    final edit = patch(opened);
+    return !edit.containsKey('key') &&
+        (mergePersonalConnectionEdit(stored, edit)['key']?.toString() ?? '')
+            .isEmpty;
+  }
+
   List<Object?> values() => [
     name,
     description,
@@ -693,6 +711,7 @@ NativeSheetDetailConfig _buildEditorPage(
   final errors = editor.fieldErrors(l10n);
   final showKey = !editor.isTool || editor.authType == 'bearer';
   final removing = editor.keyMode == PersonalConnectionSecretMode.clear;
+  final keyGoes = editor.keyGoesWithMove;
   final keeping =
       editor.keyMode == PersonalConnectionSecretMode.keep &&
       editor.hasStoredKey;
@@ -777,16 +796,23 @@ NativeSheetDetailConfig _buildEditorPage(
               sfSymbol: 'key',
               kind: NativeSheetItemKind.secureTextField,
               value: editor.keyText,
+              // The removal at another address is too long for the
+              // one-line field, so it wraps below it.
+              subtitle: keyGoes
+                  ? l10n.personalConnectionsKeyRemovedForNewAddress
+                  : null,
               // The stored key never reaches the form; the placeholder says
               // what happens to it instead.
               placeholder: removing
                   ? l10n.personalConnectionsKeyWillRemove
-                  : keeping
+                  : keeping && !keyGoes
                   ? l10n.personalConnectionsKeyKept
                   : l10n.apiKey,
               disabled: removing,
             ),
-          if (showKey && editor.hasStoredKey)
+          // At another origin the saved key goes unless one is typed: there
+          // is no keeping it, and nothing for Remove to do.
+          if (showKey && editor.hasStoredKey && !keyGoes)
             NativeSheetItemConfig(
               id: personalConnectionRowId('key-mode', key),
               title: removing
@@ -1358,6 +1384,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         editor.attempted ||
         editor.test != _TestState.idle ||
         editor.message != null;
+    final keyGoes = editor.keyGoesWithMove;
     switch (field) {
       case 'name' when value is String:
         editor.name = value;
@@ -1415,8 +1442,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         return true;
     }
     editor.changed();
-    // An issue, test result or message on show follows the text.
-    if (shown) await _applyEditor(l10n, editor);
+    // An issue, test result or message on show follows the text, and so
+    // does what Save does to the saved key.
+    if (shown || editor.keyGoesWithMove != keyGoes) {
+      await _applyEditor(l10n, editor);
+    }
     return true;
   }
 }

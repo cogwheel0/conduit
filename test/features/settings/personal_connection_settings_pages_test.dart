@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -62,9 +61,8 @@ Map<String, dynamic> _terminal(String url, {bool enabled = false}) =>
 /// The pages of Settings for personal connections, driven as either renderer
 /// drives them, over a fake settings server answering on real time.
 final class _Rig {
-  _Rig(this.tester, this.container, this.server);
+  _Rig(this.container, this.server);
 
-  final WidgetTester tester;
   final ProviderContainer container;
   final FakeUserSettingsServer server;
 
@@ -129,27 +127,19 @@ final class _Rig {
     await settle(Future<void>.value());
   }
 
-  /// Lets the fake server's answers, which come on real time, land.
+  /// Awaits [work], then lets what it started land (the list read again
+  /// after a save, the editor filled from it). The fake server answers
+  /// without timers, so draining the event queue is enough.
   Future<void> settle(Future<Object?> work) async {
-    var done = false;
-    unawaited(work.whenComplete(() => done = true));
-    for (var round = 0; round < 40 && !done; round++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
-    for (var round = 0; round < 4; round++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
-      );
-      await tester.pump(const Duration(milliseconds: 20));
-    }
     await work;
+    await pumpEventQueue();
   }
 }
 
 void main() {
+  // The pages reach the native sheet bridge's channel; no widget is pumped,
+  // so the tests run on real (not fake) async and await their work.
+  TestWidgetsFlutterBinding.ensureInitialized();
   late FakeUserSettingsServer server;
   late ApiService api;
 
@@ -173,8 +163,7 @@ void main() {
     api.dio.httpClientAdapter = server;
   });
 
-  Future<_Rig> pump(
-    WidgetTester tester, {
+  Future<_Rig> pump({
     bool advanced = true,
     PersonalConnectionsAccess access =
         const PersonalConnectionsAccess.allowed(),
@@ -217,13 +206,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const SizedBox.shrink(),
-      ),
-    );
-    rig = _Rig(tester, container, server)
+    rig = _Rig(container, server)
       ..useSession = container.read(signedIn.notifier).use
       ..api = api;
     if (access.available && !signedOut) {
@@ -250,10 +233,8 @@ void main() {
   }
 
   group('availability', () {
-    testWidgets('Advanced off keeps the pages closed and reads nothing', (
-      tester,
-    ) async {
-      final rig = await pump(tester, advanced: false);
+    test('Advanced off keeps the pages closed and reads nothing', () async {
+      final rig = await pump(advanced: false);
       final reads = rig.server.log.length;
 
       await rig.open(_list);
@@ -265,9 +246,9 @@ void main() {
       expect(rig.server.log, hasLength(reads));
     });
 
-    testWidgets('Advanced off keeps an editor closed too, opened by a link '
-        'included', (tester) async {
-      final rig = await pump(tester, advanced: false);
+    test('Advanced off keeps an editor closed too, opened by a link '
+        'included', () async {
+      final rig = await pump(advanced: false);
 
       await rig.open(_alpha);
 
@@ -277,10 +258,8 @@ void main() {
       );
     });
 
-    testWidgets('an account without permission is told why', (tester) async {
-      final rig = await pump(
-        tester,
-        access: const PersonalConnectionsAccess.blocked(
+    test('an account without permission is told why', () async {
+      final rig = await pump(access: const PersonalConnectionsAccess.blocked(
           PersonalConnectionsBlock.noPermission,
         ),
       );
@@ -300,9 +279,9 @@ void main() {
   });
 
   group('the list', () {
-    testWidgets('names the account and server that store the connections, '
-        'and lists each kind with a row adding one', (tester) async {
-      final rig = await pump(tester);
+    test('names the account and server that store the connections, '
+        'and lists each kind with a row adding one', () async {
+      final rig = await pump();
 
       await rig.open(_list);
 
@@ -324,12 +303,12 @@ void main() {
       );
     });
 
-    testWidgets('an empty list invites adding the first entry', (tester) async {
+    test('an empty list invites adding the first entry', () async {
       server.settings['ui'] = <String, dynamic>{
         'toolServers': <dynamic>[],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
 
       await rig.open(_list);
 
@@ -338,7 +317,7 @@ void main() {
       expect(add.subtitle, _l10n.personalConnectionsEmptyToolServersHint);
     });
 
-    testWidgets('a URL is listed without credentials or query', (tester) async {
+    test('a URL is listed without credentials or query', () async {
       server.settings['ui'] = <String, dynamic>{
         'toolServers': <dynamic>[
           _tool(
@@ -349,7 +328,7 @@ void main() {
         ],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
 
       await rig.open(_list);
 
@@ -359,9 +338,9 @@ void main() {
       expect(subtitle, contains('alpha.example'));
     });
 
-    testWidgets("turning a tool server off from its menu changes only its "
-        'enable flag', (tester) async {
-      final rig = await pump(tester);
+    test("turning a tool server off from its menu changes only its "
+        'enable flag', () async {
+      final rig = await pump();
       await rig.open(_list);
       final off = rig
           .row(_list, _alpha)!
@@ -383,9 +362,9 @@ void main() {
   });
 
   group('the editor', () {
-    testWidgets('typing a key replaces the stored one; leaving it empty keeps '
-        'it', (tester) async {
-      final rig = await pump(tester);
+    test('typing a key replaces the stored one; leaving it empty keeps '
+        'it', () async {
+      final rig = await pump();
       await rig.open(_alpha);
       expect(rig.row(_alpha, _row('key'))!.value, '');
       expect(
@@ -404,10 +383,8 @@ void main() {
       expect(rig.storedTools.single['key'], 'new-secret');
     });
 
-    testWidgets('removing the saved key clears it and nothing else', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('removing the saved key clears it and nothing else', () async {
+      final rig = await pump();
       await rig.open(_alpha);
 
       await rig.change(_row('key-mode'));
@@ -423,9 +400,38 @@ void main() {
       expect(stored['x_vendor'], <String, dynamic>{'tier': 2});
     });
 
-    testWidgets('an invalid URL stays in the form, says why, and sends '
-        'nothing', (tester) async {
-      final rig = await pump(tester);
+    test('an edit that moves the connection to another address says Save '
+        'removes the saved key, and leaves the key field open', () async {
+      final rig = await pump();
+      await rig.open(_alpha);
+
+      await rig.change(_row('url'), 'https://beta.example');
+      final moved = rig.row(_alpha, _row('key'))!;
+      // The wrapping subtitle, not the one-line placeholder, says it.
+      expect(moved.subtitle, _l10n.personalConnectionsKeyRemovedForNewAddress);
+      expect(moved.placeholder, _l10n.apiKey);
+      expect(moved.disabled, isFalse);
+      check(rig.row(_alpha, _row('key-mode'))).isNull();
+
+      await rig.change(_row('url'), 'https://alpha.example/v2');
+      final back = rig.row(_alpha, _row('key'))!;
+      expect(back.subtitle, isNull);
+      expect(back.placeholder, _l10n.personalConnectionsKeyKept);
+      check(rig.row(_alpha, _row('key-mode'))).isNotNull();
+
+      await rig.change(_row('path'), 'https://beta.example/openapi.json');
+      expect(
+        rig.row(_alpha, _row('key'))!.subtitle,
+        _l10n.personalConnectionsKeyRemovedForNewAddress,
+      );
+
+      await rig.change(_row('save'));
+      expect(rig.storedTools.single['key'] ?? '', isEmpty);
+    });
+
+    test('an invalid URL stays in the form, says why, and sends '
+        'nothing', () async {
+      final rig = await pump();
       await rig.open(_alpha);
       final writes = rig.writes.length;
 
@@ -441,10 +447,8 @@ void main() {
       expect(rig.closed, isEmpty);
     });
 
-    testWidgets('a new terminal is saved with its URL as its identity', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('a new terminal is saved with its URL as its identity', () async {
+      final rig = await pump();
       final key = personalConnectionEditorKey(_terminals, null);
       final page = personalConnectionEditorPageId(_terminals, null);
       await rig.open(page);
@@ -463,10 +467,8 @@ void main() {
       expect(rig.closed, [page]);
     });
 
-    testWidgets('a new terminal starts switched off, as its draft does', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('a new terminal starts switched off, as its draft does', () async {
+      final rig = await pump();
       final key = personalConnectionEditorKey(_terminals, null);
       final page = personalConnectionEditorPageId(_terminals, null);
       await rig.open(page);
@@ -477,14 +479,12 @@ void main() {
       );
     });
 
-    testWidgets("a connection whose id is '__new__' opens its own editor", (
-      tester,
-    ) async {
+    test("a connection whose id is '__new__' opens its own editor", () async {
       server.settings['ui'] = <String, dynamic>{
         'toolServers': <dynamic>[_tool('__new__', 'Odd tools')],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
       final key = personalConnectionEditorKey(_tools, '__new__');
       final page = personalConnectionEditorPageId(_tools, '__new__');
       await rig.open(page);
@@ -495,10 +495,8 @@ void main() {
       );
     });
 
-    testWidgets('each field shows its own issue after the first Save', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('each field shows its own issue after the first Save', () async {
+      final rig = await pump();
       await rig.open(_newTool);
       expect(
         rig
@@ -517,9 +515,9 @@ void main() {
       );
     });
 
-    testWidgets('a pasted document is typed as code, on a page that asks '
-        'before leaving', (tester) async {
-      final rig = await pump(tester);
+    test('a pasted document is typed as code, on a page that asks '
+        'before leaving', () async {
+      final rig = await pump();
       await rig.open(_newTool);
       final page = rig.page(_newTool);
       expect(page.discardPrompt, isNotNull);
@@ -544,10 +542,8 @@ void main() {
       );
     });
 
-    testWidgets('a key field is a secret that iOS does not offer to save', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('a key field is a secret that iOS does not offer to save', () async {
+      final rig = await pump();
       await rig.open(_alpha);
 
       final key = rig.row(_alpha, _row('key'))!;
@@ -555,9 +551,7 @@ void main() {
       expect(key.passwordRole, isNull);
     });
 
-    testWidgets('a failed Test shows under Test and goes on the next edit', (
-      tester,
-    ) async {
+    test('a failed Test shows under Test and goes on the next edit', () async {
       // A port on this machine that nothing listens on: Test fails at once,
       // with no name to look up and nothing to wait for.
       server.settings['ui'] = <String, dynamic>{
@@ -566,7 +560,7 @@ void main() {
         ],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
       await rig.open(_alpha);
 
       await rig.change(_row('test'));
@@ -580,15 +574,15 @@ void main() {
       expect(rig.row(_alpha, '$_alpha-test-result'), isNull);
     });
 
-    testWidgets('an entry the form cannot edit shows its values read-only, '
-        'and its switch saves at once', (tester) async {
+    test('an entry the form cannot edit shows its values read-only, '
+        'and its switch saves at once', () async {
       server.settings['ui'] = <String, dynamic>{
         'toolServers': <dynamic>[
           <String, dynamic>{..._tool('alpha', 'Alpha tools'), 'type': 'mcp'},
         ],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
       await rig.open(_alpha);
 
       expect(
@@ -604,11 +598,9 @@ void main() {
       });
     });
 
-    testWidgets('a save after another client changed the entry is refused, '
-        'writes nothing, and fills the form from the entry as it is now', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('a save after another client changed the entry is refused, '
+        'writes nothing, and fills the form from the entry as it is now', () async {
+      final rig = await pump();
       await rig.open(_alpha);
       await rig.change(_row('name'), 'Alpha renamed');
       await rig.change(_row('url'), 'https://typed.example');
@@ -644,10 +636,8 @@ void main() {
       check(rig.row(_alpha, '$_alpha-test-result')).isNull();
     });
 
-    testWidgets('a Test from a form opened before another client changed the '
-        'entry is refused, probes nothing, and fills the form again', (
-      tester,
-    ) async {
+    test('a Test from a form opened before another client changed the '
+        'entry is refused, probes nothing, and fills the form again', () async {
       // Every HTTP client the probe could open is counted (the test
       // binding answers them itself; none may be opened at all).
       final previous = HttpOverrides.current;
@@ -659,7 +649,7 @@ void main() {
         'toolServers': <dynamic>[_tool('alpha', 'Alpha tools', url: url)],
         'terminalServers': <dynamic>[],
       };
-      final rig = await pump(tester);
+      final rig = await pump();
       await rig.open(_alpha);
       // Another client renames it meanwhile; this form's list is not read
       // again.
@@ -677,9 +667,9 @@ void main() {
       check(rig.row(_alpha, _row('name'))?.value).equals('Renamed elsewhere');
     });
 
-    testWidgets('once another account is signed in, the form keeps what was '
-        'typed and saves nothing', (tester) async {
-      final rig = await pump(tester);
+    test('once another account is signed in, the form keeps what was '
+        'typed and saves nothing', () async {
+      final rig = await pump();
       await rig.open(_alpha);
       await rig.change(_row('name'), 'Alpha renamed');
       final writes = rig.writes.length;
@@ -692,9 +682,9 @@ void main() {
       expect(rig.closed, isEmpty);
     });
 
-    testWidgets('a form opened before any account loaded acts only for the '
-        'one that filled it', (tester) async {
-      final rig = await pump(tester, signedOut: true);
+    test('a form opened before any account loaded acts only for the '
+        'one that filled it', () async {
+      final rig = await pump(signedOut: true);
       final api = rig.api;
       await rig.open(_newTool);
 
@@ -727,10 +717,8 @@ void main() {
       expect(rig.writes, hasLength(writes));
     });
 
-    testWidgets('deleting a selected server clears it and says so', (
-      tester,
-    ) async {
-      final rig = await pump(tester);
+    test('deleting a selected server clears it and says so', () async {
+      final rig = await pump();
       rig.container.read(selectedToolIdsProvider.notifier).set(const <String>[
         'direct_server:alpha',
         'calculator',
@@ -754,9 +742,9 @@ void main() {
       expect(rig.closed, [_alpha]);
     });
 
-    testWidgets('an editor left keeps nothing that was typed, the key '
-        'included', (tester) async {
-      final rig = await pump(tester);
+    test('an editor left keeps nothing that was typed, the key '
+        'included', () async {
+      final rig = await pump();
       await rig.open(_alpha);
       await rig.change(_row('key'), 'typed-secret');
       await rig.change(_row('name'), 'Alpha renamed');

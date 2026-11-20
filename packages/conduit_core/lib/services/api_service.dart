@@ -75,6 +75,7 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 
 import 'package:conduit_core/utils/openwebui_message_payload.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 
 import 'package:conduit_core/utils/message_tree_utils.dart' as message_tree;
 import 'package:conduit_core/services/conversation_parsing.dart';

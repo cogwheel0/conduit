@@ -424,6 +424,33 @@ final class OpenWebUiRegistry {
 
   bool get isEmpty => servers.isEmpty && accounts.isEmpty;
 
+  /// The saved server whose connection a route of another server has in
+  /// this registry, where that route is new or reached otherwise than in
+  /// [before], the registry as stored before this write; null when none.
+  ///
+  /// Two saved servers never reach Open WebUI the same way
+  /// ([OpenWebUiEndpoint.sameConnection]): an account added on one of them
+  /// would be filed under whichever matched first. Routes a write leaves as
+  /// they were never count, so two servers saved alike before this rule
+  /// still save their name, order and other routes.
+  String? connectionTakenSince(OpenWebUiRegistry before) {
+    for (final server in servers) {
+      final was = before.server(server.id);
+      for (final endpoint in server.endpoints) {
+        if (was?.endpoint(endpoint.id)?.sameConnection(endpoint) ?? false) {
+          continue;
+        }
+        for (final other in servers) {
+          if (other.id != server.id &&
+              other.endpoints.any(endpoint.sameConnection)) {
+            return other.id;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   OpenWebUiServer? server(String id) =>
       servers.where((server) => server.id == id).firstOrNull;
 

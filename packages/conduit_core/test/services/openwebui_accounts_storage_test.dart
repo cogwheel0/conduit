@@ -1936,6 +1936,92 @@ void main() {
       });
     });
 
+    // Two saved servers never reach Open WebUI the same way: an account
+    // added on one would be filed under the first that matches.
+    test('a route is never saved with another server\'s connection', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b', url: 'https://lab.example.com'),
+      ]);
+      final before = await storage.getOpenWebUiRegistryStrict();
+      final home = before.server(before.account('a')!.serverId)!;
+      final lab = before.server(before.account('b')!.serverId)!;
+      final homeRoute = home.endpoints.single;
+      final labRoute = lab.endpoints.single;
+      final edits = <List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>)>[
+        // An edit of the lab's address to the home server's.
+        (_) => [labRoute.withConnectionOf(homeRoute)],
+        // An address added with the home server's connection.
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(id: 'twin', url: homeRoute.url, label: 'Twin'),
+        ],
+      ];
+      for (final edit in edits) {
+        await check(storage.editServerEndpoints(lab.id, edit))
+            .throws<ServerConnectionTaken>(
+              (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+            );
+      }
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // An edit of the lab's account that moves it to the home server's
+      // connection, as `servers.update` makes one, would make it so too.
+      await check(
+        storage.editServerConfig(
+          'b',
+          (stored) => stored.copyWith(url: homeRoute.url),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // So would a sign-in of the lab's account through the home server's
+      // connection: refused before anything of its session moves (the home
+      // account has proved its user, so it stays).
+      await storage.bindAccountUser('a', 'user-a');
+      await signIn('b');
+      final token = await storage.getAuthTokenStrict();
+      await check(
+        storage.selectUnauthenticatedServerConfig(
+          account('b'),
+          publish: () => fail('a refused sign-in was published'),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      final after = await storage.getOpenWebUiRegistryStrict();
+      check(after.server(lab.id)).equals(lab);
+      check(after.server(home.id)).equals(home);
+      check(after.account('a')?.userId).equals('user-a');
+      check(await storage.getAuthTokenStrict()).equals(token);
+      check(await storage.getActiveServerId()).equals('b');
+
+      // A header of its own makes it another connection: saved.
+      await storage.editServerEndpoints(
+        lab.id,
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(
+            id: 'twin',
+            url: homeRoute.url,
+            customHeaders: const {'X-Lab': 'annex'},
+          ),
+        ],
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict())
+            .server(lab.id)!
+            .endpoints
+            .map((endpoint) => endpoint.id),
+      ).deepEquals([labRoute.id, 'twin']);
+    });
+
     test('edits made from the same list both land', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');
@@ -2146,6 +2232,27 @@ void main() {
           .deepEquals(server.endpoints.map((endpoint) => endpoint.id));
       check((await storage.getServerConfigs()).single.url)
           .equals('http://10.0.0.2:3000');
+    });
+
+    // The sign-out could not write the server details back, so reads stay
+    // fenced until a write lands. An edit that leaves them as they are is
+    // that write: it is not skipped as having nothing to change.
+    test('an unchanged edit after a sign-out that could not keep the server '
+        'details writes them, and they read again', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+
+      secure.refusedKey = 'openwebui_registry_v1';
+      await check(
+        storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
+      ).throws<StateError>();
+      secure.refusedKey = null;
+      check(await storage.getServerConfigsStrict()).isEmpty();
+
+      await storage.editServerEndpoints(server.id, (endpoints) => endpoints);
+
+      check((await storage.getServerConfigsStrict()).single.id).equals('a');
     });
 
     test('removing the route in use falls back to the first', () async {

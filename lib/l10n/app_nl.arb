@@ -5139,5 +5139,6 @@
   "settingsAddAction": "Toevoegen",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres."
 }

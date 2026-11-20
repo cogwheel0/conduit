@@ -5,13 +5,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:conduit_core/auth/auth_state_manager.dart'
-    show authStateManagerProvider;
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountAdditionOriginProvider;
@@ -198,14 +195,19 @@ void main() {
     expect(addresses.removable, isFalse, reason: 'one is always left');
   });
 
-  test('a rename leaves the live client, and every reply it carries, '
-      'alone', () async {
+  test('a rename leaves the live client, every reply it carries, and the '
+      'addresses alone', () async {
     final client = runtime.container.read(apiServiceProvider);
     expect(client, isNotNull);
     final active = (await accounts.list()).activeAccountId;
+    final before = (await list()).addresses;
+    // A server's id renames it, nothing else: the URL is not taken.
     final summary = await servers.update(
       ServerDraft(id: serverId, name: 'Bench', url: 'https://ignored.test'),
     );
+    final after = await list();
+    expect(after.name, 'Bench');
+    expect(after.addresses.map((a) => a.url), before.map((a) => a.url));
     expect(
       identical(runtime.container.read(apiServiceProvider), client),
       isTrue,
@@ -243,70 +245,6 @@ void main() {
         ),
       ),
     );
-  });
-
-  test('an account addition refused before it writes leaves the live '
-      'session, and the client a reply carries, alone', () async {
-    final client = runtime.container.read(apiServiceProvider);
-    expect(client, isNotNull);
-    // The address it was made from went before the selection was written.
-    await runtime.container
-        .read(authStateManagerProvider.notifier)
-        .selectUnauthenticatedServerConfig(
-          ServerConfig(
-            id: 'an-addition-refused',
-            name: 'Lab',
-            url: owui.url,
-            isActive: true,
-          ),
-          joins: (_) => false,
-        );
-    expect(
-      identical(runtime.container.read(apiServiceProvider), client),
-      isTrue,
-      reason: 'a new client ends the reply the old one carries',
-    );
-    expect((await auth.status()).isAuthenticated, isTrue);
-  });
-
-  // Another window moved the active account to another address while a
-  // proxy sign-in of it was being staged: storage dropped its session, and
-  // the staged sign-in stops. The session it would settle back to was the
-  // old address's, and must not reach a client built for the new one.
-  test('a proxy sign-in stopped by an edit that moved its account puts no '
-      'session back', () async {
-    final storage = runtime.container.read(optimizedStorageServiceProvider);
-    final before = runtime.container.read(authStateManagerProvider).value!;
-    expect(before.token, isNotNull);
-    final activeId = (await accounts.list()).activeAccountId!;
-    final captured = (await storage.getServerConfigsStrict()).singleWhere(
-      (config) => config.id == activeId,
-    );
-    final configs = storage.serverConfigRevision;
-    await storage.saveServerConfigs([
-      for (final config in await storage.getServerConfigsStrict())
-        config.id == activeId ? config.copyWith(url: localhost()) : config,
-    ]);
-    expect(await storage.getAuthTokenStrict(), isNull);
-
-    final committed = await runtime.container
-        .read(authStateManagerProvider.notifier)
-        .commitPrevalidatedProxySession(
-          serverConfig: captured,
-          token: 'fake-token-staged',
-          user: const User(
-            id: 'user-ada',
-            username: 'ada',
-            email: 'ada@example.com',
-            role: 'user',
-          ),
-          configRevision: configs,
-        );
-
-    expect(committed, isFalse);
-    final after = runtime.container.read(authStateManagerProvider).value!;
-    expect(after.token, isNull);
-    expect(runtime.container.read(apiAuthTokenMirrorProvider), isNull);
   });
 
   final accountChanged = throwsA(
@@ -419,15 +357,21 @@ void main() {
     );
     addTearDown(watch.close);
     int? afterSwitch;
-    final renaming = servers.update(
-      ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
-    );
+    // The rename is published only once the switch is sampled: a client it
+    // rebuilt could not hide among the switch's own.
+    final sampled = Completer<void>();
     final switching = accounts.switchTo(AccountRef(accountId: other)).then((
       _,
     ) async {
       await runtime.container.read(activeServerProvider.future);
       afterSwitch = clients.length;
+      sampled.complete();
     });
+    final renaming = sampled.future.then(
+      (_) => servers.update(
+        ServerDraft(id: serverId, name: 'Barn', url: 'https://ignored.test'),
+      ),
+    );
     await Future.wait([renaming, switching]);
     await runtime.container.read(activeServerProvider.future);
     expect(
@@ -548,13 +492,15 @@ void main() {
     );
   });
 
-  test('an edit keeps a header value it was not given', () async {
+  test('an edit keeps a header value it was not given, its name in any '
+      'case', () async {
     final second = await addSecond();
     final found = await check(
       ServerAddressForm(
         url: second.url,
         label: 'Renamed route',
-        headers: const [ServerAddressHeader(name: 'X-Lab')],
+        // Saved as `X-Lab`.
+        headers: const [ServerAddressHeader(name: 'x-lab')],
       ),
       endpointId: second.id,
     );
@@ -567,9 +513,16 @@ void main() {
     final registry = await runtime.container
         .read(optimizedStorageServiceProvider)
         .getOpenWebUiRegistryStrict();
+    final headers = registry
+        .server(serverId)!
+        .endpoint(second.id)!
+        .customHeaders;
     expect(
-      registry.server(serverId)!.endpoint(second.id)!.customHeaders['X-Lab'],
-      'one',
+      [
+        for (final e in headers.entries)
+          if (e.key.toLowerCase() == 'x-lab') e.value,
+      ],
+      ['one'],
     );
   });
 
@@ -976,6 +929,270 @@ void main() {
     );
   });
 
+  // Another saved server is reached exactly as the edit would reach this
+  // one: refused as that server's address before any question, so no reply
+  // is stopped for a save that never happens.
+  test('an in-use edit to another saved server\'s connection stops no reply',
+      () async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.saveServerConfigs([
+      ...await storage.getServerConfigs(),
+      ServerConfig(id: 'annex-account', name: 'Annex', url: localhost()),
+    ]);
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(url: localhost()),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    replies.answering = true;
+    addTearDown(() => replies.answering = false);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(
+        checkId: found.checkId!,
+        sendSessionConfirmed: true,
+        stopReplies: true,
+      ),
+    );
+    expect(replies.stopped, 0, reason: 'a reply was stopped for nothing');
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.differentServer);
+    expect(
+      (await list()).addresses.singleWhere((a) => a.id == inUse.id).url,
+      inUse.url,
+    );
+  });
+
+  /// Saves [found] with its account check held: [meanwhile] runs while the
+  /// save waits on the server's answer, as another window's edit would.
+  Future<ServerAddressSaveResult> saveWhileChecked(
+    ServerAddressCheckResult found,
+    Future<void> Function() meanwhile, {
+    bool stopReplies = false,
+  }) async {
+    final hold = Completer<void>();
+    owui
+      ..sessionChecked = Completer<void>()
+      ..holdSessionCheck = hold;
+    addTearDown(() {
+      owui.holdSessionCheck = null;
+      if (!hold.isCompleted) hold.complete();
+    });
+    final saving = servers.save(
+      ServerAddressSaveRequest(
+        checkId: found.checkId!,
+        sendSessionConfirmed: true,
+        stopReplies: stopReplies,
+      ),
+    );
+    await owui.sessionChecked.future;
+    await meanwhile();
+    hold.complete();
+    return saving;
+  }
+
+  /// Saves the address in use with [headers], before an edit of it.
+  Future<ServerAddressDto> gateInUse(Map<String, String> headers) async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .editServerEndpoints(
+          serverId,
+          (endpoints) => [
+            for (final e in endpoints)
+              e.id == inUse.id
+                  ? OpenWebUiEndpoint(
+                      id: e.id,
+                      url: e.url,
+                      customHeaders: headers,
+                    )
+                  : e,
+          ],
+        );
+    return (await list()).addresses.singleWhere((a) => a.inUse);
+  }
+
+  /// Another saved server at this server's address, with [headers].
+  Future<void> annexAt(Map<String, String> headers) async {
+    final storage = runtime.container.read(optimizedStorageServiceProvider);
+    await storage.saveServerConfigs([
+      ...await storage.getServerConfigs(),
+      ServerConfig(
+        id: 'annex-account',
+        name: 'Annex',
+        url: owui.url,
+        customHeaders: headers,
+      ),
+    ]);
+  }
+
+  /// Adds [header] to the address [id] as another window's save would.
+  Future<void> addHeaderElsewhere(String id, MapEntry<String, String> header) =>
+      runtime.container
+          .read(optimizedStorageServiceProvider)
+          .editServerEndpoints(
+            serverId,
+            (endpoints) => [
+              for (final e in endpoints)
+                e.id == id
+                    ? e.withConnectionOf(
+                        OpenWebUiEndpoint(
+                          id: e.id,
+                          url: e.url,
+                          customHeaders: {
+                            ...e.customHeaders,
+                            header.key: header.value,
+                          },
+                        ),
+                      )
+                    : e,
+            ],
+          );
+
+  // The address checked for being another saved server's is the one the
+  // write saves: the edit onto the address as stored when it saves, with
+  // what another window saved meanwhile.
+  test('a header saved during the check makes an in-use edit another '
+      'server\'s: refused, and no reply is stopped', () async {
+    final inUse = await gateInUse(const {'X-Gate': 'one'});
+    await annexAt(const {'X-Gate': 'two', 'X-Extra': 'present'});
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        headers: const [ServerAddressHeader(name: 'X-Gate', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    replies.answering = true;
+    addTearDown(() => replies.answering = false);
+    final saved = await saveWhileChecked(
+      found,
+      () => addHeaderElsewhere(inUse.id, const MapEntry('X-Extra', 'present')),
+      stopReplies: true,
+    );
+    expect(replies.stopped, 0, reason: 'a reply was stopped for nothing');
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.differentServer);
+  });
+
+  test('a header saved during the check keeps an in-use edit its own: '
+      'saved', () async {
+    final inUse = await gateInUse(const {'X-Gate': 'one'});
+    await annexAt(const {'X-Gate': 'two'});
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        headers: const [ServerAddressHeader(name: 'X-Gate', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await saveWhileChecked(
+      found,
+      () => addHeaderElsewhere(inUse.id, const MapEntry('X-Extra', 'present')),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(registry.server(serverId)!.endpoint(inUse.id)!.customHeaders, {
+      'X-Gate': 'two',
+      'X-Extra': 'present',
+    });
+  });
+
+  test('an address removed during the check answers that it is gone', () async {
+    final second = await addSecond();
+    final found = await check(
+      ServerAddressForm(
+        url: second.url,
+        label: 'Renamed route',
+        headers: const [ServerAddressHeader(name: 'X-Lab')],
+      ),
+      endpointId: second.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    final saved = await saveWhileChecked(
+      found,
+      () => runtime.container
+          .read(optimizedStorageServiceProvider)
+          .editServerEndpoints(
+            serverId,
+            (endpoints) => [
+              for (final e in endpoints)
+                if (e.id != second.id) e,
+            ],
+          ),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(saved.problem, ServerAddressProblemCode.serverMissing);
+  });
+
+  test('a save that fails before it is known to be written can be tried '
+      'again', () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(
+        url: inUse.url,
+        label: 'Desk',
+        headers: const [ServerAddressHeader(name: 'X-Desk', value: 'two')],
+      ),
+      endpointId: inUse.id,
+    );
+    // Save asks first, then the write fails while it asks again.
+    replies.next.add(false);
+    replies.fails = 1;
+    addTearDown(replies.reset);
+    final failed = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(failed.outcome, ServerAddressChangeOutcome.notSaved);
+    expect(failed.problem, ServerAddressProblemCode.serverError);
+    final saved = await servers.save(
+      ServerAddressSaveRequest(checkId: found.checkId!),
+    );
+    expect(saved.outcome, ServerAddressChangeOutcome.done);
+    final registry = await runtime.container
+        .read(optimizedStorageServiceProvider)
+        .getOpenWebUiRegistryStrict();
+    expect(
+      registry.server(serverId)!.endpoint(inUse.id)!.customHeaders['X-Desk'],
+      'two',
+    );
+  });
+
+  test('a move written before its answer failed is saved when tried again',
+      () async {
+    final inUse = (await list()).addresses.singleWhere((a) => a.inUse);
+    final found = await check(
+      ServerAddressForm(url: localhost()),
+      endpointId: inUse.id,
+    );
+    expect(found.outcome, ServerAddressCheckOutcome.answered);
+    // The move is written; the answer then fails (here, as the change is
+    // announced).
+    var failing = true;
+    final untap = events.tap((event, _, _) {
+      if (event == ConduitEvents.serversChanged && failing) {
+        failing = false;
+        throw StateError('the answer could not be put together');
+      }
+    });
+    addTearDown(untap);
+    final request = ServerAddressSaveRequest(
+      checkId: found.checkId!,
+      sendSessionConfirmed: true,
+    );
+    await expectLater(servers.save(request), throwsA(isA<StateError>()));
+    final retried = await servers.save(request);
+    expect(retried.outcome, ServerAddressChangeOutcome.done);
+    expect(
+      retried.addresses!.addresses.singleWhere((a) => a.id == inUse.id).url,
+      localhost(),
+    );
+  });
+
   test('a reply started after removing was asked about is asked about '
       'before the address goes', () async {
     await addSecond();
@@ -1049,16 +1266,6 @@ void main() {
       throwsA(isA<RpcError>()),
       reason: 'the last address stays',
     );
-  });
-
-  test("a server's id renames it, nothing else", () async {
-    final before = (await list()).addresses;
-    await servers.update(
-      ServerDraft(id: serverId, name: 'Workshop', url: 'https://ignored.test'),
-    );
-    final after = await list();
-    expect(after.name, 'Workshop');
-    expect(after.addresses.map((a) => a.url), before.map((a) => a.url));
   });
 
   test(
@@ -1369,13 +1576,24 @@ final class _Replies implements AddressReplies {
     answering = false;
     stopped = 0;
     next.clear();
+    fails = 0;
   }
 
   /// What the next asks answer, first to last, before [answering] does.
   final List<bool> next = <bool>[];
 
+  /// How many asks fail, after [next] is used up, before they answer again.
+  int fails = 0;
+
   @override
-  bool get addressAnswering => next.isNotEmpty ? next.removeAt(0) : answering;
+  bool get addressAnswering {
+    if (next.isNotEmpty) return next.removeAt(0);
+    if (fails > 0) {
+      fails--;
+      throw StateError('the answers could not be read');
+    }
+    return answering;
+  }
 
   @override
   Future<void> stopAddressAnswers() async {

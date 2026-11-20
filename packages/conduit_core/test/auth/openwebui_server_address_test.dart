@@ -790,6 +790,149 @@ void main() {
         },
       );
 
+      // The proxy cookie is how the address in use is reached: a new one
+      // rebuilds the clients, ending a reply that arrives through them, so
+      // it is asked first. A name alone is never asked about.
+      test('asks before a proxy sign-in changes the session of the address '
+          'in use', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        final inUse = ProviderContainer(
+          overrides: [
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            openWebUiRouteResolverProvider.overrideWith(
+              () => _InUse(serverId, 'lab'),
+            ),
+            authTokenProvider3.overrideWithValue(null),
+          ],
+        );
+        addTearDown(inUse.dispose);
+        var asked = 0;
+        Future<ServerAddressSave> saveInUse(
+          String label,
+          String cookie, {
+          required bool confirm,
+        }) => saveVerifiedServerAddress(
+          inUse,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: label,
+          verified: ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+            customHeaders: {...lab.customHeaders, 'Cookie': cookie},
+          ),
+          editedFrom: lab,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async {
+            asked++;
+            return confirm;
+          },
+          stillWanted: () => true,
+        );
+        Future<Map<String, String>?> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders['lab'];
+
+        check(await saveInUse('Lab', 'proxy=1', confirm: true))
+            .isA<ServerAddressSaved>();
+        check(asked).equals(1);
+        // Another sign-in's cookie alone, declined: the session stays.
+        check(await saveInUse('Lab', 'proxy=2', confirm: false))
+            .isA<ServerAddressNotSaved>();
+        check(asked).equals(2);
+        check(await kept()).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+        // The same cookie, the name changed: nothing asked.
+        check(await saveInUse('Lab desk', 'proxy=1', confirm: false))
+            .isA<ServerAddressSaved>();
+        check(asked).equals(2);
+      });
+
+      // The session is judged as storage holds it when the save writes, not
+      // as it was read before the address was proved: another window's
+      // sign-in kept meanwhile is not put back unasked while a reply arrives.
+      test('asks at the write when another sign-in changed the session of '
+          'the address in use meanwhile', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        final inUse = ProviderContainer(
+          overrides: [
+            optimizedStorageServiceProvider.overrideWithValue(storage),
+            openWebUiRouteResolverProvider.overrideWith(
+              () => _InUse(serverId, 'lab'),
+            ),
+            authTokenProvider3.overrideWithValue(null),
+          ],
+        );
+        addTearDown(inUse.dispose);
+        Future<ServerAddressSave> saveInUse(
+          String label,
+          String cookie, {
+          bool Function()? stillWanted,
+          bool Function()? replyArrives,
+        }) => saveVerifiedServerAddress(
+          inUse,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: label,
+          verified: ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+            customHeaders: {...lab.customHeaders, 'Cookie': cookie},
+          ),
+          editedFrom: lab,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async => false,
+          stillWanted: stillWanted ?? () => true,
+          replyArrives: replyArrives,
+        );
+        Future<Map<String, String>?> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders['lab'];
+        // C1 kept, asked about and agreed to.
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          (endpoints) => endpoints,
+          accountId: 'a',
+          routeId: 'lab',
+          headers: const {'Cookie': 'proxy=1'},
+          sessionRevision: storage.sessionRevocationRevision,
+        );
+
+        // A rename that carries C1. Once proved, another window keeps C2,
+        // and a reply starts before this one writes.
+        Future<void>? other;
+        var replying = false;
+        final renaming = saveInUse(
+          'Lab desk',
+          'proxy=1',
+          stillWanted: () {
+            other ??= storage.editServerEndpointsWithSession(
+              serverId,
+              (endpoints) => endpoints,
+              accountId: 'a',
+              routeId: 'lab',
+              headers: const {'Cookie': 'proxy=2'},
+              sessionRevision: storage.sessionRevocationRevision,
+            );
+            replying = true;
+            return true;
+          },
+          replyArrives: () => replying,
+        );
+        await check(renaming).throws<ServerAddressReplyArriving>();
+        await other;
+        check(await kept()).isNotNull().deepEquals({'Cookie': 'proxy=2'});
+      });
+
       // The proxy cookie was captured for the address this edit checked; a
       // stale edit never files it on the destination another window gave
       // the address since.
@@ -929,6 +1072,186 @@ void main() {
         check(await kept()).isEmpty();
       });
 
+      // The address is stored as the save would write it, and account A
+      // keeps the save's proxy cookie on it, but the account the save is
+      // for does not: it is not saved yet. The cookie goes to that account
+      // once proved (here the active account, with nothing to prove), or a
+      // capture named for an account its session has not proved is refused.
+      test('a proxy sign-in another account already keeps is saved for the '
+          'account it is for', () async {
+        await storage.saveServerConfigs([
+          const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+          const ServerConfig(id: 'b', name: 'Chat', url: 'https://chat.example'),
+        ]);
+        await storage.bindAccountUser('a', 'user-a');
+        await storage.bindAccountUser('b', 'user-b');
+        check(
+          (await storage.getOpenWebUiRegistryStrict())
+              .accountsOn(serverId)
+              .map((a) => a.id),
+        ).unorderedEquals(['a', 'b']);
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          (endpoints) => endpoints,
+          accountId: 'a',
+          routeId: 'lab',
+          headers: const {'Cookie': 'proxy=1'},
+          sessionRevision: storage.sessionRevocationRevision,
+        );
+        await storage.setActiveServerId('b');
+        Future<ServerAddressSave> carrying({String? sessionAccount}) =>
+            saveVerifiedServerAddress(
+              signedOut,
+              serverId: serverId,
+              endpointId: 'lab',
+              addedEndpointId: 'unused',
+              label: 'Lab',
+              verified: ServerConfig(
+                id: 'checked',
+                name: 'Lab',
+                url: 'https://lab.example',
+                customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+              ),
+              editedFrom: lab,
+              sessionAccount: sessionAccount,
+              sessionRevision: storage.sessionRevocationRevision,
+              confirmSendingSession: (_) async => false,
+              confirmChangingInUse: () async => true,
+              stillWanted: () => true,
+            );
+        Future<Map<String, String>?> keptFor(String account) async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account(account)!
+                .capturedHeaders['lab'];
+
+        // Named for B, whose session has not proved the address: refused.
+        check(await carrying(sessionAccount: 'b'))
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.needsSignIn);
+        check(await keptFor('b')).isNull();
+
+        // Unscoped: B, active, is the account it is for, and keeps it now.
+        check(await carrying()).isA<ServerAddressSaved>();
+        check(await keptFor('b')).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+        check(await keptFor('a')).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+      });
+
+      // A save is judged by what storage holds when it writes, never by what
+      // was read before the address was proved: another window changing the
+      // cookie, or moving the address, meanwhile.
+      test('a save whose address and cookie were already kept writes them '
+          'again, or is refused, once another window changed them during '
+          'its check', () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        Future<void> keep(String cookie) =>
+            storage.editServerEndpointsWithSession(
+              serverId,
+              (endpoints) => endpoints,
+              accountId: 'a',
+              routeId: 'lab',
+              headers: {'Cookie': cookie},
+              sessionRevision: storage.sessionRevocationRevision,
+            );
+        Future<ServerAddressSave> saveDuring(
+          Future<void> Function() meanwhile,
+        ) {
+          Future<void>? other;
+          return saveVerifiedServerAddress(
+            signedOut,
+            serverId: serverId,
+            endpointId: 'lab',
+            addedEndpointId: 'unused',
+            label: 'Lab',
+            verified: ServerConfig(
+              id: 'checked',
+              name: 'Lab',
+              url: 'https://lab.example',
+              customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+            ),
+            editedFrom: lab,
+            sessionRevision: storage.sessionRevocationRevision,
+            confirmSendingSession: (_) async => false,
+            confirmChangingInUse: () async => true,
+            stillWanted: () {
+              other ??= meanwhile();
+              return true;
+            },
+          ).then((outcome) async {
+            await other;
+            return outcome;
+          });
+        }
+
+        Future<Map<String, String>?> kept() async =>
+            (await storage.getOpenWebUiRegistryStrict())
+                .account('a')!
+                .capturedHeaders['lab'];
+
+        // Another sign-in replaced the cookie: this one is written again.
+        await keep('proxy=1');
+        check(await saveDuring(() => keep('proxy=2'))).isA<ServerAddressSaved>();
+        check(await kept()).isNotNull().deepEquals({'Cookie': 'proxy=1'});
+
+        // The address moved elsewhere: refused, the move kept.
+        final moved = await saveDuring(
+          () => elsewhere(
+            (endpoint) => OpenWebUiEndpoint(
+              id: endpoint.id,
+              url: 'https://moved.example',
+              label: endpoint.label,
+              customHeaders: endpoint.customHeaders,
+            ),
+          ),
+        );
+        check(moved)
+            .isA<ServerAddressNotSaved>()
+            .has((n) => n.problem, 'problem')
+            .equals(ServerAddressProblem.serverMissing);
+        check((await stored())!.url).equals('https://moved.example');
+      });
+
+      // Storage keeps the address and its cookie exactly as this save would
+      // write them (an attempt whose answer was lost, tried again): nothing
+      // is written, so a write that would fail cannot undo a done save.
+      test('an exact repeat of what storage keeps is saved without a write',
+          () async {
+        await storage.setActiveServerId('a');
+        await storage.bindAccountUser('a', 'user-a');
+        await storage.editServerEndpointsWithSession(
+          serverId,
+          (endpoints) => endpoints,
+          accountId: 'a',
+          routeId: 'lab',
+          headers: const {'Cookie': 'proxy=1'},
+          sessionRevision: storage.sessionRevocationRevision,
+        );
+        secure.refusesCookie = true;
+        addTearDown(() => secure.refusesCookie = false);
+
+        final outcome = await saveVerifiedServerAddress(
+          signedOut,
+          serverId: serverId,
+          endpointId: 'lab',
+          addedEndpointId: 'unused',
+          label: 'Lab',
+          verified: ServerConfig(
+            id: 'checked',
+            name: 'Lab',
+            url: 'https://lab.example',
+            customHeaders: {...lab.customHeaders, 'Cookie': 'proxy=1'},
+          ),
+          editedFrom: lab,
+          sessionRevision: storage.sessionRevocationRevision,
+          confirmSendingSession: (_) async => false,
+          confirmChangingInUse: () async => true,
+          stillWanted: () => true,
+        );
+
+        check(outcome).isA<ServerAddressSaved>();
+      });
+
       // A header typed for the address checked never goes to the host
       // another window moved it to; a new name alone still lands.
       test('that changes how it is reached is refused once the address was '
@@ -1040,6 +1363,21 @@ final class _CookieRefusingSecureStore extends InMemorySecureKeyValueStore {
     }
     return super.write(key: key, value: value);
   }
+}
+
+/// A resolver whose route is [endpointId] of [serverId], in use.
+final class _InUse extends OpenWebUiRouteResolver {
+  _InUse(this.serverId, this.endpointId);
+
+  final String serverId;
+  final String endpointId;
+
+  @override
+  OpenWebUiRouteStatus build() =>
+      OpenWebUiRouteStatus(serverId: serverId, endpointId: endpointId);
+
+  @override
+  Future<void> resolve({String reason = 'manual'}) async {}
 }
 
 /// Records the route checks asked for instead of probing.

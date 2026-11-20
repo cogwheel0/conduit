@@ -127,6 +127,20 @@ pub fn row_time(row: &CalendarRowTimeDto, l: &L10n) -> String {
     }
 }
 
+/// When an event that goes on past `day`, the day of the row that shows it,
+/// ends, as the row is said ("Ends Fri, Nov 13 2:00 AM", or the last day for
+/// one all day). None when it ends on `day`: the row's own time says so.
+pub fn ends_after(item: &CalendarItemDto, day: &CalendarWallTime, l: &L10n) -> Option<String> {
+    let date = |w: &CalendarWallTime| (w.year, w.month, w.day);
+    if item.all_day {
+        let last = item.last_day.as_ref()?;
+        return (date(last) > date(day)).then(|| l.calendar_ends_at(&self::day(last, l)));
+    }
+    let end = item.end.as_ref()?;
+    (date(end) > date(day))
+        .then(|| l.calendar_ends_at(&format!("{} {}", self::day(end, l), time(end, l))))
+}
+
 /// When an event happens, in full, for its sheet.
 pub fn when(item: &CalendarItemDto, l: &L10n) -> String {
     let first = day(&item.start, l);

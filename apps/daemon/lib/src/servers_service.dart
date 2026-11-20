@@ -132,8 +132,7 @@ final class ServersService {
             : (draft.mtlsPrivateKeyLabel ?? existing.mtlsPrivateKeyLabel),
         mtlsPrivateKeyPassword: draft.clearMutualTls
             ? null
-            : (draft.mtlsPrivateKeyPassword ??
-                  existing.mtlsPrivateKeyPassword),
+            : (draft.mtlsPrivateKeyPassword ?? existing.mtlsPrivateKeyPassword),
       ),
     );
     if (updated == null) throw _notFound(id);
@@ -344,7 +343,13 @@ final class ServersService {
     final headers = <String, String>{};
     for (final header in form.headers) {
       final name = header.name.trim();
-      final keptValue = header.value == null ? kept[name] : null;
+      // Header names are case-insensitive, as duplicates are judged.
+      final keptValue = header.value == null
+          ? kept.entries
+                .where((e) => e.key.toLowerCase() == name.toLowerCase())
+                .firstOrNull
+                ?.value
+          : null;
       // A typed value is trimmed; a kept one stays as saved, byte for byte,
       // so a label edit changes nothing the connection is compared by.
       final value = header.value?.trim() ?? keptValue ?? '';
@@ -543,7 +548,9 @@ final class ServersService {
         error: error,
         stackTrace: stackTrace,
       );
-      _checked.remove(request.checkId);
+      // Whether the address was written is unknown: the check stays, so
+      // Save can be tried again (by its ids it writes the same address, or
+      // finds it written).
       return ServerAddressSaveResult(
         outcome: ServerAddressChangeOutcome.notSaved,
         problem: ServerAddressProblemCode.serverError,
@@ -552,11 +559,14 @@ final class ServersService {
     }
     switch (outcome) {
       case core.ServerAddressSaved():
-        _checked.remove(request.checkId);
         _changed(checked.serverId);
+        final addresses = await _addressesNow(checked.serverId);
+        // Used up once the answer is ready: until then a Save tried again
+        // finds the address written.
+        _checked.remove(request.checkId);
         return ServerAddressSaveResult(
           outcome: ServerAddressChangeOutcome.done,
-          addresses: await _addressesNow(checked.serverId),
+          addresses: addresses,
         );
       case core.ServerAddressNotSaved(:final problem):
         final question = asked;

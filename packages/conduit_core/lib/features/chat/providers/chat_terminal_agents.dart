@@ -49,6 +49,22 @@ TerminalAgentScope? _terminalAgentScope(Ref ref) {
   return _agentScopeOn(terminalId, chat, servers);
 }
 
+/// The terminals a chat can use: for a saved chat ([chatId]), the server's
+/// own as it offers them to that chat, in a read of this lookup's own
+/// ([terminalSystemServersForChatProvider]); a host holding no chat as the
+/// active one has the sidebar's list, which leaves out a terminal that needs
+/// a saved chat. For a new chat (null), the account's list.
+Future<List<TerminalServerInfo>> _terminalsFor(dynamic ref, String? chatId) {
+  if (chatId == null) {
+    return ref.read(terminalAvailableServersProvider.future)
+        as Future<List<TerminalServerInfo>>;
+  }
+  final read = ref.read(
+    terminalSystemServersForChatProvider,
+  ) as Future<List<TerminalServerInfo>> Function(String);
+  return read(chatId);
+}
+
 /// The scope on [terminalId] for [chat], when [servers] lists it as one of
 /// the server's own terminals.
 TerminalAgentScope? _agentScopeOn(
@@ -91,9 +107,7 @@ Future<TerminalAgentScope?> terminalAgentScopeFor(
   try {
     // Without a terminal service the list stays loading: a host asking for
     // a picker gives up rather than wait on it.
-    servers = await (ref.read(
-      terminalAvailableServersProvider.future,
-    ) as Future<List<TerminalServerInfo>>).timeout(timeout);
+    servers = await _terminalsFor(ref, chat?.id).timeout(timeout);
   } catch (_) {
     return null;
   }
@@ -199,10 +213,7 @@ Future<Model?> resolveTerminalAgentModel(
   if (ref.read(terminalAgentsSupportedProvider) != true) return null;
   final api = ref.read(apiServiceProvider) as ApiService?;
   if (api == null) return null;
-  final servers = await bounded(
-    ref.read(terminalAvailableServersProvider.future)
-        as Future<List<TerminalServerInfo>>,
-  );
+  final servers = await bounded(_terminalsFor(ref, chatId));
   final server = servers
       .where(
         (server) => server.isSystem && server.selectionId == agent.terminalId,
@@ -219,12 +230,52 @@ Future<Model?> resolveTerminalAgentModel(
   return agents.where((model) => model.id == modelId).firstOrNull;
 }
 
+/// Whether the terminal under [agent], a coding agent, is gone: the one rule
+/// for every holder of an agent pick (the account's selection here, a Mac
+/// window's New Chat pick in the daemon). Each fact given is checked:
+///
+/// - [selected], the terminal selected now (`id` null: none): gone when it
+///   is not the agent's own, since a new chat runs on the terminal selected.
+/// - [listed], the account's terminals as read: gone once a list is read
+///   without the agent's terminal and a fresh read of the server's own
+///   terminals ([service]) confirms it is not offered for [scope]. The
+///   combined list also comes back without them when that read fails, so
+///   the list alone proves nothing. A list loading or failed, no [service],
+///   or a fresh read that fails: not gone.
+///
+/// A model that is no coding agent is never gone.
+Future<bool> agentTerminalGone(
+  Model? agent, {
+  ({String? id})? selected,
+  AsyncValue<List<TerminalServerInfo>>? listed,
+  TerminalService? service,
+  String scope = '',
+}) async {
+  final agentTerminal = terminalAgentTerminalId(agent);
+  if (agentTerminal == null) return false;
+  if (selected != null && agentTerminal != selected.id?.trim()) return true;
+  if (listed is! AsyncData<List<TerminalServerInfo>>) return false;
+  final stillListed = listed.value.any(
+    (server) => server.isSystem && server.selectionId == agentTerminal,
+  );
+  if (stillListed || service == null) return false;
+  final List<TerminalServerInfo> servers;
+  try {
+    servers = await service.getSystemTerminalServers();
+  } catch (_) {
+    return false;
+  }
+  return !servers.any(
+    (server) =>
+        server.selectionId == agentTerminal &&
+        server.isAvailableForChatScope(scope),
+  );
+}
+
 /// Puts the default model back when the terminal under a selected coding
-/// agent is switched off or changed, as Open WebUI does: the agent runs only
-/// on its own terminal. A terminal the server no longer offers this chat
-/// counts as gone only once the server's own list is read without it: the
-/// combined list also arrives without them when that read fails, and a list
-/// that is loading or could not be read changes nothing.
+/// agent is gone ([agentTerminalGone]): switched off or changed, as Open
+/// WebUI does (the agent runs only on its own terminal), or no longer
+/// offered by the server for this chat.
 final terminalAgentSelectionGuardProvider = Provider<void>(
   _terminalAgentSelectionGuard,
 );
@@ -233,68 +284,45 @@ void _terminalAgentSelectionGuard(Ref ref) {
   ref.listen<AsyncValue<List<TerminalServerInfo>>>(
     terminalAvailableServersProvider,
     (previous, next) {
-      if (next is! AsyncData<List<TerminalServerInfo>>) return;
       final selected = ref.read(selectedModelProvider);
-      final agentTerminal = terminalAgentTerminalId(selected);
-      if (agentTerminal == null) return;
-      final listed = next.value.any(
-        (server) => server.isSystem && server.selectionId == agentTerminal,
+      if (terminalAgentTerminalId(selected) == null) return;
+      final gone = agentTerminalGone(
+        selected,
+        listed: next,
+        service: ref.read(terminalServiceProvider),
+        scope: ref.read(terminalSessionScopeIdProvider),
       );
-      if (listed) return;
-      unawaited(_dropAgentIfTerminalGone(ref, selected, agentTerminal));
+      unawaited(
+        gone.then((gone) {
+          if (!gone || !ref.mounted) return;
+          if (!identical(ref.read(selectedModelProvider), selected)) return;
+          DebugLogger.log('agent-terminal-gone', scope: 'chat/agents');
+          unawaited(restoreDefaultModel(ref));
+        }),
+      );
     },
     // A list already read counts too, not only the next one.
     fireImmediately: true,
   );
   ref.listen<String?>(selectedTerminalIdProvider, (previous, next) {
     final selected = ref.read(selectedModelProvider);
-    final agentTerminal = terminalAgentTerminalId(selected);
-    if (agentTerminal == null || agentTerminal == next?.trim()) return;
-    DebugLogger.log(
-      'agent-terminal-changed',
-      scope: 'chat/agents',
-      data: {'cleared': next == null},
-    );
-    Future.microtask(() {
+    unawaited(() async {
+      if (!await agentTerminalGone(selected, selected: (id: next))) return;
+      DebugLogger.log(
+        'agent-terminal-changed',
+        scope: 'chat/agents',
+        data: {'cleared': next == null},
+      );
       if (!ref.mounted) return;
-      // Still the same agent on another terminal: the default replaces it.
+      // Still gone once the change has settled, the same agent selected:
+      // the default replaces it.
+      final now = ref.read(selectedTerminalIdProvider);
+      if (!await agentTerminalGone(selected, selected: (id: now))) return;
+      if (!ref.mounted) return;
       if (!identical(ref.read(selectedModelProvider), selected)) return;
-      if (terminalAgentTerminalId(selected) ==
-          ref.read(selectedTerminalIdProvider)) {
-        return;
-      }
       unawaited(restoreDefaultModel(ref));
-    });
+    }());
   });
-}
-
-/// Asks the server for its terminals and restores the default model when
-/// [agentTerminal] is not among those this chat may use. A read that fails
-/// proves nothing and keeps [selected].
-Future<void> _dropAgentIfTerminalGone(
-  Ref ref,
-  Model? selected,
-  String agentTerminal,
-) async {
-  final service = ref.read(terminalServiceProvider);
-  if (service == null) return;
-  final scope = ref.read(terminalSessionScopeIdProvider);
-  final List<TerminalServerInfo> servers;
-  try {
-    servers = await service.getSystemTerminalServers();
-  } catch (_) {
-    return;
-  }
-  if (!ref.mounted) return;
-  final offered = servers.any(
-    (server) =>
-        server.selectionId == agentTerminal &&
-        server.isAvailableForChatScope(scope),
-  );
-  if (offered) return;
-  if (!identical(ref.read(selectedModelProvider), selected)) return;
-  DebugLogger.log('agent-terminal-gone', scope: 'chat/agents');
-  unawaited(restoreDefaultModel(ref));
 }
 
 /// The terminal a request for [model] runs on: a coding agent's own, else
