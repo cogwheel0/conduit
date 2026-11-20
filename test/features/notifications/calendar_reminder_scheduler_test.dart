@@ -64,6 +64,7 @@ void main() {
     final payload = ScheduledCalendarReminder.encode(
       key: 'a|',
       scope: 'owui:acct-1',
+      fireAt: _now,
       fingerprint: 'f',
     );
 

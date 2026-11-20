@@ -413,6 +413,7 @@ class LocalNotificationService implements CalendarReminderPort {
         payload: ScheduledCalendarReminder.encode(
           key: reminder.key,
           scope: scope,
+          fireAt: reminder.fireAt,
           fingerprint: calendarReminderFingerprint(
             reminder,
             title: title,
@@ -457,6 +458,7 @@ class LocalNotificationService implements CalendarReminderPort {
         payload: ScheduledCalendarReminder.encode(
           key: reminder.key,
           scope: scope,
+          fireAt: reminder.fireAt,
           fingerprint: '',
         ),
       );

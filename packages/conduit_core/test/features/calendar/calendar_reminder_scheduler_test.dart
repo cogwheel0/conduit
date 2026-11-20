@@ -82,6 +82,7 @@ class _FakeNotifications implements CalendarReminderPort {
         id: _nextId++,
         key: reminder.key,
         scope: scope,
+        fireAt: reminder.fireAt,
         fingerprint: calendarReminderFingerprint(
           reminder,
           title: title,
@@ -313,6 +314,35 @@ void main() {
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
+    test('shares the limit with other accounts\' reminders, soonest first',
+        () async {
+      final h = _Harness()
+        ..agenda = [
+          for (var i = 0; i < calendarReminderLimit; i++)
+            _event('mine$i', startInMinutes: 60 + i),
+        ];
+      ScheduledCalendarReminder other(int id, String key, Duration from) =>
+          ScheduledCalendarReminder(
+            id: id,
+            key: key,
+            scope: _otherScope,
+            fireAt: _now.add(from),
+            fingerprint: 'x',
+          );
+      h.notifications.scheduled.addAll([
+        other(1, 'soon|', const Duration(minutes: 30)),
+        other(2, 'late|', const Duration(days: 10)),
+      ]);
+
+      await h.sync();
+
+      check(h.notifications.scheduled).length.equals(calendarReminderLimit);
+      check(h.notifications.keysIn(_otherScope)).deepEquals({'soon|'});
+      check(
+        h.notifications.keysIn(_scope),
+      ).not((it) => it.contains('mine${calendarReminderLimit - 1}|'));
+    });
+
     test('turned off, it unschedules every reminder', () async {
       final h = _Harness()..agenda = [_event('a')];
       await h.sync();
@@ -437,6 +467,7 @@ void main() {
       final payload = ScheduledCalendarReminder.encode(
         key: 'a|a_1',
         scope: _scope,
+        fireAt: _now,
         fingerprint: 'f',
       );
 
@@ -446,6 +477,7 @@ void main() {
         ..has((r) => r.id, 'id').equals(7)
         ..has((r) => r.key, 'key').equals('a|a_1')
         ..has((r) => r.scope, 'scope').equals(_scope)
+        ..has((r) => r.fireAt, 'fireAt').equals(_now)
         ..has((r) => r.fingerprint, 'fingerprint').equals('f');
     });
 

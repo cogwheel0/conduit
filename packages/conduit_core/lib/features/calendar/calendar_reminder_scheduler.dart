@@ -29,9 +29,10 @@ typedef CalendarReminderSettings = ({bool enabled, bool playSound});
 /// A calendar reminder the device has scheduled, read back from its payload.
 ///
 /// The payload is JSON with the occurrence's agenda key under
-/// `calendarReminder`, its account under `scope` and what it was scheduled as
-/// under `fingerprint`. It carries no `kind`, so the app's notification-tap
-/// decoder ignores it and a tap just opens the app.
+/// `calendarReminder`, its account under `scope`, when it fires under
+/// `fireAt` (milliseconds since the epoch) and what it was scheduled as under
+/// `fingerprint`. It carries no `kind`, so the app's notification-tap decoder
+/// ignores it and a tap just opens the app.
 @immutable
 class ScheduledCalendarReminder {
   const ScheduledCalendarReminder({
@@ -39,6 +40,7 @@ class ScheduledCalendarReminder {
     required this.key,
     required this.scope,
     required this.fingerprint,
+    this.fireAt,
   });
 
   /// The OS notification id it is scheduled under.
@@ -50,6 +52,9 @@ class ScheduledCalendarReminder {
   /// The account it was scheduled for ([NotificationScope] string).
   final String scope;
 
+  /// When it fires, in UTC; null when the payload did not say.
+  final DateTime? fireAt;
+
   /// What it was scheduled as ([calendarReminderFingerprint]), so a resync can
   /// tell a reminder that still matches from one that has to be replaced.
   final String fingerprint;
@@ -57,10 +62,12 @@ class ScheduledCalendarReminder {
   static String encode({
     required String key,
     required String scope,
+    required DateTime fireAt,
     required String fingerprint,
   }) => jsonEncode({
     'calendarReminder': key,
     'scope': scope,
+    'fireAt': fireAt.millisecondsSinceEpoch,
     'fingerprint': fingerprint,
   });
 
@@ -74,6 +81,7 @@ class ScheduledCalendarReminder {
       final key = map['calendarReminder'];
       final scope = map['scope'];
       final fingerprint = map['fingerprint'];
+      final fireAt = map['fireAt'];
       if (key is! String || key.isEmpty) return null;
       if (scope is! String || NotificationScope.tryParse(scope) == null) {
         return null;
@@ -82,6 +90,9 @@ class ScheduledCalendarReminder {
         id: id,
         key: key,
         scope: scope,
+        fireAt: fireAt is int
+            ? DateTime.fromMillisecondsSinceEpoch(fireAt, isUtc: true)
+            : null,
         fingerprint: fingerprint is String ? fingerprint : '',
       );
     } catch (_) {
@@ -290,6 +301,29 @@ class CalendarReminderScheduler {
 
     final scheduled = await _notifications.scheduledCalendarReminders();
     if (stale()) return;
+    // iOS keeps 64 pending notifications per app, not per account, so the
+    // limit covers every account's reminders, soonest first. One posted at
+    // once takes no place.
+    final dueBy = clock.now().toUtc().add(_dueMargin);
+    final queued = [
+      for (final reminder in plan)
+        if (reminder.fireAt.isAfter(dueBy))
+          (fireAt: reminder.fireAt, key: reminder.key, other: null),
+      for (final other in scheduled)
+        if (other.scope != account.scope)
+          (fireAt: other.fireAt, key: other.key, other: other),
+    ]..sort((a, b) => _compareFireAt(a.fireAt, b.fireAt));
+    for (final left in queued.skip(calendarReminderLimit)) {
+      final other = left.other;
+      if (other == null) {
+        wanted.remove(left.key);
+        continue;
+      }
+      await _notifications.cancelScheduled(other.id);
+      await _forgetDelivered(other.scope, other.key);
+      if (stale()) return;
+    }
+
     final planned = {for (final reminder in plan) reminder.key};
     for (final existing in scheduled) {
       if (existing.scope != account.scope) continue;
@@ -364,9 +398,13 @@ class CalendarReminderScheduler {
   Future<void> signedOut(String? scope) async {
     _signedOut.add(scope);
     await _cancelScheduled(scope);
-    await _updateDelivered(
-      (delivered) => scope == null ? delivered.clear() : delivered.remove(scope),
-    );
+    await _updateDelivered((delivered) {
+      if (scope == null) {
+        delivered.clear();
+      } else {
+        delivered.remove(scope);
+      }
+    });
   }
 
   Future<void> _takeBack(String scope) async {
@@ -424,6 +462,12 @@ class CalendarReminderScheduler {
     const key = PreferenceKeys.calendarRemindersDelivered;
     if (raw == PreferencesStore.getString(key)) return Future<void>.value();
     return PreferencesStore.put(key, raw);
+  }
+
+  /// Soonest first; a reminder whose time is not known goes last.
+  static int _compareFireAt(DateTime? a, DateTime? b) {
+    if (a != null && b != null) return a.compareTo(b);
+    return (a == null ? 1 : 0) - (b == null ? 1 : 0);
   }
 
   static Future<void> _forgetDelivered(String scope, String key) =>
