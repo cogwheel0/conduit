@@ -1733,9 +1733,10 @@ Future<void> regenerateMessage(
 /// The answers of question [questionId] besides [placeholderId] when all of
 /// them are empty ones a hold of it left, and null once one of them answers
 /// it. An earlier hold's answer is marked held ([kCompletionHeldMetadataKey])
-/// in the transcript or the stored chat, or its delete still waits in the
-/// outbox: the transcript's copy is the one its send showed, which no mark
-/// reaches.
+/// in the transcript, or the stored chat knows it as one
+/// ([ChatsDao.questionAnswers]): the transcript's copy is usually the one its
+/// send showed, which no mark reaches, and the stored row may be one a pull
+/// wrote.
 ///
 /// The transcript is read only while it shows [owner]'s chat: message ids
 /// are a chat's own, and another chat may hold the same ones.
@@ -1758,32 +1759,17 @@ Future<Set<String>?> _heldQuestionEarlierHolds(
       }
     }
   }
-  final database = owner.database;
-  final rows =
-      await database?.messagesDao.getAnswersTo(owner.chatId, questionId) ??
-      const <MessageRow>[];
-  final waiting =
-      await database?.outboxDao.unsentMessageDeletes(owner.chatId) ??
-      const <String>{};
-  bool markedHeld(Object? metadata) =>
-      metadata is Map && metadata[kCompletionHeldMetadataKey] == true;
-  final storedHolds = <String>{};
-  final storedAnswers = <String>[];
-  for (final row in rows) {
-    storedAnswers.add(row.id);
-    Object? metadata;
-    try {
-      final payload = jsonDecode(row.payload);
-      if (payload is Map) metadata = payload['metadata'];
-    } catch (_) {}
-    if (markedHeld(metadata)) storedHolds.add(row.id);
-  }
+  final stored =
+      await owner.database?.chatsDao.questionAnswers(
+        owner.chatId,
+        questionId,
+      ) ??
+      (answers: const <String>[], holds: const <String>{});
   // Whether [id] answers the question: false for an earlier hold's, noted.
   bool answers(String id, {Object? metadata}) {
-    if (id == placeholderId) return false;
-    if (markedHeld(metadata) ||
-        storedHolds.contains(id) ||
-        waiting.contains(id)) {
+    if (id == placeholderId || earlierHolds.contains(id)) return false;
+    if ((metadata is Map && metadata[kCompletionHeldMetadataKey] == true) ||
+        stored.holds.contains(id)) {
       earlierHolds.add(id);
       return false;
     }
@@ -1793,7 +1779,7 @@ Future<Set<String>?> _heldQuestionEarlierHolds(
   for (final answer in shownAnswers) {
     if (answers(answer.id, metadata: answer.metadata)) return null;
   }
-  for (final id in storedAnswers) {
+  for (final id in stored.answers) {
     if (answers(id)) return null;
   }
   return earlierHolds;

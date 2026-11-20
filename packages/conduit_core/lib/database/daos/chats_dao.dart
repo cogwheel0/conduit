@@ -2159,6 +2159,52 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// The answers chat [chatId] stores for question [questionId], and the ids
+  /// known as a hold's empty answers rather than answers: a row marked held
+  /// ([kCompletionHeldMetadataKey]), a message the outbox still has to
+  /// delete, or one a held turn of the question recorded. Read as one: a
+  /// delete that lands meanwhile can't turn a hold into an answer.
+  Future<({List<String> answers, Set<String> holds})> questionAnswers(
+    String chatId,
+    String questionId,
+  ) => transaction(() => _questionAnswers(chatId, questionId));
+
+  Future<({List<String> answers, Set<String> holds})> _questionAnswers(
+    String chatId,
+    String questionId,
+  ) async {
+    final rows = await attachedDatabase.messagesDao.getAnswersTo(
+      chatId,
+      questionId,
+    );
+    final holds = await _outboxDao.unsentMessageDeletes(chatId);
+    final completions =
+        await (select(_outboxDao.outboxOps)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.kind.equals(OutboxKind.requestCompletion.name),
+            ))
+            .get();
+    for (final op in completions) {
+      final payload = _decodeJsonObject(op.payload);
+      if (payload['held'] != true || payload['heldQuestionId'] != questionId) {
+        continue;
+      }
+      holds.addAll(_requestCompletionAssistantIds(op.payload));
+      if (payload['heldEarlierIds'] case final List earlier) {
+        holds.addAll(earlier.whereType<String>());
+      }
+    }
+    for (final row in rows) {
+      if (_decodeJsonObject(row.payload)['metadata'] case {
+        kCompletionHeldMetadataKey: true,
+      }) {
+        holds.add(row.id);
+      }
+    }
+    return (answers: [for (final row in rows) row.id], holds: holds);
+  }
+
   /// Settles a turn whose question [questionId] the server holds until a reply
   /// running in its chat ends ([kMessageHeldByServerMetadataKey]): its empty
   /// answers [assistantMessageIds] go, and the question keeps the server's

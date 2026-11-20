@@ -57,7 +57,8 @@ import 'package:conduit_core/features/integrations/personal_tool_execution.dart'
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:dio/dio.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, Value;
 import 'package:drift/native.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -1078,6 +1079,47 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
 
 /// An engine whose outbox drain is a no-op, so a durable admission can be
 /// inspected exactly as it was written, before any runner picks it up.
+/// Lands [land] the first time a question's answers are read, from outside
+/// whatever transaction that read is in, before the read returns: as the
+/// drainer finishes an op meanwhile.
+class _AnswersReadHook extends QueryInterceptor {
+  Future<void> Function()? land;
+  bool landed = false;
+  Completer<void>? _sent;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    final landing = land;
+    if (landing != null &&
+        statement.contains('FROM "messages"') &&
+        statement.contains('"parent_id" = ?')) {
+      land = null;
+      final sent = _sent = Completer<void>();
+      unawaited(Zone.root.run(landing).then((_) => landed = true));
+      await sent.future;
+    }
+    return rows;
+  }
+
+  @override
+  Future<int> runDelete(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    final sent = _sent;
+    _sent = null;
+    final deleting = executor.runDelete(statement, args);
+    sent?.complete();
+    return deleting;
+  }
+}
+
 class _NoDrainSyncEngine extends _PersistingSyncEngine {
   _NoDrainSyncEngine(super.db, super.api);
 
@@ -3735,47 +3777,37 @@ void main() {
       check(question['childrenIds']).isA<List>().isEmpty();
     }
 
-    test('a regeneration the server holds waits as a send does when its '
-        'question has only an earlier hold\'s empty answer', () async {
-      await seedEarlierHold();
-      final api = _GatedCompletionApi(Completer<void>())
-        ..onSend = () => throw const ChatCompletionHeld();
-      final messages = earlierHoldShown();
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: _NoDrainSyncEngine(db, api),
-      );
-      addTearDown(container.dispose);
-
-      await regenerateMessage(container, 'Say the word: heron', null);
-
-      await checkWaitsAsASendDoes(container, api);
-    });
-
-    // The transcript's copy of the earlier hold's answer is the one the send
-    // showed, which no mark reaches.
-    for (final (label, storedMarked, deleteWaits) in [
-      ('its stored copy', true, false),
-      ('its delete still to land', false, true),
+    // A question whose only answer is an earlier hold's empty one waits as
+    // after a send. The transcript's copy of that answer is usually the one
+    // its send showed, which no mark reaches.
+    for (final (label, shownMarked, storedMarked, deleteWaits, landsAsRead) in [
+      ('its transcript copy', true, false, false, false),
+      ('its stored copy', false, true, false, false),
+      ('its delete still to land', false, false, true, false),
+      ('its delete, landing as it is read', false, false, true, true),
     ]) {
       test('a regeneration the server holds waits when only $label tells the '
           'earlier hold', () async {
+        final reads = _AnswersReadHook();
+        if (landsAsRead) {
+          await db.close();
+          db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+        }
         await seedEarlierHold(marked: storedMarked);
         if (deleteWaits) {
-          await db.outboxDao.enqueue(
+          final seq = await db.outboxDao.enqueue(
             kind: OutboxKind.deleteMessages,
             chatId: chatId,
             payload: {
               kDeleteMessagesIdsKey: [earlierHoldId],
             },
           );
+          // Landed by the drainer, outside any read of the regeneration.
+          if (landsAsRead) reads.land = () => db.outboxDao.markDone(seq);
         }
         final api = _GatedCompletionApi(Completer<void>())
           ..onSend = () => throw const ChatCompletionHeld();
-        final messages = earlierHoldShown(marked: false);
+        final messages = earlierHoldShown(marked: shownMarked);
         final container = _container(
           db: db,
           active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
@@ -3788,6 +3820,7 @@ void main() {
         await regenerateMessage(container, 'Say the word: heron', null);
 
         await checkWaitsAsASendDoes(container, api);
+        check(reads.landed).equals(landsAsRead);
       });
     }
 
