@@ -10,13 +10,17 @@ import 'package:conduit_core/database/database_provider.dart'
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart'
+    show libreChatModelCatalogProvider;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/settled.dart' show readSettled;
 import 'package:test/test.dart';
 
+import 'support/fake_librechat_chat.dart';
 import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
 import 'support/step_clock.dart';
@@ -112,6 +116,9 @@ void main() {
 
   late CoreRuntime runtime;
   late FakeOwuiAuthServer owui;
+  late EventBus events;
+  late AccountsService accounts;
+  late String openWebUiAccount;
   late TurnsService turns;
   late StepClock clock;
 
@@ -143,8 +150,8 @@ void main() {
           ..models = const ['kettle-model']
           ..version = version;
     addTearDown(owui.close);
-    final events = EventBus();
-    final accounts = AccountsService(runtime.container, events: events);
+    events = EventBus();
+    accounts = AccountsService(runtime.container, events: events);
     addTearDown(accounts.dispose);
     final auth = AuthService(runtime.container);
     addTearDown(auth.dispose);
@@ -154,7 +161,7 @@ void main() {
         force: true,
       ),
     );
-    final accountId = added.accounts.activeAccountId!;
+    final accountId = openWebUiAccount = added.accounts.activeAccountId!;
     await auth.loginWithPassword(
       const PasswordLogin(username: 'ada@example.com', password: 'pw-ada'),
     );
@@ -317,6 +324,85 @@ void main() {
       expect(owui.chats.holdAdmission!.isCompleted, isFalse);
       expect(turns.isRunning(chatId), isFalse);
       await clock.during(held.then((_) {}, onError: (_) {}));
+    });
+  });
+
+  group('against a fake Open WebUI, then a fake LibreChat', () {
+    setUp(signIn);
+
+    test('an address change stops an Open WebUI answer, and leaves a running '
+        'LibreChat answer alone', () async {
+      final chats = owui.chats
+        ..seed('chat-garden', userId: 'user-ada')
+        ..holdStream = Completer<void>();
+      final garden = await clock.during(
+        turns.send(
+          const SendTurn(
+            chatId: 'chat-garden',
+            model: 'kettle-model',
+            text: 'Water the beans',
+          ),
+        ),
+      );
+      expect(turns.addressAnswering, isTrue);
+      await clock.during(turns.stopAddressAnswers());
+      expect(chats.stopped, hasLength(1));
+      expect(turns.isRunning(garden.chatId), isFalse);
+
+      // LibreChat takes charge of the chats; Open WebUI's account stays
+      // active, parked, and its address can still change.
+      final libreChat = await FakeLibreChatChat.start();
+      addTearDown(libreChat.close);
+      libreChat.fake.addUser(email: 'avery@example.com', password: 'pw-avery');
+      final signedIn = await clock.during(
+        LibreChatService(
+          runtime.container,
+          events: events,
+          accounts: accounts,
+        ).signIn(
+          LibreChatSignIn(
+            url: libreChat.url,
+            email: 'avery@example.com',
+            password: 'pw-avery',
+          ),
+        ),
+      );
+      expect(signedIn.outcome, LibreChatSignInOutcome.signedIn);
+      // Preferences are the process's, and the next test signs in to Open
+      // WebUI as the account in charge.
+      addTearDown(
+        () => clock.during(
+          accounts.switchTo(
+            AccountRef(
+              accountId: openWebUiAccount,
+              force: true,
+              askedOver: signedIn.accountId,
+            ),
+          ),
+        ),
+      );
+      final catalog = await clock.during(
+        readSettled(runtime.container, libreChatModelCatalogProvider.future),
+      );
+      expect(catalog.map((m) => m.id), contains(FakeLibreChatChat.model));
+
+      final sending = turns.send(
+        const SendTurn(
+          model: FakeLibreChatChat.model,
+          text: 'Plan a ridge walk',
+        ),
+      );
+      await clock.during(Future.any([libreChat.streamOpened, sending]));
+      libreChat
+        ..created('question-ridge', 'Plan a ridge walk')
+        ..text('answer-ridge', 'Start at the');
+      final ridge = await clock.during(sending);
+      expect(turns.isRunning(ridge.chatId), isTrue);
+      expect(turns.addressAnswering, isFalse);
+
+      await clock.during(turns.stopAddressAnswers());
+      expect(turns.isRunning(ridge.chatId), isTrue);
+      expect(libreChat.aborts, isEmpty);
     });
   });
 
