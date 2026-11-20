@@ -626,6 +626,9 @@ class _MockSocketService implements SocketService {
   bool isAppForeground = true;
 
   @override
+  bool mayMaintainTransport = true;
+
+  @override
   String? get sessionId => 'test-session';
 
   @override
@@ -4738,18 +4741,21 @@ void main() {
         });
       });
 
-      test('polling pauses in the background and resumes after the '
-          'reconnect that follows a return to the foreground', () {
+      test('polling pauses in the background while the socket is let go, '
+          'and resumes after the reconnect that follows a return to the '
+          'foreground', () {
         fakeAsync((async) {
           final api = _buildFakeApi(pollResponse: stillStreaming());
           final (:log, socket: _, :service) = attachTaskSocket(api);
           async.flushMicrotasks();
           service.isAppForeground = false;
+          service.mayMaintainTransport = false;
 
           async.elapse(const Duration(minutes: 5));
           check(chatFetches(api)).equals(0);
 
           service.isAppForeground = true;
+          service.mayMaintainTransport = true;
           service.reconnects.add(null);
           async.elapse(const Duration(seconds: 1));
           // The reconnect's own catch-up poll.
@@ -4758,6 +4764,24 @@ void main() {
           async.elapse(const Duration(seconds: 9));
           check(chatFetches(api)).equals(2);
           check(log.finishCount).equals(0);
+        });
+      });
+
+      test('in the background, a stream whose socket is kept up there still '
+          'recovers a missed done after 10 s of quiet', () {
+        fakeAsync((async) {
+          final api = _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [_serverAssistantMessage(content: 'Recovered reply.')],
+            ),
+          );
+          final (:log, socket: _, :service) = attachTaskSocket(api);
+          async.flushMicrotasks();
+          service.isAppForeground = false;
+
+          async.elapse(const Duration(seconds: 10));
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals('Recovered reply.');
         });
       });
 

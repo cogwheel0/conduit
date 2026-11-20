@@ -1554,10 +1554,12 @@ void main() {
 
     expect(socketFactory.sockets.single.io.reconnection, isTrue);
     expect(service.backgroundActivityLeaseCount, 1);
+    expect(service.mayMaintainTransport, isTrue);
 
     subscription.dispose();
     expect(socketFactory.sockets.single.io.reconnection, isFalse);
     expect(service.backgroundActivityLeaseCount, 0);
+    expect(service.mayMaintainTransport, isFalse);
   });
 
   test('a handler lease does not create the initial transport', () async {

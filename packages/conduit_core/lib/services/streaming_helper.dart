@@ -2887,7 +2887,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (currentAssistantTargetId() != assistantMessageId) {
       return;
     }
-    if (socketService?.isAppForeground == false) {
+    // A socket a lease keeps up in the background can still miss done, and
+    // the stream's lease would then outlive the reply; only a socket that is
+    // let go waits for the reconnect after resume.
+    if (socketService?.isAppForeground == false &&
+        socketService?.mayMaintainTransport == false) {
       terminalRecoveryParkedInBackground = true;
       return;
     }

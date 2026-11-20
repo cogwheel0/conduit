@@ -667,6 +667,10 @@ class SocketService {
   bool get _mayMaintainTransport =>
       _hasNetwork && (_isAppForeground || _backgroundActivityLeases > 0);
 
+  /// Whether the transport is kept up now: the network is reachable, and the
+  /// app is in the foreground or a background activity lease holds it.
+  bool get mayMaintainTransport => _mayMaintainTransport;
+
   /// Starts a connection that has no caller awaiting its result while still
   /// observing every asynchronous failure. Lifecycle/provider kicks are
   /// intentionally best-effort, but an ignored error Future would otherwise
