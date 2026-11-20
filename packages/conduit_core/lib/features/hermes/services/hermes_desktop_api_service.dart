@@ -399,6 +399,9 @@ final class HermesDesktopApiService
   StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
   int _desktopContract = 0;
 
+  /// The socket whose gateway [_desktopContract] describes.
+  int? _desktopContractSocket;
+
   /// The socket on which [_learnDesktopUploadContract] got its answer.
   int? _uploadContractProbedSocket;
 

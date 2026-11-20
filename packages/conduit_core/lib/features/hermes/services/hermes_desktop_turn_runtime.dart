@@ -1404,6 +1404,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
   }
 
+  /// The contract of the gateway on the current socket. A reconnect may
+  /// reach another gateway, so one learned on an earlier socket is not it.
+  int get _currentDesktopContract =>
+      _desktopContractSocket == _rpc.socketGeneration ? _desktopContract : 0;
+
   void _recordDesktopContract(Map<String, dynamic> info) {
     final raw = info['desktop_contract'];
     // A session authority names its protocol instead, and stages uploads
@@ -1413,19 +1418,25 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         : raw is num
         ? raw.toInt()
         : int.tryParse(raw?.toString() ?? '');
-    if (value != null && value > _desktopContract) {
-      _desktopContract = value;
-      _emitDesktopContract(value);
-    }
+    if (value == null) return;
+    final socket = _rpc.socketGeneration;
+    if (_desktopContractSocket == socket && value <= _desktopContract) return;
+    _desktopContractSocket = socket;
+    if (value == _desktopContract) return;
+    _desktopContract = value;
+    _emitDesktopContract(value);
   }
 
   /// Learns whether this gateway takes uploads before any session is open:
   /// the contract comes only with a session, so a new chat after a launch
   /// would offer no Photos and refuse its files. `file.attach` came with
-  /// contract 2; an older gateway answers that the method is unknown. Asked
-  /// once a socket, sessionless, so it changes nothing.
+  /// contract 2; sent without a session, a gateway that has it answers
+  /// "session not found" (4001), and an older one that the method is unknown
+  /// (-32601). Any other outcome, such as a dropped socket or a gateway
+  /// answering before it looks the method up, says neither, and it is asked
+  /// again later. Asked once a socket, sessionless, so it changes nothing.
   Future<void> _learnDesktopUploadContract() async {
-    if (_desktopContract >= 2) return;
+    if (_currentDesktopContract >= 2) return;
     if (_rpc.sessionAuthority) {
       _recordDesktopContract(const {
         'desktop_protocol': kHermesCanonicalGatewayProtocol,
@@ -1442,17 +1453,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         includeDefaultParams: false,
       );
     } on HermesDesktopRpcException catch (error) {
-      if (error.deliveryAmbiguous || error.notReady) return;
-      staged = error.code != -32601;
+      if (error.code == -32601) {
+        staged = false;
+      } else if (error.code != 4001) {
+        return;
+      }
     } catch (_) {
       return;
     }
+    if (_rpc.socketGeneration != socket) return;
     _uploadContractProbedSocket = socket;
-    if (staged) _recordDesktopContract(const {'desktop_contract': 2});
+    _recordDesktopContract({'desktop_contract': staged ? 2 : 0});
   }
 
   void _requireDesktopUploadContract() {
-    if (_desktopContract < 2) {
+    if (_currentDesktopContract < 2) {
       throw StateError(
         'Upgrade Hermes Desktop Gateway to use remote attachments.',
       );

@@ -468,7 +468,7 @@ final class _HermesDesktopAdministration {
       'jobs_admin': jobs,
       'sessions': true,
       'desktop_gateway': true,
-      'desktop_uploads': _owner._desktopContract >= 2,
+      'desktop_uploads': _owner._currentDesktopContract >= 2,
       'authoritative_running': _owner._authoritativeRunning,
     };
   }
