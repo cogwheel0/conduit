@@ -178,7 +178,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     for (final id in answerIds) {
       if (_sendsUnderWay.remove(id) ?? false) stopped = true;
     }
-    bool stoppedOrReplaced() => stopped || !_authSnapshotIsCurrent(sender);
+    bool stoppedOrReplaced() => stopped || !authSnapshotIsCurrent(sender);
     if (stoppedOrReplaced()) {
       throw ChatCompletionStopped(
         RequestOptions(path: '/api/chat/completions'),

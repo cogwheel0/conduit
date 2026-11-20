@@ -413,14 +413,28 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   }
   if (fullConversation == null) {
     // The sync engine had nothing to give: fetch directly and store it in the
-    // background instead.
+    // background instead. Bound to the session just checked: another can sign
+    // in while the deletes still to land are read.
+    final authSnapshot = api.captureAuthSnapshot();
     final pendingBefore = await unsentMessageDeletesOf(
       openWebUiOwnership.database,
       rawConversationId,
     );
+    final Conversation fetched;
+    try {
+      fetched = await api.getConversation(
+        rawConversationId,
+        authSnapshot: authSnapshot,
+      );
+    } on DioException {
+      if (api.authSnapshotIsCurrent(authSnapshot)) rethrow;
+      throw OpenWebUiConversationOwnershipException(
+        OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,
+      );
+    }
     fullConversation = await withoutUnsentMessageDeletes(
       openWebUiOwnership.database,
-      await api.getConversation(rawConversationId),
+      fetched,
       pendingBefore: pendingBefore,
     );
     if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {

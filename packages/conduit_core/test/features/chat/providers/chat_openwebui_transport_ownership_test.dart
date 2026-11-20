@@ -1130,6 +1130,26 @@ class _AnswersReadHook extends QueryInterceptor {
   }
 }
 
+/// Runs [onRead] once, as the next read of the outbox returns.
+class _OutboxReadTap extends QueryInterceptor {
+  void Function()? onRead;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    final read = onRead;
+    if (read != null && statement.contains('FROM "outbox_ops"')) {
+      onRead = null;
+      read();
+    }
+    return rows;
+  }
+}
+
 class _NoDrainSyncEngine extends _PersistingSyncEngine {
   _NoDrainSyncEngine(super.db, super.api);
 
@@ -3313,6 +3333,40 @@ void main() {
         ).deepEquals([userId]);
       });
     }
+
+    test('a copy read straight from the server is read only as the account '
+        'that asked for it', () async {
+      final reads = _OutboxReadTap();
+      await db.close();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+      await seedTurn();
+      final api = _WireCompletionApi(keepAuthInterceptor: true)
+        ..chatBody = <String, dynamic>{
+          'id': chatId,
+          'chat': <String, dynamic>{},
+        }
+        ..updateAuthToken('account-a-token');
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+      // The token is replaced, before the app's session says so, while the
+      // deletes still to land are read.
+      reads.onRead = () => api.updateAuthToken('account-b-token');
+
+      await pullChatOrFetch(container, chatId);
+
+      check(reads.onRead).isNull();
+      check([
+        for (final request in api.credentials)
+          if (request.path == '/api/v1/chats/$chatId') request.authorization,
+      ]).isEmpty();
+    });
 
     test('a settle that fails is finished by the retry, which never sends '
         'the question again', () async {

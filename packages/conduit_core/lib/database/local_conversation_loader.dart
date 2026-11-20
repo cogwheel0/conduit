@@ -198,10 +198,14 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
   if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   if (refreshed == null) {
     if (api == null) return null;
+    // Bound to the session just checked: another can sign in while the
+    // deletes still to land are read.
+    final authSnapshot = api.captureAuthSnapshot();
     final pendingBefore = await unsentMessageDeletesOf(ownership.database, id);
     try {
-      refreshed = await api.getConversation(id);
+      refreshed = await api.getConversation(id, authSnapshot: authSnapshot);
     } catch (error, stackTrace) {
+      if (!api.authSnapshotIsCurrent(authSnapshot)) return null;
       DebugLogger.error(
         'fallback-fetch-failed',
         scope: 'db/conversation',

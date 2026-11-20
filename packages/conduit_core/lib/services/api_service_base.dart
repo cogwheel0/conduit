@@ -318,7 +318,10 @@ abstract class _ApiServiceBase {
   /// request from silently adopting a later account's token on the same
   /// [ApiService] instance.
   ApiAuthSnapshot captureAuthSnapshot() => _authInterceptor.captureSnapshot();
-  bool _authSnapshotIsCurrent(ApiAuthSnapshot authSnapshot) =>
+
+  /// Whether a request bound to [authSnapshot] would still be sent: false
+  /// once another session has replaced it.
+  bool authSnapshotIsCurrent(ApiAuthSnapshot authSnapshot) =>
       _authInterceptor.snapshotIsCurrent(authSnapshot);
   Options _withAuthSnapshot(Options options, ApiAuthSnapshot? authSnapshot) {
     if (authSnapshot == null) return options;
