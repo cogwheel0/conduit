@@ -280,6 +280,8 @@ void main() {
       check(await signIn).isFalse();
       check(rig.state.isAuthenticated).isFalse();
       check(rig.state.error).isNull();
+      check(rig.storage.committedToken).isNull();
+      check(rig.storage.browserSession).isNull();
     });
 
     test('a sign-in begun after Cancel is not called off by it', () async {
@@ -779,6 +781,26 @@ void main() {
       check(rig.state.token).equals(_issued);
     });
 
+    test('a renewal on resume while a browser sign-in is under way does not '
+        'end it', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async => (token: _renewed, session: _session),
+      );
+      rig.service.browserOpen = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      // Coming back from the browser resumes the app.
+      await rig.auth.renewBrowserSessionIfExpiring();
+      rig.service.browserOpen!.complete();
+
+      check(await signIn).isTrue();
+      check(rig.state.token).equals(_issued);
+    });
+
     test('a refusal during a renewal ahead of expiry is not answered over a '
         'sign-in begun meanwhile', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
@@ -973,18 +995,20 @@ void main() {
     test('a refusal during a renewal ahead of expiry is answered once that '
         'renewal fails', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final held = Completer<void>();
       final release = Completer<void>();
       final rig = await _Rig.start(
         storedToken: token,
         saved: _savedBrowserSignIn(token),
         renew: () async {
+          held.complete();
           await release.future;
           throw const BrowserSignInException(BrowserSignInFailure.timeout);
         },
       );
 
       final early = rig.auth.renewBrowserSessionIfExpiring();
-      await pumpEventQueue();
+      await held.future;
       rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
       release.complete();
       await early;
@@ -998,18 +1022,20 @@ void main() {
     test('a refusal during a renewal ahead of expiry that succeeds is '
         'answered by it', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final held = Completer<void>();
       final release = Completer<void>();
       final rig = await _Rig.start(
         storedToken: token,
         saved: _savedBrowserSignIn(token),
         renew: () async {
+          held.complete();
           await release.future;
           return (token: _renewed, session: _session);
         },
       );
 
       final early = rig.auth.renewBrowserSessionIfExpiring();
-      await pumpEventQueue();
+      await held.future;
       rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
       release.complete();
       await early;
@@ -1316,6 +1342,31 @@ void main() {
       sent.complete();
       check(await signIn).isTrue();
       check(rig.service.browserOpened).equals(1);
+    });
+
+    test('a revocation asked for while a browser sign-in is under way waits '
+        'until it has ended', () async {
+      final rig = await _Rig.start();
+      when(() => rig.storage.browserSignInSessionFor('account-b'))
+          .thenAnswer((_) async => _session);
+      when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+          .thenAnswer((_) async => const []);
+      when(() => rig.storage.removeInactiveAccount('account-b'))
+          .thenAnswer((_) async => true);
+      rig.service.browserOpen = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.signOutAccount('account-b');
+      await pumpEventQueue();
+      // Its grant may be the one the sign-in is getting, not stored yet.
+      check(rig.service.revoked).isEmpty();
+
+      rig.service.browserOpen!.complete();
+      check(await signIn).isTrue();
+      await pumpEventQueue();
+      await rig.auth.browserRevocationsSettled;
+      check(rig.service.revoked).deepEquals([_session]);
     });
 
     // The session the clear took, even when it could not be read before.
@@ -1769,17 +1820,32 @@ final class _Storage extends Mock implements OptimizedStorageService {
       refusedCommits--;
       return false;
     }
+    final (
+      previousToken,
+      previousRemembered,
+      previousExpected,
+      previousSession,
+    ) = (committedToken, remembered, expected, this.browserSession);
+    void rollBack() {
+      committedToken = previousToken;
+      remembered = previousRemembered;
+      expected = previousExpected;
+      this.browserSession = previousSession;
+    }
+
     committedToken = token;
     remembered = rememberedCredentials;
     expected = expectedSavedCredentials;
     this.browserSession = browserSession;
-    await publish();
+    try {
+      await publish();
+    } catch (_) {
+      rollBack();
+      rethrow;
+    }
     // Asked again once published, as storage asks it: a no rolls it back.
     if (!canCommit()) {
-      committedToken = null;
-      remembered = null;
-      expected = null;
-      this.browserSession = null;
+      rollBack();
       return false;
     }
     return true;
