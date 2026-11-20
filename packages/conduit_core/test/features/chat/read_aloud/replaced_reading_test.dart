@@ -228,6 +228,66 @@ void main() {
     check(store.released).isEmpty();
     check(File(oldFile).existsSync()).isFalse();
   });
+
+  /// Starts a device reading of three chunks: the first playing, the other
+  /// two asked for and not yet answered.
+  Future<void> startReadingWithRendersUnderWay() async {
+    engine.queueRenders = true;
+    final old = manager.speak(
+      'Old one.\n\nOld two.\n\nOld three.',
+      seekable: true,
+    );
+    await pumpEventQueue();
+    engine.answerFirst();
+    await old;
+    await pumpEventQueue();
+    check(engine.waiting).deepEquals(['Old two.', 'Old three.']);
+  }
+
+  test('a reading whose render fails drops the renders still under way, so '
+      'the next reading\'s goes first', () async {
+    await startReadingWithRendersUnderWay();
+    final stillWriting = engine.queued.last.path;
+    final failed = manager.events.firstWhere((event) => event is TtsError);
+
+    engine.failFirst();
+    await failed;
+    final replacing = manager.speak('New one.', seekable: true);
+    await pumpEventQueue();
+
+    check(engine.waiting).deepEquals(['New one.']);
+    check(File(stillWriting).existsSync()).isFalse();
+    engine.answerFirst();
+    await replacing;
+    await pumpEventQueue();
+    check(player.clips.map((clip) => clip.uri))
+        .deepEquals([File(engine.lastPath!).uri]);
+    check(player.playing).isTrue();
+    check(events.whereType<TtsError>()).length.equals(1);
+  });
+
+  test('a render asked for while a failed reading\'s renders are being '
+      'dropped is not dropped with them', () async {
+    await startReadingWithRendersUnderWay();
+    final failed = manager.events.firstWhere((event) => event is TtsError);
+    final dropping = engine.cancelGate = Completer<void>();
+
+    engine.failFirst();
+    await failed;
+    final replacing = manager.speak('New one.', seekable: true);
+    await pumpEventQueue();
+    // Asked for only once the engine has dropped the old ones.
+    check(engine.waiting).deepEquals(['Old three.']);
+    dropping.complete();
+    await pumpEventQueue();
+
+    check(engine.waiting).deepEquals(['New one.']);
+    engine.answerFirst();
+    await replacing;
+    await pumpEventQueue();
+    check(player.playing).isTrue();
+    check(events.whereType<TtsError>()).length.equals(1);
+  });
 }
 
 DioException _refused() => DioException(
@@ -351,6 +411,11 @@ final class _Player extends NullAudioPlayback {
 
 /// A device voice that renders each chunk to a file under [dir], and whose
 /// [cancelSynthesis] waits for [cancelGate] when set.
+///
+/// With [queueRenders] set it works as both bridges do: renders are answered
+/// one at a time in the order asked ([answerFirst], [failFirst]), each file
+/// exists from the moment it is asked for, and [cancelSynthesis] fails every
+/// render not yet answered and deletes its file.
 final class _Engine extends Fake implements DeviceSpeechEngine {
   _Engine(this.dir);
 
@@ -358,6 +423,20 @@ final class _Engine extends Fake implements DeviceSpeechEngine {
   final rendered = <String>[];
   String? lastPath;
   Completer<void>? cancelGate;
+  bool queueRenders = false;
+  final queued = <_Render>[];
+
+  /// The texts of the renders not yet answered, the one being written first.
+  List<String> get waiting => [for (final render in queued) render.text];
+
+  void answerFirst() {
+    final render = queued.removeAt(0);
+    render.answer.complete(
+      NativeTtsAudio(render.path, const Duration(seconds: 20)),
+    );
+  }
+
+  void failFirst() => queued.removeAt(0).fail();
 
   @override
   Stream<NativeTtsEvent> get events => const Stream<NativeTtsEvent>.empty();
@@ -397,6 +476,11 @@ final class _Engine extends Fake implements DeviceSpeechEngine {
     // Written at once, so a reading's start waits on nothing but the code.
     Zone.root.run(() => File(path)).writeAsStringSync('synthetic');
     lastPath = path;
+    if (queueRenders) {
+      final render = _Render(text, path);
+      queued.add(render);
+      return render.answer.future;
+    }
     return NativeTtsAudio(path, const Duration(seconds: 20));
   }
 
@@ -405,6 +489,11 @@ final class _Engine extends Fake implements DeviceSpeechEngine {
     final gate = cancelGate;
     cancelGate = null;
     await gate?.future;
+    final dropped = List<_Render>.of(queued);
+    queued.clear();
+    for (final render in dropped) {
+      render.fail();
+    }
     return true;
   }
 
@@ -416,6 +505,21 @@ final class _Engine extends Fake implements DeviceSpeechEngine {
 
   @override
   Future<bool> resume() async => true;
+}
+
+/// A render the engine has not answered yet, and the file it is writing.
+final class _Render {
+  _Render(this.text, this.path);
+
+  final String text;
+  final String path;
+  final answer = Completer<NativeTtsAudio>();
+
+  /// Fails it as both bridges do: its incomplete file is deleted first.
+  void fail() {
+    Zone.root.run(() => File(path)).deleteSync();
+    answer.completeError(StateError('Synthetic render failure'));
+  }
 }
 
 /// Server speech answering each text at once, or when the test completes

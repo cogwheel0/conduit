@@ -320,6 +320,8 @@ class TtsManager {
     await _nativeTtsSub?.cancel();
     _nativeTtsSub = null;
     _nativeTts = service ?? DeviceSpeechEngine.hostFactory();
+    // The old engine's renders are not the new one's to wait for.
+    _renderCancel = null;
     _ttsInitialized = false;
     _initCompleter = null;
     _nativeTtsAvailable = false;
@@ -833,6 +835,10 @@ class TtsManager {
   void _failAudioSession(TtsPlaybackSession session, Object error) {
     if (_activeSession?.id != session.id) return;
     _activeSession = null;
+    // Its renders still under way are dropped now: the engine works through
+    // renders in turn, so the next reading's would wait behind them, and a
+    // later [stop] finds no reading to drop them for.
+    if (!session.useServerTts) _cancelDeviceRenders().ignore();
     _isTransitioningChunks = false;
     _resetPlaybackState();
     // Through the playlist queue, dropped if another reading has started by
@@ -891,6 +897,13 @@ class TtsManager {
     TtsPlaybackSession session,
     int index,
   ) async {
+    // Asked for only once an ended reading's renders are dropped, so it is
+    // not dropped with them.
+    final dropping = _renderCancel;
+    if (dropping != null) {
+      await dropping;
+      if (!_owns(session)) return null;
+    }
     final audio = await _nativeTts.synthesize(
       text: session.chunks[index],
       voiceIdentifier: _config.voice,
@@ -1082,7 +1095,7 @@ class TtsManager {
 
     try {
       if (session.usesAudioPlayer) {
-        await _nativeTts.cancelSynthesis();
+        await _cancelDeviceRenders();
         await _onPlaylist(() => !superseded(), _player.stop);
       } else {
         await _nativeTts.stop();
@@ -1094,6 +1107,25 @@ class TtsManager {
       _emitEvent(TtsError(e.toString()));
     }
   }
+
+  /// Asks the engine to drop every render it has not answered; both bridges
+  /// fail them and delete their files. Until it answers, a reading's next
+  /// render waits ([_synthesizeDeviceAudioChunk]): an engine that drops
+  /// late would drop that render too.
+  Future<bool> _cancelDeviceRenders() {
+    final cancel = _nativeTts.cancelSynthesis();
+    final dropped = cancel.then<void>((_) {}, onError: (Object _) {});
+    _renderCancel = dropped;
+    unawaited(
+      dropped.whenComplete(() {
+        if (identical(_renderCancel, dropped)) _renderCancel = null;
+      }),
+    );
+    return cancel;
+  }
+
+  /// The last [_cancelDeviceRenders] until the engine answers it.
+  Future<void>? _renderCancel;
 
   /// Whether [session] is still the reading playing. Every continuation of
   /// a reading asks this after each await, before it changes what is shared
