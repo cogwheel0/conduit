@@ -382,6 +382,9 @@ class AuthStateManager extends _$AuthStateManager {
   ({String accountId, BrowserSignInGrant grant, DateTime at})?
   _retryableBrowserGrant;
 
+  /// The grants browser sign-ins are exchanging or committing now.
+  final Set<BrowserSignInGrant> _browserGrantsInHand = Set.identity();
+
   /// Whether this process has looked for browser sign-in sessions left
   /// behind by an operation interrupted part-way.
   bool _browserSessionSweepStarted = false;
@@ -442,13 +445,26 @@ class AuthStateManager extends _$AuthStateManager {
   ///
   /// One whose provider user is unknown is left alone: it may be of the
   /// grant of a session still stored ([BrowserSignInSession.sharesGrantWith]),
-  /// which revoking it could end.
+  /// which revoking it could end. So is one that may share its grant with
+  /// another a sign-in still holds, which is stored nowhere yet.
   void _releaseBrowserGrant(BrowserSignInGrant? grant) {
     if (grant == null ||
         grant.subject == null ||
         identical(_retryableBrowserGrant?.grant, grant) ||
         identical(_pendingTwoStep?.browserGrant, grant) ||
         !ref.mounted) {
+      return;
+    }
+    bool related(BrowserSignInGrant? other) =>
+        other != null &&
+        !identical(other, grant) &&
+        other.clientId == grant.clientId &&
+        normalizeBrowserSignInIssuer(other.issuer) ==
+            normalizeBrowserSignInIssuer(grant.issuer) &&
+        (other.subject == null || other.subject == grant.subject);
+    if (_browserGrantsInHand.any(related) ||
+        related(_retryableBrowserGrant?.grant) ||
+        related(_pendingTwoStep?.browserGrant)) {
       return;
     }
     // Open WebUI never signed it in as anyone.
@@ -1379,6 +1395,7 @@ class AuthStateManager extends _$AuthStateManager {
           );
       if (grant == null) return false;
       var committed = false;
+      _browserGrantsInHand.add(grant);
       try {
         committed =
             !stopped() &&
@@ -1391,6 +1408,7 @@ class AuthStateManager extends _$AuthStateManager {
             );
         return committed;
       } finally {
+        _browserGrantsInHand.remove(grant);
         if (!committed) _releaseBrowserGrant(grant);
       }
     } catch (error, stackTrace) {
@@ -1439,6 +1457,7 @@ class AuthStateManager extends _$AuthStateManager {
     bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
       var committed = false;
+      _browserGrantsInHand.add(retry.grant);
       try {
         return committed = await _commitBrowserGrant(
           accountId: retry.accountId,
@@ -1448,6 +1467,7 @@ class AuthStateManager extends _$AuthStateManager {
           canCommit: mayCommit,
         );
       } finally {
+        _browserGrantsInHand.remove(retry.grant);
         if (!committed) _releaseBrowserGrant(retry.grant);
       }
     } catch (error, stackTrace) {

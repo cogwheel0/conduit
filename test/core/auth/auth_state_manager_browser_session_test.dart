@@ -1099,6 +1099,33 @@ void main() {
       });
     }
 
+    test('but not while a newer sign-in holds a grant it may share', () async {
+      final rig = await _Rig.start();
+      rig.service.grant = _grant(subject: 'idp-user');
+      final older = Completer<void>();
+      rig.service.exchanging = older;
+      final cancelled = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.cancelBrowserSignIn();
+
+      // The same user signs in again, and is still being exchanged.
+      final newer = Completer<void>();
+      rig.service
+        ..exchanging = newer
+        ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user');
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      older.complete();
+      check(await cancelled).isFalse();
+      await pumpEventQueue();
+      check(rig.service.revoked).isEmpty();
+
+      newer.complete();
+      check(await signIn).isTrue();
+      await pumpEventQueue();
+      check(rig.service.revoked).isEmpty();
+    });
+
     test('but not once signed in, nor without the provider\'s user, who may '
         'hold a stored session of the same grant', () async {
       final signedIn = await _Rig.start();
