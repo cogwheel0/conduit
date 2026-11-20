@@ -57,4 +57,53 @@ void main() {
     sockets.single.emitReserved('events:app', payload);
     check(appEvents).length.equals(1);
   });
+
+  // Open WebUI 0.13.4 sends the same reply on `events` instead.
+  test('a channel:app reply on events reaches app handlers only', () async {
+    final sockets = <io.Socket>[];
+    final service = SocketService(
+      serverConfig: const ServerConfig(
+        id: 'test-server',
+        name: 'Test Server',
+        url: 'https://example.com',
+      ),
+      socketFactory: (base, builder, config) {
+        final socket = io.io('http://localhost:19500', <String, dynamic>{
+          'autoConnect': false,
+          'forceNew': true,
+          'reconnection': false,
+        });
+        sockets.add(socket);
+        return socket;
+      },
+    );
+    addTearDown(service.dispose);
+
+    final appEvents = <Map<String, dynamic>>[];
+    final chatEvents = <Map<String, dynamic>>[];
+    service.addAppEventHandler(appEvents.add);
+    service.addChatEventHandler(
+      requireFocus: false,
+      handler: (event, _) => chatEvents.add(event),
+    );
+    await service.connect();
+
+    sockets.single.emitReserved('events', {
+      'data': {
+        'type': 'channel:app',
+        'data': {
+          'app_id': 'app-1',
+          'app_name': 'Deploy Bot',
+          'channel_id': 'c1',
+          'message_id': 'm1',
+          'parent_id': null,
+          'reply': {'type': 'error', 'content': 'App is inactive'},
+        },
+      },
+    });
+
+    check(appEvents).length.equals(1);
+    check(appEvents.single['message_id']).equals('m1');
+    check(chatEvents).isEmpty();
+  });
 }
