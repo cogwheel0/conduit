@@ -587,7 +587,8 @@ bool _personalConnectionsAvailable(dynamic ref) {
     PersonalConnectionsBlock.noPermission => loading(
       ref.read(userPermissionsProvider),
     ),
-    PersonalConnectionsBlock.noAccount => false,
+    PersonalConnectionsBlock.noAccount ||
+    PersonalConnectionsBlock.movedToTether => false,
   };
 }
 

@@ -2,6 +2,7 @@ import '../features/direct_connections/models/direct_connection_profile.dart';
 import '../features/direct_connections/services/direct_model_registry.dart';
 import '../features/direct_connections/services/model_logo_catalog.dart';
 import '../features/terminal/models/terminal_agent_model.dart';
+import '../features/tether/tether_offers.dart';
 import '../models/model.dart';
 
 final RegExp _whitespace = RegExp(r'\s');
@@ -112,6 +113,9 @@ String? modelPickerSubtitle(
   // A coding agent's id is an address, not a name; say where it runs.
   final agentSubtitle = terminalAgentPickerSubtitle(model);
   if (agentSubtitle != null) return agentSubtitle;
+  // So does a model one of the user's devices offers.
+  final device = tetherModelDeviceTag(model);
+  if (device != null) return device;
   final remoteId = model.metadata?['remoteModelId'];
   final fullId =
       (remoteId is String && remoteId.trim().isNotEmpty ? remoteId : model.id)

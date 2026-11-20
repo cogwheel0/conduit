@@ -13,6 +13,7 @@ import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -62,9 +63,20 @@ final class _Auth extends AuthStateManager {
 }
 
 final class _Config extends BackendConfigNotifier {
+  static BackendConfig initial = _allowing;
+
   @override
-  Future<BackendConfig?> build() async =>
-      const BackendConfig(serverId: 'server-1', enableDirectIntegrations: true);
+  Future<BackendConfig?> build() async => initial;
+}
+
+const _allowing = BackendConfig(
+  serverId: 'server-1',
+  enableDirectIntegrations: true,
+);
+
+final class _Advanced extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings(advancedFeaturesEnabled: true);
 }
 
 void main() {
@@ -76,6 +88,7 @@ void main() {
   setUp(() {
     PreferencesStore.debugOverride(InMemoryKeyValueStore());
     permissions = <String, dynamic>{};
+    _Config.initial = _allowing;
     _Auth.initial = AuthState(
       status: AuthStatus.authenticated,
       token: 'token-a',
@@ -106,6 +119,7 @@ void main() {
         backendConfigProvider.overrideWith(_Config.new),
         userPermissionsProvider.overrideWith((ref) async => permissions),
         reviewerModeProvider.overrideWithValue(false),
+        appSettingsProvider.overrideWith(_Advanced.new),
       ],
     );
     addTearDown(container.dispose);
@@ -262,5 +276,64 @@ void main() {
     await container.read(userPermissionsProvider.future);
 
     check(container.read(personalConnectionsAccessProvider).available).isTrue();
+  });
+
+  group('a server without direct integrations', () {
+    Future<void> serve(String? version) async {
+      _Config.initial = BackendConfig(serverId: 'server-1', version: version);
+      container.invalidate(backendConfigProvider);
+      await container.read(authStateManagerProvider.future);
+      await container.read(activeServerProvider.future);
+      await container.read(backendConfigProvider.future);
+    }
+
+    test('before 0.13.4 has them turned off, and Settings leaves them out', () async {
+      await serve('0.13.3');
+
+      check(container.read(personalConnectionsAccessProvider).block)
+          .equals(PersonalConnectionsBlock.serverDisabled);
+      check(container.read(personalConnectionsEntryVisibleProvider)).isFalse();
+      check(await container.read(movedPersonalConnectionsProvider.future))
+          .isNull();
+    });
+
+    test('of an unknown version has them turned off, as before', () async {
+      await serve(null);
+
+      check(container.read(personalConnectionsAccessProvider).block)
+          .equals(PersonalConnectionsBlock.serverDisabled);
+      check(container.read(personalConnectionsEntryVisibleProvider)).isFalse();
+    });
+
+    test('from 0.13.4 moved them to Tether: Settings still lists the saved '
+        'ones, read only, and the composer offers none', () async {
+      await serve('0.13.4');
+
+      check(container.read(personalConnectionsAccessProvider).block)
+          .equals(PersonalConnectionsBlock.movedToTether);
+      check(container.read(personalConnectionsEntryVisibleProvider)).isTrue();
+      check(container.read(personalConnectionsSessionProvider)).isNull();
+      check(await container.read(personalConnectionsProvider.future)).isNull();
+
+      final kept = await container.read(movedPersonalConnectionsProvider.future);
+      check(kept).isNotNull();
+      check(kept!.session.readOnly).isTrue();
+      check(kept.accountName).equals('Account a');
+      check(kept.toolServers.map((e) => e.displayName))
+          .deepEquals(<String>['A one']);
+
+      final before = settingsServer.log.length;
+      await expectLater(
+        container
+            .read(personalConnectionsProvider.notifier)
+            .save(
+              kept.session,
+              PersonalConnectionKind.toolServer,
+              AddPersonalConnection(_tool('a2', 'A two')),
+            ),
+        throwsA(isA<PersonalConnectionsOwnerChanged>()),
+      );
+      check(settingsServer.log.length).equals(before);
+    });
   });
 }

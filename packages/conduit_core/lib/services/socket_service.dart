@@ -612,6 +612,12 @@ class SocketService {
 
   SocketChatHandoffHandler? _chatHandoffHandler;
 
+  /// Told when the user's Tether devices change what they offer (Open
+  /// WebUI's `terminals:changed`, sent to the account rather than a chat).
+  /// Set by the owner that ties the service to an account, and cleared
+  /// with it.
+  void Function()? tetherDevicesChangedHandler;
+
   /// Who answers `chat:handoff` events for this service, or null for nobody;
   /// a call then gets an `unsupported` reply. Set by the owner that ties the
   /// service to an account, and cleared with it.
@@ -1618,6 +1624,11 @@ class SocketService {
     // Says an interactive request was answered or timed out on the server.
     // Conduit's prompts keep their own deadline, so there is nothing to do.
     if (type == 'request:interaction:done') return;
+
+    if (type == 'terminals:changed') {
+      tetherDevicesChangedHandler?.call();
+      return;
+    }
 
     // A direct tool call is consumed here for the same reason: the server
     // blocks until this session answers, whichever chat is open.

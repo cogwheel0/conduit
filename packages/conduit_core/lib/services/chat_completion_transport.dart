@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
+
 /// The transport mode chosen by the server for a chat completion request.
 enum ChatCompletionTransport { httpStream, taskSocket, jsonCompletion }
 
@@ -18,12 +20,16 @@ final class ChatCompletionHttpException implements Exception {
   /// Whether a later attempt may well be answered: a timeout, a rate limit,
   /// or a gateway in front of the server that could not reach it. A queued
   /// completion is sent again for these rather than settled as refused.
+  ///
+  /// Not a failed relay to one of the user's devices, whose statuses look
+  /// the same: the turn may have run there.
   bool get mayPassLater =>
-      statusCode == 408 ||
-      statusCode == 429 ||
-      statusCode == 502 ||
-      statusCode == 503 ||
-      statusCode == 504;
+      (statusCode == 408 ||
+          statusCode == 429 ||
+          statusCode == 502 ||
+          statusCode == 503 ||
+          statusCode == 504) &&
+      tetherRelayFailureOf(detail) == null;
 
   @override
   String toString() => 'Chat completion failed ($statusCode): $detail';

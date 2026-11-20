@@ -84,6 +84,7 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 
 import 'package:conduit_core/providers/chat_picks_session.dart';
+import 'package:conduit_core/features/tether/tether_devices.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';

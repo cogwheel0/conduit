@@ -65,6 +65,11 @@ class ServerVersionCompat {
   /// task, and lists the agents a task's terminal offers.
   static const String automationAgentsVersion = '0.13.3';
 
+  /// The first Open WebUI release without Direct Connections and Direct
+  /// Integrations: the models, tool servers and terminals a user kept in
+  /// their own settings come from their Tether devices instead.
+  static const String directConnectionsRemovedVersion = '0.13.4';
+
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.
   static bool? knownAtLeast(String? rawVersion, String minimum) {
