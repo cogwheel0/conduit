@@ -363,10 +363,6 @@ class _ComposerAttachmentKeyboardState
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
-    // Personal tool servers join a request only where the server takes them.
-    final personalToolServers =
-        !restrictedMode &&
-        ref.watch(personalConnectionsAccessProvider).available;
     Widget terminalTile(TerminalServerInfo server) => _buildToggleTile(
       icon: Platform.isIOS
           ? CupertinoIcons.chevron_left_slash_chevron_right
@@ -454,11 +450,16 @@ class _ComposerAttachmentKeyboardState
             future: userSettingsFuture,
             builder: (context, snapshot) {
               final settings = snapshot.data;
-              final directToolServers = personalToolServers
-                  ? effectivePersonalServerList(
-                      settings,
-                      PersonalConnectionKind.toolServer.settingsKey,
-                    )
+              final saved = effectivePersonalServerList(
+                settings,
+                PersonalConnectionKind.toolServer.settingsKey,
+              );
+              // Personal tool servers join a request only where the server
+              // takes them.
+              final directToolServers =
+                  saved.isNotEmpty &&
+                      ref.read(personalConnectionsAccessProvider).available
+                  ? saved
                   : const <dynamic>[];
               final directToolTiles = <Widget>[];
               for (var index = 0; index < directToolServers.length; index++) {
