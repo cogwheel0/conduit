@@ -987,10 +987,11 @@ void main() {
         ..has((d) => d.lastError, 'lastError').equals('nope');
     });
 
-    test('a stuck note or folder op sharing a chat\'s id holds none of its '
-        'answers up', () {
+    test('a stuck note or folder op sharing a chat\'s id, or a parked message '
+        'delete, holds none of its answers up', () {
       // Notes and folders run in their own domains; their ids are not kept
-      // apart from chats' in the outbox.
+      // apart from chats' in the outbox. A parked message delete holds up no
+      // later op of its chat.
       final shown = queuedCompletionDisplaysOf([
         op(
           OutboxKind.noteUpdate,
@@ -999,6 +1000,12 @@ void main() {
           lastError: 'nope',
         ),
         op(OutboxKind.folderUpsert, attempts: 3, lastError: 'boom'),
+        op(
+          OutboxKind.deleteMessages,
+          status: OutboxStatus.failed,
+          attempts: 1,
+          lastError: 'forbidden',
+        ),
         op(OutboxKind.requestCompletion, answer: 'a1'),
       ], isOnline: true);
 

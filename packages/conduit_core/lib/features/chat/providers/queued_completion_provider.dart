@@ -372,7 +372,9 @@ _queuedCompletionDisplayEntries(
         chatDomain &&
         !stuck.containsKey(chatId) &&
         op.status != OutboxStatus.inFlight &&
-        (op.status == OutboxStatus.failed || _queuedOpIsStuck(op))) {
+        ((op.status == OutboxStatus.failed &&
+                OutboxDao.parkedOpHoldsUpLaterOps(op.kind)) ||
+            _queuedOpIsStuck(op))) {
       stuck[chatId] = op;
     }
   }

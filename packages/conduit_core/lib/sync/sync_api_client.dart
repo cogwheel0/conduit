@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -43,6 +45,14 @@ class SyncRejectedException implements Exception {
 
   @override
   String toString() => 'SyncRejectedException($statusCode): ${detail ?? ''}';
+}
+
+/// A [SyncApiClient] that can tell whether its session still owns a chat.
+abstract interface class ChatOwnershipProbe {
+  /// Whether the session this client sends as still reads chat [chatId] as
+  /// its owner, as Open WebUI's message delete requires. False when the
+  /// server says it does not, and when that can't be read.
+  Future<bool> sessionOwnsChat(String chatId);
 }
 
 /// Thin client seam so `PullSync`/`PushSync` are unit-testable against
@@ -119,8 +129,9 @@ abstract interface class SyncApiClient {
   /// edit of its history), all as the session the call starts in: once
   /// another replaces it, the deletes left are refused unsent. Completes when
   /// the messages are gone, a 404 included: the message or its chat is
-  /// already gone. Throws [SyncTerminalException] for 401/403, and the error
-  /// itself for anything worth trying again.
+  /// already gone. Throws [SyncTerminalException] for 401/403 once the
+  /// session no longer owns the chat, and the error itself for anything
+  /// worth trying again.
   Future<void> deleteChatMessages(String chatId, List<String> messageIds);
 
   /// GET `/api/v1/chats/{id}/pinned` -> bool. (Toggle-delta source for
@@ -235,7 +246,7 @@ abstract interface class SyncApiClient {
 }
 
 /// Production implementation over [ApiService].
-class ApiSyncApiClient implements SyncApiClient {
+class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   ApiSyncApiClient(this.api);
 
   final ApiService api;
@@ -363,6 +374,9 @@ class ApiSyncApiClient implements SyncApiClient {
         final code = e.response?.statusCode;
         if (code == 404) continue;
         if (code == 401 || code == 403) {
+          // Open WebUI 0.13.4 also answers 401 for a delete whose write
+          // failed (routers/chats.py:1683-1687).
+          if (await _sessionOwnsChat(chatId, authSnapshot)) rethrow;
           throw SyncTerminalException(
             statusCode: code,
             message: 'deleteChatMessages forbidden',
@@ -370,6 +384,26 @@ class ApiSyncApiClient implements SyncApiClient {
         }
         rethrow;
       }
+    }
+  }
+
+  @override
+  Future<bool> sessionOwnsChat(String chatId) =>
+      _sessionOwnsChat(chatId, api.captureAuthSnapshot());
+
+  Future<bool> _sessionOwnsChat(
+    String chatId,
+    ApiAuthSnapshot authSnapshot,
+  ) async {
+    try {
+      final user = await api.getCurrentUser(
+        authSnapshot: authSnapshot,
+        suppressAuthFailureNotification: true,
+      );
+      final chat = await api.getChatRaw(chatId, authSnapshot: authSnapshot);
+      return user.id.isNotEmpty && chat?['user_id'] == user.id;
+    } catch (_) {
+      return false;
     }
   }
 

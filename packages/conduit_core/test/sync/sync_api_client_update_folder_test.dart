@@ -3,12 +3,17 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/backoff.dart';
+import 'package:conduit_core/sync/chat_adapter.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:dio/dio.dart';
@@ -211,6 +216,28 @@ void main() {
       await check(client.deleteChatMessages('c1', ['a1']))
           .throws<SyncTerminalException>();
     });
+
+    // Open WebUI 0.13.4 answers 401 for a delete whose write failed, as for
+    // one the session may not make (routers/chats.py:1683-1687).
+    for (final (label, sessionStatus, owner, terminal) in const [
+      ('tried again while the session owns the chat', 200, 'user-1', false),
+      ('terminal once the chat is another account\'s', 200, 'user-2', true),
+      ('terminal once the session is refused', 401, 'user-1', true),
+    ]) {
+      test('a 401 is $label', () async {
+        final client = _buildClient(
+          _heldChatServer(sessionStatus: sessionStatus, owner: owner),
+        );
+
+        final deleting = client.deleteChatMessages('c1', ['a1']);
+
+        if (terminal) {
+          await check(deleting).throws<SyncTerminalException>();
+        } else {
+          await check(deleting).throws<DioException>();
+        }
+      });
+    }
   });
 
   group('a held answer\'s delete drained later', () {
@@ -248,6 +275,62 @@ void main() {
       check(adapter.requests.map((request) => request.headers['Authorization']))
           .deepEquals(['Bearer session-a']);
     });
+
+    for (final (owner, sentAgain) in const [
+      ('user-1', true),
+      ('user-2', false),
+    ]) {
+      test('parked on a refusal, goes again with the connection only while the '
+          'session owns its chat ($owner)', () async {
+        final db = AppDatabase(NativeDatabase.memory());
+        addTearDown(db.close);
+        final remapper = IdRemapper(db);
+        addTearDown(remapper.dispose);
+        final server = _heldChatServer(
+          sessionStatus: 200,
+          owner: owner,
+          deleteStatus: 200,
+        );
+        final client = _buildClient(server);
+        final locks = ConversationLocks();
+        final drainer = OutboxDrainer(
+          db: db,
+          clock: _FixedClock(),
+          backoff: Backoff(jitter: () => 0.0),
+          isOnline: () => true,
+          completion: _NoCompletions(),
+          adapters: [
+            ChatAdapter(
+              pull: PullSync(client: client, db: db, locks: locks),
+              push: PushSync(
+                client: client,
+                db: db,
+                chatLocks: locks,
+                folderLocks: FolderLocks(),
+                clock: _FixedClock(),
+                remapper: remapper,
+              ),
+            ),
+          ],
+        );
+        final seq = await db.outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: 'c1',
+          payload: {
+            kDeleteMessagesIdsKey: ['a1'],
+          },
+        );
+        await db.outboxDao.markParked(seq, error: 'forbidden');
+
+        await drainer.onConnectivityRegained();
+
+        check(server.requests).contains('GET /api/v1/chats/c1');
+        check(server.requests.contains('DELETE /api/v1/chats/c1/messages/a1'))
+            .equals(sentAgain);
+        check((await db.outboxDao.opBySeq(seq))?.status)
+            .equals(sentAgain ? null : OutboxStatus.failed);
+      });
+    }
   });
 
   group('getFolderById', () {
@@ -313,6 +396,71 @@ class _RecordingAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+/// A server holding chat `c1`, owned by [owner], for a session that
+/// [sessionStatus] lets in as `user-1`. A message delete answers
+/// [deleteStatus].
+_RoutedAdapter _heldChatServer({
+  required int sessionStatus,
+  required String owner,
+  int deleteStatus = 401,
+}) => _RoutedAdapter(
+  (method, path) => switch ((method, path)) {
+    ('DELETE', _) => (
+      deleteStatus,
+      deleteStatus == 200
+          ? {'id': 'c1', 'user_id': owner, 'chat': <String, dynamic>{}}
+          : {'detail': 'access prohibited'},
+    ),
+    ('GET', '/api/v1/auths/') => (
+      sessionStatus,
+      sessionStatus == 200
+          ? {'id': 'user-1', 'email': 'ada@example.test', 'role': 'user'}
+          : {'detail': 'Not authenticated'},
+    ),
+    ('GET', '/api/v1/chats/c1') => (
+      200,
+      {'id': 'c1', 'user_id': owner, 'chat': <String, dynamic>{}},
+    ),
+    _ => (404, {'detail': 'Not found'}),
+  },
+);
+
+/// Answers each request with [answer], recording it as `METHOD path`.
+class _RoutedAdapter implements HttpClientAdapter {
+  _RoutedAdapter(this.answer);
+
+  final (int, Object?) Function(String method, String path) answer;
+  final requests = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add('${options.method} ${options.path}');
+    final (status, body) = answer(options.method, options.path);
+    return ResponseBody(
+      Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(body)))),
+      status,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _NoCompletions implements RequestCompletionRunner {
+  @override
+  Future<void> run({
+    required String chatId,
+    required Map<String, dynamic> payload,
+  }) => throw StateError('no completion runs here');
 }
 
 class _FixedAdapter implements HttpClientAdapter {

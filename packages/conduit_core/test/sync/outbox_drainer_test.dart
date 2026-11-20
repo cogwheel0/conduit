@@ -831,6 +831,25 @@ void main() {
         check(completion.runs).equals(0);
       },
     );
+
+    test('one parked on a refusal holds up no later work', () async {
+      await seedServerChat('c1');
+      final delete = await enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: 'c1',
+        payload: {
+          kDeleteMessagesIdsKey: ['a1'],
+        },
+      );
+      await dao.markParked(delete, error: 'deleteChatMessages forbidden');
+      await enqueue(kind: OutboxKind.updateChat, chatId: 'c1');
+
+      await buildDrainer().drain();
+
+      check(client.calls).deepEquals(['updateChat:c1']);
+      check(await dao.pendingForChat('c1')).isEmpty();
+      check((await dao.opBySeq(delete))!.status).equals(OutboxStatus.failed);
+    });
   });
 
   group('offline handling', () {

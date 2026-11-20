@@ -142,14 +142,39 @@ class OutboxDrainer {
         data: {'count': reclaimed},
       );
     }
+    await _rearmRecoverableParked();
   }
 
   /// Connectivity regained: reset backoff on every pending op (next attempt =
-  /// now) so they re-run immediately, then drain (A6/A7).
+  /// now) so they re-run immediately, re-arm the parked ops that can go
+  /// again, then drain (A6/A7).
   Future<void> onConnectivityRegained() async {
     final now = _clock.nowEpochSeconds();
     await _db.outboxDao.resetBackoffForPending(nowEpochSeconds: now);
+    // A first drain re-arms them itself.
+    if (_recovered) await _rearmRecoverableParked();
     await drain();
+  }
+
+  /// Asks each adapter that can ([ParkedOpRecovery]) to re-arm its parked ops
+  /// that can go again. Runs once per drainer, which is once per session, and
+  /// whenever the connection returns. One that fails leaves them parked.
+  Future<void> _rearmRecoverableParked() async {
+    for (final adapter in _adapters) {
+      if (adapter is! ParkedOpRecovery) continue;
+      try {
+        await (adapter as ParkedOpRecovery).rearmRecoverable(
+          nowEpochSeconds: _clock.nowEpochSeconds(),
+        );
+      } catch (error, stack) {
+        DebugLogger.error(
+          'parked ops not re-armed',
+          scope: 'outbox/drain',
+          error: error,
+          stackTrace: stack,
+        );
+      }
+    }
   }
 
   Future<void> _runPass() async {

@@ -4,7 +4,7 @@ import 'package:drift/drift.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart'
-    show kFolderExpandedKey;
+    show OutboxKind, kFolderExpandedKey;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
@@ -412,6 +412,30 @@ class PushSync {
   ) async {
     await _client.deleteChatMessages(chatId, messageIds);
     _db.chatsDao.notePushLanded(chatId);
+  }
+
+  /// Sends again each `deleteMessages` op parked on a refusal whose chat this
+  /// session still owns ([ChatOwnershipProbe]): Open WebUI refuses a delete
+  /// whose write failed as it refuses one the session may not make. One whose
+  /// chat it can't say it owns stays parked.
+  Future<void> rearmOwnedMessageDeletes({required int nowEpochSeconds}) async {
+    final probe = switch (_client) {
+      final ChatOwnershipProbe probe => probe,
+      _ => null,
+    };
+    if (probe == null) return;
+    final owned = <String, bool>{};
+    for (final op in await _db.outboxDao.parkedOfKind(
+      OutboxKind.deleteMessages,
+    )) {
+      final chatId = op.chatId;
+      if (chatId == null) continue;
+      if (!(owned[chatId] ??= await probe.sessionOwnsChat(chatId))) continue;
+      await _db.outboxDao.requeueParked(
+        op.seq,
+        nowEpochSeconds: nowEpochSeconds,
+      );
+    }
   }
 
   // ---- folderUpsert / folderDelete (§7.6) ----

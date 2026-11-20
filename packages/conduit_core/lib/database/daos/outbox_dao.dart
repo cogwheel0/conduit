@@ -376,15 +376,10 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   /// createChat) from running — §7.2 "requestCompletion executes only after the
   /// chat's preceding ops succeeded". The manual-retry affordance
   /// ([requeueParked]) re-arms the parked head, which then unblocks its
-  /// dependents on the next claim.
+  /// dependents on the next claim. A parked op that nothing depends on
+  /// ([parkedOpHoldsUpLaterOps]) blocks nothing.
   Future<bool> _isChatHead(OutboxOp op) async {
-    final blockingStatuses = _failedPredecessorsBlock(op)
-        ? const [
-            OutboxStatus.pending,
-            OutboxStatus.inFlight,
-            OutboxStatus.failed,
-          ]
-        : const [OutboxStatus.pending, OutboxStatus.inFlight];
+    final live = [OutboxStatus.pending, OutboxStatus.inFlight];
     final predecessor =
         await (select(outboxOps)
               ..where(
@@ -394,12 +389,37 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
                         ? t.chatId.isNull()
                         : t.chatId.equals(op.chatId!)) &
                     t.seq.isSmallerThanValue(op.seq) &
-                    t.status.isIn(blockingStatuses),
+                    (_failedPredecessorsBlock(op)
+                        ? t.status.isIn(live) |
+                              (t.status.equals(OutboxStatus.failed) &
+                                  t.kind
+                                      .equals(OutboxKind.deleteMessages.name)
+                                      .not())
+                        : t.status.isIn(live)),
               )
               ..limit(1))
             .getSingleOrNull();
     return predecessor == null;
   }
+
+  /// Whether a parked op of [kind] holds up the later ops of its chat. A
+  /// held answer's delete does not: a pull and a push leave that answer out
+  /// while its delete waits, parked or not, and nothing after it needs it
+  /// gone from the server. It is sent again once the session is found to
+  /// still own the chat (`PushSync.rearmOwnedMessageDeletes`).
+  static bool parkedOpHoldsUpLaterOps(String kind) =>
+      kind != OutboxKind.deleteMessages.name;
+
+  /// The parked ops of [kind], oldest first.
+  Future<List<OutboxOp>> parkedOfKind(OutboxKind kind) =>
+      (select(outboxOps)
+            ..where(
+              (t) =>
+                  t.kind.equals(kind.name) &
+                  t.status.equals(OutboxStatus.failed),
+            )
+            ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+          .get();
 
   bool _failedPredecessorsBlock(OutboxOp op) {
     return switch (OutboxKind.fromName(op.kind)) {

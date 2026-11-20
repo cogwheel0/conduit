@@ -57,6 +57,14 @@ class SyncListItem {
   final bool skip;
 }
 
+/// A [SyncEntityAdapter] whose parked ops can be worth sending again once
+/// what refused them has passed.
+abstract interface class ParkedOpRecovery {
+  /// Re-arms each of this adapter's parked ops that can now go
+  /// ([OutboxDao.requeueParked]).
+  Future<void> rearmRecoverable({required int nowEpochSeconds});
+}
+
 /// The honest shared surface of the two real sync entities — chats and notes
 /// (CDT-RFC-001 Phase 5). Extracted AFTER both concrete impls existed, per the
 /// design's "lift from the two real adapters, never speculatively" rule.
