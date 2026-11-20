@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/utils/list_loads.dart';
 import 'package:test/test.dart';
@@ -8,16 +10,17 @@ void main() {
     () async {
       final loads = ListLoads();
       final older = loads.start();
-      var settled = false;
-      loads.settled().then((_) => settled = true);
+      final settled = loads.settled();
+      var done = false;
+      unawaited(settled.then((_) => done = true));
 
       final newer = loads.start();
       await pumpEventQueue();
-      check(settled).isFalse();
+      check(done).isFalse();
       newer.finish();
-      await pumpEventQueue();
 
-      check(settled).isTrue();
+      // The older read is still under way.
+      await settled;
       older.finish();
     },
   );
