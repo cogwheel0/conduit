@@ -289,6 +289,7 @@ pub fn error_title(kind: &str, l10n: &L10n) -> String {
         "session" => l10n.hermes_error_session(),
         "busy" => l10n.hermes_error_busy(),
         "gateway" => l10n.hermes_error_gateway(),
+        "gatewaySignIn" => l10n.hermes_error_gateway_sign_in(),
         "disk" => l10n.hermes_error_disk(),
         _ => l10n.hermes_error_unknown(),
     }
@@ -297,7 +298,7 @@ pub fn error_title(kind: &str, l10n: &L10n) -> String {
 fn error_icon(kind: &str) -> IconName {
     match kind {
         "endpoint" | "connection" => IconName::CloudOff,
-        "auth" => IconName::KeyRound,
+        "auth" | "gatewaySignIn" => IconName::KeyRound,
         "billing" | "usageLimit" | "freeTier" => IconName::CircleSlash,
         "rateLimit" | "busy" => IconName::Timer,
         "contextOverflow" => IconName::Layers,
@@ -544,6 +545,7 @@ mod tests {
     fn every_kind_has_words_and_an_action_needs_what_it_opens() {
         let l10n = L10n::new("en");
         assert_eq!(error_title("rateLimit", &l10n), "Rate limit reached");
+        assert_eq!(error_title("gatewaySignIn", &l10n), "Signed out of Hermes");
         assert_eq!(
             error_title("something-new", &l10n),
             l10n.hermes_error_unknown()
