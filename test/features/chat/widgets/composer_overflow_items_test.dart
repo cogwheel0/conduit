@@ -122,21 +122,23 @@ void main() {
     expect(action.stateLabel, l10n.switchOnLabel);
   });
 
-  test("the tools and terminals the user's devices offer are grouped as "
-      'Your devices', () {
+  test('iOS rows say whether they toggle or run a command, with localized '
+      "section headings, and group what the user's devices offer", () {
     // As Open WebUI 0.13.4 lists what a Tether device offers.
     const device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
     final actions = buildIosKeyboardAttachmentActions(
       l10n: l10n,
-      attachmentAvailability: const ComposerOverflowAttachmentAvailability(),
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+      ),
       hermesMode: false,
       directMode: false,
-      webSearchAvailable: false,
+      webSearchAvailable: true,
       webSearchEnabled: false,
       imageGenerationAvailable: false,
       imageGenerationEnabled: false,
       availableTools: const [
-        Tool(id: 'weather', name: 'Weather'),
+        Tool(id: 'calc', name: 'Calculator'),
         Tool(
           id: 'server:tether:$device:garage_tools',
           name: 'Studio Mac · Garage tools',
@@ -146,6 +148,8 @@ void main() {
       selectedToolIds: const [],
       availableFilters: const [],
       selectedFilterIds: const [],
+      toolSettingsAvailable: true,
+      compareModelsAvailable: true,
       connections: ComposerPersonalConnections(
         owner: const ComposerConnectionsOwner(),
         terminals: [
@@ -165,42 +169,6 @@ void main() {
           ),
         ],
       ),
-    );
-
-    Map<String, String> sections(String sectionKey) => {
-      for (final action in actions)
-        if (action.section == sectionKey) action.label: action.sectionTitle!,
-    };
-    expect(sections('tools'), {
-      'Weather': l10n.tools,
-      'Shared box': l10n.tools,
-    });
-    expect(sections('devices'), {
-      'Studio Mac · Garage tools': l10n.composerYourDevices,
-      'Studio Mac · Notes': l10n.composerYourDevices,
-      'Studio Mac': l10n.composerYourDevices,
-    });
-  });
-
-  test('iOS rows say whether they toggle or run a command, with localized '
-      'section headings', () {
-    final actions = buildIosKeyboardAttachmentActions(
-      l10n: l10n,
-      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
-        file: true,
-      ),
-      hermesMode: false,
-      directMode: false,
-      webSearchAvailable: true,
-      webSearchEnabled: false,
-      imageGenerationAvailable: false,
-      imageGenerationEnabled: false,
-      availableTools: const [Tool(id: 'calc', name: 'Calculator')],
-      selectedToolIds: const [],
-      availableFilters: const [],
-      selectedFilterIds: const [],
-      toolSettingsAvailable: true,
-      compareModelsAvailable: true,
     );
     IosKeyboardAttachmentActionConfig byId(String id) =>
         actions.singleWhere((action) => action.id == id);
@@ -239,6 +207,18 @@ void main() {
       webSearch.toPlatform().kind,
       PlatformKeyboardAttachmentActionKind.toggle,
     );
+
+    Map<String, String> sections(String sectionKey) => {
+      for (final action in actions)
+        if (action.section == sectionKey) action.label: action.sectionTitle!,
+    };
+    expect(sections('devices'), {
+      'Studio Mac · Garage tools': l10n.composerYourDevices,
+      'Studio Mac · Notes': l10n.composerYourDevices,
+      'Studio Mac': l10n.composerYourDevices,
+    });
+    expect(sections('tools'), containsPair('Shared box', l10n.tools));
+    expect(sections('tools'), containsPair('Calculator', l10n.tools));
   });
 
   test('iOS action configuration keeps direct and Hermes restrictions', () {
