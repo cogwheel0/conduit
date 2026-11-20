@@ -189,6 +189,20 @@ class FakeStreamSocket implements SocketService {
 
   void emitReconnect() => _reconnects.add(null);
 
+  final List<Map<String, dynamic>> _bufferedChatEvents = [];
+
+  /// Holds a frame that arrives before any chat handler exists. The next
+  /// handler gets it as it registers, as SocketService replays a chat's
+  /// buffered frames.
+  void bufferChatEvent(
+    String type,
+    Object? payload, {
+    String? messageId,
+    String? sessionId,
+  }) => _bufferedChatEvents.add(
+    _event(type, payload, messageId, sessionId, null),
+  );
+
   void emitChatEvent(
     String type,
     Object? payload, {
@@ -244,6 +258,11 @@ class FakeStreamSocket implements SocketService {
   }) {
     _chatHandler = handler;
     _lastChatHandler = handler;
+    final buffered = List.of(_bufferedChatEvents);
+    _bufferedChatEvents.clear();
+    for (final event in buffered) {
+      handler(event, null);
+    }
     return SocketEventSubscription(() {
       chatSubscriptionDisposeCount++;
       _chatHandler = null;

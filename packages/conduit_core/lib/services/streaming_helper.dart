@@ -4454,9 +4454,15 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // Register socket handlers directly. Events buffered before registration
   // are replayed synchronously via addChatEventHandler's built-in replay.
   if (socketService != null && !localResourcesDisposed) {
+    // The replay is checked against the stream's session, so take the
+    // socket's current one first: frames it buffered since it reconnected
+    // carry that one.
+    if (session.transport == ChatCompletionTransport.taskSocket) {
+      reconcileStreamSession();
+    }
     final chatSub = socketService.addChatEventHandler(
       conversationId: activeConversationId,
-      sessionId: sessionId,
+      sessionId: currentStreamSessionId,
       messageId: assistantMessageId,
       requireFocus: false,
       keepsAliveInBackground: true,
@@ -4477,7 +4483,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
       final channelSub = socketService.addChannelEventHandler(
         conversationId: activeConversationId,
-        sessionId: sessionId,
+        sessionId: currentStreamSessionId,
         requireFocus: false,
         handler: channelEventsHandler,
       );

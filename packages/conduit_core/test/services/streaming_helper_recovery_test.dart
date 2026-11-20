@@ -740,6 +740,34 @@ void main() {
       });
     });
 
+    test('a frame the socket buffered on its new session before the stream '
+        'attached is kept', () {
+      fakeAsync((async) {
+        final server = FakeChatServer([stillStreaming()]);
+        final socket = FakeStreamSocket()
+          ..setTransport(sessionId: 'sess-2')
+          ..bufferChatEvent(
+            'chat:completion',
+            {
+              'choices': [
+                {
+                  'delta': {'content': 'Early '},
+                },
+              ],
+            },
+            messageId: 'msg-1',
+            sessionId: 'sess-2',
+          );
+        final (:log, stream: _) = attachTaskSocketStream(
+          api: fakeApi(server),
+          socket: socket,
+        );
+        async.flushMicrotasks();
+        emitDeltaOnSession(socket, 'words.', 'sess-2');
+        check(log.reply.content).equals('Early words.');
+      });
+    });
+
     test('a failed poll is not retried while the transport is let go, and '
         'polling resumes when it may be kept again', () {
       fakeAsync((async) {
