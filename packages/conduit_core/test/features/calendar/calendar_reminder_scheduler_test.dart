@@ -149,7 +149,11 @@ class _Harness {
   void restart() {
     scheduler = CalendarReminderScheduler(
       notifications: notifications,
-      settings: () => (enabled: enabled, playSound: playSound),
+      settings: () => (
+        enabled: enabled,
+        accountEnabled: accountEnabled,
+        playSound: playSound,
+      ),
       account: () => account,
       access: () => access,
       fetchAgenda: (start, end) async {
@@ -170,7 +174,12 @@ class _Harness {
   late CalendarReminderScheduler scheduler;
   DateTime now = _now;
   void Function()? onFetch;
+
+  /// The device's switches: System Notifications and Calendar Reminders.
   bool enabled = true;
+
+  /// The active account's own notifications switch.
+  bool accountEnabled = true;
   bool playSound = true;
   CalendarReminderAccount? account = (scope: _scope, userId: _me);
   bool? access = true;
@@ -353,6 +362,25 @@ void main() {
       check(h.fetches).equals(1);
     });
 
+    test('an account with notifications off unschedules only its own '
+        'reminders', () async {
+      final h = _Harness()..agenda = [_event('a')];
+      await h.sync();
+
+      h
+        ..account = (scope: _otherScope, userId: _me)
+        ..accountEnabled = false;
+      await h.sync();
+
+      check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
+
+      h.account = (scope: _scope, userId: _me);
+      await h.sync();
+
+      check(h.notifications.keysIn(_scope)).isEmpty();
+      check(h.fetches).equals(1);
+    });
+
     test('keeps the reminders while calendar access is unknown, and drops '
         'them once it is off', () async {
       final h = _Harness()..agenda = [_event('a')];
@@ -396,7 +424,7 @@ void main() {
       h.agenda = [_event('a')];
       final scheduler = CalendarReminderScheduler(
         notifications: h.notifications,
-        settings: () => (enabled: true, playSound: true),
+        settings: () => (enabled: true, accountEnabled: true, playSound: true),
         account: () => h.account,
         access: () => true,
         fetchAgenda: (start, end) async {

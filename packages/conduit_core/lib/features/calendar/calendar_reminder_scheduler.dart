@@ -23,8 +23,14 @@ const Duration _dueMargin = Duration(seconds: 5);
 /// The signed-in account a sync schedules reminders for.
 typedef CalendarReminderAccount = ({String scope, String userId});
 
-/// What a sync needs to know about the app when it runs.
-typedef CalendarReminderSettings = ({bool enabled, bool playSound});
+/// What a sync needs to know about the app when it runs: whether the device
+/// lets reminders through ([enabled]), whether the active account's own
+/// notifications are on ([accountEnabled]), and that account's sound setting.
+typedef CalendarReminderSettings = ({
+  bool enabled,
+  bool accountEnabled,
+  bool playSound,
+});
 
 /// A calendar reminder the device has scheduled, read back from its payload.
 ///
@@ -256,6 +262,10 @@ class CalendarReminderScheduler {
     }
     final account = _account();
     if (account == null) return;
+    if (!settings.accountEnabled) {
+      await _cancelScheduled(account.scope);
+      return;
+    }
     final access = _access();
     if (access == null) return;
     if (!access) {

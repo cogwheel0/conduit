@@ -52,20 +52,19 @@ part 'calendar_reminder_scheduler.g.dart';
   );
 }
 
+/// System Notifications and Calendar Reminders are the device's own switches;
+/// the master switch and Sound are the active account's.
+CalendarReminderSettings _reminderSettings(AppSettings app) => (
+  enabled: app.notificationSystem && app.notificationCalendarEnabled,
+  accountEnabled: app.notificationsEnabled,
+  playSound: app.notificationSound,
+);
+
 @Riverpod(keepAlive: true)
 CalendarReminderScheduler calendarReminderScheduler(Ref ref) {
   final scheduler = CalendarReminderScheduler(
     notifications: ref.read(localNotificationServiceProvider),
-    settings: () {
-      final app = ref.read(appSettingsProvider);
-      return (
-        enabled:
-            app.notificationsEnabled &&
-            app.notificationSystem &&
-            app.notificationCalendarEnabled,
-        playSound: app.notificationSound,
-      );
-    },
+    settings: () => _reminderSettings(ref.read(appSettingsProvider)),
     account: () {
       final accountId = ref.read(settledActiveAccountIdProvider);
       final user = ref.read(currentUserProvider2);
@@ -101,15 +100,7 @@ CalendarReminderScheduler calendarReminderScheduler(Ref ref) {
 
   // Turning reminders on or off, or a sound change, applies right away.
   ref.listen<CalendarReminderSettings>(
-    appSettingsProvider.select(
-      (app) => (
-        enabled:
-            app.notificationsEnabled &&
-            app.notificationSystem &&
-            app.notificationCalendarEnabled,
-        playSound: app.notificationSound,
-      ),
-    ),
+    appSettingsProvider.select(_reminderSettings),
     (_, _) => resync(),
   );
   // Another account, or the calendar becoming available or going away.
