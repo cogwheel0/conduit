@@ -350,6 +350,16 @@ class _WireCompletionApi extends ApiService implements _AssistantIdSource {
   /// When set, `/api/chat/completions` refuses with this status and detail.
   ({int status, String detail})? completionRefusal;
 
+  /// When set, how the server answers a message's delete: 405 for a server
+  /// before that route.
+  int? messageDeleteStatus;
+
+  /// When set, the chat `/api/v1/chats/{id}` reads and saves.
+  Map<String, dynamic>? chatBody;
+
+  /// Runs while the server is answering a read of [chatBody].
+  void Function()? duringChatRead;
+
   @override
   String? get assistantMessageId =>
       completionBodies.isEmpty ? null : completionBodies.last['id'] as String?;
@@ -420,6 +430,17 @@ class _WireAdapter implements HttpClientAdapter {
           'detail': 'Method Not Allowed',
         }, status: status),
       };
+    }
+    final deleteStatus = api.messageDeleteStatus;
+    if (deleteStatus != null &&
+        options.method == 'DELETE' &&
+        options.path.contains('/messages/')) {
+      return _json(true, status: deleteStatus);
+    }
+    final chat = api.chatBody;
+    if (chat != null && options.path == '/api/v1/chats/${chat['id']}') {
+      if (options.method == 'GET') api.duringChatRead?.call();
+      return _json(chat);
     }
     final refusal = api.completionRefusal;
     if (refusal != null && options.path == '/api/chat/completions') {
@@ -582,8 +603,9 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
   @override
   Future<void> deleteConversationMessage(
     String conversationId,
-    String messageId,
-  ) async {
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     if (deleteFailures.isNotEmpty) throw deleteFailures.removeAt(0);
     deletedMessages.add('$conversationId/$messageId');
   }
@@ -3368,6 +3390,95 @@ void main() {
       check(shown.map((m) => m.id).toList()).deepEquals([userId]);
       check(shown.single.isHeldByServer).isTrue();
       check(api.deletedMessages).deepEquals(['$chatId/$placeholder']);
+    });
+
+    Future<ProviderContainer> openOnWire(_WireCompletionApi api) async {
+      await seedTurn();
+      api.updateAuthToken('account-a-token');
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('its empty answer is deleted only as the sending account', () async {
+      final api = _WireCompletionApi(keepAuthInterceptor: true)
+        ..messageDeleteStatus = 200;
+      final container = await openOnWire(api);
+      final owner = captureOpenWebUiCompletionOwner(container, chatId: chatId);
+
+      final settling = settleHeldOpenWebUiCompletion(
+        container,
+        api: api,
+        owner: owner,
+        questionId: userId,
+        assistantMessageIds: const [assistantId],
+      );
+      // Another account signs in while the answer is marked held.
+      api.updateAuthToken('account-b-token');
+      await settling;
+
+      check(api.credentials).isEmpty();
+      check(await heldDeletes()).deepEquals([
+        [assistantId],
+      ]);
+    });
+
+    test('on a server without the message delete, the chat is rewritten only '
+        'as the sending account', () async {
+      final api = _WireCompletionApi(keepAuthInterceptor: true)
+        ..messageDeleteStatus = 405
+        ..chatBody = <String, dynamic>{
+          'id': chatId,
+          'chat': <String, dynamic>{
+            'history': <String, dynamic>{
+              'currentId': assistantId,
+              'messages': <String, dynamic>{
+                userId: <String, dynamic>{
+                  'id': userId,
+                  'parentId': null,
+                  'childrenIds': <String>[assistantId],
+                  'role': 'user',
+                  'content': 'Say the word: heron',
+                },
+                assistantId: <String, dynamic>{
+                  'id': assistantId,
+                  'parentId': userId,
+                  'childrenIds': <String>[],
+                  'role': 'assistant',
+                  'content': '',
+                },
+              },
+            },
+          },
+        };
+      final container = await openOnWire(api);
+      final owner = captureOpenWebUiCompletionOwner(container, chatId: chatId);
+      // Another account signs in while the chat is read for the rewrite.
+      api.duringChatRead = () => api.updateAuthToken('account-b-token');
+
+      await settleHeldOpenWebUiCompletion(
+        container,
+        api: api,
+        owner: owner,
+        questionId: userId,
+        assistantMessageIds: const [assistantId],
+      );
+
+      check(api.credentials.map((request) => request.authorization))
+          .deepEquals(['Bearer account-a-token', 'Bearer account-a-token']);
+      check(await heldDeletes()).deepEquals([
+        [assistantId],
+      ]);
     });
   });
 

@@ -677,9 +677,13 @@ abstract class _ApiServiceBase {
   /// a local message list, preserving server-only history fields.
   Future<void> _deleteConversationMessageByHistoryRewrite(
     String conversationId,
-    String messageId,
-  ) async {
-    final response = await _dio.get('/api/v1/chats/$conversationId');
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/$conversationId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
     final rawConversation = _coerceJsonMap(response.data);
     final rawChat = _coerceJsonMap(rawConversation?['chat']);
     if (rawConversation == null || rawChat == null) {
@@ -724,7 +728,11 @@ abstract class _ApiServiceBase {
     }
     chat['history'] = history;
 
-    await _dio.post('/api/v1/chats/$conversationId', data: {'chat': chat});
+    await _dio.post(
+      '/api/v1/chats/$conversationId',
+      data: {'chat': chat},
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
   }
 
   Future<void> _persistLegacyPendingTurn({

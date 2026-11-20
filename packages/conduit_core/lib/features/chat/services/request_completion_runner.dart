@@ -114,6 +114,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       api: ownedConversationSession.api,
       authSessionEpoch: ownedConversationSession.authSessionEpoch,
       contextWasCoherent: true,
+      authSnapshot: ownedConversationSession.api?.captureAuthSnapshot(),
     );
 
     void requireCurrentConversationOwner() {

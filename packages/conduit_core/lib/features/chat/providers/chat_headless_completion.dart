@@ -708,7 +708,13 @@ Future<void> settleHeldOpenWebUiCompletion(
       }
       api.endSend(id);
       try {
-        await api.deleteConversationMessage(owner.chatId, id);
+        // As the owner's session: one that replaced it meanwhile refuses it
+        // unsent, and the delete waits in the outbox as one that failed.
+        await api.deleteConversationMessage(
+          owner.chatId,
+          id,
+          authSnapshot: owner.authSnapshot,
+        );
       } catch (error) {
         // Already gone, with its chat.
         if (error is! DioException || error.response?.statusCode != 404) {
