@@ -11,6 +11,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -188,6 +189,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   static const int _emptyTranscriptMaxDelayMs = 2000;
   static const Duration _backgroundKeepAliveInterval = Duration(minutes: 5);
 
+  /// How long the end of a reply still counts as echo once it has played. A
+  /// recognizer finalizes an utterance after a pause: iOS 1.2 s after the
+  /// last word, Android after its own end-of-speech silence of up to about
+  /// 2 s, and the result then has to arrive.
+  static const Duration _finishedReplyEchoWindow = Duration(seconds: 3);
+
   Future<void> _serial = Future<void>.value();
   int _token = 0;
   int _stopRequestGeneration = 0;
@@ -261,6 +268,11 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
   bool _usesOpenWebUiTransport = false;
   List<String> _assistantSpeechChunks = const <String>[];
   int _activeAssistantSpeechChunkIndex = -1;
+
+  /// The last chunks of a reply the recognizer heard play out, and when they
+  /// stop counting as its echo.
+  List<String> _finishedReplyChunks = const <String>[];
+  DateTime? _finishedReplyEchoUntil;
   RealtimeCallBlock? _realtimeBlock;
   bool _realtimeAudioMissing = false;
 
@@ -1220,7 +1232,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           }
         case TtsCompleted():
           if (_assistantFinalized && _awaitingAssistant) {
-            _inBackground(_resumeAfterAssistantSpeech(token), 'resume');
+            _inBackground(
+              _resumeAfterAssistantSpeech(token, playedOut: true),
+              'resume',
+            );
           }
         case TtsCancelled():
           break;
@@ -1234,7 +1249,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           // mode active with no way to accept the next utterance.
           if (_awaitingAssistant) {
             _assistantFinalized = true;
-            _inBackground(_resumeAfterAssistantSpeech(token), 'resume');
+            _inBackground(
+              _resumeAfterAssistantSpeech(token, playedOut: false),
+              'resume',
+            );
           }
         case TtsPaused():
         case TtsResumed():
@@ -1600,8 +1618,18 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           _pendingFinalTranscripts.clear();
           return;
         }
-        if (assistantActive && _isEchoOfSpeech(transcript)) {
-          DebugLogger.info('barge-in-echo-ignored', scope: 'chat/voice_mode');
+        if (assistantActive
+            ? _isEchoOfSpeech(transcript)
+            : _isEchoOfFinishedReply(transcript)) {
+          DebugLogger.info(
+            'barge-in-echo-ignored',
+            scope: 'chat/voice_mode',
+            data: {'afterPlayback': !assistantActive},
+          );
+          if (!assistantActive && _currentTranscript.trim() == transcript) {
+            _currentTranscript = '';
+            state = state.copyWith(transcript: '');
+          }
         } else {
           if (assistantActive) {
             await _interruptAssistantForBargeIn(token);
@@ -1632,8 +1660,36 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     final index = _activeAssistantSpeechChunkIndex;
     final chunks = _assistantSpeechChunks;
     if (index < 0 || index >= chunks.length) return false;
-    final spoken = chunks.sublist(index > 0 ? index - 1 : 0, index + 1);
-    return _isEcho(_speechWords(transcript), _speechWords(spoken.join(' ')));
+    return _isEchoOf(
+      transcript,
+      chunks.sublist(index > 0 ? index - 1 : 0, index + 1),
+    );
+  }
+
+  /// Whether [transcript] is the end of the reply that just played. A
+  /// recognizer that listened through it finalizes its last sentence only
+  /// after the silence that follows, once playback has ended.
+  bool _isEchoOfFinishedReply(String transcript) {
+    final until = _finishedReplyEchoUntil;
+    if (until == null || !clock.now().isBefore(until)) {
+      _finishedReplyChunks = const <String>[];
+      _finishedReplyEchoUntil = null;
+      return false;
+    }
+    return _isEchoOf(transcript, _finishedReplyChunks);
+  }
+
+  /// Whether [transcript] reads as [spoken], the chunks just played, oldest
+  /// first. A few words could as well be the caller repeating the reply, so
+  /// they count only as the whole end of one of those chunks: an echo is
+  /// finalized after the pause that ends a sentence.
+  bool _isEchoOf(String transcript, List<String> spoken) {
+    final heard = _speechWords(transcript);
+    if (heard.isEmpty) return false;
+    if (heard.length <= _shortEchoWords) {
+      return spoken.any((chunk) => _endsWithWords(_speechWords(chunk), heard));
+    }
+    return _isEcho(heard, _speechWords(spoken.join(' ')));
   }
 
   void _enqueuePendingFinalTranscript(String transcript) {
@@ -1731,6 +1787,8 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
       _activeAssistantMessageId = null;
       _assistantSpeechChunks = const <String>[];
       _activeAssistantSpeechChunkIndex = -1;
+      _finishedReplyChunks = const <String>[];
+      _finishedReplyEchoUntil = null;
 
       state = state.copyWith(
         phase: ChatVoiceModePhase.sending,
@@ -1962,7 +2020,10 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     await tts.feedStreamingText(pendingText);
   }
 
-  Future<void> _resumeAfterAssistantSpeech(int token) async {
+  Future<void> _resumeAfterAssistantSpeech(
+    int token, {
+    required bool playedOut,
+  }) async {
     if (!_isCurrent(token) || !_awaitingAssistant) {
       return;
     }
@@ -1973,6 +2034,15 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _lastSubmittedTranscript = null;
     _activeAssistantMessageId = null;
     _lastFedAssistantText = '';
+    // Barge-in keeps the recognizer listening through playback, so the end
+    // of the reply can still come back as a transcript.
+    final heardReply = _transcriptSub != null && _voiceInput!.isListening;
+    _finishedReplyChunks = heardReply
+        ? _lastSpokenChunks(playedOut: playedOut)
+        : const <String>[];
+    _finishedReplyEchoUntil = heardReply
+        ? clock.now().add(_finishedReplyEchoWindow)
+        : null;
     _assistantSpeechChunks = const <String>[];
     _activeAssistantSpeechChunkIndex = -1;
     _assistantMessageIdsBeforeTurn = <String>{};
@@ -2351,6 +2421,19 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     _sendingTranscript = false;
     _assistantSpeechChunks = const <String>[];
     _activeAssistantSpeechChunkIndex = -1;
+    _finishedReplyChunks = const <String>[];
+    _finishedReplyEchoUntil = null;
+  }
+
+  /// The last two chunks played: the reply's last two once it [playedOut],
+  /// or up to the one that was playing when it stopped.
+  List<String> _lastSpokenChunks({required bool playedOut}) {
+    final chunks = _assistantSpeechChunks;
+    final index = _activeAssistantSpeechChunkIndex;
+    final end = playedOut || index < 0 || index >= chunks.length
+        ? chunks.length
+        : index + 1;
+    return chunks.sublist(math.max(0, end - 2), end);
   }
 
   void _replaceSocketBackgroundLease(SocketService? socket) {
@@ -2522,6 +2605,19 @@ List<String> _speechWords(String text) => _speechWordPattern
     .allMatches(text.toLowerCase())
     .map((match) => match[0]!.replaceAll('’', "'"))
     .toList(growable: false);
+
+/// Transcripts this short count as echo only as the end of a chunk.
+const _shortEchoWords = 3;
+
+/// Whether [words] ends with [tail].
+bool _endsWithWords(List<String> words, List<String> tail) {
+  if (tail.length > words.length) return false;
+  final offset = words.length - tail.length;
+  for (var i = 0; i < tail.length; i++) {
+    if (words[offset + i] != tail[i]) return false;
+  }
+  return true;
+}
 
 /// Whether [heard] reads as a run of [spoken]: one word in four may be
 /// misheard, dropped or added, as a recognizer does with speech it hears
