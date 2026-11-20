@@ -3571,6 +3571,108 @@ void main() {
       check(shown.single.isHeldByServer).isTrue();
     });
 
+    // Another hold of the question left its empty answer stored, and it is
+    // no answer: the turn's own record names it, or its mark and its delete
+    // still to land say so.
+    for (final (label, named) in [
+      ('the turn\'s record', true),
+      ('its own mark and delete', false),
+    ]) {
+      test('a held turn\'s retry takes another hold\'s empty answer, known by '
+          '$label, for no answer', () async {
+        const otherHold = 'other-hold';
+        await seedTurn();
+        await (db.update(db.messages)..where((t) => t.id.equals(assistantId)))
+            .write(const MessagesCompanion(parentId: Value(userId)));
+        await db
+            .into(db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: otherHold,
+                chatId: chatId,
+                role: 'assistant',
+                content: '',
+                parentId: const Value(userId),
+                createdAt: 2,
+                orderIndex: 2,
+                payload: jsonEncode(<String, dynamic>{
+                  'id': otherHold,
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 2,
+                  if (!named)
+                    'metadata': <String, dynamic>{
+                      'completionSubmitted': true,
+                      'completionHeld': true,
+                    },
+                }),
+              ),
+            );
+        if (!named) {
+          await db.outboxDao.enqueue(
+            kind: OutboxKind.deleteMessages,
+            chatId: chatId,
+            payload: {
+              kDeleteMessagesIdsKey: [otherHold],
+            },
+          );
+        }
+        await (db.update(db.chats)..where((t) => t.id.equals(chatId))).write(
+          const ChatsCompanion(currentMessageId: Value(otherHold)),
+        );
+        // The turn as its hold recorded it, its settle unfinished.
+        final seq = await db.outboxDao.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: chatId,
+          payload: {
+            ...const RequestCompletionPayload(
+              assistantMessageId: assistantId,
+              model: 'model-1',
+            ).toJson(),
+            'held': true,
+            'heldQuestionId': userId,
+            if (named) 'heldEarlierIds': [otherHold],
+          },
+        );
+        final api = _GatedCompletionApi(Completer<void>());
+        final messages = <ChatMessage>[
+          _user(userId, 'Say the word: heron'),
+          _streamingAssistant(assistantId, ''),
+        ];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _NoDrainSyncEngine(db, api),
+        );
+        addTearDown(container.dispose);
+        final runner = container.read(
+          Provider<RequestCompletionRunner>(
+            (ref) => ChatRequestCompletionRunner(ref),
+          ),
+        );
+
+        await runner.run(
+          chatId: chatId,
+          payload: jsonDecode(
+            (await db.outboxDao.opBySeq(seq))!.payload,
+          ) as Map<String, dynamic>,
+        );
+
+        check(api.completionCalls).equals(0);
+        check((await storedMessage(userId))!['meta'])
+            .isA<Map>()
+            .deepEquals({'status': 'pending'});
+        check(await storedMessage(otherHold)).isNull();
+        check((await db.chatsDao.getChat(chatId))!.currentMessageId)
+            .equals(userId);
+        final shown = container.read(chatMessagesProvider);
+        check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+        check(shown.single.isHeldByServer).isTrue();
+      });
+    }
+
     test('an empty answer deleted on the server at once lands as a push: a '
         'copy read before it does not bring it back', () async {
       await seedTurn();

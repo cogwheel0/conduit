@@ -138,6 +138,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
           assistantMessageId,
           ...?decoded.comparison?.slots.map((slot) => slot.assistantMessageId),
         },
+        earlierHoldIds: decoded.heldEarlierIds,
       );
       return;
     }

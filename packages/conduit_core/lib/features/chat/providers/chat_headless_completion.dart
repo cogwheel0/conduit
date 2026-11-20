@@ -686,9 +686,10 @@ Future<void> runHeadlessCompletion(
 /// shown waiting.
 ///
 /// [earlierHoldIds] are the empty answers an earlier hold of the question
-/// left, which a regeneration of it hid: they leave the transcript too.
-/// Those and [assistantMessageIds] are the only answers the settle takes
-/// the question to have ([ChatsDao.settleHeldTurn]).
+/// left, which a regeneration of it hid. Those, any others the stored chat
+/// knows as a hold's, and [assistantMessageIds] are the only answers the
+/// settle takes the question to have ([ChatsDao.settleHeldTurn]), and they
+/// all leave the transcript.
 Future<void> settleHeldOpenWebUiCompletion(
   dynamic ref, {
   required Object? api,
@@ -713,6 +714,7 @@ Future<void> settleHeldOpenWebUiCompletion(
         owner.chatId,
         questionId: questionId,
         assistantMessageIds: answerIds,
+        earlierHoldIds: earlierHolds,
       );
     });
   } catch (error, stackTrace) {
@@ -727,6 +729,7 @@ Future<void> settleHeldOpenWebUiCompletion(
   }
   final unsent = <String>[];
   var answeredMeanwhile = false;
+  var removed = <String>{...answerIds, ...earlierHolds};
   try {
     for (final id in answerIds) {
       if (api is! ApiService) {
@@ -759,15 +762,16 @@ Future<void> settleHeldOpenWebUiCompletion(
       database?.chatsDao.notePushLanded(owner.chatId);
     }
     await locks.runExclusive(owner.chatId, () async {
-      answeredMeanwhile =
-          await database?.chatsDao.settleHeldTurn(
-            owner.chatId,
-            questionId: questionId,
-            assistantMessageIds: answerIds,
-            earlierHoldIds: earlierHolds,
-            unsentServerDeletes: unsent,
-          ) ??
-          false;
+      final settled = await database?.chatsDao.settleHeldTurn(
+        owner.chatId,
+        questionId: questionId,
+        assistantMessageIds: answerIds,
+        earlierHoldIds: earlierHolds,
+        unsentServerDeletes: unsent,
+      );
+      if (settled == null) return;
+      answeredMeanwhile = settled.answeredMeanwhile;
+      removed = settled.removed;
     });
   } catch (error) {
     if (heldRecorded) rethrow;
@@ -801,17 +805,14 @@ Future<void> settleHeldOpenWebUiCompletion(
     notifier.removeMessageById(id);
   }
   if (questionId != null) {
-    // A regenerated answer's earlier one, kept hidden in the transcript while
-    // the new one runs: the held question ends the chat now, as it does in
-    // the stored copy.
+    // Another hold's empty answer, such as a regenerated answer's earlier one
+    // kept hidden while the new one ran: the held question ends the chat now,
+    // as it does in the stored copy.
     final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
     final at = shown.indexWhere((m) => m.id == questionId);
     if (at >= 0) {
       for (final later in shown.skip(at + 1).toList()) {
-        if (_isArchivedAssistantVariant(later) &&
-            earlierHolds.contains(later.id)) {
-          notifier.removeMessageById(later.id);
-        }
+        if (removed.contains(later.id)) notifier.removeMessageById(later.id);
       }
     }
     if (answeredMeanwhile) return;

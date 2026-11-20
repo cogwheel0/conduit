@@ -1899,6 +1899,33 @@ void main() {
       });
     });
 
+    test('its record keeps the earlier holds its retry takes for no '
+        'answer', () async {
+      await seedHeldTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: const RequestCompletionPayload(
+          assistantMessageId: 'a1',
+          model: 'model-1',
+        ).toJson(),
+      );
+
+      await db.chatsDao.recordHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        earlierHoldIds: ['a0', 'a1'],
+      );
+
+      final op = (await db.outboxDao.pendingForChat('c1'))
+          .firstWhere((op) => op.kind == OutboxKind.requestCompletion.name);
+      check(RequestCompletionPayload.fromJson(jsonDecode(op.payload)))
+        ..has((p) => p.held, 'held').isTrue()
+        ..has((p) => p.heldQuestionId, 'heldQuestionId').equals('u1')
+        ..has((p) => p.heldEarlierIds, 'heldEarlierIds').deepEquals(['a0']);
+    });
+
     test('a branch picked while it settles stays picked', () async {
       await seedHeldTurn();
       await (db.update(db.chats)..where((t) => t.id.equals('c1'))).write(

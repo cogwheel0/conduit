@@ -82,6 +82,7 @@ class RequestCompletionPayload {
     this.stopped = false,
     this.held = false,
     this.heldQuestionId,
+    this.heldEarlierIds = const <String>[],
   });
 
   /// The placeholder assistant message id — the SAME id used for the in-memory
@@ -131,6 +132,10 @@ class RequestCompletionPayload {
   final bool held;
   final String? heldQuestionId;
 
+  /// The empty answers an earlier hold of [heldQuestionId] left, which this
+  /// turn's settle takes for no answer either.
+  final List<String> heldEarlierIds;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'assistantMessageId': assistantMessageId,
     'model': model,
@@ -147,6 +152,7 @@ class RequestCompletionPayload {
     if (stopped) 'stopped': true,
     if (held) 'held': true,
     if (heldQuestionId != null) 'heldQuestionId': heldQuestionId,
+    if (heldEarlierIds.isNotEmpty) 'heldEarlierIds': heldEarlierIds,
   };
 
   static RequestCompletionPayload fromJson(Map<String, dynamic> json) {
@@ -178,6 +184,7 @@ class RequestCompletionPayload {
       heldQuestionId: json['heldQuestionId'] is String
           ? json['heldQuestionId'] as String
           : null,
+      heldEarlierIds: _stringList(json['heldEarlierIds']),
     );
   }
 

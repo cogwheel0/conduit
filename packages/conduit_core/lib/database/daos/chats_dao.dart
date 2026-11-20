@@ -164,6 +164,10 @@ class ServerChatBulkScope {
   bool get hasWorkTheServerLacks => unsyncedEdits > 0 || queuedResponses > 0;
 }
 
+/// What [ChatsDao.settleHeldTurn] did: whether the question was answered
+/// meanwhile, and the empty answers it removed.
+typedef HeldTurnSettle = ({bool answeredMeanwhile, Set<String> removed});
+
 /// Chat row accessor (CDT-RFC-001 §6, §7.4, §10).
 @DriftAccessor(tables: [Chats, Messages])
 class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
@@ -2074,7 +2078,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// ([settleHeldTurn]) runs: its empty answers [assistantMessageIds] are
   /// marked held ([kCompletionHeldMetadataKey]), the `requestCompletion` op
   /// that sent them only settles from now on
-  /// ([RequestCompletionPayload.held]), their delete on the server waits in a
+  /// ([RequestCompletionPayload.held]), with the [earlierHoldIds] its settle
+  /// takes for no answer either, their delete on the server waits in a
   /// `deleteMessages` op until it lands, and the question says it waits, as
   /// the server's copy does.
   ///
@@ -2088,10 +2093,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     String chatId, {
     required String? questionId,
     required Iterable<String> assistantMessageIds,
+    Iterable<String> earlierHoldIds = const <String>[],
   }) {
     return transaction(() async {
       final answerIds = assistantMessageIds.toSet();
       if (answerIds.isEmpty) return;
+      final earlier = [
+        for (final id in earlierHoldIds)
+          if (!answerIds.contains(id)) id,
+      ];
       for (final id in answerIds) {
         await attachedDatabase.messagesDao.markAssistantCompletionHeld(
           chatId: chatId,
@@ -2121,6 +2131,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
                 ...payload,
                 'held': true,
                 'heldQuestionId': ?questionId,
+                if (earlier.isNotEmpty) 'heldEarlierIds': earlier,
               }),
             ),
           ),
@@ -2216,17 +2227,19 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// Open WebUI answers the question only once nothing answers it. The
   /// others leave that op.
   ///
-  /// Its answers are only those and [earlierHoldIds], the empty ones an
-  /// earlier hold of it left, which go too: their own op deletes them on the
+  /// Its answers are only those and the empty ones another hold of it left:
+  /// [earlierHoldIds], and any the stored chat knows as a hold's
+  /// ([questionAnswers]). Those go too: their own op deletes them on the
   /// server. A question with any other child has been answered meanwhile, by
-  /// an answer a pull stored: it does not wait, and keeps that answer. True
-  /// then. Otherwise the chat's current message moves to the question only
-  /// from one of its answers, so a branch picked meanwhile stays picked.
+  /// an answer a pull stored: it does not wait, and keeps that answer
+  /// ([HeldTurnSettle.answeredMeanwhile]). Otherwise the chat's current
+  /// message moves to the question only from one of its answers, so a branch
+  /// picked meanwhile stays picked.
   ///
   /// Nothing is marked for a push. The server answers the question under new
   /// ids, and a push of this copy after that would bring the held question
   /// back for it to answer twice. Caller holds the chat lock.
-  Future<bool> settleHeldTurn(
+  Future<HeldTurnSettle> settleHeldTurn(
     String chatId, {
     required String? questionId,
     required Iterable<String> assistantMessageIds,
@@ -2236,6 +2249,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return transaction(() async {
       final answerIds = assistantMessageIds.toList(growable: false);
       final formerAnswers = <String>{...answerIds, ...earlierHoldIds};
+      if (questionId != null) {
+        final stored = await _questionAnswers(chatId, questionId);
+        formerAnswers.addAll(stored.answers.where(stored.holds.contains));
+      }
       if (formerAnswers.isNotEmpty) {
         await (delete(messages)..where(
               (t) =>
@@ -2251,13 +2268,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         unsent: unsentServerDeletes.toSet(),
       );
 
-      if (questionId == null) return false;
+      final unanswered = (answeredMeanwhile: false, removed: formerAnswers);
+      if (questionId == null) return unanswered;
       final question =
           await (select(messages)..where(
                 (t) => t.chatId.equals(chatId) & t.id.equals(questionId),
               ))
               .getSingleOrNull();
-      if (question == null) return false;
+      if (question == null) return unanswered;
       // The newest answer the server wrote meanwhile, if a pull stored one.
       final answerMeanwhile =
           (await (selectOnly(messages)
@@ -2304,7 +2322,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           ),
         );
       }
-      return answeredMeanwhile;
+      return (answeredMeanwhile: answeredMeanwhile, removed: formerAnswers);
     });
   }
 
