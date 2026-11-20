@@ -51,6 +51,17 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     return _messageById(chatId, messageId);
   }
 
+  /// The stored answers under question [questionId] of [chatId].
+  Future<List<MessageRow>> getAnswersTo(String chatId, String questionId) {
+    return (select(messages)..where(
+          (t) =>
+              t.chatId.equals(chatId) &
+              t.parentId.equals(questionId) &
+              t.role.equals('assistant'),
+        ))
+        .get();
+  }
+
   /// Loads one page from the active branch, newest-first at the SQL boundary
   /// and chronological in the returned model. A cursor starts at its parent so
   /// adjacent pages never overlap.

@@ -1760,7 +1760,7 @@ Future<Set<String>?> _heldQuestionEarlierHolds(
   }
   final database = owner.database;
   final rows =
-      await database?.messagesDao.getForChat(owner.chatId) ??
+      await database?.messagesDao.getAnswersTo(owner.chatId, questionId) ??
       const <MessageRow>[];
   final waiting =
       await database?.outboxDao.unsentMessageDeletes(owner.chatId) ??
@@ -1770,7 +1770,6 @@ Future<Set<String>?> _heldQuestionEarlierHolds(
   final storedHolds = <String>{};
   final storedAnswers = <String>[];
   for (final row in rows) {
-    if (row.parentId != questionId || row.role != 'assistant') continue;
     storedAnswers.add(row.id);
     Object? metadata;
     try {
