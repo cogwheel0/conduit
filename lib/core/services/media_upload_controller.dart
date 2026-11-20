@@ -1889,7 +1889,8 @@ class MediaUploadController {
       );
     }
 
-    var otherImageBytes = 0;
+    var settledImageBytes = 0;
+    final shrinkable = <({String path, int bytes})>[];
     for (final path in imagePaths) {
       if (path == filePath) continue;
       final attachment = imagesByPath[path];
@@ -1901,28 +1902,37 @@ class MediaUploadController {
       final bytes = preparedDataUrl != null
           ? decodedImageByteLength(
               preparedDataUrl,
-              maxDecodedBytes: kDirectMaxDecodedImageBytes - otherImageBytes,
+              maxDecodedBytes: kDirectMaxDecodedImageBytes - settledImageBytes,
             )
           : await File(path).length();
       _throwIfOperationNotActive(filePath, inflight);
-      otherImageBytes += bytes;
-      if (otherImageBytes > kDirectMaxDecodedImageBytes) {
+      if (preparedDataUrl == null &&
+          attachment != null &&
+          convertsImageToFit(attachment.fileName)) {
+        shrinkable.add((path: path, bytes: bytes));
+        continue;
+      }
+      settledImageBytes += bytes;
+      if (settledImageBytes > kDirectMaxDecodedImageBytes) {
         throw const DirectChatInputException(
           'Direct chat images must be 20 MB or less in total.',
         );
       }
     }
-    final source = await _inlineImageSource(
+    final inline = await _inlineImageSource(
       filePath,
       fileName: fileName,
-      budget: kDirectMaxDecodedImageBytes - otherImageBytes,
+      limit: kDirectMaxDecodedImageBytes,
+      settledBytes: settledImageBytes,
+      shrinkable: shrinkable,
       inflight: inflight,
     );
-    if (source == null) {
+    if (inline == null) {
       throw const DirectChatInputException(
         'Direct chat images must be 20 MB or less in total.',
       );
     }
+    final (path: source, otherBytes: otherImageBytes) = inline;
 
     final String? dataUrl;
     try {
@@ -2206,7 +2216,8 @@ class MediaUploadController {
       );
     }
 
-    var otherImageBytes = 0;
+    var settledImageBytes = 0;
+    final shrinkable = <({String path, int bytes})>[];
     for (final path in imagePaths) {
       if (path == filePath) continue;
       final attachment = imagesByPath[path];
@@ -2220,31 +2231,41 @@ class MediaUploadController {
         bytes = preparedDataUrl != null
             ? decodedImageByteLength(
                 preparedDataUrl,
-                maxDecodedBytes: kHermesMaxDecodedImageBytes - otherImageBytes,
+                maxDecodedBytes:
+                    kHermesMaxDecodedImageBytes - settledImageBytes,
               )
             : await File(path).length();
       } on DirectChatInputException catch (error) {
         throw HermesChatInputException(error.message);
       }
       _throwIfOperationNotActive(filePath, inflight);
-      otherImageBytes += bytes;
-      if (otherImageBytes > kHermesMaxDecodedImageBytes) {
+      if (preparedDataUrl == null &&
+          attachment != null &&
+          convertsImageToFit(attachment.fileName)) {
+        shrinkable.add((path: path, bytes: bytes));
+        continue;
+      }
+      settledImageBytes += bytes;
+      if (settledImageBytes > kHermesMaxDecodedImageBytes) {
         throw const HermesChatInputException(
           'Hermes images must be 6 MB or less in total.',
         );
       }
     }
-    final source = await _inlineImageSource(
+    final inline = await _inlineImageSource(
       filePath,
       fileName: fileName,
-      budget: kHermesMaxDecodedImageBytes - otherImageBytes,
+      limit: kHermesMaxDecodedImageBytes,
+      settledBytes: settledImageBytes,
+      shrinkable: shrinkable,
       inflight: inflight,
     );
-    if (source == null) {
+    if (inline == null) {
       throw const HermesChatInputException(
         'Hermes images must be 6 MB or less in total.',
       );
     }
+    final (path: source, otherBytes: otherImageBytes) = inline;
 
     final String? dataUrl;
     try {
@@ -2337,36 +2358,94 @@ class MediaUploadController {
     }
   }
 
-  /// The file [filePath], the image named [fileName], goes inline from,
-  /// with [budget] bytes of the message's images left for it: itself when it
-  /// fits, else a JPEG of it when [convertsImageToFit] allows one and it
-  /// fits, else null. Hermes and Direct measure an image before encoding it,
-  /// and a PNG is kept as picked, so a large screenshot meets their limit
-  /// here. The caller removes a JPEG made here once it is encoded.
-  Future<String?> _inlineImageSource(
+  /// The file the image at [filePath], named [fileName], goes inline from,
+  /// and what the message's other images count beside it; null when it does
+  /// not fit in [limit]. Hermes and Direct measure an image before encoding
+  /// it, and a PNG is kept as picked, so a large screenshot meets their limit
+  /// here.
+  ///
+  /// The others count [settledBytes], and each of [shrinkable], not
+  /// prepared yet, its file. The image goes as it is when it fits beside
+  /// them, else as a JPEG of it when [convertsImageToFit] allows one and that
+  /// fits. When neither fits, each of [shrinkable] counts as the smaller of
+  /// its file and a JPEG of it, which its own preparation will choose in
+  /// turn, and this image goes as the smaller of its own two if that fits.
+  /// The caller removes a JPEG made here once it is encoded.
+  Future<({String path, int otherBytes})?> _inlineImageSource(
     String filePath, {
     required String fileName,
-    required int budget,
+    required int limit,
+    required int settledBytes,
+    required List<({String path, int bytes})> shrinkable,
     required _InflightUpload inflight,
   }) async {
     final sourceBytes = await File(filePath).length();
     _throwIfOperationNotActive(filePath, inflight);
-    if (sourceBytes <= budget) return filePath;
-    if (!convertsImageToFit(fileName)) return null;
-    final converted = await _ref.read(imageUploadConverterProvider)(filePath);
-    if (converted == null) return null;
-    var fits = false;
-    try {
-      fits = await File(converted).length() <= budget;
-    } on FileSystemException {
-      fits = false;
+    var otherBytes = settledBytes;
+    for (final other in shrinkable) {
+      otherBytes += other.bytes;
     }
-    if (!fits || !_isOperationActive(filePath, inflight)) {
-      await cleanupTerminalAttachmentFile(converted);
+    if (sourceBytes <= limit - otherBytes) {
+      return (path: filePath, otherBytes: otherBytes);
+    }
+    String? converted;
+    int? convertedBytes;
+    if (convertsImageToFit(fileName)) {
+      converted = await _ref.read(imageUploadConverterProvider)(filePath);
+      if (converted == filePath) converted = null;
+      if (converted != null) convertedBytes = await _fileBytes(converted);
+    }
+    if (shrinkable.isNotEmpty &&
+        (convertedBytes == null || convertedBytes > limit - otherBytes) &&
+        _isOperationActive(filePath, inflight)) {
+      otherBytes = settledBytes;
+      for (final other in shrinkable) {
+        otherBytes += await _smallestImageBytes(other.path, other.bytes);
+      }
+    }
+    final useConversion =
+        convertedBytes != null && convertedBytes < sourceBytes;
+    final bytes = useConversion ? convertedBytes : sourceBytes;
+    if (bytes > limit - otherBytes || !_isOperationActive(filePath, inflight)) {
+      if (converted != null) await cleanupTerminalAttachmentFile(converted);
       _throwIfOperationNotActive(filePath, inflight);
       return null;
     }
-    return converted;
+    if (!useConversion && converted != null) {
+      await cleanupTerminalAttachmentFile(converted);
+    }
+    return (
+      path: useConversion ? converted! : filePath,
+      otherBytes: otherBytes,
+    );
+  }
+
+  /// The smaller of [bytes], the size of the image at [filePath], and a JPEG
+  /// of it, which is removed once measured.
+  Future<int> _smallestImageBytes(String filePath, int bytes) async {
+    final String? converted;
+    try {
+      converted = await _ref.read(imageUploadConverterProvider)(filePath);
+    } catch (_) {
+      return bytes;
+    }
+    if (converted == null || converted == filePath) return bytes;
+    try {
+      final convertedBytes = await _fileBytes(converted);
+      return convertedBytes != null && convertedBytes < bytes
+          ? convertedBytes
+          : bytes;
+    } finally {
+      await cleanupTerminalAttachmentFile(converted);
+    }
+  }
+
+  Future<int?> _fileBytes(String filePath) async {
+    try {
+      return await File(filePath).length();
+    } on FileSystemException {
+      return null;
+    }
   }
 
   /// Whether [filePath] is the JPEG `compressPickedImage` made of a photo as

@@ -3669,31 +3669,48 @@ void main() {
     });
 
     // A PNG is kept as picked, so Hermes's 6 MB is the first limit a large
-    // screenshot meets. A JPEG of it goes instead when that fits.
-    test(
-      'a PNG over the limit goes as a JPEG of it, which is then removed',
-      () async {
+    // screenshot meets. A JPEG of it goes instead when that fits. Another
+    // PNG not sent yet counts as its JPEG once its file leaves no room: it
+    // goes as one too.
+    for (final (screenshots, label) in [
+      (1, 'a PNG over the limit goes'),
+      (2, 'each of two PNGs over the limit go'),
+    ]) {
+      test('$label as a JPEG of it, which is then removed', () async {
         final directory = await Directory.systemTemp.createTemp(
           'conduit_hermes_media_',
         );
         addTearDown(() => directory.delete(recursive: true));
-        final screenshot = File('${directory.path}/screenshot.png');
-        await _truncate(screenshot, kHermesMaxDecodedImageBytes + 1);
-        final conversion = await Directory.systemTemp.createTemp(
-          'conduit_img_',
-        );
+        final pending = <File>[];
+        for (var index = 0; index < screenshots; index++) {
+          final screenshot = File('${directory.path}/screenshot-$index.png');
+          await _truncate(screenshot, kHermesMaxDecodedImageBytes + 1);
+          pending.add(screenshot);
+        }
+        final screenshot = pending.first;
+        final conversions = <Directory>[];
         addTearDown(() async {
-          if (await conversion.exists()) {
-            await conversion.delete(recursive: true);
+          for (final conversion in conversions) {
+            if (await conversion.exists()) {
+              await conversion.delete(recursive: true);
+            }
           }
         });
-        final jpeg = File('${conversion.path}/converted.jpg');
-        await jpeg.writeAsBytes([1, 2, 3]);
         final encoded = <String>[];
         final container = await _hermesContainer(
           capabilities: const HermesCapabilities(inputImages: true),
-          attachments: [_pendingImage(screenshot, reportedBytes: 1)],
-          converter: (filePath) async => jpeg.path,
+          attachments: [
+            for (final file in pending) _pendingImage(file, reportedBytes: 1),
+          ],
+          converter: (filePath) async {
+            final conversion = await Directory.systemTemp.createTemp(
+              'conduit_img_',
+            );
+            conversions.add(conversion);
+            final jpeg = File('${conversion.path}/converted.jpg');
+            await jpeg.writeAsBytes([1, 2, 3]);
+            return jpeg.path;
+          },
           encoder: (file) async {
             encoded.add(file.path);
             return 'data:image/jpeg;base64,AQID';
@@ -3705,18 +3722,20 @@ void main() {
             .read(mediaUploadControllerProvider)
             .upload(
               filePath: screenshot.path,
-              fileName: 'screenshot.png',
+              fileName: 'screenshot-0.png',
               fileSize: 1,
             );
 
-        expect(encoded, [jpeg.path]);
-        final stored = container.read(attachedFilesProvider).single;
+        expect(encoded, ['${conversions.first.path}/converted.jpg']);
+        final stored = container.read(attachedFilesProvider).first;
         expect(stored.status, FileUploadStatus.completed);
         expect(stored.base64DataUrl, 'data:image/jpeg;base64,AQID');
         expect(stored.file.path, screenshot.path);
-        expect(await conversion.exists(), isFalse);
-      },
-    );
+        for (final conversion in conversions) {
+          expect(await conversion.exists(), isFalse);
+        }
+      });
+    }
 
     // As a JPEG, a GIF would lose its animation and a WebP its
     // transparency, so one over the limit is refused instead.
