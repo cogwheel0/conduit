@@ -131,6 +131,31 @@ void main() {
     return session;
   }
 
+  const goneSession = BrowserSignInSession(
+    serverId: 'server-gone',
+    provider: 'oidc',
+    clientId: 'conduit',
+    issuer: 'https://id.example.com',
+    tokenEndpoint: 'https://id.example.com/token',
+    refreshToken: 'refresh-gone',
+    owuiUserId: 'user-gone',
+  );
+
+  /// A browser sign-in, with its session, saved for the account `gone`,
+  /// which no server holds.
+  Future<void> signInToGone() async {
+    await secure.write(
+      key: 'browser_sign_in_session_v1:gone',
+      value: goneSession.encode(),
+    );
+    await storage.saveCredentials(
+      serverId: 'gone',
+      username: 'jwt_user',
+      password: 'jwt-gone',
+      authType: AuthTypes.ssoBrowser,
+    );
+  }
+
   /// [ids] saved on one server set up for browser sign-in.
   Future<void> saveAccounts(List<String> ids) async {
     await storage.saveServerConfigs([for (final id in ids) account(id)]);
@@ -234,6 +259,54 @@ void main() {
         await storage.sweepOrphanBrowserSignInSessions(),
       ).deepEquals([(accountId: 'b', session: sessionB)]);
       check(await storedSession('b')).isNull();
+    });
+
+    group('saved while a session cannot be read', () {
+      const typed = BrowserSignInConfig(
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: 'https://id.example.com',
+      );
+      const another = BrowserSignInConfig(provider: 'oidc', clientId: 'x');
+      for (final (name, config, failsOnce, kept, swept)
+          in <(String, BrowserSignInConfig?, bool, bool, bool)>[
+            (
+              'keep it when a second read shows they still renew it',
+              typed,
+              true,
+              true,
+              false,
+            ),
+            (
+              'leave it to the sweep while they may still renew it',
+              another,
+              false,
+              true,
+              true,
+            ),
+            ('end it all the same when removed', null, false, false, false),
+          ]) {
+        test(name, () async {
+          await saveAccounts(['a']);
+          final session = await signInWithBrowser('a');
+          const key = 'browser_sign_in_session_v1:a';
+          if (failsOnce) {
+            secure.unreadableOnceKey = key;
+          } else {
+            secure.unreadableKey = key;
+          }
+
+          check(
+            await storage.setServerBrowserSignIn(await serverOf('a'), config),
+          ).isEmpty();
+
+          secure.unreadableKey = null;
+          check(await storedSession('a')).equals(kept ? session : null);
+          check(await storage.sweepOrphanBrowserSignInSessions()).deepEquals([
+            if (swept) (accountId: 'a', session: session),
+          ]);
+        });
+      }
     });
 
     test('removed, end the sessions too', () async {
@@ -479,7 +552,7 @@ void main() {
       check(await storage.getAuthTokenStrict()).isNull();
     });
 
-    test('drops a session issued under other settings', () async {
+    test('drops a session issued under other settings, and tells of it', () async {
       await saveAccounts(['a']);
       final stale = await sessionFor(
         'a',
@@ -487,17 +560,21 @@ void main() {
       );
       final ownership = await storage.captureSavedServerSessionOwnership('a');
 
-      check(
-        await storage.commitExistingServerSession(
-          ownership: ownership!,
-          token: 'token-a',
-          canCommit: () => true,
-          publish: () {},
-          rememberedCredentials: browserSignIn('a'),
-          browserSession: BrowserSessionCommit.replace(stale),
-        ),
-      ).isTrue();
+      final dropped = await droppedBy(() async {
+        check(
+          await storage.commitExistingServerSession(
+            ownership: ownership!,
+            token: 'token-a',
+            canCommit: () => true,
+            publish: () {},
+            rememberedCredentials: browserSignIn('a'),
+            browserSession: BrowserSessionCommit.replace(stale),
+          ),
+        ).isTrue();
+      });
 
+      // Nothing keeps its refresh token, so nothing else would revoke it.
+      check(dropped).deepEquals([(accountId: 'a', session: stale)]);
       check(await storedSession('a')).isNull();
       check(await storage.getAuthTokenStrict()).equals('token-a');
       // Without its session the sign-in cannot renew, and must not say so.
@@ -700,25 +777,8 @@ void main() {
 
     test('when the saved sign-in of an account no longer saved is deleted, '
         'even if forgetting it as the active one then fails', () async {
-      const session = BrowserSignInSession(
-        serverId: 'server-gone',
-        provider: 'oidc',
-        clientId: 'conduit',
-        issuer: 'https://id.example.com',
-        tokenEndpoint: 'https://id.example.com/token',
-        refreshToken: 'refresh-gone',
-        owuiUserId: 'user-gone',
-      );
-      await secure.write(
-        key: 'browser_sign_in_session_v1:gone',
-        value: session.encode(),
-      );
-      await storage.saveCredentials(
-        serverId: 'gone',
-        username: 'jwt_user',
-        password: 'jwt-gone',
-        authType: AuthTypes.ssoBrowser,
-      );
+      const session = goneSession;
+      await signInToGone();
       PreferencesStore.debugOverride(
         InMemoryKeyValueStore({PreferenceKeys.activeServerId: 'gone'}),
         writeInterceptor: (_, key, value) async =>
@@ -735,6 +795,46 @@ void main() {
 
       check(dropped).deepEquals([(accountId: 'gone', session: session)]);
       check(await storedSession('gone')).isNull();
+    });
+
+    group('never when it cannot be deleted, which leaves the saved sign-in '
+        'deleted and the session to the sweep', () {
+      for (final (name, delete, forgetsActive)
+          in <(String, Future<bool> Function(), bool)>[
+            ('whoever it names', () async {
+              await storage.deleteSavedCredentials();
+              return true;
+            }, false),
+            ('when it matches', () => storage.deleteSavedCredentialsIfMatches(
+                  browserSignIn('gone'),
+                ), false),
+            ('when its account is no longer saved', () => storage
+                .deleteSavedCredentialsIfMatchesAndServerMissing(
+                  browserSignIn('gone'),
+                ), true),
+          ]) {
+        test(name, () async {
+          await signInToGone();
+          final preferences = InMemoryKeyValueStore({
+            PreferenceKeys.activeServerId: 'gone',
+          });
+          PreferencesStore.debugOverride(preferences);
+          secure.undeletableKey = 'browser_sign_in_session_v1:gone';
+
+          late bool deleted;
+          final dropped = await droppedBy(() async => deleted = await delete());
+
+          check(deleted).isTrue();
+          check(dropped).isEmpty();
+          check(await storage.getSavedCredentialsStrict()).isNull();
+          check(preferences.getString(PreferenceKeys.activeServerId))
+              .equals(forgetsActive ? null : 'gone');
+          secure.undeletableKey = null;
+          check(
+            await storage.sweepOrphanBrowserSignInSessions(),
+          ).deepEquals([(accountId: 'gone', session: goneSession)]);
+        });
+      }
     });
 
     test('when choosing the account to sign in to afresh', () async {
@@ -1307,6 +1407,7 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  String? unreadableOnceKey;
   String? undeletableKey;
   String? undeletableOnceKey;
   bool Function(String key, String? value)? refuseWhen;
@@ -1341,6 +1442,10 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   @override
   Future<String?> read({required String key}) {
     if (key == unreadableKey) throw StateError('keychain locked');
+    if (key == unreadableOnceKey) {
+      unreadableOnceKey = null;
+      throw StateError('keychain locked');
+    }
     return super.read(key: key);
   }
 }
