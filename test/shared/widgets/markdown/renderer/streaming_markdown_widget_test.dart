@@ -5,6 +5,12 @@ import 'dart:ui' as ui;
 import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -25,11 +31,13 @@ import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 class _RecordedPlatformCall {
@@ -361,6 +369,32 @@ class _DeferredStreamingCompileService extends MarkdownCompileService
       await _release.future;
     }
     return compilePreparedSynchronously(preparedContent);
+  }
+}
+
+/// A server that turns every MCP App request away, recording which app asked.
+final class _RefusingMcpAppApi extends ApiService {
+  _RefusingMcpAppApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'invented-server',
+          name: 'Invented server',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final requests = <(String server, String tool, String binding, String)>[];
+
+  @override
+  Future<Map<String, dynamic>> runMcpAppRequest(
+    OpenWebUiMcpApp app, {
+    required String method,
+    Map<String, dynamic> params = const <String, dynamic>{},
+    CancelToken? cancelToken,
+  }) async {
+    requests.add((app.serverId, app.toolName, app.binding, method));
+    throw const McpAppRpcException('The invented map server is offline.');
   }
 }
 
@@ -1016,8 +1050,10 @@ void main() {
     MarkdownLinkTapCallback? onTapLink,
     Widget Function(Uri uri, String? title, String? alt)? imageBuilderOverride,
     bool enableStreamingTextFade = false,
+    List<Override> overrides = const <Override>[],
   }) {
     return ProviderScope(
+      overrides: overrides,
       child: MaterialApp(
         locale: locale,
         theme: theme ?? defaultHarnessTheme,
@@ -2386,7 +2422,7 @@ After
     expect(find.text('View Result from browser'), findsOneWidget);
   });
 
-  testWidgets('a tool call that showed an MCP App offers to open it', (
+  testWidgets('a tool call that showed an MCP App loads it in place', (
     tester,
   ) async {
     const content =
@@ -2398,13 +2434,29 @@ After
         '&quot;arguments&quot;:{},&quot;result&quot;:{}}]">\n'
         '<summary>Tool Executed</summary>\n'
         '</details>\n';
+    final api = _RefusingMcpAppApi();
 
-    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpWidget(
+      buildHarness(
+        content,
+        overrides: [
+          apiServiceProvider.overrideWithValue(api),
+          appDatabaseProvider.overrideWithValue(null),
+          currentUserProvider2.overrideWithValue(null),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('mcp-app-card')), findsOneWidget);
-    expect(find.text('Open App'), findsOneWidget);
-    expect(find.textContaining('An interactive app from maps'), findsOneWidget);
+    // Nothing was tapped: the app asked for its page as it appeared.
+    expect(find.text('Open App'), findsNothing);
+    expect(api.requests, [('maps', 'show_map', 'b', 'ui/resource')]);
+    expect(
+      find.text(
+        'The app could not be loaded: The invented map server is offline.',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

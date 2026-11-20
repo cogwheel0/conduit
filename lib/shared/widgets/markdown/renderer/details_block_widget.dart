@@ -28,12 +28,14 @@ class MarkdownDetailsBlock extends StatefulWidget {
     super.key,
     required this.detailsData,
     this.bodyBuilder,
+    this.mcpAppCacheId,
     this.inlineExpansionStateId,
     this.deferHeavyContent = false,
   });
 
   final CompiledMarkdownDetailsData detailsData;
   final DetailsMarkdownBodyBuilder? bodyBuilder;
+  final String? mcpAppCacheId;
   final String? inlineExpansionStateId;
   final bool deferHeavyContent;
 
@@ -721,7 +723,12 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                 const SizedBox(height: Spacing.sm),
               KeyedSubtree(
                 key: ValueKey('tool-call-mcp-app-$index-${app.binding}'),
-                child: McpAppEmbed(app: app),
+                child: McpAppEmbed(
+                  app: app,
+                  cacheId: widget.mcpAppCacheId == null
+                      ? null
+                      : '${widget.mcpAppCacheId}|embed:$index',
+                ),
               ),
             ],
         ],
