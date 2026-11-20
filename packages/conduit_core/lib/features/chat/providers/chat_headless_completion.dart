@@ -667,14 +667,21 @@ Future<void> runHeadlessCompletion(
 /// The question stays, held, and the request is never sent again: the
 /// answers are marked held ([kCompletionHeldMetadataKey]) before anything
 /// else, so a retry of the turn after a failed settle only settles it again.
+///
+/// [earlierHoldIds] are the empty answers an earlier hold of the question
+/// left, which a regeneration of it hid: they leave the transcript too.
+/// Those and [assistantMessageIds] are the only answers the settle takes
+/// the question to have ([ChatsDao.settleHeldTurn]).
 Future<void> settleHeldOpenWebUiCompletion(
   dynamic ref, {
   required Object? api,
   required OpenWebUiCompletionOwner owner,
   required String? questionId,
   required Iterable<String> assistantMessageIds,
+  Iterable<String> earlierHoldIds = const <String>[],
 }) async {
   final answerIds = assistantMessageIds.toList(growable: false);
+  final earlierHolds = earlierHoldIds.toSet();
   DebugLogger.log(
     'queued-completion-held',
     scope: 'chat/completion',
@@ -737,6 +744,7 @@ Future<void> settleHeldOpenWebUiCompletion(
         owner.chatId,
         questionId: questionId,
         assistantMessageIds: answerIds,
+        earlierHoldIds: earlierHolds,
         unsentServerDeletes: unsent,
       );
     });
@@ -779,7 +787,8 @@ Future<void> settleHeldOpenWebUiCompletion(
     final at = shown.indexWhere((m) => m.id == questionId);
     if (at >= 0) {
       for (final later in shown.skip(at + 1).toList()) {
-        if (_isArchivedAssistantVariant(later)) {
+        if (_isArchivedAssistantVariant(later) &&
+            earlierHolds.contains(later.id)) {
           notifier.removeMessageById(later.id);
         }
       }

@@ -1535,20 +1535,20 @@ Future<void> regenerateMessage(
         // only while nothing answers it. One with an answer of its own fails
         // as any regeneration does, and keeps that answer.
         final questionId = parentMsgMap?['id']?.toString() ?? lastUserMessageId;
-        if (await _heldQuestionHasAnswer(
+        final earlierHolds = await _heldQuestionEarlierHolds(
           ref,
           regenerationOwner,
           questionId: questionId,
           placeholderId: assistantMessageId,
-        )) {
-          rethrow;
-        }
+        );
+        if (earlierHolds == null) rethrow;
         await settleHeldOpenWebUiCompletion(
           ref,
           api: api,
           owner: regenerationOwner,
           questionId: questionId,
           assistantMessageIds: [assistantMessageId],
+          earlierHoldIds: earlierHolds,
         );
         return;
       }
@@ -1713,26 +1713,34 @@ Future<void> regenerateMessage(
   }
 }
 
-/// Whether question [questionId] has an answer besides [placeholderId] and
-/// the empty ones a hold of it left ([kCompletionHeldMetadataKey]), in the
-/// transcript or the stored chat.
-Future<bool> _heldQuestionHasAnswer(
+/// The answers of question [questionId] besides [placeholderId] when all of
+/// them are empty ones a hold of it left ([kCompletionHeldMetadataKey]), in
+/// the transcript and the stored chat; null once one of them answers it.
+Future<Set<String>?> _heldQuestionEarlierHolds(
   dynamic ref,
   OpenWebUiCompletionOwner owner, {
   required String? questionId,
   required String placeholderId,
 }) async {
-  if (questionId == null) return false;
-  bool answers(String id, Object? metadata) =>
-      id != placeholderId &&
-      !(metadata is Map && metadata[kCompletionHeldMetadataKey] == true);
+  final earlierHolds = <String>{};
+  if (questionId == null) return earlierHolds;
+  // Whether [id] answers the question: false for an earlier hold's, noted.
+  bool answers(String id, Object? metadata) {
+    if (id == placeholderId) return false;
+    if (metadata is Map && metadata[kCompletionHeldMetadataKey] == true) {
+      earlierHolds.add(id);
+      return false;
+    }
+    return true;
+  }
+
   final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
   final at = shown.indexWhere((m) => m.id == questionId);
   if (at >= 0) {
     for (final later in shown.skip(at + 1)) {
       if (later.role == 'user') break;
       if (later.role == 'assistant' && answers(later.id, later.metadata)) {
-        return true;
+        return null;
       }
     }
   }
@@ -1746,9 +1754,9 @@ Future<bool> _heldQuestionHasAnswer(
       final payload = jsonDecode(row.payload);
       if (payload is Map) metadata = payload['metadata'];
     } catch (_) {}
-    if (answers(row.id, metadata)) return true;
+    if (answers(row.id, metadata)) return null;
   }
-  return false;
+  return earlierHolds;
 }
 
 const String _openWebUiRegenerationAttemptMetadataKey =

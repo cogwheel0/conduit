@@ -2053,8 +2053,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// failed) are deleted there by a `deleteMessages` op, retried until it
   /// lands: Open WebUI answers the question only once nothing answers it.
   ///
-  /// The chat's current message moves to the question only from one of its
-  /// answers, so a branch picked meanwhile stays picked.
+  /// Its answers are only those and [earlierHoldIds], the empty ones an
+  /// earlier hold of it left. A question with any other child has been
+  /// answered meanwhile, by an answer a pull stored: it is not held, and
+  /// keeps that answer. Otherwise the chat's current message moves to the
+  /// question only from one of its answers, so a branch picked meanwhile
+  /// stays picked.
   ///
   /// Nothing is marked for a push. The server answers the question under new
   /// ids, and a push of this copy after that would bring the held question
@@ -2063,6 +2067,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     String chatId, {
     required String? questionId,
     required Iterable<String> assistantMessageIds,
+    Iterable<String> earlierHoldIds = const <String>[],
     Iterable<String> unsentServerDeletes = const <String>[],
   }) {
     return transaction(() async {
@@ -2100,27 +2105,38 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
               ))
               .getSingleOrNull();
       if (question == null) return;
+      final formerAnswers = <String>{...answerIds, ...earlierHoldIds};
+      final answeredMeanwhile =
+          await (selectOnly(messages)
+                ..addColumns([messages.id])
+                ..where(
+                  messages.chatId.equals(chatId) &
+                      messages.parentId.equals(questionId) &
+                      messages.id.isNotIn(formerAnswers),
+                )
+                ..limit(1))
+              .getSingleOrNull() !=
+          null;
       final payload = _decodeJsonObject(question.payload);
       final children = payload['childrenIds'];
-      final formerAnswers = <Object?>{
-        ...answerIds,
-        if (children is List) ...children,
-      };
       if (children is List) {
         payload['childrenIds'] = [
           for (final child in children)
             if (!answerIds.contains(child)) child,
         ];
       }
-      final meta = payload['meta'];
-      payload['meta'] = <String, dynamic>{
-        if (meta is Map)
-          for (final entry in meta.entries) entry.key.toString(): entry.value,
-        'status': 'pending',
-      };
+      if (!answeredMeanwhile) {
+        final meta = payload['meta'];
+        payload['meta'] = <String, dynamic>{
+          if (meta is Map)
+            for (final entry in meta.entries) entry.key.toString(): entry.value,
+          'status': 'pending',
+        };
+      }
       await (update(messages)
             ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
           .write(MessagesCompanion(payload: Value(jsonEncode(payload))));
+      if (answeredMeanwhile) return;
       final chat = await getChat(chatId);
       if (chat != null && formerAnswers.contains(chat.currentMessageId)) {
         await (update(chats)..where((t) => t.id.equals(chatId))).write(
