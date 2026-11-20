@@ -414,7 +414,10 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
   if (fullConversation == null) {
     // The sync engine had nothing to give: fetch directly and store it in the
     // background instead.
-    fullConversation = await api.getConversation(rawConversationId);
+    fullConversation = await withoutUnsentMessageDeletes(
+      openWebUiOwnership.database,
+      await api.getConversation(rawConversationId),
+    );
     if (!openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)) {
       throw OpenWebUiConversationOwnershipException(
         OpenWebUiConversationOwnershipFailureReason.changedWhileFetching,

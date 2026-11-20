@@ -1089,6 +1089,29 @@ class _CountingConversationApi extends ApiService {
   }
 }
 
+/// Reads the chat as the server holds it: [serverMessages].
+final class _ServerCopyApi extends _GatedCompletionApi {
+  _ServerCopyApi(this.serverMessages) : super(Completer<void>());
+
+  final List<ChatMessage> serverMessages;
+  int getConversationCalls = 0;
+
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    getConversationCalls++;
+    return Conversation(
+      id: id,
+      title: 'A',
+      createdAt: DateTime.utc(2026, 7, 13),
+      updatedAt: DateTime.utc(2026, 7, 13),
+      messages: serverMessages,
+    );
+  }
+}
+
 Conversation _conversation(
   String id,
   List<ChatMessage> messages,
@@ -2943,6 +2966,37 @@ void main() {
       check(container.read(chatMessagesProvider).single.isHeldByServer)
           .isTrue();
       check(await heldDeletes()).isEmpty();
+    });
+
+    test('a copy read straight from the server while the empty answer\'s '
+        'delete waits leaves it out', () async {
+      await seedTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerCopyApi([
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ]);
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        // The pull yields nothing, so the server's copy is read directly.
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(api.getConversationCalls).equals(1);
+      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
     });
 
     test('a settle that fails is finished by the retry, which never sends '

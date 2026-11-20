@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/conversation.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
@@ -210,8 +211,33 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
       return null;
     }
     if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
+    refreshed = await withoutUnsentMessageDeletes(
+      ownership.database,
+      refreshed,
+    );
+    if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   }
   return refreshed;
+}
+
+/// [conversation], read straight from the server, without the messages whose
+/// delete there has not landed yet ([OutboxDao.unsentMessageDeletes]), as a
+/// pull leaves them out: the server's copy still has them.
+Future<Conversation> withoutUnsentMessageDeletes(
+  AppDatabase? database,
+  Conversation conversation,
+) async {
+  if (database == null) return conversation;
+  final ids = await database.outboxDao.unsentMessageDeletes(conversation.id);
+  if (!conversation.messages.any((m) => ids.contains(m.id))) {
+    return conversation;
+  }
+  return conversation.copyWith(
+    messages: [
+      for (final message in conversation.messages)
+        if (!ids.contains(message.id)) message,
+    ],
+  );
 }
 
 /// DB-first conversation open (CDT-RFC-001 Phase 1, acceptance 1).
