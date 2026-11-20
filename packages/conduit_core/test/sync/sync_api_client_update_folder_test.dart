@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -442,6 +443,173 @@ void main() {
       check((await db.outboxDao.opBySeq(seq))?.status)
           .equals(OutboxStatus.failed);
     });
+
+    test("a slow recheck holds up no other chat's work", () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      final otherSent = Completer<void>();
+      var chatReads = 0;
+      final server = _RoutedAdapter(
+        (method, path) => path == '/api/v1/chats/c1' && chatReads == 1
+            ? throw _timeout(path)
+            : owned.answer(method, path),
+        // The recheck's read of c1 is answered once c2's delete has gone.
+        before: (request) async {
+          if (request == _deleteB1) otherSent.complete();
+          if (request == 'GET /api/v1/chats/c1' && ++chatReads == 2) {
+            await otherSent.future;
+          }
+        },
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _parkedDelete(db);
+
+      await drainer.drain();
+      clock.now += _pastAnyBackoff;
+      final other = await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: 'c2',
+        payload: {
+          kDeleteMessagesIdsKey: ['b1'],
+        },
+      );
+      await drainer.drain();
+
+      check(await db.outboxDao.opBySeq(other)).isNull();
+      // What the recheck re-armed goes in the same drain.
+      check(server.requests.where((r) => r == _deleteA1)).length.equals(1);
+      check((await db.outboxDao.opBySeq(seq))?.status).isNull();
+    });
+
+    test('a delete parked while a recheck runs is still asked again', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      var c1Reads = 0;
+      var c2Reads = 0;
+      var c2Deletes = 0;
+      final server = _RoutedAdapter(
+        (method, path) => switch (path) {
+          '/api/v1/chats/c1' when c1Reads == 1 => throw _timeout(path),
+          '/api/v1/chats/c2' when c2Reads == 1 => throw _timeout(path),
+          '/api/v1/chats/c2/messages/b1' when c2Deletes == 1 => (
+            401,
+            {'detail': 'access prohibited'},
+          ),
+          '/api/v1/chats/c2' => (
+            200,
+            {'id': 'c2', 'user_id': 'user-1', 'chat': <String, dynamic>{}},
+          ),
+          _ => owned.answer(method, path),
+        },
+        // The recheck's read of c1 is answered once c2's delete has parked.
+        before: (request) async {
+          if (request == 'GET /api/v1/chats/c2') c2Reads++;
+          if (request == _deleteB1) c2Deletes++;
+          if (request == 'GET /api/v1/chats/c1' && ++c1Reads == 2) {
+            await db.outboxDao
+                .watchParkedForChat('c2')
+                .firstWhere((ops) => ops.isNotEmpty);
+          }
+        },
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      await _parkedDelete(db);
+
+      await drainer.drain();
+      clock.now += _pastAnyBackoff;
+      final other = await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: 'c2',
+        payload: {
+          kDeleteMessagesIdsKey: ['b1'],
+        },
+      );
+      await drainer.drain();
+      check((await db.outboxDao.opBySeq(other))?.status)
+          .equals(OutboxStatus.failed);
+      clock.now += _pastAnyBackoff;
+      await drainer.drain();
+
+      check(server.requests.where((r) => r == _deleteB1)).length.equals(2);
+      check(await db.outboxDao.opBySeq(other)).isNull();
+    });
+
+    test('a re-arm the connection asks for while a recheck runs goes after '
+        'it', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final owned = _heldChatServer(
+        sessionStatus: 200,
+        owner: 'user-1',
+        deleteStatus: 200,
+      );
+      final held = Completer<void>();
+      final release = Completer<void>();
+      final whileHeld = <String>[];
+      var chatReads = 0;
+      final server = _RoutedAdapter(
+        (method, path) => path == '/api/v1/chats/c1' && chatReads < 3
+            ? throw _timeout(path)
+            : owned.answer(method, path),
+        // The recheck's read of c1 is held until the test releases it.
+        before: (request) async {
+          if (held.isCompleted && !release.isCompleted) whileHeld.add(request);
+          if (request == 'GET /api/v1/chats/c1' && ++chatReads == 2) {
+            held.complete();
+            await release.future;
+          }
+        },
+      );
+      final clock = _MovableClock();
+      final drainer = _chatDrainer(
+        db,
+        _buildClient(server),
+        remapper,
+        clock: clock,
+      );
+      final seq = await _parkedDelete(db);
+
+      await drainer.drain();
+      clock.now += _pastAnyBackoff;
+      final drained = drainer.drain();
+      await held.future;
+      await drainer.onConnectivityRegained();
+      release.complete();
+      await drained;
+
+      check(whileHeld).isEmpty();
+      check(chatReads).equals(3);
+      check(server.requests.where((r) => r == _deleteA1)).length.equals(1);
+      check((await db.outboxDao.opBySeq(seq))?.status).isNull();
+    });
   });
 
   group('getFolderById', () {
@@ -548,11 +716,13 @@ _RoutedAdapter _heldChatServer({
   },
 );
 
-/// Answers each request with [answer], recording it as `METHOD path`.
+/// Answers each request with [answer], recording it as `METHOD path`, once
+/// [before] it is done.
 class _RoutedAdapter implements HttpClientAdapter {
-  _RoutedAdapter(this.answer);
+  _RoutedAdapter(this.answer, {this.before});
 
   final (int, Object?) Function(String method, String path) answer;
+  final Future<void> Function(String request)? before;
   final requests = <String>[];
 
   @override
@@ -561,7 +731,9 @@ class _RoutedAdapter implements HttpClientAdapter {
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
   ) async {
-    requests.add('${options.method} ${options.path}');
+    final request = '${options.method} ${options.path}';
+    requests.add(request);
+    await before?.call(request);
     final (status, body) = answer(options.method, options.path);
     return ResponseBody(
       Stream.value(Uint8List.fromList(utf8.encode(jsonEncode(body)))),
@@ -624,6 +796,7 @@ SyncApiClient _buildClient(HttpClientAdapter adapter) {
 }
 
 const _deleteA1 = 'DELETE /api/v1/chats/c1/messages/a1';
+const _deleteB1 = 'DELETE /api/v1/chats/c2/messages/b1';
 
 DioException _timeout(String path) => DioException.receiveTimeout(
   timeout: const Duration(seconds: 30),
