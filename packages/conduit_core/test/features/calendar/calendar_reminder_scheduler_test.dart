@@ -350,33 +350,42 @@ void main() {
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
-    test('shares the limit with other accounts\' reminders, soonest first',
-        () async {
-      final h = _Harness()
+    test('shares the limit with other accounts\' reminders, soonest first, '
+        'counting those about to fire', () async {
+      // Alerts at 12:01, and after 13:00.
+      const soon = 17;
+      final first = [
+        for (var i = 0; i < soon; i++) _event('soon$i', startInMinutes: 11),
+        for (var i = soon; i < calendarReminderLimit; i++)
+          _event('late$i', startInMinutes: 70 + i),
+      ];
+      final h = _Harness()..agenda = first;
+      await h.sync();
+
+      // Another account's alerts at 12:30 take the places of the later ones.
+      h
+        ..now = _now.add(const Duration(seconds: 30))
+        ..account = (scope: _otherScope, userId: _me)
         ..agenda = [
           for (var i = 0; i < calendarReminderLimit; i++)
-            _event('mine$i', startInMinutes: 60 + i),
+            _event('other$i', startInMinutes: 40),
         ];
-      ScheduledCalendarReminder other(int id, String key, Duration from) =>
-          ScheduledCalendarReminder(
-            id: id,
-            key: key,
-            scope: _otherScope,
-            fireAt: _now.add(from),
-            fingerprint: 'x',
-          );
-      h.notifications.scheduled.addAll([
-        other(1, 'soon|', const Duration(minutes: 30)),
-        other(2, 'late|', const Duration(days: 10)),
-      ]);
-
       await h.sync();
 
       check(h.notifications.scheduled).length.equals(calendarReminderLimit);
-      check(h.notifications.keysIn(_otherScope)).deepEquals({'soon|'});
-      check(
-        h.notifications.keysIn(_scope),
-      ).not((it) => it.contains('mine${calendarReminderLimit - 1}|'));
+      check(h.notifications.keysIn(_scope)).deepEquals({
+        for (var i = 0; i < soon; i++) 'soon$i|',
+      });
+
+      // Back on the first account, its 12:01 alerts are about to fire and
+      // still pending.
+      h
+        ..now = _now.add(const Duration(seconds: 56))
+        ..account = (scope: _scope, userId: _me)
+        ..agenda = first;
+      await h.sync();
+
+      check(h.notifications.scheduled).length.equals(calendarReminderLimit);
     });
 
     test('turned off, it unschedules every reminder', () async {

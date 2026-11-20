@@ -316,12 +316,19 @@ class CalendarReminderScheduler {
     final scheduled = await _notifications.scheduledCalendarReminders();
     if (stale()) return;
     // iOS keeps 64 pending notifications per app, not per account, so the
-    // limit covers every account's reminders, soonest first. One posted at
-    // once takes no place.
+    // limit covers every account's reminders, soonest first. Each one left
+    // pending counts, including a kept one about to fire; one posted at once
+    // takes no place.
+    final kept = {
+      for (final existing in scheduled)
+        if (existing.scope == account.scope &&
+            wanted[existing.key]?.$4 == existing.fingerprint)
+          existing.key,
+    };
     final dueBy = clock.now().toUtc().add(_dueMargin);
     final queued = [
       for (final reminder in plan)
-        if (reminder.fireAt.isAfter(dueBy))
+        if (reminder.fireAt.isAfter(dueBy) || kept.contains(reminder.key))
           (fireAt: reminder.fireAt, key: reminder.key, other: null),
       for (final other in scheduled)
         if (other.scope != account.scope)
