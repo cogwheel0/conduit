@@ -17,6 +17,7 @@ import 'dart:async';
 final class ListLoads {
   int _newest = 0;
   Completer<void> _newestDone = Completer<void>()..complete();
+  Completer<void> _nextStart = Completer<void>();
   Future<void> _writes = Future<void>.value();
   int _pendingWrites = 0;
 
@@ -24,6 +25,9 @@ final class ListLoads {
   ListLoad start({bool Function()? current}) {
     final done = Completer<void>();
     _newestDone = done;
+    final started = _nextStart;
+    _nextStart = Completer<void>();
+    started.complete();
     return ListLoad._(this, ++_newest, done, current);
   }
 
@@ -41,12 +45,10 @@ final class ListLoads {
   }
 
   /// Completes once the newest read has finished, including one that starts
-  /// meanwhile.
+  /// meanwhile; an older read still under way is not waited for.
   Future<void> settled() async {
-    for (;;) {
-      final done = _newestDone;
-      await done.future;
-      if (identical(done, _newestDone)) return;
+    while (!_newestDone.isCompleted) {
+      await Future.any([_newestDone.future, _nextStart.future]);
     }
   }
 }
