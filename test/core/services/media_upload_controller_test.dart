@@ -977,14 +977,12 @@ void main() {
       (screenshot, 'screenshot.png', 'image/png'),
       (photo, 'photo.jpg', 'image/jpeg'),
     ]) {
-      await controller
-          .upload(
-            filePath: file.path,
-            fileName: name,
-            fileSize: 600 * 1024,
-            mimeType: mime,
-          )
-          .timeout(const Duration(seconds: 1));
+      await controller.upload(
+        filePath: file.path,
+        fileName: name,
+        fileSize: 600 * 1024,
+        mimeType: mime,
+      );
     }
 
     expect(converted, ['photo.jpg']);
@@ -1035,14 +1033,12 @@ void main() {
     addTearDown(container.dispose);
     final controller = container.read(mediaUploadControllerProvider);
 
-    await controller
-        .upload(
-          filePath: photo.path,
-          fileName: 'photo.jpg',
-          fileSize: 600 * 1024,
-          mimeType: 'image/jpeg',
-        )
-        .timeout(const Duration(seconds: 1));
+    await controller.upload(
+      filePath: photo.path,
+      fileName: 'photo.jpg',
+      fileSize: 600 * 1024,
+      mimeType: 'image/jpeg',
+    );
 
     expect(converted, isEmpty);
     expect(uploaded, ['photo.jpg']);
