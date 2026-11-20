@@ -63,7 +63,7 @@ final class _Auth extends AuthStateManager {
 }
 
 final class _Config extends BackendConfigNotifier {
-  static BackendConfig initial = _allowing;
+  static BackendConfig? initial = _allowing;
 
   @override
   Future<BackendConfig?> build() async => initial;
@@ -279,13 +279,34 @@ void main() {
   });
 
   group('a server without direct integrations', () {
-    Future<void> serve(String? version) async {
-      _Config.initial = BackendConfig(serverId: 'server-1', version: version);
+    Future<void> configure(BackendConfig? config) async {
+      _Config.initial = config;
       container.invalidate(backendConfigProvider);
       await container.read(authStateManagerProvider.future);
       await container.read(activeServerProvider.future);
       await container.read(backendConfigProvider.future);
     }
+
+    Future<void> serve(String? version) =>
+        configure(BackendConfig(serverId: 'server-1', version: version));
+
+    test('keeps saved tool servers offered until the active server says '
+        'whether it takes them', () async {
+      // Nothing cached yet, or what another server said, while this one's
+      // config is still on its way.
+      for (final config in const <BackendConfig?>[
+        null,
+        BackendConfig(serverId: 'server-0'),
+      ]) {
+        await configure(config);
+        check(container.read(personalConnectionsAccessProvider).block)
+            .equals(PersonalConnectionsBlock.serverDisabled);
+        check(container.read(personalConnectionsOfferedProvider)).isTrue();
+      }
+
+      await serve('0.13.3');
+      check(container.read(personalConnectionsOfferedProvider)).isFalse();
+    });
 
     test('before 0.13.4 has them turned off, and Settings leaves them out', () async {
       await serve('0.13.3');

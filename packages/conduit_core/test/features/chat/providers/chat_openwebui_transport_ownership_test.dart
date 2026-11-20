@@ -277,10 +277,11 @@ class _FetchedConfig extends BackendConfigNotifier {
       (await api.getBackendConfig())?.copyWith(serverId: api.serverConfig.id);
 }
 
-/// A server config that has loaded.
+/// The config [_GatedCompletionApi]'s server gave, once loaded.
 class _LoadedConfig extends BackendConfigNotifier {
   @override
-  Future<BackendConfig?> build() async => const BackendConfig();
+  Future<BackendConfig?> build() async =>
+      const BackendConfig(serverId: 'transport-ownership');
 }
 
 /// A server config that is still being fetched.

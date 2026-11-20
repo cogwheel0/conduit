@@ -104,20 +104,31 @@ final personalConnectionsAccessProvider = Provider<PersonalConnectionsAccess>((
 /// Whether the account's saved tool servers and terminals are offered in the
 /// composer and join a request.
 ///
-/// A refusal read while the server's config or the account's permissions are
-/// still loading has not been decided, as when a queued turn is replayed at
-/// launch, so it leaves them in.
+/// A refusal has not been decided until the active server has said so, as
+/// when a queued turn is replayed at launch, so it leaves them in: while its
+/// config is loading, or while the only config at hand is none or another
+/// server's, which the cache answers with before this server's arrives.
+/// A config this server gave before counts as its word.
 final personalConnectionsOfferedProvider = Provider<bool>((ref) {
   return switch (ref.watch(personalConnectionsAccessProvider).block) {
     null => true,
-    PersonalConnectionsBlock.serverDisabled =>
-      ref.watch(backendConfigProvider).isLoading,
+    PersonalConnectionsBlock.serverDisabled => !_activeServerConfigIn(ref),
     PersonalConnectionsBlock.noPermission =>
       ref.watch(userPermissionsProvider).isLoading,
     PersonalConnectionsBlock.noAccount ||
     PersonalConnectionsBlock.movedToTether => false,
   };
 });
+
+bool _activeServerConfigIn(Ref ref) {
+  final config = ref.watch(backendConfigProvider);
+  final serverId = ref.watch(
+    apiServiceProvider.select((api) => api?.serverConfig.id),
+  );
+  return !config.isLoading &&
+      serverId != null &&
+      config.asData?.value?.serverId == serverId;
+}
 
 /// Whether Settings offers Personal connections: the Advanced disclosure is on
 /// and the server and account allow them, or the server moved them to Tether
