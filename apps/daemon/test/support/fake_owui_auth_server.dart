@@ -449,9 +449,10 @@ final class FakeOwuiChats {
   /// Completion requests held behind an answer running elsewhere.
   final List<Map<String, dynamic>> heldCompletions = <Map<String, dynamic>>[];
 
-  /// While set, the end of an answer [runElsewhere] started answers each
-  /// message held under it in place, under its own id, rather than as a copy
-  /// under a new one.
+  /// While set, the end of an answer [runElsewhere] answers a message held
+  /// alone under it in place, under its own id, rather than as a copy under
+  /// a new one. Several held under it are still answered as one copy, as
+  /// Open WebUI keeps a message's id only for a batch of one.
   bool answerHeldInPlace = false;
 
   /// Messages deleted with `DELETE /api/v1/chats/{id}/messages/{id}`, as
@@ -792,12 +793,10 @@ final class FakeOwuiChats {
     ];
     if (waiting.isEmpty) return;
     final n = ++_tasks;
-    if (answerHeldInPlace) {
-      final question = waiting.last;
+    if (answerHeldInPlace && waiting.length == 1) {
+      final question = waiting.single;
       final answerId = 'held-answer-$n';
-      for (final message in waiting) {
-        message['meta'] = <String, dynamic>{};
-      }
+      question['meta'] = <String, dynamic>{};
       question['childrenIds'] = <String>[answerId];
       messages[answerId] = <String, dynamic>{
         'id': answerId,
