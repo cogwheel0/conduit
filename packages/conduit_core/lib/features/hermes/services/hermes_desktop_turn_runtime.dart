@@ -1422,9 +1422,29 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final socket = _rpc.socketGeneration;
     if (_desktopContractSocket == socket && value <= _desktopContract) return;
     _desktopContractSocket = socket;
-    if (value == _desktopContract) return;
     _desktopContract = value;
-    _emitDesktopContract(value);
+    _publishDesktopContract();
+  }
+
+  /// Tells the contract's listeners, Photos among them, when the gateway on
+  /// the current socket no longer has the contract they last heard.
+  void _publishDesktopContract() {
+    final contract = _currentDesktopContract;
+    if (contract == _publishedDesktopContract) return;
+    _publishedDesktopContract = contract;
+    _emitDesktopContract(contract);
+  }
+
+  /// Asks a gateway a reconnect reached what the last one was asked about
+  /// uploads: it may be older, or answer where the last could not. Its
+  /// answer, or the lack of one, reaches the listeners, so Photos follow it
+  /// with no chat open. A service that never asked waits until something
+  /// does.
+  void _relearnDesktopUploadContract() {
+    if (!_uploadContractAsked && _desktopContractSocket == null) return;
+    unawaited(
+      _learnDesktopUploadContract().then((_) => _publishDesktopContract()),
+    );
   }
 
   /// Learns whether this gateway takes uploads before any session is open:
@@ -1445,6 +1465,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
     final socket = _rpc.socketGeneration;
     if (_uploadContractProbedSocket == socket) return;
+    _uploadContractAsked = true;
+    final asked = _uploadContractQuestion;
+    if (asked != null && asked.socket == socket) return asked.answer;
+    final answer = _askDesktopUploadContract(socket);
+    _uploadContractQuestion = (socket: socket, answer: answer);
+    try {
+      await answer;
+    } finally {
+      if (identical(_uploadContractQuestion?.answer, answer)) {
+        _uploadContractQuestion = null;
+      }
+    }
+  }
+
+  Future<void> _askDesktopUploadContract(int socket) async {
     var staged = true;
     try {
       await _rpc.request<Object?>(
