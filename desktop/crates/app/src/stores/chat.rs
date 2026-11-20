@@ -504,6 +504,10 @@ pub struct ChatStore {
     pub hermes: Entity<HermesWorkStore>,
     /// Queued answers whose Retry or Remove is on its way.
     pub queued_busy: std::collections::HashSet<String>,
+    /// Answers whose turn ended held (`turn.finished` with `held`): the
+    /// server holds their question and answers it under new ids, so a reply
+    /// that names one later starts no overlay for it.
+    held_answers: std::collections::HashSet<String>,
     /// Bumped by every `chatPrompts.get` asked and every
     /// `chatPrompts.changed`: a reply asked before the latest is dropped.
     prompt_round: u64,
@@ -562,6 +566,7 @@ impl ChatStore {
             tasks: vec![],
             hermes,
             queued_busy: Default::default(),
+            held_answers: Default::default(),
             _prompt: None,
             _fetch: None,
             _refetch: None,
@@ -742,7 +747,16 @@ impl ChatStore {
     /// as the chat is busy. Queued, it goes out once that answer has (as
     /// on the phone).
     pub fn queue_offered(&self) -> bool {
-        self.queue.offer && (self.is_streaming() || self.answer_queued())
+        self.queue.offer && (self.is_streaming() || self.answer_queued() || self.question_held())
+    }
+
+    /// The newest message is a question the server holds until a reply
+    /// still running in the chat ends: a message sent now would go under
+    /// it, and the server answers a held question only while nothing does.
+    pub fn question_held(&self) -> bool {
+        self.messages()
+            .last()
+            .is_some_and(|m| m.role == "user" && m.held)
     }
 
     /// The newest answer waits in the outbox: its stored row shows it
@@ -1021,6 +1035,19 @@ impl ChatStore {
                 self.live = None;
             }
         }
+        // A held finish missed while away: the stored copy ends with the
+        // held question, and the answer the overlay waits for is gone from it
+        // for good. A send still on its way keeps its overlay.
+        if self.pending.is_none()
+            && let Some(live) = &self.live
+            && !live.awaiting_id
+            && messages.last().is_some_and(|m| m.role == "user" && m.held)
+            && !messages.iter().any(|m| m.id == live.message_id)
+        {
+            self.held_answers.insert(live.message_id.clone());
+            self.live = None;
+            self.companions.clear();
+        }
         // A comparison's other answers settle once the stored copy has each
         // (they are versions of the first answer there).
         if self.live.is_none() {
@@ -1152,14 +1179,18 @@ impl ChatStore {
             }
             // The server holds the question until another reply ends, and
             // the answer this overlay waited for is gone: the stored copy,
-            // fetched now, shows the question waiting.
+            // fetched now, shows the question waiting. A regenerate still
+            // waiting for its answer's id is that turn (one runs per chat),
+            // and a comparison's other answers are held with it.
             Event::TurnFinished(e) if e.chat_id == self.chat_id && e.held => {
+                self.held_answers.insert(e.message_id.clone());
                 if self
                     .live
                     .as_ref()
-                    .is_some_and(|live| live.message_id == e.message_id)
+                    .is_some_and(|live| live.message_id == e.message_id || live.awaiting_id)
                 {
                     self.live = None;
+                    self.companions.clear();
                 }
                 self.fetch(cx);
                 self.rebuild(cx);
@@ -1290,6 +1321,10 @@ impl ChatStore {
     /// An answer is on its way under `message_id` (a send, edit or
     /// regenerate was accepted); `replaces` is the answer it takes over.
     fn expect_answer(&mut self, message_id: &str, replaces: Option<String>) {
+        // Its turn already ended held, before this reply came.
+        if self.held_answers.contains(message_id) {
+            return;
+        }
         let live = self.live_for(message_id);
         if replaces.as_deref() != Some(message_id) {
             live.replaces = replaces.or(live.replaces.take());
@@ -3991,5 +4026,158 @@ mod tests {
             assert!(s.live.is_none());
             assert!(!s.is_streaming());
         });
+    }
+
+    /// The chat once the server holds `u9` behind a reply still running:
+    /// its empty answer `a9` is gone from the stored copy.
+    fn held_question() -> ChatResult {
+        let mut question = message("u9", "user", "And the pantry?");
+        question.held = true;
+        chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+                question,
+            ],
+        )
+    }
+
+    fn held(message_id: &str) -> Event {
+        Event::TurnFinished(TurnFinished {
+            chat_id: "c1".into(),
+            message_id: message_id.into(),
+            ok: true,
+            code: None,
+            queued: false,
+            held: true,
+        })
+    }
+
+    #[gpui_kit::test]
+    fn a_held_send_whose_reply_comes_after_its_finish_shows_no_answer(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+            ],
+        ));
+        daemon.returns::<methods::TurnsSend>(SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u9".into(),
+            assistant_message_id: "a9".into(),
+        });
+        let (store, _) = open(&daemon, "c1", cx);
+        daemon.returns::<methods::ChatsGet>(held_question());
+        let reply = daemon.hold::<methods::TurnsSend>();
+        store.update(cx, |s, cx| {
+            let turn = TurnOptions::default().into_turn("And the pantry?".into(), None, false);
+            s.send(turn, PendingMessage::new("And the pantry?"), cx)
+                .detach();
+            // The daemon ends the turn held before `turns.send` answers.
+            s.on_event(&held("a9"), cx);
+        });
+        // The copy showing the question held is in before the reply.
+        cx.run_until_parked();
+        reply.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(!s.is_streaming());
+            assert!(s.question_held());
+        });
+        assert_eq!(keys(&store, cx), vec!["u1", "a1", "u9"]);
+    }
+
+    #[gpui_kit::test]
+    fn behind_a_held_question_a_new_message_is_queued(cx: &mut TestAppContext) {
+        // Nothing streams here, in this window or another one showing the
+        // chat; the daemon offers the queue, as the phone queues.
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(held_question());
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            let mut queue = empty_queue("c1".into());
+            queue.offer = true;
+            s.on_event(&Event::QueueChanged(queue), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(!s.is_streaming());
+            assert!(s.queue_offered());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_held_comparison_stops_streaming_in_every_column(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+            ],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        daemon.returns::<methods::ChatsGet>(held_question());
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a9".into(),
+                    model: "m".into(),
+                    companion_ids: vec!["a9".into(), "b9".into()],
+                }),
+                cx,
+            );
+            assert_eq!(s.companions.len(), 1);
+            s.on_event(&held("a9"), cx);
+        });
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(s.companions.is_empty());
+            assert!(!s.is_streaming());
+        });
+    }
+
+    #[gpui_kit::test]
+    fn a_held_finish_missed_while_away_ends_the_overlay(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(chat(
+            "c1",
+            vec![
+                message("u1", "user", "hi"),
+                message("a1", "assistant", "hello"),
+                message("u9", "user", "And the pantry?"),
+            ],
+        ));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a9".into(),
+                    model: "m".into(),
+                    companion_ids: vec![],
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert!(store.read_with(cx, |s, _| s.is_streaming()));
+
+        // The connection drops before `turn.finished` comes; the copy
+        // fetched after the reconnect shows the question held.
+        daemon.returns::<methods::ChatsGet>(held_question());
+        store.update(cx, |s, cx| s.on_reconnected(cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.live.is_none());
+            assert!(!s.is_streaming());
+        });
+        assert_eq!(keys(&store, cx), vec!["u1", "a1", "u9"]);
     }
 }
