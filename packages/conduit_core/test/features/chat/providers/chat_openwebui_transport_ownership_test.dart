@@ -1089,6 +1089,29 @@ class _CountingConversationApi extends ApiService {
   }
 }
 
+/// A connected socket of the server [_GatedCompletionApi] stands for.
+final class _ConnectedSocket extends SocketService {
+  _ConnectedSocket()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'transport-ownership',
+          name: 'Transport ownership',
+          url: 'https://example.com',
+        ),
+      );
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  String? get sessionId => 'socket-a';
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async => true;
+}
+
 /// Reads the chat as the server holds it: [serverMessages].
 final class _ServerCopyApi extends _GatedCompletionApi {
   _ServerCopyApi(this.serverMessages) : super(Completer<void>());
@@ -3047,6 +3070,107 @@ void main() {
       check((await storedMessage(userId))!['meta'])
           .isA<Map>()
           .deepEquals({'status': 'pending'});
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+    });
+
+    test('a comparison whose settle fails is finished by the retry, which '
+        'never sends it again', () async {
+      const otherId = 'held-assistant-b';
+      await seedTurn();
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: otherId,
+              chatId: chatId,
+              role: 'assistant',
+              content: '',
+              createdAt: 1,
+              orderIndex: 2,
+              payload: jsonEncode(<String, dynamic>{
+                'id': otherId,
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1,
+                'isStreaming': true,
+              }),
+            ),
+          );
+      // As a send stores them, under their question.
+      await (db.update(db.messages)
+            ..where((t) => t.id.isIn([assistantId, otherId])))
+          .write(const MessagesCompanion(parentId: Value(userId)));
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      ChatMessage slot(String id, int column) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: 'model-1',
+        isStreaming: true,
+        metadata: <String, dynamic>{
+          'parentId': userId,
+          kMessageModelIdxMetadataKey: column,
+        },
+      );
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        slot(assistantId, 0),
+        slot(otherId, 1),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+        socket: _ConnectedSocket(),
+      );
+      addTearDown(container.dispose);
+      final runner = container.read(
+        Provider<RequestCompletionRunner>(
+          (ref) => ChatRequestCompletionRunner(ref),
+        ),
+      );
+      final payload = const RequestCompletionPayload(
+        assistantMessageId: assistantId,
+        model: 'model-1',
+        comparison: ComparisonGroupSnapshot(
+          userMessageId: userId,
+          slots: [
+            ComparisonSlotSnapshot(
+              assistantMessageId: assistantId,
+              model: 'model-1',
+              modelIdx: 0,
+            ),
+            ComparisonSlotSnapshot(
+              assistantMessageId: otherId,
+              model: 'model-1',
+              modelIdx: 1,
+            ),
+          ],
+        ),
+      ).toJson();
+
+      await db.customStatement(
+        'CREATE TRIGGER held_settle_fails BEFORE DELETE ON messages '
+        "WHEN OLD.id = '$assistantId' "
+        "BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+      );
+      await check(runner.run(chatId: chatId, payload: payload)).throws();
+      await db.customStatement('DROP TRIGGER held_settle_fails');
+      api.deleteFailures
+        ..add(deleteFailure(status: 404))
+        ..add(deleteFailure(status: 404));
+
+      await runner.run(chatId: chatId, payload: payload);
+
+      check(api.completionCalls).equals(1);
+      check(await storedMessage(assistantId)).isNull();
+      check(await storedMessage(otherId)).isNull();
       final shown = container.read(chatMessagesProvider);
       check(shown.map((m) => m.id).toList()).deepEquals([userId]);
       check(shown.single.isHeldByServer).isTrue();
