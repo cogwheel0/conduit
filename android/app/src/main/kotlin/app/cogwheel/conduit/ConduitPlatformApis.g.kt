@@ -5691,6 +5691,42 @@ interface ImageGalleryHostApi {
     }
   }
 }
+/**
+ * Android only. The certificate authorities the user installed in Settings,
+ * each as PEM text.
+ *
+ * Generated interface from Pigeon that represents a handler of messages from Flutter.
+ */
+interface UserCertificatesHostApi {
+  fun userCaCertificates(): List<String>
+
+  companion object {
+    /** The codec used by UserCertificatesHostApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      ConduitPlatformApisPigeonCodec()
+    }
+    /** Sets up an instance of `UserCertificatesHostApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: UserCertificatesHostApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.userCaCertificates())
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativeSheetHostApi {
   fun setTheme(theme: PlatformNativeSheetTheme)

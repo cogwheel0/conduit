@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'shared/widgets/error_boundary.dart';
 import 'platform/android_ime_inset_resync.dart';
+import 'platform/android_user_certificates.dart';
 import 'platform/flutter_app_lifecycle.dart';
 import 'platform/flutter_clipboard_port.dart';
 import 'platform/flutter_connectivity_port.dart';
@@ -54,6 +55,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
+import 'package:conduit_core/services/user_trusted_certificates.dart';
 
 import 'core/persistence/hive_bootstrap.dart';
 import 'core/utils/model_logos.dart';
@@ -292,6 +294,7 @@ void main() {
       final hiveBoxesFuture = HiveBootstrap.instance.ensureInitialized();
       final preferencesFuture = PreferencesStore.ensureInitialized();
       final platformUiFuture = PlatformUiCapabilities.initialize();
+      final userCertificatesFuture = readAndroidUserCertificates();
 
       try {
         await QuickActionsBootstrap.initialize();
@@ -313,6 +316,8 @@ void main() {
       _startupTimeline?.instant('prefs_ready');
       await platformUiFuture;
       _startupTimeline?.instant('platform_ui_ready');
+      // Before the provider container, which opens the first connections.
+      UserTrustedCertificates.install(await userCertificatesFuture);
 
       // Run migration checks (fast-pathed after first run).
       final migrator = PersistenceMigrator(hiveBoxes: hiveBoxes);

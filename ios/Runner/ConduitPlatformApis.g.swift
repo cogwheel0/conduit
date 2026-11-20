@@ -5471,6 +5471,35 @@ class ImageGalleryHostApiSetup {
     }
   }
 }
+/// Android only. The certificate authorities the user installed in Settings,
+/// each as PEM text.
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol UserCertificatesHostApi {
+  func userCaCertificates() throws -> [String]
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class UserCertificatesHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `UserCertificatesHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: UserCertificatesHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    let userCaCertificatesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      userCaCertificatesChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.userCaCertificates()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      userCaCertificatesChannel.setMessageHandler(nil)
+    }
+  }
+}
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol NativeSheetHostApi {
   func setTheme(theme: PlatformNativeSheetTheme) throws
