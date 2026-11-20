@@ -1308,6 +1308,10 @@ const nativeAndroidAssistantTriggerId = 'android-assistant-trigger';
 /// Conduit, where its channels are switched on and off.
 const nativeNotificationSystemSettingsId = 'notification-system-settings';
 
+/// The Notifications row that opens Android's "Alarms & reminders" screen for
+/// Conduit, shown while calendar reminders can't fire on the minute.
+const nativeNotificationCalendarExactId = 'notification-calendar-exact';
+
 /// Whether Voice offers the device recognizer's language: only on Android,
 /// and only while the device does the recognizing.
 bool shouldShowDeviceSttLanguageSetting(

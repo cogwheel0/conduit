@@ -28,6 +28,7 @@ import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/models/push_target.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 
+import '../services/calendar_reminder_scheduler.dart';
 import '../services/local_notification_service.dart';
 import '../services/notification_tap_router.dart';
 
@@ -211,6 +212,8 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       // authoritative page instead of retaining the pre-disconnect snapshot.
       ref.invalidate(channelMessagesProvider);
       ref.invalidate(threadMessagesProvider);
+      // Replies that finished while the socket was down went unseen.
+      unawaited(ref.read(calendarReminderSchedulerProvider).sync());
     });
   }
 
@@ -232,7 +235,14 @@ class NotificationSocketListener extends _$NotificationSocketListener {
       currentUserId: _currentUserId,
       scope: scope,
     );
-    if (notification != null) _route(notification);
+    if (notification != null) {
+      _route(notification);
+      // A finished reply may have added or changed a calendar event through
+      // the calendar tool ("remind me at 8").
+      if (notification.kind == NotificationKind.chatCompletion) {
+        unawaited(ref.read(calendarReminderSchedulerProvider).sync());
+      }
+    }
   }
 
   void _onChannelEvent(Map<String, dynamic> event) {

@@ -12,8 +12,11 @@ part 'app_notification.g.dart';
 /// The Open WebUI socket raises the first two, mirroring the upstream web
 /// client: its `+layout.svelte` only surfaces a toast / browser Notification
 /// for `chat:completion` (terminal frame), `calendar:alert` and channel
-/// `message`. Conduit has no calendar feature, so `calendar:alert` is not
-/// represented here. Every other socket event (`chat:title`, `chat:tags`,
+/// `message`. `calendar:alert` is not represented here: the socket only
+/// carries it while the app is open, so calendar reminders are scheduled
+/// ahead as local notifications instead (`CalendarReminderScheduler`), which
+/// fire whether the app is running or not. Every other socket event
+/// (`chat:title`, `chat:tags`,
 /// `chat:message:error`, channel reply / reaction / created, etc.) is a silent
 /// state refresh upstream and is likewise not a [NotificationKind].
 ///
