@@ -711,6 +711,24 @@ void main() {
     );
   });
 
+  testQueue('Enter queues files alone, as Queue does', (tester) async {
+    final rig = await _pump(tester);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final picked = File('${directory.path}/receipt.png')..writeAsBytesSync([1]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'receipt.png'),
+    ]);
+    await rig.type('');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.drafts.single.text, '');
+    expect(rig.container.read(attachedFilesProvider), isEmpty);
+  });
+
   testQueue('a failed file can be uploaded again from its own draft', (
     tester,
   ) async {

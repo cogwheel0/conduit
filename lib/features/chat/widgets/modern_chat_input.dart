@@ -1070,13 +1070,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       unawaited(_stopVoice());
       return;
     }
-    final text = _controller.text.trim();
-    if (!draftHasSendableContent(text, ref.read(attachedFilesProvider)) ||
-        !widget.enabled) {
-      return;
-    }
+    if (!widget.enabled) return;
+    // A queued draft may hold files still uploading, so Enter takes what
+    // Queue takes.
     if (_queuesInsteadOfSending) {
       _queueDraft();
+      return;
+    }
+    final text = _controller.text.trim();
+    if (!draftHasSendableContent(text, ref.read(attachedFilesProvider))) {
       return;
     }
     // While a reply runs the send button is Stop, and no other way to send
