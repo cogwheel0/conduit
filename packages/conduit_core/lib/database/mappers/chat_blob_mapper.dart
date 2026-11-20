@@ -234,16 +234,32 @@ class ChatRows {
   /// not overwrite it.
   final Map<String, dynamic> historyExtra;
 
-  /// These rows without the messages [ids], and without any mention of them:
-  /// a parent's `childrenIds` drops them, and a `currentId` naming one moves
-  /// to its nearest ancestor kept.
+  /// These rows without the messages [ids], entries that are not rows
+  /// included, and without any mention of them: a row's `childrenIds` drops
+  /// them, and a `currentId` naming one moves to its nearest ancestor kept.
+  /// Ancestors that lead back to a removed message leave no `currentId`.
   ChatRows withoutMessages(Set<String> ids) {
-    if (!messages.any((message) => ids.contains(message.id))) return this;
-    final parents = {
+    final named =
+        unmappableMessages.keys.any(ids.contains) ||
+        messages.any(
+          (message) => ids.contains(message.id) || _namesChildren(message, ids),
+        );
+    if (!named) return this;
+    final parents = <String, String?>{
+      for (final entry in unmappableMessages.entries)
+        entry.key: switch (entry.value) {
+          {'parentId': final String parentId} => parentId,
+          _ => null,
+        },
       for (final message in messages) message.id: message.parentId,
     };
     var currentId = chat.currentMessageId;
+    final visited = <String>{};
     while (currentId != null && ids.contains(currentId)) {
+      if (!visited.add(currentId)) {
+        currentId = null;
+        break;
+      }
       currentId = parents[currentId];
     }
     return ChatRows(
@@ -262,8 +278,14 @@ class ChatRows {
         for (final message in messages)
           if (!ids.contains(message.id)) _withoutChildren(message, ids),
       ],
-      unmappableMessages: unmappableMessages,
-      unmappableMessageOrder: unmappableMessageOrder,
+      unmappableMessages: {
+        for (final entry in unmappableMessages.entries)
+          if (!ids.contains(entry.key)) entry.key: entry.value,
+      },
+      unmappableMessageOrder: {
+        for (final entry in unmappableMessageOrder.entries)
+          if (!ids.contains(entry.key)) entry.key: entry.value,
+      },
       blobHadTitle: blobHadTitle,
       blobTitleValue: blobTitleValue,
       blobHadHistory: blobHadHistory,
@@ -273,12 +295,17 @@ class ChatRows {
     );
   }
 
+  static bool _namesChildren(MessageRowData message, Set<String> ids) {
+    final children = message.payload['childrenIds'];
+    return children is List && children.any(ids.contains);
+  }
+
   static MessageRowData _withoutChildren(
     MessageRowData message,
     Set<String> ids,
   ) {
-    final children = message.payload['childrenIds'];
-    if (children is! List || !children.any(ids.contains)) return message;
+    if (!_namesChildren(message, ids)) return message;
+    final children = message.payload['childrenIds'] as List;
     return MessageRowData(
       id: message.id,
       chatId: message.chatId,
