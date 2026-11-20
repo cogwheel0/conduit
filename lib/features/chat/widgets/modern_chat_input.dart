@@ -1025,8 +1025,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// A draft the queue refuses (the response just ended) leaves it untouched.
   /// Queueing is a send, so it is felt once, as one, whichever way it came.
   void _queueDraft() {
-    final text = _controller.text.trim();
-    if (text.isEmpty || !widget.enabled) return;
+    if (!widget.enabled ||
+        (_controller.text.trim().isEmpty &&
+            ref.read(attachedFilesProvider).isEmpty)) {
+      return;
+    }
     final wireText = _outgoingText();
     final queue = ref.read(chatDraftQueueProvider.notifier);
     if (queue.enqueue(wireText) == null) return;
@@ -4145,7 +4148,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // already generating but the draft has not cleared yet; that text is not
     // a new message to queue, so Queue must not flash in for those frames.
     final bool showQueueAction =
-        _hasText &&
+        hasDraft &&
         isGenerating &&
         !_sendingDraft &&
         ref.watch(chatDraftQueueOfferProvider);

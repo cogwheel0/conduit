@@ -221,6 +221,18 @@ List<QueuedDraftAttachment?> chatDraftFiles(
         .firstOrNull,
 ];
 
+/// What [draft] is shown as: its words, else the names of its files.
+String chatDraftPreview(
+  ChatDraftQueue queue,
+  QueuedChatDraft draft,
+  List<QueuedDraftAttachment> held,
+) => draft.text.isNotEmpty
+    ? draft.text
+    : [
+        for (final file in chatDraftFiles(queue, draft, held))
+          ?file?.upload.fileName,
+      ].join(', ');
+
 /// Whether [draft]'s files are all uploaded, judged against [held].
 ChatDraftReadiness chatDraftReadiness(
   ChatDraftQueue queue,
@@ -447,10 +459,12 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
   /// Queues what the composer holds behind the running response and clears it.
   /// Returns null when nothing can be queued now. The composer's files leave
   /// the tray but keep uploading, and a file that has not finished delays the
-  /// whole queue rather than being dropped.
+  /// whole queue rather than being dropped. Files alone make a draft, as they
+  /// make a message.
   QueuedChatDraft? enqueue(String text) {
     final trimmed = text.trim();
-    if (trimmed.isEmpty ||
+    final tray = ref.read(attachedFilesProvider);
+    if ((trimmed.isEmpty && tray.isEmpty) ||
         !ref.read(chatMainAnswerActiveProvider) ||
         !_queueableRoute(ref.read)) {
       return null;
@@ -458,7 +472,6 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
     final active = ref.read(activeConversationProvider)!;
     final owner = captureChatMutationOwner(ref, active);
 
-    final tray = ref.read(attachedFilesProvider);
     final context = ref.read(contextAttachmentsProvider);
     final existing = _active;
     final queueId = existing?.id ?? const Uuid().v4();
@@ -903,7 +916,10 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
       }
     }
     final frozenIds = [for (final draft in batch) draft.id];
-    final text = batch.map((draft) => draft.text).join('\n\n');
+    final text = [
+      for (final draft in batch)
+        if (draft.text.isNotEmpty) draft.text,
+    ].join('\n\n');
     final contextAttachments = [
       for (final draft in batch) ...draft.contextAttachments,
     ];

@@ -520,6 +520,22 @@ void main() {
       check(s.parked.last.upload).identicalTo(uploading);
     });
 
+    // Send takes files without words; Queue refused them.
+    test('takes files without words, and refuses a draft of neither', () async {
+      final s = await _Session.start();
+
+      check(s.queue.enqueue('  ')).isNull();
+      check(s.active).isNull();
+
+      s.attach([_file('a.txt')]);
+      final draft = s.queue.enqueue('');
+
+      check(draft).isNotNull();
+      check(draft!.text).equals('');
+      check(s.parked.map((held) => held.upload.fileName)).deepEquals(['a.txt']);
+      check(s.tray).isEmpty();
+    });
+
     test('is refused, and the composer left alone, when no response runs',
         () async {
       final s = await _Session.start();
@@ -600,6 +616,24 @@ void main() {
       check(s.parked).isEmpty();
       check(s.engine.drains).equals(1);
     });
+
+    test(
+      'a draft of files alone adds its files, and no blank line, to the turn',
+      () async {
+        final s = await _Session.start();
+        s.queue.enqueue('first');
+        s.attach([_file('b.txt')]);
+        s.queue.enqueue('');
+
+        s.finishResponse();
+        await s.reaches(() => s.active == null);
+
+        final rows = await s.sentUserRows();
+        check(rows).length.equals(1);
+        check(rows.single.content).equals('first');
+        check(s.userFileIds(rows.single)).deepEquals(['id-b.txt']);
+      },
+    );
 
     test('carries each draft\'s context attachments into the one turn',
         () async {

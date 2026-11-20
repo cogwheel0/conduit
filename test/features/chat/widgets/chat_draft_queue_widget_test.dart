@@ -685,6 +685,32 @@ void main() {
     expect(sendNow.onPressed, isNull);
   });
 
+  // Send takes files without words, and so does Queue. The row has no words
+  // to show for such a draft, so it names its files.
+  testQueue('files alone are queued, and the row names them', (tester) async {
+    final rig = await _pump(tester);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final picked = File('${directory.path}/receipt.png')..writeAsBytesSync([1]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'receipt.png'),
+    ]);
+    await tester.pump();
+
+    await tester.tap(find.text(queueLabel));
+    await tester.pumpAndSettle();
+
+    expect(rig.drafts.single.text, '');
+    expect(rig.container.read(attachedFilesProvider), isEmpty);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('chat-draft-queue-row')),
+        matching: find.text('receipt.png'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testQueue('a failed file can be uploaded again from its own draft', (
     tester,
   ) async {
