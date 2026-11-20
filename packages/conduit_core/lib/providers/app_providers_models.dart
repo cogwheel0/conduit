@@ -534,6 +534,21 @@ class Models extends _$Models {
     DebugLogger.warning('hermes-selection-unavailable', scope: 'models');
   }
 
+  /// Reads the list again from the server as it is now. A refresh already
+  /// under way may have asked before something changed there, so it is
+  /// followed by another rather than joined.
+  Future<void> refreshFromNow() async {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) {
+      try {
+        await inFlight;
+      } on Object {
+        // Its caller hears of it; this read is the one that counts here.
+      }
+    }
+    return refresh();
+  }
+
   Future<void> refresh() {
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;

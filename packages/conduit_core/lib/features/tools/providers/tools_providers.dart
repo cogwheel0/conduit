@@ -53,7 +53,13 @@ class ToolsList extends _$ToolsList {
     return (await _fetchAndPersist(toolsService))?.tools ?? const <Tool>[];
   }
 
+  /// Counts [refresh]es, so one that a later one overtook keeps its list to
+  /// itself.
+  int _refreshes = 0;
+
   Future<void> refresh() async {
+    final refresh = ++_refreshes;
+    bool overtaken() => refresh != _refreshes;
     if (!ref.read(isAuthenticatedProvider2)) {
       state = const AsyncData<List<Tool>>(<Tool>[]);
       return;
@@ -63,8 +69,10 @@ class ToolsList extends _$ToolsList {
     if (toolsService == null) {
       return;
     }
-    final result = await AsyncValue.guard(() => _fetchAndPersist(toolsService));
-    if (!ref.mounted) return;
+    final result = await AsyncValue.guard(
+      () => _fetchAndPersist(toolsService, overtaken: overtaken),
+    );
+    if (!ref.mounted || overtaken()) return;
     final owned = result.value;
     if (result.hasValue && owned == null) return;
     state = result.whenData((value) => value!.tools);
@@ -80,11 +88,15 @@ class ToolsList extends _$ToolsList {
     });
   }
 
-  Future<_OwnedTools?> _fetchAndPersist(ToolsService service) async {
+  Future<_OwnedTools?> _fetchAndPersist(
+    ToolsService service, {
+    bool Function()? overtaken,
+  }) async {
     final ownership = _captureOwnership(service);
     if (ownership == null) return null;
     final tools = await service.getTools();
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
+    if (overtaken?.call() ?? false) return null;
     final storage = ref.read(optimizedStorageServiceProvider);
     await storage.saveLocalTools(tools);
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;

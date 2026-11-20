@@ -38,7 +38,7 @@ class TetherDevices extends Notifier<int> {
     }
 
     await Future.wait(<Future<void>>[
-      refresh('models', ref.read(modelsProvider.notifier).refresh),
+      refresh('models', ref.read(modelsProvider.notifier).refreshFromNow),
       refresh('tools', ref.read(toolsListProvider.notifier).refresh),
     ]);
     if (ref.mounted) state++;
