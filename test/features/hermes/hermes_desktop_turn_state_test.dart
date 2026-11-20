@@ -1086,6 +1086,57 @@ void main() {
     check(questions.last.locked).isFalse();
   });
 
+  // The gateway names its upload contract only with a session, and a new chat
+  // after a launch has none: Photos stayed hidden and uploads were refused.
+  for (final (gateway, error, uploads) in [
+    (
+      'a gateway that stages uploads',
+      {'code': 4001, 'message': 'session not found'},
+      true,
+    ),
+    (
+      'a gateway older than uploads',
+      {'code': -32601, 'message': 'unknown method: file.attach'},
+      false,
+    ),
+  ]) {
+    test('$gateway says so before any session is opened', () async {
+      final harness = _GatewayHarness();
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: rpc,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      harness.responder = (method) => const {};
+      harness.errorResponder = (method) =>
+          method == 'file.attach' ? error : null;
+
+      final capabilities = await service.getCapabilities();
+      await service.getCapabilities();
+
+      check(capabilities['desktop_uploads']).equals(uploads);
+      final methods = [for (final frame in harness.sent) frame['method']];
+      check(methods).not((it) => it.contains('session.create'));
+      check(methods).not((it) => it.contains('session.resume'));
+      check(methods.where((method) => method == 'file.attach')).length
+          .equals(1);
+    });
+  }
+
   test('a PDF Hermes cannot render is sent as a file', () async {
     // A host without pdftoppm refuses `pdf.attach` (issue #898).
     final turn = await _streamTurn(

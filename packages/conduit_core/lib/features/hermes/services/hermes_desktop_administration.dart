@@ -441,6 +441,7 @@ final class _HermesDesktopAdministration {
     }
 
     await _owner._ensureConnected();
+    await _owner._learnDesktopUploadContract();
     final support = await Future.wait<bool>([
       supported(
         () => _owner._rpc.request<Object?>(

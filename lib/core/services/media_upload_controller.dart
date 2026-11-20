@@ -2547,6 +2547,24 @@ final class MediaUploadCancelledException implements Exception {
   const MediaUploadCancelledException();
 }
 
+/// The app's `composerTrayClearerProvider`: empties the composer's tray, then
+/// stops its files' uploads and removes their staged copies.
+void clearComposerTray(Ref ref) {
+  unawaited(
+    ref.read(mediaUploadControllerProvider).clearAttachments().catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
+      DebugLogger.error(
+        'attachment-boundary-cleanup-failed',
+        scope: 'media/upload',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
+}
+
 /// `keepAlive` so the controller's in-flight tracking + `ref` survive across
 /// rebuilds (an upload can outlive the widget that started it). Every former
 /// `enqueueUploadMedia` call site reads this instead.

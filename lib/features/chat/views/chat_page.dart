@@ -778,6 +778,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   void startNewChat() {
+    clearHermesTrayForNewChat(ref);
     resetHermesForNewChat(ref);
     clearSelectedFiltersForConversationBoundary(ref);
 

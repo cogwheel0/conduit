@@ -44,8 +44,20 @@ List<String> selectedFilterIdsForModel(dynamic ref, Model model) {
       .toList(growable: false);
 }
 
+/// Empties the composer's tray when a new chat starts on Hermes or leaves a
+/// Hermes chat. The tray outlives a chat, so files picked for one Hermes chat
+/// were already attached in the next.
+void clearHermesTrayForNewChat(dynamic ref, {Model? next}) {
+  final current = ref.read(selectedModelProvider) as Model?;
+  if ((next != null && isHermesModel(next)) ||
+      (current != null && isHermesModel(current))) {
+    (ref.read(composerTrayClearerProvider) as void Function())();
+  }
+}
+
 // Start a new chat (unified function for both "New Chat" button and home screen)
 void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
+  clearHermesTrayForNewChat(ref, next: modelForNewConversation);
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);
@@ -82,6 +94,7 @@ void startNewChat(dynamic ref, {Model? modelForNewConversation}) {
 /// this does NOT reset to the default model (which would race past and clobber
 /// the Hermes selection); it resolves and selects the Hermes model explicitly.
 Future<void> startNewHermesChat(dynamic ref) async {
+  (ref.read(composerTrayClearerProvider) as void Function())();
   resetHermesForNewChat(ref);
   resetDirectRunsForNewChat(ref);
   clearSelectedFiltersForConversationBoundary(ref);

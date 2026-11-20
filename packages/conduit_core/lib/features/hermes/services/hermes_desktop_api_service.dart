@@ -399,6 +399,9 @@ final class HermesDesktopApiService
   StreamSubscription<AppLifecyclePhase>? _lifecycleSubscription;
   int _desktopContract = 0;
 
+  /// The socket on which [_learnDesktopUploadContract] got its answer.
+  int? _uploadContractProbedSocket;
+
   /// Starts reconciling the desktop transport across foreground changes.
   ///
   /// Takes the lifecycle from the host rather than `WidgetsBinding`: this

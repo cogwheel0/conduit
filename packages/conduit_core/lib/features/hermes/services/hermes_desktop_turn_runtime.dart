@@ -1260,6 +1260,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final text = StringBuffer();
     final paths = <String>[];
     final attachments = <Map<String, String>>[];
+    await _learnDesktopUploadContract();
     try {
       for (final part in input.parts) {
         if (part is HermesInputTextPart) {
@@ -1416,6 +1417,38 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       _desktopContract = value;
       _emitDesktopContract(value);
     }
+  }
+
+  /// Learns whether this gateway takes uploads before any session is open:
+  /// the contract comes only with a session, so a new chat after a launch
+  /// would offer no Photos and refuse its files. `file.attach` came with
+  /// contract 2; an older gateway answers that the method is unknown. Asked
+  /// once a socket, sessionless, so it changes nothing.
+  Future<void> _learnDesktopUploadContract() async {
+    if (_desktopContract >= 2) return;
+    if (_rpc.sessionAuthority) {
+      _recordDesktopContract(const {
+        'desktop_protocol': kHermesCanonicalGatewayProtocol,
+      });
+      return;
+    }
+    final socket = _rpc.socketGeneration;
+    if (_uploadContractProbedSocket == socket) return;
+    var staged = true;
+    try {
+      await _rpc.request<Object?>(
+        'file.attach',
+        params: const {},
+        includeDefaultParams: false,
+      );
+    } on HermesDesktopRpcException catch (error) {
+      if (error.deliveryAmbiguous || error.notReady) return;
+      staged = error.code != -32601;
+    } catch (_) {
+      return;
+    }
+    _uploadContractProbedSocket = socket;
+    if (staged) _recordDesktopContract(const {'desktop_contract': 2});
   }
 
   void _requireDesktopUploadContract() {

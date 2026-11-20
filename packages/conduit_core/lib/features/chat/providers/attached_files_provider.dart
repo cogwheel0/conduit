@@ -204,6 +204,14 @@ final attachedFilesProvider =
       AttachedFilesNotifier.new,
     );
 
+/// Empties the composer's tray at a chat boundary. The app replaces it with
+/// its upload controller's clear, which also stops the files' uploads and
+/// removes their staged copies.
+final composerTrayClearerProvider = Provider<void Function()>(
+  (ref) =>
+      () => ref.read(attachedFilesProvider.notifier).clearAll(),
+);
+
 /// Whether a draft of [text] and [files] has something to send: words, or a
 /// file that finished uploading. A turn of files alone is answered on every
 /// backend.
