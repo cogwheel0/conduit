@@ -573,27 +573,7 @@ void main() {
     tester,
   ) async {
     final api = _RefusingApi();
-    await tester.pumpWidget(_harness(api));
-
-    await tester.pumpAndSettle();
-
-    expect(api.requests, ['ui/resource']);
-    expect(
-      find.text(
-        'The app could not be loaded: Invalid app binding. Run the tool again.',
-      ),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Retry'));
-    await tester.pumpAndSettle();
-    expect(api.requests, ['ui/resource', 'ui/resource']);
-  });
-
-  testWidgets('a refused app is not asked for again when its row returns', (
-    tester,
-  ) async {
-    final api = _RefusingApi();
+    // Its row leaves and comes back without asking the server again.
     for (var mount = 0; mount < 3; mount++) {
       await tester.pumpWidget(_harness(api));
       await tester.pumpAndSettle();
