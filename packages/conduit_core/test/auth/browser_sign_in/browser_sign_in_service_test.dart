@@ -385,6 +385,20 @@ void main() {
       },
     );
 
+    test('the session it keeps remembers the issuer as entered', () async {
+      const typed = BrowserSignInConfig(
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: '$_issuer/',
+      );
+      final found = (await authorize())!;
+      final entered = (await authorize(config: typed))!;
+      check(found.session(owuiUserId: 'user-a')?.enteredIssuer).isNull();
+      check(
+        entered.session(owuiUserId: 'user-a')?.enteredIssuer,
+      ).equals('$_issuer/');
+    });
+
     test('the session it keeps names the provider\'s user', () async {
       browser.answer = (url, redirectUri) {
         idp.idToken = _jwt({

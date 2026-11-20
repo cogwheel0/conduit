@@ -131,6 +131,7 @@ void main() {
         jsonEncode({...json, 'provider': 'Nope!'}),
         jsonEncode({...json, 'revocationEndpoint': 3}),
         jsonEncode({...json, 'subject': 3}),
+        jsonEncode({...json, 'enteredIssuer': 3}),
       ]) {
         check(
           because: '$broken',
@@ -240,6 +241,35 @@ void main() {
             ),
           ).isTrue();
         }
+      });
+
+      test('with the issuer entered then, which a Microsoft tenant\'s '
+          'document names by its ID', () {
+        const entered = 'https://login.microsoftonline.com/consumers/v2.0';
+        final tenant = BrowserSignInSession(
+          serverId: 'server-1',
+          provider: 'microsoft',
+          clientId: 'conduit',
+          issuer:
+              'https://login.microsoftonline.com/'
+              '00000000-0000-0000-0000-00000000000a/v2.0',
+          enteredIssuer: entered,
+          tokenEndpoint:
+              'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+          refreshToken: 'refresh',
+          owuiUserId: 'user-1',
+        );
+        check(BrowserSignInSession.tryDecode(tenant.encode())).equals(tenant);
+        check(
+          tenant.matches(
+            serverId: 'server-1',
+            config: const BrowserSignInConfig(
+              provider: 'microsoft',
+              clientId: 'conduit',
+              issuer: '$entered/',
+            ),
+          ),
+        ).isTrue();
       });
 
       test('and no others', () {

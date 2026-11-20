@@ -137,6 +137,7 @@ final class BrowserSignInGrant {
     required this.provider,
     required this.clientId,
     required this.issuer,
+    this.enteredIssuer,
     required this.tokenEndpoint,
     this.revocationEndpoint,
     required this.accessToken,
@@ -150,6 +151,10 @@ final class BrowserSignInGrant {
   final String provider;
   final String clientId;
   final String issuer;
+
+  /// The issuer the settings named, as entered
+  /// ([BrowserSignInSession.enteredIssuer]).
+  final String? enteredIssuer;
   final Uri tokenEndpoint;
   final Uri? revocationEndpoint;
 
@@ -174,6 +179,7 @@ final class BrowserSignInGrant {
       provider: provider,
       clientId: clientId,
       issuer: issuer,
+      enteredIssuer: enteredIssuer,
       tokenEndpoint: tokenEndpoint.toString(),
       revocationEndpoint: revocationEndpoint?.toString(),
       refreshToken: refresh,
@@ -434,6 +440,7 @@ class BrowserSignInService {
         provider: config.provider,
         clientId: config.clientId,
         issuer: metadata.issuer,
+        enteredIssuer: config.issuer,
         tokenEndpoint: metadata.tokenEndpoint,
         revocationEndpoint: metadata.revocationEndpoint,
         accessToken: tokens.accessToken,
