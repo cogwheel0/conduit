@@ -136,10 +136,11 @@ class OutboxDrainer {
     }
     _draining = true;
     try {
-      _recheckParkedIfDue();
       await _recoverStrandedOnce();
       while (true) {
         _rerun = false;
+        // Each pass: a drain asked for while this one runs is a rerun of it.
+        _recheckParkedIfDue();
         await _runPass();
         if (_rerun) continue;
         final rearm = _rearm;

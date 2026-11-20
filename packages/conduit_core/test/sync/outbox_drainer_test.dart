@@ -900,6 +900,29 @@ void main() {
     });
   });
 
+  group('parked ops whose check could not tell', () {
+    test('are checked again by a drain asked for once that is due, while one '
+        'that began before then runs', () async {
+      final recovery = _UndecidedOnce();
+      final drainer = buildDrainer(adapters: [recovery]);
+      // The first drain's re-arm could not tell: it is checked again later.
+      await drainer.drain();
+      check(recovery.checks).equals(1);
+
+      var asked = false;
+      claims.onEmptyClaim = () async {
+        if (asked) return;
+        asked = true;
+        clock.now += 3600;
+        unawaited(drainer.drain());
+      };
+      await drainer.drain();
+
+      check(asked).isTrue();
+      check(recovery.checks).equals(2);
+    });
+  });
+
   group('offline handling', () {
     test('sync op offline never parks; retries with short backoff', () async {
       await seedServerChat('c1');
@@ -1144,6 +1167,22 @@ final class _GatedRecovery implements SyncEntityAdapter, ParkedOpRecovery {
       throw UnimplementedError();
   @override
   Future<void> pushOp(OutboxOp op) => throw UnimplementedError();
+}
+
+/// Recovery whose first check could not tell, and whose later ones re-arm
+/// nothing; it owns no kind.
+final class _UndecidedOnce implements SyncEntityAdapter, ParkedOpRecovery {
+  int checks = 0;
+
+  @override
+  Future<bool> rearmRecoverable({required int nowEpochSeconds}) async =>
+      ++checks == 1;
+
+  @override
+  bool ownsKind(OutboxKind kind) => false;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
 }
 
 /// Answers only delete all, and holds the answer until the test releases it.
