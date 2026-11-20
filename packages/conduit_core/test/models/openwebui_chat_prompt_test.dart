@@ -127,12 +127,14 @@ void main() {
 
   group('coding agent requests (Open WebUI 0.13.1)', () {
     // As `AgentOutput.approve` saves an agent's request: pending, with the
-    // agent's own request as `native`.
+    // agent's own request under [field] (`native` up to Open WebUI 0.13.3,
+    // `provider_data` from 0.13.4).
     Map<String, dynamic> request(
       String name,
       Object arguments, {
       String status = 'pending',
       Map<String, dynamic>? resolution,
+      String field = 'native',
     }) => {
       'type': 'function_call',
       'id': 'approval_1',
@@ -140,80 +142,88 @@ void main() {
       'name': name,
       'arguments': jsonEncode(arguments),
       'status': status,
-      'native': const {'request_id': 'r1'},
+      field: const {'request_id': 'r1'},
       'agent_resolution': ?resolution,
     };
 
-    test('an agent\'s questions show although ask_user would refuse '
-        'them', () {
-      // Claude Code keys a question by its whole text; ACP and Pi send
-      // choices without descriptions, or none for a written answer.
-      final longId =
-          'Which of the files under src should I refactor first? '
-          'Pick the one that matters most.';
-      final pending = findPendingOpenWebUiToolPrompt([
-        _assistant('assistant', [
-          request('ask_user', {
-            'questions': [
-              {
-                'id': longId,
-                'header': 'Refactor',
-                'question': longId,
-                'options': [
-                  {'label': 'a.dart', 'description': ''},
-                  {'label': 'b.dart', 'description': ''},
-                  {'label': 'c.dart', 'description': ''},
-                  {'label': 'd.dart', 'description': ''},
-                ],
-              },
-              {
-                'id': 'value',
-                'header': 'Pi',
-                'question': 'Enter a response',
-                'options': <Object>[],
-              },
-              {'id': 'q3', 'question': 'Anything else?'},
-              {
-                'id': 'q4',
-                'question': 'Proceed?',
-                'options': [
-                  {'label': 'Yes', 'description': ''},
-                  {'label': 'No', 'description': ''},
-                ],
-                'allow_other': false,
-              },
-            ],
-          }),
-        ]),
-      ]);
-
-      check(pending).isNotNull();
-      check(pending!.callId).equals('approval_1');
-      final questions = pending.prompt.questions;
-      check(pending.prompt.kind).equals(OpenWebUiComposerPromptKind.askUser);
-      check(questions.map((q) => q.id))
-          .deepEquals([longId, 'value', 'q3', 'q4']);
-      check(questions.first.options.map((o) => o.label))
-          .deepEquals(['a.dart', 'b.dart', 'c.dart', 'd.dart']);
-      check(questions.first.options.first.description).equals('');
-      check(questions[1].options).isEmpty();
-      check(questions[1].allowOther).isTrue();
-      check(questions[2].header).equals('Question 3');
-      check(questions[3].allowOther).isFalse();
-    });
-
-    test('the same questions without `native` still meet ask_user\'s '
-        'rules', () {
-      final pending = findPendingOpenWebUiToolPrompt([
-        _assistant('assistant', [
-          {
-            ...request('ask_user', {
-              'questions': [
-                {'id': 'value', 'question': 'Enter a response'},
+    for (final field in ['native', 'provider_data']) {
+      test('an agent\'s questions saved under $field show although ask_user '
+          'would refuse them', () {
+        // Claude Code keys a question by its whole text; ACP and Pi send
+        // choices without descriptions, or none for a written answer.
+        final longId =
+            'Which of the files under src should I refactor first? '
+            'Pick the one that matters most.';
+        final asked = request('ask_user', {
+          'questions': [
+            {
+              'id': longId,
+              'header': 'Refactor',
+              'question': longId,
+              'options': [
+                {'label': 'a.dart', 'description': ''},
+                {'label': 'b.dart', 'description': ''},
+                {'label': 'c.dart', 'description': ''},
+                {'label': 'd.dart', 'description': ''},
               ],
-            }),
-          }..remove('native'),
-        ]),
+            },
+            {
+              'id': 'value',
+              'header': 'Pi',
+              'question': 'Enter a response',
+              'options': <Object>[],
+            },
+            {'id': 'q3', 'question': 'Anything else?'},
+            {
+              'id': 'q4',
+              'question': 'Proceed?',
+              'options': [
+                {'label': 'Yes', 'description': ''},
+                {'label': 'No', 'description': ''},
+              ],
+              'allow_other': false,
+            },
+          ],
+        }, field: field);
+
+        check(isOpenWebUiAgentRequest([asked], 'approval_1')).isTrue();
+        check(
+          isOpenWebUiAgentRequest([
+            request('agent_tool', const {}, field: field),
+          ], 'approval_1'),
+        ).isTrue();
+
+        final pending = findPendingOpenWebUiToolPrompt([
+          _assistant('assistant', [asked]),
+        ]);
+        check(pending).isNotNull();
+        check(pending!.callId).equals('approval_1');
+        final questions = pending.prompt.questions;
+        check(pending.prompt.kind).equals(OpenWebUiComposerPromptKind.askUser);
+        check(questions.map((q) => q.id))
+            .deepEquals([longId, 'value', 'q3', 'q4']);
+        check(questions.first.options.map((o) => o.label))
+            .deepEquals(['a.dart', 'b.dart', 'c.dart', 'd.dart']);
+        check(questions.first.options.first.description).equals('');
+        check(questions[1].options).isEmpty();
+        check(questions[1].allowOther).isTrue();
+        check(questions[2].header).equals('Question 3');
+        check(questions[3].allowOther).isFalse();
+      });
+    }
+
+    test('the same questions without the agent\'s own request still meet '
+        'ask_user\'s rules', () {
+      final plain = {
+        ...request('ask_user', {
+          'questions': [
+            {'id': 'value', 'question': 'Enter a response'},
+          ],
+        }),
+      }..remove('native');
+      check(isOpenWebUiAgentRequest([plain], 'approval_1')).isFalse();
+      final pending = findPendingOpenWebUiToolPrompt([
+        _assistant('assistant', [plain]),
       ]);
       check(pending).isNull();
     });

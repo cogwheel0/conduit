@@ -23,8 +23,10 @@ abstract class TerminalServerDto with _$TerminalServerDto {
       _$TerminalServerDtoFromJson(json);
 }
 
-/// Params for `terminal.servers`: the servers usable in [scopeId] -- a
-/// chat id, or empty for the terminal page on its own.
+/// Params for `terminal.servers`: the servers usable in [scopeId], a chat
+/// id. Empty lists every one the account's chats may use, a server that
+/// needs a saved chat marked `requiresSavedChat`: the terminal page, which
+/// opens outside any chat, cannot use that one.
 @freezed
 abstract class TerminalScope with _$TerminalScope {
   const factory TerminalScope({@Default('') String scopeId}) = _TerminalScope;
@@ -50,7 +52,13 @@ abstract class TerminalServers with _$TerminalServers {
 /// Params for `terminal.select`: null selects none.
 @freezed
 abstract class TerminalSelect with _$TerminalSelect {
-  const factory TerminalSelect({String? serverId}) = _TerminalSelect;
+  const factory TerminalSelect({
+    String? serverId,
+
+    /// The chat it is selected from, empty for none: a server that needs a
+    /// saved chat is selected from a saved one only.
+    @Default('') String scopeId,
+  }) = _TerminalSelect;
 
   factory TerminalSelect.fromJson(Map<String, dynamic> json) =>
       _$TerminalSelectFromJson(json);

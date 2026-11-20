@@ -172,15 +172,20 @@ bool _isConfigEnabled(Map<String, dynamic> server) {
   return true;
 }
 
+/// [value] is a terminal's `contexts` (Open WebUI 0.13.3 and older), and
+/// [scope] the scope of a terminal template (0.13.4 and later), where a
+/// `chat` scope gives each saved chat its own machine.
 ({bool available, bool requiresSavedChat}) parseTerminalChatContextForTest(
-  Object? value,
-) {
+  Object? value, {
+  Object? scope,
+}) {
   final contexts = _coerceStringKeyedMap(value);
   final chatContext = contexts['chat'];
   final chatConfig = _coerceStringKeyedMap(chatContext);
   return (
     available: chatContext != false,
-    requiresSavedChat: chatConfig['context_id']?.toString() == 'chat_id',
+    requiresSavedChat:
+        chatConfig['context_id']?.toString() == 'chat_id' || scope == 'chat',
   );
 }
 
@@ -436,7 +441,10 @@ class TerminalService {
       if (systemId.isEmpty) {
         continue;
       }
-      final chatContext = parseTerminalChatContextForTest(server['contexts']);
+      final chatContext = parseTerminalChatContextForTest(
+        server['contexts'],
+        scope: server['scope'],
+      );
 
       parsed.add(
         TerminalServerInfo(

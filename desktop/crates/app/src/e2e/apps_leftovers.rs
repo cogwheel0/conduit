@@ -606,7 +606,7 @@ async fn terminal_pdf(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
         p.composer_store
             .update(cx, |c, cx| c.select_model(&model, cx))
     });
-    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(BUILD_BOX.into(), cx));
+    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(BUILD_BOX.into(), None, cx));
     let selected = wait_until(cx, Duration::from_secs(10), |cx| {
         cx.global::<AppState>()
             .stores
@@ -653,7 +653,7 @@ async fn terminal_pdf(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
         wait_answer(cx, Duration::from_secs(60)).await,
     );
     let chat_id = cx.update(|cx| chat_store(cx).map(|s| s.read(cx).chat_id().to_string()));
-    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(BUILD_BOX.into(), cx));
+    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(BUILD_BOX.into(), None, cx));
     if let Some(id) = chat_id {
         let _ = call::<methods::ChatsDelete>(&ChatRef { id }, cx).await;
     }
