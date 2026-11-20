@@ -252,6 +252,25 @@ Future<void> _settleRecheck() async {
   }
 }
 
+/// What a device that offers a model through Tether lists, as Open WebUI
+/// 0.13.4 does.
+final _deviceModel = Model.fromJson(const <String, dynamic>{
+  'id': 'garage-llama',
+  'name': 'garage-llama',
+  'connection_type': 'local',
+  'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+});
+
+/// The model list, answered when a test says.
+final class _HeldModels extends Models {
+  _HeldModels(this._listed);
+
+  final Future<List<Model>> _listed;
+
+  @override
+  Future<List<Model>> build() => _listed;
+}
+
 ChatMessage _assistantMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(
       id: id,
@@ -1535,6 +1554,61 @@ void main() {
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
       },
     );
+
+    test('a resumed answer from a device reads its failure as a relay, '
+        'though the model list loads after the chat opens', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Hi', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'A',
+          timestamp,
+        ).copyWith(model: _deviceModel.id),
+      ];
+      final socket = _FakeSocketService()..connected = true;
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = ['task-1'];
+      final listed = Completer<List<Model>>();
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(socket),
+          apiServiceProvider.overrideWithValue(api),
+          modelsProvider.overrideWith(() => _HeldModels(listed.future)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await pumpEventQueue();
+      listed.complete([_deviceModel]);
+      await pumpEventQueue();
+      await _drainRemoteTaskStatusCheck(notifier);
+      check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+
+      socket.emitChatEvent(
+        type: 'chat:message:error',
+        payload: {
+          'chat_id': 'chat-1',
+          'error': {'content': 'Open WebUI: Server Connection Error'},
+          'done': true,
+        },
+        messageId: 'assistant-1',
+      );
+      await pumpEventQueue();
+
+      check(container.read(chatMessagesProvider).last.error?.relay)
+          .equals(TetherRelayFailure.interrupted);
+    });
 
     test('resume monitor is armed while a dropped socket reconnects', () async {
       final timestamp = DateTime.now();

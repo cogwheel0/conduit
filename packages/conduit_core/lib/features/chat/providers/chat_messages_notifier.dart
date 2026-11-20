@@ -3633,6 +3633,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       chatId: conversation.id,
       api: api,
     );
+    // Whether the answer's model is one of the user's devices: its failure
+    // is read with it. The model list may still be loading when a chat opens.
+    final viaTether = isTetherModel(
+      await _listedOpenWebUiRequestModel(
+        ref,
+        resolvedModelId,
+        selected: selectedModel,
+      ),
+    );
+    if (_shouldProtectLocalStreamingState ||
+        !_stillOwnsReopenedTail(resumeOwner, last.id)) {
+      return;
+    }
 
     try {
       await dispatchChatTransport(
@@ -3658,9 +3671,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ownsPendingPlaceholder: () =>
             _hasStreamingAssistant &&
             _stillOwnsReopenedTail(resumeOwner, last.id),
-        viaTether: isTetherModel(
-          _openWebUiRequestModel(ref, resolvedModelId, selected: selectedModel),
-        ),
+        viaTether: viaTether,
       );
     } catch (error) {
       DebugLogger.log(

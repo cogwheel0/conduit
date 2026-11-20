@@ -303,6 +303,26 @@ Model? _openWebUiRequestModel(dynamic ref, String modelId, {Model? selected}) {
   }
 }
 
+/// [_openWebUiRequestModel] for an answer the server is already writing,
+/// such as one a reopened chat resumes: a model list that has not loaded yet
+/// is waited for, and one loading again answers from the list it had.
+Future<Model?> _listedOpenWebUiRequestModel(
+  dynamic ref,
+  String modelId, {
+  Model? selected,
+}) async {
+  if (selected != null && selected.id == modelId) return selected;
+  try {
+    final listed = ref.read(modelsProvider) as AsyncValue<List<Model>>;
+    final models =
+        listed.value ??
+        await (ref.read(modelsProvider.future) as Future<List<Model>>);
+    return models.where((model) => model.id == modelId).firstOrNull;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Exposes [_openWebUiRequestModel] for focused unit tests.
 @visibleForTesting
 Model? openWebUiRequestModelForTest(
