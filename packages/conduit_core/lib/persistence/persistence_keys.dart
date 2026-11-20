@@ -101,7 +101,6 @@ final class PreferenceKeys {
   /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
   static const String ttsSpeed = 'tts_speed';
-
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'
