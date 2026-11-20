@@ -983,5 +983,33 @@ void main() {
           .isA<List>()
           .deepEquals(['x1']);
     });
+
+    test('the legacy message list loses it too, and nothing else', () {
+      // A copy without a usable `currentId` is read from this list instead.
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'c1',
+        blob: <String, dynamic>{
+          'history': <String, dynamic>{
+            'messages': {
+              'q1': message('q1', children: ['a1']),
+              'a1': message('a1', parentId: 'q1', role: 'assistant'),
+            },
+          },
+          'messages': [
+            message('q1', children: ['a1']),
+            message('a1', parentId: 'q1', role: 'assistant'),
+          ],
+          'tags': ['pantry'],
+        },
+        title: 'Pantry',
+        createdAt: 1,
+        updatedAt: 2,
+      ).withoutMessages({'a1'});
+
+      final legacy = rows.chat.rawExtra['messages'] as List;
+      check([for (final m in legacy) m['id']]).deepEquals(['q1']);
+      check((legacy.single as Map)['childrenIds']).isA<List>().isEmpty();
+      check(rows.chat.rawExtra['tags']).isA<List>().deepEquals(['pantry']);
+    });
   });
 }
