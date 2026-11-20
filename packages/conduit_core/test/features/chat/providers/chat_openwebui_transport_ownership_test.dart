@@ -2945,6 +2945,133 @@ void main() {
       check(await heldDeletes()).isEmpty();
     });
 
+    test('a settle that fails is finished by the retry, which never sends '
+        'the question again', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      final runner = container.read(
+        Provider<RequestCompletionRunner>(
+          (ref) => ChatRequestCompletionRunner(ref),
+        ),
+      );
+      final payload = const RequestCompletionPayload(
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      ).toJson();
+
+      // As a send stores it, under its question.
+      await (db.update(db.messages)..where((t) => t.id.equals(assistantId)))
+          .write(const MessagesCompanion(parentId: Value(userId)));
+      // The server holds the question, and the local settle then fails.
+      await db.customStatement(
+        'CREATE TRIGGER held_settle_fails BEFORE DELETE ON messages '
+        "WHEN OLD.id = '$assistantId' "
+        "BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+      );
+      await check(runner.run(chatId: chatId, payload: payload)).throws();
+      await db.customStatement('DROP TRIGGER held_settle_fails');
+      // The empty answer is gone from the server by the retry.
+      api.deleteFailures.add(deleteFailure(status: 404));
+
+      await runner.run(chatId: chatId, payload: payload);
+
+      check(api.completionCalls).equals(1);
+      check(await storedMessage(assistantId)).isNull();
+      check((await storedMessage(userId))!['meta'])
+          .isA<Map>()
+          .deepEquals({'status': 'pending'});
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+    });
+
+    test('an empty answer deleted on the server at once lands as a push: a '
+        'copy read before it does not bring it back', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+      // The chat as last pulled.
+      await (db.update(db.chats)..where((t) => t.id.equals(chatId))).write(
+        const ChatsCompanion(serverUpdatedAt: Value(1)),
+      );
+      // A pull asks for the chat before the delete, as `PullSync` does.
+      final pushesAtRead = db.chatsDao.pushVersion(chatId);
+
+      await runQueuedCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      );
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+
+      // Its copy, read before the delete, still has the empty answer.
+      final stale = ChatBlobMapper.blobToRows(
+        chatId: chatId,
+        title: 'A',
+        createdAt: 1,
+        updatedAt: 2,
+        blob: <String, dynamic>{
+          'title': 'A',
+          'history': <String, dynamic>{
+            'currentId': assistantId,
+            'messages': <String, dynamic>{
+              userId: <String, dynamic>{
+                'id': userId,
+                'parentId': null,
+                'childrenIds': <String>[assistantId],
+                'role': 'user',
+                'content': 'Say the word: heron',
+                'timestamp': 1,
+                'meta': <String, dynamic>{'status': 'pending'},
+              },
+              assistantId: <String, dynamic>{
+                'id': assistantId,
+                'parentId': userId,
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 1,
+              },
+            },
+          },
+        },
+      );
+      final merged = await db.chatsDao.mergeServerChat(
+        server: stale,
+        refreshWhenClean: true,
+        readBeforePush: pushesAtRead != db.chatsDao.pushVersion(chatId),
+      );
+
+      check(merged.staleRead).isTrue();
+      check(await storedMessage(assistantId)).isNull();
+    });
+
     test('a regeneration the server holds waits as a send does, with no '
         'failure', () async {
       await _seedChat(db, chatId);

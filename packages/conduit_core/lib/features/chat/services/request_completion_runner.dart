@@ -246,6 +246,17 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       );
       return;
     }
+    if (_placeholderMarkedHeld(placeholder)) {
+      // The server held the question, and settling it did not finish.
+      await settleHeldOpenWebUiCompletion(
+        _liveOwnerOf(owner) ?? _ref,
+        api: owner.api,
+        owner: owner,
+        questionId: placeholder.parentId,
+        assistantMessageIds: [assistantMessageId],
+      );
+      return;
+    }
     if (_placeholderMarkedComplete(placeholder)) {
       DebugLogger.log(
         'completion-already-done',
@@ -436,6 +447,18 @@ extension on ChatRequestCompletionRunner {
       );
       return;
     }
+    final held = rows.values.where(_placeholderMarkedHeld).firstOrNull;
+    if (held != null) {
+      // The server held the question, and settling it did not finish.
+      await settleHeldOpenWebUiCompletion(
+        _liveOwnerOf(owner) ?? _ref,
+        api: owner.api,
+        owner: owner,
+        questionId: held.parentId,
+        assistantMessageIds: rows.keys,
+      );
+      return;
+    }
     final unfinished = [
       for (final id in slotIds)
         if (rows[id] != null && !_placeholderMarkedComplete(rows[id]!)) id,
@@ -571,6 +594,11 @@ bool _placeholderMarkedComplete(MessageRow placeholder) {
   return metadata['responseDone'] == true ||
       payload['done'] == true ||
       payload['isStreaming'] == false;
+}
+
+bool _placeholderMarkedHeld(MessageRow placeholder) {
+  final payload = _decodeMessagePayload(placeholder.payload);
+  return _asJsonMap(payload['metadata'])[kCompletionHeldMetadataKey] == true;
 }
 
 bool _placeholderMarkedSubmitted(MessageRow placeholder) {

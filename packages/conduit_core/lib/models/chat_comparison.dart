@@ -48,6 +48,12 @@ const String kMessageMergedMetadataKey = 'merged';
 /// ids. Absent for any other message.
 const String kMessageHeldByServerMetadataKey = 'heldByServer';
 
+/// Where an answer's metadata says the server held its question instead of
+/// answering it ([kMessageHeldByServerMetadataKey]): the request went out,
+/// and nothing comes under this id. A retry of its turn settles it again
+/// and never sends it again.
+const String kCompletionHeldMetadataKey = 'completionHeld';
+
 extension ChatMessageComparisonFields on ChatMessage {
   /// Whether the server holds this question until a running reply ends.
   bool get isHeldByServer => metadata?[kMessageHeldByServerMetadataKey] == true;

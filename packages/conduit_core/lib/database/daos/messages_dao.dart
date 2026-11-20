@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../models/chat_comparison.dart' show kCompletionHeldMetadataKey;
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
 import '../models/chat_transcript_window.dart';
@@ -195,6 +196,26 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ...metadata,
             'completionSubmitted': true,
           };
+      },
+    );
+  }
+
+  /// Marks a placeholder whose question the server held instead of answering
+  /// ([kCompletionHeldMetadataKey]). Written before the rest of the held
+  /// settle, so a retry of the turn after a failed settle only settles it.
+  Future<bool> markAssistantCompletionHeld({
+    required String chatId,
+    required String messageId,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        payload['metadata'] = <String, dynamic>{
+          ..._asJsonMap(payload['metadata']),
+          'completionSubmitted': true,
+          kCompletionHeldMetadataKey: true,
+        };
       },
     );
   }

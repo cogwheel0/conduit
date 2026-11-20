@@ -664,7 +664,9 @@ Future<void> runHeadlessCompletion(
 /// outbox pushed them with the question before the request, and Open WebUI
 /// answers a held question only while nothing answers it. A delete that fails
 /// stays in the outbox, retried until it lands ([ChatsDao.settleHeldTurn]).
-/// The question stays, held, and the request is never sent again.
+/// The question stays, held, and the request is never sent again: the
+/// answers are marked held ([kCompletionHeldMetadataKey]) before anything
+/// else, so a retry of the turn after a failed settle only settles it again.
 Future<void> settleHeldOpenWebUiCompletion(
   dynamic ref, {
   required Object? api,
@@ -678,36 +680,71 @@ Future<void> settleHeldOpenWebUiCompletion(
     scope: 'chat/completion',
     data: {'chatId': owner.chatId, 'assistantMessageIds': answerIds},
   );
-  final unsent = <String>[];
-  for (final id in answerIds) {
-    if (api is! ApiService) {
-      unsent.add(id);
-      continue;
-    }
-    api.endSend(id);
-    try {
-      await api.deleteConversationMessage(owner.chatId, id);
-    } catch (error) {
-      // Already gone, with its chat.
-      if (error is DioException && error.response?.statusCode == 404) continue;
-      DebugLogger.warning(
-        'held-answer-delete-failed',
-        scope: 'chat/completion',
-        data: {'chatId': owner.chatId, 'error': error.toString()},
-      );
-      unsent.add(id);
-    }
-  }
-  final locks = ref.read(chatLocksProvider) as ChatLocks;
   final database = owner.database;
-  await locks.runExclusive(owner.chatId, () async {
-    await database?.chatsDao.settleHeldTurn(
-      owner.chatId,
-      questionId: questionId,
-      assistantMessageIds: answerIds,
-      unsentServerDeletes: unsent,
+  var heldRecorded = true;
+  try {
+    for (final id in answerIds) {
+      await database?.messagesDao.markAssistantCompletionHeld(
+        chatId: owner.chatId,
+        messageId: id,
+      );
+    }
+  } catch (error, stackTrace) {
+    heldRecorded = false;
+    DebugLogger.error(
+      'held-answer-marker-failed',
+      scope: 'chat/completion',
+      error: error,
+      stackTrace: stackTrace,
+      data: {'chatId': owner.chatId},
     );
-  });
+  }
+  final unsent = <String>[];
+  try {
+    for (final id in answerIds) {
+      if (api is! ApiService) {
+        unsent.add(id);
+        continue;
+      }
+      api.endSend(id);
+      try {
+        await api.deleteConversationMessage(owner.chatId, id);
+      } catch (error) {
+        // Already gone, with its chat.
+        if (error is! DioException || error.response?.statusCode != 404) {
+          DebugLogger.warning(
+            'held-answer-delete-failed',
+            scope: 'chat/completion',
+            data: {'chatId': owner.chatId, 'error': error.toString()},
+          );
+          unsent.add(id);
+          continue;
+        }
+      }
+      // Landed as a push does: a copy of the chat read before it still has
+      // the empty answer, and a pull stores nothing of it.
+      database?.chatsDao.notePushLanded(owner.chatId);
+    }
+    final locks = ref.read(chatLocksProvider) as ChatLocks;
+    await locks.runExclusive(owner.chatId, () async {
+      await database?.chatsDao.settleHeldTurn(
+        owner.chatId,
+        questionId: questionId,
+        assistantMessageIds: answerIds,
+        unsentServerDeletes: unsent,
+      );
+    });
+  } catch (error) {
+    if (heldRecorded) rethrow;
+    // Nothing tells a retry that the request went out: it would send the
+    // question again.
+    throw SyncTerminalException(
+      statusCode: 500,
+      message:
+          'The server holds this message until its chat\'s running reply '
+          'ends, but settling it here failed: $error',
+    );
+  }
   if (unsent.isNotEmpty &&
       database != null &&
       openWebUiCompletionContextIsCurrent(ref, owner)) {
