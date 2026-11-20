@@ -1278,6 +1278,9 @@ final class _ServerChatApi extends _GatedCompletionApi {
   Future<void> Function()? whileReading;
   Future<void> Function()? whileReadingRaw;
 
+  /// Thrown by a raw read, if set.
+  Object? rawError;
+
   Map<String, dynamic> _response(String id) => jsonDecode(
     jsonEncode({
       'id': id,
@@ -1318,6 +1321,8 @@ final class _ServerChatApi extends _GatedCompletionApi {
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    final error = rawError;
+    if (error != null) throw error;
     final response = _response(id);
     await whileReadingRaw?.call();
     return response;
@@ -3720,6 +3725,58 @@ void main() {
 
       check(refreshed!.messages.map((m) => m.id).toList())
           .deepEquals([userId, 'answer-1', 'question-2']);
+    });
+
+    test('a copy read straight from the server leaves the empty answer out '
+        'when the turns below its sibling cannot be read', () async {
+      await seedTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerChatApi(assistantId, {
+        userId: _historyEntry(
+          userId,
+          'user',
+          'Say the word: heron',
+          childrenIds: ['answer-elsewhere', assistantId],
+        ),
+        'answer-elsewhere': _historyEntry(
+          'answer-elsewhere',
+          'assistant',
+          'heron',
+          parentId: userId,
+        ),
+        assistantId: _historyEntry(
+          assistantId,
+          'assistant',
+          '',
+          parentId: userId,
+          done: false,
+        ),
+      });
+      final request = RequestOptions(path: '/api/v1/chats/$chatId');
+      api.rawError = DioException(
+        requestOptions: request,
+        type: DioExceptionType.badResponse,
+        response: Response<Object?>(requestOptions: request, statusCode: 503),
+      );
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
     });
 
     test('a copy read straight from the server is read only as the account '

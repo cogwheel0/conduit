@@ -299,10 +299,22 @@ Future<Conversation> _readChatWithoutUnsentDeletes(
   final replaced = conversation.messages.any(
     (m) => ids.contains(m.id) && m.versions.any((v) => !ids.contains(v.id)),
   );
-  final response = replaced
-      ? await api.getChatRaw(id, authSnapshot: authSnapshot)
-      : null;
-  // A chat gone meanwhile leaves the first copy.
+  Map<String, dynamic>? response;
+  if (replaced) {
+    try {
+      response = await api.getChatRaw(id, authSnapshot: authSnapshot);
+    } catch (error, stackTrace) {
+      if (!api.authSnapshotIsCurrent(authSnapshot)) rethrow;
+      DebugLogger.error(
+        'direct-read-tree-failed',
+        scope: 'db/conversation',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': id},
+      );
+    }
+  }
+  // A chat gone meanwhile, or not read again, leaves the first copy.
   if (response == null) return _withoutMessages(conversation, ids);
   ids.addAll(await unsentMessageDeletesOf(database, id));
   final payload = {'response': response, 'ids': ids.toList()};
