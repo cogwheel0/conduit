@@ -6801,6 +6801,47 @@ void main() {
       ).equals(TetherRelayFailure.interrupted);
     });
 
+    // As for one answer: a status a later attempt may pass goes back to the
+    // outbox; a failed relay to a device settles every answer, since the
+    // turn may have run there.
+    for (final (detail, relay, outcome)
+        in <(String, TetherRelayFailure?, String)>[
+          (
+            'Tether is offline.',
+            TetherRelayFailure.unavailable,
+            'settles every answer',
+          ),
+          ('Service Unavailable', null, 'is sent again later'),
+        ]) {
+      test('a comparison refused with 503 "$detail" $outcome', () async {
+        final (:api, :socket, :container) = await open(
+          available: [duplicate, _deviceModel],
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [duplicate, _deviceModel],
+        );
+        api.onRequest = () => throw ChatCompletionHttpException(503, detail);
+
+        if (relay == null) {
+          await check(replay(container)).throws<ChatCompletionHttpException>();
+        } else {
+          await check(replay(container)).throws<SyncTerminalException>();
+        }
+
+        for (final handle in handles) {
+          final shown = container
+              .read(chatMessagesProvider)
+              .firstWhere((m) => m.id == handle.assistantMessageId);
+          check(shown.isStreaming).equals(relay == null);
+          check(shown.error?.relay).equals(relay);
+        }
+        check(api.requests).length.equals(1);
+      });
+    }
+
     test("a queued answer is read as its device's though the device leaves "
         'while it is sent', () async {
       final (:api, :socket, :container) = await open(

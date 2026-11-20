@@ -994,6 +994,23 @@ Future<void> runComparisonCompletion(
         assistantMessageIds: slotIds,
       );
       return;
+    } on ChatCompletionHttpException catch (refusal) {
+      // As for one answer: a status a later attempt may pass goes back to the
+      // outbox; any other refusal, a failed relay to a device's included,
+      // settles every answer, since sending it again could run it twice.
+      if (refusal.mayPassLater) rethrow;
+      await _refuseComparison(
+        ref,
+        owner: owner,
+        slotIds: slotIds,
+        error: chatMessageErrorFor(refusal),
+        live: live,
+      );
+      _checkSessionAfterRefusedCompletion(ref, refusal);
+      throw SyncTerminalException(
+        statusCode: refusal.statusCode,
+        message: refusal.toString(),
+      );
     }
     final completed = await _markComparisonAcceptedOrAbort(
       ref,
