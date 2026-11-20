@@ -40,6 +40,7 @@ class ToolsList extends _$ToolsList {
     if (toolsService != null && cacheOwnership == null) {
       return const <Tool>[];
     }
+    final cacheRead = _loads.sinceNow(current: current);
     final cached = await storage.getLocalTools();
     // A retired build runs on, but reads, publishes and saves nothing more:
     // the build that replaced it does.
@@ -47,6 +48,11 @@ class ToolsList extends _$ToolsList {
     if (cacheOwnership != null &&
         !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
       return const <Tool>[];
+    }
+    // A read of the server that started while the cache was read is newer
+    // than what the cache holds.
+    if (cached.isNotEmpty && !cacheRead.isNewest) {
+      return _publishedByNewerLoad();
     }
 
     if (cached.isNotEmpty) {

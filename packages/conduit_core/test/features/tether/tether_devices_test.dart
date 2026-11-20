@@ -526,6 +526,29 @@ void main() {
       check(container.read(modelsProvider).value).isNotNull().isEmpty();
     });
 
+    test("the tools' cache, answering after a device's change", () async {
+      final workerManager = WorkerManager();
+      addTearDown(workerManager.dispose);
+      final api = _HeldModelsApi(workerManager);
+      final tools = _HeldToolsService(api);
+      final cache = _Answers<List<Tool>>();
+      final storage = _Storage()..toolCacheReads = cache;
+      final container = signedIn(storage, api, tools: tools);
+      await container.read(activeServerProvider.future);
+      container.listen(toolsListProvider, (_, _) {});
+      await cache.askedFor(1);
+
+      // The device leaves while the cache is read.
+      final change = container.read(tetherDevicesProvider.notifier).changed();
+      await tools.reads.askedFor(1);
+      tools.reads.asked[0].complete(const <Tool>[]);
+      await change;
+      cache.asked[0].complete(const <Tool>[_offeredTool]);
+      await pumpEventQueue();
+
+      check(container.read(toolsListProvider).value).isNotNull().isEmpty();
+    });
+
     test("the tools' retired build, whose cache answers last", () async {
       final workerManager = WorkerManager();
       addTearDown(workerManager.dispose);
