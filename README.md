@@ -121,7 +121,9 @@ later, and skip any sign-in you don't need.
 Responses), LM Studio, Azure-style API versions, native Ollama, and first-party
 OpenRouter. Bring an API key, or skip it for a local endpoint that doesn't want
 one. Direct connections you already configured in Open WebUI come along
-automatically. Keys and custom headers stay in platform secure storage.
+automatically. Open WebUI 0.13.4 moved them to its Tether app: the models your
+devices offer through Tether appear with the server's own, labelled with the
+device. Keys and custom headers stay in platform secure storage.
 
 **Apple On-Device** is an iOS-only Direct provider backed by Apple's local
 SystemLanguageModel. It requires iOS 26 and Apple Intelligence, works offline,
