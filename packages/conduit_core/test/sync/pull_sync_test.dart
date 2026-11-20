@@ -711,6 +711,48 @@ void main() {
         .equals('Connection lost');
   });
 
+  // A turn stored here doesn't stamp the server's copy as a push does, so
+  // a newer chat can't be allowed to carry the watermark past this one.
+  test('a chat every read of which predates a turn stored here holds the '
+      'watermark until a later cycle stores it', () async {
+    server.seedChat(
+      id: 'chat-a',
+      blob: blobFor('chat-a'),
+      createdAt: 100,
+      updatedAt: 100,
+    );
+    await pull.pullChat('chat-a');
+    await db.syncMetaDao.setPullWatermark(100);
+    server.seedChat(
+      id: 'chat-a',
+      blob: blobFor('chat-a'),
+      createdAt: 100,
+      updatedAt: 101,
+    );
+    server.seedChat(
+      id: 'chat-b',
+      blob: blobFor('chat-b'),
+      createdAt: 100,
+      updatedAt: 120,
+    );
+    final hooked = _ChatHookClient(server)
+      ..whileChatLoads = (id) async {
+        if (id == 'chat-a') db.chatsDao.noteLocalTurn('chat-a');
+      };
+    pull = PullSync(client: hooked, db: db, locks: locks);
+
+    final first = await pull.run();
+
+    check(first.watermarkAdvanced).isFalse();
+    check(await db.syncMetaDao.getPullWatermark()).equals(100);
+
+    hooked.whileChatLoads = null;
+    await pull.run();
+
+    check((await db.chatsDao.getChat('chat-a'))!.updatedAt).equals(101);
+    check(await db.syncMetaDao.getPullWatermark()).equals(120);
+  });
+
   group('a model picked while a pull reads the chat', () {
     Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
     void seed(List<String> models) => server.seedChat(
