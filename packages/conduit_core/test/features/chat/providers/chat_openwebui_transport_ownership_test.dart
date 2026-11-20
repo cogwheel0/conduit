@@ -7807,6 +7807,53 @@ void main() {
       });
     }
 
+    test(
+      "a comparison that is not on screen sends the device's answer as "
+      "the device's though another answer is the chat's current one",
+      () async {
+        final (:api, :socket, :container) = await open(
+          available: [_deviceModel, duplicate],
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [_deviceModel, duplicate],
+        );
+        final [device, plain] = [for (final h in handles) h.assistantMessageId];
+        (container.read(chatMessagesProvider.notifier) as _TestMessagesNotifier)
+            .setMessages(const <ChatMessage>[]);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation(
+                'another-chat',
+                const [],
+                ChatStorageKind.openWebUi,
+              ),
+            );
+        // The other answer was picked: the chat is read back with the
+        // device's answer beside it, among its versions.
+        await (db.update(db.chats)..where((t) => t.id.equals(chatId))).write(
+          ChatsCompanion(currentMessageId: Value(plain)),
+        );
+        // What 0.13.4's completion router reports for a relay that failed
+        // before the device answered.
+        api.refusal = (
+          status: 500,
+          detail: 'Open WebUI: Server Connection Error',
+        );
+
+        await check(replay(container)).throws<SyncTerminalException>();
+
+        check(api.requests).length.equals(1);
+        for (final id in [device, plain]) {
+          check(((await storedAnswerOf(id))['error'] as Map)['tetherRelay'])
+              .equals('interrupted');
+        }
+      },
+    );
+
     test('a Stop while a comparison that is not on screen is assembled sends '
         'no request, and every answer ends stopped', () async {
       final worker = _HeldWorker(holding: false);
@@ -12081,6 +12128,11 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   /// Called as each completion request is sent.
   void Function()? onRequest;
 
+  /// When set, each completion request is refused with this status and
+  /// detail, read with what the request recorded about its model, as the
+  /// service reads a refusal.
+  ({int status, String detail})? refusal;
+
   /// Model lists saved with `updateConversation`, by chat id.
   final List<(String, List<String>?)> savedModels = [];
 
@@ -12309,6 +12361,9 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
       ),
     );
     onRequest?.call();
+    if (refusal case (:final status, :final detail)) {
+      throw ChatCompletionHttpException(status, detail, viaTether: viaTether);
+    }
     if (_wire != null) {
       return super.sendMessageSession(
         messages: messages,

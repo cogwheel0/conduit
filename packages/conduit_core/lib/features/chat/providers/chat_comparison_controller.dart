@@ -833,11 +833,17 @@ Future<void> runComparisonCompletion(
   }
 
   // The answers that recorded, when the turn was admitted, that one of the
-  // user's devices offers their model. A collected answer's row keeps it.
-  final viaTether = <String>{
-    for (final message in messages)
-      if (slotIds.contains(message.id) && answerViaTether(message)) message.id,
-  };
+  // user's devices offers their model. A chat read back from the store keeps
+  // the answers it does not open on among another's versions, which hold no
+  // record: those are read from their own rows.
+  final viaTether = <String>{};
+  for (final id in slotIds) {
+    final shown = messages.where((message) => message.id == id).firstOrNull;
+    if ((shown != null && answerViaTether(shown)) ||
+        await _storedAnswerViaTether(owner, id)) {
+      viaTether.add(id);
+    }
+  }
 
   final socketService = _readOpenWebUiSocketForApi(ref, api);
   final socketSessionId =
