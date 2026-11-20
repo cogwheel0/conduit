@@ -1326,18 +1326,31 @@ void main() {
         );
       });
 
-      test('still fails when the server saved nothing', () async {
-        final adapter = _QueuedFakeAdapter([
-          _FakeAdapter.json({'detail': 'Model not found'}, statusCode: 400),
-          _FakeAdapter.json(chatWithReply(null)),
-        ]);
+      // Open WebUI passes a provider's own error body through, its words
+      // under `error.message` (routers/openai.py).
+      for (final (body, words) in <(Map<String, dynamic>, String)>[
+        ({'detail': 'Model not found'}, 'Model not found'),
+        (
+          {
+            'error': {
+              'message': 'Maximum context length exceeded',
+              'code': 400,
+            },
+          },
+          'Maximum context length exceeded',
+        ),
+      ]) {
+        test('still fails when the server saved nothing ($body)', () async {
+          final adapter = _QueuedFakeAdapter([
+            _FakeAdapter.json(body, statusCode: 400),
+            _FakeAdapter.json(chatWithReply(null)),
+          ]);
 
-        await check(send(adapter)).throws<Exception>(
-          (it) => it
-              .has((e) => e.toString(), 'message')
-              .contains('Chat completion failed (400): Model not found'),
-        );
-      });
+          await check(send(adapter)).throws<ChatCompletionHttpException>(
+            (it) => it.has((e) => e.detail, 'detail').equals(words),
+          );
+        });
+      }
 
       // A relay to one of the user's devices that broke is told by its body's
       // code: the turn may have run there, so it is not sent again by itself.

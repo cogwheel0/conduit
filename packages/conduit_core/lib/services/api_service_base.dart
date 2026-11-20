@@ -2179,10 +2179,9 @@ abstract class _ApiServiceBase {
   // Internal helpers for response classification
   // -----------------------------------------------------------------------
 
-  /// Attempts to decode a non-2xx response body into a human-readable
-  /// error string.
   /// The words of an error answer to a completion request: its `error`, or
-  /// FastAPI's `detail`, an object among them as JSON.
+  /// FastAPI's `detail`. A provider's error that Open WebUI passes through
+  /// keeps its words under `error.message`; any other object is kept as JSON.
   ///
   /// The refusal's relay to one of the user's devices is read from what this
   /// returns ([ChatCompletionHttpException.relay]), so a body that tells one
@@ -2198,6 +2197,8 @@ abstract class _ApiServiceBase {
       final words = switch (reason) {
         null => text,
         String() => reason,
+        {'message': final String message} when message.trim().isNotEmpty =>
+          message,
         Map() || List() => jsonEncode(reason),
         _ => reason.toString(),
       };
