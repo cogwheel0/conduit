@@ -145,7 +145,9 @@ pub fn offered(
     let saved = chat.is_some_and(is_saved_chat);
     servers
         .iter()
-        .filter(|t| saved || !t.requires_saved_chat)
+        // The selected one stays, so a chat that can't use it can still
+        // clear it.
+        .filter(|t| saved || !t.requires_saved_chat || selected == Some(t.id.as_str()))
         .map(|t| {
             let name = if t.name.trim().is_empty() {
                 t.id.clone()
@@ -251,6 +253,15 @@ mod tests {
             offered(&servers, Some("box"), Some("local:tide-chart")),
             [("box".to_string(), "box".to_string(), true)],
             "a temporary chat was offered a terminal that needs a saved chat"
+        );
+        // Picked in a saved chat, it stays listed (and clearable) elsewhere.
+        assert_eq!(
+            offered(&servers, Some("per-chat"), None),
+            [
+                ("box".to_string(), "box".to_string(), false),
+                ("per-chat".to_string(), "Chat bench".to_string(), true),
+            ],
+            "a new chat hid the terminal it has selected, so it could not be cleared"
         );
         assert_eq!(
             offered(&servers, Some("box"), Some("chat-lighthouse")),
