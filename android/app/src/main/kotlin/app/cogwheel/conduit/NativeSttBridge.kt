@@ -1136,6 +1136,10 @@ class NativeSttBridge internal constructor(
             if (source == null || pcmGeneration != generation) return@launch
             platformRecognizersIgnoringAudio += onDevice
             Log.w(TAG, "Call microphone: the recognizer left it unread, so it listens through its own")
+            // The next request asks for the recognizer's own microphone even
+            // if it starts before the recorder has stopped.
+            pcmSource = null
+            pcmGeneration = null
             retirePcmSource(source)
         }
     }
