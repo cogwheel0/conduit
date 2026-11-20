@@ -3,11 +3,16 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/web_embed/web_embed_document.dart';
+import 'package:conduit_core/features/web_embed/web_embed_media.dart';
 import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../theme/theme_extensions.dart';
@@ -384,13 +389,19 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
       if (_isRemoteUrl && remoteUri == null) {
         throw StateError('Invalid embed URL');
       }
+      final source = remoteUri == null
+          ? await _withServerMedia(widget.source)
+          : widget.source;
+      if (!mounted || requestId != _loadRequestId) {
+        return;
+      }
       final document = remoteUri != null
           ? _wrapRemoteDocument(
               remoteUri,
               fillAvailableHeight: widget.fillAvailableHeight,
             )
           : _wrapHtmlDocument(
-              widget.source,
+              source,
               argsText: widget.argsText,
               fillAvailableHeight: widget.fillAvailableHeight,
             );
@@ -410,6 +421,37 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         _isLoading = false;
         _loadError = 'Unable to load embedded content.';
       });
+    }
+  }
+
+  /// [html] with the audio and video it names on the active account's
+  /// server fetched with that account's credentials
+  /// ([inlineWebEmbedServerMedia]).
+  Future<String> _withServerMedia(String html) async {
+    final ApiService? api;
+    final Map<String, String>? headers;
+    try {
+      final container = ProviderScope.containerOf(context, listen: false);
+      api = container.read(apiServiceProvider);
+      headers = api == null
+          ? null
+          : buildImageHeadersForUrlFromContainer(container, api.baseUrl);
+    } catch (_) {
+      return html;
+    }
+    final serverBase = api == null ? null : Uri.tryParse(api.baseUrl);
+    if (api == null || serverBase == null || headers == null) {
+      return html;
+    }
+    final client = webEmbedMediaClient(api.serverConfig, headers);
+    try {
+      return await inlineWebEmbedServerMedia(
+        html,
+        serverBase: serverBase,
+        dio: client,
+      );
+    } finally {
+      client.close();
     }
   }
 
