@@ -1494,39 +1494,53 @@ Future<void> regenerateMessage(
         admitted: admittedToolServers,
       );
       // Use transport-aware session dispatch
-      final session = await api!.sendMessageSession(
-        messages: requestMessages,
-        model: serverModelId,
-        conversationId: regenerationOwner.chatId,
-        terminalId: terminalIdForApi,
-        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-        filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-        enableWebSearch: webSearchEnabled,
-        enableImageGeneration: imageGenerationEnabled,
-        enableCodeInterpreter: codeInterpreterEnabled,
-        modelItem: modelItem,
-        sessionIdOverride: socketSessionId,
-        toolServers: toolServers,
-        backgroundTasks: bgTasks,
-        responseMessageId: assistantMessageId,
-        userSettings: userSettingsData,
-        chatParams: turnSettings.chatParams,
-        reasoningEffort: turnSettings.reasoningEffort,
-        parentId: parentMsgMap?['parentId']?.toString(),
-        userMessage: parentMsgMap,
-        variables: promptVars2,
-        files: _extractTopLevelRequestFiles(parentMsgMap),
-        // Only this one answer is asked for again, in its own column.
-        messageIds: comparisonTarget == null
-            ? null
-            : [
-                ChatCompletionTarget(
-                  modelId: serverModelId,
-                  messageId: assistantMessageId,
-                  modelIdx: comparisonTarget.slot,
-                ),
-              ],
-      );
+      final ChatCompletionSession session;
+      try {
+        session = await api!.sendMessageSession(
+          messages: requestMessages,
+          model: serverModelId,
+          conversationId: regenerationOwner.chatId,
+          terminalId: terminalIdForApi,
+          toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+          filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+          enableWebSearch: webSearchEnabled,
+          enableImageGeneration: imageGenerationEnabled,
+          enableCodeInterpreter: codeInterpreterEnabled,
+          modelItem: modelItem,
+          sessionIdOverride: socketSessionId,
+          toolServers: toolServers,
+          backgroundTasks: bgTasks,
+          responseMessageId: assistantMessageId,
+          userSettings: userSettingsData,
+          chatParams: turnSettings.chatParams,
+          reasoningEffort: turnSettings.reasoningEffort,
+          parentId: parentMsgMap?['parentId']?.toString(),
+          userMessage: parentMsgMap,
+          variables: promptVars2,
+          files: _extractTopLevelRequestFiles(parentMsgMap),
+          // Only this one answer is asked for again, in its own column.
+          messageIds: comparisonTarget == null
+              ? null
+              : [
+                  ChatCompletionTarget(
+                    modelId: serverModelId,
+                    messageId: assistantMessageId,
+                    modelIdx: comparisonTarget.slot,
+                  ),
+                ],
+        );
+      } on ChatCompletionHeld {
+        // Regenerated under a reply still running (on another device): the
+        // server holds the question and answers it once that reply ends.
+        await settleHeldOpenWebUiCompletion(
+          ref,
+          api: api,
+          owner: regenerationOwner,
+          questionId: parentMsgMap?['id']?.toString() ?? lastUserMessageId,
+          assistantMessageIds: [assistantMessageId],
+        );
+        return;
+      }
       submittedSession = session;
 
       // Stop/replacement can race the completion POST itself. The request may

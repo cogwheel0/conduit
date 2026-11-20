@@ -27,7 +27,13 @@ enum OutboxKind {
   noteCreate,
   noteUpdate,
   noteDelete,
-  notePin;
+  notePin,
+
+  /// Messages to delete from the server's copy of a chat, one by one
+  /// ([kDeleteMessagesIdsKey]): the empty answers of a question Open WebUI
+  /// holds behind a running reply, which the server answers only once
+  /// nothing answers it. Never coalesced; a message already gone is done.
+  deleteMessages;
 
   /// Parses a persisted kind name; null for an unknown/legacy string so the
   /// drainer can skip it without crashing (A1).
@@ -184,6 +190,9 @@ const Set<String> kUpdateChatEditFlagKeys = <String>{
   kUpdateChatParamsEditKey,
   kUpdateChatBranchEditKey,
 };
+
+/// Payload key of a `deleteMessages` op: the ids of the messages to delete.
+const String kDeleteMessagesIdsKey = 'messageIds';
 
 /// Payload key of a `folderUpsert` op that opens or closes the folder in the
 /// sidebar (see [OutboxDao.folderIdsWithUnsentExpandedEdit]).
@@ -372,6 +381,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
   bool _failedPredecessorsBlock(OutboxOp op) {
     return switch (OutboxKind.fromName(op.kind)) {
       OutboxKind.deleteChat ||
+      OutboxKind.deleteMessages ||
       OutboxKind.folderDelete ||
       OutboxKind.noteDelete => false,
       _ => true,
@@ -968,6 +978,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         );
 
       case OutboxKind.requestCompletion:
+      case OutboxKind.deleteMessages:
         // Never coalesced; ordered after preceding ops by seq (A3).
         return const _CoalesceDecision(insert: true);
 
@@ -1173,6 +1184,7 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
       OutboxKind.updateChat,
       OutboxKind.deleteChat,
       OutboxKind.requestCompletion,
+      OutboxKind.deleteMessages,
     ].map((kind) => kind.name).toList();
   }
 
@@ -1276,6 +1288,14 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         break;
       case OutboxKind.notePin:
         _require(payload['desired'] is bool, 'notePin.desired must be a bool');
+        break;
+      case OutboxKind.deleteMessages:
+        final ids = payload[kDeleteMessagesIdsKey];
+        _require(
+          ids is List && ids.isNotEmpty && ids.every((id) => id is String),
+          'deleteMessages.$kDeleteMessagesIdsKey must be a non-empty String '
+          'list',
+        );
         break;
     }
   }

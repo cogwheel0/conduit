@@ -128,6 +128,7 @@ class NoteAdapter implements SyncEntityAdapter, SyncEntityPullPrepare {
       case OutboxKind.requestCompletion:
       case OutboxKind.folderUpsert:
       case OutboxKind.folderDelete:
+      case OutboxKind.deleteMessages:
       case null:
         return;
     }

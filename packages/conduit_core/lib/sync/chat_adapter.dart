@@ -54,6 +54,7 @@ class ChatAdapter implements SyncEntityAdapter {
       kind == OutboxKind.updateChat ||
       kind == OutboxKind.deleteChat ||
       kind == OutboxKind.requestCompletion ||
+      kind == OutboxKind.deleteMessages ||
       kind.isFolderKind;
 
   @override
@@ -81,6 +82,17 @@ class ChatAdapter implements SyncEntityAdapter {
         break;
       case OutboxKind.deleteChat:
         await _push.pushDeleteChat(_requiredChatId(op, OutboxKind.deleteChat));
+        break;
+      case OutboxKind.deleteMessages:
+        final ids = decodeOutboxPayload(op.payload)[kDeleteMessagesIdsKey];
+        await _push.pushDeleteMessages(
+          _requiredChatId(op, OutboxKind.deleteMessages),
+          [
+            if (ids is List)
+              for (final id in ids)
+                if (id is String) id,
+          ],
+        );
         break;
       case OutboxKind.folderUpsert:
         final payload = decodeOutboxPayload(op.payload);

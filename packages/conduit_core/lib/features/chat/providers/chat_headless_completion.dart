@@ -662,8 +662,9 @@ Future<void> runHeadlessCompletion(
 ///
 /// The empty answers [assistantMessageIds] go, from the server first: the
 /// outbox pushed them with the question before the request, and Open WebUI
-/// answers a held question only while nothing answers it. The question stays,
-/// held, and the request is never sent again.
+/// answers a held question only while nothing answers it. A delete that fails
+/// stays in the outbox, retried until it lands ([ChatsDao.settleHeldTurn]).
+/// The question stays, held, and the request is never sent again.
 Future<void> settleHeldOpenWebUiCompletion(
   dynamic ref, {
   required Object? api,
@@ -677,28 +678,50 @@ Future<void> settleHeldOpenWebUiCompletion(
     scope: 'chat/completion',
     data: {'chatId': owner.chatId, 'assistantMessageIds': answerIds},
   );
-  if (api is ApiService) {
-    for (final id in answerIds) {
-      api.endSend(id);
-      try {
-        await api.deleteConversationMessage(owner.chatId, id);
-      } catch (error) {
-        DebugLogger.warning(
-          'held-answer-delete-failed',
-          scope: 'chat/completion',
-          data: {'chatId': owner.chatId, 'error': error.toString()},
-        );
-      }
+  final unsent = <String>[];
+  for (final id in answerIds) {
+    if (api is! ApiService) {
+      unsent.add(id);
+      continue;
+    }
+    api.endSend(id);
+    try {
+      await api.deleteConversationMessage(owner.chatId, id);
+    } catch (error) {
+      // Already gone, with its chat.
+      if (error is DioException && error.response?.statusCode == 404) continue;
+      DebugLogger.warning(
+        'held-answer-delete-failed',
+        scope: 'chat/completion',
+        data: {'chatId': owner.chatId, 'error': error.toString()},
+      );
+      unsent.add(id);
     }
   }
   final locks = ref.read(chatLocksProvider) as ChatLocks;
+  final database = owner.database;
   await locks.runExclusive(owner.chatId, () async {
-    await owner.database?.chatsDao.settleHeldTurn(
+    await database?.chatsDao.settleHeldTurn(
       owner.chatId,
       questionId: questionId,
       assistantMessageIds: answerIds,
+      unsentServerDeletes: unsent,
     );
   });
+  if (unsent.isNotEmpty &&
+      database != null &&
+      openWebUiCompletionContextIsCurrent(ref, owner)) {
+    final engine = ref.read(syncEngineProvider.notifier) as SyncEngine;
+    unawaited(
+      engine.drainNowForDatabase(database).catchError((Object error) {
+        DebugLogger.error(
+          'held-answer-delete-drain-failed',
+          scope: 'chat/completion',
+          error: error,
+        );
+      }),
+    );
+  }
   if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
   final notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -706,6 +729,18 @@ Future<void> settleHeldOpenWebUiCompletion(
     notifier.removeMessageById(id);
   }
   if (questionId != null) {
+    // A regenerated answer's earlier one, kept hidden in the transcript while
+    // the new one runs: the held question ends the chat now, as it does in
+    // the stored copy.
+    final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
+    final at = shown.indexWhere((m) => m.id == questionId);
+    if (at >= 0) {
+      for (final later in shown.skip(at + 1).toList()) {
+        if (_isArchivedAssistantVariant(later)) {
+          notifier.removeMessageById(later.id);
+        }
+      }
+    }
     notifier.updateMessageById(
       questionId,
       (question) => question.copyWith(

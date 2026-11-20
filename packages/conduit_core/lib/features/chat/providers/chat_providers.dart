@@ -21,7 +21,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:clock/clock.dart' show clock;
-import 'package:dio/dio.dart' show CancelToken;
+import 'package:dio/dio.dart' show CancelToken, DioException;
 import 'package:drift/drift.dart' show Value;
 import 'package:meta/meta.dart';
 import 'package:conduit_core/utils/openwebui_request_variables.dart';

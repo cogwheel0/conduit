@@ -376,6 +376,19 @@ class PushSync {
     });
   }
 
+  /// Deletes [messageIds] from the server's copy of [chatId]. A message (or
+  /// chat) already gone counts as deleted ([SyncApiClient.deleteChatMessage]).
+  /// The local rows are not touched: whoever recorded the op already removed
+  /// them.
+  Future<void> pushDeleteMessages(
+    String chatId,
+    List<String> messageIds,
+  ) async {
+    for (final messageId in messageIds) {
+      await _client.deleteChatMessage(chatId, messageId);
+    }
+  }
+
   // ---- folderUpsert / folderDelete (§7.6) ----
 
   /// Pushes a folder create-or-update. A `local:` folder with

@@ -194,6 +194,25 @@ void main() {
     });
   });
 
+  group('ApiSyncApiClient.deleteChatMessage', () {
+    test('a message already gone from the server is deleted', () async {
+      final client = _buildClient(
+        _FixedAdapter(statusCode: 404, body: {'detail': 'Not found'}),
+      );
+
+      await client.deleteChatMessage('c1', 'a1');
+    });
+
+    test('a refusal is terminal', () async {
+      final client = _buildClient(
+        _FixedAdapter(statusCode: 403, body: {'detail': 'Forbidden'}),
+      );
+
+      await check(client.deleteChatMessage('c1', 'a1'))
+          .throws<SyncTerminalException>();
+    });
+  });
+
   group('getFolderById', () {
     test('reads as the account that captured the snapshot', () async {
       final adapter = _RecordingAdapter();

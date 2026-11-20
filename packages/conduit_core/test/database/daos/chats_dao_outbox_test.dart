@@ -1819,4 +1819,92 @@ void main() {
       check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('m1');
     });
   });
+
+  group('a turn the server holds behind a running reply', () {
+    // Open WebUI 0.13.4 answers the question later, under new ids, and only
+    // once nothing answers it.
+    Future<void> seedHeldTurn() async {
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'c1',
+        title: 'Pantry',
+        createdAt: 1,
+        updatedAt: 1,
+        blob: <String, dynamic>{
+          'title': 'Pantry',
+          'history': <String, dynamic>{
+            'currentId': 'a1',
+            'messages': <String, dynamic>{
+              'b0': <String, dynamic>{
+                'id': 'b0',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'Another branch',
+                'timestamp': 1,
+              },
+              'u1': <String, dynamic>{
+                'id': 'u1',
+                'parentId': null,
+                'childrenIds': <String>['a1'],
+                'role': 'user',
+                'content': 'And the pantry?',
+                'timestamp': 2,
+              },
+              'a1': <String, dynamic>{
+                'id': 'a1',
+                'parentId': 'u1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 3,
+              },
+            },
+          },
+        },
+      );
+      await db.chatsDao.upsertServerChat(rows: rows);
+    }
+
+    test('an empty answer the server kept is deleted there later', () async {
+      await seedHeldTurn();
+
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        unsentServerDeletes: ['a1'],
+      );
+
+      check(await db.messagesDao.getMessage('c1', 'a1')).isNull();
+      final question = jsonDecode(
+        (await db.messagesDao.getMessage('c1', 'u1'))!.payload,
+      );
+      check(question['meta']).isA<Map>().deepEquals({'status': 'pending'});
+      check(question['childrenIds']).isA<List>().isEmpty();
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u1');
+      check(chat.dirty).isFalse();
+      final op = (await db.outboxDao.pendingForChat('c1')).single;
+      check(op.kind).equals(OutboxKind.deleteMessages.name);
+      check(jsonDecode(op.payload)).isA<Map>().deepEquals({
+        kDeleteMessagesIdsKey: ['a1'],
+      });
+    });
+
+    test('a branch picked while it settles stays picked', () async {
+      await seedHeldTurn();
+      await (db.update(db.chats)..where((t) => t.id.equals('c1'))).write(
+        const ChatsCompanion(currentMessageId: Value('b0')),
+      );
+
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+      );
+
+      check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('b0');
+      check(await db.outboxDao.pendingForChat('c1')).isEmpty();
+    });
+  });
 }

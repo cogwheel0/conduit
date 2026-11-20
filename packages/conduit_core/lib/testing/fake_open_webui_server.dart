@@ -385,6 +385,43 @@ class FakeOpenWebUiServer {
   /// (the vendored route raises 404), true after removal.
   bool deleteChat(String id) => _chats.remove(id) != null;
 
+  /// Mirrors `DELETE /api/v1/chats/{id}/messages/{messageId}`
+  /// (`delete_message_from_history`): the message and every reply under it
+  /// leave the chat's history, its parent stops naming it, and a current
+  /// message among them falls back to that parent. A message already gone
+  /// changes nothing. False when the chat does not exist.
+  bool deleteChatMessage(String chatId, String messageId) {
+    final record = _chats[chatId];
+    if (record == null) return false;
+    final history = record.chat['history'];
+    final messages = history is Map ? history['messages'] : null;
+    if (messages is! Map || messages[messageId] is! Map) return true;
+    final parentId = (messages[messageId] as Map)['parentId'];
+    final removed = <String>{};
+    void remove(String id) {
+      final message = messages.remove(id);
+      if (message is! Map) return;
+      removed.add(id);
+      for (final child in [...?(message['childrenIds'] as List?)]) {
+        remove(child.toString());
+      }
+    }
+
+    remove(messageId);
+    final parent = parentId == null ? null : messages[parentId];
+    if (parent is Map && parent['childrenIds'] is List) {
+      parent['childrenIds'] = [
+        for (final child in parent['childrenIds'] as List)
+          if (child != messageId) child,
+      ];
+    }
+    if (removed.contains((history as Map)['currentId'])) {
+      history['currentId'] = parentId;
+    }
+    record.updatedAt = _now();
+    return true;
+  }
+
   /// Mirrors `GET /api/v1/chats/{id}/pinned`
   /// (`get_pinned_status_by_id`): the chat's `pinned` flag; throws 401 when
   /// the chat is missing/unowned (the route raises

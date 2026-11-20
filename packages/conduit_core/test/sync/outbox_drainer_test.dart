@@ -105,6 +105,15 @@ class RecordingSyncApiClient implements SyncApiClient {
   }
 
   @override
+  Future<void> deleteChatMessage(String chatId, String messageId) {
+    calls.add('deleteChatMessage:$chatId/$messageId');
+    events.add('deleteChatMessage:$chatId/$messageId');
+    return _track(chatId, () async {
+      server.deleteChatMessage(chatId, messageId);
+    });
+  }
+
+  @override
   Future<bool> getChatPinned(String id) async => false;
   @override
   Future<Map<String, dynamic>?> togglePin(String id) async => null;
@@ -746,6 +755,73 @@ void main() {
       await drainer.onConnectivityRegained();
       check(await dao.pendingForChat('c1')).isEmpty();
     });
+  });
+
+  group('a message the server must delete', () {
+    // The empty answer of a question Open WebUI holds behind a running reply:
+    // the server answers the question only once nothing answers it, so its
+    // delete is tried again until it lands, and the completion never is.
+    test(
+      'a delete that fails is tried again until the message is gone',
+      () async {
+        await seedServerChat('c1');
+        server.seedChat(
+          id: 'c1',
+          blob: const {
+            'title': 'x',
+            'history': {
+              'currentId': 'a1',
+              'messages': {
+                'u1': {
+                  'id': 'u1',
+                  'role': 'user',
+                  'content': 'Is the kettle on?',
+                  'childrenIds': ['a1'],
+                  'meta': {'status': 'pending'},
+                },
+                'a1': {
+                  'id': 'a1',
+                  'parentId': 'u1',
+                  'role': 'assistant',
+                  'content': '',
+                  'childrenIds': <String>[],
+                },
+              },
+            },
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        );
+        await enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: 'c1',
+          payload: {
+            kDeleteMessagesIdsKey: ['a1'],
+          },
+        );
+        client.failuresByChat['c1'] = [StateError('transient')];
+        final drainer = buildDrainer(backoff: Backoff(jitter: () => 0.999999));
+
+        await drainer.drain();
+        final waiting = (await dao.pendingForChat('c1')).single;
+        check(waiting.attempts).equals(1);
+        check(waiting.nextAttemptAt).equals(clock.now + 2);
+
+        clock.now += 2;
+        await drainer.drain();
+
+        check(await dao.pendingForChat('c1')).isEmpty();
+        final history =
+            (server.getChatById('c1')!['chat'] as Map)['history'] as Map;
+        check((history['messages'] as Map).keys.toList()).deepEquals(['u1']);
+        check(((history['messages'] as Map)['u1'] as Map)['childrenIds'])
+            .isA<List>()
+            .isEmpty();
+        check(client.calls)
+            .deepEquals(['deleteChatMessage:c1/a1', 'deleteChatMessage:c1/a1']);
+        check(completion.runs).equals(0);
+      },
+    );
   });
 
   group('offline handling', () {

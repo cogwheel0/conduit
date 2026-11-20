@@ -8,14 +8,14 @@ import 'package:drift/drift.dart';
 class OutboxOps extends Table {
   @override
   List<String> get customConstraints => const [
-    "CHECK (kind IN ('createChat', 'updateChat', 'deleteChat', 'requestCompletion', 'folderUpsert', 'folderDelete', 'noteCreate', 'noteUpdate', 'noteDelete', 'notePin'))",
+    "CHECK (kind IN ('createChat', 'updateChat', 'deleteChat', 'requestCompletion', 'folderUpsert', 'folderDelete', 'noteCreate', 'noteUpdate', 'noteDelete', 'notePin', 'deleteMessages'))",
     "CHECK (status IN ('pending', 'inFlight', 'failed'))",
     'CHECK (attempts >= 0)',
   ];
 
   IntColumn get seq => integer().autoIncrement()();
 
-  /// createChat|updateChat|deleteChat|requestCompletion|folderUpsert|folderDelete|noteCreate|noteUpdate|noteDelete|notePin
+  /// createChat|updateChat|deleteChat|requestCompletion|folderUpsert|folderDelete|noteCreate|noteUpdate|noteDelete|notePin|deleteMessages
   TextColumn get kind => text()();
   TextColumn get chatId => text().nullable()();
   TextColumn get payload => text().withDefault(const Constant('{}'))();

@@ -576,11 +576,15 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
   /// Messages deleted from the server's copy, as `chatId/messageId`.
   final List<String> deletedMessages = <String>[];
 
+  /// What the next deletes fail with, one each.
+  final List<Object> deleteFailures = <Object>[];
+
   @override
   Future<void> deleteConversationMessage(
     String conversationId,
     String messageId,
   ) async {
+    if (deleteFailures.isNotEmpty) throw deleteFailures.removeAt(0);
     deletedMessages.add('$conversationId/$messageId');
   }
 
@@ -2847,6 +2851,133 @@ void main() {
       check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
       check(_snapshot(container.read(chatMessagesProvider)))
           .equals(_snapshot(onScreen));
+    });
+
+    DioException deleteFailure({int? status}) {
+      final request = RequestOptions(
+        path: '/api/v1/chats/$chatId/messages/$assistantId',
+      );
+      return DioException(
+        requestOptions: request,
+        type: status == null
+            ? DioExceptionType.connectionError
+            : DioExceptionType.badResponse,
+        response: status == null
+            ? null
+            : Response<Object?>(requestOptions: request, statusCode: status),
+      );
+    }
+
+    Future<List<Object?>> heldDeletes() async => [
+      for (final op in await db.outboxDao.pendingForChat(chatId))
+        if (op.kind == OutboxKind.deleteMessages.name)
+          (jsonDecode(op.payload) as Map)[kDeleteMessagesIdsKey],
+    ];
+
+    test('an empty answer the server could not delete yet is deleted '
+        'later, and the question still waits', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..deleteFailures.add(deleteFailure())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final drains = <String>[];
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _OrderedDrainSyncEngine(db, api, drains),
+      );
+      addTearDown(container.dispose);
+
+      await runQueuedCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      );
+      await pumpEventQueue();
+
+      check(api.completionCalls).equals(1);
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+      check(await storedMessage(assistantId)).isNull();
+      check(api.deletedMessages).isEmpty();
+      check(await heldDeletes()).deepEquals([
+        [assistantId],
+      ]);
+      check(drains).deepEquals(['drain']);
+    });
+
+    test('an empty answer already gone from the server is not deleted '
+        'again', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..deleteFailures.add(deleteFailure(status: 404))
+        ..onSend = () => throw const ChatCompletionHeld();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+
+      await runQueuedCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      );
+
+      check(container.read(chatMessagesProvider).single.isHeldByServer)
+          .isTrue();
+      check(await heldDeletes()).isEmpty();
+    });
+
+    test('a regeneration the server holds waits as a send does, with no '
+        'failure', () async {
+      await _seedChat(db, chatId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        ChatMessage(
+          id: 'earlier-answer',
+          role: 'assistant',
+          content: 'egret',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+          metadata: const {'archivedVariant': true},
+        ),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+
+      await regenerateMessage(container, 'Say the word: heron', null);
+
+      check(api.completionCalls).equals(1);
+      final placeholder = api.assistantMessageId!;
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+      check(api.deletedMessages).deepEquals(['$chatId/$placeholder']);
     });
   });
 

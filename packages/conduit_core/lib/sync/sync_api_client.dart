@@ -114,6 +114,13 @@ abstract interface class SyncApiClient {
   /// [SyncTerminalException].
   Future<bool> deleteChat(String id);
 
+  /// DELETE `/api/v1/chats/{id}/messages/{messageId}` (or, on a server older
+  /// than that route, the same edit of its history). Completes when the
+  /// message is gone, a 404 included: the message or its chat is already
+  /// gone. Throws [SyncTerminalException] for 401/403, and the error itself
+  /// for anything worth trying again.
+  Future<void> deleteChatMessage(String chatId, String messageId);
+
   /// GET `/api/v1/chats/{id}/pinned` -> bool. (Toggle-delta source for
   /// pin/archive; see [togglePin].)
   Future<bool> getChatPinned(String id);
@@ -336,6 +343,23 @@ class ApiSyncApiClient implements SyncApiClient {
 
   @override
   Future<bool> deleteChat(String id) => api.deleteChatRaw(id);
+
+  @override
+  Future<void> deleteChatMessage(String chatId, String messageId) async {
+    try {
+      await api.deleteConversationMessage(chatId, messageId);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (code == 404) return;
+      if (code == 401 || code == 403) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'deleteChatMessage forbidden',
+        );
+      }
+      rethrow;
+    }
+  }
 
   @override
   Future<bool> getChatPinned(String id) => api.getChatPinnedRaw(id);

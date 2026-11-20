@@ -2044,6 +2044,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// answers [assistantMessageIds] go, and the question keeps the server's
   /// `meta.status: 'pending'`, so a later push of the chat keeps the hold.
   ///
+  /// Those of them still on the server ([unsentServerDeletes]: their delete
+  /// failed) are deleted there by a `deleteMessages` op, retried until it
+  /// lands: Open WebUI answers the question only once nothing answers it.
+  ///
+  /// The chat's current message moves to the question only from one of its
+  /// answers, so a branch picked meanwhile stays picked.
+  ///
   /// Nothing is marked for a push. The server answers the question under new
   /// ids, and a push of this copy after that would bring the held question
   /// back for it to answer twice. Caller holds the chat lock.
@@ -2051,6 +2058,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     String chatId, {
     required String? questionId,
     required Iterable<String> assistantMessageIds,
+    Iterable<String> unsentServerDeletes = const <String>[],
   }) {
     return transaction(() async {
       final answerIds = assistantMessageIds.toList(growable: false);
@@ -2071,6 +2079,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             ))
             .go();
       }
+      final unsent = unsentServerDeletes.toList(growable: false);
+      if (unsent.isNotEmpty) {
+        await _outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {kDeleteMessagesIdsKey: unsent},
+        );
+      }
 
       if (questionId == null) return;
       final question =
@@ -2081,6 +2097,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       if (question == null) return;
       final payload = _decodeJsonObject(question.payload);
       final children = payload['childrenIds'];
+      final formerAnswers = <Object?>{
+        ...answerIds,
+        if (children is List) ...children,
+      };
       if (children is List) {
         payload['childrenIds'] = [
           for (final child in children)
@@ -2096,9 +2116,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       await (update(messages)
             ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
           .write(MessagesCompanion(payload: Value(jsonEncode(payload))));
-      await (update(chats)..where((t) => t.id.equals(chatId))).write(
-        ChatsCompanion(currentMessageId: Value<String?>(questionId)),
-      );
+      final chat = await getChat(chatId);
+      if (chat != null && formerAnswers.contains(chat.currentMessageId)) {
+        await (update(chats)..where((t) => t.id.equals(chatId))).write(
+          ChatsCompanion(currentMessageId: Value<String?>(questionId)),
+        );
+      }
     });
   }
 
