@@ -14,6 +14,8 @@ import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -59,15 +61,18 @@ final class _RefusingApi extends ApiService {
 /// Serves the app's page, with [csp] as its policy, and runs the tools it
 /// calls.
 final class _ServingApi extends ApiService {
-  _ServingApi({this.csp = "default-src 'none'", this.html = '<p>app</p>'})
-    : super(
-        serverConfig: const ServerConfig(
-          id: 's',
-          name: 'S',
-          url: 'http://localhost:0',
-        ),
-        workerManager: WorkerManager(),
-      );
+  _ServingApi({
+    this.csp = "default-src 'none'",
+    this.html = '<p>app</p>',
+    String serverId = 's',
+  }) : super(
+         serverConfig: ServerConfig(
+           id: serverId,
+           name: 'S',
+           url: 'http://localhost:0',
+         ),
+         workerManager: WorkerManager(),
+       );
 
   final String? csp;
   String html;
@@ -267,20 +272,23 @@ final class _DragProbe {
   }
 }
 
-final _sessionEpoch = Object();
-
 Widget _harness(
   ApiService api, {
   OpenWebUiMcpApp app = _app,
   Widget? child,
-  Object? sessionEpoch,
+  String userId = 'invented-user',
   String? cacheId = 'message:tool-call',
 }) => ProviderScope(
   overrides: [
     appDatabaseProvider.overrideWithValue(null),
     apiServiceProvider.overrideWithValue(api),
-    openWebUiAuthSessionEpochProvider.overrideWithValue(
-      sessionEpoch ?? _sessionEpoch,
+    currentUserProvider2.overrideWithValue(
+      User(
+        id: userId,
+        username: 'invented',
+        email: 'invented@example.com',
+        role: 'user',
+      ),
     ),
   ],
   child: MaterialApp(
@@ -689,7 +697,7 @@ void main() {
     ]);
     expect(app.documentUrl, isNot(secondOrigin));
 
-    final otherAccount = _ServingApi();
+    final otherAccount = _ServingApi(serverId: 'another-server');
     await tester.pumpWidget(_harness(otherAccount));
     await tester.pump();
     await tester.pump();
@@ -697,6 +705,43 @@ void main() {
       'ui/resource',
     ]);
     expect(app.documentUrl, isNot(firstOrigin));
+  });
+
+  testWidgets('a new API client for the same account keeps the app open', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    await app.post({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/initialized',
+    });
+    await tester.pump();
+    final page = app.documentUrl;
+
+    // A refreshed token rebuilds the client; the account stays the same.
+    final refreshed = _ServingApi();
+    await tester.pumpWidget(_harness(refreshed));
+    await tester.pump();
+    await tester.pump();
+
+    // Reopening would load a new page under a new origin.
+    expect(app.documentUrl, page);
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(refreshed.requests, isEmpty);
+
+    // The app's own requests go through the current client.
+    final call = app.post({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'tools/call',
+      'params': {'name': 'zoom', 'arguments': <String, Object?>{}},
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Allow'));
+    await tester.pumpAndSettle();
+    await call;
+    expect(refreshed.requests.map((request) => request.method), ['tools/call']);
   });
 
   testWidgets('size notifications expand long apps and shrink dynamically', (
@@ -1076,7 +1121,7 @@ void main() {
           toolName: 'show_map',
           binding: '0',
         ),
-        sessionEpoch: Object(),
+        userId: 'another-user',
       ),
     );
     await tester.pump();

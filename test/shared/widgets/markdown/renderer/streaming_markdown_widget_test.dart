@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -2441,7 +2442,7 @@ After
         overrides: [
           apiServiceProvider.overrideWithValue(api),
           appDatabaseProvider.overrideWithValue(null),
-          openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+          currentUserProvider2.overrideWithValue(null),
         ],
       ),
     );

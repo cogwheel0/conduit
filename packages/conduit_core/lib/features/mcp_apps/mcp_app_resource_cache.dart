@@ -10,6 +10,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -18,8 +19,11 @@ import 'openwebui_mcp_app.dart';
 typedef McpAppCacheEntry = ({OpenWebUiMcpAppResource resource, double height});
 
 final mcpAppResourceCacheProvider = Provider((ref) {
-  ref.watch(apiServiceProvider);
-  ref.watch(openWebUiAuthSessionEpochProvider);
+  // One cache per signed-in account. A new API client for the same account,
+  // such as after a token refresh, keeps it and the apps it serves.
+  ref
+    ..watch(apiServiceProvider.select((api) => api?.serverConfig.id))
+    ..watch(currentUserProvider2.select((user) => user?.id));
   final database = ref.watch(appDatabaseProvider);
   final cache = McpAppResourceCache(
     database: database,

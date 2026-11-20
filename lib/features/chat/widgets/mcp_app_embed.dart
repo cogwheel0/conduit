@@ -248,8 +248,22 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _host = McpAppHost(
         app: widget.app,
         resource: resource,
-        runRequest: (method, params) =>
-            api.runMcpAppRequest(widget.app, method: method, params: params),
+        runRequest: (method, params) async {
+          // The account's current client, which a token refresh replaces;
+          // another account's client never serves this page.
+          final current =
+              mounted && identical(ref.read(mcpAppResourceCacheProvider), cache)
+              ? ref.read(apiServiceProvider)
+              : null;
+          if (current == null) {
+            throw const McpAppRpcException('The app was closed.');
+          }
+          return current.runMcpAppRequest(
+            widget.app,
+            method: method,
+            params: params,
+          );
+        },
         confirmToolCall: _confirmToolCall,
         openLink: _confirmOpenLink,
         send: _deliver,
