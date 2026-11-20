@@ -2042,6 +2042,54 @@ void main() {
     },
   );
 
+  test('a held message that something answers is not waiting', () {
+    // Open WebUI 0.13.4 answers a held message only while it has no answers
+    // (`childrenIds` empty). One that keeps one, such as a regenerated
+    // question with its earlier answer, is never answered.
+    Map<String, dynamic> question(String id, List<String> answers) => {
+      'id': id,
+      'parentId': null,
+      'childrenIds': answers,
+      'role': 'user',
+      'content': 'And the pantry?',
+      'timestamp': 1700000000,
+      'meta': {'status': 'pending'},
+    };
+    final conversation = parseFullConversationModel({
+      'id': 'conv-1',
+      'chat': {
+        'history': {
+          'currentId': 'answer',
+          'messages': {
+            'answered': question('answered', const ['answer']),
+            'answer': {
+              'id': 'answer',
+              'parentId': 'answered',
+              'childrenIds': const <String>[],
+              'role': 'assistant',
+              'content': 'Flour and rice.',
+              'timestamp': 1700000001,
+              'done': true,
+            },
+          },
+        },
+      },
+    });
+    check(conversation.messages.map((m) => (m.id, m.isHeldByServer)).toList())
+        .deepEquals([('answered', false), ('answer', false)]);
+    // One with none still waits.
+    final waiting = parseFullConversationModel({
+      'id': 'conv-2',
+      'chat': {
+        'history': {
+          'currentId': 'waiting',
+          'messages': {'waiting': question('waiting', const [])},
+        },
+      },
+    });
+    check(waiting.messages.single.isHeldByServer).isTrue();
+  });
+
   group('chat params projection', () {
     Map<String, dynamic> chatWith(Map<String, dynamic> extra) =>
         <String, dynamic>{
