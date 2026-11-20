@@ -2,6 +2,7 @@ import '../features/direct_connections/models/direct_connection_profile.dart';
 import '../features/direct_connections/services/direct_model_registry.dart';
 import '../features/direct_connections/services/model_logo_catalog.dart';
 import '../features/terminal/models/terminal_agent_model.dart';
+import '../features/tether/tether_offers.dart';
 import '../models/model.dart';
 
 final RegExp _whitespace = RegExp(r'\s');
@@ -112,6 +113,9 @@ String? modelPickerSubtitle(
   // A coding agent's id is an address, not a name; say where it runs.
   final agentSubtitle = terminalAgentPickerSubtitle(model);
   if (agentSubtitle != null) return agentSubtitle;
+  // So does a model one of the user's devices offers.
+  final device = tetherModelDeviceTag(model);
+  if (device != null) return device;
   final remoteId = model.metadata?['remoteModelId'];
   final fullId =
       (remoteId is String && remoteId.trim().isNotEmpty ? remoteId : model.id)
@@ -127,6 +131,15 @@ String? modelPickerSubtitle(
   }
   if (fullId.isNotEmpty && fullId != name) return fullId;
   return description == null || description.isEmpty ? null : description;
+}
+
+/// The tags a model picker shows beside [model]: its own, without the
+/// device [modelPickerSubtitle] already names.
+List<String> modelPickerTags(Model model) {
+  final device = tetherModelDeviceTag(model);
+  final tags = model.modelTags;
+  if (device == null) return tags;
+  return [for (final tag in tags) if (tag != device) tag];
 }
 
 /// The id segment after the last `/` (`openai/gpt-5-mini` → `gpt-5-mini`),

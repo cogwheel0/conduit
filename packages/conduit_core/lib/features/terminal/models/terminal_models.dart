@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:conduit_core/features/tether/tether_offers.dart';
 import 'package:conduit_core/utils/utf16_sanitizer.dart';
 
 enum TerminalServerKind { direct, system }
@@ -38,6 +39,9 @@ class TerminalServerInfo {
   bool get isDirect => kind == TerminalServerKind.direct;
 
   bool get isSystem => kind == TerminalServerKind.system;
+
+  /// One of the user's own devices, which the server reaches through Tether.
+  bool get isTetherDevice => isSystem && isTetherTerminalId(systemServerId);
 
   bool isAvailableForChatScope(String sessionScopeId) {
     if (!chatContextAvailable) return false;

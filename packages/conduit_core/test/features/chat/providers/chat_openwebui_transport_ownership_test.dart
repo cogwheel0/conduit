@@ -49,6 +49,7 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
 import 'package:conduit_core/features/chat/services/request_completion_runner.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
+import 'package:conduit_core/features/chat/views/assistant_message_blocks.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -276,10 +277,11 @@ class _FetchedConfig extends BackendConfigNotifier {
       (await api.getBackendConfig())?.copyWith(serverId: api.serverConfig.id);
 }
 
-/// A server config that has loaded.
+/// The config [_GatedCompletionApi]'s server gave, once loaded.
 class _LoadedConfig extends BackendConfigNotifier {
   @override
-  Future<BackendConfig?> build() async => const BackendConfig();
+  Future<BackendConfig?> build() async =>
+      const BackendConfig(serverId: 'transport-ownership');
 }
 
 /// A server config that is still being fetched.
@@ -600,6 +602,7 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
+    bool viaTether = false,
   }) async {
     completionCalls += 1;
     assistantMessageId = responseMessageId;
@@ -831,12 +834,16 @@ class _PersistingSyncEngine extends SyncEngine {
     this.api, {
     this.landResponse = true,
     this.throwOnPull = false,
+    this.landedError,
   });
 
   final AppDatabase db;
   final _AssistantIdSource api;
   final bool landResponse;
   final bool throwOnPull;
+
+  /// The error the server saved on the answer it lands, if any.
+  final ChatMessageError? landedError;
   int pulls = 0;
 
   @override
@@ -851,11 +858,12 @@ class _PersistingSyncEngine extends SyncEngine {
     final completed = ChatMessage(
       id: assistantId,
       role: 'assistant',
-      content: 'A safely completed',
+      content: landedError == null ? 'A safely completed' : '',
       timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
       model: 'model-1',
       isStreaming: false,
       metadata: const <String, dynamic>{'responseDone': true},
+      error: landedError,
     );
     await db.messagesDao.upsertLocalEcho(
       MessageRowData(
@@ -1114,12 +1122,28 @@ String _snapshot(List<ChatMessage> messages) => jsonEncode(
   messages.map((message) => message.toJson()).toList(growable: false),
 );
 
+/// A model one of the user's devices offers, as Open WebUI 0.13.4 lists it.
+final _deviceModel = Model.fromJson(<String, dynamic>{
+  'id': 'garage-llama',
+  'name': 'garage-llama',
+  'object': 'model',
+  'owned_by': 'openai',
+  'connection_type': 'local',
+  'tags': <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'Studio Mac · Garage lab'},
+  ],
+  'owner_id': 'user-1',
+  'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+  'service': 'garage_lab',
+});
+
 Future<void> _seedChat(
   AppDatabase db,
   String chatId, {
   String? assistantId,
   String assistantContent = '',
   Map<String, dynamic>? storedParams,
+  bool viaTether = false,
 }) async {
   await db
       .into(db.chats)
@@ -1154,6 +1178,8 @@ Future<void> _seedChat(
             'model': 'model-1',
             'timestamp': 1,
             'isStreaming': true,
+            if (viaTether)
+              'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
           }),
         ),
       );
@@ -2556,46 +2582,84 @@ void main() {
       return jsonDecode(row!.payload) as Map<String, dynamic>;
     }
 
-    test('ends the open answer with the server\'s words', () async {
-      await _seedChat(db, chatId, assistantId: assistantId);
-      final api = _GatedCompletionApi(Completer<void>())
-        ..onSend = () =>
-            throw const ChatCompletionHttpException(400, 'Model not found');
-      final syncEngine = _PersistingSyncEngine(db, api);
-      final messages = <ChatMessage>[
-        _user('refused-user', 'Ask a model the server lacks'),
-        _streamingAssistant(assistantId, ''),
-      ];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: syncEngine,
-      );
-      addTearDown(container.dispose);
+    // A failed relay to one of the user's devices, in Open WebUI's own
+    // words, may have run there or never reached it. Either way the outbox
+    // must not send it again by itself.
+    for (final (status, detail, words, relay)
+        in const <(int, String, String?, TetherRelayFailure?)>[
+          (400, 'Model not found', 'Model not found', null),
+          (
+            503,
+            'Tether service is unavailable.',
+            'Tether service is unavailable.',
+            TetherRelayFailure.unavailable,
+          ),
+          (
+            429,
+            'Tether has too many active operations.',
+            'Tether has too many active operations.',
+            TetherRelayFailure.busy,
+          ),
+          // A body is not words to show.
+          (
+            502,
+            '{"error": "Tether connection interrupted: Connection lost. The '
+                'operation may have completed. Check its result before '
+                'trying again; do not automatically repeat it.", "code": '
+                '"tether_interrupted", "outcome": "unknown", "retryable": '
+                'false}',
+            null,
+            TetherRelayFailure.interrupted,
+          ),
+        ]) {
+      test('ends the open answer with the server\'s words ($status)', () async {
+        await _seedChat(db, chatId, assistantId: assistantId);
+        final api = _GatedCompletionApi(Completer<void>())
+          ..onSend = () => throw ChatCompletionHttpException(status, detail);
+        final syncEngine = _PersistingSyncEngine(db, api);
+        final messages = <ChatMessage>[
+          _user('refused-user', 'Ask a model the server lacks'),
+          _streamingAssistant(assistantId, ''),
+        ];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: syncEngine,
+        );
+        addTearDown(container.dispose);
 
-      await check(
-        runQueuedCompletion(
-          container,
-          chatId: chatId,
-          assistantMessageId: assistantId,
-          model: 'model-1',
-        ),
-      ).throws<SyncTerminalException>();
+        await check(
+          runQueuedCompletion(
+            container,
+            chatId: chatId,
+            assistantMessageId: assistantId,
+            model: 'model-1',
+          ),
+        ).throws<SyncTerminalException>();
 
-      check(api.completionCalls).equals(1);
-      final answer = container.read(chatMessagesProvider).last;
-      check(answer.id).equals(assistantId);
-      check(answer.isStreaming).isFalse();
-      check(answer.error?.content).equals('Model not found');
-      final stored = await storedAnswer();
-      check(stored['isStreaming']).equals(false);
-      check((stored['error'] as Map<String, dynamic>)['content'])
-          .equals('Model not found');
-      check(syncEngine.pulls).equals(0);
-      check(api.sessionChecks).equals(0);
-    });
+        check(api.completionCalls).equals(1);
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.id).equals(assistantId);
+        check(answer.isStreaming).isFalse();
+        final shown = answer.error?.content;
+        check(shown).isNotNull();
+        if (words != null) check(shown).equals(words);
+        check(
+          assistantMessageBlocks(
+            answer,
+          ).whereType<AssistantErrorBlock>().single.relayFailure,
+        ).equals(relay);
+        final stored = await storedAnswer();
+        check(stored['isStreaming']).equals(false);
+        final storedError = stored['error'] as Map<String, dynamic>;
+        check(storedError['content']).equals(shown);
+        check(storedError['tetherRelay']).equals(relay?.name);
+        check(syncEngine.pulls).equals(0);
+        check(api.sessionChecks).equals(0);
+      });
+    }
 
     test('ends a chat that is not open in its stored copy', () async {
       await _seedChat(db, chatId, assistantId: assistantId);
@@ -2646,6 +2710,107 @@ void main() {
       check(_snapshot(container.read(chatMessagesProvider)))
           .equals(_snapshot(onScreen));
     });
+
+    for (final (viaTether, relay, later) in <(bool, String?, bool)>[
+      (true, 'interrupted', false),
+      (false, null, false),
+      // The run that sent it ended once the server had it (the app was
+      // closed), before its answer landed; the op's next run collects it.
+      (true, 'interrupted', true),
+      (false, null, true),
+    ]) {
+      test('a turn finished without a stream reads the error the server '
+          'saved with what its answer recorded (${viaTether ? 'asked of a '
+                    'device' : 'another model'}'
+          '${later ? ', a later run' : ''})', () async {
+        // As the turn was admitted: the answer's row records whether one of
+        // the user's devices was asked. No model list is read.
+        await _seedChat(
+          db,
+          chatId,
+          assistantId: assistantId,
+          viaTether: viaTether,
+        );
+        final api = _GatedCompletionApi(Completer<void>()..complete());
+        final syncEngine = _PersistingSyncEngine(
+          db,
+          api,
+          landedError: const ChatMessageError(
+            content: 'Open WebUI: Server Connection Error',
+          ),
+        );
+        final onScreen = <ChatMessage>[_user('other-user', 'Another chat')];
+        final container = _container(
+          db: db,
+          active: _conversation(
+            'another-chat',
+            onScreen,
+            ChatStorageKind.openWebUi,
+          ),
+          messages: onScreen,
+          api: api,
+          syncEngine: syncEngine,
+        );
+        addTearDown(container.dispose);
+        final history = <ChatMessage>[
+          _user('relay-user', 'Ask the device'),
+          _streamingAssistant(assistantId, '').copyWith(
+            metadata: <String, dynamic>{
+              if (viaTether) kCompletionViaTetherKey: true,
+            },
+          ),
+        ];
+
+        if (later) {
+          api.assistantMessageId = assistantId;
+          await beginOpenWebUiCompletionSubmission(
+            container,
+            owner: captureOpenWebUiCompletionOwner(
+              container,
+              chatId: chatId,
+              database: db,
+              api: api,
+            ),
+            assistantMessageId: assistantId,
+          );
+          await container
+              .read(
+                Provider<RequestCompletionRunner>(
+                  (ref) => ChatRequestCompletionRunner(
+                    ref,
+                    recoveryAttempts: 1,
+                    recoveryDelay: Duration.zero,
+                  ),
+                ),
+              )
+              .run(
+                chatId: chatId,
+                payload: const RequestCompletionPayload(
+                  assistantMessageId: assistantId,
+                  model: 'model-1',
+                ).toJson(),
+              );
+          check(api.completionCalls).equals(0);
+        } else {
+          await runHeadlessCompletion(
+            container,
+            chatId: chatId,
+            assistantMessageId: assistantId,
+            messages: history,
+            conversation: _conversation(
+              chatId,
+              history,
+              ChatStorageKind.openWebUi,
+            ),
+            model: 'model-1',
+          );
+        }
+
+        final stored = await storedAnswer();
+        check((stored['error'] as Map<String, dynamic>)['tetherRelay'])
+            .equals(relay);
+      });
+    }
 
     test('leaves a gateway\'s failure to the next attempt', () async {
       // A proxy in front of the server answers 502-504 while the server is
@@ -5187,7 +5352,7 @@ void main() {
         await db.messagesDao.markAssistantCompletionRefused(
           chatId: chatId,
           messageId: assistantId,
-          error: 'refused',
+          error: const ChatMessageError(content: 'refused'),
         );
         await value();
         final session = await open(
@@ -6587,6 +6752,186 @@ void main() {
       check(message(a).content).equals('A partial');
     });
 
+    test("an answer from a model one of the user's devices offers reads Open "
+        "WebUI's own words for a failure as a relay that may have run there, "
+        'and so does that answer once it is asked again; another model\'s '
+        'answer does not', () async {
+      final (:api, :socket, :container) = await open(
+        available: [duplicate, _deviceModel],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: [duplicate, _deviceModel],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+
+      // What 0.13.4's completion router reports for any relay failure before
+      // the device answered: the relay's own words do not reach the client.
+      for (final id in [a, b]) {
+        socket.deliver(id, 'chat:message:error', {
+          'error': {'content': 'Open WebUI: Server Connection Error'},
+          'done': true,
+        });
+      }
+
+      TetherRelayFailure? relayFailureOf(String id) => assistantMessageBlocks(
+        container.read(chatMessagesProvider).firstWhere((m) => m.id == id),
+      ).whereType<AssistantErrorBlock>().single.relayFailure;
+      check(relayFailureOf(a)).isNull();
+      check(relayFailureOf(b)).equals(TetherRelayFailure.interrupted);
+
+      // Asked again, the failed answer becomes an earlier version of the
+      // device's answer, and still reads as a relay that may have run.
+      await regenerateMessage(container, 'compare these', null);
+      final regenerated = container
+          .read(chatMessagesProvider)
+          .firstWhere(
+            (m) => m.id == api.requests.last.messageIds!.single.messageId,
+          );
+      final earlier = regenerated.versions.singleWhere(
+        (version) => version.id == b,
+      );
+      check(
+        assistantVersionBlocks(
+          earlier,
+        ).whereType<AssistantErrorBlock>().single.relayFailure,
+      ).equals(TetherRelayFailure.interrupted);
+    });
+
+    // As for one answer: a status a later attempt may pass goes back to the
+    // outbox; a failed relay to a device settles every answer, since the
+    // turn may have run there.
+    for (final (detail, relay, outcome)
+        in <(String, TetherRelayFailure?, String)>[
+          (
+            'Tether is offline.',
+            TetherRelayFailure.unavailable,
+            'settles every answer',
+          ),
+          ('Service Unavailable', null, 'is sent again later'),
+        ]) {
+      test('a comparison refused with 503 "$detail" $outcome', () async {
+        final (:api, :socket, :container) = await open(
+          available: [duplicate, _deviceModel],
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [duplicate, _deviceModel],
+        );
+        api.onRequest = () => throw ChatCompletionHttpException(503, detail);
+
+        if (relay == null) {
+          await check(replay(container)).throws<ChatCompletionHttpException>();
+        } else {
+          await check(replay(container)).throws<SyncTerminalException>();
+        }
+
+        for (final handle in handles) {
+          final shown = container
+              .read(chatMessagesProvider)
+              .firstWhere((m) => m.id == handle.assistantMessageId);
+          check(shown.isStreaming).equals(relay == null);
+          check(shown.error?.relay).equals(relay);
+        }
+        check(api.requests).length.equals(1);
+      });
+    }
+
+    test("a queued answer is read as its device's though the device leaves "
+        'while it is sent', () async {
+      final (:api, :socket, :container) = await open(
+        available: [duplicate, _deviceModel],
+      );
+      const answer = 'queued-device-answer';
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: answer,
+              chatId: chatId,
+              role: 'assistant',
+              content: '',
+              model: Value(_deviceModel.id),
+              createdAt: 1,
+              orderIndex: 1,
+              // As the turn was admitted, with the device's model picked.
+              payload: jsonEncode(<String, dynamic>{
+                'id': answer,
+                'role': 'assistant',
+                'content': '',
+                'model': _deviceModel.id,
+                'timestamp': 1,
+                'isStreaming': true,
+                'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
+              }),
+            ),
+          );
+      // The picker holds another model; the device leaves while the turn
+      // queued for its model is on its way.
+      final listed = container.read(modelsProvider.notifier) as _ListedModels;
+      api.onRequest = () => listed.offer(const [duplicate]);
+
+      await runQueuedCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: answer,
+        model: _deviceModel.id,
+      );
+      socket.deliver(answer, 'chat:message:error', {
+        'error': {'content': 'Open WebUI: Server Connection Error'},
+        'done': true,
+      });
+
+      check(
+        assistantMessageBlocks(
+          container.read(chatMessagesProvider).firstWhere((m) => m.id == answer),
+        ).whereType<AssistantErrorBlock>().single.relayFailure,
+      ).equals(TetherRelayFailure.interrupted);
+    });
+
+    test("a queued answer is read as its device's though it runs before the "
+        'model list has the device again', () async {
+      final (:api, :socket, :container) = await open(
+        available: [duplicate, _deviceModel],
+        modelSelectable: true,
+      );
+      final picker = container.read(selectedModelProvider.notifier);
+      picker.set(_deviceModel);
+      String? answer;
+      await durableSend(
+        container,
+        'Ask the device',
+        null,
+        onAssistantPlaceholderCreated: (handle) =>
+            answer = handle.assistantMessageId,
+      );
+      // The op runs later, with another model picked and a model list that
+      // does not have the device yet.
+      picker.set(duplicate);
+      (container.read(modelsProvider.notifier) as _ListedModels).offer(const [
+        duplicate,
+      ]);
+
+      await replay(container);
+      socket.deliver(answer!, 'chat:message:error', {
+        'error': {'content': 'Open WebUI: Server Connection Error'},
+        'done': true,
+      });
+
+      check(
+        assistantMessageBlocks(
+          container
+              .read(chatMessagesProvider)
+              .firstWhere((m) => m.id == answer),
+        ).whereType<AssistantErrorBlock>().single.relayFailure,
+      ).equals(TetherRelayFailure.interrupted);
+    });
+
     group('a turn whose attached files are still being prepared', () {
       Future<
         ({
@@ -7408,6 +7753,106 @@ void main() {
     Future<Map<String, dynamic>> storedAnswerOf(String id) async =>
         jsonDecode((await db.messagesDao.getMessage(chatId, id))!.payload)
             as Map<String, dynamic>;
+
+    // A failed relay to a device is saved with Open WebUI's generic words:
+    // only the model each answer was sent to tells it apart, whether the
+    // answers are collected as the request ends or by a later run.
+    for (final later in [false, true]) {
+      test('a comparison that is not on screen reads each answer\'s saved '
+          'error with its own model (${later ? 'a later run' : 'as it '
+                    'ends'})', () async {
+        final (:api, :socket, :container) = await open(
+          available: [_deviceModel, duplicate],
+          engine: (db, api) => _PartialLandingEngine(db, api),
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [_deviceModel, duplicate],
+        );
+        final [device, plain] = [for (final h in handles) h.assistantMessageId];
+        (container.read(chatMessagesProvider.notifier) as _TestMessagesNotifier)
+            .setMessages(const <ChatMessage>[]);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation(
+                'another-chat',
+                const [],
+                ChatStorageKind.openWebUi,
+              ),
+            );
+        final engine =
+            container.read(syncEngineProvider.notifier) as _PartialLandingEngine
+              ..savedError = const ChatMessageError(
+                content: 'Open WebUI: Server Connection Error',
+              );
+        if (later) {
+          // Neither answer has landed when the run that sent them stops
+          // looking; the server still runs both.
+          api.activeTaskIds = const ['task-device', 'task-plain'];
+          await replay(container);
+          api.activeTaskIds = const [];
+        }
+        engine.landedIds = [device, plain];
+
+        await replay(container);
+
+        check(api.requests).length.equals(1);
+        check(((await storedAnswerOf(device))['error'] as Map)['tetherRelay'])
+            .equals('interrupted');
+        check(((await storedAnswerOf(plain))['error'] as Map)['tetherRelay'])
+            .isNull();
+      });
+    }
+
+    test(
+      "a comparison that is not on screen sends the device's answer as "
+      "the device's though another answer is the chat's current one",
+      () async {
+        final (:api, :socket, :container) = await open(
+          available: [_deviceModel, duplicate],
+        );
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: [_deviceModel, duplicate],
+        );
+        final [device, plain] = [for (final h in handles) h.assistantMessageId];
+        (container.read(chatMessagesProvider.notifier) as _TestMessagesNotifier)
+            .setMessages(const <ChatMessage>[]);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation(
+                'another-chat',
+                const [],
+                ChatStorageKind.openWebUi,
+              ),
+            );
+        // The other answer was picked: the chat is read back with the
+        // device's answer beside it, among its versions.
+        await (db.update(db.chats)..where((t) => t.id.equals(chatId))).write(
+          ChatsCompanion(currentMessageId: Value(plain)),
+        );
+        // What 0.13.4's completion router reports for a relay that failed
+        // before the device answered.
+        api.refusal = (
+          status: 500,
+          detail: 'Open WebUI: Server Connection Error',
+        );
+
+        await check(replay(container)).throws<SyncTerminalException>();
+
+        check(api.requests).length.equals(1);
+        for (final id in [device, plain]) {
+          check(((await storedAnswerOf(id))['error'] as Map)['tetherRelay'])
+              .equals('interrupted');
+        }
+      },
+    );
 
     test('a Stop while a comparison that is not on screen is assembled sends '
         'no request, and every answer ends stopped', () async {
@@ -11680,6 +12125,14 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   final List<_FanOutRequest> requests = [];
   final List<String> stoppedTasks = [];
 
+  /// Called as each completion request is sent.
+  void Function()? onRequest;
+
+  /// When set, each completion request is refused with this status and
+  /// detail, read with what the request recorded about its model, as the
+  /// service reads a refusal.
+  ({int status, String detail})? refusal;
+
   /// Model lists saved with `updateConversation`, by chat id.
   final List<(String, List<String>?)> savedModels = [];
 
@@ -11889,6 +12342,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     Map<String, dynamic>? variables,
     List<Map<String, dynamic>>? files,
     List<ChatCompletionTarget>? messageIds,
+    bool viaTether = false,
   }) async {
     requests.add(
       _FanOutRequest(
@@ -11906,6 +12360,10 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
             : Map<String, dynamic>.of(chatParams),
       ),
     );
+    onRequest?.call();
+    if (refusal case (:final status, :final detail)) {
+      throw ChatCompletionHttpException(status, detail, viaTether: viaTether);
+    }
     if (_wire != null) {
       return super.sendMessageSession(
         messages: messages,
@@ -11933,6 +12391,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
         variables: variables,
         files: files,
         messageIds: messageIds,
+        viaTether: viaTether,
       );
     }
     await holdResponse?.future;
@@ -12116,6 +12575,9 @@ class _ListedModels extends Models {
 
   @override
   Future<List<Model>> build() async => listed;
+
+  /// The server lists [models] from now on.
+  void offer(List<Model> models) => state = AsyncData<List<Model>>(models);
 }
 
 class _FixedEfforts extends LocalReasoningEfforts {
@@ -12134,8 +12596,37 @@ class _PartialLandingEngine extends _QuietSyncEngine {
 
   List<String> landedIds = const [];
 
+  /// The error the server saved on the answers it lands, if any. Those
+  /// answers are written to their stored rows, as a pull writes them.
+  ChatMessageError? savedError;
+
   @override
   Future<Conversation?> pullChatNow(String requestedChatId) async {
+    final error = savedError;
+    if (error != null) {
+      for (final id in landedIds) {
+        final row = (await db.messagesDao.getMessage(requestedChatId, id))!;
+        await db.messagesDao.upsertLocalEcho(
+          MessageRowData(
+            id: id,
+            chatId: requestedChatId,
+            parentId: row.parentId,
+            role: 'assistant',
+            content: '',
+            model: row.model,
+            createdAt: row.createdAt,
+            orderIndex: row.orderIndex,
+            payload: <String, dynamic>{
+              ...jsonDecode(row.payload) as Map<String, dynamic>,
+              'content': '',
+              'isStreaming': false,
+              'done': true,
+              'error': <String, dynamic>{'content': error.content},
+            },
+          ),
+        );
+      }
+    }
     return withChatStorageProvenance(
       Conversation(
         id: requestedChatId,
@@ -12147,9 +12638,10 @@ class _PartialLandingEngine extends _QuietSyncEngine {
             ChatMessage(
               id: id,
               role: 'assistant',
-              content: 'landed',
+              content: error == null ? 'landed' : '',
               timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
               model: 'model-1',
+              error: error,
             ),
         ],
       ),

@@ -223,6 +223,23 @@ void main() {
       baseUrl: 'https://device.example/v1',
     );
 
+    test('says where a server that moved them to Tether keeps its '
+        'providers now', () {
+      final page = buildDirectConnectionsPage(
+        _l10n,
+        DirectSettingsView(profiles: AsyncData([local]), movedToTether: true),
+      );
+
+      final moved = page.sections.singleWhere(
+        (section) => section.title == _l10n.openWebUiDirectConnectionsSectionTitle,
+      );
+      expect(
+        moved.items.single.title,
+        _l10n.openWebUiDirectConnectionsMovedToTether,
+      );
+      expect(moved.items.single.kind, NativeSheetItemKind.info);
+    });
+
     test('lists server and device providers apart, each opening its '
         'editor', () {
       final snapshot = _snapshot(['https://server.example/v1']);

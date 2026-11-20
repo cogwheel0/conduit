@@ -310,6 +310,11 @@ Future<bool> dispatchChatTransport({
   /// The assistant message ids of the turn's other answers. The stream sees the
   /// transcript as if only its own answer ended it.
   List<String> slotSiblingIds = const <String>[],
+
+  /// Whether the answer's model is one the user's devices offer through
+  /// Tether, as the request recorded when it was sent. A failure the stream
+  /// reports is read with it.
+  bool viaTether = false,
 }) async {
   bool ownsConversation() => ownsActiveConversation?.call() ?? true;
   bool ownsPending() =>
@@ -418,6 +423,7 @@ Future<bool> dispatchChatTransport({
     workerManager: workerManager,
     filterIds: filterIds,
     allowForeignMessageBinding: slot == null,
+    viaTether: viaTether,
     appendToLastMessage: (c) {
       if (!ownsConversation()) return;
       if (slot != null) {

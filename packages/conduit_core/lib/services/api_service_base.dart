@@ -2084,6 +2084,7 @@ abstract class _ApiServiceBase {
     String? sessionId,
     String? conversationId,
     required Future<void> Function() abort,
+    required bool viaTether,
   }) async {
     final chatId = conversationId?.trim();
     if (chatId != null && chatId.isNotEmpty && !chatId.startsWith('local:')) {
@@ -2123,7 +2124,7 @@ abstract class _ApiServiceBase {
         error.trim() == TemporaryChatUnavailable.serverDetail) {
       throw const TemporaryChatNeedsConnectionException();
     }
-    throw ChatCompletionHttpException(status, error);
+    throw ChatCompletionHttpException(status, error, viaTether: viaTether);
   }
 
   /// Classifies a fully-parsed JSON body as taskSocket or jsonCompletion.
@@ -2178,17 +2179,33 @@ abstract class _ApiServiceBase {
   // Internal helpers for response classification
   // -----------------------------------------------------------------------
 
-  /// Attempts to decode a non-2xx response body into a human-readable
-  /// error string.
+  /// The words of an error answer to a completion request: its `error`, or
+  /// FastAPI's `detail`. A provider's error that Open WebUI passes through
+  /// keeps its words under `error.message`; any other object is kept as JSON.
+  ///
+  /// The refusal's relay to one of the user's devices is read from what this
+  /// returns ([ChatCompletionHttpException.relay]), so a body whose code
+  /// (`tether_interrupted`) names a relay failure its words do not, or names
+  /// another than its words do, stays whole: the code decides.
   Future<String> _decodeChatCompletionError(Response<ResponseBody> resp) async {
     try {
       final bytes = await _collectBytes(resp.data!.stream);
       final text = utf8.decode(bytes, allowMalformed: true);
       final json = _tryParseJsonMap(text);
-      if (json != null) {
-        return json['error']?.toString() ?? json['detail']?.toString() ?? text;
+      if (json == null) return text;
+      final reason = json['error'] ?? json['detail'];
+      final words = switch (reason) {
+        null => text,
+        String() => reason,
+        {'message': final String message} when message.trim().isNotEmpty =>
+          message,
+        Map() || List() => jsonEncode(reason),
+        _ => reason.toString(),
+      };
+      if (tetherRelayFailureOf(json) != tetherRelayFailureOf(words)) {
+        return text;
       }
-      return text;
+      return words;
     } catch (_) {
       return 'status ${resp.statusCode}';
     }

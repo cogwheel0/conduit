@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.74.0",
+  "protocolVersion": "1.75.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.74.0",
+  "protocolVersion": "1.75.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -802,6 +802,13 @@ const Map<String, String> protocolGoldens = <String, String>{
       "capabilities": [],
       "connection": "Home Ollama",
       "logo": "meta"
+    },
+    {
+      "id": "qwen3:8b",
+      "name": "qwen3:8b",
+      "pinned": false,
+      "capabilities": [],
+      "device": "Studio Mac · Garage lab"
     }
   ],
   "selectedId": "gpt-4o",
@@ -1002,7 +1009,15 @@ const Map<String, String> protocolGoldens = <String, String>{
 {
   "id": "weather",
   "name": "Weather",
-  "description": "Current conditions for a city"
+  "description": "Current conditions for a city",
+  "device": false
+}''',
+
+  'toolSummaryDevice': r'''
+{
+  "id": "server:tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d:garage_tools",
+  "name": "Studio Mac · Garage tools",
+  "device": true
 }''',
 
   'chatFile': r'''
@@ -1113,6 +1128,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "localHistory": true,
   "openWebUiAvailable": true,
+  "openWebUiMovedToTether": true,
   "preferred": true,
   "usable": true,
   "openWebUiLoadFailed": true
@@ -2753,7 +2769,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "id": "http://127.0.0.1:8000",
   "name": "Laptop",
   "kind": "direct",
-  "requiresSavedChat": true
+  "requiresSavedChat": true,
+  "device": false
 }''',
 
   'terminalScope': r'''
@@ -2768,7 +2785,15 @@ const Map<String, String> protocolGoldens = <String, String>{
       "id": "t1",
       "name": "Box",
       "kind": "system",
-      "requiresSavedChat": false
+      "requiresSavedChat": false,
+      "device": false
+    },
+    {
+      "id": "tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d",
+      "name": "Studio Mac",
+      "kind": "system",
+      "requiresSavedChat": false,
+      "device": true
     }
   ],
   "selectedId": "t1"
@@ -4839,20 +4864,23 @@ const Map<String, String> protocolGoldens = <String, String>{
   "tools": [
     {
       "id": "weather",
-      "name": "Weather"
+      "name": "Weather",
+      "device": false
     }
   ],
   "mcpTools": [
     {
       "id": "local_mcp:mcp-1",
-      "name": "Docs"
+      "name": "Docs",
+      "device": false
     }
   ],
   "filters": [
     {
       "id": "tidy",
       "name": "Tidy Up",
-      "description": "Fix spacing"
+      "description": "Fix spacing",
+      "device": false
     }
   ],
   "filterDefaults": [
@@ -6603,6 +6631,36 @@ const Map<String, String> protocolGoldens = <String, String>{
   "cleared": [
     "Old Gauge"
   ],
+  "failed": false,
+  "savedForPreviousAccount": false
+}''',
+
+  'personalConnectionsMoved': r'''
+{
+  "access": "movedToTether",
+  "owner": "",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [
+    {
+      "kind": "toolServer",
+      "identity": "conduit-0b1c",
+      "name": "Tide Tables",
+      "endpoint": "https://tides.example",
+      "enabled": true,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false,
+      "fingerprint": ""
+    }
+  ],
+  "terminals": [],
+  "cleared": [],
   "failed": false,
   "savedForPreviousAccount": false
 }''',

@@ -688,6 +688,7 @@ mod tests {
                 name: "Chat bench".into(),
                 kind: "system".into(),
                 requires_saved_chat: true,
+                device: false,
             }],
             selected_id: None,
         });
@@ -717,7 +718,12 @@ mod tests {
             let selected = a.terminal_selected.as_deref();
             assert_eq!(
                 offered(servers, selected, Some("chat-harbour")),
-                [("per-chat".to_string(), "Chat bench".to_string(), false)],
+                [(
+                    "per-chat".to_string(),
+                    "Chat bench".to_string(),
+                    false,
+                    false
+                )],
                 "a saved chat was offered none of the account's terminals"
             );
             assert!(

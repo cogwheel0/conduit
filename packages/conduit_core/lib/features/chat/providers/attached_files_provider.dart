@@ -43,6 +43,47 @@ const Set<String> allSupportedImageFormats = {
   ...alwaysConvertImageFormats,
 };
 
+/// The largest image the composer attaches, on any backend.
+const int kAttachedImageMaxBytes = 20 * 1024 * 1024;
+
+/// Whether an image named [fileName] of [sizeBytes] is re-encoded as JPEG
+/// before it is sent: always in a format models cannot read, and when it is
+/// a JPEG over 500 KiB. PNG, GIF and WebP go as picked: as JPEG a screenshot's
+/// text blurs, often in a larger file, and transparency and animation are
+/// lost. A PNG over [kAttachedImageMaxBytes] could not be attached at all, so
+/// it is converted too.
+bool convertsImageForUpload(String fileName, int sizeBytes) {
+  final extension = path.extension(fileName).toLowerCase();
+  if (alwaysConvertImageFormats.contains(extension)) return true;
+  if (extension == '.png') return sizeBytes > kAttachedImageMaxBytes;
+  return (extension == '.jpg' || extension == '.jpeg') &&
+      sizeBytes > 500 * 1024;
+}
+
+/// Whether an image named [fileName], too large for where it is going, may
+/// go as a JPEG of it instead: a PNG or a JPEG, or a format converted anyway.
+/// A GIF or a WebP is refused, as a JPEG would lose its animation or its
+/// transparency.
+bool convertsImageToFit(String fileName) {
+  final extension = path.extension(fileName).toLowerCase();
+  return extension == '.png' ||
+      extension == '.jpg' ||
+      extension == '.jpeg' ||
+      alwaysConvertImageFormats.contains(extension);
+}
+
+/// Whether the JPEG made for [fileName] is sent in place of the original:
+/// always for a format models cannot read, otherwise only when it is smaller.
+bool keepsConvertedImage(
+  String fileName, {
+  required int originalBytes,
+  required int convertedBytes,
+}) =>
+    alwaysConvertImageFormats.contains(
+      path.extension(fileName).toLowerCase(),
+    ) ||
+    convertedBytes < originalBytes;
+
 /// Represents a locally selected attachment with a user-facing display name.
 class LocalAttachment {
   LocalAttachment({required this.file, required this.displayName});
@@ -98,8 +139,23 @@ enum FileUploadStatus { pending, uploading, completed, failed }
 
 // State notifier for managing attached files
 class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
+  /// The state [updateFileState] put in each one's place: the same file, its
+  /// upload further on.
+  final _successors = Expando<FileUploadState>();
+
   @override
   List<FileUploadState> build() => [];
+
+  /// What [captured] is now: itself, or the state that took its place as its
+  /// upload went on. A file attached anew at its path is another file.
+  FileUploadState latest(FileUploadState captured) {
+    var current = captured;
+    while (true) {
+      final next = _successors[current];
+      if (next == null) return current;
+      current = next;
+    }
+  }
 
   void addFiles(List<LocalAttachment> attachments) {
     final newStates = attachments
@@ -150,8 +206,16 @@ class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
   void updateFileState(String filePath, FileUploadState newState) {
     state = [
       for (final fileState in state)
-        if (fileState.file.path == filePath) newState else fileState,
+        if (fileState.file.path == filePath)
+          _succeed(fileState, newState)
+        else
+          fileState,
     ];
+  }
+
+  FileUploadState _succeed(FileUploadState previous, FileUploadState next) {
+    if (!identical(previous, next)) _successors[previous] = next;
+    return next;
   }
 
   void removeFile(String filePath) {
@@ -178,6 +242,31 @@ class AttachedFilesNotifier extends Notifier<List<FileUploadState>> {
 final attachedFilesProvider =
     NotifierProvider<AttachedFilesNotifier, List<FileUploadState>>(
       AttachedFilesNotifier.new,
+    );
+
+/// Takes the files now in the composer's tray, to retire at a chat boundary:
+/// the function it returns removes exactly those, however far their uploads
+/// got, and leaves any attached since, even at one's path. The app replaces
+/// it with its upload controller's, whose retirement also stops the files'
+/// uploads and removes their staged copies.
+final composerTrayCaptureProvider = Provider<void Function() Function()>(
+  (ref) => () {
+    final captured = ref.read(attachedFilesProvider);
+    return () {
+      final notifier = ref.read(attachedFilesProvider.notifier);
+      notifier.releaseIdentical(captured.map(notifier.latest));
+    };
+  },
+);
+
+/// Whether a draft of [text] and [files] has something to send: words, or a
+/// file that finished uploading. A turn of files alone is answered on every
+/// backend.
+bool draftHasSendableContent(String text, Iterable<FileUploadState> files) =>
+    text.trim().isNotEmpty ||
+    files.any(
+      (file) =>
+          file.status == FileUploadStatus.completed && file.fileId != null,
     );
 
 /// A file held by a draft queued behind a running response.

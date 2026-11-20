@@ -135,13 +135,14 @@ pub fn computer_status(rpc: &Rpc, chat_id: String, cx: &mut App) -> Task<Option<
 }
 
 /// The composer's Terminal section for `chat` (None: a new chat): each
-/// terminal's id, name and whether chats use it. One that needs a saved
-/// chat waits until the chat is saved, as mobile's section does.
+/// terminal's id, name, whether chats use it, and whether it is one of the
+/// user's devices. One that needs a saved chat waits until the chat is
+/// saved, as mobile's section does.
 pub fn offered(
     servers: &[TerminalServerDto],
     selected: Option<&str>,
     chat: Option<&str>,
-) -> Vec<(String, String, bool)> {
+) -> Vec<(String, String, bool, bool)> {
     let saved = chat.is_some_and(is_saved_chat);
     servers
         .iter()
@@ -154,7 +155,12 @@ pub fn offered(
             } else {
                 t.name.clone()
             };
-            (t.id.clone(), name, selected == Some(t.id.as_str()))
+            (
+                t.id.clone(),
+                name,
+                selected == Some(t.id.as_str()),
+                t.device,
+            )
         })
         .collect()
 }
@@ -231,6 +237,7 @@ mod tests {
             name: name.into(),
             kind: "system".into(),
             requires_saved_chat,
+            device: false,
         }
     }
 
@@ -244,30 +251,40 @@ mod tests {
         ];
         assert_eq!(
             offered(&servers, Some("box"), None),
-            [("box".to_string(), "box".to_string(), true)],
+            [("box".to_string(), "box".to_string(), true, false)],
             "a new chat was offered a terminal it cannot use"
         );
         // A temporary chat keeps a local id (restored by Go Back too), and
         // the server holds no chat for it.
         assert_eq!(
             offered(&servers, Some("box"), Some("local:tide-chart")),
-            [("box".to_string(), "box".to_string(), true)],
+            [("box".to_string(), "box".to_string(), true, false)],
             "a temporary chat was offered a terminal that needs a saved chat"
         );
         // Picked in a saved chat, it stays listed (and clearable) elsewhere.
         assert_eq!(
             offered(&servers, Some("per-chat"), None),
             [
-                ("box".to_string(), "box".to_string(), false),
-                ("per-chat".to_string(), "Chat bench".to_string(), true),
+                ("box".to_string(), "box".to_string(), false, false),
+                (
+                    "per-chat".to_string(),
+                    "Chat bench".to_string(),
+                    true,
+                    false
+                ),
             ],
             "a new chat hid the terminal it has selected, so it could not be cleared"
         );
         assert_eq!(
             offered(&servers, Some("box"), Some("chat-lighthouse")),
             [
-                ("box".to_string(), "box".to_string(), true),
-                ("per-chat".to_string(), "Chat bench".to_string(), false),
+                ("box".to_string(), "box".to_string(), true, false),
+                (
+                    "per-chat".to_string(),
+                    "Chat bench".to_string(),
+                    false,
+                    false
+                ),
             ]
         );
 

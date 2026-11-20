@@ -445,6 +445,7 @@ Future<void> durableSend(
       'childrenIds': const <String>[],
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
+      if (voiceReply == null) ...tetherAnswerRecord(selectedModel),
     },
   );
   final assistantPlaceholder = voiceReply == null
@@ -564,6 +565,7 @@ Future<void> durableSend(
         files: durableFiles,
         modelId: selectedModel.id,
         modelName: selectedModel.name,
+        viaTether: isTetherModel(selectedModel),
         now: now,
         chatParams: draftChatParams,
         voice: voice,
@@ -660,6 +662,7 @@ Future<void> durableSend(
           modelName: selectedModel.name,
           timestamp: now,
           voiceReply: voiceReply,
+          viaTether: isTetherModel(selectedModel),
         ),
       );
 
@@ -748,6 +751,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required List<Map<String, dynamic>> files,
   required String modelId,
   required String modelName,
+  required bool viaTether,
   required int now,
   Map<String, dynamic> chatParams = const <String, dynamic>{},
   ChatSendVoiceContext? voice,
@@ -777,6 +781,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           modelName: modelName,
           timestamp: now,
           voiceReply: voice?.reply,
+          viaTether: viaTether,
         ),
       },
     },
@@ -785,7 +790,8 @@ Map<String, dynamic> _buildDurableNewChatBlob({
 
 /// A new answer's row: empty until its model fills it, or, for [voiceReply],
 /// the voice's finished reply stored under the voice model as Open WebUI's
-/// web client stores it.
+/// web client stores it. [viaTether] records that one of the user's devices
+/// offers [modelId].
 Map<String, dynamic> _durableAssistantPayload({
   required String id,
   required String parentId,
@@ -793,6 +799,7 @@ Map<String, dynamic> _durableAssistantPayload({
   required String modelName,
   required int timestamp,
   ChatVoiceReply? voiceReply,
+  bool viaTether = false,
 }) {
   final trimmedModelName = voiceReply?.model ?? modelName.trim();
   return <String, dynamic>{
@@ -808,7 +815,8 @@ Map<String, dynamic> _durableAssistantPayload({
       'done': true,
       'modelIdx': 0,
       'meta': {'voice': voiceReply.voice},
-    },
+    } else if (viaTether)
+      'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
   };
 }
 
@@ -914,7 +922,8 @@ _AttachmentFactsMap _durableAttachmentFactsFromState(
   dynamic ref,
   List<String> attachments,
 ) {
-  final ids = attachments.where((id) => !id.startsWith('data:image/')).toSet();
+  // A data-URL image is named only by the file it came from.
+  final ids = attachments.toSet();
   if (ids.isEmpty) return <String, _AttachmentFacts>{};
 
   final facts = <String, _AttachmentFacts>{};
@@ -1001,7 +1010,7 @@ List<Map<String, dynamic>> _durableFilesFor(
   return [
     for (final id in attachments)
       if (id.startsWith('data:image/'))
-        <String, dynamic>{'type': 'image', 'url': id}
+        <String, dynamic>{'type': 'image', 'url': id, 'name': ?facts[id]?.name}
       else
         _durableFileFor(id, facts[id] ?? const _AttachmentFacts()),
   ];
@@ -1057,6 +1066,18 @@ String _titleFromText(String text) {
   return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
 }
 
+/// What names a chat begun with [turn]: its words, or its files' names when
+/// it was sent without any.
+String _titleSourceOf(ChatMessage? turn) {
+  if (turn == null) return '';
+  if (turn.content.trim().isNotEmpty) return turn.content;
+  return [
+    for (final file in turn.files ?? const <Map<String, dynamic>>[])
+      if (file['name'] case final String name when name.trim().isNotEmpty)
+        name.trim(),
+  ].join(', ');
+}
+
 // Send message function for widgets
 Future<void> sendMessage(
   dynamic ref,
@@ -1088,8 +1109,16 @@ Future<void> sendMessageWithContainer(
 /// Bridges the chat send pipeline to the direct Hermes runs transport, wiring
 /// the chat notifier callbacks and resolving multi-turn / memory continuity.
 /// Derives a short session title from the first user message.
-String _deriveHermesSessionTitle(String input) {
-  final trimmed = input.trim().replaceAll(RegExp(r'\s+'), ' ');
+///
+/// A turn sent without words is named by its files, read from the last user
+/// message of [messages].
+String _deriveHermesSessionTitle(String input, Iterable<ChatMessage> messages) {
+  final source = input.trim().isNotEmpty
+      ? input
+      : _titleSourceOf(
+          messages.where((message) => message.role == 'user').lastOrNull,
+        );
+  final trimmed = source.trim().replaceAll(RegExp(r'\s+'), ' ');
   if (trimmed.isEmpty) return 'New Hermes chat';
   return trimmed.length <= 60 ? trimmed : '${trimmed.substring(0, 60)}…';
 }

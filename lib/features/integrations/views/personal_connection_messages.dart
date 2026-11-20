@@ -35,6 +35,8 @@ String personalConnectionsBlockText(
     l10n.personalConnectionsUnavailableServer,
   PersonalConnectionsBlock.noPermission =>
     l10n.personalConnectionsUnavailablePermission,
+  PersonalConnectionsBlock.movedToTether =>
+    l10n.personalConnectionsMovedToTether,
 };
 
 String personalConnectionIssueText(

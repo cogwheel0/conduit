@@ -216,7 +216,7 @@ class ModelListTile extends StatelessWidget {
     final directSource = isAutoSelect ? null : directModelSourceLabel(model);
     final modelTagsByLowercase = <String, String>{};
     if (!isAutoSelect) {
-      for (final tag in model.modelTags) {
+      for (final tag in modelPickerTags(model)) {
         modelTagsByLowercase.putIfAbsent(tag.toLowerCase(), () => tag);
       }
     }

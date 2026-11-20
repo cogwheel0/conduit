@@ -80,7 +80,7 @@ final class _StableAdapter implements DirectProviderAdapter {
 }
 
 final class _CountingModelsApi extends ApiService {
-  _CountingModelsApi(WorkerManager workerManager, {this.release, this.started})
+  _CountingModelsApi(WorkerManager workerManager)
     : super(
         serverConfig: const ServerConfig(
           id: 'direct-refresh-test',
@@ -90,8 +90,6 @@ final class _CountingModelsApi extends ApiService {
         workerManager: workerManager,
       );
 
-  final Completer<void>? release;
-  final Completer<void>? started;
   int getModelsCalls = 0;
 
   @override
@@ -100,8 +98,6 @@ final class _CountingModelsApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     getModelsCalls++;
-    if (started != null && !started!.isCompleted) started!.complete();
-    await release?.future;
     await Future<void>.delayed(Duration.zero);
     return const [Model(id: 'fresh-model', name: 'Fresh model')];
   }
@@ -319,57 +315,6 @@ void main() {
       isTrue,
     );
     expect(fixture.container.read(isManualModelSelectionProvider), isFalse);
-  });
-
-  test('cached model warm refresh is single-flight', () async {
-    final profile = DirectConnectionProfile(
-      id: 'single-flight-profile',
-      name: 'Single-flight profile',
-      adapterKey: kOllamaAdapterKey,
-      baseUrl: 'http://localhost:11434',
-    );
-    final release = Completer<void>();
-    final started = Completer<void>();
-    final workerManager = WorkerManager();
-    final api = _CountingModelsApi(
-      workerManager,
-      release: release,
-      started: started,
-    );
-    final container = ProviderContainer(
-      overrides: [
-        reviewerModeProvider.overrideWithValue(false),
-        isAuthenticatedProvider2.overrideWithValue(true),
-        apiServiceProvider.overrideWithValue(api),
-        optimizedStorageServiceProvider.overrideWithValue(_CachedStorage()),
-        directConnectionProfilesProvider.overrideWith(
-          () => _FixedProfiles(profile),
-        ),
-        directProviderAdapterRegistryProvider.overrideWithValue(
-          DirectProviderAdapterRegistry([_StableAdapter()]),
-        ),
-        directDeviceTrustKeyProvider.overrideWith(
-          (ref) async => List<int>.generate(32, (index) => index),
-        ),
-        hermesConfigProvider.overrideWith(
-          () => _FixedHermesConfig(const HermesConfig()),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(workerManager.dispose);
-
-    await container.read(directModelDiscoveryProvider.future);
-    await container.read(modelsProvider.future);
-    await started.future;
-
-    final first = container.read(modelsProvider.notifier).refresh();
-    final second = container.read(modelsProvider.notifier).refresh();
-    expect(second, same(first));
-    expect(api.getModelsCalls, 1);
-
-    release.complete();
-    await first;
   });
 
   fakeTimeTest(

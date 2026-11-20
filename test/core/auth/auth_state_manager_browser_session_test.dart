@@ -23,6 +23,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -280,6 +281,8 @@ void main() {
       check(await signIn).isFalse();
       check(rig.state.isAuthenticated).isFalse();
       check(rig.state.error).isNull();
+      check(rig.storage.committedToken).isNull();
+      check(rig.storage.browserSession).isNull();
     });
 
     test('a sign-in begun after Cancel is not called off by it', () async {
@@ -779,6 +782,26 @@ void main() {
       check(rig.state.token).equals(_issued);
     });
 
+    test('a renewal on resume while a browser sign-in is under way does not '
+        'end it', () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async => (token: _renewed, session: _session),
+      );
+      rig.service.browserOpen = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      // Coming back from the browser resumes the app.
+      await rig.auth.renewBrowserSessionIfExpiring();
+      rig.service.browserOpen!.complete();
+
+      check(await signIn).isTrue();
+      check(rig.state.token).equals(_issued);
+    });
+
     test('a refusal during a renewal ahead of expiry is not answered over a '
         'sign-in begun meanwhile', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
@@ -973,18 +996,21 @@ void main() {
     test('a refusal during a renewal ahead of expiry is answered once that '
         'renewal fails', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final held = Completer<void>();
       final release = Completer<void>();
       final rig = await _Rig.start(
         storedToken: token,
         saved: _savedBrowserSignIn(token),
         renew: () async {
+          // Renewed again once refused.
+          if (!held.isCompleted) held.complete();
           await release.future;
           throw const BrowserSignInException(BrowserSignInFailure.timeout);
         },
       );
 
       final early = rig.auth.renewBrowserSessionIfExpiring();
-      await pumpEventQueue();
+      await held.future;
       rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
       release.complete();
       await early;
@@ -998,18 +1024,20 @@ void main() {
     test('a refusal during a renewal ahead of expiry that succeeds is '
         'answered by it', () async {
       final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final held = Completer<void>();
       final release = Completer<void>();
       final rig = await _Rig.start(
         storedToken: token,
         saved: _savedBrowserSignIn(token),
         renew: () async {
+          held.complete();
           await release.future;
           return (token: _renewed, session: _session);
         },
       );
 
       final early = rig.auth.renewBrowserSessionIfExpiring();
-      await pumpEventQueue();
+      await held.future;
       rig.auth.onAuthIssue(AuthFailureKind.sessionRejected);
       release.complete();
       await early;
@@ -1316,6 +1344,152 @@ void main() {
       sent.complete();
       check(await signIn).isTrue();
       check(rig.service.browserOpened).equals(1);
+    });
+
+    test('a revocation asked for while a browser sign-in is under way waits '
+        'until it has ended', () async {
+      final rig = await _Rig.start();
+      when(() => rig.storage.browserSignInSessionFor('account-b'))
+          .thenAnswer((_) async => _session);
+      when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+          .thenAnswer((_) async => const []);
+      when(() => rig.storage.removeInactiveAccount('account-b'))
+          .thenAnswer((_) async => true);
+      rig.service.browserOpen = Completer<void>();
+
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      await rig.auth.signOutAccount('account-b');
+      await pumpEventQueue();
+      // Its grant may be the one the sign-in is getting, not stored yet.
+      check(rig.service.revoked).isEmpty();
+
+      rig.service.browserOpen!.complete();
+      check(await signIn).isTrue();
+      await pumpEventQueue();
+      await rig.auth.browserRevocationsSettled;
+      check(rig.service.revoked).deepEquals([_session]);
+    });
+
+    for (final (ending, endsIt, letGo)
+        in <(String, void Function(_Service), Future<void> Function(_Rig))>[
+          (
+            'kept for Retry',
+            (service) => service.exchangeError = const BrowserSignInException(
+              BrowserSignInFailure.userNotFound,
+            ),
+            // A sign-in through the browser again, closed without one.
+            (rig) async {
+              rig.service
+                ..grant = null
+                ..exchangeError = null;
+              await rig.auth.loginWithBrowser(config: _config);
+            },
+          ),
+          (
+            'kept for its second step',
+            (service) => service.answer = () => const BrowserSignInSecondStep(
+              OpenWebUiTwoStepChallenge(
+                kind: OpenWebUiTwoStepKind.verify,
+                challengeToken: 'user-a.challenge',
+                expiresIn: Duration(minutes: 5),
+              ),
+            ),
+            (rig) async => rig.auth.cancelTwoStepSignIn(),
+          ),
+        ]) {
+      for (final during in [true, false]) {
+        test('a revocation asked for ${during ? 'while' : 'after'} a browser '
+            'sign-in gets a grant $ending waits until it is let go', () async {
+          final rig = await _Rig.start();
+          when(() => rig.storage.browserSignInSessionFor('account-b'))
+              .thenAnswer((_) async => _session);
+          when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+              .thenAnswer((_) async => const []);
+          when(() => rig.storage.removeInactiveAccount('account-b'))
+              .thenAnswer((_) async => true);
+          rig.service
+            ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user')
+            ..browserOpen = Completer<void>();
+          endsIt(rig.service);
+
+          final signIn = rig.auth.loginWithBrowser(config: _config);
+          await pumpEventQueue();
+          if (during) await rig.auth.signOutAccount('account-b');
+          rig.service.browserOpen!.complete();
+          await check(signIn).throws<Object>();
+          if (!during) await rig.auth.signOutAccount('account-b');
+          await pumpEventQueue();
+          await rig.auth.browserRevocationsSettled;
+          // Its grant may be the one held, which revoking it could end.
+          check(rig.service.revoked).isEmpty();
+
+          await letGo(rig);
+          await pumpEventQueue();
+          await rig.auth.browserRevocationsSettled;
+          check(
+            rig.service.revoked.map((session) => session.refreshToken),
+          ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
+        });
+      }
+    }
+
+    // Past what fakeTimeTest lets pass: the retry window is five minutes.
+    test('a grant kept for Retry stops holding a revocation back once it can '
+        'no longer be retried', () {
+      fakeAsync((async) {
+        Object? failure;
+        StackTrace? trace;
+        void caught(Object error, StackTrace stackTrace) {
+          failure ??= error;
+          trace ??= stackTrace;
+        }
+
+        void rethrowCaught() {
+          if (failure case final error?) {
+            Error.throwWithStackTrace(error, trace!);
+          }
+        }
+
+        late _Rig rig;
+        var heldBack = false;
+        () async {
+          rig = await _Rig.start();
+          when(() => rig.storage.browserSignInSessionFor('account-b'))
+              .thenAnswer((_) async => _session);
+          when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+              .thenAnswer((_) async => const []);
+          when(() => rig.storage.removeInactiveAccount('account-b'))
+              .thenAnswer((_) async => true);
+          rig.service
+            ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user')
+            ..exchangeError = const BrowserSignInException(
+              BrowserSignInFailure.userNotFound,
+            );
+          await check(
+            rig.auth.loginWithBrowser(config: _config),
+          ).throws<BrowserSignInException>();
+          await rig.auth.signOutAccount('account-b');
+          await pumpEventQueue();
+          check(rig.service.revoked).isEmpty();
+          heldBack = true;
+        }().then((_) {}, onError: caught);
+        async.elapse(const Duration(minutes: 1));
+        rethrowCaught();
+        check(heldBack).isTrue();
+
+        async.elapse(const Duration(minutes: 5));
+        var settled = false;
+        rig.auth.browserRevocationsSettled.then((_) {
+          settled = true;
+        }, onError: caught);
+        async.elapse(const Duration(seconds: 1));
+        rethrowCaught();
+        check(settled).isTrue();
+        check(
+          rig.service.revoked.map((session) => session.refreshToken),
+        ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
+      });
     });
 
     // The session the clear took, even when it could not be read before.
@@ -1769,17 +1943,32 @@ final class _Storage extends Mock implements OptimizedStorageService {
       refusedCommits--;
       return false;
     }
+    final (
+      previousToken,
+      previousRemembered,
+      previousExpected,
+      previousSession,
+    ) = (committedToken, remembered, expected, this.browserSession);
+    void rollBack() {
+      committedToken = previousToken;
+      remembered = previousRemembered;
+      expected = previousExpected;
+      this.browserSession = previousSession;
+    }
+
     committedToken = token;
     remembered = rememberedCredentials;
     expected = expectedSavedCredentials;
     this.browserSession = browserSession;
-    await publish();
+    try {
+      await publish();
+    } catch (_) {
+      rollBack();
+      rethrow;
+    }
     // Asked again once published, as storage asks it: a no rolls it back.
     if (!canCommit()) {
-      committedToken = null;
-      remembered = null;
-      expected = null;
-      this.browserSession = null;
+      rollBack();
       return false;
     }
     return true;

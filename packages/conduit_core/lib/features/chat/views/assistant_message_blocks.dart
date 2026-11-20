@@ -250,6 +250,7 @@ final class AssistantErrorBlock extends AssistantBlock {
   const AssistantErrorBlock({
     required this.text,
     required this.toolsUnsupported,
+    this.relayFailure,
     this.hermes,
   });
 
@@ -265,6 +266,10 @@ final class AssistantErrorBlock extends AssistantBlock {
   /// The model refused tool definitions ([isDirectToolsUnsupportedError]):
   /// hosts show their advice to turn web search off instead of [text].
   final bool toolsUnsupported;
+
+  /// A failed relay to one of the user's Tether devices: hosts say what it
+  /// means for the turn instead of [text].
+  final TetherRelayFailure? relayFailure;
 }
 
 /// One code execution, as a header that opens to the code and its result.
@@ -390,6 +395,7 @@ List<AssistantBlock> assistantMessageBlocks(
     attachmentIds: message.attachmentIds,
     statusHistory: message.statusHistory,
     error: message.error,
+    relayFailure: message.error?.relay,
     hermesError: hermesErrorSurfaceOf(message),
     changedFiles: hermesChangedFiles(message.statusHistory),
     codeExecutions: message.codeExecutions,
@@ -413,6 +419,7 @@ List<AssistantBlock> assistantVersionBlocks(ChatMessageVersion version) =>
       attachmentIds: null,
       statusHistory: const <ChatStatusUpdate>[],
       error: version.error,
+      relayFailure: version.error?.relay,
       codeExecutions: version.codeExecutions,
       sources: version.sources,
       followUps: version.followUps,
@@ -430,6 +437,7 @@ List<AssistantBlock> _assemble({
   required List<String>? attachmentIds,
   required List<ChatStatusUpdate> statusHistory,
   required ChatMessageError? error,
+  required TetherRelayFailure? relayFailure,
   HermesErrorSurface? hermesError,
   List<HermesDiffFile> changedFiles = const <HermesDiffFile>[],
   required List<ChatCodeExecution> codeExecutions,
@@ -498,6 +506,7 @@ List<AssistantBlock> _assemble({
       AssistantErrorBlock(
         text: error.content ?? '',
         toolsUnsupported: isDirectToolsUnsupportedError(error.content),
+        relayFailure: relayFailure,
         hermes: hermesError,
       ),
     );

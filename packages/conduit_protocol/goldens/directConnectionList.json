@@ -39,6 +39,7 @@
   ],
   "localHistory": true,
   "openWebUiAvailable": true,
+  "openWebUiMovedToTether": true,
   "preferred": true,
   "usable": true,
   "openWebUiLoadFailed": true

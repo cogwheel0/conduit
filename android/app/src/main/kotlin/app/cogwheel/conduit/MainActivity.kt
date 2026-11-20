@@ -524,6 +524,7 @@ class MainActivity : FlutterFragmentActivity() {
     private lateinit var nativeTtsBridge: NativeTtsBridge
     private lateinit var realtimeAudioBridge: RealtimeAudioBridge
     private lateinit var imageGalleryBridge: ImageGalleryBridge
+    private lateinit var userCertificatesBridge: UserCertificatesBridge
     private lateinit var pushBridge: PushBridge
     private lateinit var telecomCallBridge: TelecomCallBridge
 
@@ -640,6 +641,8 @@ class MainActivity : FlutterFragmentActivity() {
         realtimeAudioBridge.setup(flutterEngine)
         imageGalleryBridge = ImageGalleryBridge(this)
         imageGalleryBridge.setup(flutterEngine)
+        userCertificatesBridge = UserCertificatesBridge()
+        userCertificatesBridge.setup(flutterEngine)
         pushBridge = PushBridge(this)
         pushBridge.setup(flutterEngine)
         telecomCallBridge = TelecomCallBridge(this)
@@ -1826,6 +1829,9 @@ class MainActivity : FlutterFragmentActivity() {
         }
         if (::imageGalleryBridge.isInitialized) {
             imageGalleryBridge.dispose()
+        }
+        if (::userCertificatesBridge.isInitialized) {
+            userCertificatesBridge.dispose()
         }
         if (::pushBridge.isInitialized) {
             pushBridge.dispose()

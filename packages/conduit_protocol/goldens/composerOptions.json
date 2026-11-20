@@ -4,20 +4,23 @@
   "tools": [
     {
       "id": "weather",
-      "name": "Weather"
+      "name": "Weather",
+      "device": false
     }
   ],
   "mcpTools": [
     {
       "id": "local_mcp:mcp-1",
-      "name": "Docs"
+      "name": "Docs",
+      "device": false
     }
   ],
   "filters": [
     {
       "id": "tidy",
       "name": "Tidy Up",
-      "description": "Fix spacing"
+      "description": "Fix spacing",
+      "device": false
     }
   ],
   "filterDefaults": [

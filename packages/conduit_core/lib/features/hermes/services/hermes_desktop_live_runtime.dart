@@ -134,6 +134,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       }
     });
     _emitTurnState(HermesDesktopTurnState.idle);
+    _relearnDesktopUploadContract();
   }
 
   /// Removes the saved decision [event] closes; resolves to whether one

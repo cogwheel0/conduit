@@ -1323,6 +1323,15 @@ abstract class ImageGalleryHostApi {
   void saveImage(String path, String mimeType, String displayName);
 }
 
+/// Android only. The certificate authorities the user installed in Settings,
+/// each as PEM text.
+@HostApi()
+abstract class UserCertificatesHostApi {
+  /// Async so the host reads the store off its main thread.
+  @async
+  List<String> userCaCertificates();
+}
+
 @HostApi()
 abstract class NativeSheetHostApi {
   void setTheme(PlatformNativeSheetTheme theme);
@@ -1660,7 +1669,8 @@ class PlatformBrowserAuthResult {
 
 /// iOS and Android. Runs a sign-in page in the system browser, where
 /// passkeys and security keys work, and returns the redirect it ends on.
-/// Never throws: every ending is a [PlatformBrowserAuthResult].
+/// The host ends every sign-in with a [PlatformBrowserAuthResult]; only a
+/// failure of the channel itself throws, as a `PlatformException`.
 @HostApi()
 abstract class BrowserAuthHostApi {
   /// Completes when the browser reaches the redirect, is dismissed, or

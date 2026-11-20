@@ -5615,6 +5615,39 @@ class ImageGalleryHostApiSetup {
     }
   }
 }
+/// Android only. The certificate authorities the user installed in Settings,
+/// each as PEM text.
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol UserCertificatesHostApi {
+  /// Async so the host reads the store off its main thread.
+  func userCaCertificates(completion: @escaping (Result<[String], Error>) -> Void)
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class UserCertificatesHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { ConduitPlatformApisPigeonCodec.shared }
+  /// Sets up an instance of `UserCertificatesHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: UserCertificatesHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    /// Async so the host reads the store off its main thread.
+    let userCaCertificatesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.UserCertificatesHostApi.userCaCertificates\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      userCaCertificatesChannel.setMessageHandler { _, reply in
+        api.userCaCertificates { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      userCaCertificatesChannel.setMessageHandler(nil)
+    }
+  }
+}
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol NativeSheetHostApi {
   func setTheme(theme: PlatformNativeSheetTheme) throws
@@ -6733,7 +6766,8 @@ class PushFlutterApi: PushFlutterApiProtocol {
 }
 /// iOS and Android. Runs a sign-in page in the system browser, where
 /// passkeys and security keys work, and returns the redirect it ends on.
-/// Never throws: every ending is a [PlatformBrowserAuthResult].
+/// The host ends every sign-in with a [PlatformBrowserAuthResult]; only a
+/// failure of the channel itself throws, as a `PlatformException`.
 ///
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol BrowserAuthHostApi {

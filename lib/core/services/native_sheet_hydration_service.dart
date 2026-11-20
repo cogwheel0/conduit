@@ -683,7 +683,7 @@ class NativeSheetHydrationService {
               name: name,
               subtitle: subtitle,
               sfSymbol: symbolName,
-              tags: model.modelTags,
+              tags: modelPickerTags(model),
             );
           }
           final logoId = modelLogoIdFromUrl(avatarUrl);
@@ -693,7 +693,7 @@ class NativeSheetHydrationService {
               name: name,
               subtitle: subtitle,
               avatarBytes: logoBytes[logoId],
-              tags: model.modelTags,
+              tags: modelPickerTags(model),
             );
           }
           final avatarHeaders = avatarUrl == null
@@ -706,7 +706,7 @@ class NativeSheetHydrationService {
             subtitle: subtitle,
             avatarUrl: avatarUrl,
             avatarHeaders: avatarHeaders,
-            tags: model.modelTags,
+            tags: modelPickerTags(model),
           );
         }),
       ];

@@ -1260,6 +1260,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final text = StringBuffer();
     final paths = <String>[];
     final attachments = <Map<String, String>>[];
+    await _learnDesktopUploadContract();
     try {
       for (final part in input.parts) {
         if (part is HermesInputTextPart) {
@@ -1403,6 +1404,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
   }
 
+  /// The contract of the gateway on the current socket. A reconnect may
+  /// reach another gateway, so one learned on an earlier socket is not it.
+  int get _currentDesktopContract =>
+      _desktopContractSocket == _rpc.socketGeneration ? _desktopContract : 0;
+
   void _recordDesktopContract(Map<String, dynamic> info) {
     final raw = info['desktop_contract'];
     // A session authority names its protocol instead, and stages uploads
@@ -1412,14 +1418,91 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         : raw is num
         ? raw.toInt()
         : int.tryParse(raw?.toString() ?? '');
-    if (value != null && value > _desktopContract) {
-      _desktopContract = value;
-      _emitDesktopContract(value);
+    if (value == null) return;
+    final socket = _rpc.socketGeneration;
+    if (_desktopContractSocket == socket && value <= _desktopContract) return;
+    _desktopContractSocket = socket;
+    _desktopContract = value;
+    _publishDesktopContract();
+  }
+
+  /// Tells the contract's listeners, Photos among them, when the gateway on
+  /// the current socket no longer has the contract they last heard.
+  void _publishDesktopContract() {
+    final contract = _currentDesktopContract;
+    if (contract == _publishedDesktopContract) return;
+    _publishedDesktopContract = contract;
+    _emitDesktopContract(contract);
+  }
+
+  /// Asks a gateway a reconnect reached what the last one was asked about
+  /// uploads: it may be older, or answer where the last could not. Its
+  /// answer, or the lack of one, reaches the listeners, so Photos follow it
+  /// with no chat open. A service that never asked waits until something
+  /// does.
+  void _relearnDesktopUploadContract() {
+    if (!_uploadContractAsked && _desktopContractSocket == null) return;
+    unawaited(
+      _learnDesktopUploadContract().then((_) => _publishDesktopContract()),
+    );
+  }
+
+  /// Learns whether this gateway takes uploads before any session is open:
+  /// the contract comes only with a session, so a new chat after a launch
+  /// would offer no Photos and refuse its files. `file.attach` came with
+  /// contract 2; sent without a session, a gateway that has it answers
+  /// "session not found" (4001), and an older one that the method is unknown
+  /// (-32601). Any other outcome, such as a dropped socket or a gateway
+  /// answering before it looks the method up, says neither, and it is asked
+  /// again later. Asked once a socket, sessionless, so it changes nothing.
+  Future<void> _learnDesktopUploadContract() async {
+    if (_currentDesktopContract >= 2) return;
+    if (_rpc.sessionAuthority) {
+      _recordDesktopContract(const {
+        'desktop_protocol': kHermesCanonicalGatewayProtocol,
+      });
+      return;
+    }
+    final socket = _rpc.socketGeneration;
+    if (_uploadContractProbedSocket == socket) return;
+    _uploadContractAsked = true;
+    final asked = _uploadContractQuestion;
+    if (asked != null && asked.socket == socket) return asked.answer;
+    final answer = _askDesktopUploadContract(socket);
+    _uploadContractQuestion = (socket: socket, answer: answer);
+    try {
+      await answer;
+    } finally {
+      if (identical(_uploadContractQuestion?.answer, answer)) {
+        _uploadContractQuestion = null;
+      }
     }
   }
 
+  Future<void> _askDesktopUploadContract(int socket) async {
+    var staged = true;
+    try {
+      await _rpc.request<Object?>(
+        'file.attach',
+        params: const {},
+        includeDefaultParams: false,
+      );
+    } on HermesDesktopRpcException catch (error) {
+      if (error.code == -32601) {
+        staged = false;
+      } else if (error.code != 4001) {
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (_rpc.socketGeneration != socket) return;
+    _uploadContractProbedSocket = socket;
+    _recordDesktopContract({'desktop_contract': staged ? 2 : 0});
+  }
+
   void _requireDesktopUploadContract() {
-    if (_desktopContract < 2) {
+    if (_currentDesktopContract < 2) {
       throw StateError(
         'Upgrade Hermes Desktop Gateway to use remote attachments.',
       );

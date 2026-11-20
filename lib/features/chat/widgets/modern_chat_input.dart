@@ -621,6 +621,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
+  /// The knowledge picker's row for the whole base, among its files' ids.
+  static const String _wholeKnowledgeBaseOptionId =
+      'conduit.knowledge.whole-base';
+
   // The expanded composer keeps a soft, pill-like corner.
   static const double _composerRadius = AppBorderRadius.xl;
   static const double _composerHorizontalInset = Spacing.sm;
@@ -1021,8 +1025,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// A draft the queue refuses (the response just ended) leaves it untouched.
   /// Queueing is a send, so it is felt once, as one, whichever way it came.
   void _queueDraft() {
-    final text = _controller.text.trim();
-    if (text.isEmpty || !widget.enabled) return;
+    if (!widget.enabled ||
+        (_controller.text.trim().isEmpty &&
+            ref.read(attachedFilesProvider).isEmpty)) {
+      return;
+    }
     final wireText = _outgoingText();
     final queue = ref.read(chatDraftQueueProvider.notifier);
     if (queue.enqueue(wireText) == null) return;
@@ -1063,10 +1070,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       unawaited(_stopVoice());
       return;
     }
-    final text = _controller.text.trim();
-    if (text.isEmpty || !widget.enabled) return;
+    if (!widget.enabled) return;
+    // A queued draft may hold files still uploading, so Enter takes what
+    // Queue takes.
     if (_queuesInsteadOfSending) {
       _queueDraft();
+      return;
+    }
+    final text = _controller.text.trim();
+    final files = ref.read(attachedFilesProvider);
+    // As Send does, wait for every file: the send would leave out one still
+    // uploading.
+    if (!files.every((file) => file.status == FileUploadStatus.completed) ||
+        !draftHasSendableContent(text, files)) {
       return;
     }
     // While a reply runs the send button is Stop, and no other way to send
@@ -1622,7 +1638,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     final wireText = _outgoingText();
-    if (wireText.isEmpty || !widget.enabled) return;
+    if (!draftHasSendableContent(wireText, ref.read(attachedFilesProvider)) ||
+        !widget.enabled) {
+      return;
+    }
     // Edits made after this point belong to a newer draft.
     final draftGeneration = _editGeneration;
     // The draft is the user's until the turn is durably admitted: a refusal
@@ -2696,6 +2715,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return _skillSuggestions.asData?.value.isNotEmpty ?? false;
   }
 
+  void _attachWholeKnowledgeBase(KnowledgeBase base) {
+    ref
+        .read(contextAttachmentsProvider.notifier)
+        .addKnowledgeBase(
+          id: base.id,
+          name: base.name,
+          description: base.description,
+        );
+  }
+
   Future<void> _openKnowledgePicker({String? initialBaseId}) async {
     _hidePromptOverlay();
 
@@ -2751,17 +2780,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         final selectedBaseModel = bases.firstWhere(
           (base) => base.id == selectedBase,
         );
+        // The whole base is offered however many files it lists, none
+        // included.
         final files =
             ref.read(knowledgeCacheProvider).files[selectedBase] ??
             const <KnowledgeBaseFile>[];
-        if (files.isEmpty) {
-          return;
-        }
         final selectedFileId = await NativeSheetBridge.instance
             .presentOptionsSelector(
               title: selectedBaseModel.name,
               subtitle: l10n.files,
               options: [
+                NativeSheetOptionConfig(
+                  id: _wholeKnowledgeBaseOptionId,
+                  label: l10n.knowledgeBaseEntire,
+                  sfSymbol: 'books.vertical',
+                ),
                 for (final file in files)
                   NativeSheetOptionConfig(
                     id: file.id,
@@ -2773,6 +2806,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               rethrowErrors: true,
             );
         if (selectedFileId == null || !mounted) {
+          return;
+        }
+        if (selectedFileId == _wholeKnowledgeBaseOptionId) {
+          _attachWholeKnowledgeBase(selectedBaseModel);
           return;
         }
         for (final file in files) {
@@ -2817,6 +2854,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       cacheState.isLoading ||
                       (selectedBaseId != null &&
                           !filesMap.containsKey(selectedBaseId));
+                  final KnowledgeBase? wholeBase = bases
+                      .where((base) => base.id == selectedBaseId)
+                      .firstOrNull;
 
                   Future<void> loadFiles(KnowledgeBase base) async {
                     setModalState(() {
@@ -2869,8 +2909,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                       child: AdaptiveProgressIndicator(),
                                     )
                                   : ListView.builder(
-                                      itemCount: files.length,
+                                      itemCount:
+                                          files.length +
+                                          (wholeBase == null ? 0 : 1),
                                       itemBuilder: (context, index) {
+                                        if (wholeBase != null) {
+                                          if (index == 0) {
+                                            return AdaptiveListTile(
+                                              leading: Icon(
+                                                Platform.isIOS
+                                                    ? CupertinoIcons.folder
+                                                    : Icons.folder_outlined,
+                                              ),
+                                              title: Text(
+                                                AppLocalizations.of(context)!
+                                                    .knowledgeBaseEntire,
+                                              ),
+                                              subtitle: Text(
+                                                wholeBase.name,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              onTap: () {
+                                                _attachWholeKnowledgeBase(
+                                                  wholeBase,
+                                                );
+                                                if (modalContext.mounted) {
+                                                  Navigator.of(modalContext)
+                                                      .pop();
+                                                }
+                                              },
+                                            );
+                                          }
+                                          index -= 1;
+                                        }
                                         final file = files[index];
                                         final KnowledgeBase? selectedBase =
                                             bases.isEmpty
@@ -3683,6 +3754,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             files.every((f) => f.status == FileUploadStatus.completed),
       ),
     );
+    // Files alone make a message: Send stands in for the voice call.
+    final hasDraft =
+        _hasText ||
+        ref.watch(attachedFilesProvider.select((files) => files.isNotEmpty));
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
@@ -4075,7 +4150,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // already generating but the draft has not cleared yet; that text is not
     // a new message to queue, so Queue must not flash in for those frames.
     final bool showQueueAction =
-        _hasText &&
+        hasDraft &&
         isGenerating &&
         !_sendingDraft &&
         ref.watch(chatDraftQueueOfferProvider);
@@ -4240,7 +4315,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ],
               if (!showInlineMicAction) const SizedBox(width: Spacing.xs),
               _buildPrimaryButton(
-                _hasText,
+                hasDraft,
                 isGenerating,
                 stopGeneration,
                 voiceAvailable,
@@ -4341,7 +4416,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ],
                 if (!compactControls.showMic) const SizedBox(width: Spacing.xs),
                 _buildPrimaryButton(
-                  _hasText,
+                  hasDraft,
                   isGenerating,
                   stopGeneration,
                   voiceAvailable,
@@ -5153,7 +5228,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildPrimaryButton(
-    bool hasText,
+    bool hasDraft,
     bool isGenerating,
     void Function() stopGeneration,
     bool voiceAvailable,
@@ -5180,7 +5255,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Don't allow sending until all uploads are complete.
     final enabled =
-        !isGenerating && hasText && widget.enabled && allUploadsComplete;
+        !isGenerating && hasDraft && widget.enabled && allUploadsComplete;
 
     // Generating -> STOP variant, for a reply this account may stop. Another
     // person's reply leaves the draft to Queue, and Send waits for it.
@@ -5217,7 +5292,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return SizedBox.square(dimension: buttonSize);
     }
 
-    if (hasText) {
+    if (hasDraft) {
       final onPressed = enabled ? _sendMessage : null;
       final glyphLit = enabled;
       final sendChild = hasUploadsInProgress

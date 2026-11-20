@@ -17,6 +17,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/secure_credential_storage.dart';
 import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -416,6 +417,25 @@ final openWebUiDirectConnectionStoreProvider =
 final openWebUiDirectConnectionsAvailableProvider = Provider<bool>(
   (ref) => ref.watch(openWebUiDirectConnectionStoreProvider) != null,
 );
+
+/// Whether the signed-in Open WebUI server moved direct connections to
+/// Tether (0.13.4 and later, without `enable_direct_connections`): the models
+/// a user added to it there now come from their Tether devices, so where
+/// they were listed says so instead of showing nothing.
+final openWebUiDirectConnectionsMovedToTetherProvider = Provider<bool>((ref) {
+  if (!ref.watch(isAuthenticatedProvider2)) return false;
+  final api = ref.watch(apiServiceProvider);
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  return api != null &&
+      config != null &&
+      config.serverId == api.serverConfig.id &&
+      config.enableDirectConnections != true &&
+      ServerVersionCompat.knownAtLeast(
+            config.version,
+            ServerVersionCompat.directConnectionsRemovedVersion,
+          ) ==
+          true;
+});
 
 final directRunRegistryProvider = Provider<DirectRunRegistry>((ref) {
   final registry = DirectRunRegistry();

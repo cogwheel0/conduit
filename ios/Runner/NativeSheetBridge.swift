@@ -8545,6 +8545,7 @@ private final class NativeMoreModelsTableViewController: UITableViewController, 
         filteredModels = query.isEmpty ? models : models.filter { model in
             model.name.lowercased().contains(query)
                 || model.id.lowercased().contains(query)
+                || (model.subtitle?.lowercased().contains(query) ?? false)
                 || model.tags.contains { $0.lowercased().contains(query) }
         }
         if isViewLoaded { tableView.reloadData() }

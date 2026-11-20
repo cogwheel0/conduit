@@ -148,6 +148,7 @@ final class TerminalsService {
             name: server.displayName,
             kind: server.kind.name,
             requiresSavedChat: server.requiresSavedChatContext,
+            device: server.isTetherDevice,
           ),
       ],
       selectedId: selected?.selectionId,
