@@ -723,8 +723,13 @@ final class FakeOwuiChats {
       ends.future.then((_) {
         _running.remove('task-$n');
         _elsewhere.remove(answerId);
-        messages[answerId]!['content'] = 'Eggs, flour.';
-        messages[answerId]!['done'] = true;
+        // The chat as stored now: a save while it ran replaced its history.
+        final history = (stored[chatId]?['chat'] as Map?)?['history'] as Map?;
+        final answer = (history?['messages'] as Map?)?[answerId] as Map?;
+        if (answer != null) {
+          answer['content'] = 'Eggs, flour.';
+          answer['done'] = true;
+        }
         _touch(chatId);
         _answerHeld(chatId, answerId);
       }),

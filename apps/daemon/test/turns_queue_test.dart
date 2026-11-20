@@ -9,6 +9,7 @@ import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
@@ -17,6 +18,16 @@ import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
 import 'support/step_clock.dart';
 import 'support/window.dart';
+
+/// What a held send leaves: the send, the reply running elsewhere that
+/// holds it, and what the daemon has said since.
+typedef HeldSend = ({
+  SendTurnAccepted sent,
+  Completer<void> elsewhere,
+  List<String> completed,
+  List<TurnFinished> finished,
+  int Function() changed,
+});
 
 /// The queue of an Open WebUI chat, against a fake Open WebUI that takes
 /// sends: an answer held running where the live test asks for a slow one.
@@ -227,15 +238,9 @@ void main() {
     expect(completed, hasLength(7));
   });
 
-  test('a message the server holds behind another device\'s answer waits, '
-      'and its answer comes with the chat', () async {
-    // Open WebUI 0.13.4 keeps a message sent under an answer still running,
-    // and answers it under new ids once that answer ends. The chat's scope
-    // hears that answer, so it stays however long the other answer runs.
-    final linger = TurnsService.lingerAfterTurn;
-    TurnsService.lingerAfterTurn = Duration.zero;
-    addTearDown(() => TurnsService.lingerAfterTurn = linger);
-    const chatId = 'chat-pantry';
+  /// One answered turn in [chatId], with a window showing the chat; then,
+  /// under an answer another device is running, a send the server holds.
+  Future<HeldSend> heldSend(String chatId) async {
     final chats = owui.chats..seed(chatId, userId: 'user-ada');
     final completed = <String>[];
     final finished = <TurnFinished>[];
@@ -255,7 +260,7 @@ void main() {
     addTearDown(untap);
     await clock.during(
       turns.send(
-        const SendTurn(
+        SendTurn(
           chatId: chatId,
           model: 'kettle-model',
           text: 'Is the kettle on?',
@@ -268,7 +273,7 @@ void main() {
     final elsewhere = chats.runElsewhere(chatId);
     final sent = await clock.during(
       turns.send(
-        const SendTurn(
+        SendTurn(
           chatId: chatId,
           model: 'kettle-model',
           text: 'And the pantry?',
@@ -278,12 +283,33 @@ void main() {
     await until(
       () => finished.any((f) => f.messageId == sent.assistantMessageId),
     );
+    return (
+      sent: sent,
+      elsewhere: elsewhere,
+      completed: completed,
+      finished: finished,
+      changed: () => changed,
+    );
+  }
 
-    final ended = finished.lastWhere(
+  test('a message the server holds behind another device\'s answer waits, '
+      'and its answer comes with the chat', () async {
+    // Open WebUI 0.13.4 keeps a message sent under an answer still running,
+    // and answers it under new ids once that answer ends. The chat's scope
+    // hears that answer, so it stays however long the other answer runs.
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = Duration.zero;
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    const chatId = 'chat-pantry';
+    final held = await heldSend(chatId);
+    final chats = owui.chats;
+    final sent = held.sent;
+
+    final ended = held.finished.lastWhere(
       (f) => f.messageId == sent.assistantMessageId,
     );
     expect((ended.ok, ended.held), (true, true));
-    expect(completed, isNot(contains(sent.assistantMessageId)));
+    expect(held.completed, isNot(contains(sent.assistantMessageId)));
     expect(chats.heldCompletions, hasLength(1));
     expect(chats.deletedMessages, ['$chatId/${sent.assistantMessageId}']);
     // Messages typed meanwhile queue behind it, as behind a running answer.
@@ -296,9 +322,9 @@ void main() {
     expect(waiting.map((m) => m.id), isNot(contains(sent.assistantMessageId)));
 
     await pumpEventQueue();
-    final before = changed;
-    elsewhere.complete();
-    await until(() => changed > before);
+    final before = held.changed();
+    held.elsewhere.complete();
+    await until(() => held.changed() > before);
 
     final chatsService = ChatsService(runtime.container, events: events);
     final answered = (await chatsService.get(chatId))!.messages;
@@ -314,4 +340,57 @@ void main() {
     // The server answered it: it was never asked again.
     expect(chats.completions, hasLength(2));
   });
+
+  test('a held message answered before its chat\'s scope would linger to a '
+      'close is announced too', () async {
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = const Duration(hours: 1);
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    const chatId = 'chat-larder';
+    final held = await heldSend(chatId);
+
+    await pumpEventQueue();
+    final before = held.changed();
+    held.elsewhere.complete();
+    await until(() => held.changed() > before);
+
+    final answered = turns.openMessages(chatId)!;
+    expect(answered.where((m) => m.isHeldByServer), isEmpty);
+    expect(answered.last.content, owui.chats.answer);
+  });
+
+  test(
+    'a held message\'s chat keeps its scope while a window shows it, and '
+    'closes it a while after; a later pull still brings the answer',
+    () async {
+      final linger = TurnsService.lingerAfterTurn;
+      TurnsService.lingerAfterTurn = Duration.zero;
+      addTearDown(() => TurnsService.lingerAfterTurn = linger);
+      const chatId = 'chat-cellar';
+      final held = await heldSend(chatId);
+      await pumpEventQueue();
+
+      // Past the bound, the window still shows the chat.
+      clock.advance(TurnsService.heldOpenLimit);
+      await pumpEventQueue();
+      expect(turns.hasScope(chatId), isTrue);
+
+      // Once no window shows it, the scope goes after another while.
+      subscribeWindow(events, turns, 'probe', const <String>[]);
+      clock.advance(TurnsService.heldOpenLimit);
+      await pumpEventQueue();
+      expect(turns.hasScope(chatId), isFalse);
+
+      held.elsewhere.complete();
+      await pumpEventQueue();
+      await runtime.container
+          .read(syncEngineProvider.notifier)
+          .pullChatNow(chatId);
+      final chatsService = ChatsService(runtime.container, events: events);
+      final answered = (await chatsService.get(chatId))!.messages;
+      expect(answered.where((m) => m.held), isEmpty);
+      expect(answered.last.content, owui.chats.answer);
+      expect(owui.chats.completions, hasLength(2));
+    },
+  );
 }

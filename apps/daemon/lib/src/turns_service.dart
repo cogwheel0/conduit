@@ -265,6 +265,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// Assignable so a test can shorten it.
   static Duration lingerAfterTurn = const Duration(seconds: 30);
 
+  /// How long a chat's scope waits for the answer to a question the server
+  /// holds ([_heldQuestion]) when no window shows the chat. The answer comes
+  /// on the scope's socket; once the scope has closed, the next pull of the
+  /// chat brings it instead. Measured with [_now] and waited with [_pause].
+  static const Duration heldOpenLimit = Duration(minutes: 10);
+
   /// How long to keep looking for a finished answer in the server's copy
   /// before telling the windows it changed. Open WebUI writes the answer
   /// when its own stream handler finishes, which is not the moment ours
@@ -2389,10 +2395,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _handOffQueued(session);
     final turn = current;
     if (turn == null || turn.finished) {
-      // The held question's answer has come: the windows read the chat
-      // again to show it.
-      if (session.heldOpen && !(messages.lastOrNull?.isHeldByServer ?? false)) {
-        session.heldOpen = false;
+      if (messages.lastOrNull?.isHeldByServer ?? false) {
+        session.heldSince ??= _now();
+      } else if (session.heldSince != null) {
+        // The held question's answer has come: the windows read the chat
+        // again to show it.
+        session.heldSince = null;
+        session.heldWait = null;
         _scheduleLinger(session);
         if (session.chatId case final answered?) _announce(answered);
       }
@@ -2546,7 +2555,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       final answerId = pending.assistantMessageId;
       if (answerId != null && _heldQuestion(messages, pending.userMessageId)) {
         _endQueuedBeforeStart(session, pending, answerId);
-        _emitHeld(session.chatId, answerId);
+        _emitHeld(session, session.chatId, answerId);
         return;
       }
       if (pending.sendSettled && pending.sendError == null) {
@@ -2750,10 +2759,14 @@ final class TurnsService implements ChatTurns, AddressReplies {
       session.pending = null;
     }
     _scheduleLinger(session);
-    _emitHeld(turn.chatId, turn.messageId);
+    _emitHeld(session, turn.chatId, turn.messageId);
   }
 
-  void _emitHeld(String? chatId, String messageId) {
+  /// Tells the windows [messageId]'s turn ended held. From now on the scope
+  /// waits for the server's answer ([_scheduleLinger]), and announces the
+  /// chat when it comes ([_project]), however soon that is.
+  void _emitHeld(_ChatSession session, String? chatId, String messageId) {
+    session.heldSince ??= _now();
     if (chatId == null) return;
     _remember(messageId);
     _events.emit(
@@ -3137,13 +3150,33 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       // A question the server holds: its answer comes, under new ids, on this
       // scope's socket (`chat:reload`) once the reply before it ends. The
-      // scope lingers again once its transcript has that answer ([_project]).
+      // scope waits for it while a window shows the chat, and for at most
+      // [heldOpenLimit] otherwise; it lingers again once its transcript has
+      // that answer ([_project]).
       if (session.scope.messages.lastOrNull?.isHeldByServer ?? false) {
-        session.heldOpen = true;
-        return;
+        final since = session.heldSince ??= _now();
+        final left = heldOpenLimit - _now().difference(since);
+        if (left > Duration.zero ||
+            (chatId != null && _events.watches(chatId))) {
+          _waitForHeld(session, left > Duration.zero ? left : heldOpenLimit);
+          return;
+        }
       }
       _close(session);
     });
+  }
+
+  /// Looks at [session] again after [wait] ([_scheduleLinger]), unless the
+  /// held question's answer has come by then.
+  void _waitForHeld(_ChatSession session, Duration wait) {
+    final token = session.heldWait = Object();
+    unawaited(
+      _pause(wait).then((_) {
+        if (!identical(session.heldWait, token)) return;
+        if (session.scope.isDisposed) return;
+        _scheduleLinger(session);
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -4484,9 +4517,13 @@ final class _ChatSession {
   _Turn? turn;
   Timer? linger;
 
-  /// Kept past its linger for a question the server holds: its answer comes
-  /// on this scope's socket ([TurnsService._scheduleLinger]).
-  bool heldOpen = false;
+  /// Since when the transcript has ended with a question the server holds:
+  /// the scope is kept past its linger for that question's answer, which
+  /// comes on its socket ([TurnsService._scheduleLinger]). Null otherwise.
+  DateTime? heldSince;
+
+  /// The wait for that answer now running ([TurnsService._waitForHeld]).
+  Object? heldWait;
 
   /// Save Chat is making this temporary chat a stored one.
   bool saving = false;
