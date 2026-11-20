@@ -534,7 +534,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// finished since the window could last have seen it -- a fast model can
   /// finish before `turns.send` returns the new chat's id -- that turn's
   /// final `turn.blocks` and its `turn.completed` or `turn.failed`, for as
-  /// long as its scope lingers.
+  /// long as its scope lingers; for a turn the server held, the `turn.finished`
+  /// of each of its answers.
   void catchUp(
     String sessionId,
     EventSubscription subscription, {
@@ -637,11 +638,18 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (alreadySubscribed.contains(chatId)) continue;
       final ended = _sessionOf(chatId)?.ended;
       if (ended == null) continue;
-      if (wants(ConduitEvents.turnBlocks)) {
+      if (wants(ConduitEvents.turnFinished)) {
+        for (final finished in ended.held) {
+          // Unscoped, as it went out ([_emitHeld]).
+          _events.emitTo(sessionId, ConduitEventSpecs.turnFinished, finished);
+        }
+      }
+      if (ended.blocks case final blocks?
+          when wants(ConduitEvents.turnBlocks)) {
         _events.emitTo(
           sessionId,
           ConduitEventSpecs.turnBlocks,
-          ended.blocks,
+          blocks,
           scope: chatId,
         );
       }
@@ -1199,9 +1207,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       // The turn that ended here last is replayed to a window that opens
       // the chat now ([catchUp]); an answer that is gone must not come back.
-      final ended = session.ended;
-      if (ended != null &&
-          !session.scope.messages.any((m) => m.id == ended.blocks.messageId)) {
+      // A held turn's answers are gone already, and it is replayed as held.
+      final answer = session.ended?.blocks?.messageId;
+      if (answer != null &&
+          !session.scope.messages.any((m) => m.id == answer)) {
         session.ended = null;
       }
       final chatId = session.chatId ?? request.chatId;
@@ -2751,43 +2760,54 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// waiting, and the answer comes with a later fetch of it. A comparison's
   /// other answers end held first, the same way.
   void _endHeld(_ChatSession session, _Turn turn) {
+    final companions = <TurnFinished>[];
     for (final entry in turn.companions.entries) {
       if (entry.value.finished) continue;
       entry.value.finished = true;
       _remember(entry.key);
-      _events.emit(
-        ConduitEventSpecs.turnFinished,
-        TurnFinished(
-          chatId: turn.chatId,
-          messageId: entry.key,
-          ok: true,
-          held: true,
-        ),
+      final finished = TurnFinished(
+        chatId: turn.chatId,
+        messageId: entry.key,
+        ok: true,
+        held: true,
       );
+      companions.add(finished);
+      _events.emit(ConduitEventSpecs.turnFinished, finished);
     }
     turn.finished = true;
     if (!turn.ended.isCompleted) turn.ended.complete();
     turn.ticker?.cancel();
-    session.ended = null;
     final pending = session.pending;
     if (pending != null && identical(pending, turn.pending)) {
       session.pending = null;
     }
     _scheduleLinger(session);
-    _emitHeld(session, turn.chatId, turn.messageId);
+    _emitHeld(session, turn.chatId, turn.messageId, companions: companions);
   }
 
-  /// Tells the windows [messageId]'s turn ended held. From now on the scope
-  /// waits for the server's answer ([_scheduleLinger]), and announces the
-  /// chat when it comes ([_project]), however soon that is.
-  void _emitHeld(_ChatSession session, String? chatId, String messageId) {
+  /// Tells the windows [messageId]'s turn ended held, after [companions], its
+  /// comparison's other answers that did. From now on the scope waits for
+  /// the server's answer ([_scheduleLinger]), and announces the chat when it
+  /// comes ([_project]), however soon that is.
+  void _emitHeld(
+    _ChatSession session,
+    String? chatId,
+    String messageId, {
+    List<TurnFinished> companions = const <TurnFinished>[],
+  }) {
     session.heldSince ??= _now();
     if (chatId == null) return;
     _remember(messageId);
-    _events.emit(
-      ConduitEventSpecs.turnFinished,
-      TurnFinished(chatId: chatId, messageId: messageId, ok: true, held: true),
+    final finished = TurnFinished(
+      chatId: chatId,
+      messageId: messageId,
+      ok: true,
+      held: true,
     );
+    // A window back after `turn.started` is told too ([catchUp]): once the
+    // server has answered, nothing in the chat shows the turn ended.
+    session.ended = _Ended.held(<TurnFinished>[...companions, finished]);
+    _events.emit(ConduitEventSpecs.turnFinished, finished);
     _announce(chatId);
   }
 
@@ -4782,11 +4802,17 @@ final class _Merge {
 
 /// How a turn ended, kept for a window that subscribes afterwards.
 final class _Ended {
-  _Ended({required this.blocks, this.completed, this.failed});
+  _Ended({required TurnBlocks this.blocks, this.completed, this.failed})
+    : held = const <TurnFinished>[];
 
-  final TurnBlocks blocks;
+  /// A turn whose question the server holds ([TurnsService._endHeld]): its
+  /// answers are gone, so a window is told only that each ended held.
+  _Ended.held(this.held) : blocks = null, completed = null, failed = null;
+
+  final TurnBlocks? blocks;
   final TurnCompleted? completed;
   final TurnFailed? failed;
+  final List<TurnFinished> held;
 }
 
 /// Who a new chat's settings were checked for.

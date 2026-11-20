@@ -485,4 +485,119 @@ void main() {
     elsewhere.complete();
     await pumpEventQueue();
   });
+
+  test('a window back after a held comparison was answered is told each of '
+      'its answers ended held, and nothing more', () async {
+    final linger = TurnsService.lingerAfterTurn;
+    TurnsService.lingerAfterTurn = const Duration(hours: 1);
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    const chatId = 'chat-pantry-shelf';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    runtime.container
+        .read(selectedModelProvider.notifier)
+        .set(const core.Model(id: 'kettle-model', name: 'kettle-model'));
+    final started = <TurnStarted>[];
+    final completed = <String>[];
+    events.attach('window', (envelope) {
+      switch (envelope.event) {
+        case ConduitEvents.turnStarted:
+          started.add(TurnStarted.fromJson(envelope.payload));
+        case ConduitEvents.turnCompleted:
+          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+      }
+    });
+    final held = <String>{};
+    final untap = events.tap((event, _, payload) {
+      if (event != ConduitEvents.turnFinished) return;
+      final finished = TurnFinished.fromJson(payload);
+      if (finished.held) held.add(finished.messageId);
+    });
+    addTearDown(untap);
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is the kettle on?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'window', <String>[chatId]);
+    await until(() => completed.isNotEmpty);
+
+    // As in the test before: the comparison starts with its columns, and
+    // only then does the server hold it.
+    final elsewhere = chats.runElsewhere(chatId);
+    const otherId = 'chat-larder';
+    chats
+      ..seed(otherId, userId: 'user-ada')
+      ..holdChatSavesOf = otherId
+      ..chatSaveAsked = Completer<void>();
+    final saves = chats.holdChatSaves = Completer<void>();
+    final other = clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: otherId,
+          model: 'kettle-model',
+          text: 'Is the oven on?',
+        ),
+      ),
+    );
+    await clock.during(chats.chatSaveAsked.future);
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          compareModels: <String>['kettle-model', 'kettle-model'],
+          text: 'And the pantry?',
+        ),
+      ),
+    );
+    final main = sent.assistantMessageId;
+    await until(() => started.any((s) => s.messageId == main));
+    final turn = started.lastWhere((s) => s.messageId == main);
+    final others = [
+      for (final id in turn.companionIds)
+        if (id != main) id,
+    ];
+    expect(others, hasLength(1));
+
+    // The window's connection drops; meanwhile the turn ends held, and the
+    // server answers the question under new ids.
+    events.detach('window');
+    chats.holdChatSaves = null;
+    saves.complete();
+    await clock.during(other);
+    await until(() => held.contains(main));
+    elsewhere.complete();
+    await until(
+      () => turns.openMessages(chatId)?.lastOrNull?.role == 'assistant',
+    );
+    final answered = turns.openMessages(chatId)!;
+    expect(answered.where((m) => m.isHeldByServer), isEmpty);
+    expect(
+      answered.map((m) => m.id),
+      isNot(contains(anyOf([main, ...others]))),
+    );
+
+    // The window back, as a new session.
+    final caughtUp = <(String, String, bool)>[];
+    events.attach('window-again', (envelope) {
+      final payload = envelope.payload;
+      caughtUp.add(switch (envelope.event) {
+        ConduitEvents.turnFinished => (
+          envelope.event,
+          TurnFinished.fromJson(payload).messageId,
+          TurnFinished.fromJson(payload).held,
+        ),
+        _ => (envelope.event, payload['messageId'] as String? ?? '', false),
+      });
+    });
+    subscribeWindow(events, turns, 'window-again', <String>[chatId]);
+    expect(caughtUp, [
+      for (final id in others) (ConduitEvents.turnFinished, id, true),
+      (ConduitEvents.turnFinished, main, true),
+    ]);
+  });
 }
