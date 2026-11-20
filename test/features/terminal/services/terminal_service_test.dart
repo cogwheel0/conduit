@@ -179,6 +179,16 @@ void main() {
         }),
         (available: true, requiresSavedChat: true),
       );
+      // Open WebUI 0.13.4 lists a terminal template with the scope its
+      // machines are made for, and no `contexts`.
+      expect(parseTerminalChatContextForTest(null, scope: 'chat'), (
+        available: true,
+        requiresSavedChat: true,
+      ));
+      expect(parseTerminalChatContextForTest(null, scope: 'user'), (
+        available: true,
+        requiresSavedChat: false,
+      ));
 
       final scoped = TerminalServerInfo(
         kind: TerminalServerKind.system,
