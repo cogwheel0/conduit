@@ -510,13 +510,23 @@ void main() {
     );
     final main = sent.assistantMessageId;
     await until(() => said.started.contains(main));
+    final ended = Completer<void>();
+    final untap = events.tap((event, _, payload) {
+      if (event == ConduitEvents.turnFinished &&
+          TurnFinished.fromJson(payload).messageId == main &&
+          !ended.isCompleted) {
+        ended.complete();
+      }
+    });
+    addTearDown(untap);
 
     final deletes = chats.holdMessageDeletes = Completer<void>();
     chats.holdChatSaves = null;
     saves.complete();
     await answeredWhileDeleting(chatId, elsewhere, deletes);
-    // That drain ends once the held send has settled.
     await clock.during(other);
+    // The other chat's send returns as its turn starts, before this one ends.
+    await clock.during(ended.future);
 
     expect(chats.heldCompletions, hasLength(1));
     expect(
