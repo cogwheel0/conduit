@@ -84,8 +84,13 @@ void main() {
       owuiUserId: 'user-1',
     );
 
-    test('round-trips through its encoding', () {
-      check(BrowserSignInSession.tryDecode(session.encode())).equals(session);
+    test('round-trips through its encoding, with or without the provider\'s '
+        'user', () {
+      // Saved before it named the provider's user.
+      check(session.toJson().containsKey('subject')).isFalse();
+      check(BrowserSignInSession.tryDecode(session.encode())).isNotNull()
+        ..equals(session)
+        ..has((s) => s.subject, 'subject').isNull();
       const minimal = BrowserSignInSession(
         serverId: 'server-1',
         provider: 'google',
@@ -108,13 +113,6 @@ void main() {
       check(
         BrowserSignInSession.tryDecode(withSubject!.encode()),
       ).equals(withSubject);
-    });
-
-    test('saved before it named the provider\'s user, still reads', () {
-      final saved = session.toJson()..remove('subject');
-      check(
-        BrowserSignInSession.tryDecode(jsonEncode(saved)),
-      ).isNotNull().has((s) => s.subject, 'subject').isNull();
     });
 
     test('reads another version, or anything broken, as none', () {

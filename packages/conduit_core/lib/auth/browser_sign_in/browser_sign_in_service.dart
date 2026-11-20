@@ -757,7 +757,9 @@ class BrowserSignInService {
     } on FormatException {
       return BrowserSignInFailure.failed;
     }
-    return null;
+    // A working exchange refuses a token no provider issued: what took it
+    // is no exchange a sign-in can use, as a sign-in would find.
+    return BrowserSignInFailure.failed;
   }
 
   /// Revokes [sessions], which this device no longer keeps, at their
