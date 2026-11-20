@@ -6,7 +6,10 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show
+        kMessageAuthorIdMetadataKey,
         kMessageHeldByServerMetadataKey,
+        kMessageMergedMetadataKey,
+        kMessageModelIdxMetadataKey,
         kMessageUnfinishedAnswerAuthorsMetadataKey,
         kMessageUnfinishedAnswersMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
@@ -318,10 +321,12 @@ Future<Conversation> _readChatWithoutUnsentDeletes(
         data: {'id': id},
       );
     }
+    // A delete asked for while that read was out counts, whether it read
+    // the chat or not.
+    ids.addAll(await unsentMessageDeletesOf(database, id));
   }
   // A chat gone meanwhile, or not read again, leaves the first copy.
   if (response == null) return _withoutMessages(conversation, ids);
-  ids.addAll(await unsentMessageDeletesOf(database, id));
   final payload = {'response': response, 'ids': ids.toList()};
   final history = (response['chat'] as Map?)?['history'];
   final messages = history is Map ? history['messages'] : null;
@@ -360,8 +365,9 @@ Conversation _parseChatWithout(Map<String, dynamic> payload) {
   );
 }
 
-/// [conversation] without the messages [ids], showing nothing in a left-out
-/// answer's place.
+/// [conversation] without the messages [ids]. A left-out answer's newest
+/// other version shows in its place ([_answerInPlaceOf]), without the turns
+/// below it, which only the server's tree holds.
 Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
   if (!conversation.messages.any(
     (m) => ids.contains(m.id) || m.versions.any((v) => ids.contains(v.id)),
@@ -371,28 +377,74 @@ Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
   // Only a held turn's settle leaves such a delete waiting, so a question
   // whose only answer here was one of those waits again: the copy read it as
   // answered by that empty answer. One with another answer among the left-out
-  // answer's versions is answered, and doesn't wait.
+  // answer's versions is answered by it, and doesn't wait.
   final kept = <ChatMessage>[];
   final waiting = <int>{};
   for (final message in conversation.messages) {
-    if (ids.contains(message.id)) {
-      final answeredElsewhere = message.versions.any(
-        (version) => !ids.contains(version.id),
-      );
-      if (!answeredElsewhere && kept.isNotEmpty && kept.last.role == 'user') {
+    final shown = ids.contains(message.id)
+        ? _answerInPlaceOf(message, ids)
+        : _withoutVersions(message, ids);
+    if (shown == null) {
+      if (kept.isNotEmpty && kept.last.role == 'user') {
         waiting.add(kept.length - 1);
       }
       continue;
     }
-    if (message.role == 'assistant' && kept.isNotEmpty) {
+    if (shown.role == 'assistant' && kept.isNotEmpty) {
       waiting.remove(kept.length - 1);
     }
-    kept.add(_withoutVersions(message, ids));
+    kept.add(shown);
   }
   for (final index in waiting) {
     kept[index] = _heldAgain(kept[index]);
   }
   return conversation.copyWith(messages: kept);
+}
+
+/// The answer shown in place of [leftOut], an answer left out by [ids]: the
+/// last of its versions not left out, as Open WebUI makes the last child of
+/// its parent current once the delete lands, keeping the others as versions.
+/// Null when none is left. A version keeps no status history, no
+/// attachments, and of the message's metadata only what is passed here.
+ChatMessage? _answerInPlaceOf(ChatMessage leftOut, Set<String> ids) {
+  final versions = [
+    for (final version in leftOut.versions)
+      if (!ids.contains(version.id)) version,
+  ];
+  if (versions.isEmpty) return null;
+  final shown = versions.removeLast();
+  final group = _withoutUnfinished(leftOut.metadata, ids);
+  final authors = group?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+  final author = authors is Map ? authors[shown.id] : null;
+  return ChatMessage(
+    id: shown.id,
+    role: leftOut.role,
+    content: shown.content,
+    timestamp: shown.timestamp,
+    model: shown.model,
+    files: shown.files,
+    output: shown.output,
+    embeds: shown.embeds,
+    sources: shown.sources,
+    followUps: shown.followUps,
+    codeExecutions: shown.codeExecutions,
+    usage: shown.usage,
+    error: shown.error,
+    versions: versions,
+    metadata: {
+      // What the answers share: their question, and which still run.
+      for (final key in const [
+        'parentId',
+        kMessageUnfinishedAnswersMetadataKey,
+        kMessageUnfinishedAnswerAuthorsMetadataKey,
+      ])
+        key: ?group?[key],
+      'modelName': ?shown.modelName,
+      kMessageModelIdxMetadataKey: ?shown.modelIdx,
+      kMessageMergedMetadataKey: ?shown.merged,
+      kMessageAuthorIdMetadataKey: ?(author is String ? author : null),
+    },
+  );
 }
 
 ChatMessage _heldAgain(ChatMessage question) => question.copyWith(

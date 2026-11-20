@@ -1274,7 +1274,7 @@ final class _ServerChatApi extends _GatedCompletionApi {
   final Map<String, Map<String, dynamic>> history;
 
   /// Run while a parsed or a raw read is out, once it has read the chat and
-  /// before its reply arrives.
+  /// before its reply (or a raw read's [rawError]) arrives.
   Future<void> Function()? whileReading;
   Future<void> Function()? whileReadingRaw;
 
@@ -1321,10 +1321,10 @@ final class _ServerChatApi extends _GatedCompletionApi {
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    final error = rawError;
-    if (error != null) throw error;
     final response = _response(id);
     await whileReadingRaw?.call();
+    final error = rawError;
+    if (error != null) throw error;
     return response;
   }
 }
@@ -3780,59 +3780,100 @@ void main() {
           .deepEquals([userId, 'answer-1', 'question-2']);
     });
 
-    test('a copy read straight from the server leaves the empty answer out '
-        'when the turns below its sibling cannot be read', () async {
-      await seedTurn();
-      await db.outboxDao.enqueue(
-        kind: OutboxKind.deleteMessages,
-        chatId: chatId,
-        payload: {
-          kDeleteMessagesIdsKey: [assistantId],
-        },
-      );
-      final api = _ServerChatApi(assistantId, {
-        userId: _historyEntry(
-          userId,
-          'user',
-          'Say the word: heron',
-          childrenIds: ['answer-elsewhere', assistantId],
-        ),
-        'answer-elsewhere': _historyEntry(
-          'answer-elsewhere',
-          'assistant',
-          'heron',
-          parentId: userId,
-        ),
-        assistantId: _historyEntry(
-          assistantId,
-          'assistant',
-          '',
-          parentId: userId,
-          done: false,
-        ),
+    // The newest answer kept beside the empty one shows in its place, with
+    // the others as its versions, as Open WebUI makes its parent's last child
+    // current once the delete lands. Only the turns below it are not shown.
+    for (final (label, emptyMeanwhile) in [
+      ('', false),
+      (
+        ', and leaves out another empty answer whose delete is asked for '
+            'meanwhile',
+        true,
+      ),
+    ]) {
+      test('a copy read straight from the server shows the sibling of the '
+          'empty answer in its place when the turns below that sibling cannot '
+          'be read$label', () async {
+        await seedTurn();
+        await db.outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {
+            kDeleteMessagesIdsKey: [assistantId],
+          },
+        );
+        final api = _ServerChatApi(assistantId, {
+          userId: _historyEntry(
+            userId,
+            'user',
+            'Say the word: heron',
+            childrenIds: ['answer-earlier', 'answer-elsewhere', assistantId],
+          ),
+          'answer-earlier': _historyEntry(
+            'answer-earlier',
+            'assistant',
+            'egret',
+            parentId: userId,
+          ),
+          'answer-elsewhere': _historyEntry(
+            'answer-elsewhere',
+            'assistant',
+            emptyMeanwhile ? '' : 'heron',
+            parentId: userId,
+            model: 'model-2',
+            done: !emptyMeanwhile,
+          ),
+          assistantId: _historyEntry(
+            assistantId,
+            'assistant',
+            '',
+            parentId: userId,
+            done: false,
+          ),
+        });
+        final request = RequestOptions(path: '/api/v1/chats/$chatId');
+        api.rawError = DioException(
+          requestOptions: request,
+          type: DioExceptionType.badResponse,
+          response: Response<Object?>(requestOptions: request, statusCode: 503),
+        );
+        if (emptyMeanwhile) {
+          // An earlier hold's empty answer, whose delete a settle asks for
+          // while the second read is out.
+          api.whileReadingRaw = () async {
+            await db.outboxDao.enqueue(
+              kind: OutboxKind.deleteMessages,
+              chatId: chatId,
+              payload: {
+                kDeleteMessagesIdsKey: ['answer-elsewhere'],
+              },
+            );
+          };
+        }
+        final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+        );
+        addTearDown(container.dispose);
+
+        final refreshed = await pullChatOrFetch(container, chatId);
+
+        final shown = emptyMeanwhile ? 'answer-earlier' : 'answer-elsewhere';
+        check(refreshed!.messages.map((m) => m.id).toList())
+            .deepEquals([userId, shown]);
+        // Its sibling answers it, so it doesn't wait.
+        check(refreshed.messages.first.isHeldByServer).isFalse();
+        final answer = refreshed.messages.last;
+        check(answer.content).equals(emptyMeanwhile ? 'egret' : 'heron');
+        check(answer.isStreaming).isFalse();
+        check(answer.versions.map((v) => v.id))
+            .deepEquals([if (!emptyMeanwhile) 'answer-earlier']);
       });
-      final request = RequestOptions(path: '/api/v1/chats/$chatId');
-      api.rawError = DioException(
-        requestOptions: request,
-        type: DioExceptionType.badResponse,
-        response: Response<Object?>(requestOptions: request, statusCode: 503),
-      );
-      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
-      );
-      addTearDown(container.dispose);
-
-      final refreshed = await pullChatOrFetch(container, chatId);
-
-      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
-      // Its sibling answers it, so it doesn't wait.
-      check(refreshed.messages.single.isHeldByServer).isFalse();
-    });
+    }
 
     test('a copy read straight from the server is read only as the account '
         'that asked for it', () async {
