@@ -1,6 +1,10 @@
 //! Settings › Direct Connections, mobile's Direct Connections page in the
 //! Settings window's groups:
 //!
+//! * **Apple Intelligence**: Apple's on-device model, whether this Mac can
+//!   run it now and why not (`apple.status`), and Check Again
+//!   (`apple.refresh`), as the phone's Apple rows. Private Cloud Compute is
+//!   never offered: this build has no entitlement for it.
 //! * **Open WebUI History**: keep direct chats on this Mac or save them to
 //!   the account (`direct.setHistory`), when the server allows it.
 //! * **Open WebUI Server**: the connections kept in the account
@@ -26,14 +30,15 @@ use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, ClickHandler, Switch, setting_row};
 use conduit_components::views::settings::settings_section;
 use conduit_protocol::{
+    AppleAvailability, AppleModelKind, AppleModelStatus, AppleModels, AppleUnavailableReason,
     DirectConnectionList, DirectConnectionSummary, DirectContextLimit, DirectEnable, DirectHistory,
     DirectImagesPerRequest, DirectKind, DirectOptions, McpAuth, McpEnable, McpServerList,
     McpServerSummary, NoParams, WebSearchSettings, WebSearchSettingsPatch, methods,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncWindowContext, ClickEvent, Context, ElementId, SharedString, WeakEntity,
-    Window, div, px,
+    AnyElement, App, AsyncWindowContext, ClickEvent, Context, ElementId, Role, SharedString,
+    WeakEntity, Window, div, px,
 };
 
 use super::editor::{DirectEditorSheet, OnChange};
@@ -70,6 +75,13 @@ pub struct DirectPane {
     history_confirmed: Option<bool>,
     /// History switches sent and not yet answered.
     history_out: u32,
+    /// Apple Intelligence on this Mac, once asked; and whether it is being
+    /// asked (again) now. An ask that failed reads as unknown, which keeps
+    /// Check Again on screen.
+    pub apple: Option<AppleModels>,
+    pub apple_checking: bool,
+    /// The latest Apple ask: only its answer is taken.
+    apple_ask: u64,
 }
 
 impl DirectPane {
@@ -84,6 +96,9 @@ impl DirectPane {
             reloading: false,
             history_confirmed: None,
             history_out: 0,
+            apple: None,
+            apple_checking: false,
+            apple_ask: 0,
         };
         this.refresh(window, cx);
         this
@@ -101,50 +116,115 @@ impl DirectPane {
         let mcp = rpc.call::<methods::McpList>(&NoParams);
         let options = rpc.call::<methods::DirectOptions>(&NoParams);
         let search = rpc.call::<methods::WebSearchGet>(&NoParams);
+        let apple = cfg!(target_os = "macos").then(|| rpc.call::<methods::AppleStatus>(&NoParams));
+        let ask = self.ask_apple(apple.is_some());
         self.reloading = true;
+        // Each answer lands on its own: a slow one (Apple's, or the models
+        // of every connection) holds back none of the others.
+        self.land(list, window, cx, |s, list, _| {
+            s.reloading = false;
+            match list {
+                Ok(l) => s.adopt_list(l),
+                Err(e) => log::warn!("direct.reload: {e}"),
+            }
+        });
+        if let Some(apple) = apple {
+            self.land(apple, window, cx, move |s, apple, cx| {
+                s.take_apple(ask, apple, cx)
+            });
+        }
+        self.land(mcp, window, cx, |s, mcp, _| match mcp {
+            Ok(m) => {
+                s.mcp = Some(m);
+                s.mcp_failed = false;
+            }
+            Err(e) => {
+                log::warn!("mcp.list: {e}");
+                s.mcp_failed = true;
+            }
+        });
+        self.land(search, window, cx, |s, search, _| match search {
+            Ok(w) => s.search = Some(w),
+            Err(e) => log::warn!("webSearch.get: {e}"),
+        });
+        self.land(options, window, cx, |s, options, _| match options {
+            Ok(o) => s.options = Some(o),
+            Err(e) => log::warn!("direct.options: {e}"),
+        });
+    }
+
+    /// Takes `call`'s answer with `apply` when it lands, then redraws.
+    fn land<T: 'static>(
+        &self,
+        call: impl std::future::Future<Output = T> + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        apply: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+    ) {
         cx.spawn_in(
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-                let list = list.await;
+                let answer = call.await;
                 let _ = this.update(cx, |s, cx| {
-                    s.reloading = false;
-                    match list {
-                        Ok(l) => s.adopt_list(l),
-                        Err(e) => log::warn!("direct.reload: {e}"),
-                    }
-                    cx.notify();
-                });
-                let mcp = mcp.await;
-                let search = search.await;
-                let _ = this.update(cx, |s, cx| {
-                    match mcp {
-                        Ok(m) => {
-                            s.mcp = Some(m);
-                            s.mcp_failed = false;
-                        }
-                        Err(e) => {
-                            log::warn!("mcp.list: {e}");
-                            s.mcp_failed = true;
-                        }
-                    }
-                    match search {
-                        Ok(w) => s.search = Some(w),
-                        Err(e) => log::warn!("webSearch.get: {e}"),
-                    }
-                    cx.notify();
-                });
-                // Lists every connection's models: last, it can be slow.
-                let options = options.await;
-                let _ = this.update(cx, |s, cx| {
-                    match options {
-                        Ok(o) => s.options = Some(o),
-                        Err(e) => log::warn!("direct.options: {e}"),
-                    }
+                    apply(s, answer, cx);
                     cx.notify();
                 });
             },
         )
         .detach();
+    }
+
+    /// Asks the Mac again whether Apple's model can answer: the phone's
+    /// refresh on its Apple row. A model that became ready is listed in the
+    /// model picker from then on.
+    pub fn check_apple(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.apple_checking {
+            return;
+        }
+        let ask = self.ask_apple(true);
+        cx.notify();
+        let call = self.rpc(cx).call::<methods::AppleRefresh>(&NoParams);
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
+                let result = call.await;
+                let _ = this.update(cx, |s, cx| s.take_apple(ask, result, cx));
+            },
+        )
+        .detach();
+    }
+
+    /// Starts an Apple ask (when `asking`): earlier ones are no longer
+    /// taken.
+    fn ask_apple(&mut self, asking: bool) -> u64 {
+        if asking {
+            self.apple_ask += 1;
+            self.apple_checking = true;
+        }
+        self.apple_ask
+    }
+
+    /// The answer to Apple ask `ask`, if it is still the latest. A failed
+    /// ask leaves the model unknown, never absent: the row and its Check
+    /// Again stay.
+    fn take_apple(
+        &mut self,
+        ask: u64,
+        answer: Result<AppleModels, conduit_daemon::RpcError>,
+        cx: &mut Context<Self>,
+    ) {
+        if ask != self.apple_ask {
+            return;
+        }
+        self.apple_checking = false;
+        self.apple = Some(match answer {
+            Ok(a) => a,
+            Err(e) => {
+                log::warn!("apple: {e}");
+                unknown_apple()
+            }
+        });
+        cx.notify();
     }
 
     /// What a sheet runs after a save or a delete.
@@ -524,6 +604,116 @@ impl DirectPane {
                 .on_click(toggle),
             )
             .into_any_element()
+    }
+
+    /// Apple's on-device model: where it runs, whether it can answer now or
+    /// why not, and Check Again.
+    fn apple_row(&self, m: &AppleModelStatus, l10n: &L10n, cx: &mut Context<Self>) -> AnyElement {
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let title = l10n.backend_chooser_apple_on_device_title();
+        let detail = if self.apple_checking {
+            l10n.desktop_apple_checking()
+        } else {
+            apple_detail(m, l10n)
+        };
+        let available = m.availability == AppleAvailability::Available;
+        let check = self.listener(cx, |s, window, cx| s.check_apple(window, cx));
+        div()
+            .id("apple-on-device-row")
+            .role(Role::Group)
+            .aria_label(SharedString::from(format!("{title}, {detail}")))
+            .w_full()
+            .min_h(px(t.metrics.row_height + 20.))
+            .px(px(12.))
+            .py(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(
+                div()
+                    .size(px(28.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(7.))
+                    .bg(with_alpha(r.text, if t.dark { 0.12 } else { 0.06 }))
+                    .child(icon(
+                        IconName::Cpu,
+                        15.,
+                        if available { r.text } else { r.text_faint },
+                    )),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(px(t.metrics.control))
+                            .text_color(r.text)
+                            .child(SharedString::from(title.clone())),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(t.metrics.small))
+                            .text_color(r.text_subtle)
+                            .child(SharedString::from(detail)),
+                    ),
+            )
+            .child(
+                div()
+                    .id("apple-check-tip")
+                    .flex_none()
+                    .tooltip(conduit_components::views::focus::tooltip_builder(
+                        l10n.desktop_apple_check_again_tooltip().into(),
+                        None,
+                    ))
+                    .child(
+                        Button::new("apple-check", l10n.desktop_apple_check_again())
+                            .icon(IconName::RefreshCw)
+                            .disabled(self.apple_checking)
+                            .on_click(check),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// Apple Intelligence: the models this Mac may offer (Apple On-Device
+    /// only), with the phone's notes in the footer.
+    fn apple_section(
+        &self,
+        apple: &AppleModels,
+        l10n: &L10n,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows: Vec<AnyElement> = apple
+            .models
+            .iter()
+            .filter(|m| m.model == AppleModelKind::OnDevice)
+            .map(|m| self.apple_row(m, l10n, cx))
+            .collect();
+        let mut footer = l10n.desktop_apple_footer();
+        if !self.apple_checking
+            && apple
+                .models
+                .iter()
+                .any(|m| m.supports_current_locale == Some(false))
+        {
+            footer = format!("{}\n\n{footer}", l10n.desktop_apple_language_unsupported());
+        }
+        settings_section(
+            l10n.backend_chooser_apple_section_title(),
+            Some(footer.into()),
+            rows,
+            cx,
+        )
+        .into_any_element()
     }
 
     /// A list of connections, or the sentence for none with Add beside it.
@@ -965,6 +1155,44 @@ pub fn endpoint_label(endpoint: &str) -> String {
     }
 }
 
+/// The line under Apple On-Device: "Available" with its context limit, or
+/// why it cannot answer now.
+/// Apple's on-device model when this Mac could not be asked: unavailable
+/// for now, with no reason known.
+fn unknown_apple() -> AppleModels {
+    AppleModels {
+        models: vec![AppleModelStatus {
+            model: AppleModelKind::OnDevice,
+            availability: AppleAvailability::Unavailable,
+            reason: Some(AppleUnavailableReason::Other),
+            context_size: None,
+            supports_current_locale: None,
+        }],
+    }
+}
+
+pub fn apple_detail(m: &AppleModelStatus, l10n: &L10n) -> String {
+    if m.availability == AppleAvailability::Available {
+        let available = l10n.apple_pcc_status_available();
+        return match m.context_size {
+            Some(tokens) if tokens > 0 => format!(
+                "{available} \u{b7} {}",
+                l10n.direct_context_limit(&tokens_label(tokens))
+            ),
+            _ => available,
+        };
+    }
+    match m.reason {
+        Some(AppleUnavailableReason::SystemTooOld) => l10n.desktop_apple_needs_macos26(),
+        Some(AppleUnavailableReason::DeviceNotEligible) => l10n.desktop_apple_mac_not_eligible(),
+        Some(AppleUnavailableReason::AppleIntelligenceNotEnabled) => {
+            l10n.desktop_apple_intelligence_off()
+        }
+        Some(AppleUnavailableReason::ModelNotReady) => l10n.desktop_apple_model_not_ready(),
+        _ => l10n.desktop_apple_unavailable_now(),
+    }
+}
+
 /// A token count as the phone writes it: `8K`, `1M`.
 pub fn tokens_label(tokens: i64) -> String {
     const K: i64 = 1024;
@@ -989,6 +1217,12 @@ impl Render for DirectPane {
             .iter()
             .cloned()
             .partition(|c| c.open_web_ui);
+        // Apple's models first, as on the phone.
+        if let Some(apple) = self.apple.clone()
+            && !apple.models.is_empty()
+        {
+            sections.push(self.apple_section(&apple, &l10n, cx));
+        }
         if list.open_web_ui_available {
             let sync = !list.local_history;
             sections.push(
@@ -1253,6 +1487,131 @@ mod tests {
         });
     }
 
+    fn apple_pane<'a>(
+        cx: &'a mut TestAppContext,
+        daemon: &crate::stores::rpc::fake::FakeDaemon,
+    ) -> (
+        gpui_kit::Entity<DirectPane>,
+        &'a mut gpui_kit::VisualTestContext,
+    ) {
+        use conduit_protocol::methods;
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-dpane-apple-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        daemon.returns::<methods::DirectReload>(DirectConnectionList::default());
+        daemon.returns::<methods::DirectList>(DirectConnectionList::default());
+        cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx))
+    }
+
+    fn on_device(availability: AppleAvailability) -> AppleModels {
+        AppleModels {
+            models: vec![AppleModelStatus {
+                model: AppleModelKind::OnDevice,
+                availability,
+                reason: None,
+                context_size: None,
+                supports_current_locale: None,
+            }],
+        }
+    }
+
+    /// The first Apple ask fails: the row stays, unknown, with Check Again,
+    /// rather than the section going away.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn a_failed_first_apple_ask_keeps_the_row_and_check_again(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::AppleStatus>(|_| {
+            Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
+        });
+        daemon.returns::<methods::AppleRefresh>(on_device(AppleAvailability::Available));
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            let apple = p.apple.as_ref().expect("the Apple row is shown");
+            assert_eq!(apple.models[0].availability, AppleAvailability::Unavailable);
+            assert!(!p.apple_checking);
+        });
+        pane.update_in(vcx, |p, window, cx| p.check_apple(window, cx));
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.apple.as_ref().map(|a| a.models[0].availability),
+                Some(AppleAvailability::Available)
+            );
+        });
+    }
+
+    /// An older Apple ask answering after a newer one is not taken.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn an_older_apple_answer_never_replaces_a_newer_one(cx: &mut TestAppContext) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        // The first ask (held) finds the model not ready; the second, ready.
+        let asks = std::sync::Arc::new(AtomicUsize::new(0));
+        daemon.on::<methods::AppleStatus>(move |_| {
+            let first = asks.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(on_device(if first {
+                AppleAvailability::Unavailable
+            } else {
+                AppleAvailability::Available
+            }))
+            .unwrap())
+        });
+        let held = daemon.hold_one::<methods::AppleStatus>(0);
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.update_in(vcx, |p, window, cx| p.refresh(window, cx));
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert_eq!(
+                p.apple.as_ref().map(|a| a.models[0].availability),
+                Some(AppleAvailability::Available)
+            );
+            assert!(!p.apple_checking);
+        });
+    }
+
+    /// An Apple ask still out holds back none of the other answers.
+    #[cfg(target_os = "macos")]
+    #[gpui_kit::test]
+    fn the_other_settings_land_while_apple_is_still_asked(cx: &mut TestAppContext) {
+        use conduit_protocol::{McpServerList, methods};
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AppleStatus>(on_device(AppleAvailability::Available));
+        let held = daemon.hold::<methods::AppleStatus>();
+        daemon.returns::<methods::McpList>(McpServerList::default());
+        daemon.on::<methods::WebSearchGet>(|_| Ok(serde_json::json!({})));
+        daemon.on::<methods::DirectOptions>(|_| Ok(serde_json::json!({})));
+        let (pane, vcx) = apple_pane(cx, &daemon);
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| {
+            assert!(p.apple_checking, "Apple is still being asked");
+            assert!(p.mcp.is_some(), "MCP servers");
+            assert!(p.search.is_some(), "web search");
+            assert!(p.options.is_some(), "Direct options");
+            assert!(p.list.is_some(), "connections");
+        });
+        held.release();
+        vcx.run_until_parked();
+        pane.read_with(vcx, |p, _| assert!(p.apple.is_some()));
+    }
+
     /// Two history switches out at once, both refused: the pane goes back
     /// to the setting the daemon last confirmed, not to the first switch's
     /// own guess.
@@ -1317,6 +1676,55 @@ mod tests {
                 "the pane went back past the setting the daemon read out since"
             );
         });
+    }
+
+    #[test]
+    fn apple_on_device_says_its_context_or_why_it_cannot_answer() {
+        let l10n = crate::l10n::L10n::new("en");
+        let status = |availability, reason, context_size| AppleModelStatus {
+            model: AppleModelKind::OnDevice,
+            availability,
+            reason,
+            context_size,
+            supports_current_locale: Some(true),
+        };
+        assert_eq!(
+            apple_detail(
+                &status(AppleAvailability::Available, None, Some(4096)),
+                &l10n
+            ),
+            "Available \u{b7} Context limit: 4K"
+        );
+        assert_eq!(
+            apple_detail(&status(AppleAvailability::Available, None, None), &l10n),
+            "Available"
+        );
+        let why = |reason| {
+            apple_detail(
+                &status(AppleAvailability::Unavailable, Some(reason), None),
+                &l10n,
+            )
+        };
+        assert_eq!(
+            why(AppleUnavailableReason::ModelNotReady),
+            "The model is still downloading or isn't ready yet."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::AppleIntelligenceNotEnabled),
+            "Turn on Apple Intelligence in System Settings to use it."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::DeviceNotEligible),
+            "This Mac can't run Apple Intelligence."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::SystemTooOld),
+            "Requires macOS 26 or later."
+        );
+        assert_eq!(
+            why(AppleUnavailableReason::NoEngine),
+            "Not available right now."
+        );
     }
 
     #[test]

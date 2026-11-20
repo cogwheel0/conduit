@@ -239,7 +239,7 @@ pub(crate) async fn shoot(handle: AnyWindowHandle, out: PathBuf, cx: &mut AsyncA
     }
 }
 
-fn set_mode(mode: ThemeMode, cx: &mut App) {
+pub(crate) fn set_mode(mode: ThemeMode, cx: &mut App) {
     let settings = cx.global::<AppState>().settings.clone();
     settings.update(cx, |s, cx| s.set_appearance(|a| a.mode = mode, cx));
     for w in cx.windows() {
@@ -247,7 +247,7 @@ fn set_mode(mode: ThemeMode, cx: &mut App) {
     }
 }
 
-fn mode_name(mode: ThemeMode) -> &'static str {
+pub(crate) fn mode_name(mode: ThemeMode) -> &'static str {
     match mode {
         ThemeMode::Light => "light",
         ThemeMode::Dark => "dark",
@@ -260,6 +260,7 @@ fn status_name(status: &Status, route: Route) -> &'static str {
         (Status::Connected, Route::Main) => "connected-main",
         (Status::Connected, Route::Onboarding) => "connected-onboarding",
         (Status::Connected, Route::SignIn) => "connected-sign-in",
+        (Status::Connected, Route::ConnectionIssue) => "connected-connection-issue",
         (Status::Failed { .. }, _) => "connection-failed",
         (Status::StoreUnreadable, _) => "store-unreadable",
         (Status::VersionMismatch { .. }, _) => "version-mismatch",

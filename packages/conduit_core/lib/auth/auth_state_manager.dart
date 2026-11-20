@@ -8,6 +8,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 // Types are used through app_providers.dart
 import 'package:conduit_core/providers/app_providers.dart';
 
+import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 
@@ -1636,29 +1637,60 @@ class AuthStateManager extends _$AuthStateManager {
   ///
   /// [canCommit] lets the caller withdraw the selection while it is saved:
   /// once it says no, the account active before stays active, as it does
-  /// when a newer auth attempt begins.
-  Future<void> selectUnauthenticatedServerConfig(
+  /// when a newer auth attempt begins. So it does when [joins] says no
+  /// about the saved servers as they are written over (see
+  /// `OptimizedStorageService.selectUnauthenticatedServerConfig`).
+  ///
+  /// Returns whether [config] was made active: false when it was declined,
+  /// or put back after a newer attempt or [canCommit] overtook it.
+  Future<bool> selectUnauthenticatedServerConfig(
     ServerConfig config, {
     bool Function()? canCommit,
+    bool Function(OpenWebUiRegistry stored)? joins,
   }) async {
-    final currentState = _current;
-    final previousState =
-        currentState.isLoading || currentState.status == AuthStatus.loading
-        ? _lastSettledState
-        : currentState;
-    final capturedSessionSafetyEpoch = _sessionSafetyEpoch;
-    final attemptRevision = _beginAuthAttempt();
-    bool superseded() =>
-        _authAttemptSuperseded(attemptRevision) ||
-        !(canCommit?.call() ?? true);
+    // The attempt is claimed only as storage begins to write: a selection
+    // declined before that ([joins], [canCommit]) supersedes nothing, so an
+    // account still settling (a refresh, its start) finishes as it would
+    // have. Until then it asks that no other attempt began meanwhile.
+    final startRevision = _authAttemptRevision;
+    final startSafetyEpoch = _sessionSafetyEpoch;
+    int? attemptRevision;
+    // What a rollback puts back: the auth state as the claim is made, in the
+    // same synchronous step (nothing awaited between), so an account that
+    // settled while the selection waited for storage is what comes back.
+    late AuthState previousState;
+    late int capturedSessionSafetyEpoch;
+    void claim() {
+      final current = _current;
+      previousState = current.isLoading || current.status == AuthStatus.loading
+          ? _lastSettledState
+          : current;
+      capturedSessionSafetyEpoch = _sessionSafetyEpoch;
+      attemptRevision = _beginAuthAttempt();
+    }
+
+    bool superseded() {
+      final claimed = attemptRevision;
+      final overtaken = claimed == null
+          ? !ref.mounted ||
+                _authAttemptRevision != startRevision ||
+                _sessionSafetyEpoch != startSafetyEpoch
+          : _authAttemptSuperseded(claimed);
+      return overtaken || !(canCommit?.call() ?? true);
+    }
+
     final storage = ref.read(optimizedStorageServiceProvider);
     try {
       final selected = await storage.selectUnauthenticatedServerConfig(
         config,
         canCommit: () => !superseded(),
+        joins: joins,
+        onWriting: claim,
         onRollbackUncertain: () {
           if (!ref.mounted) return;
-          _poisonUncertainServerSession(failedAttemptRevision: attemptRevision);
+          _poisonUncertainServerSession(
+            failedAttemptRevision: attemptRevision ?? startRevision,
+          );
         },
         publish: () {
           if (superseded()) {
@@ -1700,20 +1732,26 @@ class AuthStateManager extends _$AuthStateManager {
           _clearIncompleteLogoutFenceAfterTokenlessCleanup();
         },
       );
-      if (!selected) {
-        // Declined, or put back after it was published: the addition it was
+      // Declined before anything was written ([joins] or [canCommit] said
+      // no first): no attempt was claimed, the previous account's session
+      // was never touched, and a reply it carries keeps its client.
+      final claimed = attemptRevision;
+      if (!selected && claimed != null) {
+        // Put back after it was written or published: the addition it was
         // for ended meanwhile. Storage holds the previous account's session
         // again, so auth shows it again, unless a newer attempt owns it.
         _restoreRolledBackAuthPublication(
-          attemptRevision: attemptRevision,
+          attemptRevision: claimed,
           capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
           previousState: previousState,
         );
       }
+      return selected;
     } catch (error, stackTrace) {
-      if (error is! ServerConfigSessionRollbackException) {
+      final claimed = attemptRevision;
+      if (error is! ServerConfigSessionRollbackException && claimed != null) {
         _restoreRolledBackAuthPublication(
-          attemptRevision: attemptRevision,
+          attemptRevision: claimed,
           capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
           previousState: previousState,
         );
@@ -1797,11 +1835,25 @@ class AuthStateManager extends _$AuthStateManager {
   /// [canCommit] lets the caller withdraw the commit while it is saved: once
   /// it says no, the account active before stays active, as it does when a
   /// newer auth attempt begins.
+  ///
+  /// [mayBegin] is asked once, with nothing awaited before the commit's
+  /// first write (not even its loading state, which itself moves the
+  /// session the caller may be checking): a caller whose facts changed
+  /// while it worked stops here, and nothing is written. Once begun, a
+  /// newer sign-in or another account stops the commit by its own
+  /// revision.
+  ///
+  /// [configRevision], a `serverConfigRevision` the caller read before it
+  /// validated the session, declines the commit once anything was saved
+  /// since (checked inside storage's section as the candidate is staged;
+  /// a save after that clears the stage, which declines it too).
   Future<bool> commitPrevalidatedProxySession({
     required ServerConfig serverConfig,
     required String token,
     required User user,
     bool Function()? canCommit,
+    bool Function()? mayBegin,
+    int? configRevision,
   }) async {
     final tokenStr = token.trim();
     if (tokenStr.isEmpty) {
@@ -1813,6 +1865,7 @@ class AuthStateManager extends _$AuthStateManager {
     if (!_isValidTokenFormat(tokenStr)) {
       throw Exception('Invalid token format');
     }
+    if (mayBegin != null && !mayBegin()) return false;
     // An interactive proxy commit validated this token with the server during
     // the current connect attempt; a completed logout's marker no longer
     // applies. While a logout is still in flight, the marker keeps rejecting
@@ -1846,7 +1899,8 @@ class AuthStateManager extends _$AuthStateManager {
     final storage = ref.read(optimizedStorageServiceProvider);
     // Stopped by the caller rather than by a newer attempt, this one still
     // owns the state it set loading, and settles it back.
-    void settleStopped() => _restorePrevalidatedProxyAttemptState(
+    Future<void> settleStopped() => _restorePrevalidatedProxyAttemptState(
+      storage: storage,
       attemptRevision: attemptRevision,
       capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
       previousState: previousState,
@@ -1854,10 +1908,23 @@ class AuthStateManager extends _$AuthStateManager {
     ServerConfigCandidateSnapshot? candidateSnapshot;
     try {
       if (superseded()) {
-        settleStopped();
+        await settleStopped();
         return false;
       }
-      final snapshot = await storage.stageServerConfigCandidate(serverConfig);
+      final ServerConfigCandidateSnapshot snapshot;
+      try {
+        snapshot = configRevision == null
+            ? await storage.stageServerConfigCandidate(serverConfig)
+            : await storage.stageServerConfigCandidate(
+                serverConfig,
+                unchangedSince: configRevision,
+              );
+      } on ServerConfigsChangedException {
+        // Saved over since the caller read it: nothing is staged, and the
+        // caller signs in again.
+        await settleStopped();
+        return false;
+      }
       candidateSnapshot = snapshot;
       if (superseded()) {
         await _restorePrevalidatedProxyConfig(
@@ -1865,7 +1932,7 @@ class AuthStateManager extends _$AuthStateManager {
           candidate: serverConfig,
           snapshot: snapshot,
         );
-        settleStopped();
+        await settleStopped();
         return false;
       }
 
@@ -1900,11 +1967,7 @@ class AuthStateManager extends _$AuthStateManager {
           candidate: serverConfig,
           snapshot: snapshot,
         );
-        _restorePrevalidatedProxyAttemptState(
-          attemptRevision: attemptRevision,
-          capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
-          previousState: previousState,
-        );
+        await settleStopped();
       }
       return committed;
     } catch (error, stackTrace) {
@@ -1924,13 +1987,7 @@ class AuthStateManager extends _$AuthStateManager {
           snapshot: snapshot,
         );
       }
-      if (!rollbackUncertain) {
-        _restorePrevalidatedProxyAttemptState(
-          attemptRevision: attemptRevision,
-          capturedSessionSafetyEpoch: capturedSessionSafetyEpoch,
-          previousState: previousState,
-        );
-      }
+      if (!rollbackUncertain) await settleStopped();
       final failureMessage = _safeLoginFailureMessage(error);
       _logAuthenticationFailure(
         'prevalidated-proxy-session-commit-failed',
@@ -1941,21 +1998,36 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
-  void _restorePrevalidatedProxyAttemptState({
+  Future<void> _restorePrevalidatedProxyAttemptState({
+    required OptimizedStorageService storage,
     required int attemptRevision,
     required int capturedSessionSafetyEpoch,
     required AuthState previousState,
-  }) {
+  }) async {
+    // A save while the attempt ran can have ended the session [previousState]
+    // holds: an edit that moves the active account to another address drops
+    // its saved token, and changes neither revision checked below. That
+    // session is not put back, nor handed to the client the edit rebuilds.
+    final held = previousState.hasValidToken ? previousState.token : null;
+    var stillSaved = true;
+    if (held != null) {
+      try {
+        stillSaved = await storage.getAuthTokenStrict() == held;
+      } catch (_) {
+        stillSaved = false;
+      }
+    }
     if (!ref.mounted || _authAttemptRevision != attemptRevision) return;
-    if (capturedSessionSafetyEpoch == _sessionSafetyEpoch) {
+    if (stillSaved && capturedSessionSafetyEpoch == _sessionSafetyEpoch) {
       _set(previousState);
       _restoreApiServiceTokenToCurrent();
       return;
     }
 
     // Another overlapping proxy attempt encountered an incomplete durable
-    // rollback. This attempt's captured previousState may contain the poisoned
-    // token, so it must settle tokenless if it cannot publish a fresh session.
+    // rollback, or the session was ended under it. This attempt's captured
+    // previousState may hold that token, so it must settle tokenless if it
+    // cannot publish a fresh session.
     _set(const AuthState(status: AuthStatus.unauthenticated, isLoading: false));
     _updateApiServiceToken(null);
     ref.invalidate(apiServiceProvider);
@@ -3033,6 +3105,19 @@ class AuthStateManager extends _$AuthStateManager {
     resetToken.trim(),
   );
 
+  /// Leaves a sign-in waiting on its second step (Back to Sign In). The
+  /// pending step is dropped and a newer attempt begins, so a
+  /// [finishTwoStepSignIn] still checking its session is superseded at its
+  /// commit and signs nobody in. A state it left loading settles signed out.
+  void cancelTwoStepSignIn() {
+    final current = _current;
+    _beginAuthAttempt();
+    if (current.isLoading || current.status == AuthStatus.loading) {
+      _set(const AuthState(status: AuthStatus.unauthenticated));
+      _updateApiServiceToken(null);
+    }
+  }
+
   /// Signs in with the session a second step issued, as the password or LDAP
   /// sign-in it finishes would have, remembering what that sign-in was asked
   /// to remember.
@@ -3479,7 +3564,8 @@ class AuthStateManager extends _$AuthStateManager {
         _current.token != token) {
       return;
     }
-    final proxyPage = error is DioException &&
+    final proxyPage =
+        error is DioException &&
         error.response != null &&
         answeredWithWebPage(error.response!.headers);
     if (!proxyPage && _isConfirmedAuthFailure(error)) {

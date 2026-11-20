@@ -4,9 +4,9 @@
 //! * **General** (`Tab::Desktop`): close to the menu bar (with its
 //!   menu-bar item), open at login (`SMAppService`, with the system's
 //!   status), the Quick Ask shortcut (on/off, rebindable with conflict
-//!   checks, and a note when another app holds it), and "Notify when an
-//!   answer finishes" (whose footer says why a notification never carries
-//!   the answer).
+//!   checks, and a note when another app holds it).
+//! * **Notifications** ([`notifications`]): the phone's page (what notifies
+//!   and how), and the account's webhook destinations behind Advanced.
 //! * **Accounts**: the saved accounts with the active one marked; Switch,
 //!   Sign in again, a row menu to sign out of (and remove) one, and Add
 //!   Account (a window sheet, [`crate::views::add_account`]). Signing out
@@ -22,25 +22,30 @@
 //!   diagnostic report.
 //! * **About**: the version, the server's name and version, What's New,
 //!   the source repository and open-source licenses, Support Conduit, and
-//!   updates (Check Now, check automatically, "Receive beta updates"; see
-//!   [`crate::updates`]).
+//!   updates (Check Now and check automatically; see [`crate::updates`]).
 //!
 //! The phone's Settings pages, in the phone's groups (see [`Tab::ALL`]):
 //! **Profile**, **Personalization** and **Connection** for the account
 //! ([`profile`], [`personalization`], [`connection`]); **Chat** and
-//! **Audio** with Appearance ([`chats`], [`audio`]); and **Data Controls**
-//! behind Advanced ([`data_controls`]). Accounts ends with Sign Out (this
+//! **Audio** with Appearance ([`chats`], [`audio`]); and **Personal
+//! Connections** and **Data Controls** behind Advanced ([`connections`],
+//! [`data_controls`]). Accounts ends with Sign Out (this
 //! account, or all of them).
 
 pub mod audio;
 pub mod chats;
 pub mod connection;
+pub mod connection_editor;
+pub mod connections;
 pub mod controls;
 pub mod data_controls;
 pub mod hermes;
 pub mod librechat_memories;
+pub mod notifications;
 pub mod personalization;
 pub mod profile;
+pub mod server_sheet;
+pub mod webhook_editor;
 
 use std::rc::Rc;
 
@@ -52,7 +57,8 @@ use conduit_components::views::focus::{
     ControlExt as _, RadioGroupExt as _, Ring, radio_option_id,
 };
 use conduit_components::views::kit::{
-    Button, IconButton, Segment, Segmented, SelectHandler, Switch, setting_row, warning_row,
+    Button, IconButton, Segment, Segmented, SelectHandler, Switch, grouped, setting_row,
+    warning_row,
 };
 use conduit_components::views::settings::{
     PaletteChoice, SchemeTile, SettingsTab, SettingsWindow, palette_picker_with, scheme_tiles,
@@ -62,8 +68,8 @@ use conduit_components::views::shortcut_field::ShortcutField;
 use gpui_kit::component::native_menu::NativeMenu;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, Role, SharedString, Subscription,
-    Window, div, px,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, Role, SharedString,
+    Subscription, Window, div, px,
 };
 
 use crate::actions::{RemoveAccount, SetLocale, SettingsChoice};
@@ -78,7 +84,7 @@ use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::Stores;
 use crate::stores::connection::ConnectionStore;
 use crate::stores::settings::{RecordMessage, SettingsStore};
-use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess};
+use crate::stores::shell::{HotkeyState, LoginState};
 use crate::views::accounts::{accounts_sections, remove_account};
 use crate::views::add_account::{self, AddAccountSheet};
 use crate::views::direct::pane::DirectPane;
@@ -91,6 +97,10 @@ use crate::views::status::diagnostics_state;
 pub const SETTINGS_SIDEBAR: f32 = 210.;
 /// The Settings window's size.
 pub const SETTINGS_SIZE: (f32, f32) = (860., 760.);
+
+/// The `SettingsChoice` menu an account row's Server Settings… sends (the
+/// server's id).
+pub const SERVER_SETTINGS_MENU: &str = "server-settings";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -109,6 +119,8 @@ pub enum Tab {
     Chats,
     Audio,
     DataControls,
+    Notifications,
+    PersonalConnections,
 }
 
 impl Tab {
@@ -116,12 +128,15 @@ impl Tab {
     /// Accounts); then the phone's groups in the phone's order: the
     /// account's pages (Profile, Personalization, Connection), the app's
     /// (Appearance, Chat, Audio, then the Mac's Language and Keyboard), the
-    /// connections (Direct, Hermes), Advanced (Data Controls), and last
-    /// what is about this Mac and the app (Data, About).
-    pub const ALL: [Self; 15] = [
+    /// connections (Direct, Hermes), Advanced (Personal Connections, Data
+    /// Controls), and last what is about this Mac and the app (Data,
+    /// About). Notifications follows Profile, as on the phone, and shows for
+    /// every backend (answers notify for all of them).
+    pub const ALL: [Self; 17] = [
         Self::Desktop,
         Self::Accounts,
         Self::Profile,
+        Self::Notifications,
         Self::Personalization,
         Self::Connection,
         Self::Appearance,
@@ -131,6 +146,7 @@ impl Tab {
         Self::Keyboard,
         Self::Direct,
         Self::Hermes,
+        Self::PersonalConnections,
         Self::DataControls,
         Self::Data,
         Self::About,
@@ -143,10 +159,10 @@ impl Tab {
     fn group(self) -> u8 {
         match self {
             Self::Desktop | Self::Accounts => 0,
-            Self::Profile | Self::Personalization | Self::Connection => 1,
+            Self::Profile | Self::Notifications | Self::Personalization | Self::Connection => 1,
             Self::Appearance | Self::Chats | Self::Audio | Self::Language | Self::Keyboard => 2,
             Self::Direct | Self::Hermes => 3,
-            Self::DataControls => 4,
+            Self::PersonalConnections | Self::DataControls => 4,
             Self::Data | Self::About => 5,
         }
     }
@@ -168,7 +184,7 @@ impl Tab {
             .filter(|tab| match tab {
                 Self::Profile | Self::Connection => open_webui,
                 Self::Personalization => open_webui || !hermes_only,
-                Self::DataControls => open_webui && advanced,
+                Self::DataControls | Self::PersonalConnections => open_webui && advanced,
                 _ => true,
             })
             .collect()
@@ -200,6 +216,8 @@ impl Tab {
             Self::Chats => "chat",
             Self::Audio => "audio",
             Self::DataControls => "data-controls",
+            Self::Notifications => "notifications",
+            Self::PersonalConnections => "personal-connections",
         }
     }
 
@@ -221,6 +239,8 @@ impl Tab {
             Self::Chats => IconName::MessageSquare,
             Self::Audio => IconName::AudioLines,
             Self::DataControls => IconName::DatabaseBackup,
+            Self::Notifications => IconName::Bell,
+            Self::PersonalConnections => IconName::Network,
         }
     }
 
@@ -241,6 +261,8 @@ impl Tab {
             Self::Chats => l10n.chat_settings(),
             Self::Audio => l10n.audio_settings_title(),
             Self::DataControls => l10n.chat_data_controls_title(),
+            Self::Notifications => l10n.notifications_title(),
+            Self::PersonalConnections => l10n.personal_connections_title(),
         }
     }
 }
@@ -267,6 +289,16 @@ pub fn shortcut_label(action: ShortcutAction, l10n: &L10n) -> String {
         A::ToggleSidebar => l10n.desktop_shortcut_toggle_sidebar(),
         A::ReadAloud => l10n.desktop_read_aloud(),
         A::VoiceCall => l10n.voice_call_title(),
+    }
+}
+
+/// Two sentences as one footer: a space between them, none after a
+/// full-width stop (Chinese, Japanese).
+pub fn join_sentences(first: &str, second: &str) -> String {
+    if first.ends_with('。') {
+        format!("{first}{second}")
+    } else {
+        format!("{first} {second}")
     }
 }
 
@@ -301,6 +333,8 @@ pub fn fixed_label(command: FixedCommand, l10n: &L10n) -> String {
         F::Back => l10n.desktop_menu_back(),
         F::Forward => l10n.desktop_menu_forward(),
         F::GoToSection(_) => l10n.desktop_keyboard_go_to_section(),
+        F::NextArea => l10n.desktop_menu_next_area(),
+        F::PreviousArea => l10n.desktop_menu_previous_area(),
     }
 }
 
@@ -330,6 +364,14 @@ pub fn area_key_label(key: keymap::AreaKey, l10n: &L10n) -> String {
         K::CalendarLater => l10n.desktop_keyboard_calendar_later(),
         K::CalendarToday => l10n.calendar_today(),
         K::DeleteCalendarItem | K::DeleteScheduledTask => l10n.desktop_delete_ellipsis(),
+        K::TerminalFind => l10n.desktop_menu_find(),
+        K::TerminalCopy => l10n.copy(),
+        K::TerminalPaste => l10n.terminal_paste_action(),
+        K::TerminalSelectAll => l10n.desktop_menu_select_all(),
+        K::TerminalClearScrollback => l10n.desktop_terminal_clear_scrollback(),
+        K::SavePdf => l10n.desktop_preview_save(),
+        K::SendInRoom => l10n.send(),
+        K::SaveHermesJob => l10n.save(),
     }
 }
 
@@ -402,6 +444,8 @@ pub struct SettingsView {
     pub chats: Option<Entity<chats::ChatsPane>>,
     pub audio: Option<Entity<audio::AudioPane>>,
     pub data_controls: Option<Entity<data_controls::DataControlsPane>>,
+    pub notifications: Option<Entity<notifications::NotificationsPane>>,
+    pub personal_connections: Option<Entity<connections::PersonalConnectionsPane>>,
     /// About's server rows and links (`settings.about`).
     pub about_info: Option<conduit_protocol::AboutInfo>,
     /// The account the panes above were made for: another one starts them
@@ -481,6 +525,8 @@ impl SettingsView {
             chats: None,
             audio: None,
             data_controls: None,
+            notifications: None,
+            personal_connections: None,
             about_info: None,
             account,
             about_failed: false,
@@ -509,6 +555,10 @@ impl SettingsView {
         self.direct = None;
         self.chats = None;
         self.data_controls = None;
+        // The account's webhook destinations and its own tool servers and
+        // terminals.
+        self.notifications = None;
+        self.personal_connections = None;
         self.about_info = None;
         self.about_failed = false;
         self.about_round += 1;
@@ -543,6 +593,19 @@ impl SettingsView {
                 p.update(cx, |p, cx| p.refresh_quietly(cx));
             }
             cx.notify();
+            // Personal Connections reads them again each time it is shown,
+            // as mobile's page does (another device may have changed them).
+            if tab == Tab::PersonalConnections
+                && let Some(p) = &self.personal_connections
+            {
+                p.update(cx, |p, cx| p.refresh(cx));
+            }
+            // A read that failed is tried again when its tab is shown.
+            if tab == Tab::Notifications
+                && let Some(p) = &self.notifications
+            {
+                p.update(cx, |p, cx| p.shown(cx));
+            }
         }
     }
 
@@ -577,6 +640,27 @@ impl SettingsView {
             window,
             |this, _, event: &ServerFormEvent, window, cx| {
                 this.close_add_sheet(window, cx);
+                // A Hermes connection or a provider: its editor, once the
+                // sheet has gone (AppKit hangs one sheet at a time).
+                match event {
+                    ServerFormEvent::AddHermes => {
+                        this.show_tab(Tab::Hermes, cx);
+                        let stores = this.stores.clone();
+                        cx.defer_in(window, move |_, window, cx| {
+                            crate::views::hermes_connection::open(&stores, None, window, cx)
+                        });
+                        return;
+                    }
+                    ServerFormEvent::AddDirect => {
+                        this.show_tab(Tab::Direct, cx);
+                        let pane = this.direct_pane(window, cx);
+                        cx.defer_in(window, move |_, window, cx| {
+                            pane.update(cx, |p, cx| p.open_editor(None, false, window, cx))
+                        });
+                        return;
+                    }
+                    _ => {}
+                }
                 if matches!(event, ServerFormEvent::Connected) {
                     // Sign-in for the new account is next, in the setup
                     // window, which comes forward.
@@ -603,6 +687,13 @@ impl SettingsView {
                     .detach();
             }
         }
+    }
+
+    /// A saved Open WebUI server's sheet: its accounts and addresses.
+    pub fn open_server(&mut self, server_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.tab = Tab::Accounts;
+        cx.notify();
+        server_sheet::open(&self.stores, server_id, window, cx);
     }
 
     fn close_add_sheet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -660,6 +751,32 @@ impl SettingsView {
             .clone()
     }
 
+    fn notifications_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<notifications::NotificationsPane> {
+        let stores = self.stores.clone();
+        self.notifications
+            .get_or_insert_with(|| {
+                cx.new(|cx| notifications::NotificationsPane::new(stores, window, cx))
+            })
+            .clone()
+    }
+
+    fn personal_connections_pane(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<connections::PersonalConnectionsPane> {
+        let stores = self.stores.clone();
+        self.personal_connections
+            .get_or_insert_with(|| {
+                cx.new(|cx| connections::PersonalConnectionsPane::new(stores, window, cx))
+            })
+            .clone()
+    }
+
     fn data_controls_pane(
         &mut self,
         window: &mut Window,
@@ -695,6 +812,7 @@ impl SettingsView {
             hermes::MCP_MENU | hermes::CATALOG_MENU => {
                 hermes::choose(&self.stores, menu, value, window, cx)
             }
+            SERVER_SETTINGS_MENU => self.open_server(value, window, cx),
             menu if menu.starts_with("audio-") => {
                 if let Some(p) = &self.audio {
                     p.update(cx, |p, cx| p.choose(menu, value, window, cx));
@@ -1020,6 +1138,9 @@ impl SettingsView {
                 KeyGroup::Workspace => l10n.workspace_title(),
                 KeyGroup::Calendar => l10n.calendar_title(),
                 KeyGroup::ScheduledTasks => l10n.scheduled_tasks_title(),
+                KeyGroup::Terminal => l10n.terminal(),
+                KeyGroup::HermesRooms => l10n.hermes_rooms_title(),
+                KeyGroup::HermesJobs => l10n.hermes_scheduled_agents_title(),
             };
             // Where these keys work, under the areas' own groups.
             let footer = footer.or_else(|| match group {
@@ -1027,6 +1148,19 @@ impl SettingsView {
                 KeyGroup::Workspace => Some(l10n.desktop_keyboard_workspace_footer().into()),
                 KeyGroup::Calendar => Some(l10n.desktop_keyboard_calendar_footer().into()),
                 KeyGroup::ScheduledTasks => Some(l10n.desktop_keyboard_tasks_footer().into()),
+                // And the way out of it, whose Tab is the shell's.
+                KeyGroup::Terminal => {
+                    let (next, _) = crate::views::terminal::console::leave_keys();
+                    Some(
+                        join_sentences(
+                            &l10n.desktop_keyboard_terminal_footer(),
+                            &l10n.desktop_terminal_leave_hint(&next),
+                        )
+                        .into(),
+                    )
+                }
+                KeyGroup::HermesRooms => Some(l10n.desktop_keyboard_rooms_footer().into()),
+                KeyGroup::HermesJobs => Some(l10n.desktop_keyboard_hermes_jobs_footer().into()),
                 _ => None,
             });
             sections.push(settings_section(title, footer, rows, cx).into_any_element());
@@ -1361,11 +1495,11 @@ impl SettingsView {
     }
 
     /// About › Updates: Sparkle's check and "check automatically" (release
-    /// bundles only), and the saved "Receive beta updates".
+    /// bundles only). Releases are stable only, so there is no channel to
+    /// pick.
     fn updates_section(&self, cx: &mut Context<Self>) -> AnyElement {
         let l10n = cx.l10n().clone();
         let available = crate::updates::available(cx);
-        let beta = self.settings.read(cx).prefs.desktop.beta_updates;
         let mut rows = vec![];
         // The row names the subject, the button keeps the verb.
         let check = Button::new("check-for-updates", l10n.desktop_check_now())
@@ -1397,22 +1531,7 @@ impl SettingsView {
                     .into_any_element(),
             );
         }
-        let settings = self.settings.clone();
-        let beta_switch = Switch::new("beta-updates", l10n.desktop_beta_updates(), beta).on_click(
-            Rc::new(move |_, _, cx| {
-                settings.update(cx, |s, cx| s.set_desktop(|d| d.beta_updates = !beta, cx));
-            }),
-        );
-        rows.push(
-            setting_row(l10n.desktop_beta_updates(), None, beta_switch, cx).into_any_element(),
-        );
-        settings_section(
-            l10n.desktop_updates_section(),
-            Some(l10n.desktop_beta_updates_footer().into()),
-            rows,
-            cx,
-        )
-        .into_any_element()
+        settings_section(l10n.desktop_updates_section(), None, rows, cx).into_any_element()
     }
 
     fn accounts(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -1445,16 +1564,35 @@ impl SettingsView {
                 let Some(name) = name else {
                     return;
                 };
+                // An Open WebUI account's server has a sheet of its own.
+                let server = stores
+                    .accounts
+                    .read(cx)
+                    .accounts()
+                    .iter()
+                    .find(|a| a.id == id)
+                    .map(|a| a.server_id.clone());
                 let l10n = cx.l10n().clone();
                 let name = privacy::name(&name, cx);
-                NativeMenu::new()
-                    .menu(
-                        l10n.desktop_sign_out_of(&name),
-                        Box::new(RemoveAccount {
-                            account_id: id.to_string(),
-                        }),
-                    )
-                    .show(window.mouse_position(), window, cx);
+                let mut menu = NativeMenu::new();
+                if let Some(server_id) = server {
+                    menu = menu
+                        .menu(
+                            l10n.desktop_server_settings_ellipsis(),
+                            Box::new(SettingsChoice {
+                                menu: SERVER_SETTINGS_MENU.into(),
+                                value: server_id,
+                            }),
+                        )
+                        .separator();
+                }
+                menu.menu(
+                    l10n.desktop_sign_out_of(&name),
+                    Box::new(RemoveAccount {
+                        account_id: id.to_string(),
+                    }),
+                )
+                .show(window.mouse_position(), window, cx);
             })
         };
         let mut sections = accounts_sections(&self.stores, add, more, cx).into_iter();
@@ -1474,8 +1612,121 @@ impl SettingsView {
             settings_section(SharedString::default(), footer, vec![list], cx).into_any_element(),
         ];
         out.extend(sections);
+        out.extend(self.servers_section(cx));
         out.extend(self.sign_out_section(cx));
         out
+    }
+
+    /// Accounts › Servers: each saved Open WebUI server, opening its sheet
+    /// (as the phone's Accounts page heads each server's accounts with a
+    /// row to its page).
+    fn servers_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let l10n = cx.l10n().clone();
+        let t = cx.conduit().clone();
+        let r = t.roles;
+        let store = self.stores.accounts.read(cx);
+        // One row per server, in the order its first account is listed;
+        // its address in use is the active account's (else the first's).
+        let mut servers: Vec<(String, String, String)> = vec![];
+        for a in store.accounts() {
+            match servers.iter_mut().find(|(id, _, _)| *id == a.server_id) {
+                Some(row) if a.is_active => row.2 = a.connection.url.clone(),
+                Some(_) => {}
+                None => servers.push((
+                    a.server_id.clone(),
+                    a.connection.name.clone(),
+                    a.connection.url.clone(),
+                )),
+            }
+        }
+        if servers.is_empty() {
+            return None;
+        }
+        let hover = r.hover;
+        let pressed = conduit_components::views::focus::pressed_fill(r.hover, &t);
+        let rows: Vec<AnyElement> = servers
+            .into_iter()
+            .enumerate()
+            .map(|(i, (id, name, url))| {
+                let view = cx.entity().downgrade();
+                let name = privacy::name(&name, cx);
+                let host = privacy::host(&forms::host_of(&url), cx);
+                div()
+                    .id(SharedString::from(format!("server-row-{i}")))
+                    .role(Role::Button)
+                    // With the host the row shows: two servers of one
+                    // name are told apart.
+                    .aria_label(SharedString::from(
+                        [
+                            name.clone(),
+                            host.clone(),
+                            l10n.desktop_server_settings_ellipsis(),
+                        ]
+                        .into_iter()
+                        .filter(|part| !part.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    ))
+                    .w_full()
+                    .px(px(12.))
+                    .py(px(9.))
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover))
+                    .active(move |s| s.bg(pressed))
+                    .when(i > 0, |d| d.border_t_1().border_color(r.divider))
+                    .keyboard_shadow(cx)
+                    .tip(l10n.desktop_server_settings_ellipsis(), None)
+                    .on_click(move |_, window, cx| {
+                        let _ = view.update(cx, |v, cx| v.open_server(&id, window, cx));
+                    })
+                    .child(conduit_components::assets::icon(
+                        IconName::Server,
+                        15.,
+                        r.text_subtle,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(1.))
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(t.metrics.control))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(r.text)
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(t.metrics.small))
+                                    .text_color(r.text_subtle)
+                                    .child(host),
+                            ),
+                    )
+                    .child(conduit_components::assets::icon(
+                        IconName::ChevronRight,
+                        13.,
+                        r.text_faint,
+                    ))
+                    .into_any_element()
+            })
+            .collect();
+        Some(
+            settings_section(
+                l10n.desktop_servers_section(),
+                None,
+                vec![grouped(rows, cx).into_any_element()],
+                cx,
+            )
+            .into_any_element(),
+        )
     }
 
     /// Accounts › Sign Out, as the phone's Settings ends: the account in
@@ -1637,7 +1888,7 @@ impl SettingsView {
             .map(|d| d.shell.read(cx))
             .map(|s| (s.hotkey, s.notifications, s.login, s.login_error.clone()))
             .unwrap_or_default();
-        let (hotkey, notifications, login, login_error) = shell;
+        let (hotkey, _, login, login_error) = shell;
         let settings = self.settings.clone();
         let toggle = |id: &'static str,
                       label: String,
@@ -1710,55 +1961,6 @@ impl SettingsView {
             _ => None,
         };
 
-        // Notifications.
-        let notify = toggle(
-            "notify-answers",
-            l10n.desktop_notify_answers(),
-            prefs.notify_answers,
-            |d, on| d.notify_answers = on,
-        );
-        let notify_channels = toggle(
-            "notify-channels",
-            l10n.desktop_notify_channels(),
-            prefs.notify_channels,
-            |d, on| d.notify_channels = on,
-        );
-        let mut notify_footer = l10n.desktop_notify_answers_footer();
-        let denied = notifications == NotificationAccess::Denied
-            && (prefs.notify_answers || prefs.notify_channels);
-        if denied {
-            notify_footer = format!("{notify_footer}\n\n{}", l10n.desktop_notifications_denied());
-        } else if notifications == NotificationAccess::Unavailable {
-            notify_footer = format!(
-                "{notify_footer}\n\n{}",
-                l10n.desktop_notifications_unavailable()
-            );
-        }
-        let mut notify_rows = vec![
-            setting_row(l10n.desktop_notify_answers(), None, notify, cx).into_any_element(),
-            setting_row(
-                l10n.desktop_notify_channels(),
-                Some(l10n.desktop_notify_channels_footer().into()),
-                notify_channels,
-                cx,
-            )
-            .into_any_element(),
-        ];
-        if denied {
-            notify_rows.push(
-                setting_row(
-                    l10n.desktop_notifications_off(),
-                    None,
-                    Button::new("notification-settings", l10n.desktop_open_system_settings())
-                        .on_click(Rc::new(|_, _, cx| {
-                            crate::desktop::open_notification_settings(cx)
-                        })),
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-
         vec![
             settings_section(
                 l10n.desktop_menu_bar_section(),
@@ -1806,13 +2008,6 @@ impl SettingsView {
                     )
                     .into_any_element(),
                 ],
-                cx,
-            )
-            .into_any_element(),
-            settings_section(
-                l10n.desktop_notifications_section(),
-                Some(notify_footer.into()),
-                notify_rows,
                 cx,
             )
             .into_any_element(),
@@ -2216,6 +2411,13 @@ impl Render for SettingsView {
             Tab::Chats => vec![self.chats_pane(window, cx).into_any_element()],
             Tab::Audio => vec![self.audio_pane(window, cx).into_any_element()],
             Tab::DataControls => vec![self.data_controls_pane(window, cx).into_any_element()],
+            Tab::Notifications => vec![self.notifications_pane(window, cx).into_any_element()],
+            Tab::PersonalConnections => {
+                vec![
+                    self.personal_connections_pane(window, cx)
+                        .into_any_element(),
+                ]
+            }
         };
         // A pane replacing another fades in over 100 ms, from the frame the
         // button went down (a plain fade, so Reduce Motion keeps it); the
@@ -2294,6 +2496,13 @@ mod tests {
                 &value[start..start + 40]
             );
         }
+    }
+
+    #[test]
+    fn footers_join_sentences_as_each_language_does() {
+        use super::join_sentences;
+        assert_eq!(join_sentences("One.", "Two."), "One. Two.");
+        assert_eq!(join_sentences("一。", "二。"), "一。二。");
     }
 
     #[test]
@@ -2391,6 +2600,50 @@ mod language_tests {
             );
             assert!(v.profile.is_none());
         });
+    }
+
+    /// Settings › Notifications couldn't read the settings: showing the tab
+    /// again reads them again (as the pane opening does), not only a
+    /// reconnect.
+    #[gpui_kit::test]
+    fn a_failed_notification_settings_read_is_tried_again_when_the_tab_shows(
+        cx: &mut TestAppContext,
+    ) {
+        use conduit_protocol::methods;
+        let daemon = FakeDaemon::new();
+        daemon.on::<methods::NotificationsGet>(|_| {
+            Err(conduit_daemon::protocol::error(
+                conduit_daemon::protocol::codes::INTERNAL,
+                "unreadable",
+            ))
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-notify-tab-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.notifications.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(settings, s, Tab::Notifications, window, cx)
+        });
+        view.update_in(vcx, |v, window, cx| {
+            v.notifications_pane(window, cx);
+        });
+        vcx.run_until_parked();
+        let reads = || daemon.calls::<methods::NotificationsGet>().len();
+        let before = reads();
+        assert!(stores.notifications.read_with(vcx, |s, _| s.load_failed));
+        view.update(vcx, |v, cx| {
+            v.show_tab(Tab::Language, cx);
+            v.show_tab(Tab::Notifications, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(reads(), before + 1, "showing the tab again read nothing");
     }
 
     #[gpui_kit::test]

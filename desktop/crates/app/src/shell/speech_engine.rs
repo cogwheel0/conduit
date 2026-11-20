@@ -289,11 +289,16 @@ impl VoiceEvent {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{Voice, clip_loader};
+pub use mac::{Voice, av_clip, clip_loader};
 
 #[cfg(not(target_os = "macos"))]
 pub fn clip_loader(_muted: bool) -> ClipLoader {
     Box::new(|_, _| None)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn av_clip(_bytes: &[u8], _speed: f64, _muted: bool) -> Option<Box<dyn ClipOutput>> {
+    None
 }
 
 /// No voices off macOS.
@@ -951,6 +956,15 @@ mod mac {
                 return CallClip::load(audio, bytes, speed)
                     .map(|c| Box::new(c) as Box<dyn ClipOutput>);
             }
+            av_clip(bytes, speed, muted)
+        })
+    }
+
+    /// One clip in its own `AVAudioPlayer` (silent when `muted`): any
+    /// format Core Audio plays (WAV, MP3, AAC/M4A, CAF, FLAC). None when
+    /// the bytes won't play.
+    pub fn av_clip(bytes: &[u8], speed: f64, muted: bool) -> Option<Box<dyn ClipOutput>> {
+        {
             let (Some(player_class), Some(data_class)) =
                 (AnyClass::get(c"AVAudioPlayer"), AnyClass::get(c"NSData"))
             else {
@@ -978,7 +992,7 @@ mod mac {
                 }
                 Some(Box::new(AvClip { player }) as Box<dyn ClipOutput>)
             }
-        })
+        }
     }
 }
 

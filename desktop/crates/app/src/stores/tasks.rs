@@ -560,6 +560,7 @@ mod tests {
                 next_run_at: None,
                 last_run_at: None,
                 last_run_failed: false,
+                agent: None,
             },
             prompt: String::new(),
             model_id: String::new(),
@@ -570,6 +571,10 @@ mod tests {
             folder_id: None,
             folder_name: None,
             terminal: false,
+            terminal_id: None,
+            terminal_name: None,
+            working_directory: None,
+            agent: None,
             next_runs: vec![],
         }
     }

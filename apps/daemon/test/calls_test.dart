@@ -10,7 +10,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatSessionRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_ports.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
-    show chatDraftQueueSendProvider;
+    show chatDraftQueueAdmissionWaitProvider, chatDraftQueueSendProvider;
 import 'package:conduit_core/features/chat/voice_mode/chat_voice_send.dart';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -296,6 +296,102 @@ void main() {
     );
   });
 
+  test(
+    'a queued batch waits for a delete begun after it was admitted',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      final scope = hold.scope.container;
+      await scope.read(chatVoiceSendProvider)(null, 'drop this one');
+      // The core's queue admits the batch: its admission wait says the chat
+      // is quiet.
+      await scope.read(chatDraftQueueAdmissionWaitProvider)()!;
+      final chatId = hold.scope.conversation!.id;
+      final dropped = hold.scope.messages
+          .lastWhere((m) => m.role == 'assistant')
+          .id;
+      // Admitted, the batch is about to be sent; a delete begins first.
+      final deleting = turns.deleteMessages(
+        DeleteMessages(chatId: chatId, messageIds: <String>[dropped]),
+      );
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      await deleting;
+      await batch;
+      await pumpEventQueue(times: 2000);
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'user') m.content,
+        ],
+        contains('and the beans'),
+        reason: 'the delete dropped the queued batch',
+      );
+      expect(hold.scope.messages.last.role, 'assistant');
+    },
+  );
+
+  test(
+    'words said while a queued batch waits are not held behind it',
+    () async {
+      final hold = await turns.holdForCall(model: model);
+      addTearDown(hold.release);
+      addTearDown(() => provider.release('loam'));
+      addTearDown(() => provider.release('surf'));
+      addTearDown(() => provider.release('dusk'));
+      final scope = hold.scope.container;
+      final send = scope.read(chatVoiceSendProvider);
+      // An answer runs; the queue's batch comes and waits for it.
+      final soil = provider.asked('hold:loam');
+      unawaited(
+        send(null, 'hold:loam is the soil warm yet', isVoiceMode: true),
+      );
+      await soil;
+      final batch = scope.read(chatDraftQueueSendProvider)(
+        null,
+        'and the beans',
+        null,
+      );
+      // Words talk over that answer, and theirs runs in turn.
+      final tide = provider.asked('hold:surf');
+      final second = send(
+        null,
+        'hold:surf when is high tide',
+        isVoiceMode: true,
+      );
+      await tide;
+      await pumpEventQueue(times: 2000);
+      var secondEnded = false;
+      unawaited(
+        second.then(
+          (_) => secondEnded = true,
+          onError: (Object _) => secondEnded = true,
+        ),
+      );
+      // More words, while the batch waits: they are admitted at once and
+      // reach the model while the answer before them is still held (were
+      // they behind the batch, this would wait until that answer ended).
+      final moon = provider.asked('hold:dusk');
+      final third = send(null, 'hold:dusk and the moon', isVoiceMode: true);
+      await moon;
+      expect(
+        [
+          for (final m in hold.scope.messages)
+            if (m.role == 'assistant' && m.isStreaming) m,
+        ],
+        hasLength(lessThanOrEqualTo(1)),
+        reason: 'the answer talked over still streams',
+      );
+      provider.release('dusk');
+      await third;
+      await batch;
+      expect(secondEnded, isTrue);
+    },
+  );
+
   test('words said over an answer stop it before they go out', () async {
     final hold = await turns.holdForCall(model: model);
     addTearDown(hold.release);
@@ -501,6 +597,182 @@ void main() {
     );
     await capturing.cancel();
     await reporting.cancel();
+  });
+
+  /// The window's side of a GPT-Live call's peer: [onStart] answers
+  /// `webRtcStart` and connects [socket]; what the daemon sends is [sent].
+  /// [sentType] is the first message of a type the daemon sent, once it
+  /// has (a milestone, not a poll).
+  ({
+    StreamChannelController<dynamic> socket,
+    List<Map<String, Object?>> sent,
+    Future<Map<String, Object?>> Function(String type) sentType,
+  })
+  peerWindow() {
+    final socket = StreamChannelController<dynamic>();
+    final sent = <Map<String, Object?>>[];
+    final arrivals = StreamController<Map<String, Object?>>.broadcast();
+    socket.local.stream.listen((message) {
+      if (message is String) {
+        final decoded = (jsonDecode(message) as Map).cast<String, Object?>();
+        sent.add(decoded);
+        arrivals.add(decoded);
+      }
+    });
+    Future<Map<String, Object?>> sentType(String type) async {
+      for (final m in sent) {
+        if (m['type'] == type) return m;
+      }
+      return arrivals.stream.firstWhere((m) => m['type'] == type);
+    }
+
+    window.onWebRtcStart = (command) {
+      final handle = command.path!.substring('/calls/'.length);
+      unawaited(calls.tunnel(handle, socket.foreign));
+      calls.report(CallReport(id: command.id));
+      socket.local.sink.add(jsonEncode({'type': 'ready'}));
+    };
+    return (socket: socket, sent: sent, sentType: sentType);
+  }
+
+  test(
+    'a GPT-Live call\'s WebRTC peer runs over the window\'s socket',
+    () async {
+      final peer = runtime.calls.newWebRtcMedia()!;
+      final (:socket, :sent, :sentType) = peerWindow();
+
+      // The offer is made in the window, with the voice's data channel, and
+      // comes back exactly as the page wrote it.
+      final offering = peer.createOffer();
+      expect((await sentType('offer'))['dataChannel'], 'oai-events');
+      socket.local.sink.add(
+        jsonEncode({'type': 'offer', 'sdp': 'v=0\r\noffer\r\n'}),
+      );
+      expect(await offering, 'v=0\r\noffer\r\n');
+
+      final accepting = peer.acceptAnswer('v=0\r\nanswer\r\n');
+      expect((await sentType('answer'))['sdp'], 'v=0\r\nanswer\r\n');
+      socket.local.sink.add(jsonEncode({'type': 'answered'}));
+      await accepting;
+
+      // The data channel both ways, the connection's state, the meter.
+      final message = peer.messages.first;
+      final state = peer.states.first;
+      final level = peer.levels.first;
+      socket.local.sink
+        ..add(jsonEncode({'type': 'state', 'state': 'connected'}))
+        ..add(
+          jsonEncode({
+            'type': 'message',
+            'text': jsonEncode({'type': 'session.started'}),
+          }),
+        )
+        ..add(jsonEncode({'type': 'levels', 'input': 0.4, 'output': 3}));
+      expect(jsonDecode(await message), {'type': 'session.started'});
+      expect(await state, RealtimeMediaState.connected);
+      expect(await level, (input: 0.4, output: 1.0));
+      peer
+        ..send(jsonEncode({'type': 'session.close'}))
+        ..setMicrophoneEnabled(false);
+      expect(jsonDecode((await sentType('send'))['text']! as String), {
+        'type': 'session.close',
+      });
+      expect((await sentType('mic'))['enabled'], isFalse);
+
+      // A closed connection is the call's failure.
+      final failed = peer.states.first;
+      socket.local.sink.add(jsonEncode({'type': 'state', 'state': 'failed'}));
+      expect(await failed, RealtimeMediaState.failed);
+
+      await peer.close();
+      expect(sent.last['type'], 'stop');
+      // The window hears audioStop for the peer's path (a microtask away).
+      await pumpEventQueue();
+      final started = window.commands.lastWhere(
+        (c) => c.kind == CallCommandKind.webRtcStart,
+      );
+      expect(
+        window.commands.any(
+          (c) => c.kind == CallCommandKind.audioStop && c.path == started.path,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('closing a call ends every wait of its peer: an unanswered start, '
+      'a page that never said ready, and the window\'s socket', () async {
+    // The window never answers webRtcStart.
+    window.onWebRtcStart = (_) {};
+    final unanswered = runtime.calls.newWebRtcMedia()!;
+    Object? first;
+    final offering = unanswered.createOffer().then<Object?>(
+      (_) => null,
+      onError: (Object e) => first = e,
+    );
+    await pumpEventQueue();
+    await unanswered.close();
+    await pumpEventQueue();
+    expect(first, isA<StateError>(), reason: 'the start waited past close');
+    await offering;
+
+    // The window answers and connects its socket, but its page never says
+    // ready (and its socket stays open).
+    final socket = StreamChannelController<dynamic>();
+    // The page's side reads what the daemon sends (and its close).
+    socket.local.stream.listen((_) {});
+    Future<void>? tunnelled;
+    window.onWebRtcStart = (command) {
+      final handle = command.path!.substring('/calls/'.length);
+      tunnelled = calls.tunnel(handle, socket.foreign);
+      calls.report(CallReport(id: command.id));
+    };
+    final silent = runtime.calls.newWebRtcMedia()!;
+    Object? second;
+    final waiting = silent.createOffer().then<Object?>(
+      (_) => null,
+      onError: (Object e) => second = e,
+    );
+    await pumpEventQueue();
+    expect(tunnelled, isNotNull);
+    var ended = false;
+    unawaited(tunnelled!.whenComplete(() => ended = true));
+    await silent.close();
+    await pumpEventQueue();
+    expect(second, isA<StateError>(), reason: 'ready was waited past close');
+    expect(ended, isTrue, reason: 'the socket was waited on past close');
+    await waiting;
+  });
+
+  test('a microphone the peer cannot open fails the offer plainly', () async {
+    final peer = runtime.calls.newWebRtcMedia()!;
+    final (:socket, sent: _, :sentType) = peerWindow();
+    final offering = peer.createOffer();
+    await sentType('offer');
+    socket.local.sink.add(
+      jsonEncode({
+        'type': 'failure',
+        'reason': 'microphone',
+        'message': 'NotAllowedError',
+      }),
+    );
+    await expectLater(
+      offering,
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          'The microphone could not be opened.',
+        ),
+      ),
+    );
+    await peer.close();
+  });
+
+  test('a window without a peer refuses it, and nothing is offered', () async {
+    final peer = runtime.calls.newWebRtcMedia()!;
+    await expectLater(peer.createOffer(), throwsA(isA<Exception>()));
+    await peer.close();
   });
 
   test('a second call is refused while one is on', () async {

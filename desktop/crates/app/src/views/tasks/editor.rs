@@ -1,17 +1,22 @@
 //! The task editor, a sheet on the main window: New Scheduled Task or Edit
 //! Scheduled Task, with the phone's fields. Name and Active; the
-//! instructions; the model; the schedule (Once, Daily or Weekly with native
-//! date and time pickers, or a recurrence rule under Advanced Schedule); and
-//! where results go (a new chat, optionally in a folder, or a channel).
+//! instructions; the server terminal it runs with, its working folder and
+//! the model (a coding agent of that terminal among them, Open WebUI 0.13.3
+//! and later); the schedule (Once, Daily or Weekly with native date and time
+//! pickers, or a recurrence rule under Advanced Schedule); and where results
+//! go (a new chat, optionally in a folder, or a channel).
 //!
 //! The daemon holds the draft (`automations.editor`), keeps whatever the
-//! task stores that the editor does not show (a terminal, unknown keys) and
-//! settles each change (`automations.checkDraft`): a typed rule the controls
-//! can write reads back as their kind, and the controls carry their rule.
+//! task stores that the editor does not show (unknown keys) and settles each
+//! change (`automations.checkDraft`): a typed rule the controls can write
+//! reads back as their kind, and the controls carry their rule. Another
+//! terminal drops the old one's folder and agent; `automations.terminals`
+//! lists the models again with the terminal's agents.
 
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::{
@@ -19,7 +24,7 @@ use conduit_components::views::kit::{
 };
 use conduit_protocol::{
     AutomationDraftEdit, AutomationDraftState, AutomationEditor, AutomationEditorOpen,
-    AutomationFields, methods,
+    AutomationFields, AutomationTerminals, methods,
 };
 use gpui_kit::component::input::{InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::prelude::*;
@@ -63,6 +68,8 @@ pub fn issue_text(issue: &str, l: &L10n) -> String {
         "channelUnavailable" => l.scheduled_task_channel_unavailable_issue(),
         "channelNoWrite" => l.scheduled_task_channel_no_write(),
         "folderUnavailable" => l.scheduled_task_folder_unavailable_issue(),
+        "terminalRequired" => l.scheduled_task_terminal_required(),
+        "agentNeedsChat" => l.scheduled_task_agent_needs_chat(),
         _ => l.scheduled_task_schedule_incomplete(),
     }
 }
@@ -74,6 +81,9 @@ pub struct TaskEditor {
     pub fields: Option<AutomationFields>,
     pub issues: Vec<String>,
     pub attempted: bool,
+    /// Counts the Saves refused for an issue: each refusal is heard, even
+    /// in the words of the one before (draft checks add nothing).
+    refusals: u64,
     pub changed: bool,
     pub saving: bool,
     pub failure: Option<String>,
@@ -82,8 +92,24 @@ pub struct TaskEditor {
     name: Entity<InputState>,
     prompt: Entity<TextareaState>,
     rrule: Entity<TextareaState>,
+    /// The working folder on the task's terminal.
+    cwd: Entity<InputState>,
+    /// The folder the field shows next, once a terminal change dropped it.
+    cwd_pending: Option<String>,
+    /// `automations.terminals` is asking the terminal for its agents.
+    pub agents_loading: bool,
+    terminals_call: Option<Task<()>>,
     /// The rule field is being typed in: its text is the user's.
     typing_rule: bool,
+    /// A schedule kind chosen (Once, Daily, Weekly) whose check has not
+    /// answered yet: every check until then carries it, so a check started
+    /// for something else (another field, the terminal's agents) never drops
+    /// the choice. A newer edit of the schedule itself (a rule typed, a
+    /// schedule control) replaces it.
+    pending_kind: Option<String>,
+    /// Counts the user's edits (a kind choice included; a check settling is
+    /// none): a Save closes the editor only if no edit came after it began.
+    edit_revision: u64,
     /// The rule the field shows next, once the controls changed it.
     rrule_pending: Option<String>,
     check: Option<Task<()>>,
@@ -109,7 +135,27 @@ impl TaskEditor {
                 .auto_grow(2, 4)
                 .placeholder(RRULE_EXAMPLE)
         });
+        let cwd = forms::input(l.scheduled_task_working_folder_hint(), false, window, cx);
         let mut subscriptions = vec![
+            cx.subscribe_in(
+                &cwd,
+                window,
+                |this, state, e: &InputEvent, window, cx| match e {
+                    InputEvent::Change => {
+                        let value = state.read(cx).value().trim().to_string();
+                        let value = (!value.is_empty()).then_some(value);
+                        if this.fields.as_ref().map(|f| &f.working_directory) == Some(&value) {
+                            return;
+                        }
+                        this.edit(|f| f.working_directory = value, cx);
+                        // The terminal is asked for its agents in that folder
+                        // once the typing pauses.
+                        this.refresh_terminals(Some(std::time::Duration::from_millis(600)), cx);
+                    }
+                    InputEvent::PressEnter { .. } => this.save(window, cx),
+                    _ => {}
+                },
+            ),
             cx.subscribe_in(
                 &name,
                 window,
@@ -144,6 +190,7 @@ impl TaskEditor {
             fields: None,
             issues: vec![],
             attempted: false,
+            refusals: 0,
             changed: false,
             saving: false,
             failure: None,
@@ -151,7 +198,13 @@ impl TaskEditor {
             name,
             prompt,
             rrule,
+            cwd,
+            cwd_pending: None,
+            agents_loading: false,
+            terminals_call: None,
             typing_rule: false,
+            pending_kind: None,
+            edit_revision: 0,
             rrule_pending: None,
             check: None,
             _subscriptions: subscriptions,
@@ -197,6 +250,8 @@ impl TaskEditor {
         self.rrule.update(cx, |s, cx| {
             s.set_value(f.schedule.rrule.clone(), window, cx)
         });
+        let folder = f.working_directory.clone().unwrap_or_default();
+        self.cwd.update(cx, |s, cx| s.set_value(folder, window, cx));
         // A rule the controls cannot write opens where it can be read.
         self.advanced = f.schedule.kind == "custom";
         self.fields = Some(f);
@@ -229,24 +284,37 @@ impl TaskEditor {
         );
     }
 
+    /// Types the working folder, as the user would (E2E). Setting the
+    /// field's value raises no change, so the draft follows here.
+    pub fn type_folder(&mut self, folder: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let value = folder.to_string();
+        self.cwd
+            .update(cx, |s, cx| s.set_value(value.clone(), window, cx));
+        self.edit(|f| f.working_directory = Some(value), cx);
+        self.refresh_terminals(None, cx);
+    }
+
     /// Changes the fields, then has the daemon settle them.
     pub fn edit(&mut self, change: impl FnOnce(&mut AutomationFields), cx: &mut Context<Self>) {
         let Some(fields) = self.fields.as_mut() else {
             return;
         };
         change(fields);
+        self.edit_revision += 1;
         self.failure = None;
         cx.notify();
         self.check_now(None, cx);
     }
 
-    /// The schedule's controls changed: the rule follows them.
+    /// The schedule's controls changed: the rule follows them, and a kind
+    /// chosen before (still unanswered) gives way to this newer edit.
     fn edit_schedule(
         &mut self,
         change: impl FnOnce(&mut AutomationFields),
         cx: &mut Context<Self>,
     ) {
         self.typing_rule = false;
+        self.pending_kind = None;
         self.edit(change, cx);
     }
 
@@ -260,8 +328,11 @@ impl TaskEditor {
             return;
         }
         self.typing_rule = true;
-        // A settled check's rule, not yet in the field, gives way to this.
+        // A settled check's rule, not yet in the field, gives way to this,
+        // and so does a kind chosen before whose check has not answered.
         self.rrule_pending = None;
+        self.pending_kind = None;
+        self.edit_revision += 1;
         fields.schedule.kind = "custom".into();
         fields.schedule.rrule = rule;
         cx.notify();
@@ -271,6 +342,7 @@ impl TaskEditor {
     /// Once, Daily or Weekly, starting from the current schedule's time.
     pub fn choose_kind(&mut self, kind: &str, cx: &mut Context<Self>) {
         self.typing_rule = false;
+        self.edit_revision += 1;
         self.check_now(Some(kind.to_string()), cx);
     }
 
@@ -278,6 +350,8 @@ impl TaskEditor {
         let (Some(editor), Some(fields)) = (self.editor.as_ref(), self.fields.clone()) else {
             return;
         };
+        let choose_kind = choose_kind.or_else(|| self.pending_kind.clone());
+        self.pending_kind = choose_kind.clone();
         let call = self
             .rpc(cx)
             .call::<methods::AutomationsCheckDraft>(&AutomationDraftEdit {
@@ -290,8 +364,16 @@ impl TaskEditor {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
                     match result {
-                        Ok(state) => s.take_state(state, cx),
-                        Err(e) => log::warn!("automations.checkDraft: {e}"),
+                        Ok(state) => {
+                            // The choice is in the schedule now.
+                            s.pending_kind = None;
+                            s.take_state(state, cx)
+                        }
+                        Err(e) => {
+                            // Not taken: a later check does not carry it.
+                            s.pending_kind = None;
+                            log::warn!("automations.checkDraft: {e}")
+                        }
                     }
                     cx.notify();
                 });
@@ -305,6 +387,10 @@ impl TaskEditor {
         let Some(fields) = self.fields.as_mut() else {
             return;
         };
+        // The folder and the model stay as the fields have them: a terminal
+        // change dropped the old terminal's in the edit itself
+        // ([`moved_to_terminal`]), so an answer (to that edit or a later one)
+        // never puts them back or takes a folder typed since.
         let typed = std::mem::replace(&mut fields.schedule, state.fields.schedule);
         if self.typing_rule {
             // What the user typed stays as typed.
@@ -320,9 +406,67 @@ impl TaskEditor {
         let value = a.value.clone();
         match a.menu.as_str() {
             "task-model" => self.edit(|f| f.model_id = value, cx),
+            "task-terminal" => {
+                let id = (!value.is_empty()).then_some(value);
+                if self.fields.as_ref().map(|f| &f.terminal_id) == Some(&id) {
+                    return;
+                }
+                self.edit(|f| moved_to_terminal(f, id), cx);
+                self.cwd_pending = Some(String::new());
+                self.refresh_terminals(None, cx);
+            }
             "task-channel" => self.edit(|f| f.channel_id = Some(value), cx),
             "task-folder" => self.edit(|f| f.folder_id = (!value.is_empty()).then_some(value), cx),
             _ => {}
+        }
+    }
+
+    /// `automations.terminals`: the terminals, and the models with the
+    /// chosen terminal's coding agents in its working folder, after `delay`
+    /// (typing in the folder field).
+    pub fn refresh_terminals(
+        &mut self,
+        delay: Option<std::time::Duration>,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some(editor), Some(fields)) = (self.editor.as_ref(), self.fields.clone()) else {
+            return;
+        };
+        let rpc = self.rpc(cx);
+        let token = editor.token.clone();
+        self.agents_loading = true;
+        cx.notify();
+        self.terminals_call = Some(cx.spawn(
+            async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                if let Some(delay) = delay {
+                    cx.background_executor().timer(delay).await;
+                }
+                let result = rpc
+                    .call::<methods::AutomationsTerminals>(&AutomationDraftEdit {
+                        token,
+                        fields,
+                        choose_kind: None,
+                    })
+                    .await;
+                let _ = this.update(cx, |s, cx| {
+                    s.agents_loading = false;
+                    match result {
+                        Ok(found) => s.take_terminals(found),
+                        Err(e) => log::warn!("automations.terminals: {e}"),
+                    }
+                    cx.notify();
+                    // Whether the agent is still offered moved too.
+                    s.check_now(None, cx);
+                });
+            },
+        ));
+    }
+
+    fn take_terminals(&mut self, found: AutomationTerminals) {
+        if let Some(editor) = self.editor.as_mut() {
+            editor.terminals = found.terminals;
+            editor.models = found.models;
+            editor.agents_unknown = found.agents_unknown;
         }
     }
 
@@ -432,12 +576,15 @@ impl TaskEditor {
         self.failure = None;
         cx.notify();
         let sent = fields.clone();
+        let revision = self.edit_revision;
         let call = self
             .rpc(cx)
             .call::<methods::AutomationsSave>(&AutomationDraftEdit {
                 token: editor.token.clone(),
                 fields,
-                choose_kind: None,
+                // A kind chosen whose check has not answered goes with the
+                // Save: the task saved is the one chosen.
+                choose_kind: self.pending_kind.clone(),
             });
         let _ = window;
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
@@ -455,7 +602,9 @@ impl TaskEditor {
                                 t.select(Some(id), cx);
                             }
                         });
-                        if s.fields.as_ref() == Some(&sent) {
+                        // Closed only when nothing was edited (or chosen)
+                        // since the Save began: a newer choice stays open.
+                        if s.edit_revision == revision {
                             sheet::dismiss(cx);
                         } else {
                             // Typed while the save was out: it stays, to save
@@ -470,6 +619,7 @@ impl TaskEditor {
                     }
                     Ok(state) => {
                         s.attempted = true;
+                        s.refusals += 1;
                         if state.issues.iter().any(|i| i == "scheduleIncomplete")
                             && s.fields
                                 .as_ref()
@@ -507,6 +657,10 @@ impl TaskEditor {
                 .text_size(px(cx.conduit().metrics.small))
                 .text_color(cx.conduit().roles.danger)
                 .child(SharedString::from(issue_text(found, l)))
+                .child(
+                    live_text("live", Some(issue_text(found, l).into()), Priority::High)
+                        .attempt(self.refusals),
+                )
                 .into_any_element(),
         )
     }
@@ -800,6 +954,138 @@ impl TaskEditor {
             .into_any_element()
     }
 
+    /// The terminal (when the server has one for tasks, or the task has
+    /// one), its working folder, and the model, as mobile's editor lays them
+    /// out.
+    fn model_rows(
+        &self,
+        fields: &AutomationFields,
+        editor: &AutomationEditor,
+        l: &L10n,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let mut rows = vec![];
+        let terminals = editor.terminals.clone().unwrap_or_default();
+        let terminal = fields.terminal_id.clone().unwrap_or_default();
+        if !terminals.is_empty() || !terminal.is_empty() {
+            let mut choices = vec![Choice::new("", l.scheduled_task_folder_none())];
+            choices.extend(
+                terminals
+                    .iter()
+                    .map(|t| Choice::new(t.id.clone(), t.name.clone())),
+            );
+            if !terminal.is_empty()
+                && editor.terminals.is_some()
+                && !terminals.iter().any(|t| t.id == terminal)
+            {
+                choices.push(
+                    Choice::new(
+                        terminal.clone(),
+                        l.scheduled_task_model_unavailable(&terminal),
+                    )
+                    .separated(),
+                );
+            }
+            rows.push(
+                forms::form_row(
+                    l.terminal(),
+                    controls::popup(
+                        "task-terminal",
+                        &l.terminal(),
+                        choices,
+                        &terminal,
+                        editor.terminals.is_none(),
+                        window,
+                        cx,
+                    ),
+                    cx,
+                )
+                .into_any_element(),
+            );
+            if !terminal.is_empty() {
+                rows.push(
+                    forms::field(
+                        l.scheduled_task_working_folder_label(),
+                        &self.cwd,
+                        None,
+                        None,
+                        window,
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+        }
+        let models = editor.models.clone().unwrap_or_default();
+        let mut choices: Vec<Choice> = vec![];
+        for (i, m) in models.iter().enumerate() {
+            let choice = Choice::new(
+                m.id.clone(),
+                if m.name.trim().is_empty() {
+                    m.id.clone()
+                } else {
+                    m.name.clone()
+                },
+            );
+            // The terminal's agents follow the account's models.
+            let first_agent = m.agent && models.get(i.wrapping_sub(1)).is_some_and(|p| !p.agent);
+            choices.push(if first_agent {
+                choice.separated()
+            } else {
+                choice
+            });
+        }
+        let model_id = fields.model_id.trim().to_string();
+        // An agent's id is an address: name it as the picker does.
+        let agent_name = editor
+            .agent_name
+            .clone()
+            .filter(|_| editor.fields.model_id.trim() == model_id);
+        let shown = if model_id.is_empty() {
+            l.scheduled_task_model_choose()
+        } else {
+            let listed = models.iter().any(|m| m.id == model_id);
+            if !listed && (self.agents_loading && agent_name.is_some()) {
+                choices.push(Choice::new(
+                    model_id.clone(),
+                    l.scheduled_task_agents_loading(),
+                ));
+            } else if !listed && editor.agents_unknown && agent_name.is_some() {
+                // Whether the terminal still offers it is not known.
+                choices.push(Choice::new(model_id.clone(), agent_name.clone().unwrap()));
+            } else if !listed && editor.models.is_some() {
+                choices.push(
+                    Choice::new(
+                        model_id.clone(),
+                        l.scheduled_task_model_unavailable(
+                            agent_name.as_deref().unwrap_or(&model_id),
+                        ),
+                    )
+                    .separated(),
+                );
+            }
+            model_id
+        };
+        rows.push(
+            forms::form_row(
+                l.scheduled_task_model_label(),
+                controls::popup(
+                    "task-model",
+                    &l.scheduled_task_model_label(),
+                    choices,
+                    &shown,
+                    false,
+                    window,
+                    cx,
+                ),
+                cx,
+            )
+            .into_any_element(),
+        );
+        rows
+    }
+
     fn destination_rows(
         &self,
         fields: &AutomationFields,
@@ -899,7 +1185,52 @@ impl TaskEditor {
     }
 }
 
+/// `fields` on terminal `id` (None: no terminal), as the core's
+/// `AutomationDraft.withTerminal` moves a draft: another terminal starts from
+/// its own folder (none typed) and keeps no coding agent of another terminal.
+/// Done in the edit that changes the terminal, so every request after it
+/// (the check, the terminals' list, a Save) carries the moved draft, whether
+/// or not an answer to an earlier one reached the editor.
+fn moved_to_terminal(fields: &mut AutomationFields, id: Option<String>) {
+    if fields.terminal_id == id {
+        return;
+    }
+    if agent_terminal(&fields.model_id).is_some_and(|on| Some(&on) != id.as_ref()) {
+        fields.model_id = String::new();
+    }
+    fields.working_directory = None;
+    fields.terminal_id = id;
+}
+
+/// The terminal a coding agent's model id names
+/// (`agent:<terminal>:<agent>:<model>`, the terminal URL-encoded), or None
+/// for another model.
+fn agent_terminal(model_id: &str) -> Option<String> {
+    let rest = model_id.trim().strip_prefix("agent:")?;
+    let (terminal, after) = rest.split_once(':')?;
+    let (agent, model) = after.split_once(':')?;
+    if terminal.is_empty() || agent.is_empty() || model.is_empty() {
+        return None;
+    }
+    Some(crate::stores::media::percent_decode(terminal))
+}
+
+/// Whether `model_id` names one of the terminal's coding agents the editor
+/// offers (or the task's own, while the terminal is not asked).
+fn is_agent(editor: &AutomationEditor, model_id: &str) -> bool {
+    let id = model_id.trim();
+    editor
+        .models
+        .as_ref()
+        .is_some_and(|m| m.iter().any(|m| m.id == id && m.agent))
+        || (editor.agent_name.is_some() && editor.fields.model_id.trim() == id)
+}
+
 impl SheetBody for TaskEditor {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -1000,6 +1331,9 @@ impl Render for TaskEditor {
         if let Some(rule) = self.rrule_pending.take() {
             self.rrule.update(cx, |s, cx| s.set_value(rule, window, cx));
         }
+        if let Some(folder) = self.cwd_pending.take() {
+            self.cwd.update(cx, |s, cx| s.set_value(folder, window, cx));
+        }
         let focus = self.focus.clone();
         let mut body: Vec<AnyElement> = vec![
             div()
@@ -1016,12 +1350,17 @@ impl Render for TaskEditor {
             body.push(
                 forms::form_group(
                     vec![
-                        forms::field(
+                        forms::field_answered(
                             l.scheduled_task_name_label(),
                             &self.name,
                             None,
-                            self.issue("nameRequired")
-                                .then(|| l.scheduled_task_name_required().into()),
+                            forms::Answer {
+                                error: self
+                                    .issue("nameRequired")
+                                    .then(|| l.scheduled_task_name_required().into()),
+                                attempt: self.refusals,
+                            },
+                            false,
                             window,
                             cx,
                         )
@@ -1073,55 +1412,19 @@ impl Render for TaskEditor {
                 prompt = prompt.child(line);
             }
             body.push(prompt.into_any_element());
-            // Model.
-            let models = editor.models.clone().unwrap_or_default();
-            let mut choices: Vec<Choice> = models
-                .iter()
-                .map(|m| {
-                    Choice::new(
-                        m.id.clone(),
-                        if m.name.trim().is_empty() {
-                            m.id.clone()
-                        } else {
-                            m.name.clone()
-                        },
-                    )
-                })
-                .collect();
-            let shown = if fields.model_id.trim().is_empty() {
-                l.scheduled_task_model_choose()
-            } else {
-                if editor.models.is_some() && !models.iter().any(|m| m.id == fields.model_id) {
-                    choices.push(
-                        Choice::new(
-                            fields.model_id.clone(),
-                            l.scheduled_task_model_unavailable(&fields.model_id),
-                        )
-                        .separated(),
-                    );
-                }
-                fields.model_id.clone()
-            };
-            let mut model = div().flex().flex_col().gap(px(6.)).child(forms::form_group(
-                vec![
-                    forms::form_row(
-                        l.scheduled_task_model_label(),
-                        controls::popup(
-                            "task-model",
-                            &l.scheduled_task_model_label(),
-                            choices,
-                            &shown,
-                            false,
-                            window,
-                            cx,
-                        ),
-                        cx,
-                    )
-                    .into_any_element(),
-                ],
+            // Terminal, its working folder, and the model (the terminal's
+            // coding agents after the account's models).
+            let rows = self.model_rows(&fields, &editor, &l, window, cx);
+            let mut model = div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(forms::form_group(rows, cx));
+            if let Some(line) = self.issue_line(
+                &["modelRequired", "modelUnavailable", "terminalRequired"],
+                &l,
                 cx,
-            ));
-            if let Some(line) = self.issue_line(&["modelRequired", "modelUnavailable"], &l, cx) {
+            ) {
                 model = model.child(line);
             }
             body.push(model.into_any_element());
@@ -1166,18 +1469,18 @@ impl Render for TaskEditor {
                     "channelUnavailable",
                     "channelNoWrite",
                     "folderUnavailable",
+                    "agentNeedsChat",
                 ],
                 &l,
                 cx,
             ) {
                 group = group.child(line);
+            } else if is_agent(&editor, &fields.model_id) && fields.target != "channel" {
+                // A coding agent posts only to a new chat: said where the
+                // results go.
+                group = group.child(forms::group_footer(l.scheduled_task_agent_needs_chat(), cx));
             }
             body.push(group.into_any_element());
-            if editor.terminal {
-                body.push(
-                    forms::group_footer(l.scheduled_task_terminal_kept(), cx).into_any_element(),
-                );
-            }
         } else if self.failure.is_none() {
             body.push(
                 div()
@@ -1309,6 +1612,483 @@ mod tests {
                 "the rule kept is not the one typed"
             );
         });
+    }
+
+    /// Another terminal is chosen and another field edited before the
+    /// daemon answers the change: every request from the change on carries
+    /// the moved draft (no folder of the old terminal, none of its agents),
+    /// so a Save never puts the old terminal's folder on the new one.
+    #[gpui_kit::test]
+    fn a_terminal_change_moves_every_request_after_it(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Nightly lint",
+                    "prompt": "Run the linter and summarise",
+                    "modelId": "agent:term%2Dnorth:codex:gpt-test",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 2, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=2;BYMINUTE=0"
+                    },
+                    "target": "chat",
+                    "terminalId": "term-north",
+                    "workingDirectory": "/srv/north-repo"
+                },
+                "terminal": true
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::AutomationsTerminals>(|_| {
+            Ok(serde_json::json!({"terminals": [], "models": [], "agentsUnknown": false}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        // The change's check is still unanswered when the name is edited:
+        // its answer never reaches the editor.
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.on_choice(
+                    &SettingsChoice {
+                        menu: "task-terminal".into(),
+                        value: "term-south".into(),
+                    },
+                    cx,
+                );
+                e.edit(|f| f.name = "Nightly lint (south)".into(), cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let lists = daemon.calls::<methods::AutomationsTerminals>();
+        let sent: Vec<&serde_json::Value> = checks[before..]
+            .iter()
+            .chain(lists.iter())
+            .map(|p| &p["fields"])
+            .collect();
+        assert!(
+            sent.len() >= 3,
+            "the change, the edit and the terminals' list went out"
+        );
+        for fields in sent {
+            assert_eq!(fields["terminalId"], "term-south");
+            assert!(
+                fields.get("workingDirectory").is_none_or(|v| v.is_null()),
+                "a request after the change carried the old terminal's folder: {fields}"
+            );
+            assert_eq!(
+                fields["modelId"], "",
+                "a request after the change kept the old terminal's agent"
+            );
+        }
+        vcx.update(|_, cx| {
+            let f = task.read(cx).fields.clone().expect("the fields");
+            assert_eq!(f.working_directory, None);
+            assert_eq!(f.model_id, "");
+        });
+    }
+
+    /// Weekly is chosen while the terminal's agents are still being asked
+    /// for: the check that follows their answer carries the choice, so the
+    /// schedule the editor keeps (and saves) is the one chosen.
+    #[gpui_kit::test]
+    fn a_terminal_answer_never_drops_a_schedule_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat",
+                    "terminalId": "term-north"
+                },
+                "terminal": true
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        daemon.on::<methods::AutomationsTerminals>(|_| {
+            Ok(serde_json::json!({"terminals": [], "models": [], "agentsUnknown": false}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        // Weekly's check has not answered when the terminal's agents do.
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                e.refresh_terminals(None, cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let after: Vec<_> = checks[before..].iter().collect();
+        assert!(
+            after.len() >= 2,
+            "the choice and the terminals' recheck went out"
+        );
+        assert_eq!(
+            after.last().expect("a check")["chooseKind"],
+            "weekly",
+            "the check after the terminal's answer dropped the schedule choice"
+        );
+    }
+
+    /// Weekly is chosen, then a rule typed before Weekly's check answers:
+    /// the typed rule is the newer edit, and no check after it carries the
+    /// older choice, so the schedule kept (and saved) is the rule typed.
+    #[gpui_kit::test]
+    fn a_rule_typed_after_a_kind_choice_wins(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        let monthly = "RRULE:FREQ=MONTHLY;BYMONTHDAY=1;BYHOUR=9;BYMINUTE=0";
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                e.type_rule(monthly.to_string(), cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        let last = checks[before..].last().expect("a check");
+        assert!(
+            last.get("chooseKind").is_none_or(|k| k.is_null()),
+            "the typed rule's check carried the older kind choice: {last}"
+        );
+        assert_eq!(last["fields"]["schedule"]["rrule"], monthly);
+        vcx.update(|_, cx| {
+            let f = task.read(cx).fields.clone().expect("the fields");
+            assert_eq!(f.schedule.rrule, monthly);
+            assert_eq!(f.schedule.kind, "custom");
+        });
+    }
+
+    /// Weekly's check fails: the choice is not carried by a later check of
+    /// another field (it was not taken), so that check never turns the
+    /// schedule Weekly behind the user's back.
+    #[gpui_kit::test]
+    fn a_failed_kind_check_drops_the_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        let task = vcx
+            .update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens");
+        let before = daemon.calls::<methods::AutomationsCheckDraft>().len();
+        daemon.once::<methods::AutomationsCheckDraft>(Err(conduit_daemon::protocol::error(
+            "rpc.serverError",
+            "the check was refused",
+        )));
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.run_until_parked();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.edit(|f| f.name = "Allotment digest (late)".into(), cx)
+            })
+        });
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        assert_eq!(checks[before]["chooseKind"], "weekly");
+        let last = checks.last().expect("a check");
+        assert!(
+            last.get("chooseKind").is_none_or(|k| k.is_null()),
+            "a check after the failed one carried its kind choice: {last}"
+        );
+    }
+
+    /// A Daily task's editor, open, with checks that echo what they are sent.
+    fn daily_editor(
+        daemon: &crate::stores::rpc::fake::FakeDaemon,
+        stores: &crate::stores::Stores,
+        vcx: &mut VisualTestContext,
+    ) -> Entity<TaskEditor> {
+        daemon.on::<methods::AutomationsEditor>(|_| {
+            Ok(serde_json::json!({
+                "token": "te-1",
+                "isNew": true,
+                "fields": {
+                    "name": "Allotment digest",
+                    "prompt": "List what to sow this week",
+                    "modelId": "m1",
+                    "active": true,
+                    "schedule": {
+                        "kind": "daily", "year": 0, "month": 0, "day": 0,
+                        "hour": 9, "minute": 0, "days": [],
+                        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0"
+                    },
+                    "target": "chat"
+                },
+                "terminal": false
+            }))
+        });
+        daemon.on::<methods::AutomationsCheckDraft>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": true}))
+        });
+        let s = stores.clone();
+        vcx.update(|window, cx| open(s, None, window, cx));
+        vcx.run_until_parked();
+        draw_sheet(vcx);
+        vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+            .expect("the editor opens")
+    }
+
+    /// Weekly is chosen and, before its check answers, `then` edits the
+    /// editor: the kind the last check carries.
+    fn kind_after(
+        cx: &mut gpui_kit::TestAppContext,
+        then: impl FnOnce(&mut TaskEditor, &mut Context<TaskEditor>),
+    ) -> serde_json::Value {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            task.update(cx, |e, cx| {
+                e.choose_kind("weekly", cx);
+                then(e, cx);
+            })
+        });
+        vcx.run_until_parked();
+        held.release();
+        vcx.run_until_parked();
+        let checks = daemon.calls::<methods::AutomationsCheckDraft>();
+        checks.last().expect("a check")["chooseKind"].clone()
+    }
+
+    /// Another kind chosen before Weekly's check answers replaces it.
+    #[gpui_kit::test]
+    fn another_kind_replaces_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| e.choose_kind("once", cx));
+        assert_eq!(kind, "once");
+    }
+
+    /// A schedule control changed before Weekly's check answers is the
+    /// newer schedule edit: no check after it carries Weekly.
+    #[gpui_kit::test]
+    fn a_schedule_edit_drops_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| e.edit_schedule(|f| f.schedule.hour = 7, cx));
+        assert!(
+            kind.is_null(),
+            "a check after the schedule edit carried Weekly: {kind}"
+        );
+    }
+
+    /// The name edited before Weekly's check answers is no schedule edit:
+    /// its check carries Weekly, so the choice is not lost to it.
+    #[gpui_kit::test]
+    fn a_name_edit_keeps_a_pending_choice(cx: &mut gpui_kit::TestAppContext) {
+        let kind = kind_after(cx, |e, cx| {
+            e.edit(|f| f.name = "Allotment digest (late)".into(), cx)
+        });
+        assert_eq!(kind, "weekly");
+    }
+
+    /// Weekly is chosen and Save pressed before Weekly's check answers: the
+    /// Save carries the choice, so the task saved is Weekly, never the Daily
+    /// fields from before it.
+    #[gpui_kit::test]
+    fn a_save_carries_a_pending_kind_choice(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        let held = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        let saves = daemon.calls::<methods::AutomationsSave>();
+        assert_eq!(saves.len(), 1);
+        assert_eq!(
+            saves[0]["chooseKind"], "weekly",
+            "Save sent the fields from before the kind choice"
+        );
+        drop(held);
+    }
+
+    /// A Save on Daily is out when Weekly is chosen: the Save succeeding
+    /// does not close the editor, so the newer choice is kept (and goes on
+    /// to be saved), not lost with the sheet.
+    #[gpui_kit::test]
+    fn a_choice_made_while_saving_keeps_the_editor_open(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        let saving = daemon.hold::<methods::AutomationsSave>();
+        let checks = daemon.hold::<methods::AutomationsCheckDraft>();
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        vcx.update(|_, cx| task.update(cx, |e, cx| e.choose_kind("weekly", cx)));
+        vcx.run_until_parked();
+        saving.release();
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+                .is_some(),
+            "the Save closed the editor over a newer choice"
+        );
+        let sent = daemon.calls::<methods::AutomationsCheckDraft>();
+        assert_eq!(sent.last().expect("a check")["chooseKind"], "weekly");
+        drop(checks);
+    }
+
+    /// A Save with no edit after it closes the editor.
+    #[gpui_kit::test]
+    fn a_save_with_nothing_newer_closes_the_editor(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({"fields": p["fields"], "changed": false, "saved": true}))
+        });
+        vcx.update(|_, cx| {
+            let window = sheet::current_window(cx).expect("the sheet's window");
+            let _ = window.update(cx, |_, window, cx| {
+                task.update(cx, |e, cx| e.save(window, cx))
+            });
+        });
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| sheet::current::<TaskEditor>(cx))
+                .is_none()
+        );
+    }
+
+    /// A Save refused twice for the same issue, with no edit between, is
+    /// heard twice; a redraw says nothing more.
+    #[gpui_kit::test]
+    fn each_refused_save_is_heard(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let (daemon, stores, vcx) = bench(cx);
+        vcx.update(|_, cx| AnnouncementLog::install(cx));
+        let task = daily_editor(&daemon, &stores, vcx);
+        daemon.on::<methods::AutomationsSave>(|p| {
+            Ok(serde_json::json!({
+                "fields": p["fields"], "changed": false, "saved": false,
+                "issues": ["promptRequired"]
+            }))
+        });
+        let save = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| {
+                let window = sheet::current_window(cx).expect("the sheet's window");
+                let _ = window.update(cx, |_, window, cx| {
+                    task.update(cx, |e, cx| e.save(window, cx))
+                });
+            });
+            vcx.run_until_parked();
+            draw_sheet(vcx);
+        };
+        let refused = L10n::new("en").scheduled_task_prompt_required();
+        let heard = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| AnnouncementLog::texts(cx))
+                .iter()
+                .filter(|t| t.as_ref() == refused)
+                .count()
+        };
+        save(vcx);
+        assert_eq!(heard(vcx), 1);
+        save(vcx);
+        draw_sheet(vcx);
+        assert_eq!(heard(vcx), 2, "the second refusal was not heard");
     }
 
     /// With Full Keyboard Access on, Tab reaches Advanced Schedule and

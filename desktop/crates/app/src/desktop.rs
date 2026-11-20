@@ -14,10 +14,14 @@
 //!   selected text quoted (a new chat when Quick Ask is off or not ready);
 //!   "New Conduit Chat With Selection" opens a new chat with it
 //!   ([`crate::shell::services`]).
-//! * **Answer notifications** on `turn.finished`, unless the chat is in
-//!   front of the user ([`notify::decide`]). Permission is asked the first
-//!   time the setting is turned on or a notification would go out. A
-//!   click shows the main window on that chat.
+//! * **Notifications** on `turn.finished` and `channels.posted`, as the
+//!   core decides them (`notifications.route`, Settings › Notifications):
+//!   an in-app banner while the app is in front, a system notification
+//!   behind it, with the cue or the system's sound, or nothing for what is
+//!   on screen. An answer a shortcut waits for gets none. Permission is
+//!   asked the first time notifications are turned on or a system
+//!   notification would go out. A click on either shows the main window on
+//!   that chat or channel.
 //! * **Quick Ask**: a `PopUp` window ([`QuickAskView`]) placed on the
 //!   display under the pointer, shown by the global shortcut, the menu-bar
 //!   item or Window › Quick Ask, hidden on Esc or when it loses focus to
@@ -39,24 +43,28 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use conduit_components::window as cw;
-use conduit_protocol::{Event, NoticeLevel, TurnFinished, events};
+use conduit_protocol::{
+    ChannelKind, Event, NoticeLevel, NotificationRoute, NotificationRouteParams,
+    NotificationSettingsPatch, NotifyKind, NotifySurface, TurnFinished, events, methods,
+};
 use futures::StreamExt as _;
 use futures::channel::mpsc;
 use gpui_kit::{AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, px, size};
 
 use crate::AppState;
 use crate::l10n::ActiveL10n as _;
-use crate::shell::deep_link::{self, OpenRequest};
+use crate::shell::deep_link::{self, Compose, OpenRequest};
 use crate::shell::notify::{self, NotificationKind, OnScreen};
 use crate::shell::open_files;
 use crate::shell::services::{self, ServiceRequest};
 use crate::shell::share_inbox;
 use crate::shell::widget::{self, Snapshot};
-use crate::stores::connection::ConnectionEvent;
+use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsEvent;
 use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess, ShellStore};
+use crate::views::chat_pane::NewChatContent;
 use crate::views::quick_ask::{QuickAskEvent, QuickAskView};
 use crate::views::settings::Tab;
 #[cfg(target_os = "macos")]
@@ -78,9 +86,14 @@ pub fn url_channel() -> (UrlSender, UrlReceiver) {
 pub struct Desktop {
     pub shell: Entity<ShellStore>,
     pub quick_ask: Option<(AnyWindowHandle, Entity<QuickAskView>)>,
-    /// "Notify when an answer finishes" as last applied: permission is
-    /// asked when it turns on, not on every Settings › Desktop change.
-    notify_answers: bool,
+    /// The notifications switch as last seen: permission is asked when it
+    /// turns on, not on every change in Settings › Notifications.
+    notifications_on: bool,
+    /// E2E: the app counts as behind other apps, so the core picks system
+    /// notifications (a run can't send the app to the back reliably).
+    e2e_background: bool,
+    /// E2E: what each notification did, newest last.
+    routed: Vec<Routed>,
     pub widget: WidgetFeed,
     #[cfg(target_os = "macos")]
     platform: Platform,
@@ -89,6 +102,9 @@ pub struct Desktop {
 #[cfg(target_os = "macos")]
 #[derive(Default)]
 struct Platform {
+    /// What Continuity Camera's requestor hands over (made with the first
+    /// + menu that offers it).
+    continuity: Option<mpsc::UnboundedSender<crate::shell::continuity_camera::Imported>>,
     notifier: Option<crate::shell::notifications::Notifier>,
     hotkey: Option<crate::shell::hotkey::Hotkey>,
     tray: Option<crate::shell::tray::MenuBarItem>,
@@ -109,7 +125,9 @@ pub fn install_without_services(cx: &mut App) {
     cx.set_global(Desktop {
         shell,
         quick_ask: None,
-        notify_answers: false,
+        notifications_on: false,
+        e2e_background: false,
+        routed: vec![],
         widget: WidgetFeed::default(),
         #[cfg(target_os = "macos")]
         platform: Platform::default(),
@@ -124,13 +142,15 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         s.hidden_start = hidden;
         s
     });
-    let notify_answers = cx
+    let notifications_on = cx
         .try_global::<AppState>()
-        .is_some_and(|s| s.settings.read(cx).prefs.desktop.notify_answers);
+        .is_some_and(|s| s.stores.notifications.read(cx).settings().enabled);
     cx.set_global(Desktop {
         shell: shell.clone(),
         quick_ask: None,
-        notify_answers,
+        notifications_on,
+        e2e_background: false,
+        routed: vec![],
         widget: WidgetFeed::open(),
         #[cfg(target_os = "macos")]
         platform: Platform::default(),
@@ -138,6 +158,7 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     #[cfg(target_os = "macos")]
     install_platform(cx);
     apply_settings(cx);
+    install_dock_menu(cx);
 
     let Some(state) = cx.try_global::<AppState>() else {
         return;
@@ -149,20 +170,15 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
     );
     cx.subscribe(&settings, |settings, event, cx| match event {
         SettingsEvent::DesktopChanged => {
+            let _ = &settings;
             apply_settings(cx);
             // The Quick Ask chord beside its item.
             relabel_tray(cx);
-            // Turning notifications on asks for permission (if the system
-            // hasn't asked yet); other changes don't.
-            let now = settings.read(cx).prefs.desktop.notify_answers;
-            let before = std::mem::replace(&mut cx.global_mut::<Desktop>().notify_answers, now);
-            if now && !before {
-                ensure_permission(false, cx);
-            }
         }
         // New words, or new chords beside New Chat.
         SettingsEvent::LocaleChanged | SettingsEvent::KeymapChanged => {
             relabel_tray(cx);
+            set_dock_menu(cx);
             // The widget speaks the app's language.
             schedule_widget(cx);
         }
@@ -183,15 +199,25 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
         .detach();
     cx.observe(&stores.chat_list, |_, cx| schedule_widget(cx))
         .detach();
-    // `turn.finished` is unscoped: it comes for chats that are not open.
-    // `channels.posted` too: someone else posted in a channel not in front.
-    connection.update(cx, |c, _| {
-        c.subscribe(
-            NOTIFICATIONS_KEY,
-            &[events::TURN_FINISHED, events::CHANNELS_POSTED],
-            vec![],
-        )
-    });
+    // Turning notifications on asks for permission (if the system hasn't
+    // asked yet); other changes don't.
+    cx.observe(&stores.notifications, |store, cx| {
+        let now = store.read(cx).settings().enabled;
+        let before = std::mem::replace(&mut cx.global_mut::<Desktop>().notifications_on, now);
+        if now && !before && store.read(cx).loaded {
+            ensure_permission(false, cx);
+        }
+    })
+    .detach();
+    // The two switches Settings › General had before Settings ›
+    // Notifications: a choice turned off there moves to the core once.
+    cx.subscribe(&connection, |_, event, cx| {
+        if matches!(event, ConnectionEvent::Connected { .. }) {
+            move_old_switches(cx);
+        }
+    })
+    .detach();
+    follow_alerts(&connection, cx);
     cx.subscribe(&connection, |_, event, cx| {
         let ConnectionEvent::Daemon(event) = event else {
             return;
@@ -204,6 +230,18 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
             Event::ChannelsPosted(posted) => {
                 let posted = posted.clone();
                 cx.defer(move |cx| on_channel_posted(&posted, cx));
+            }
+            // An Open WebUI answer this Mac did not run (another device, a
+            // scheduled task): notified as an answer of its own would be.
+            Event::NotificationsAnswered(notice) => {
+                let finished = TurnFinished {
+                    chat_id: notice.chat_id.clone(),
+                    message_id: notice.message_id.clone(),
+                    ok: true,
+                    code: None,
+                    queued: false,
+                };
+                cx.defer(move |cx| on_turn_finished(&finished, cx));
             }
             _ => {}
         }
@@ -280,6 +318,8 @@ pub fn open_request(request: OpenRequest, cx: &mut App) {
 fn describe(request: &OpenRequest) -> &'static str {
     match request {
         OpenRequest::Share { .. } => "share",
+        OpenRequest::Clipboard => "clipboard",
+        OpenRequest::Compose(_) => "new chat with content",
         OpenRequest::Chat { .. } => "chat",
         OpenRequest::NewChat { files, .. } if !files.is_empty() => "new chat with files",
         OpenRequest::NewChat { .. } => "new chat",
@@ -343,58 +383,34 @@ fn dispatch(request: OpenRequest, cx: &mut App) {
             let Some((text, attachments)) = take_quick_ask_draft(id, cx) else {
                 return;
             };
-            open_new_chat(text, vec![], attachments, cx);
+            open_new_chat(
+                Compose {
+                    text,
+                    ..Compose::default()
+                },
+                attachments,
+                false,
+                cx,
+            );
         }
-        OpenRequest::NewChat { text, files } => open_new_chat(text, files, vec![], cx),
+        OpenRequest::NewChat { text, files } => open_new_chat(
+            Compose {
+                text,
+                files,
+                ..Compose::default()
+            },
+            vec![],
+            false,
+            cx,
+        ),
+        OpenRequest::Compose(compose) => open_new_chat(*compose, vec![], true, cx),
+        OpenRequest::Clipboard => open_clipboard(cx),
         OpenRequest::Share { id } => open_share(&id, cx),
         OpenRequest::Channel { id } => open_item(AreaItem::Channel(id), cx),
         OpenRequest::Note { id } => open_item(AreaItem::Note(id), cx),
         OpenRequest::QuickAsk { text } => quick_ask_with(text, cx),
         OpenRequest::VoiceCall => start_voice_call(cx),
     }
-}
-
-/// The main window on a new chat with `text`, the files at `files` and
-/// `attachments` (already uploaded) in its composer, never sent; toasts for
-/// files left out.
-fn open_new_chat(
-    text: Option<String>,
-    files: Vec<std::path::PathBuf>,
-    carried: Vec<crate::stores::composer::Attachment>,
-    cx: &mut App,
-) {
-    show_main(cx);
-    let plan = open_files::plan(&files, open_files::file_size);
-    for path in &plan.skipped {
-        log::info!("open with: skipped a folder or missing file");
-        let _ = path;
-    }
-    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
-    crate::with_main_view(cx, move |view, window, cx| {
-        view.new_chat(false, window, cx);
-        let pane = view.chat_pane.clone();
-        // After this update: the pane follows the new selection as it ends,
-        // and its draft switch empties the message box (a chat was open
-        // before), so the text goes in after that.
-        cx.spawn_in(window, async move |_, cx| {
-            let _ = pane.update_in(cx, |p, window, cx| {
-                if let Some(text) = &text {
-                    p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
-                }
-                if !plan.accepted.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.add_paths(&plan.accepted, cx));
-                }
-                if !carried.is_empty() {
-                    p.composer_store
-                        .update(cx, |c, cx| c.adopt_attachments(carried, cx));
-                }
-                p.focus_composer(window, cx);
-            });
-        })
-        .detach();
-    });
-    refused_files(too_many, &too_large, cx);
 }
 
 /// The Quick Ask panel, as the menu-bar item and the hotkey show it; with
@@ -438,7 +454,7 @@ fn start_voice_call(cx: &mut App) {
         });
         return;
     }
-    open_new_chat(None, vec![], vec![], cx);
+    open_new_chat(Compose::default(), vec![], false, cx);
     // After open_new_chat's own task: the pane shows the new chat by then,
     // and the call takes that chat's Temporary switch and folder.
     crate::with_main_view(cx, |view, window, cx| {
@@ -448,6 +464,96 @@ fn start_voice_call(cx: &mut App) {
         })
         .detach();
     });
+}
+
+/// A new chat in the main window with the text in the composer and the
+/// files, pictures and page text attached, with `carried` attachments
+/// already uploaded (Quick Ask's Open in Conduit), never sent; toasts for
+/// files left out. `fresh`: the new chat starts empty, as the phone's Send
+/// to Conduit, Send Link, Send Image and widget Clipboard reset it (a new
+/// chat keeps an unsent draft otherwise, as New Chat does).
+fn open_new_chat(
+    compose: Compose,
+    carried: Vec<crate::stores::composer::Attachment>,
+    fresh: bool,
+    cx: &mut App,
+) {
+    let Compose {
+        text,
+        files,
+        images,
+        context,
+        owner,
+    } = compose;
+    show_main(cx);
+    let plan = open_files::plan(&files, open_files::file_size);
+    for path in &plan.skipped {
+        log::info!("open with: skipped a folder or missing file");
+        let _ = path;
+    }
+    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
+    crate::with_main_view(cx, move |view, window, cx| {
+        view.new_chat(false, window, cx);
+        // The new chat this request opened: what follows in the same batch
+        // (another link) may select something else before the write below.
+        let ticket = view.stores.navigation.read(cx).selection().clone();
+        let pane = view.chat_pane.clone();
+        let content = NewChatContent {
+            text,
+            fresh,
+            paths: plan.accepted,
+            images,
+            context,
+            carried,
+            owner,
+        };
+        // After this update: the pane follows the new selection as it ends,
+        // and its draft switch empties the message box (a chat was open
+        // before), so the text goes in after that.
+        cx.spawn_in(window, async move |_, cx| {
+            let _ = pane.update_in(cx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content, window, cx)
+            });
+        })
+        .detach();
+    });
+    refused_files(too_many, &too_large, cx);
+}
+
+/// `conduit://clipboard` (the widget's Clipboard): a new chat with the
+/// copied text in the message box, as the phone's widget opens one. Only
+/// text: any page or app can open the link, and a copied picture or copied
+/// files would be uploaded the moment they were attached, so they stay on
+/// the clipboard (⌘V in the new chat attaches them). An empty clipboard
+/// still opens the new chat.
+fn open_clipboard(cx: &mut App) {
+    let item = cx.read_from_clipboard();
+    let compose = clipboard_compose(item.as_ref());
+    log::info!("clipboard: text {}", compose.text.is_some());
+    open_new_chat(compose, vec![], true, cx);
+}
+
+/// What a copied item starts a new chat with from the link: its text
+/// (trimmed, as the phone trims it, cut to [`deep_link::MAX_TEXT`]), and
+/// nothing else.
+pub fn clipboard_compose(item: Option<&gpui_kit::ClipboardItem>) -> Compose {
+    use gpui_kit::ClipboardEntry;
+    let Some(item) = item else {
+        return Compose::default();
+    };
+    let text: String = item
+        .entries()
+        .iter()
+        .filter_map(|e| match e {
+            ClipboardEntry::String(s) => Some(s.text().as_str()),
+            _ => None,
+        })
+        .collect();
+    let text = text.trim();
+    Compose {
+        text: (!text.is_empty()).then(|| text.chars().take(deep_link::MAX_TEXT).collect()),
+        ..Compose::default()
+    }
 }
 
 /// The toasts for files a new chat could not take: past the count limit,
@@ -485,7 +591,16 @@ fn open_share(id: &str, cx: &mut App) {
                 shared.files.len(),
                 shared.text.is_some()
             );
-            open_new_chat(shared.text, shared.files, vec![], cx);
+            open_new_chat(
+                Compose {
+                    text: shared.text,
+                    files: shared.files,
+                    ..Compose::default()
+                },
+                vec![],
+                false,
+                cx,
+            );
             refused_files(shared.too_many, &shared.too_large, cx);
         }
         Err(error) => {
@@ -689,7 +804,7 @@ fn snapshot_for(
 ) -> Option<Snapshot> {
     let snapshot = match route {
         Route::Unknown => return None,
-        Route::Onboarding | Route::SignIn => Snapshot::signed_out(locale),
+        Route::Onboarding | Route::SignIn | Route::ConnectionIssue => Snapshot::signed_out(locale),
         Route::Main => match recent {
             Some(recent) => Snapshot::signed_in(recent, locale, untitled),
             // Loading again for the same account: what the widget shows
@@ -1006,30 +1121,93 @@ pub fn open_notification_settings(cx: &mut App) {
 
 // ── Notifications ──────────────────────────────────────────────────────────
 
-fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
-    // An answer Shortcuts is waiting for gets no notification: the shortcut
-    // has it (crate::intents holds it until the shortcut's question ends).
-    if crate::intents::hold_notification(finished, cx) {
-        return;
-    }
-    notify_turn_finished(finished, cx);
+/// What notifies: `turn.finished` is unscoped (it comes for chats that are
+/// not open), `channels.posted` too (someone else posted in a channel not in
+/// front), and `notifications.answered` (an answer finished on another
+/// device).
+pub(crate) fn follow_alerts(connection: &Entity<ConnectionStore>, cx: &mut App) {
+    connection.update(cx, |c, _| {
+        c.subscribe(
+            NOTIFICATIONS_KEY,
+            &[
+                events::TURN_FINISHED,
+                events::CHANNELS_POSTED,
+                events::NOTIFICATIONS_ANSWERED,
+            ],
+            vec![],
+        )
+    });
 }
 
-/// The answer notification for `finished`, when one is due.
-pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
+/// Settings › General's "Notify When an Answer Finishes" and "Notify About
+/// Channel Messages" (before the Notifications pane): one turned off there
+/// is turned off in the core's settings, once.
+fn move_old_switches(cx: &mut App) {
     let Some(state) = cx.try_global::<AppState>() else {
         return;
     };
-    let enabled = state.settings.read(cx).prefs.desktop.notify_answers;
-    let on_screen = on_screen(cx);
-    let Some(kind) = notify::decide(
-        enabled,
-        &finished.chat_id,
-        notify::Outcome::of(finished.ok, finished.queued),
-        &on_screen,
-    ) else {
+    let desktop = state.settings.read(cx).prefs.desktop.clone();
+    if desktop.notifications_moved {
+        return;
+    }
+    let patch = NotificationSettingsPatch {
+        answers: (!desktop.notify_answers).then_some(false),
+        channels: (!desktop.notify_channels).then_some(false),
+        ..Default::default()
+    };
+    let settings = state.settings.clone();
+    if patch == NotificationSettingsPatch::default() {
+        settings.update(cx, |s, cx| {
+            s.set_desktop(|d| d.notifications_moved = true, cx)
+        });
+        return;
+    }
+    let notifications = state.stores.notifications.clone();
+    let rpc = state.connection.read(cx).rpc();
+    let call = rpc.call::<methods::NotificationsSet>(&patch);
+    cx.spawn(async move |cx| {
+        if let Err(e) = call.await {
+            log::warn!("moving the old notification switches: {e}");
+            return;
+        }
+        log::info!("notifications: the old General switches moved to the core");
+        cx.update(|cx| {
+            settings.update(cx, |s, cx| {
+                s.set_desktop(|d| d.notifications_moved = true, cx)
+            });
+            notifications.update(cx, |s, cx| s.refresh(cx));
+        });
+    })
+    .detach();
+}
+
+fn on_turn_finished(finished: &TurnFinished, cx: &mut App) {
+    let asked = notification_scope(cx);
+    // An answer Shortcuts is waiting for gets no notification: the shortcut
+    // has it (crate::intents holds it until the shortcut's question ends).
+    if crate::intents::hold_notification(finished, asked.clone(), cx) {
+        return;
+    }
+    notify_turn_finished(finished, asked, cx);
+}
+
+/// The account in charge, as a notification raised now records it: it is
+/// shown only while that account still is ([`route_via`], [`post`]).
+pub(crate) fn notification_scope(cx: &App) -> Option<String> {
+    cx.try_global::<AppState>()?
+        .stores
+        .accounts
+        .read(cx)
+        .scope_key()
+}
+
+/// The answer notification for `finished`, raised while `asked` was the
+/// account in charge, as the core routes it.
+pub(crate) fn notify_turn_finished(finished: &TurnFinished, asked: Option<String>, cx: &mut App) {
+    let Some(kind) = notify::kind_for(notify::Outcome::of(finished.ok, finished.queued)) else {
         return;
     };
+    let on_screen = on_screen(cx);
     let title = chat_title(&finished.chat_id, cx);
     let l10n = cx.l10n().clone();
     let (untitled, ready, failed) = (
@@ -1047,27 +1225,33 @@ pub(crate) fn notify_turn_finished(finished: &TurnFinished, cx: &mut App) {
             failed: &failed,
         },
     );
-    log::info!(
-        "notification: {}",
-        match kind {
-            NotificationKind::Ready => "answer ready",
-            NotificationKind::Failed => "answer failed",
-        }
+    let level = match kind {
+        NotificationKind::Ready => NoticeLevel::Info,
+        NotificationKind::Failed => NoticeLevel::Warning,
+    };
+    route(
+        NotificationRouteParams {
+            kind: NotifyKind::Answer,
+            foreground: on_screen.app_active,
+            viewing: on_screen.shows(&finished.chat_id),
+            alert: true,
+            mention: false,
+            direct: false,
+        },
+        n,
+        level,
+        OpenRequest::Chat {
+            id: finished.chat_id.clone(),
+        },
+        asked,
+        cx,
     );
-    post(n, cx);
 }
 
-/// Someone else posted in a channel not in front of the user: a
-/// notification, by mobile's rules (the daemon's `alert`) and the setting.
+/// Someone else posted in a channel: the core decides by the settings and
+/// the channel's own (the daemon's `alert`), mobile's rules.
 fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
-    let Some(state) = cx.try_global::<AppState>() else {
-        return;
-    };
-    let enabled = state.settings.read(cx).prefs.desktop.notify_channels;
     let on_screen = on_screen(cx);
-    if !notify::decide_channel(enabled, posted.alert, &posted.channel_id, &on_screen) {
-        return;
-    }
     let l10n = cx.l10n().clone();
     let title_in =
         |author: &str, channel: &str| l10n.desktop_channel_notification_title(author, channel);
@@ -1088,20 +1272,203 @@ fn on_channel_posted(posted: &conduit_protocol::ChannelPosted, cx: &mut App) {
             unknown: &unknown,
         },
     );
-    log::info!("notification: channel message");
-    post(n, cx);
+    route(
+        NotificationRouteParams {
+            kind: NotifyKind::ChannelMessage,
+            foreground: on_screen.app_active,
+            viewing: on_screen.shows_channel(&posted.channel_id),
+            alert: posted.alert,
+            mention: posted.mention,
+            direct: posted.kind == ChannelKind::Dm,
+        },
+        n,
+        NoticeLevel::Info,
+        OpenRequest::Channel {
+            id: posted.channel_id.clone(),
+        },
+        notification_scope(cx),
+        cx,
+    );
 }
 
-/// What the user can see now, for [`notify::decide`].
+/// Asks the core what `n`, raised while `asked` was the account in
+/// charge ([`notification_scope`]), does, then does it.
+fn route(
+    params: NotificationRouteParams,
+    n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    asked: Option<String>,
+    cx: &mut App,
+) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let rpc = state.connection.read(cx).rpc();
+    let accounts = state.stores.accounts.clone();
+    route_via(rpc, (accounts, asked), params, n, level, open, cx);
+}
+
+/// Whether `asked`, the account in charge when a notification was raised,
+/// still is: once another one is, the notification (of the last one's chat
+/// or channel) is dropped. Checked when the core's answer lands, and again
+/// right before a system notification is posted.
+fn still_in_charge(
+    accounts: &Entity<crate::stores::accounts::AccountsStore>,
+    asked: &Option<String>,
+    cx: &App,
+) -> bool {
+    let same = accounts.read(cx).scope_key() == *asked;
+    if !same {
+        log::info!("notification: dropped, another account is in charge now");
+    }
+    same
+}
+
+/// [`route`] over `rpc`.
+fn route_via(
+    rpc: crate::stores::rpc::Rpc,
+    (accounts, asked): RaisedFor,
+    params: NotificationRouteParams,
+    n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    cx: &mut App,
+) {
+    let call = rpc.call::<methods::NotificationsRoute>(&params);
+    cx.spawn(async move |cx| match call.await {
+        Ok(route) => cx.update(|cx| {
+            if still_in_charge(&accounts, &asked, cx) {
+                present(route, n, level, open, (accounts, asked), cx)
+            }
+        }),
+        Err(e) => log::warn!("notifications.route: {e}"),
+    })
+    .detach();
+}
+
+/// The account a notification was raised for, and where to read the one in
+/// charge, for the check right before it is posted.
+type RaisedFor = (
+    Entity<crate::stores::accounts::AccountsStore>,
+    Option<String>,
+);
+
+fn present(
+    route: NotificationRoute,
+    mut n: notify::Notification,
+    level: NoticeLevel,
+    open: OpenRequest,
+    raised_for: RaisedFor,
+    cx: &mut App,
+) {
+    log::info!(
+        "notification: {}{}",
+        match route.surface {
+            NotifySurface::Banner => "banner",
+            NotifySurface::System => "system",
+            NotifySurface::Silent => "silent",
+            NotifySurface::Suppressed | NotifySurface::Unknown => "none",
+        },
+        if route.cue { " with the cue" } else { "" }
+    );
+    if cx.has_global::<Desktop>() {
+        let routed = &mut cx.global_mut::<Desktop>().routed;
+        routed.push(Routed {
+            id: n.id.clone(),
+            surface: route.surface,
+            cue: route.cue,
+            system_sound: route.system_sound,
+        });
+        let excess = routed.len().saturating_sub(64);
+        routed.drain(..excess);
+    }
+    match route.surface {
+        NotifySurface::Banner => {
+            if route.cue {
+                play_cue();
+            }
+            banner(&n, level, open, cx);
+        }
+        // The system notification makes its own sound.
+        NotifySurface::System => {
+            n.sound = route.system_sound;
+            post(n, raised_for, cx);
+        }
+        NotifySurface::Silent => {
+            if route.cue {
+                play_cue();
+            }
+        }
+        NotifySurface::Suppressed | NotifySurface::Unknown => {}
+    }
+}
+
+/// The in-app banner: a toast with the notification's words and Open.
+fn banner(n: &notify::Notification, level: NoticeLevel, open: OpenRequest, cx: &mut App) {
+    let Some(state) = cx.try_global::<AppState>() else {
+        return;
+    };
+    let toasts = state.stores.toasts.clone();
+    let l10n = cx.l10n().clone();
+    let message = format!("{} \u{2014} {}", n.title, n.body);
+    let run = crate::stores::toasts::Retry::new(move |cx| {
+        log::info!("banner: opening its {}", describe(&open));
+        if let Some(shell) = shell(cx) {
+            shell.update(cx, |s, cx| s.push(open.clone(), cx));
+        }
+        show_main(cx);
+        drain(cx);
+    });
+    toasts.update(cx, |t, cx| {
+        t.show_with_action(level, message, l10n.notification_view_action(), run, cx)
+    });
+}
+
+/// The notification cue ("Sound Always"): the system's Glass sound.
+fn play_cue() {
+    #[cfg(target_os = "macos")]
+    crate::shell::macos::play_sound("Glass");
+}
+
+/// E2E: the app counts as behind other apps (true) or as it is (false).
+pub fn set_e2e_background(on: bool, cx: &mut App) {
+    if cx.has_global::<Desktop>() {
+        cx.global_mut::<Desktop>().e2e_background = on;
+    }
+}
+
+/// What one notification did (E2E).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Routed {
+    /// The notification's identifier (`chat:…`, `channel:…`).
+    pub id: String,
+    pub surface: NotifySurface,
+    pub cue: bool,
+    pub system_sound: bool,
+}
+
+/// E2E: what each notification did, newest last.
+pub fn routed_notifications(cx: &App) -> Vec<Routed> {
+    cx.try_global::<Desktop>()
+        .map(|d| d.routed.clone())
+        .unwrap_or_default()
+}
+
+/// What the user can see now, for the core's decision.
 pub fn on_screen(cx: &mut App) -> OnScreen {
     let mut out = OnScreen::default();
     let Some(state) = cx.try_global::<AppState>() else {
         return out;
     };
+    if cx.try_global::<Desktop>().is_some_and(|d| d.e2e_background) {
+        return out;
+    }
     let navigation = state.stores.navigation.clone();
     #[cfg(target_os = "macos")]
     {
         let active = crate::shell::macos::app_is_active();
+        out.app_active = active;
         out.main_key = active
             && main_ready(cx)
             && main_ns_window(cx).is_some_and(|w| crate::shell::macos::is_key(&w));
@@ -1234,8 +1601,10 @@ pub fn ensure_permission(quiet: bool, cx: &mut App) {
     let _ = (quiet, cx);
 }
 
-/// Delivers `n`, asking for permission first if the system hasn't asked.
-fn post(n: notify::Notification, cx: &mut App) {
+/// Delivers `n`, asking for permission first if the system hasn't asked;
+/// not once another account than the one it was raised for is in charge,
+/// which the first prompt can leave time for.
+fn post(n: notify::Notification, raised_for: RaisedFor, cx: &mut App) {
     #[cfg(target_os = "macos")]
     {
         use crate::shell::notifications::Authorization as A;
@@ -1268,7 +1637,11 @@ fn post(n: notify::Notification, cx: &mut App) {
                 log::info!("notification skipped: not allowed ({auth:?})");
                 return;
             }
+            let (accounts, asked) = raised_for;
             let sent = cx.update(|cx| {
+                if !still_in_charge(&accounts, &asked, cx) {
+                    return None;
+                }
                 cx.try_global::<Desktop>()
                     .and_then(|d| d.platform.notifier.as_ref())
                     .map(|notifier| notifier.post(&n))
@@ -1282,7 +1655,7 @@ fn post(n: notify::Notification, cx: &mut App) {
         .detach();
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (n, cx);
+    let _ = (n, raised_for, cx);
 }
 
 /// A notification was clicked: the main window on that chat.
@@ -1721,6 +2094,157 @@ fn new_chat_with(text: String, cx: &mut App) {
     drain(cx);
 }
 
+// ── Continuity Camera ──────────────────────────────────────────────────────
+
+/// Puts Continuity Camera's requestor after the main window (once per
+/// window) and takes what it reads: a photo or a scan from a nearby iPhone
+/// or iPad, attached to the main window's composer.
+#[cfg(target_os = "macos")]
+pub fn install_continuity_camera(
+    window: &objc2_app_kit::NSWindow,
+    target: crate::shell::continuity_camera::ImportTarget,
+    cx: &mut App,
+) {
+    let Some(desktop) = cx.try_global::<Desktop>() else {
+        return;
+    };
+    let sender = match &desktop.platform.continuity {
+        Some(sender) => sender.clone(),
+        None => {
+            let (sender, mut imports) = mpsc::unbounded();
+            cx.spawn(async move |cx| {
+                while let Some(imported) = imports.next().await {
+                    // Written off the main thread (a scan can be large), then
+                    // attached on it, its ticket checked there.
+                    let staged = cx
+                        .background_executor()
+                        .spawn(async move { stage_import(imported) })
+                        .await;
+                    if let Some(staged) = staged {
+                        cx.update(|cx| attach_staged_import(staged, cx));
+                    }
+                }
+            })
+            .detach();
+            cx.global_mut::<Desktop>().platform.continuity = Some(sender.clone());
+            sender
+        }
+    };
+    crate::shell::continuity_camera::install(window, sender, target);
+}
+
+/// A photo or scan from Continuity Camera, staged where the composer reads
+/// files from: its file, its name and the ticket of the + menu session it
+/// was asked in.
+pub(crate) struct StagedImport {
+    pub path: std::path::PathBuf,
+    pub name: String,
+    pub target: crate::shell::continuity_camera::ImportTarget,
+}
+
+/// Saves `imported` where the composer reads files from (on the background
+/// executor: a scan can be large), one folder each, named by the time it
+/// came (nanoseconds), so a second photo never replaces the first before
+/// the composer read it. `None` when it could not be saved.
+pub(crate) fn stage_import(
+    imported: crate::shell::continuity_camera::Imported,
+) -> Option<StagedImport> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    let folder = std::env::temp_dir()
+        .join(crate::shell::continuity_camera::IMPORT_FOLDER)
+        .join(stamp.to_string());
+    let name = imported.file_name();
+    let path = folder.join(&name);
+    if let Err(e) =
+        std::fs::create_dir_all(&folder).and_then(|()| std::fs::write(&path, &imported.bytes))
+    {
+        log::warn!("continuity camera: not saved ({e})");
+        return None;
+    }
+    Some(StagedImport {
+        path,
+        name,
+        target: imported.target,
+    })
+}
+
+/// A staged photo or scan, attached to the main window's composer only
+/// while its own ticket ([`Imported::target`], taken by the + menu session
+/// it was asked in) still matches it, checked now, after staging (a HEIC or
+/// TIFF photo goes as a JPEG, as a dropped one does).
+///
+/// [`Imported::target`]: crate::shell::continuity_camera::Imported::target
+#[cfg(target_os = "macos")]
+fn attach_staged_import(staged: StagedImport, cx: &mut App) {
+    show_main(cx);
+    crate::with_main_view(cx, move |view, window, cx| {
+        view.chat_pane.update(cx, |p, cx| {
+            p.attach_import(&staged.target, &staged.path, &staged.name, window, cx);
+        })
+    });
+}
+
+// ── The Dock icon's menu ───────────────────────────────────────────────────
+
+/// The Dock icon's menu and what its items do: the phone's home-screen
+/// quick actions (New Chat, Voice Call) and Quick Ask, each the way the
+/// app's own link of that kind goes ([`open_request`]): a new chat in the
+/// main window; a voice call in a new chat ([`start_voice_call`], never the
+/// toggling Voice Call action); the Quick Ask panel.
+fn install_dock_menu(cx: &mut App) {
+    use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+    cx.on_action(|_: &DockNewChat, cx| {
+        log::info!("dock menu: new chat");
+        cx.defer(|cx| {
+            open_request(
+                OpenRequest::NewChat {
+                    text: None,
+                    files: vec![],
+                },
+                cx,
+            )
+        });
+    });
+    cx.on_action(|_: &DockVoiceCall, cx| {
+        log::info!("dock menu: voice call");
+        cx.defer(|cx| open_request(OpenRequest::VoiceCall, cx));
+    });
+    cx.on_action(|_: &DockQuickAsk, cx| {
+        log::info!("dock menu: quick ask");
+        cx.defer(|cx| open_request(OpenRequest::QuickAsk { text: None }, cx));
+    });
+    set_dock_menu(cx);
+}
+
+/// The Dock menu's items, in the app's language (again when it changes).
+pub fn set_dock_menu(cx: &mut App) {
+    use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+    let l10n = cx.l10n().clone();
+    cx.set_dock_menu(dock_menu_items(
+        &l10n,
+        DockNewChat,
+        DockVoiceCall,
+        DockQuickAsk,
+    ));
+}
+
+/// The Dock menu's titles and actions, in order.
+pub fn dock_menu_items(
+    l10n: &crate::l10n::L10n,
+    new_chat: impl gpui_kit::Action,
+    voice_call: impl gpui_kit::Action,
+    quick_ask: impl gpui_kit::Action,
+) -> Vec<gpui_kit::MenuItem> {
+    vec![
+        gpui_kit::MenuItem::action(l10n.new_chat(), new_chat),
+        gpui_kit::MenuItem::action(l10n.voice_call_title(), voice_call),
+        gpui_kit::MenuItem::action(l10n.desktop_tray_quick_ask(), quick_ask),
+    ]
+}
+
 // ── The menu-bar item, the hotkey and notification clicks ──────────────────
 
 #[cfg(target_os = "macos")]
@@ -1967,6 +2491,176 @@ mod quick_ask_draft_tests {
 }
 
 #[cfg(test)]
+mod route_tests {
+    use gpui_kit::TestAppContext;
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    fn ready(chat: &str) -> notify::Notification {
+        notify::notification(
+            NotificationKind::Ready,
+            chat,
+            Some("Seed swap notes"),
+            &notify::Words {
+                untitled: "New Chat",
+                ready: "Answer ready",
+                failed: "Answer failed",
+            },
+        )
+    }
+
+    fn params() -> NotificationRouteParams {
+        NotificationRouteParams {
+            kind: NotifyKind::Answer,
+            foreground: false,
+            viewing: false,
+            alert: true,
+            mention: false,
+            direct: false,
+        }
+    }
+
+    /// The core's answer is for the account it was asked under: once
+    /// another account is in charge, the notification of the last one's
+    /// chat is not shown (nor recorded as routed); under the same account
+    /// it is.
+    #[gpui_kit::test]
+    fn a_route_answered_after_an_account_switch_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsRoute>(NotificationRoute {
+            surface: NotifySurface::Silent,
+            cue: false,
+            system_sound: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-route-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            install_without_services(cx);
+            crate::stores::Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let accounts = stores.accounts.clone();
+        let rpc = daemon.rpc();
+        let open = || OpenRequest::Chat { id: "c1".into() };
+
+        let held = daemon.hold::<methods::NotificationsRoute>();
+        cx.update(|cx| {
+            let asked = accounts.read(cx).scope_key();
+            route_via(
+                rpc.clone(),
+                (accounts.clone(), asked),
+                params(),
+                ready("c1"),
+                NoticeLevel::Info,
+                open(),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        drop(held);
+        cx.run_until_parked();
+        assert!(
+            cx.update(|cx| routed_notifications(cx)).is_empty(),
+            "Avery's answer was shown under Blake"
+        );
+
+        cx.update(|cx| {
+            let asked = accounts.read(cx).scope_key();
+            route_via(
+                rpc.clone(),
+                (accounts.clone(), asked),
+                params(),
+                ready("c2"),
+                NoticeLevel::Info,
+                open(),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        let routed = cx.update(|cx| routed_notifications(cx));
+        assert_eq!(routed.len(), 1);
+        assert_eq!(routed[0].surface, NotifySurface::Silent);
+    }
+
+    /// An answer that finished while Ask Conduit waited is held with the
+    /// account it finished under: released once another account is in
+    /// charge, it is not shown under that one.
+    #[gpui_kit::test]
+    fn a_held_answer_released_after_an_account_switch_is_dropped(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::NotificationsRoute>(NotificationRoute {
+            surface: NotifySurface::Silent,
+            cue: false,
+            system_sound: false,
+        });
+        let scratch = std::env::temp_dir().join(format!("conduit-held-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            install_without_services(cx);
+            crate::stores::Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        let accounts = stores.accounts.clone();
+        let finished = TurnFinished {
+            chat_id: "c1".into(),
+            message_id: "c1-answer".into(),
+            ok: true,
+            code: None,
+            queued: false,
+        };
+        let mut held = crate::intents::HeldNotifications::default();
+        held.begin();
+        let asked = cx.update(|cx| accounts.read(cx).scope_key());
+        assert!(held.hold(&finished, asked));
+
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        let due = held.end(None);
+        assert_eq!(due.len(), 1);
+        for (finished, asked) in due {
+            cx.update(|cx| {
+                route_via(
+                    daemon.rpc(),
+                    (accounts.clone(), asked),
+                    params(),
+                    ready(&finished.chat_id),
+                    NoticeLevel::Info,
+                    OpenRequest::Chat {
+                        id: finished.chat_id.clone(),
+                    },
+                    cx,
+                )
+            });
+        }
+        cx.run_until_parked();
+        assert!(
+            cx.update(|cx| routed_notifications(cx)).is_empty(),
+            "Avery's answer was shown under Blake"
+        );
+    }
+}
+
+#[cfg(test)]
 mod on_screen_tests {
     use gpui_kit::TestAppContext;
 
@@ -2122,5 +2816,91 @@ mod widget_tests {
             let feed = &cx.global::<Desktop>().widget;
             assert!(feed.retry.is_none(), "but not forever");
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{ClipboardItem, Image, ImageFormat};
+
+    #[test]
+    fn the_clipboard_link_takes_only_text() {
+        let text = clipboard_compose(Some(&ClipboardItem::new_string(
+            "  Packing list for the ferry \n".into(),
+        )));
+        assert_eq!(text.text.as_deref(), Some("Packing list for the ferry"));
+        assert!(text.images.is_empty() && text.files.is_empty());
+
+        // A copied picture or copied files are never attached from a link:
+        // any page or app can open conduit://clipboard, and attaching
+        // uploads at once. The new chat opens empty (⌘V attaches them).
+        let picture = Image::from_bytes(ImageFormat::Png, vec![0x89, b'P', b'N', b'G']);
+        let image = clipboard_compose(Some(&ClipboardItem::new_image(&picture)));
+        assert_eq!(image, Compose::default());
+        let files = clipboard_compose(Some(&ClipboardItem {
+            entries: vec![gpui_kit::ClipboardEntry::ExternalPaths(
+                gpui_kit::ExternalPaths(vec!["/tmp/synthetic-notes.txt".into()].into()),
+            )],
+        }));
+        assert_eq!(files, Compose::default());
+
+        // Blank text is no text; nothing copied still opens a new chat.
+        let blank = clipboard_compose(Some(&ClipboardItem::new_string(" \n ".into())));
+        assert_eq!(blank, Compose::default());
+        assert_eq!(clipboard_compose(None), Compose::default());
+
+        let long = "x".repeat(deep_link::MAX_TEXT + 10);
+        let cut = clipboard_compose(Some(&ClipboardItem::new_string(long)));
+        assert_eq!(
+            cut.text.map(|t| t.chars().count()),
+            Some(deep_link::MAX_TEXT)
+        );
+    }
+
+    /// A photo is staged (off the main thread) with its own ticket, to be
+    /// checked when it is attached.
+    #[test]
+    fn a_continuity_photo_is_staged_with_its_ticket() {
+        use crate::shell::continuity_camera::{ImportTarget, Imported};
+        let target = ImportTarget {
+            scope: Some("a".into()),
+            draft: None,
+            round: 3,
+        };
+        let staged = stage_import(Imported {
+            bytes: vec![0x89, b'P', b'N', b'G'],
+            extension: "png",
+            target: target.clone(),
+        })
+        .expect("staged");
+        assert_eq!(staged.name, "Photo.png");
+        assert_eq!(staged.target, target);
+        assert_eq!(
+            std::fs::read(&staged.path).unwrap(),
+            vec![0x89, b'P', b'N', b'G']
+        );
+    }
+
+    #[test]
+    fn the_dock_menu_has_the_phones_quick_actions_and_quick_ask_in_every_language() {
+        use crate::actions::{DockNewChat, DockQuickAsk, DockVoiceCall};
+        let titles = |locale: &str| -> Vec<String> {
+            let l = crate::l10n::L10n::new(locale);
+            dock_menu_items(&l, DockNewChat, DockVoiceCall, DockQuickAsk)
+                .into_iter()
+                .map(|item| match item {
+                    gpui_kit::MenuItem::Action { name, .. } => name.to_string(),
+                    _ => String::new(),
+                })
+                .collect()
+        };
+        assert_eq!(titles("en"), vec!["New Chat", "Voice Call", "Quick Ask"]);
+        for locale in crate::l10n::LOCALES {
+            let words = titles(locale);
+            assert_eq!(words.len(), 3, "{locale}");
+            assert!(words.iter().all(|w| !w.is_empty()), "{locale}: {words:?}");
+        }
+        assert_ne!(titles("de"), titles("en"));
     }
 }

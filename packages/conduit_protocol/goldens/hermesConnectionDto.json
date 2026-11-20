@@ -10,5 +10,11 @@
   "plainHttp": true,
   "hasApiKey": true,
   "hasLegacyToken": true,
-  "desktopSignedIn": true
+  "desktopSignedIn": true,
+  "accessHeaderNames": [
+    "CF-Access-Client-Id",
+    "CF-Access-Client-Secret"
+  ],
+  "hasMemoryKey": true,
+  "dashboardSignedIn": true
 }

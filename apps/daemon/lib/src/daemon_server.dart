@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:conduit_core/providers/app_providers.dart'
+    show activeServerProvider;
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show preferredBackendProvider;
 import 'package:conduit_core/services/api_service.dart'
@@ -34,6 +36,8 @@ import 'redact.dart';
 import 'daemon_paths.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
+import 'media_service.dart';
+import 'settled.dart';
 import 'log.dart';
 import 'rpc_session.dart';
 import 'temporary_chats.dart';
@@ -56,6 +60,7 @@ import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
+import 'apple_models_service.dart';
 import 'calls_service.dart';
 import 'speech_service.dart';
 import 'voice_service.dart';
@@ -67,7 +72,10 @@ import 'access_service.dart';
 import 'chat_settings_service.dart';
 import 'folder_settings_service.dart';
 import 'librechat_service.dart';
+import 'integrations_service.dart';
 import 'memories_service.dart';
+import 'notifications_service.dart';
+import 'webhooks_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
 
@@ -122,6 +130,23 @@ class DaemonServer {
   TurnsService? _turns;
   ModelsService? _models;
   FilesService? _files;
+
+  /// `GET /media/{image|pdf}`: no core needed, so it answers from the start
+  /// (the account's server, once there is one, is reached as it is).
+  late final MediaService _media = MediaService(ownServer: _activeServerUrl);
+
+  /// The active account's server address, for `/media`; null before the
+  /// core or without a server (Direct, Hermes).
+  Future<Uri?> _activeServerUrl() async {
+    final core = _core;
+    if (core == null) return null;
+    final server = await readSettled(
+      core.container,
+      activeServerProvider.future,
+    );
+    return server == null ? null : Uri.tryParse(server.url);
+  }
+
   UiRequestsService? _uiRequests;
   ChatPromptsService? _chatPrompts;
   QueuedCompletionsService? _queuedCompletions;
@@ -148,6 +173,9 @@ class DaemonServer {
   CoreSettingsService? _coreSettings;
   ProfileService? _profile;
   MemoriesService? _memories;
+  NotificationsService? _notifications;
+  WebhooksService? _webhooks;
+  IntegrationsService? _integrations;
   LibreChatService? _libreChat;
   ChatSettingsService? _chatSettings;
   ValvesService? _valves;
@@ -155,6 +183,7 @@ class DaemonServer {
   FolderSettingsService? _folderSettings;
   SpeechService? _readAloud;
   CallsService? _calls;
+  AppleModelsService? _apple;
   ReleaseNotesRpcService? _releaseNotes;
   DataService? _data;
 
@@ -208,8 +237,8 @@ class DaemonServer {
     _core = core;
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);
-    _servers = ServersService(core.container);
-    _auth = AuthService(core.container);
+    _servers = ServersService(core.container, events: events);
+    _auth = AuthService(core.container, events: events);
     _settings = SettingsService(core.container);
     final temporary = TemporaryChats();
     _queuedCompletions = QueuedCompletionsService(core.container, events);
@@ -225,6 +254,7 @@ class DaemonServer {
       core.container,
       events: events,
       hermes: _hermes,
+      dashboardCookies: core.dashboardCookies,
     );
     _chats = ChatsService(
       core.container,
@@ -249,8 +279,13 @@ class DaemonServer {
       chatPrompts: _chatPrompts,
       queued: _queuedCompletions,
     );
+    // A Hermes model switch is asked as the question of the chat holding
+    // its session.
+    core.uiRequests.hermesChatOf = _turns!.hermesChatOf;
     // The list's unread dots and a chat's abilities read the turns.
     _chats!.turns = _turns;
+    // Changing the address in use asks first while one of them answers.
+    _servers!.replies = _turns;
     // A Hermes chat's agent cards: its work, its context, its questions.
     _hermesCards = HermesCardsService(
       core.container,
@@ -298,6 +333,13 @@ class DaemonServer {
     _coreSettings = CoreSettingsService(core.container, events: events);
     _profile = ProfileService(core.container, accounts: _accounts);
     _memories = MemoriesService(core.container);
+    _notifications = NotificationsService(
+      core.container,
+      events: events,
+      announced: _turns!.announced,
+    );
+    _webhooks = WebhooksService(core.container);
+    _integrations = IntegrationsService(core.container);
     _libreChat = LibreChatService(
       core.container,
       events: events,
@@ -329,6 +371,11 @@ class DaemonServer {
       ports: core.calls,
       speech: _readAloud,
     );
+    // Apple's on-device model: the chat runs here, the model in the window.
+    core.apple.bind(events);
+    // `{{USER_LOCATION}}`: the window asks the Mac's location services.
+    core.location.bind(events);
+    _apple = AppleModelsService(core.container, bridge: core.apple);
     if (chats != null) {
       _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
         core.container,
@@ -366,6 +413,9 @@ class DaemonServer {
       coreSettings: _coreSettings,
       profile: _profile,
       memories: _memories,
+      notifications: _notifications,
+      webhooks: _webhooks,
+      integrations: _integrations,
       libreChat: _libreChat,
       releaseNotes: _releaseNotes,
       data: _data,
@@ -376,6 +426,8 @@ class DaemonServer {
       folderSettings: _folderSettings,
       speech: _readAloud,
       calls: _calls,
+      apple: _apple,
+      location: core.location,
       handoff: _handoff,
       calendar: _calendar,
       automations: _automations,
@@ -515,6 +567,9 @@ class DaemonServer {
     if (path.startsWith('/terminal/')) return _terminalTunnel(request, path);
     if (path.startsWith('/calls/')) return _callAudio(request, path);
     if (path.startsWith('/files/')) return _file(request);
+    if (path.startsWith('${ConduitHttpRoutes.media}/')) {
+      return _mediaFetch(request, path);
+    }
     if (path == ConduitHttpRoutes.transcribe) return _transcribe(request);
     if (path.startsWith('/recordings/')) return _recording(request, path);
     if (path.startsWith('/tts/')) return _speech(request, path);
@@ -724,7 +779,8 @@ class DaemonServer {
   }
 
   /// `GET /files/{serverId}/{fileId}` -- an attachment's bytes, for an image
-  /// in a message.
+  /// in a message; `GET /files/{serverId}/models/{modelId}` -- a model's
+  /// profile image.
   ///
   /// The desktop app sends the daemon's token with it, as with every request
   /// to this port, so the daemon refuses anyone else.
@@ -741,11 +797,15 @@ class DaemonServer {
       return shelf.Response(405, body: 'GET only');
     }
     final segments = request.url.pathSegments;
-    if (segments.length != 3) {
+    final modelImage = segments.length == 4 && segments[2] == 'models';
+    if (segments.length != 3 && !modelImage) {
       return _problem(404, ConduitErrorCodes.notFound, 'no such file');
     }
     try {
-      final file = await files.download(segments[1], segments[2]);
+      // `/files/{server}/models/{model}`: a model's profile image.
+      final file = modelImage
+          ? await files.modelImage(segments[1], segments[3])
+          : await files.download(segments[1], segments[2]);
       return shelf.Response.ok(
         file.bytes,
         headers: <String, String>{
@@ -773,6 +833,47 @@ class DaemonServer {
     } on Object catch (error, stack) {
       _log.error('file download failed', error, stack);
       return _problem(502, ConduitErrorCodes.serverError, 'download failed');
+    }
+  }
+
+  /// `GET /media/{image|pdf}?url=` -- a picture or a PDF on another site,
+  /// for the window (see [MediaService] for what is and is not sent).
+  /// Answered with its bytes and type, or a problem whose code says why
+  /// not (`media.tooLarge`, `media.wrongType`, `media.timedOut`, ...).
+  Future<shelf.Response> _mediaFetch(shelf.Request request, String path) async {
+    if (request.method != 'GET') {
+      return shelf.Response(405, body: 'GET only');
+    }
+    final kind = switch (path.substring(ConduitHttpRoutes.media.length + 1)) {
+      'image' => MediaKind.image,
+      'pdf' => MediaKind.pdf,
+      _ => null,
+    };
+    final url = request.url.queryParameters['url'];
+    if (kind == null || url == null) {
+      return _problem(404, ConduitErrorCodes.notFound, 'no such media');
+    }
+    try {
+      final media = await _media.fetch(url, kind);
+      return shelf.Response.ok(
+        media.bytes,
+        headers: <String, String>{
+          'content-type': media.contentType,
+          'x-content-type-options': 'nosniff',
+          'content-disposition': 'inline',
+          // The window keeps what it drew; nothing here outlives the reply.
+          'cache-control': 'no-store',
+          ..._corsHeaders,
+        },
+      );
+    } on MediaFetchException catch (error) {
+      // The failure only: the address is the chat's, not the log's.
+      _log.info('media ${kind.name}: ${error.failure.name}');
+      return _problem(
+        error.failure.status,
+        error.failure.code,
+        error.failure.name,
+      );
     }
   }
 
@@ -825,7 +926,9 @@ class DaemonServer {
   }
 
   /// `GET /recordings/{id}?chatId=&folderId=` -- a saved recording of a
-  /// draft as 16 kHz mono WAV. It needs the token, as `/files/` does.
+  /// draft as 16 kHz mono WAV; `GET /recordings/{id}?noteId=` -- a note's
+  /// recording still waiting to upload, as recorded. It needs the token,
+  /// as `/files/` does.
   Future<shelf.Response> _recording(shelf.Request request, String path) async {
     final recordings = _recordings;
     if (recordings == null) {
@@ -839,10 +942,39 @@ class DaemonServer {
       return shelf.Response(405, body: 'GET only');
     }
     final query = request.url.queryParameters;
+    final id = Uri.decodeComponent(path.substring('/recordings/'.length));
+    // `?noteId=`: one of a note's recordings still waiting to upload.
+    if (_nonEmpty(query['noteId']) case final noteId?) {
+      final notes = _notes;
+      if (notes == null) {
+        return _problem(
+          503,
+          ConduitErrorCodes.daemonUnavailable,
+          'core starting',
+        );
+      }
+      try {
+        final audio = await notes.waitingRecording(noteId, id);
+        return shelf.Response.ok(
+          audio.bytes,
+          headers: <String, String>{
+            'content-type': audio.contentType,
+            'x-content-type-options': 'nosniff',
+            'cache-control': 'no-store',
+            ..._corsHeaders,
+          },
+        );
+      } on RpcError catch (error) {
+        return _problem(_statusFor(error), error.code, error.debugMessage);
+      } on Object catch (error, stack) {
+        _log.error('note recording read failed', error, stack);
+        return _problem(500, ConduitErrorCodes.serverError, 'read failed');
+      }
+    }
     try {
       final wav = await recordings.wav(
         RecordingRef(
-          id: Uri.decodeComponent(path.substring('/recordings/'.length)),
+          id: id,
           chatId: _nonEmpty(query['chatId']),
           folderId: _nonEmpty(query['folderId']),
         ),
@@ -963,11 +1095,9 @@ class DaemonServer {
               _log.error('session $sessionId failed', error, stack);
             })
             .whenComplete(() {
+              // listen() has closed the session (whatever ended it), which
+              // let go of everything it held; only the list is left.
               _sessions.remove(sessionId);
-              events.detach(sessionId);
-              // A window that dropped is gone as surely as one that closed:
-              // if it was the last, waiting questions take their default.
-              _uiRequests?.onWindowsChanged();
               _log.debug('session $sessionId closed');
             }),
       );
@@ -1107,11 +1237,15 @@ class DaemonServer {
     _computer = null;
     await _server?.close(force: true);
     _server = null;
+    _media.close();
     // The services that hold chats and watches go while the core they read
     // is still there: stopping an answer that is still running, and closing a
     // chat that lingers after its answer, both read its container.
     _accounts?.dispose();
     _accounts = null;
+    _servers?.dispose();
+    _auth?.dispose();
+    _notifications?.dispose();
     await _turns?.dispose();
     _queuedCompletions?.dispose();
     _mcpApps?.dispose();
@@ -1120,6 +1254,7 @@ class DaemonServer {
     _hermesRooms = null;
     _hermesAdmin?.dispose();
     _hermesAdmin = null;
+    _core?.uiRequests.hermesChatOf = null;
     _turns = null;
     _chats?.dispose();
     _chats = null;
@@ -1131,7 +1266,9 @@ class DaemonServer {
     _automations = null;
     _capabilities?.dispose();
     _capabilities = null;
-    _notes?.dispose();
+    // Waits for the recordings' writers: nothing writes once the database
+    // below is closed.
+    await _notes?.close();
     // After the sockets and those, so nothing can arrive mid-teardown and
     // read a half-disposed container; before completing, so a caller
     // awaiting `onStopped` knows the database is closed and the process can

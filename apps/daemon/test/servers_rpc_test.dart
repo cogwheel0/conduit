@@ -323,6 +323,50 @@ void main() {
       expect(renamed.mtlsPrivateKeyLabel, 'keep-key.pem');
     });
 
+    // Two windows save the same connection at once, each changing something
+    // else: neither puts back what the other changed.
+    test('two edits saved at once each keep what the other changed', () async {
+      final account = added(
+        await add(
+          const ServerDraft(name: 'Both', url: 'https://both.example.com'),
+        ),
+      );
+      Future<ServerSummary> update(ServerDraft draft) =>
+          callTyped<ServerSummary>(
+            peer,
+            ConduitMethods.serversUpdate,
+            params: draft.toJson(),
+            decodeResult: ServerSummary.fromJson,
+          );
+
+      await Future.wait([
+        update(
+          ServerDraft(
+            id: account.id,
+            name: 'Both',
+            url: 'https://both.example.com',
+            customHeaders: const {'X-Lab': 'one'},
+          ),
+        ),
+        update(
+          ServerDraft(
+            id: account.id,
+            name: 'Both',
+            url: 'https://both.example.com',
+            mtlsCertificateChainPem: '-----BEGIN CERTIFICATE-----\nboth\n',
+            mtlsPrivateKeyPem: '$_keyHeader\nboth\n',
+            mtlsPrivateKeyLabel: 'both-key.pem',
+          ),
+        ),
+      ]);
+
+      final saved = (await list()).accounts
+          .singleWhere((a) => a.id == account.id)
+          .connection;
+      expect(saved.customHeaderNames, ['X-Lab']);
+      expect(saved.hasMutualTlsCredentials, isTrue);
+    });
+
     test('clearMutualTls is how a client certificate is removed', () async {
       final account = added(
         await add(

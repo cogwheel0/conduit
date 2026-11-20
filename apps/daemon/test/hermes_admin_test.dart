@@ -328,7 +328,7 @@ void main() {
         ),
       ),
       () => admin.addMcpFromCatalog(
-        HermesMcpRef(name: 'seeds', connection: before),
+        HermesMcpCatalogAdd(name: 'seeds', connection: before),
       ),
       () => admin.setMcpApiKey(
         HermesMcpApiKey(name: 'seeds', apiKey: 'sk-test', connection: before),
@@ -477,7 +477,7 @@ void main() {
       () => admin.addMcp(
         const HermesMcpAdd(name: 'seeds', url: 'http://127.0.0.1:1/mcp'),
       ),
-      () => admin.addMcpFromCatalog(const HermesMcpRef(name: 'seeds')),
+      () => admin.addMcpFromCatalog(const HermesMcpCatalogAdd(name: 'seeds')),
       () => admin.setMcpApiKey(
         const HermesMcpApiKey(name: 'seeds', apiKey: 'sk-test'),
       ),
@@ -504,5 +504,22 @@ void main() {
     expect(list.connections, hasLength(1));
     expect(list.connections.single.active, isTrue);
     expect(list.connections.single.name, 'Studio agent');
+  });
+
+  test('an edit keeps a phone\'s Notify Me, never lists it', () {
+    expect(
+      hermesJobDeliverKeepingNotifyMe('telegram', notify: true),
+      'telegram,conduit',
+    );
+    expect(hermesJobDeliverKeepingNotifyMe('', notify: true), 'local,conduit');
+    expect(
+      hermesJobDeliverKeepingNotifyMe('local,telegram', notify: false),
+      'local,telegram',
+    );
+    // A stray one sent back is dropped when the job had none.
+    expect(
+      hermesJobDeliverKeepingNotifyMe('telegram,conduit', notify: false),
+      'telegram',
+    );
   });
 }

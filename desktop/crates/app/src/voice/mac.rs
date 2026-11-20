@@ -70,6 +70,12 @@ pub fn microphone() -> Permission {
 /// Asks for the microphone (the system's prompt, once); `done` hears the
 /// answer on another thread.
 pub fn request_microphone(done: impl FnOnce(bool) + Send + 'static) {
+    // A scripted run never raises the prompt (see `crate::scripted`).
+    if crate::scripted::active() {
+        log::info!("microphone not asked for: a scripted run");
+        done(false);
+        return;
+    }
     let done = Mutex::new(Some(done));
     let block = RcBlock::new(move |granted: Bool| {
         if let Some(done) = done.lock().ok().and_then(|mut d| d.take()) {
@@ -100,6 +106,12 @@ pub fn speech() -> Permission {
 
 /// Asks for speech recognition (the system's prompt, once).
 pub fn request_speech(done: impl FnOnce(Permission) + Send + 'static) {
+    // A scripted run never raises the prompt (see `crate::scripted`).
+    if crate::scripted::active() {
+        log::info!("speech recognition not asked for: a scripted run");
+        done(speech());
+        return;
+    }
     let done = Mutex::new(Some(done));
     let block = RcBlock::new(move |_status: isize| {
         if let Some(done) = done.lock().ok().and_then(|mut d| d.take()) {

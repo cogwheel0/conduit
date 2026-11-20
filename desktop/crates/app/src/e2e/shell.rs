@@ -21,6 +21,9 @@
 //! [`probe`] (`--probe <file>`) is for the links and files the system
 //! hands a real launch (`open -a … 'conduit://…'`, cold and warm): it
 //! writes the app's state to `<file>` and quits when `<file>.quit` exists.
+//! It also runs the commands a driver appends to `<file>.cmd`, which the
+//! release rehearsal's update test uses to check for updates and answer
+//! Sparkle's windows (listed in `<file>.panels.json`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -68,7 +71,7 @@ fn shell_store(cx: &mut App) -> Entity<crate::stores::shell::ShellStore> {
     cx.global::<desktop::Desktop>().shell.clone()
 }
 
-fn quick_ask(cx: &mut App) -> Option<(gpui_kit::AnyWindowHandle, Entity<QuickAskView>)> {
+pub(super) fn quick_ask(cx: &mut App) -> Option<(gpui_kit::AnyWindowHandle, Entity<QuickAskView>)> {
     cx.try_global::<desktop::Desktop>()?.quick_ask.clone()
 }
 
@@ -77,7 +80,7 @@ fn settings_tab(cx: &mut App) -> Option<Tab> {
     cx.windows().contains(&handle).then(|| view.read(cx).tab)
 }
 
-fn links(urls: &[&str], cx: &mut AsyncApp) {
+pub(super) fn links(urls: &[&str], cx: &mut AsyncApp) {
     let urls: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
     cx.update(|cx| desktop::handle_urls(urls, cx));
 }
@@ -91,7 +94,7 @@ fn close_settings(cx: &mut AsyncApp) {
 }
 
 /// The Quick Ask window's chat has a finished, stored answer.
-async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
+pub(super) async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
     wait_until(cx, timeout, |cx| {
         let Some((_, view)) = quick_ask(cx) else {
             return false;
@@ -109,7 +112,7 @@ async fn wait_quick_answer(cx: &mut AsyncApp, timeout: Duration) -> bool {
     .await
 }
 
-fn quick_send(text: &str, cx: &mut AsyncApp) {
+pub(super) fn quick_send(text: &str, cx: &mut AsyncApp) {
     let text = text.to_string();
     cx.update(|cx| {
         let Some((handle, view)) = quick_ask(cx) else {
@@ -126,7 +129,7 @@ fn quick_send(text: &str, cx: &mut AsyncApp) {
     });
 }
 
-fn quick_new_chat(cx: &mut AsyncApp) {
+pub(super) fn quick_new_chat(cx: &mut AsyncApp) {
     cx.update(|cx| {
         if let Some((handle, view)) = quick_ask(cx) {
             let _ = handle.update(cx, |_, window, cx| {
@@ -402,15 +405,15 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     if let Some((handle, _)) = cx.update(|cx| cx.global::<AppState>().settings_window.clone()) {
         let controls = ax(handle, "shell-settings-desktop", dir, cx).await;
         pass &= ok(
-            "Settings › Desktop has its four switches",
+            "Settings › Desktop has its three switches (notifications have their own pane)",
             [
                 "Close to the Menu Bar",
                 "Open at Login",
                 "Open Quick Ask from Anywhere",
-                "Notify When an Answer Finishes",
             ]
             .iter()
-            .all(|l| has(&controls, "Switch", l)),
+            .all(|l| has(&controls, "Switch", l))
+                && !has(&controls, "Switch", "Notify When an Answer Finishes"),
         );
         shoot_both_modes(handle, dir, "shell-settings-desktop", cx).await;
     }
@@ -730,7 +733,9 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
         );
     }
     // The main window shows the first chat; a Quick Ask chat finishes out
-    // of sight.
+    // of sight, with the app counted as behind other apps (the core then
+    // picks a system notification; in front it would be an in-app banner).
+    cx.update(|cx| desktop::set_e2e_background(true, cx));
     links(&[&format!("conduit://chat/{first_chat}")], cx);
     settle(cx, 500).await;
     cx.update(desktop::show_quick_ask);
@@ -756,7 +761,9 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
             "SMOKE info notifications are denied for this bundle in System Settings; delivery is checked under a fresh bundle (--e2e shell-notify)"
         );
         pass &= ok("with notifications denied, nothing is posted", !posted);
-        return failed_turn(first_chat, false, cx).await && pass;
+        let failed = failed_turn(first_chat, false, cx).await;
+        cx.update(|cx| desktop::set_e2e_background(false, cx));
+        return failed && pass;
     }
     let answer = cx.update(|cx| {
         quick_ask(cx)
@@ -799,6 +806,7 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
     pass &= ok("the clicked notification leaves Notification Center", !left);
 
     pass &= failed_turn(first_chat, true, cx).await;
+    cx.update(|cx| desktop::set_e2e_background(false, cx));
     // The chat on screen in the key main window gets no notification.
     links(&[&format!("conduit://chat/{first_chat}")], cx);
     focus_main(cx).await;
@@ -825,12 +833,32 @@ async fn notifications(first_chat: &str, cx: &mut AsyncApp) -> bool {
 
 /// `--probe <file>`: the state a shell driver checks after `open -a`
 /// (links and files, cold and warm), written every 300 ms. The app quits
-/// when `<file>.quit` appears.
+/// when `<file>.quit` appears. Each line a driver appends to `<file>.cmd`
+/// runs once ([`probe_command`]).
 pub fn probe(path: PathBuf, cx: &mut App) {
+    let Some((quit, commands, panels)) = probe_files(&path) else {
+        log::error!(
+            "--probe {}: its .quit or .cmd file would be itself",
+            path.display()
+        );
+        return;
+    };
     cx.spawn(async move |cx: &mut AsyncApp| {
-        let quit = path.with_extension("quit");
+        // `press` lines and the AppKit windows: on a run loop timer that
+        // also runs inside Sparkle's modal alerts (super::panels).
+        #[cfg(target_os = "macos")]
+        super::panels::watch(commands.clone(), panels);
+        #[cfg(not(target_os = "macos"))]
+        let _ = panels;
+        let mut done = 0;
         loop {
             settle(cx, 300).await;
+            let text = std::fs::read_to_string(&commands).unwrap_or_default();
+            let lines = complete_lines(&text);
+            for line in lines.iter().skip(done) {
+                probe_command(line.trim(), cx);
+            }
+            done = done.max(lines.len());
             let state = cx.update(|cx| {
                 let Some(state) = cx.try_global::<AppState>() else {
                     return json!({});
@@ -868,9 +896,16 @@ pub fn probe(path: PathBuf, cx: &mut App) {
                     "notifications": format!("{:?}", shell_store(cx).read(cx).notifications),
                     "login": format!("{:?}", shell_store(cx).read(cx).login),
                     "menuBarItem": desktop::menu_bar_item_visible(cx),
+                    "updates": {
+                        "available": crate::updates::available(cx),
+                        "canCheck": crate::updates::can_check(cx),
+                    },
                 })
             });
-            std::fs::write(&path, serde_json::to_vec_pretty(&state).unwrap_or_default()).ok();
+            write_whole(
+                &path,
+                &serde_json::to_vec_pretty(&state).unwrap_or_default(),
+            );
             if quit.exists() {
                 cx.update(|cx| cx.quit());
                 break;
@@ -878,4 +913,92 @@ pub fn probe(path: PathBuf, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// The files beside a probe's `<file>`: `<file>.quit`, `<file>.cmd` and
+/// `<file>.panels.json` (its extension replaced: `/tmp/state.json` reads
+/// `/tmp/state.cmd`). None when one of them would be `<file>` itself
+/// (`--probe /tmp/state.cmd`), whose state writes would then overwrite the
+/// commands a driver appends.
+pub fn probe_files(path: &Path) -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let quit = path.with_extension("quit");
+    let commands = path.with_extension("cmd");
+    let panels = path.with_extension("panels.json");
+    (quit != path && commands != path && panels != path).then_some((quit, commands, panels))
+}
+
+/// The lines of a file a driver appends to that it has finished writing:
+/// a last line without its newline is still being written, and is read on
+/// a later pass, once.
+pub(super) fn complete_lines(text: &str) -> Vec<&str> {
+    text.split_inclusive('\n')
+        .filter(|line| line.ends_with('\n'))
+        .map(|line| line.trim_end_matches(['\n', '\r']))
+        .collect()
+}
+
+/// Writes `bytes` to `path` whole: to a file beside it, renamed over it, so
+/// a driver reading it meanwhile reads the last complete version, never a
+/// half-written one (and a failed write leaves that one in place).
+pub(super) fn write_whole(path: &Path, bytes: &[u8]) {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".writing");
+    let staged = path.with_file_name(name);
+    if std::fs::write(&staged, bytes).is_ok() {
+        std::fs::rename(&staged, path).ok();
+    }
+}
+
+/// One line of `<file>.cmd`:
+/// * `check-for-updates`: the app menu's Conduit › Check for Updates…
+///   (its action, as the menu item dispatches it);
+/// * `press <title>`: clicks the button with that title in a window AppKit
+///   shows outside GPUI (Sparkle's: Install Update, Install and Relaunch,
+///   OK), as a person would; run by [`super::panels`], not here.
+fn probe_command(line: &str, cx: &mut AsyncApp) {
+    if line == "check-for-updates" {
+        log::info!("probe: {line}");
+        cx.update(|cx| cx.dispatch_action(&crate::actions::CheckForUpdates));
+    } else if !line.is_empty() && !line.starts_with("press ") {
+        log::warn!("probe: unknown command '{line}'");
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn a_driver_line_runs_once_it_ends() {
+        assert_eq!(
+            complete_lines("check-for-updates\npress Install "),
+            vec!["check-for-updates"]
+        );
+        assert_eq!(
+            complete_lines("check-for-updates\npress Install Update\n"),
+            vec!["check-for-updates", "press Install Update"]
+        );
+        assert!(complete_lines("").is_empty());
+    }
+
+    #[test]
+    fn a_probe_file_never_is_its_own_commands_or_quit_file() {
+        let (quit, commands, panels) = probe_files(Path::new("/tmp/state.json")).unwrap();
+        assert_eq!(quit, Path::new("/tmp/state.quit"));
+        assert_eq!(commands, Path::new("/tmp/state.cmd"));
+        assert_eq!(panels, Path::new("/tmp/state.panels.json"));
+        assert!(probe_files(Path::new("/tmp/state.cmd")).is_none());
+        assert!(probe_files(Path::new("/tmp/state.quit")).is_none());
+    }
+
+    #[test]
+    fn a_whole_write_replaces_the_file() {
+        let dir = std::env::temp_dir().join(format!("conduit-probe-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.panels.json");
+        write_whole(&path, b"[1]");
+        write_whole(&path, b"[1, 2]");
+        assert_eq!(std::fs::read(&path).unwrap(), b"[1, 2]");
+        assert!(!dir.join("state.panels.json.writing").exists());
+    }
 }

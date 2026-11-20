@@ -1,5 +1,6 @@
 //! The app's views, built from `conduit-components`.
 
+pub mod a11y;
 pub mod access_sheet;
 pub mod accounts;
 pub mod add_account;
@@ -9,6 +10,7 @@ pub mod channels;
 pub mod chat;
 pub mod chat_pane;
 pub mod chat_settings;
+pub mod connection_issue;
 #[cfg(test)]
 mod controls_tests;
 pub mod dates;
@@ -39,6 +41,7 @@ pub mod panes;
 pub mod privacy;
 pub mod quick_ask;
 pub mod release_notes;
+pub mod server_files;
 pub mod server_form;
 pub mod settings;
 pub mod setup_window;
@@ -51,6 +54,7 @@ pub mod status;
 pub mod tasks;
 pub mod terminal;
 pub mod toasts;
+pub mod two_step;
 pub mod valves;
 pub mod words;
 pub mod workspace;

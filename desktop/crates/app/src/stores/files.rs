@@ -113,23 +113,97 @@ impl Asset for DaemonFileImage {
         let http = cx.try_global::<FileAccess>().and_then(|a| a.http.clone());
         let renderer = cx.svg_renderer();
         async move {
-            let other = |m: String| ImageCacheError::Other(Arc::new(anyhow::anyhow!(m)));
             let id = file.file_id.clone();
-            let result = async {
+            let fetched = async {
                 let http = http.ok_or_else(|| "the daemon is not running".to_string())?;
                 let (bytes, content_type) = fetch(http, file).await?;
                 let format = image_format(&content_type, &bytes)
                     .ok_or_else(|| format!("not an image ({content_type})"))?;
-                Image::from_bytes(format, bytes)
-                    .to_image_data(renderer)
-                    .map_err(|e| e.to_string())
+                Ok::<_, String>(Image::from_bytes(format, bytes))
             }
             .await;
+            // The decoder's own error is kept (an SVG from outside the app
+            // is told apart by it: the tile offers Open in Browser).
+            let result = match fetched {
+                Ok(image) => crate::stores::media::decode_picture(&image, renderer),
+                Err(m) => Err(anyhow::anyhow!(m)),
+            };
             if let Err(e) = &result {
                 log::warn!("image {id}: {e}");
             }
+            result.map_err(|e| ImageCacheError::Other(Arc::new(e)))
+        }
+    }
+}
+
+/// A model's profile image on the active account's server.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ModelImageRef {
+    pub server_id: String,
+    pub model_id: String,
+}
+
+/// The GPUI asset that loads a model's picture through the daemon's
+/// `/files/{server}/models/{model}`, as [`DaemonFileImage`] loads a file.
+pub enum DaemonModelImage {}
+
+impl Asset for DaemonModelImage {
+    type Source = (u16, ModelImageRef);
+    type Output = Result<Arc<RenderImage>, ImageCacheError>;
+
+    fn load(
+        (_, model): Self::Source,
+        cx: &mut App,
+    ) -> impl std::future::Future<Output = Self::Output> + Send + 'static {
+        let http = cx.try_global::<FileAccess>().and_then(|a| a.http.clone());
+        let renderer = cx.svg_renderer();
+        async move {
+            let other = |m: String| ImageCacheError::Other(Arc::new(anyhow::anyhow!(m)));
+            let result = async {
+                let http = http.ok_or_else(|| "the daemon is not running".to_string())?;
+                let (tx, rx) = futures::channel::oneshot::channel();
+                runtime::shared().spawn(async move {
+                    let result = http
+                        .model_image(&model.server_id, &model.model_id)
+                        .await
+                        .map(|f| (f.bytes.to_vec(), f.content_type))
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(result);
+                });
+                let (bytes, content_type) = rx
+                    .await
+                    .unwrap_or_else(|_| Err("the download was dropped".into()))?;
+                let format = image_format(&content_type, &bytes)
+                    .ok_or_else(|| format!("not an image ({content_type})"))?;
+                crate::stores::media::decode_picture(&Image::from_bytes(format, bytes), renderer)
+                    .map_err(|e| e.to_string())
+            }
+            .await;
+            // A model with no picture of its own is not news; the window
+            // draws its initial.
+            if let Err(e) = &result {
+                log::debug!("model image: {e}");
+            }
             result.map_err(other)
         }
+    }
+}
+
+/// Where a model's picture is, as [`file_image_state`] says for a file.
+pub fn model_image_state(
+    model: &ModelImageRef,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
+    let port = cx.try_global::<FileAccess>().and_then(|a| a.port)?;
+    window.use_asset::<DaemonModelImage>(&(port, model.clone()), cx)
+}
+
+/// Forgets a model's picture, so the next draw asks again (after a save
+/// changed it).
+pub fn forget_model_image(model: &ModelImageRef, cx: &mut App) {
+    if let Some(port) = cx.try_global::<FileAccess>().and_then(|a| a.port) {
+        cx.remove_asset::<DaemonModelImage>(&(port, model.clone()));
     }
 }
 

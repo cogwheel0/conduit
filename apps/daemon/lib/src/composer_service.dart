@@ -13,7 +13,15 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
     show isHermesModel;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesSecretsLoadingProvider;
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show isTerminalAgentModel, isTerminalAgentModelId;
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart'
+    show modelHasReasoningEffortControl;
+import 'package:conduit_core/features/integrations/personal_connection_display.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -26,6 +34,8 @@ import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'account_scope.dart';
+import 'server_rules.dart';
 import 'settled.dart';
 
 /// Implements `composer.*` (what the composer may offer) and what it draws
@@ -42,7 +52,12 @@ final class ComposerService {
 
   final ProviderContainer _container;
 
-  Future<ComposerOptions> options() async {
+  /// Bound to the account it was asked under ([AccountScope]): the tools,
+  /// personal tool servers and models are that account's, or refused.
+  Future<ComposerOptions> options([
+    ComposerOptionsQuery query = const ComposerOptionsQuery(),
+  ]) async {
+    final account = AccountScope.capture(_container);
     await Future.wait<Object?>(<Future<Object?>>[
       _settle(backendConfigProvider.future),
       _settle(userPermissionsProvider.future),
@@ -68,6 +83,12 @@ final class ComposerService {
       tools = const <ToolSummary>[];
     }
 
+    // The account's personal tool servers, as the phone's tool list offers
+    // them: each enabled one, chosen by its `direct_server:` id. A turn that
+    // chooses one sends it to Open WebUI, which asks this session to run its
+    // calls (core's `execute:tool` handler).
+    tools = <ToolSummary>[...tools, ...await _personalToolServers(account)];
+
     // Listed without connecting to them: opening every server to count
     // its tools would make the composer wait on the slowest one.
     var mcpTools = const <ToolSummary>[];
@@ -89,7 +110,7 @@ final class ComposerService {
       DebugLogger.error('mcp-failed', scope: 'daemon/composer', error: error);
     }
 
-    final model = _container.read(selectedModelProvider);
+    final model = _shownModel(query.modelId);
     final read = _container.read;
     // The interpreter as the + menu offers it with nothing chosen yet (the
     // core's offer); why it would not run, for a choice the window holds.
@@ -112,7 +133,19 @@ final class ComposerService {
           )
         : const <QuickPillCandidate>[];
     final voiceCall = await _voiceCallAdmitted(model);
+    // A chat a coding agent answers takes only new messages at its end.
+    final chatId = query.chatId;
+    // The chat is read for the account that asked, or not at all.
+    if (chatId != null) account.require('the chat is read');
+    final agentChat = conversationUsesTerminalAgent(
+      model,
+      chatId == null ? null : await _conversation(chatId),
+    );
+    account.require('the composer options are answered');
     return ComposerOptions(
+      agentChat: agentChat,
+      ownEffortControl:
+          isTerminalAgentModel(model) || modelHasReasoningEffortControl(model),
       voiceCall: voiceCall,
       webSearch: webSearch,
       imageGeneration: imageGeneration,
@@ -149,7 +182,8 @@ final class ComposerService {
       mentions: openWebUi && !directModel,
       steer: isHermesDesktopComposer(read, model),
       imageConversions: alwaysConvertImageFormats.toList()..sort(),
-      compareModels: _container.read(comparisonCommandAvailableProvider),
+      compareModels:
+          !agentChat && _container.read(comparisonCommandAvailableProvider),
       quickPills: <QuickPillOption>[
         for (final pill in quickPills)
           QuickPillOption(
@@ -162,10 +196,74 @@ final class ComposerService {
     );
   }
 
+  /// The model the composer shows ([id], which the next turn goes to), so
+  /// the options are that model's: the account's selection when [id] is
+  /// null or names it, else the listed model of that id. A coding agent
+  /// that is not selected is known by its id alone. The selection when the
+  /// list has no such model.
+  Model? _shownModel(String? id) {
+    final selected = _container.read(selectedModelProvider);
+    if (id == null || selected?.id == id) return selected;
+    final listed = _container
+        .read(modelsProvider)
+        .value
+        ?.where((candidate) => candidate.id == id)
+        .firstOrNull;
+    if (listed != null) return listed;
+    if (isTerminalAgentModelId(id)) return Model(id: id, name: id);
+    return selected;
+  }
+
+  Future<Conversation?> _conversation(String chatId) async {
+    try {
+      return await readSettled(
+        _container,
+        loadConversationProvider(chatId).future,
+      );
+    } on Object {
+      return null;
+    }
+  }
+
   /// Whether a voice call may start with [model]: the core's admission, as
   /// the phone's launcher reads it. Hermes' secrets load at start; a Hermes
   /// model waits for them (as the launcher does) rather than reading
   /// "still loading" as "no".
+  /// The enabled personal tool servers of the signed-in account, when it
+  /// may use them; none while its list cannot be read.
+  ///
+  /// Access is read as Personal Connections reads it
+  /// ([readPersonalConnectionsAccess]), refreshing a config cached before
+  /// sign-in once; [account] is required after that wait.
+  Future<List<ToolSummary>> _personalToolServers(AccountScope account) async {
+    final access = await readPersonalConnectionsAccess(_container);
+    account.require('the personal tool servers are offered');
+    if (!access.available) return const <ToolSummary>[];
+    try {
+      final snapshot = await readSettled(
+        _container,
+        personalConnectionsProvider.future,
+      );
+      if (snapshot == null) return const <ToolSummary>[];
+      return <ToolSummary>[
+        for (final entry in snapshot.toolServers)
+          if (entry.enabled)
+            ToolSummary(
+              id: personalToolServerSelectionId(entry.list, entry.index),
+              name: entry.displayName,
+              description: personalToolServerSubtitle(entry.raw, entry.url),
+            ),
+      ];
+    } on Object catch (error) {
+      DebugLogger.error(
+        'personal-tools-failed',
+        scope: 'daemon/composer',
+        error: error,
+      );
+      return const <ToolSummary>[];
+    }
+  }
+
   Future<bool> _voiceCallAdmitted(Model? model) async {
     if (model != null && isHermesModel(model)) {
       final deadline = DateTime.now().add(const Duration(seconds: 3));
@@ -188,6 +286,7 @@ final class ComposerService {
 
   /// The server's users and channels matching [query], for `@`.
   Future<MentionList> mentions(String query) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const MentionList();
     final q = query.trim().toLowerCase();
@@ -231,6 +330,7 @@ final class ComposerService {
         }
       }(),
     ]);
+    account.require('the mentions are answered');
     return MentionList(users: users, channels: channels);
   }
 
@@ -238,9 +338,11 @@ final class ComposerService {
 
   /// Open WebUI skills matching [query], for `$`.
   Future<SkillList> skills(String query) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const SkillList();
     final skills = await searchComposerSkills(api, query: query.trim());
+    account.require('the skills are answered');
     return SkillList(
       items: <SkillSummary>[
         for (final skill in skills)
@@ -257,6 +359,7 @@ final class ComposerService {
   /// the core's searches and its four of each. A row with no name of its
   /// own comes with an empty one, which the window names in its language.
   Future<ContextSuggestions> context(String query) async {
+    final scope = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     if (api == null) return const ContextSuggestions();
     final notes = _container.read(notesFeatureEnabledProvider);
@@ -277,6 +380,7 @@ final class ComposerService {
         _container.read(notesFeatureEnabledProvider.notifier).setEnabled(false);
       },
     );
+    scope.require('the context suggestions are answered');
     final suggestions = buildComposerContextSuggestions(
       notes: rows.notes,
       bases: rows.bases,
@@ -308,12 +412,14 @@ final class ComposerService {
   /// A web page's readable text or a YouTube video's transcript, read by the
   /// server, as mobile's Web Page dialog attaches it.
   Future<FetchedUrl> fetchUrl(String url) async {
+    final account = AccountScope.capture(_container);
     final api = _container.read(apiServiceProvider);
     final trimmed = url.trim();
     if (!isFetchableUrl(trimmed)) return const FetchedUrl(error: 'invalidUrl');
     if (api == null) return const FetchedUrl(error: 'failed');
     try {
       final page = await readUrlContext(api, trimmed);
+      account.require('the web page is answered');
       if (page.content.isEmpty) return const FetchedUrl(error: 'noContent');
       return FetchedUrl(
         attachment: ContextAttachmentDto(
@@ -327,6 +433,8 @@ final class ComposerService {
           collectionName: page.collectionName,
         ),
       );
+    } on RpcError {
+      rethrow;
     } on Object catch (error) {
       DebugLogger.error(
         'fetch-url-failed',
@@ -337,9 +445,31 @@ final class ComposerService {
     }
   }
 
+  /// Shortcuts' Send Link to Conduit (`intents.sendLink`): what the server
+  /// reads from [url], as [fetchUrl] reads it for Web Page, and whether it
+  /// is a YouTube video, so the app words the new chat's message as the
+  /// phone does ("this video" or "this page").
+  ///
+  /// Read for the account in charge when it was asked: never handed back
+  /// once another one took charge meanwhile (the app would open it in that
+  /// account's new chat).
+  Future<IntentLinkResult> sendLink(String url) async {
+    final scope = AccountScope.capture(_container);
+    final trimmed = url.trim();
+    final fetched = await fetchUrl(trimmed);
+    scope.require('intents.sendLink answered');
+    return IntentLinkResult(
+      url: trimmed,
+      youtube: isYoutubeUrl(trimmed),
+      attachment: fetched.attachment,
+      error: fetched.error,
+    );
+  }
+
   /// The account's files on the server, newest first, matching [query]:
   /// what mobile's server-file picker lists.
   Future<ServerFileList> serverFiles(String query) async {
+    final account = AccountScope.capture(_container);
     if (_container.read(apiServiceProvider) == null) {
       return const ServerFileList();
     }
@@ -351,6 +481,7 @@ final class ComposerService {
     } else {
       files = await readSettled(_container, searchUserFilesProvider(q).future);
     }
+    account.require('the server files are answered');
     final sorted = List<FileInfo>.of(files)
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return ServerFileList(
@@ -376,7 +507,9 @@ final class ComposerService {
   Future<KnowledgeList> knowledge(String query) async {
     final api = _container.read(apiServiceProvider);
     if (api == null) return const KnowledgeList();
+    final account = AccountScope.capture(_container);
     final rows = await api.searchKnowledgeBases(query: query.trim());
+    account.require('the knowledge bases are answered');
     return KnowledgeList(
       items: <KnowledgeSummary>[
         for (final row in rows)

@@ -7,6 +7,7 @@ import 'package:conduit_core/features/automations/automation_draft.dart';
 import 'package:conduit_core/features/automations/automation_run_tracking.dart';
 import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
+import 'package:conduit_core/features/automations/providers/automation_editor_options_provider.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
 import 'package:conduit_core/features/automations/providers/automation_terminal_providers.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
@@ -769,30 +770,12 @@ final class _TaskEditor {
 
 /// The values the account can pick now, or null while a list has not loaded,
 /// in which case the server decides instead of a guess here.
-typedef _EditorOptions = ({
-  List<Model>? models,
-  List<TerminalServerInfo>? terminals,
-  bool agentsLoading,
-  bool agentsUnknown,
-  List<Channel>? channels,
-  Map<String, AutomationChannelAccess> access,
-  List<({String id, String name})>? folders,
-});
+typedef _EditorOptions = AutomationEditorOptions;
 
 List<AutomationDraftIssue> _issues(
   AutomationDraft draft,
   _EditorOptions options,
-) => draft.issues(
-  modelIds: options.models == null || options.agentsUnknown
-      ? null
-      : {for (final m in options.models!) m.id},
-  folderIds: options.folders == null
-      ? null
-      : {for (final f in options.folders!) f.id},
-  channelIds: options.channels == null
-      ? null
-      : {for (final c in options.channels!) c.id},
-);
+) => options.issuesFor(draft);
 
 String _modelLabel(
   AppLocalizations l10n,
@@ -2063,22 +2046,13 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
   _EditorOptions _options(_TaskEditor editor) {
     final draft = editor.draft;
     final terminalsAsync = _ref.read(automationTerminalsProvider);
-    final terminals = terminalsAsync.asData?.value;
-    final terminalId = draft?.terminalId;
-    final terminal = terminals
-        ?.where((server) => server.selectionId == terminalId)
-        .firstOrNull;
     // A coding agent posts only to a chat, so its terminal is asked for them
     // only then.
-    final channel = draft?.target.isChannel ?? false;
-    final query = terminal == null || channel
-        ? null
-        : (
-            terminalId: terminal.selectionId,
-            terminalName: terminal.displayName,
-            cwd: editor.agentCwd,
-            automationId: draft?.original?.id,
-          );
+    final query = automationAgentQueryFor(
+      draft,
+      terminalsAsync.asData?.value,
+      cwd: editor.agentCwd,
+    );
     if (query != editor.agentsQuery) {
       editor.agents?.close();
       editor
@@ -2091,26 +2065,12 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
               );
     }
     final agentsAsync = editor.agents?.read();
-    final List<Model>? agents;
-    if (terminalId == null) {
-      agents = const <Model>[];
-    } else if (channel || terminals == null) {
-      agents = null;
-    } else if (terminal == null) {
-      // The server lists its terminals and this one is not among them.
-      agents = const <Model>[];
-    } else {
-      // Null while loading, and when the terminal could not be asked.
-      agents = agentsAsync?.asData?.value;
-    }
-    final runsAgent = draft?.runsAgent ?? false;
     final serverModels = _ref
         .read(modelsProvider)
         .asData
         ?.value
         .where(automationModelSelectable)
         .toList();
-    final models = serverModels == null ? null : [...serverModels, ...?agents];
     final channelList = _ref.read(channelsListProvider).asData?.value;
     final user = _ref.read(currentUserProvider2);
     final permissions =
@@ -2126,18 +2086,17 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
           permissions: permissions,
         ),
     };
-    return (
-      models: models,
-      terminals: terminals,
-      agentsLoading:
-          runsAgent &&
-          (terminalsAsync.isLoading || (agentsAsync?.isLoading ?? false)),
-      agentsUnknown: runsAgent && agents == null,
+    return AutomationEditorOptions(
+      models: serverModels,
       channels: channelList
           ?.where((c) => access[c.id] != AutomationChannelAccess.unavailable)
           .toList(),
       access: access,
       folders: _folderOptions(),
+    ).withTerminalAgents(
+      draft: draft,
+      terminals: terminalsAsync,
+      agents: agentsAsync,
     );
   }
 
@@ -2254,22 +2213,12 @@ class ScheduledTaskSettingsPages extends SettingsPageModule {
   /// its terminal, so one chosen from another terminal is cleared.
   AutomationDraft _withTerminal(_TaskEditor editor, String? id) {
     final draft = editor.draft!;
-    final agentTerminal = parseTerminalAgentModelId(draft.modelId.trim())
-        ?.terminalId;
-    final moved = id != draft.terminalId;
-    if (id == null || moved) {
+    if (id == null || id != draft.terminalId) {
       // The folder belonged to the terminal: another, or one chosen later,
       // starts from its own default.
       editor.agentCwd = null;
     }
-    final next = id == null
-        ? draft.copyWith(clearTerminal: true)
-        : moved
-        ? draft.copyWith(clearTerminal: true).copyWith(terminalId: id)
-        : draft.copyWith(terminalId: id);
-    return agentTerminal != null && agentTerminal != id
-        ? next.copyWith(modelId: '')
-        : next;
+    return draft.withTerminal(id);
   }
 
   Future<void> _pickChannel(

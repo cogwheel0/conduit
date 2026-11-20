@@ -120,11 +120,23 @@ abstract final class ConduitErrorCodes {
   static const String connectionFailed = 'net.connectionFailed';
   static const String tlsUntrusted = 'net.tlsUntrusted';
   static const String serverError = 'net.serverError';
+  static const String serverRedirect = 'net.serverRedirect';
 
   // Auth.
   static const String unauthenticated = 'auth.unauthenticated';
   static const String invalidCredentials = 'auth.invalidCredentials';
   static const String sessionExpired = 'auth.sessionExpired';
+  static const String signInFailed = 'auth.signInFailed';
+  static const String pendingApproval = 'auth.pendingApproval';
+  static const String apiKeyNotSupported = 'auth.apiKeyNotSupported';
+  static const String apiKeyNoLongerSupported = 'auth.apiKeyNoLongerSupported';
+  static const String tokenTooShort = 'auth.tokenTooShort';
+  static const String ldapNotEnabled = 'auth.ldapNotEnabled';
+  static const String twoStepRequired = 'auth.twoStepRequired';
+  static const String twoStepInvalidCode = 'auth.twoStepInvalidCode';
+  static const String twoStepExpired = 'auth.twoStepExpired';
+  static const String twoStepTooManyAttempts = 'auth.twoStepTooManyAttempts';
+  static const String twoStepFailed = 'auth.twoStepFailed';
 
   // Shared families, which handlers are written against.
   static const String notFound = 'resource.notFound';

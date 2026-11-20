@@ -5131,5 +5131,6 @@
   "notificationCalendarExactDescription": "Разрешите «Будильники и напоминания», чтобы напоминания календаря приходили минута в минуту.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "Сохранённый ключ не будет отправлен на новый адрес, поэтому он будет удалён. Введите ключ для этого адреса."
 }

@@ -40,13 +40,15 @@ fn esc() -> SharedString {
 }
 
 /// The mic beside Send, while nothing is being dictated.
-pub fn mic_button(composer: &Entity<ChatComposer>, cx: &App) -> AnyElement {
+/// `enabled`: off while the chat's draft is read (nothing is written then).
+pub fn mic_button(composer: &Entity<ChatComposer>, enabled: bool, cx: &App) -> AnyElement {
     let l10n = cx.l10n().clone();
     let r = cx.conduit().roles;
     let weak = composer.downgrade();
     IconButton::new("dictate", IconName::Mic, l10n.start_dictation())
         .size(30., 16.)
         .color(r.text_subtle)
+        .disabled(!enabled)
         .shortcut(conduit_components::views::focus::hints(cx).dictate)
         .on_click(Rc::new(move |_, window, cx| {
             let _ = weak.update(cx, |c, cx| c.toggle_dictation(window, cx));

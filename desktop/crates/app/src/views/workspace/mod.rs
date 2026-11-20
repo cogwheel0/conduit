@@ -29,6 +29,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -932,6 +933,21 @@ impl WorkspacePane {
         cx: &mut Context<Self>,
     ) {
         let l10n = cx.l10n().clone();
+        // The server copies a skill as saved, its files with it: a draft of
+        // it is saved or discarded first, as on a phone.
+        if section == WorkspaceSection::Skills
+            && self
+                .editors
+                .get(&section)
+                .is_some_and(|e| e.item_id(cx).as_deref() == Some(id.as_str()) && e.is_dirty(cx))
+        {
+            self.toast(
+                NoticeLevel::Warning,
+                l10n.workspace_skill_clone_save_first(),
+                cx,
+            );
+            return;
+        }
         let suffix = match section {
             WorkspaceSection::Models => l10n.desktop_workspace_model_clone_suffix(),
             WorkspaceSection::Prompts => l10n.desktop_workspace_prompt_clone_suffix(),
@@ -1047,6 +1063,9 @@ impl WorkspacePane {
                     let id = shown[next].id.clone();
                     self.scroll
                         .scroll_to_item(next, gpui_kit::ScrollStrategy::Nearest);
+                    // The pane has the keyboard, not the row: say which.
+                    let name = display_name(&shown[next]);
+                    crate::views::a11y::announce_row(&name, next, shown.len(), cx);
                     self.open(id, window, cx);
                 }
                 true
@@ -1689,7 +1708,17 @@ impl WorkspacePane {
                 .text_center()
                 .text_size(px(t.metrics.control))
                 .text_color(r.text_subtle)
-                .child(text)
+                .child(text.clone())
+                // Loading, then what came: said as the phone's gate says it.
+                .child(live_text(
+                    "live",
+                    Some(text.into()),
+                    if retry {
+                        Priority::High
+                    } else {
+                        Priority::Medium
+                    },
+                ))
                 .when(retry, |d| {
                     d.child(
                         conduit_components::views::kit::Button::new(

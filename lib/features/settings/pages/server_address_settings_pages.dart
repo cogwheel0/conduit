@@ -1072,6 +1072,7 @@ class ServerAddressSettingsPages extends SettingsPageModule {
             addedEndpointId: editor.addedEndpointId,
             label: editor.draft.label,
             verified: config,
+            editedFrom: editor.draft.from,
             sessionRevision: sessionRevision,
             // Asked only while the editor is open, and agreed only if it
             // still is: a left editor's session goes nowhere.

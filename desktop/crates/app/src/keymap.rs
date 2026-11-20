@@ -356,6 +356,10 @@ pub enum FixedCommand {
     Forward,
     /// Go › the `n`th sidebar section (⌘1…⌘8; `n` from 1).
     GoToSection(u8),
+    /// Go › Move Focus to Next Area (⌥⌘`): out of the terminal too.
+    NextArea,
+    /// Go › Move Focus to Previous Area (⌥⌘~, Shift with ⌥⌘`).
+    PreviousArea,
     /// Chat › Stop Speaking (⌘., the Mac's Cancel; Esc too while it reads).
     StopSpeaking,
 }
@@ -426,6 +430,10 @@ pub fn fixed_shortcuts() -> Vec<(FixedCommand, KeyStroke)> {
         (F::GoToSection(6), k("6").primary()),
         (F::GoToSection(7), k("7").primary()),
         (F::GoToSection(8), k("8").primary()),
+        // ⌥⌘` beside the system's ⌘` (next window), as Xcode's Next Area;
+        // Shift with it types ~, which is the key the Mac reports.
+        (F::NextArea, k("`").primary().alt()),
+        (F::PreviousArea, k("~").primary().alt()),
     ]
 }
 
@@ -449,11 +457,15 @@ pub fn fixed_conflict(stroke: &KeyStroke, action: Option<ShortcutAction>) -> Opt
 
 /// A key that works in one area only, listed in Settings › Keyboard under
 /// it: Notes' (its list and editor: New Note and the Format menu's chords),
-/// Workspace's Save, and the Calendar's and Scheduled Tasks' keys (their
-/// panes' and editors' own key handlers). Some share a chord with a command that works
-/// everywhere else (⌘N New Chat, ⌘K the palette, ⌘I Chat Settings): Notes
-/// binds them in its own contexts after the shortcut table, so they win
-/// there (`menus::bind_keys`), and they take no chord from anything else.
+/// Workspace's Save, the Calendar's and Scheduled Tasks' keys (their
+/// panes' and editors' own key handlers), the terminal's (the Edit menu's
+/// chords as its console answers them, and ⌥⌘K Clear Scrollback, Terminal's
+/// own), a room's ⌘↩ Send and a scheduled agent's ⌘↩ Save. Some share a
+/// chord with a command that works everywhere else (⌘N New Chat, ⌘K the
+/// palette, ⌘I Chat Settings): Notes binds them in its own contexts after
+/// the shortcut table, so they win there (`menus::bind_keys`), and they
+/// take no chord from anything else. The terminal leaves ⌘K to the palette
+/// and ⌃⇥ to Next Chat, as its console leaves every ⌘ chord to the app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AreaKey {
     NewNote,
@@ -486,6 +498,20 @@ pub enum AreaKey {
     DeleteScheduledTask,
     /// ⌘S in the task editor.
     SaveScheduledTask,
+    /// ⌘F, ⌘C, ⌘V and ⌘A in a terminal's console (its own Find bar, and
+    /// the Edit menu's commands on its text).
+    TerminalFind,
+    TerminalCopy,
+    TerminalPaste,
+    TerminalSelectAll,
+    /// ⌥⌘K in the console, as Terminal's Clear Scrollback.
+    TerminalClearScrollback,
+    /// ⌘S in the window of a PDF a terminal shows: Save….
+    SavePdf,
+    /// ⌘↩ in a Group Chat's field: sends, whatever Return is set to do.
+    SendInRoom,
+    /// ⌘↩ in the scheduled agent sheet.
+    SaveHermesJob,
 }
 
 impl AreaKey {
@@ -500,6 +526,14 @@ impl AreaKey {
             | A::DeleteCalendarItem
             | A::SaveCalendarEvent => KeyGroup::Calendar,
             A::DeleteScheduledTask | A::SaveScheduledTask => KeyGroup::ScheduledTasks,
+            A::TerminalFind
+            | A::TerminalCopy
+            | A::TerminalPaste
+            | A::TerminalSelectAll
+            | A::TerminalClearScrollback
+            | A::SavePdf => KeyGroup::Terminal,
+            A::SendInRoom => KeyGroup::HermesRooms,
+            A::SaveHermesJob => KeyGroup::HermesJobs,
             _ => KeyGroup::Notes,
         }
     }
@@ -535,6 +569,14 @@ pub fn area_shortcuts() -> Vec<(AreaKey, KeyStroke)> {
         (A::SaveCalendarEvent, k("s").primary()),
         (A::DeleteScheduledTask, k("backspace").primary()),
         (A::SaveScheduledTask, k("s").primary()),
+        (A::TerminalFind, k("f").primary()),
+        (A::TerminalCopy, k("c").primary()),
+        (A::TerminalPaste, k("v").primary()),
+        (A::TerminalSelectAll, k("a").primary()),
+        (A::TerminalClearScrollback, k("k").primary().alt()),
+        (A::SavePdf, k("s").primary()),
+        (A::SendInRoom, k("enter").primary()),
+        (A::SaveHermesJob, k("enter").primary()),
     ]
 }
 
@@ -556,7 +598,7 @@ pub enum KeyRow {
     Fixed(FixedCommand),
     /// Quick Ask's global shortcut (also in General, with its switch).
     QuickAsk,
-    /// Works in one area only (Notes, Workspace); shown, not changed.
+    /// Works in one area only (Notes, Workspace, …); shown, not changed.
     Area(AreaKey),
 }
 
@@ -577,6 +619,13 @@ pub enum KeyGroup {
     Calendar,
     /// Delete and Save, in Scheduled Tasks.
     ScheduledTasks,
+    /// Find, the Edit menu's commands and Clear Scrollback, in a terminal;
+    /// Save… in the window of a PDF it shows.
+    Terminal,
+    /// Send, in a Hermes Group Chat.
+    HermesRooms,
+    /// Save, in a Hermes scheduled agent's sheet.
+    HermesJobs,
 }
 
 /// Every shortcut the app has, grouped: the rebindable ones the app can
@@ -632,13 +681,25 @@ pub fn keyboard_groups() -> Vec<(KeyGroup, Vec<KeyRow>)> {
         ),
         (
             KeyGroup::Go,
-            vec![Fixed(F::Back), Fixed(F::Forward), Fixed(F::GoToSection(1))],
+            vec![
+                Fixed(F::Back),
+                Fixed(F::Forward),
+                Fixed(F::GoToSection(1)),
+                Fixed(F::NextArea),
+                Fixed(F::PreviousArea),
+            ],
         ),
         (
             KeyGroup::Window,
             vec![QuickAsk, R(A::OpenSettings), R(A::ShowShortcuts)],
         ),
+        // The areas' own keys, in the sidebar's order (Hermes: Scheduled
+        // Agents above the rooms; Notes, Terminal, Workspace, Calendar,
+        // Automations).
+        (KeyGroup::HermesJobs, area_rows(KeyGroup::HermesJobs)),
+        (KeyGroup::HermesRooms, area_rows(KeyGroup::HermesRooms)),
         (KeyGroup::Notes, area_rows(KeyGroup::Notes)),
+        (KeyGroup::Terminal, area_rows(KeyGroup::Terminal)),
         (KeyGroup::Workspace, area_rows(KeyGroup::Workspace)),
         (KeyGroup::Calendar, area_rows(KeyGroup::Calendar)),
         (
@@ -1087,17 +1148,22 @@ mod tests {
             let n = rows.iter().filter(|r| **r == KeyRow::Area(key)).count();
             assert_eq!(n, 1, "{key:?}");
         }
-        // 15 rebindable, 18 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
-        // Notes, Workspace's Save, 5 in Calendar and 2 in Scheduled Tasks.
-        assert_eq!(rows.len(), 59);
+        // 15 rebindable, 20 fixed (⌘1…⌘8 as one row), Quick Ask, 16 in
+        // Notes, Workspace's Save, 6 in the terminal (its PDF window's Save
+        // among them), 5 in Calendar, 2 in Scheduled Tasks, a room's Send
+        // and a scheduled agent's Save.
+        assert_eq!(rows.len(), 69);
         // One area's keys share no chord among themselves (areas may: only
         // the one in front takes its keys); where one is a fixed command's
         // too (⌘I Chat Settings), Notes takes it only in its own contexts.
         for group in [
             KeyGroup::Notes,
             KeyGroup::Workspace,
+            KeyGroup::Terminal,
             KeyGroup::Calendar,
             KeyGroup::ScheduledTasks,
+            KeyGroup::HermesRooms,
+            KeyGroup::HermesJobs,
         ] {
             let area: Vec<KeyStroke> = area_shortcuts()
                 .into_iter()
@@ -1120,6 +1186,25 @@ mod tests {
         assert_eq!(describe(&area_stroke(AreaKey::NewNote), true), "⌘N");
         assert_eq!(describe(&area_stroke(AreaKey::Link), true), "⌘K");
         assert_eq!(describe(&area_stroke(AreaKey::CodeBlock), true), "⌥⌘C");
+        // The terminal: Terminal's ⌥⌘K Clear Scrollback, which no command
+        // has (⌘K stays the palette, as the console leaves ⌘ chords to the
+        // app); its Find, Copy, Paste and Select All are the Edit menu's.
+        let clear = area_stroke(AreaKey::TerminalClearScrollback);
+        assert_eq!(describe(&clear, true), "⌥⌘K");
+        assert_eq!(fixed_conflict(&clear, None), None);
+        assert!(default_shortcuts().iter().all(|s| s.stroke != clear));
+        assert_eq!(
+            area_stroke(AreaKey::TerminalFind),
+            fixed_stroke(FixedCommand::FindInChat)
+        );
+        // A terminal's PDF window saves with ⌘S, as an editor does; no
+        // command takes ⌘S everywhere.
+        let save_pdf = area_stroke(AreaKey::SavePdf);
+        assert_eq!(describe(&save_pdf, true), "⌘S");
+        assert_eq!(fixed_conflict(&save_pdf, None), None);
+        assert!(default_shortcuts().iter().all(|s| s.stroke != save_pdf));
+        assert_eq!(shown(AreaKey::SendInRoom), "⌘↩");
+        assert_eq!(shown(AreaKey::SaveHermesJob), "⌘↩");
         // Start Voice Call takes no chord the menus have.
         let call = default_shortcuts()
             .into_iter()
@@ -1145,6 +1230,18 @@ mod tests {
             describe(&fixed_stroke(FixedCommand::GoToSection(3)), true),
             "⌘3"
         );
+        // The way out of the terminal (whose Tab is the shell's): ⌥⌘` and
+        // ⌥⌘~, which no command, default or terminal key takes.
+        for (command, shown) in [
+            (FixedCommand::NextArea, "⌥⌘`"),
+            (FixedCommand::PreviousArea, "⌥⌘~"),
+        ] {
+            let stroke = fixed_stroke(command);
+            assert_eq!(describe(&stroke, true), shown);
+            assert_eq!(fixed_conflict(&stroke, None), Some(command));
+            assert!(default_shortcuts().iter().all(|s| s.stroke != stroke));
+            assert!(area_shortcuts().iter().all(|(_, s)| *s != stroke));
+        }
         // The composer's larger editor and Ask Conduit.
         assert_eq!(
             describe(&fixed_stroke(FixedCommand::ExpandEditor), true),
@@ -1197,5 +1294,31 @@ mod tests {
             );
         }
         assert_eq!(fixed_stroke(FixedCommand::ZoomIn), k("+").primary());
+    }
+
+    /// The areas' keys are listed in the sidebar's order: in Hermes,
+    /// Scheduled Agents stands under the switcher, above the rooms
+    /// (sidebar_model's Hermes rows), then Notes, Terminal, Workspace,
+    /// Calendar and Scheduled Tasks.
+    #[test]
+    fn the_areas_keys_follow_the_sidebar_order() {
+        let areas: Vec<KeyGroup> = keyboard_groups()
+            .into_iter()
+            .map(|(g, _)| g)
+            .skip_while(|g| *g != KeyGroup::Window)
+            .skip(1)
+            .collect();
+        assert_eq!(
+            areas,
+            [
+                KeyGroup::HermesJobs,
+                KeyGroup::HermesRooms,
+                KeyGroup::Notes,
+                KeyGroup::Terminal,
+                KeyGroup::Workspace,
+                KeyGroup::Calendar,
+                KeyGroup::ScheduledTasks,
+            ]
+        );
     }
 }

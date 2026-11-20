@@ -17,6 +17,8 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
   pull_request:
@@ -32,8 +34,12 @@ on:
       - 'packages/conduit_core/pubspec.yaml'
       - 'packages/conduit_markdown/lib/**'
       - 'packages/conduit_markdown/pubspec.yaml'
+      # The workspace lockfile pins the packages conduitd is built from.
+      - 'pubspec.lock'
       - '.github/workflows/desktop.yml'
       - '.github/workflows/release-desktop.yml'
+  # Every job, on any branch: Actions › Desktop › Run workflow.
+  workflow_dispatch:
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -59,6 +65,58 @@ env:
 # anyway). Only pushes to main save them, so pull requests restore main's
 # and never evict each other's. The release workflow uses no cache.
 jobs:
+  # What a pull request needs from the two macOS jobs. Pushes to main, and
+  # runs started by hand, run both.
+  #
+  # macOS runners are few and every pull request queues for them, so on a
+  # pull request into another one's branch (a stacked one) both skip: they
+  # run once it is retargeted onto main and pushed (retargeting alone starts
+  # no run). The release bundle takes the longest, and what it adds to the
+  # workspace job is the packaging, so a pull request builds it only when
+  # it changes what goes into the bundle or how it is made. The `full-ci`
+  # label runs both on any pull request this workflow starts for (its
+  # paths above); for any other branch, run the workflow by hand.
+  changes:
+    name: Desktop changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      macos: ${{ steps.diff.outputs.macos }}
+      bundle: ${{ steps.diff.outputs.bundle }}
+    steps:
+      # The checked-out ref is the merge commit, so its first parent is the
+      # base branch and the diff between them is the pull request's.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: diff
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          FULL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          macos=false
+          if [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || [ "$FULL" = true ]; then macos=true; fi
+          # Packaging, the crates and Dart packages the bundle ships (their
+          # licences too), the whisper library only the bundle compiles, and
+          # the workflows that build it. The daemon's code has its own macOS
+          # build and smoke job (ci.yml), and the app's the workspace job.
+          bundle=$FULL
+          if git diff --name-only HEAD^1 HEAD -- \
+              desktop/packaging desktop/vendor desktop/Cargo.lock \
+              desktop/rust-toolchain.toml ':(glob)desktop/**/Cargo.toml' \
+              apps/daemon/native apps/daemon/pubspec.yaml pubspec.lock \
+              .github/workflows/desktop.yml .github/workflows/release-desktop.yml |
+              grep -q .; then
+            bundle=true
+          fi
+          [ "$macos" = true ] || bundle=false
+          {
+            echo "macos=$macos"
+            echo "bundle=$bundle"
+          } >> "$GITHUB_OUTPUT"
+
   # desktop/crates/protocol/src/generated.rs must be exactly what the
   # generator writes from the Dart DTOs. The generator formats with the
   # pinned rustfmt, so this job needs both Dart and Rust.
@@ -138,6 +196,8 @@ jobs:
   # macOS is the first desktop platform: the whole workspace, GPUI included.
   macos:
     name: Workspace (macOS)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.macos != 'false') }}
     # Apple silicon with Xcode 26 or later: the app links FoundationModels
     # (macOS 26 SDK) weakly. The same image as the bundle job and the
     # release; DESKTOP_MACOS_RUNNER overrides it for all three.
@@ -158,12 +218,16 @@ jobs:
         run: |
           major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
           if [ "$major" -lt 26 ]; then
-            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)"
             [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
             sudo xcode-select -s "$newest"
           fi
           xcodebuild -version
           df -h / | tail -1
+      # Xcode 26 builds the Apple models engine without its macOS 27 parts
+      # (apple_models.sh sdk-gaps): named on the run, never silent.
+      - name: Name what this Xcode's SDK leaves out
+        run: packaging/macos/apple_models.sh sdk-gaps --github
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install && rustup show active-toolchain
       # GPUI compiles its Metal shaders at build time. Xcode 26 ships the
@@ -210,14 +274,18 @@ jobs:
             desktop/target
           key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
 
-  # The release bundle as release-desktop.yml builds it, without the
-  # secrets: packaging/macos/bundle.sh with an ad-hoc signature and a
-  # throwaway Sparkle public key (so Sparkle is embedded, thinned and
-  # signed as in a release), then smoke.sh: the bundle's checks, the bundled
+  # The release path, without the secrets: packaging/macos/bundle.sh as a
+  # rehearsal (--rehearsal: the release's strictness about the Sparkle key,
+  # the icon, stripping and dSYMs) on a test bundle id, signed ad hoc, with
+  # a throwaway Sparkle public key (so Sparkle is embedded, thinned and
+  # signed as in a release); then smoke.sh: the bundle's checks, the bundled
   # conduitd's handshake, and the app's own --shots pass on a throwaway
-  # profile with no conduitd left behind.
+  # profile with no conduitd left behind. Without llvm-tools, so the
+  # fallback strip (Apple's) is the one exercised here.
   bundle:
-    name: Release bundle (unsigned) + smoke
+    name: Release bundle (rehearsal, ad hoc) + smoke
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.bundle != 'false') }}
     runs-on: ${{ vars.DESKTOP_MACOS_RUNNER || 'macos-26' }}
     timeout-minutes: 120
     steps:
@@ -229,12 +297,14 @@ jobs:
         run: |
           major="$(xcodebuild -version | awk 'NR == 1 {split($2, v, "."); print v[1]}')"
           if [ "$major" -lt 26 ]; then
-            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1)"
+            newest="$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)"
             [ -n "$newest" ] || { echo "::error::Xcode 26 or later is needed"; exit 1; }
             sudo xcode-select -s "$newest"
           fi
           xcodebuild -version
           df -h / | tail -1
+      - name: Name what this Xcode's SDK leaves out
+        run: desktop/packaging/macos/apple_models.sh sdk-gaps --github
       - name: Fetch third_party submodules
         run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -257,7 +327,8 @@ jobs:
         run: rustup toolchain install && rustup show active-toolchain
       - name: Make sure the Metal compiler is installed
         run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
-      # Cargo's downloads only: the release target would crowd the cache out.
+      # Cargo's downloads only: the release target (line tables, for the
+      # dSYMs) would crowd the cache out.
       - name: Restore the Cargo registry
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
@@ -286,7 +357,8 @@ jobs:
           SPARKLE_PUBLIC_ED_KEY="$(openssl genpkey -algorithm ed25519 |
             openssl pkey -pubout -outform DER | tail -c 32 | base64)"
           export SPARKLE_PUBLIC_ED_KEY
-          desktop/packaging/macos/bundle.sh all --version 0.0.0
+          desktop/packaging/macos/bundle.sh all --version 0.0.0 \
+            --rehearsal --bundle-id app.cogwheel.conduit.desktop.ci
       - name: Smoke-test the bundle
         run: desktop/packaging/macos/smoke.sh desktop/target/macos/Conduit-0.0.0/Conduit.app --launch
       - name: Disk left
@@ -301,9 +373,11 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
           key: desktop-registry-${{ hashFiles('desktop/Cargo.lock') }}
-      - name: Keep the DMG
+      - name: Keep the DMG and the dSYMs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: conduit-desktop-unsigned-${{ github.sha }}
-          path: desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
+          path: |
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0.dmg
+            desktop/target/macos/Conduit-0.0.0/Conduit-0.0.0-dSYMs.zip
           retention-days: 5

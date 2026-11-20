@@ -123,6 +123,10 @@ abstract class AppSettingsDto with _$AppSettingsDto {
 
     /// The composer's Save as Note button shows.
     @Default(true) bool showComposerNotesButton,
+
+    /// The empty message box names the selected model ("Ask Codex · gpt-5.1")
+    /// instead of the app's own words.
+    @Default(false) bool showModelNameInComposer,
     @Default(false) bool temporaryChatByDefault,
 
     /// Inline citations show the source's title, not only its number.
@@ -174,6 +178,11 @@ abstract class AppSettingsDto with _$AppSettingsDto {
     // Voice Provider.
     DirectVoiceProviderDto? directVoiceProvider,
 
+    // Hermes.
+    /// The chats a scheduled agent starts each time it runs are listed with
+    /// the other Hermes chats (a pinned one always is).
+    @Default(true) bool hermesShowScheduledSessions,
+
     /// Every message action, by id, in the order Settings lists them
     /// (core's catalog: `copy`, `tts`, `regenerate`, ...). Not a setting.
     @Default(<String>[]) List<String> messageActions,
@@ -198,6 +207,7 @@ abstract class AppSettingsPatch with _$AppSettingsPatch {
     List<String>? inlineMessageActions,
     bool? sendOnEnter,
     bool? showComposerNotesButton,
+    bool? showModelNameInComposer,
     bool? temporaryChatByDefault,
     bool? citationShowTitles,
     bool? citationBackground,
@@ -218,6 +228,7 @@ abstract class AppSettingsPatch with _$AppSettingsPatch {
     String? ttsServerVoiceName,
     double? ttsSpeed,
     DirectVoiceProviderDto? directVoiceProvider,
+    bool? hermesShowScheduledSessions,
 
     /// [AppSettingsDto] field names to set back to null.
     @Default(<String>[]) List<String> clear,

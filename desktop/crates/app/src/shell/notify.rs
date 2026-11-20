@@ -1,10 +1,13 @@
-//! Answer notifications: when one goes out, and what it says.
+//! Answer and channel notifications: what the window knows about one, and
+//! what it says.
 //!
-//! On `turn.finished` (unscoped, so it arrives for chats that are not open),
-//! the app notifies unless the chat is on screen in a window that has the
-//! user's attention: the main window is key and shows that chat, or the
-//! Quick Ask window is key and shows it. Failed turns notify too, with an
-//! error title.
+//! On `turn.finished` (unscoped, so it arrives for chats that are not open)
+//! and `channels.posted`, the app tells the core what only it knows (whether
+//! the app is in front, and whether the chat or channel is on screen in a
+//! window that has the user's attention: the main window is key and shows
+//! it, or the Quick Ask window is key and shows the chat), and the core
+//! decides (`notifications.route`): an in-app banner, a system notification,
+//! silence, or nothing. Failed turns notify too, with an error title.
 //!
 //! A notification carries the chat's title and a short neutral line, never
 //! the answer: notifications show on the lock screen and on shared screens.
@@ -23,6 +26,8 @@ pub enum NotificationKind {
 /// What the user can see right now.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OnScreen {
+    /// The app is in front (active).
+    pub app_active: bool,
     /// The main window is the key window (visible, focused, app active).
     pub main_key: bool,
     /// The stored chat the main window shows.
@@ -40,6 +45,11 @@ impl OnScreen {
     pub fn shows(&self, chat_id: &str) -> bool {
         (self.main_key && self.main_chat.as_deref() == Some(chat_id))
             || (self.quick_ask_key && self.quick_ask_chat.as_deref() == Some(chat_id))
+    }
+
+    /// Whether `channel_id` is in front of the user.
+    pub fn shows_channel(&self, channel_id: &str) -> bool {
+        self.main_key && self.main_channel.as_deref() == Some(channel_id)
     }
 }
 
@@ -68,18 +78,10 @@ impl Outcome {
     }
 }
 
-/// The notification a `turn.finished` gets, if any. `enabled` is the
-/// "Notify when an answer finishes" setting. A queued answer gets none:
-/// nothing is ready until it goes out, and its own turn ends then.
-pub fn decide(
-    enabled: bool,
-    chat_id: &str,
-    outcome: Outcome,
-    on_screen: &OnScreen,
-) -> Option<NotificationKind> {
-    if !enabled || on_screen.shows(chat_id) {
-        return None;
-    }
+/// Which notification a `turn.finished` would get. A queued answer gets
+/// none: nothing is ready until it goes out, and its own turn ends then.
+/// Whether it goes out, and how, is the core's decision.
+pub fn kind_for(outcome: Outcome) -> Option<NotificationKind> {
     match outcome {
         Outcome::Answered => Some(NotificationKind::Ready),
         Outcome::Failed => Some(NotificationKind::Failed),
@@ -98,6 +100,8 @@ pub struct Notification {
     pub id: String,
     pub title: String,
     pub body: String,
+    /// A system notification makes the system's sound.
+    pub sound: bool,
 }
 
 /// The words a notification uses (localized by the caller).
@@ -131,6 +135,7 @@ pub fn notification(
         id: identifier(chat_id),
         title,
         body,
+        sound: false,
     }
 }
 
@@ -144,15 +149,6 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 // ── Channel messages ─────────────────────────────────────────────────────
-
-/// Whether someone else's message in `channel_id` notifies: the setting is
-/// on, the daemon says it alerts (the channel notifies for every message,
-/// or it mentions the user), and the channel is not in front of the user.
-pub fn decide_channel(enabled: bool, alert: bool, channel_id: &str, on_screen: &OnScreen) -> bool {
-    enabled
-        && alert
-        && !(on_screen.main_key && on_screen.main_channel.as_deref() == Some(channel_id))
-}
 
 /// The words a channel notification uses (localized by the caller).
 pub struct ChannelWords<'a> {
@@ -195,6 +191,7 @@ pub fn channel_notification(
             words.message
         }
         .to_string(),
+        sound: false,
     }
 }
 
@@ -241,6 +238,7 @@ mod tests {
 
     fn screen(main_key: bool, main: Option<&str>, qa_key: bool, qa: Option<&str>) -> OnScreen {
         OnScreen {
+            app_active: main_key || qa_key,
             main_key,
             main_chat: main.map(String::from),
             quick_ask_key: qa_key,
@@ -250,17 +248,13 @@ mod tests {
     }
 
     #[test]
-    fn a_channel_message_notifies_unless_its_channel_is_in_front() {
+    fn a_channel_is_on_screen_only_in_the_key_main_window() {
         let mut on_screen = screen(true, None, false, None);
         on_screen.main_channel = Some("c1".into());
-        assert!(!decide_channel(true, true, "c1", &on_screen));
-        assert!(decide_channel(true, true, "c2", &on_screen));
-        // Not alerting (mentions only, no mention), or switched off.
-        assert!(!decide_channel(true, false, "c2", &on_screen));
-        assert!(!decide_channel(false, true, "c2", &on_screen));
-        // The window not key: the channel is not in front.
+        assert!(on_screen.shows_channel("c1"));
+        assert!(!on_screen.shows_channel("c2"));
         on_screen.main_key = false;
-        assert!(decide_channel(true, true, "c1", &on_screen));
+        assert!(!on_screen.shows_channel("c1"));
         let title_in = |a: &str, c: &str| format!("{a} in {c}");
         let words = ChannelWords {
             title_in: &title_in,
@@ -282,107 +276,29 @@ mod tests {
     }
 
     #[test]
-    fn notifies_unless_the_chat_is_in_front_of_the_user() {
-        use NotificationKind::*;
-        // The chat is on screen in the key main window: nothing.
-        assert_eq!(
-            decide(
-                true,
-                "c1",
-                Outcome::Answered,
-                &screen(true, Some("c1"), false, None)
-            ),
-            None
-        );
-        // Another chat on screen, or the main window not key: a notification.
-        assert_eq!(
-            decide(
-                true,
-                "c1",
-                Outcome::Answered,
-                &screen(true, Some("c2"), false, None)
-            ),
-            Some(Ready)
-        );
-        assert_eq!(
-            decide(
-                true,
-                "c1",
-                Outcome::Answered,
-                &screen(false, Some("c1"), false, None)
-            ),
-            Some(Ready)
-        );
+    fn a_chat_is_on_screen_in_the_key_window_that_shows_it() {
+        // The chat in the key main window.
+        assert!(screen(true, Some("c1"), false, None).shows("c1"));
+        // Another chat, or the main window not key.
+        assert!(!screen(true, Some("c2"), false, None).shows("c1"));
+        assert!(!screen(false, Some("c1"), false, None).shows("c1"));
         // A new chat on screen (nothing stored selected).
-        assert_eq!(
-            decide(
-                true,
-                "c1",
-                Outcome::Answered,
-                &screen(true, None, false, None)
-            ),
-            Some(Ready)
-        );
-        // Quick Ask in front with that chat: nothing; with another: notify.
-        assert_eq!(
-            decide(
-                true,
-                "q1",
-                Outcome::Answered,
-                &screen(false, None, true, Some("q1"))
-            ),
-            None
-        );
-        assert_eq!(
-            decide(
-                true,
-                "c1",
-                Outcome::Answered,
-                &screen(false, Some("c1"), true, Some("q1"))
-            ),
-            Some(Ready)
-        );
-        // Quick Ask hidden (not key) with its chat: notify.
-        assert_eq!(
-            decide(
-                true,
-                "q1",
-                Outcome::Answered,
-                &screen(false, None, false, Some("q1"))
-            ),
-            Some(Ready)
-        );
-        // Failed turns notify too.
-        assert_eq!(
-            decide(true, "c1", Outcome::Failed, &OnScreen::default()),
-            Some(Failed)
-        );
-        // The setting off: never.
-        assert_eq!(
-            decide(false, "c1", Outcome::Answered, &OnScreen::default()),
-            None
-        );
-        assert_eq!(
-            decide(false, "c1", Outcome::Failed, &OnScreen::default()),
-            None
-        );
+        assert!(!screen(true, None, false, None).shows("c1"));
+        // Quick Ask in front with that chat; hidden, it is not.
+        assert!(screen(false, None, true, Some("q1")).shows("q1"));
+        assert!(!screen(false, Some("c1"), true, Some("q1")).shows("c1"));
+        assert!(!screen(false, None, false, Some("q1")).shows("q1"));
     }
 
     #[test]
-    fn a_queued_answer_is_not_ready_and_gets_no_notification() {
+    fn a_finished_turn_notifies_unless_its_answer_waits_in_the_outbox() {
         // The daemon hands a queued answer off with `ok` and `queued`.
         assert_eq!(Outcome::of(true, true), Outcome::Queued);
         assert_eq!(Outcome::of(true, false), Outcome::Answered);
         assert_eq!(Outcome::of(false, false), Outcome::Failed);
-        assert_eq!(
-            decide(true, "c1", Outcome::Queued, &OnScreen::default()),
-            None
-        );
-        // When it goes out and ends, its own turn says Answer Ready.
-        assert_eq!(
-            decide(true, "c1", Outcome::Answered, &OnScreen::default()),
-            Some(NotificationKind::Ready)
-        );
+        assert_eq!(kind_for(Outcome::Queued), None);
+        assert_eq!(kind_for(Outcome::Answered), Some(NotificationKind::Ready));
+        assert_eq!(kind_for(Outcome::Failed), Some(NotificationKind::Failed));
     }
 
     #[test]

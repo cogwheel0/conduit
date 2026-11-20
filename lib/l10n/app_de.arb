@@ -5093,5 +5093,6 @@
   "notificationCalendarExactDescription": "\"Wecker & Erinnerungen\" erlauben, damit Kalendererinnerungen auf die Minute genau kommen.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "Der gespeicherte Schlüssel wird nicht an die neue Adresse gesendet und daher entfernt. Gib einen Schlüssel für diese Adresse ein."
 }

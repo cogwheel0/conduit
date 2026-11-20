@@ -19,6 +19,13 @@
 //! * **Cancel** by closing the window; after 5 minutes the window closes
 //!   and the flow times out. The store is discarded with the window.
 //! * Only http(s) navigations are allowed in the window.
+//!
+//! A Hermes Desktop Gateway's dashboard sign-in ([`run_hermes_dashboard`])
+//! runs in the same window, as the phone's `HermesDashboardAuthPage` runs
+//! its WebView: at the dashboard's `/login`, done once a page back on the
+//! dashboard (not its sign-in page) has a session the daemon accepts
+//! (`hermes.dashboard.complete`, which keeps the cookies and sends the
+//! dashboard's requests with them from then on).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -168,6 +175,114 @@ pub fn is_done(url: &str, server_origin: &str, left_origin: bool, has_token: boo
     origin_of(url).as_deref() == Some(server_origin) && (has_token || left_origin)
 }
 
+/// What [`run_hermes_dashboard`] ends with.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DashboardOutcome {
+    /// The daemon took the session; the connections as they are now.
+    SignedIn(Option<conduit_protocol::HermesConnections>),
+    /// The user closed the window.
+    Cancelled,
+    TimedOut,
+    Failed(String),
+}
+
+/// Where the dashboard sign-in window may go, as the phone's
+/// `hermesDashboardNavigationTransition`: the dashboard's own pages; an
+/// HTTPS identity provider until the flow came back to the dashboard;
+/// nothing else after that, so a page on the dashboard cannot walk the
+/// window (and its cookies) elsewhere.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DashboardNav {
+    pub left: bool,
+    pub returned: bool,
+}
+
+impl DashboardNav {
+    /// Whether a main-frame navigation to `target` is followed, and the
+    /// state after it.
+    pub fn step(self, target: &str, origin: &str) -> (bool, Self) {
+        let exact = origin_of(target).is_some_and(|o| o.eq_ignore_ascii_case(origin));
+        if exact {
+            return (
+                true,
+                Self {
+                    left: self.left,
+                    returned: self.returned || self.left,
+                },
+            );
+        }
+        let https = url::Url::parse(target).is_ok_and(|u| u.scheme() == "https");
+        let allowed = !self.returned && https;
+        (
+            allowed,
+            Self {
+                left: self.left || allowed,
+                returned: self.returned,
+            },
+        )
+    }
+}
+
+/// Whether a page that finished loading at `url` may be signed in: on the
+/// dashboard's origin and not its sign-in page (the phone's
+/// `hermesDashboardShouldCheckSignIn`).
+pub fn dashboard_page_signed_in_maybe(url: &str, origin: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else {
+        return false;
+    };
+    origin_of(url).is_some_and(|o| o.eq_ignore_ascii_case(origin)) && !u.path().ends_with("/login")
+}
+
+/// Whether cookie `name` holds a dashboard session: `hermes_session_at` or
+/// `_rt`, with or without a `__Host-`/`__Secure-` prefix and a gateway's
+/// `_<16 hex>` suffix.
+pub fn is_dashboard_session_cookie(name: &str) -> bool {
+    let bare = name
+        .strip_prefix("__Host-")
+        .or_else(|| name.strip_prefix("__Secure-"))
+        .unwrap_or(name);
+    let base = match bare.rsplit_once('_') {
+        Some((head, tail))
+            if tail.len() == 16
+                && tail
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) =>
+        {
+            head
+        }
+        _ => bare,
+    };
+    matches!(base, "hermes_session_at" | "hermes_session_rt")
+}
+
+/// A Desktop Gateway's dashboard sign-in, as `plan` says (from
+/// `hermes.dashboard.start`): a browser window at its `/login`; each page
+/// back on the dashboard with a session cookie hands its cookies to the
+/// daemon for connection `connection_id`, until the daemon accepts them.
+pub fn run_hermes_dashboard(
+    plan: conduit_protocol::HermesDashboardPlan,
+    connection_id: String,
+    connection: Option<String>,
+    title: String,
+    rpc: crate::stores::rpc::Rpc,
+    cx: &mut App,
+) -> Task<DashboardOutcome> {
+    if origin_of(&plan.login_url).is_none() {
+        return Task::ready(DashboardOutcome::Failed(
+            "not an http(s) server address".into(),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::run_hermes_dashboard(plan, connection_id, connection, title, rpc, cx)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (plan, connection_id, connection, title, rpc, cx);
+        Task::ready(DashboardOutcome::Failed("needs macOS for now".into()))
+    }
+}
+
 /// What the LibreChat sign-in window does with one navigation (the core's
 /// `libreChatSsoNavigation`, which the phone's web view follows too; the
 /// window must decide inside WebKit's navigation callback, so it is read
@@ -241,19 +356,59 @@ pub fn run_librechat_sso(
     }
 }
 
+/// Whether `url` is one of Open WebUI's own sign-in pages on the server at
+/// `server_url` (under its path prefix): `/auth`, `/auth/…`, `/oauth/…` or
+/// `/api/v1/auths/…`, as the phone's proxy sign-in reads it
+/// (`isKnownOpenWebUiProxyAuthPath`). Reaching one means a sign-in proxy in
+/// front of the server let the window through.
+pub fn is_open_webui_auth_page(url: &str, server_url: &str) -> bool {
+    let (Ok(page), Ok(server)) = (url::Url::parse(url), url::Url::parse(server_url)) else {
+        return false;
+    };
+    if page.origin() != server.origin() {
+        return false;
+    }
+    let prefix = server.path().trim_end_matches('/');
+    let path = page.path().to_ascii_lowercase();
+    let Some(path) = path.strip_prefix(&prefix.to_ascii_lowercase()) else {
+        return false;
+    };
+    path == "/auth"
+        || path.starts_with("/auth/")
+        || path.contains("/oauth/")
+        || path.contains("/api/v1/auths/")
+}
+
 /// Opens the sign-in window for `server_url` and resolves when it is done,
 /// closed or out of time. `title` is the window's title.
 pub fn run_sso(server_url: &str, title: String, cx: &mut App) -> Task<SsoOutcome> {
+    run_sign_in_window(server_url, title, false, cx)
+}
+
+/// The sign-in window again for a sign-in proxy whose session expired: done
+/// as soon as the proxy lets it through to Open WebUI's own sign-in page,
+/// with the proxy's new cookies (and Open WebUI's token, if it signed in
+/// there too).
+pub fn run_proxy_sso(server_url: &str, title: String, cx: &mut App) -> Task<SsoOutcome> {
+    run_sign_in_window(server_url, title, true, cx)
+}
+
+fn run_sign_in_window(
+    server_url: &str,
+    title: String,
+    proxy: bool,
+    cx: &mut App,
+) -> Task<SsoOutcome> {
     let (Some(origin), Some(start)) = (origin_of(server_url), start_url(server_url)) else {
         return Task::ready(SsoOutcome::Failed("not an http(s) server address".into()));
     };
     #[cfg(target_os = "macos")]
     {
-        macos::run(origin, start, server_url.to_string(), title, cx)
+        macos::run(origin, start, server_url.to_string(), title, proxy, cx)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (origin, start, title, cx);
+        let _ = (origin, start, title, proxy, cx);
         Task::ready(SsoOutcome::Failed("SSO needs macOS for now".into()))
     }
 }
@@ -302,11 +457,14 @@ mod macos {
         }
     }
 
+    /// `proxy`: the window renews a sign-in proxy's session
+    /// ([`super::run_proxy_sso`]) and is done once the proxy lets it through.
     pub fn run(
         origin: String,
         start: String,
         server_url: String,
         title: String,
+        proxy: bool,
         cx: &mut App,
     ) -> Task<SsoOutcome> {
         let (loads_tx, mut loads) = mpsc::unbounded::<String>();
@@ -338,7 +496,10 @@ mod macos {
                     }
                 });
             let webview = cx.new(|cx| {
-                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+                let webview = WebView::build(builder, window, cx)
+                    .expect("a WKWebView always builds on macOS");
+                crate::shell::web_media::guard(webview.raw());
+                webview
             });
             cx.new(|_| SsoWindow {
                 title: title.clone().into(),
@@ -411,7 +572,10 @@ mod macos {
                     left_origin = false;
                     continue;
                 }
-                if is_done(&url, &origin, left_origin, token.is_some()) {
+                let through_proxy = proxy
+                    && !cookies.is_empty()
+                    && super::is_open_webui_auth_page(&url, &server_url);
+                if through_proxy || is_done(&url, &origin, left_origin, token.is_some()) {
                     log::info!(
                         "sso: done ({} cookies, token: {})",
                         cookies.len(),
@@ -433,6 +597,29 @@ mod macos {
     /// cookie it builds, though `domain()` strips it.
     pub(super) fn host_only(cookie: &wry::cookie::Cookie<'_>) -> bool {
         !format!("{cookie:?}").contains("domain: Some(Concrete(\".")
+    }
+
+    /// `cookie` as the daemon takes it: a domain cookie's domain keeps its
+    /// leading dot ([`host_only`]), so a session set for a parent domain
+    /// (`Domain=example.org`) is still sent to the gateway's host.
+    pub(super) fn dashboard_cookie(
+        cookie: &wry::cookie::Cookie<'_>,
+        host: &str,
+    ) -> conduit_protocol::HermesCookieDto {
+        let domain = cookie.domain().unwrap_or(host);
+        conduit_protocol::HermesCookieDto {
+            name: cookie.name().to_string(),
+            value: cookie.value().to_string(),
+            domain: if host_only(cookie) {
+                domain.to_string()
+            } else {
+                format!(".{domain}")
+            },
+            path: cookie.path().unwrap_or("/").to_string(),
+            secure: cookie.secure().unwrap_or(false),
+            http_only: cookie.http_only().unwrap_or(false),
+            expires_ms: cookie.expires_datetime().map(|t| t.unix_timestamp() * 1000),
+        }
     }
 
     /// What the LibreChat window's navigation callback tells the flow.
@@ -500,7 +687,10 @@ mod macos {
                     }
                 });
             let webview = cx.new(|cx| {
-                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+                let webview = WebView::build(builder, window, cx)
+                    .expect("a WKWebView always builds on macOS");
+                crate::shell::web_media::guard(webview.raw());
+                webview
             });
             cx.new(|_| SsoWindow {
                 title: title.clone().into(),
@@ -590,6 +780,183 @@ mod macos {
                             cookies,
                             token: None,
                         };
+                    }
+                }
+            }
+        })
+    }
+
+    pub fn run_hermes_dashboard(
+        plan: conduit_protocol::HermesDashboardPlan,
+        connection_id: String,
+        connection: Option<String>,
+        title: String,
+        rpc: crate::stores::rpc::Rpc,
+        cx: &mut App,
+    ) -> Task<DashboardOutcome> {
+        use std::sync::{Arc, Mutex};
+
+        use conduit_protocol::{
+            HermesCookieDto, HermesDashboardCancel, HermesDashboardCookies, methods,
+        };
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        // This window's sign-in: closing it cancels what it still asks.
+        static ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+        let attempt = format!("dashboard-{}", ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1);
+
+        let (loads_tx, mut loads) = mpsc::unbounded::<String>();
+        let (closed_tx, closed) = oneshot::channel::<()>();
+        let bounds = Bounds::centered(None, size(px(520.), px(700.)), cx);
+        let mut options = conduit_components::window::window_options(&title, bounds, false, true);
+        options.window_bounds = Some(WindowBounds::Windowed(bounds));
+        options.window_min_size = Some(size(px(420.), px(480.)));
+        let origin = plan.origin.clone();
+        let nav = Arc::new(Mutex::new(DashboardNav::default()));
+        let opened = open_window_clear_root(options, cx, |window, cx| {
+            let nav_origin = origin.clone();
+            let builder = wry::WebViewBuilder::new()
+                // A fresh, non-persistent store: no earlier sign-in's
+                // cookies can sign this one in, and none outlive the window
+                // (the daemon keeps the session it is handed).
+                .with_incognito(true)
+                .with_url(&plan.login_url)
+                .with_navigation_handler(move |url: String| {
+                    if !url::Url::parse(&url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+                    {
+                        return false;
+                    }
+                    let Ok(mut state) = nav.lock() else {
+                        return false;
+                    };
+                    let (allowed, next) = state.step(&url, &nav_origin);
+                    *state = next;
+                    allowed
+                })
+                .with_on_page_load_handler(move |event, url: String| {
+                    if matches!(event, wry::PageLoadEvent::Finished) {
+                        let _ = loads_tx.unbounded_send(url);
+                    }
+                });
+            let webview = cx.new(|cx| {
+                let webview = WebView::build(builder, window, cx)
+                    .expect("a WKWebView always builds on macOS");
+                crate::shell::web_media::guard(webview.raw());
+                webview
+            });
+            cx.new(|_| SsoWindow {
+                title: title.clone().into(),
+                webview,
+                _closed: closed_tx,
+            })
+        });
+        let (handle, view): (AnyWindowHandle, Entity<SsoWindow>) = match opened {
+            Ok(opened) => opened,
+            Err(e) => return Task::ready(DashboardOutcome::Failed(e.to_string())),
+        };
+        let view = view.downgrade();
+        let host = url::Url::parse(&origin)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .unwrap_or_default();
+        cx.spawn(async move |cx: &mut AsyncApp| {
+            let mut closed = closed.fuse();
+            let mut timeout = cx.background_executor().timer(SSO_TIMEOUT).fuse();
+            let mut script = cx.update(|cx| cx.try_global::<SsoScript>().and_then(|s| s.0.clone()));
+            loop {
+                let url = futures::select_biased! {
+                    _ = closed => return DashboardOutcome::Cancelled,
+                    _ = timeout => {
+                        close(handle, cx);
+                        return DashboardOutcome::TimedOut;
+                    }
+                    url = loads.next() => match url {
+                        Some(url) => url,
+                        None => return DashboardOutcome::Cancelled,
+                    },
+                };
+                let at_origin =
+                    super::origin_of(&url).is_some_and(|o| o.eq_ignore_ascii_case(&origin));
+                log::info!("hermes dashboard: page loaded (at dashboard: {at_origin})");
+                let Ok(webview) = view.read_with(cx, |v, cx| v.webview.read(cx).handle()) else {
+                    return DashboardOutcome::Cancelled;
+                };
+                if !super::dashboard_page_signed_in_maybe(&url, &origin) {
+                    // The test hook stands in for the user on the sign-in
+                    // page, once.
+                    if at_origin && let Some(js) = script.take() {
+                        log::info!("hermes dashboard: running the test script on the sign-in page");
+                        let _ = webview.raw().evaluate_script(&js);
+                    }
+                    continue;
+                }
+                // Read outside any GPUI borrow: wry pumps the run loop while
+                // it waits for WKHTTPCookieStore.
+                let all = match webview.raw().cookies() {
+                    Ok(all) => all,
+                    Err(e) => {
+                        close(handle, cx);
+                        return DashboardOutcome::Failed(e.to_string());
+                    }
+                };
+                let cookies: Vec<HermesCookieDto> = all
+                    .iter()
+                    .filter(|c| cookie_matches(c.domain(), &host))
+                    .map(|c| dashboard_cookie(c, &host))
+                    .collect();
+                if !cookies
+                    .iter()
+                    .any(|c| super::is_dashboard_session_cookie(&c.name))
+                {
+                    continue;
+                }
+                // For the connection the sign-in started under: refused once
+                // another is in use.
+                let call = rpc
+                    .call::<methods::HermesDashboardComplete>(&HermesDashboardCookies {
+                        id: connection_id.clone(),
+                        cookies,
+                        connection: connection.clone(),
+                        attempt: Some(attempt.clone()),
+                    })
+                    .fuse();
+                futures::pin_mut!(call);
+                // Closed (or out of time) while the daemon checks the
+                // session: the sign-in is cancelled, and the daemon keeps
+                // nothing it has not kept already. What it says then is
+                // the outcome: signed in only if it kept the session first.
+                let ended = futures::select_biased! {
+                    answer = call => Ok(answer),
+                    _ = closed => Err(DashboardOutcome::Cancelled),
+                    _ = timeout => Err(DashboardOutcome::TimedOut),
+                };
+                let answer = match ended {
+                    Ok(answer) => answer,
+                    Err(outcome) => {
+                        let cancel =
+                            rpc.call::<methods::HermesDashboardCancel>(&HermesDashboardCancel {
+                                attempt: attempt.clone(),
+                            });
+                        let _ = cancel.await;
+                        close(handle, cx);
+                        return match call.await {
+                            Ok(result) if result.signed_in => {
+                                DashboardOutcome::SignedIn(result.connections)
+                            }
+                            _ => outcome,
+                        };
+                    }
+                };
+                match answer {
+                    Ok(result) if result.signed_in => {
+                        log::info!("hermes dashboard: signed in");
+                        close(handle, cx);
+                        return DashboardOutcome::SignedIn(result.connections);
+                    }
+                    Ok(_) => log::info!("hermes dashboard: not signed in yet"),
+                    Err(e) => {
+                        close(handle, cx);
+                        return DashboardOutcome::Failed(e.to_string());
                     }
                 }
             }
@@ -698,6 +1065,25 @@ mod tests {
         assert!(macos::host_only(&host));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_parent_domain_session_reaches_the_daemon_as_a_domain_cookie() {
+        let parent = wry::cookie::CookieBuilder::new("hermes_session_at", "1")
+            .domain(".example.org")
+            .build();
+        let own = wry::cookie::CookieBuilder::new("hermes_session_at", "1")
+            .domain("agent.example.org")
+            .build();
+        assert_eq!(
+            macos::dashboard_cookie(&parent, "agent.example.org").domain,
+            ".example.org"
+        );
+        assert_eq!(
+            macos::dashboard_cookie(&own, "agent.example.org").domain,
+            "agent.example.org"
+        );
+    }
+
     #[test]
     fn the_flow_ends_back_on_the_server() {
         let origin = "https://chat.example.org";
@@ -778,6 +1164,93 @@ mod tests {
             nav("https://example.com/oauth/librechat/oauth/github/callback"),
             LibreChatNav::ProviderReturned
         );
+    }
+
+    #[test]
+    fn a_proxy_lets_the_window_through_to_open_webuis_sign_in() {
+        let server = "https://chat.example.org";
+        for page in [
+            "https://chat.example.org/auth",
+            "https://chat.example.org/auth?redirect=%2F",
+            "https://chat.example.org/auth/",
+            "https://chat.example.org/oauth/oidc/callback",
+            "https://chat.example.org/api/v1/auths/",
+        ] {
+            assert!(is_open_webui_auth_page(page, server), "{page}");
+        }
+        for page in [
+            "https://chat.example.org/",
+            "https://chat.example.org/oauth2/sign_in",
+            "https://login.example.org/auth",
+            "http://chat.example.org/auth",
+            "not a url",
+        ] {
+            assert!(!is_open_webui_auth_page(page, server), "{page}");
+        }
+        // Under a path prefix.
+        assert!(is_open_webui_auth_page(
+            "https://example.org/owui/auth",
+            "https://example.org/owui/"
+        ));
+        assert!(!is_open_webui_auth_page(
+            "https://example.org/auth",
+            "https://example.org/owui"
+        ));
+    }
+
+    #[test]
+    fn the_dashboard_window_goes_where_the_phones_does() {
+        let origin = "http://127.0.0.1:8642";
+        let start = DashboardNav::default();
+        // The dashboard's own pages.
+        let (ok, s) = start.step("http://127.0.0.1:8642/login", origin);
+        assert!(ok);
+        assert_eq!(s, start);
+        // Out to an HTTPS identity provider once, and back.
+        let (ok, s) = s.step("https://idp.example.org/authorize", origin);
+        assert!(ok);
+        assert!(s.left && !s.returned);
+        let (ok, s) = s.step("http://127.0.0.1:8642/auth/callback", origin);
+        assert!(ok);
+        assert!(s.returned);
+        // Never out again, and never to plain HTTP elsewhere.
+        assert!(!s.step("https://idp.example.org/again", origin).0);
+        assert!(!start.step("http://evil.example/", origin).0);
+        // Another port is another origin.
+        assert!(!start.step("http://127.0.0.1:9000/", origin).0);
+    }
+
+    #[test]
+    fn a_signed_in_page_is_one_back_on_the_dashboard() {
+        let origin = "https://agent.example.org";
+        assert!(dashboard_page_signed_in_maybe(
+            "https://agent.example.org/",
+            origin
+        ));
+        assert!(dashboard_page_signed_in_maybe(
+            "https://agent.example.org/sessions",
+            origin
+        ));
+        assert!(!dashboard_page_signed_in_maybe(
+            "https://agent.example.org/login?next=/",
+            origin
+        ));
+        assert!(!dashboard_page_signed_in_maybe(
+            "https://idp.example.org/",
+            origin
+        ));
+    }
+
+    #[test]
+    fn dashboard_session_cookies_by_their_base_name() {
+        assert!(is_dashboard_session_cookie("hermes_session_at"));
+        assert!(is_dashboard_session_cookie("__Host-hermes_session_rt"));
+        assert!(is_dashboard_session_cookie(
+            "__Secure-hermes_session_at_0123456789abcdef"
+        ));
+        assert!(!is_dashboard_session_cookie("hermes_session_provider"));
+        assert!(!is_dashboard_session_cookie("hermes_session_at_XYZ"));
+        assert!(!is_dashboard_session_cookie("token"));
     }
 
     #[test]

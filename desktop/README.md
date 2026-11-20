@@ -66,7 +66,13 @@ quits, which stops the daemon. `CONDUIT_USER_DATA`, `CONDUIT_LOGS` and
 `--e2e <scenario>` drives the app over the real daemon against a throwaway
 local Open WebUI 0.13.2 with a fake model, a fake Hermes server and invented
 accounts and chats ([`tool/local_owui`](../tool/local_owui/README.md)). It
-never talks to a real server; CI does not run it.
+never talks to a real server; CI does not run it. The passes, `--capture`,
+`--probe` and the fixtures are compiled only with the `harness` cargo
+feature, which `run.sh`, `perf.sh`, the E2E scripts and `cargo test`
+turn on and release bundles leave off. Every scenario, and how to run them
+one after another, is in
+[docs/BUILDING-DESKTOP.md](../docs/BUILDING-DESKTOP.md#end-to-end-passes);
+the first ones:
 
 ```sh
 ../tool/local_owui/owui.sh setup     # once: a venv with open-webui
@@ -160,28 +166,32 @@ needs no prompt.
 DMG (Apple Silicon, macOS 14+), with Sparkle 2 for updates; `smoke.sh`
 checks a bundle; `appcast.sh` and `publish-appcast.sh` maintain the update
 feed; `.github/workflows/release-desktop.yml` runs it all on `desktop-v*`
-tags. Everything about building, signing, notarizing, the appcast and the
-release secrets is in [docs/BUILDING-DESKTOP.md](../docs/BUILDING-DESKTOP.md).
+tags and leaves a draft release to publish. Building and signing are in
+[docs/BUILDING-DESKTOP.md](../docs/BUILDING-DESKTOP.md); releasing (secrets,
+notarization, the Sparkle key, rehearsals, dSYMs) is in
+[docs/RELEASING-DESKTOP.md](../docs/RELEASING-DESKTOP.md).
 
 ```sh
 packaging/macos/bundle.sh all --version 1.2.0          # ad-hoc without CONDUIT_SIGN_IDENTITY
 packaging/macos/smoke.sh target/macos/Conduit-1.2.0/Conduit.app --launch
-packaging/notices/notices.sh                           # THIRD_PARTY_NOTICES.md
+packaging/notices/notices.sh --check                   # the notices bundle.sh generates
 ```
 
 ## Patched dependencies
 
-`vendor/gpui-pre` is gpui-pre 0.3.11 with one fix (a file dropped right after
-typing switches GPUI to pointer input, so `on_drop` fires), used through
-`[patch.crates-io]`. `vendor/gpui-pre/PATCHES.md` has the diff and how to
-update it.
+`vendor/gpui-pre` is gpui-pre 0.3.11 with three small patches (a file
+dropped right after typing switches GPUI to pointer input, so `on_drop`
+fires; AccessKit's debug tree carries each node's bounds; a newly focused
+element scrolls into view), used through `[patch.crates-io]`.
+`vendor/gpui-pre/PATCHES.md` describes each and how to update it.
 
 ## Checks
 
 ```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test            # includes the AccessKit walks of the gallery and the chat view
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy -p conduit-desktop --lib --bins -- -D warnings   # without the harness, as released
+cargo test --workspace   # includes the AccessKit walks of the gallery and the chat view
 ```
 
 The a11y tests open real windows; set `CONDUIT_SKIP_UI_TESTS=1` on a machine

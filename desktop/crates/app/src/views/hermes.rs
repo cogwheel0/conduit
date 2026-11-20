@@ -7,7 +7,9 @@ use std::rc::Rc;
 
 use conduit_components::views::kit::{Button, Segment, Segmented, Switch, grouped, setting_row};
 use conduit_daemon::RpcError;
-use conduit_protocol::{HermesSettings, HermesSettingsEdit, HermesTestResult, NoParams, methods};
+use conduit_protocol::{
+    HermesSettings, HermesSettingsEdit, HermesSignInRequest, HermesTestResult, NoParams, methods,
+};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -71,6 +73,9 @@ impl HermesView {
             )
             .detach();
         }
+        // Sign In waits for the connection in use to be known.
+        cx.observe(&stores.hermes_admin, |_, _, cx| cx.notify())
+            .detach();
         cx.observe(&stores.session, |this: &mut Self, session, cx| {
             let fresh = session.read(cx).hermes.clone();
             if fresh.is_some() && fresh != this.saved {
@@ -254,13 +259,21 @@ impl HermesView {
     }
 
     /// Native PKCE: the gateway's page opens in the browser.
+    /// For the connection in use as this window knows it: another
+    /// window's switch meanwhile is refused, not signed in to. Until the
+    /// window knows which connection is in use (its list is being read
+    /// again after a change), nothing is sent.
     pub fn sign_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(connection) = self.stores.hermes_admin.read(cx).connection() else {
+            return;
+        };
+        let connection = Some(connection);
         let call = self
             .stores
             .connection
             .read(cx)
             .rpc()
-            .call::<methods::HermesSignIn>(&NoParams);
+            .call::<methods::HermesSignIn>(&HermesSignInRequest { connection });
         self.note = Some(HermesNote::SignInStarted);
         self.run(window, cx, call, |s, r, l10n, _, _| match r {
             Ok(saved) => {
@@ -408,7 +421,11 @@ impl Render for HermesView {
                         .on_click(act(|s, w, cx| s.sign_out(w, cx)))
                 } else {
                     Button::new("hermes-sign-in", l10n.desktop_sign_in_with_hermes())
-                        .disabled(self.busy || saved.base_url.is_empty())
+                        .disabled(
+                            self.busy
+                                || saved.base_url.is_empty()
+                                || self.stores.hermes_admin.read(cx).connection().is_none(),
+                        )
                         .on_click(act(|s, w, cx| s.sign_in(w, cx)))
                 },
                 cx,
@@ -488,5 +505,62 @@ impl Render for HermesView {
                 .on_click(act(|s, w, cx| s.save(w, cx)))
                 .into_any_element(),
             ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use conduit_protocol::{HermesConnections, HermesSettings, methods};
+    use gpui_kit::TestAppContext;
+    use serde_json::json;
+
+    use super::HermesView;
+    use crate::stores::Stores;
+    use crate::stores::rpc::fake::FakeDaemon;
+
+    /// Until the window knows which connection is in use (the list read
+    /// again after a change), Sign In sends nothing: a request without one
+    /// would sign in to whichever connection another window put in use.
+    #[gpui_kit::test]
+    fn sign_in_waits_for_the_connection_in_use(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::HermesSettings>(
+            serde_json::from_value::<HermesSettings>(json!({
+                "baseUrl": "http://127.0.0.1:20401", "mode": "desktop",
+            }))
+            .unwrap(),
+        );
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-hermes-signin-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let admin = stores.hermes_admin.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| HermesView::new(stores, true, window, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.sign_in(window, cx));
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::HermesSignIn>().is_empty(),
+            "Sign In went out naming no connection"
+        );
+        admin.update(vcx, |a, cx| {
+            a.adopt_connections(
+                serde_json::from_value::<HermesConnections>(json!({
+                    "enabled": true, "activeId": "a", "connection": "0a1b2c3d:7",
+                    "connections": [{"id": "a", "name": "Potting shed",
+                        "baseUrl": "http://127.0.0.1:20401", "mode": "desktop", "active": true}],
+                }))
+                .unwrap(),
+                cx,
+            )
+        });
+        view.update_in(vcx, |v, window, cx| v.sign_in(window, cx));
+        vcx.run_until_parked();
+        let calls = daemon.calls::<methods::HermesSignIn>();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["connection"], "0a1b2c3d:7");
     }
 }

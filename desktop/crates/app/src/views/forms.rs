@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, ClickHandler, IconButton, bare_input, field_frame};
@@ -219,6 +220,7 @@ fn field_box(
     state: &Entity<InputState>,
     hint: Option<SharedString>,
     error: bool,
+    locked: bool,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -275,7 +277,7 @@ fn field_box(
             div()
                 .flex_1()
                 .min_w_0()
-                .child(bare_input(state, label.clone(), m.control)),
+                .child(bare_input(state, label.clone(), m.control).disabled(locked)),
         )
 }
 
@@ -294,6 +296,46 @@ pub fn field(
     field_hinted(label, state, hint, help, error, window, cx)
 }
 
+/// A field's error that answers a request (a Save, a Test), with the
+/// sheet's count of answered requests: the one attempt its other live
+/// regions take too, so each answer is heard, even in the words of the one
+/// before (see [`conduit_components::announce::LiveText::attempt`]).
+pub struct Answer {
+    pub error: Option<SharedString>,
+    pub attempt: u64,
+}
+
+/// [`field_locked`] whose error is an [`Answer`].
+pub fn field_answered(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    help: Option<SharedString>,
+    answer: Answer,
+    locked: bool,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    let hint = hint(state, cx);
+    let Answer { error, attempt } = answer;
+    field_with(label, state, hint, help, error, locked, attempt, window, cx)
+}
+
+/// [`field`] that takes no typing while `locked`: a form whose save or test
+/// is out, so what it answers is the form as it stands (nothing typed
+/// meanwhile is closed over or judged by an older answer).
+pub fn field_locked(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    help: Option<SharedString>,
+    error: Option<SharedString>,
+    locked: bool,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    let hint = hint(state, cx);
+    field_with(label, state, hint, help, error, locked, 0, window, cx)
+}
+
 /// [`field`] with its placeholder given here (one input that serves two
 /// labels, as sign-in's email or LDAP user name).
 pub fn field_hinted(
@@ -302,6 +344,21 @@ pub fn field_hinted(
     hint: Option<SharedString>,
     help: Option<SharedString>,
     error: Option<SharedString>,
+    window: &Window,
+    cx: &App,
+) -> Div {
+    field_with(label, state, hint, help, error, false, 0, window, cx)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn field_with(
+    label: impl Into<SharedString>,
+    state: &Entity<InputState>,
+    hint: Option<SharedString>,
+    help: Option<SharedString>,
+    error: Option<SharedString>,
+    locked: bool,
+    attempt: u64,
     window: &Window,
     cx: &App,
 ) -> Div {
@@ -316,12 +373,22 @@ pub fn field_hinted(
         .flex()
         .flex_col()
         .gap(px(4.))
-        .child(field_box(&label, state, hint, error.is_some(), window, cx))
+        .child(field_box(
+            &label,
+            state,
+            hint,
+            error.is_some(),
+            locked,
+            window,
+            cx,
+        ))
         .when_some(help, |d, h| {
             d.child(
                 div()
                     .id(help_id)
                     .when(error.is_some(), |d| d.role(Role::Alert))
+                    // Heard when it appears, as the phone's field errors.
+                    .child(live_text("live", error.clone(), Priority::High).attempt(attempt))
                     .text_size(px(m.small))
                     .line_height(relative(1.35))
                     .text_color(if error.is_some() {
@@ -351,6 +418,17 @@ pub fn form_error(
     message: impl Into<SharedString>,
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
+    form_error_answered(id, message, 0, cx)
+}
+
+/// [`form_error`] answering a request: heard again for each `attempt` (see
+/// [`field_answered`]).
+pub fn form_error_answered(
+    id: &'static str,
+    message: impl Into<SharedString>,
+    attempt: u64,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
     let t = cx.conduit().clone();
     let r = t.roles;
     let message = message.into();
@@ -378,11 +456,25 @@ pub fn form_error(
                 .pt(px(2.))
                 .child(icon(IconName::CircleAlert, 14., color)),
         )
-        .child(div().flex_1().child(message))
+        // Wraps rather than running past the form's edge.
+        .child(div().flex_1().min_w_0().child(message.clone()))
+        .child(live_text("live", Some(message), Priority::High).attempt(attempt))
 }
 
-/// A status line under a form (a test result, "Saved").
+/// A status line under a form (a test result, "Saved"), announced when it
+/// appears or changes.
 pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_kit::Stateful<Div> {
+    form_note_answered(message, ok, 0, cx)
+}
+
+/// [`form_note`] answering a request: heard again for each `attempt` (see
+/// [`field_answered`]).
+pub fn form_note_answered(
+    message: impl Into<SharedString>,
+    ok: bool,
+    attempt: u64,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
     let t = cx.conduit().clone();
     let r = t.roles;
     let color = if ok {
@@ -390,6 +482,7 @@ pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_k
     } else {
         r.text_subtle
     };
+    let message = message.into();
     div()
         .id("form-note")
         .role(Role::Status)
@@ -399,7 +492,8 @@ pub fn form_note(message: impl Into<SharedString>, ok: bool, cx: &App) -> gpui_k
         .text_size(px(t.metrics.small))
         .text_color(color)
         .when(ok, |d| d.child(icon(IconName::CircleCheck, 13., color)))
-        .child(message.into())
+        .child(message.clone())
+        .child(live_text("live", Some(message), Priority::Medium).attempt(attempt))
 }
 
 /// The URL a user typed, as the daemon takes it: an absolute http(s) URL
@@ -517,6 +611,28 @@ pub fn header_rows(
     on_remove: RowHandler,
     cx: &App,
 ) -> Div {
+    header_rows_locked(
+        rows,
+        name_label,
+        value_label,
+        remove_label,
+        on_remove,
+        false,
+        cx,
+    )
+}
+
+/// [`header_rows`] that take no typing, and remove nothing, while `locked`
+/// (as [`field_locked`]).
+pub fn header_rows_locked(
+    rows: &[HeaderRow],
+    name_label: SharedString,
+    value_label: SharedString,
+    remove_label: SharedString,
+    on_remove: RowHandler,
+    locked: bool,
+    cx: &App,
+) -> Div {
     let t = cx.conduit().clone();
     let h = t.metrics.control_height + 2.;
     div()
@@ -525,28 +641,39 @@ pub fn header_rows(
         .gap(px(6.))
         .children(rows.iter().enumerate().map(|(i, row)| {
             let remove = on_remove.clone();
+            // A placeholder a field was given (a kept value's "configured"
+            // note) shows under its input while it is empty.
+            let placed = |state: &Entity<InputState>, label: &SharedString| {
+                let shown = hint(state, cx).filter(|_| state.read(cx).value().is_empty());
+                field_frame(false, h, cx)
+                    .relative()
+                    .flex_1()
+                    .when_some(shown, |d, h| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left(px(7.))
+                                .right(px(7.))
+                                .flex()
+                                .items_center()
+                                .overflow_hidden()
+                                .text_size(px(t.metrics.control))
+                                .text_color(t.roles.text_faint)
+                                .child(div().truncate().child(h)),
+                        )
+                    })
+                    .child(div().flex_1().min_w_0().child(
+                        bare_input(state, label.clone(), t.metrics.control).disabled(locked),
+                    ))
+            };
             div()
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .child(
-                    field_frame(false, h, cx)
-                        .flex_1()
-                        .child(div().flex_1().child(bare_input(
-                            &row.name,
-                            name_label.clone(),
-                            t.metrics.control,
-                        ))),
-                )
-                .child(
-                    field_frame(false, h, cx)
-                        .flex_1()
-                        .child(div().flex_1().child(bare_input(
-                            &row.value,
-                            value_label.clone(),
-                            t.metrics.control,
-                        ))),
-                )
+                .child(placed(&row.name, &name_label))
+                .child(placed(&row.value, &value_label))
                 .child(
                     IconButton::new(
                         ElementId::NamedInteger("remove-header".into(), i as u64),
@@ -554,6 +681,7 @@ pub fn header_rows(
                         remove_label.clone(),
                     )
                     .size(24., 14.)
+                    .disabled(locked)
                     .on_click(Rc::new(move |_, window, cx| remove(i, window, cx))),
                 )
         }))
@@ -630,6 +758,19 @@ pub fn pem_picker(
     on_clear: ClickHandler,
     cx: &App,
 ) -> Div {
+    pem_picker_locked(id, file, labels, on_choose, on_clear, false, cx)
+}
+
+/// [`pem_picker`] that picks and clears nothing while `locked`.
+pub fn pem_picker_locked(
+    id: &'static str,
+    file: Option<&PemFile>,
+    labels: PemLabels,
+    on_choose: ClickHandler,
+    on_clear: ClickHandler,
+    locked: bool,
+    cx: &App,
+) -> Div {
     let PemLabels {
         choose: choose_label,
         replace: replace_label,
@@ -657,6 +798,7 @@ pub fn pem_picker(
                     clear_label.clone(),
                 )
                 .ghost()
+                .disabled(locked)
                 .on_click(on_clear),
             )
         })
@@ -669,6 +811,7 @@ pub fn pem_picker(
                     choose_label
                 },
             )
+            .disabled(locked)
             .on_click(on_choose),
         )
 }

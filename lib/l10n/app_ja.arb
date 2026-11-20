@@ -6707,5 +6707,6 @@
   "notificationCalendarExactDescription": "「アラームとリマインダー」を許可すると、カレンダーのリマインダーが正確な時刻に届きます。",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "保存済みのキーは新しいアドレスには送信されないため、削除されます。このアドレス用のキーを入力してください。"
 }

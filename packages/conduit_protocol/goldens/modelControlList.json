@@ -1,0 +1,15 @@
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "controls": [
+    {
+      "key": "reasoning_effort",
+      "label": "",
+      "options": [
+        {
+          "value": "low",
+          "label": ""
+        }
+      ]
+    }
+  ]
+}

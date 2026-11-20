@@ -7,6 +7,8 @@
 //!   back after switching away and back;
 //! * a message queued while an answer streams, then one sent now (Stop &
 //!   Send), the rest going out after it;
+//! * a message sent while the queue's next batch waits for the chat to
+//!   settle: Send shows, the message goes first, and the batch follows;
 //! * each trigger: `$` skills (sent: the server gets the skill), `@` people
 //!   and channels, `#` notes, knowledge bases and their files, `/` prompts;
 //! * the server-file picker; a web page read as context;
@@ -21,7 +23,9 @@
 use std::path::Path;
 use std::time::Duration;
 
-use conduit_protocol::{AppSettingsDto, AppSettingsPatch, ChatRef, NoteQuery, NoteRef, methods};
+use conduit_protocol::{
+    AppSettingsDto, AppSettingsPatch, ChatRef, NoteQuery, NoteRef, QueuePhase, methods,
+};
 use gpui_kit::{App, AsyncApp};
 use serde_json::Value;
 
@@ -194,6 +198,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
 
     pass &= drafts(&chat_id, dir, cx).await;
     pass &= queue(&chat_id, main, dir, cx).await;
+    pass &= send_while_batch_waits(cx).await;
     pass &= triggers(inputs, dir, cx).await;
     pass &= server_files(inputs, dir, cx).await;
     pass &= web_page(inputs, dir, cx).await;
@@ -332,6 +337,92 @@ async fn queue(chat_id: &str, main: AnyWindowHandle, dir: &Path, cx: &mut AsyncA
     pass
 }
 
+/// [wait_until] at a finer grain, for a state that lasts under a second.
+async fn wait_briefly(
+    cx: &mut AsyncApp,
+    timeout: Duration,
+    mut done: impl FnMut(&mut App) -> bool,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if cx.update(|cx| done(cx)) {
+            return true;
+        }
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(20))
+            .await;
+    }
+}
+
+/// A message sent while the queue's next batch waits for the chat to settle
+/// (the answer before it has just ended): the window shows Send, and the
+/// message is sent, not refused, and answered before the batch, as on the
+/// phone.
+async fn send_while_batch_waits(cx: &mut AsyncApp) -> bool {
+    let mut pass = true;
+    send("Tell me something long", cx).await;
+    let offered = wait_until(cx, Duration::from_secs(30), |cx| {
+        pane(cx).is_some_and(|p| p.read(cx).composer.read(cx).queue_offer)
+    })
+    .await;
+    pass &= ok("a message can be queued behind a long answer", offered);
+    type_text("And the east side?", cx).await;
+    in_pane(cx, |p, window, cx| {
+        p.composer.update(cx, |c, cx| c.submit(window, cx))
+    });
+    let queued = wait_until(cx, Duration::from_secs(10), |cx| {
+        chat_store(cx).is_some_and(|s| s.read(cx).queue.drafts.len() == 1)
+    })
+    .await;
+    pass &= ok("queue.add: it waits behind the long answer", queued);
+    // The answer ends, and the batch waits for the chat to settle.
+    let waiting = wait_briefly(cx, Duration::from_secs(60), |cx| {
+        chat_store(cx).is_some_and(|s| {
+            let s = s.read(cx);
+            s.queue.phase == QueuePhase::Admitting && !s.is_streaming()
+        })
+    })
+    .await;
+    let offers_send = cx.update(|cx| {
+        pane(cx).is_some_and(|p| {
+            let c = p.read(cx).composer.read(cx);
+            !c.streaming && !c.queue_offer
+        })
+    });
+    pass &= ok(
+        "while the batch waits, the composer offers Send",
+        waiting && offers_send,
+    );
+    let before = cx.update(user_messages).len();
+    send("Reply with exactly the word: lark", cx).await;
+    let both = wait_until(cx, Duration::from_secs(120), |cx| {
+        user_messages(cx).len() >= before + 2
+            && chat_store(cx).is_some_and(|s| {
+                let s = s.read(cx);
+                s.queue.drafts.is_empty() && !s.is_streaming()
+            })
+    })
+    .await;
+    pass &= ok("Send while the batch waits, then the batch", both);
+    pass &= ok(
+        "both answered",
+        wait_answer(cx, Duration::from_secs(60)).await,
+    );
+    let asked = cx.update(user_messages);
+    pass &= ok(
+        &format!("the message sent goes first ({asked:?})"),
+        asked.ends_with(&[
+            "Tell me something long".to_string(),
+            "Reply with exactly the word: lark".to_string(),
+            "And the east side?".to_string(),
+        ]),
+    );
+    pass
+}
+
 /// `$`, `@`, `#` and `/`, each listing the seed's rows at the caret.
 async fn triggers(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let mut pass = true;
@@ -446,9 +537,12 @@ async fn server_files(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
     menu_action(ComposerMenu::ServerFiles, cx).await;
     let listed = wait_until(cx, Duration::from_secs(20), |cx| {
         pane(cx).is_some_and(|p| match &p.read(cx).composer.read(cx).panel {
-            Some(Panel::ServerFiles(panel)) => {
-                panel.files().iter().any(|f| f.name == "field-notes.txt")
-            }
+            Some(Panel::ServerFiles(panel)) => panel
+                .picker
+                .read(cx)
+                .files()
+                .iter()
+                .any(|f| f.name == "field-notes.txt"),
             _ => false,
         })
     })
@@ -459,6 +553,8 @@ async fn server_files(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool
     in_pane(cx, |p, window, cx| {
         let file = match &p.composer.read(cx).panel {
             Some(Panel::ServerFiles(panel)) => panel
+                .picker
+                .read(cx)
                 .files()
                 .iter()
                 .find(|f| f.name == "field-notes.txt")

@@ -299,6 +299,8 @@ def main():
     parser.add_argument('--fake-model-url', required=True)
     parser.add_argument('--fake-hermes-url', required=True)
     parser.add_argument('--fake-hermes-key-file', required=True)
+    parser.add_argument('--fake-terminal-url', default='')
+    parser.add_argument('--fake-terminal-key-file', default='')
     args = parser.parse_args()
     server = Server(args.url)
 
@@ -543,6 +545,11 @@ def main():
         f"FAKE_PAGE_URL={args.fake_model_url.rsplit('/v1', 1)[0]}/page/raised-beds",
         f'FAKE_HERMES_URL={args.fake_hermes_url}',
         f'FAKE_HERMES_KEY={open(args.fake_hermes_key_file).read().strip()}',
+        # The fake Open Terminal itself (the Build box), for a personal
+        # terminal that reaches it directly, not through the server.
+        f'FAKE_TERMINAL_URL={args.fake_terminal_url}',
+        'FAKE_TERMINAL_KEY=' + (open(args.fake_terminal_key_file).read().strip()
+                                if args.fake_terminal_key_file else ''),
         '',
     ]))
     print('wrote', args.env_file)

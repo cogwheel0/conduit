@@ -48,11 +48,13 @@ void main() {
     List<String>? askedFor,
     bool agrees = true,
     List<Uri>? confirmations,
+    String? onlyAccountId,
   }) => checkOpenWebUiAddress(
     registry: _registry,
     serverId: 'home',
     address: address,
     activeAccountId: activeAccountId,
+    onlyAccountId: onlyAccountId,
     liveToken: liveToken,
     keptTokenFor: (id) async => kept[id],
     accountsWithSession: sessions,
@@ -69,7 +71,8 @@ void main() {
     },
   );
 
-  test('the active account checks it with its own token', () async {
+  test('the active account checks it with its own token; a sign-in named '
+      "for another account, with that account's alone", () async {
     final asked = <String>[];
 
     final found = await check0(
@@ -83,6 +86,35 @@ void main() {
     check(found.result).equals(OpenWebUiAddressCheck.sameServer);
     check(found.provedBy).equals('ada');
     check(asked).deepEquals(['live-ada']);
+
+    // A proxy sign-in captured for Bob is his to prove: Ada's live token is
+    // not sent, though she is active and would prove the address too.
+    asked.clear();
+    final named = await check0(
+      activeAccountId: 'ada',
+      liveToken: 'live-ada',
+      kept: {'bob': 'kept-bob'},
+      usersByToken: {'live-ada': 'user-ada', 'kept-bob': 'user-bob'},
+      asked: asked,
+      onlyAccountId: 'bob',
+    );
+    check(named.result).equals(OpenWebUiAddressCheck.sameServer);
+    check(named.provedBy).equals('bob');
+    check(asked).deepEquals(['kept-bob']);
+
+    // Bob holds no token here: he signs in first; Ada's is never sent.
+    asked.clear();
+    final unproved = await check0(
+      activeAccountId: 'ada',
+      liveToken: 'live-ada',
+      sessions: {'ada', 'bob'},
+      usersByToken: {'live-ada': 'user-ada'},
+      asked: asked,
+      onlyAccountId: 'bob',
+    );
+    check(unproved.result).equals(OpenWebUiAddressCheck.needsSignIn);
+    check(unproved.provedBy).isNull();
+    check(asked).isEmpty();
   });
 
   test('a server whose accounts are all inactive is checked with a token '

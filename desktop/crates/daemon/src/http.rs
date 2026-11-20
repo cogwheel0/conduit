@@ -196,6 +196,36 @@ impl HttpClient {
         self.get_bytes(url).await
     }
 
+    /// `GET /files/{server}/models/{model}`: a model's profile image (the
+    /// one it keeps, or a picture on its server); 404 when it has none.
+    pub async fn model_image(
+        &self,
+        server_id: &str,
+        model_id: &str,
+    ) -> Result<FileBytes, RpcError> {
+        let url = format!(
+            "{}/files/{}/models/{}",
+            self.base,
+            encode_component(server_id),
+            encode_component(model_id)
+        );
+        self.get_bytes(url).await
+    }
+
+    /// `GET /media/{kind}?url=`: a picture (`kind` `image`) or a PDF
+    /// (`pdf`) on another site, fetched by the daemon with nothing of the
+    /// user's sent along. Refused with `media.tooLarge`, `media.wrongType`,
+    /// `media.timedOut` or `media.failed`.
+    pub async fn media(&self, kind: &str, url: &str) -> Result<FileBytes, RpcError> {
+        let url = format!(
+            "{}/media/{}?url={}",
+            self.base,
+            encode_component(kind),
+            encode_component(url)
+        );
+        self.get_bytes(url).await
+    }
+
     /// `GET /tts/{jobId}`: the audio of a `voice.speak` job.
     pub async fn speech(&self, job_id: &str) -> Result<FileBytes, RpcError> {
         let url = format!("{}/tts/{}", self.base, encode_component(job_id));
@@ -282,6 +312,18 @@ impl HttpClient {
         if !query.is_empty() {
             url = format!("{url}?{}", query.join("&"));
         }
+        self.get_bytes(url).await
+    }
+
+    /// `GET /recordings/{id}?noteId=`: one of a note's recordings still
+    /// waiting to upload, as recorded.
+    pub async fn note_recording(&self, note_id: &str, id: &str) -> Result<FileBytes, RpcError> {
+        let url = format!(
+            "{}/recordings/{}?noteId={}",
+            self.base,
+            encode_component(id),
+            encode_component(note_id)
+        );
         self.get_bytes(url).await
     }
 

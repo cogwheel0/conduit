@@ -9,6 +9,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::with_alpha;
 use conduit_components::views::kit::{Button, IconButton, avatar};
@@ -59,6 +60,9 @@ pub struct MembersSheet {
     pub chosen: Vec<AccessPrincipal>,
     pub busy: bool,
     pub error: Option<String>,
+    /// Counts the changes that failed: each failure is heard, even in the
+    /// words of the one before (see [`Self::failed`]).
+    failures: u64,
     /// Empty the search field on the next frame.
     clear_search: bool,
     _subscriptions: Vec<Subscription>,
@@ -102,6 +106,7 @@ impl MembersSheet {
             chosen: vec![],
             busy: false,
             error: None,
+            failures: 0,
             clear_search: false,
             _subscriptions: subscriptions,
             _load: None,
@@ -259,12 +264,12 @@ impl MembersSheet {
                                 s.found.clear();
                                 s.load(String::new(), false, cx);
                             } else {
-                                s.error = Some(change_failure(change.result, cx.l10n()));
+                                s.failed(change_failure(change.result, cx.l10n()));
                             }
                         }
                         Err(e) => {
                             log::warn!("channels.addMembers: {e}");
-                            s.error = Some(cx.l10n().channel_members_change_failed());
+                            s.failed(cx.l10n().channel_members_change_failed());
                         }
                     }
                     cx.notify();
@@ -314,18 +319,25 @@ impl MembersSheet {
                                 let text = cx.l10n().desktop_channel_member_removed(&name);
                                 s.toast(NoticeLevel::Success, text, cx);
                             } else {
-                                s.error = Some(change_failure(change.result, cx.l10n()));
+                                s.failed(change_failure(change.result, cx.l10n()));
                             }
                         }
                         Err(e) => {
                             log::warn!("channels.removeMember: {e}");
-                            s.error = Some(cx.l10n().channel_members_change_failed());
+                            s.failed(cx.l10n().channel_members_change_failed());
                         }
                     }
                     cx.notify();
                 });
             }),
         );
+    }
+
+    /// A change answered with a failure: shown under the search, and said
+    /// again when a retry fails in the same words.
+    fn failed(&mut self, text: String) {
+        self.error = Some(text);
+        self.failures += 1;
     }
 
     fn toast(&self, level: NoticeLevel, text: String, cx: &mut App) {
@@ -731,7 +743,11 @@ impl Render for MembersSheet {
                         .role(Role::Alert)
                         .text_size(px(m.small))
                         .text_color(r.danger)
-                        .child(SharedString::from(e)),
+                        .child(SharedString::from(e.clone()))
+                        .child(
+                            live_text("live", Some(e.into()), Priority::High)
+                                .attempt(self.failures),
+                        ),
                 )
             })
             .child(

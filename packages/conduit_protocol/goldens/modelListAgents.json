@@ -1,0 +1,34 @@
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": false,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "agent:buildbox:codex:gpt-5.1",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "pinned": false,
+      "capabilities": [],
+      "agent": {
+        "terminalId": "buildbox",
+        "terminalName": "Build box",
+        "agent": "codex",
+        "agentName": "Codex",
+        "model": "gpt-5.1"
+      }
+    }
+  ],
+  "agentNames": {
+    "agent:buildbox:pi:default": "Pi · default"
+  },
+  "chatAgent": "agent:buildbox:pi:default",
+  "revision": 0
+}

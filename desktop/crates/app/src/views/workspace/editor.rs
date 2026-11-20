@@ -143,6 +143,9 @@ pub struct Frame {
     pub creating: bool,
     pub loading: bool,
     pub failure: Option<String>,
+    /// The body's scroll position, when the editor keeps one (to bring a
+    /// section into view).
+    pub scroll: Option<gpui_kit::ScrollHandle>,
 }
 
 /// The item of `section` that `detail` holds, as the pane lists it, or as
@@ -327,6 +330,7 @@ pub fn frame<V: 'static>(
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
+        .when_some(frame.scroll.clone(), |d, h| d.track_scroll(&h))
         .child(
             div()
                 .w_full()

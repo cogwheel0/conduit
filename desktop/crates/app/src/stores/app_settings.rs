@@ -28,9 +28,17 @@ pub struct AppSettingsStore {
     /// The daemon has answered at least once since connecting.
     pub loaded: bool,
     pub health: Option<ConnectionHealth>,
+    /// Live Updates › Retry is trying to reconnect.
+    pub reconnecting: bool,
+    /// The last Retry ended still disconnected (until the next one, or the
+    /// connection comes back).
+    pub reconnect_failed: bool,
     /// Why the last change was refused, until the next one.
     pub error: Option<RpcError>,
     generation: u64,
+    /// Show Scheduled Runs changes asked so far: a refusal is said only
+    /// while no newer change of it was asked.
+    pub scheduled_runs_writes: u64,
     _fetch: Option<Task<()>>,
     _health: Option<Task<()>>,
 }
@@ -45,6 +53,7 @@ pub fn desktop_defaults() -> AppSettingsDto {
         inline_message_actions: None,
         send_on_enter: true,
         show_composer_notes_button: true,
+        show_model_name_in_composer: false,
         temporary_chat_by_default: false,
         citation_show_titles: false,
         citation_background: true,
@@ -52,6 +61,7 @@ pub fn desktop_defaults() -> AppSettingsDto {
         default_model: None,
         open_router_image_generation_model: None,
         socket_transport_mode: "ws".into(),
+        hermes_show_scheduled_sessions: true,
         voice_call_mode: "auto".into(),
         stt_preference: "deviceOnly".into(),
         voice_locale_id: None,
@@ -77,11 +87,44 @@ impl AppSettingsStore {
             settings: desktop_defaults(),
             loaded: false,
             health: None,
+            reconnecting: false,
+            reconnect_failed: false,
             error: None,
             generation: 0,
+            scheduled_runs_writes: 0,
             _fetch: None,
             _health: None,
         }
+    }
+
+    /// Live Updates › Retry: asks the daemon to reconnect the realtime
+    /// socket now (`data.reconnect`), as the phone's button does.
+    pub fn reconnect(&mut self, cx: &mut Context<Self>) {
+        if self.reconnecting {
+            return;
+        }
+        self.reconnecting = true;
+        self.reconnect_failed = false;
+        cx.notify();
+        let call = self.rpc.call::<methods::DataReconnect>(&NoParams);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                s.reconnecting = false;
+                match result {
+                    Ok(health) => {
+                        s.reconnect_failed = health.available && !health.connected;
+                        s.health = Some(health);
+                    }
+                    Err(e) => {
+                        log::debug!("data.reconnect: {e}");
+                        s.reconnect_failed = true;
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// The settings as the daemon has them.
@@ -133,8 +176,9 @@ impl AppSettingsStore {
         drop(self.save(patch, cx));
     }
 
-    /// [`Self::set`], answering whether the daemon took `patch` (dropped
-    /// unanswered when a later change replaces it).
+    /// [`Self::set`], answering whether the daemon took `patch`. Every save
+    /// is answered: a later save or a refresh never drops the answer (only
+    /// what is shown follows the newest).
     pub fn save(
         &mut self,
         patch: AppSettingsPatch,
@@ -145,26 +189,25 @@ impl AppSettingsStore {
         self.generation += 1;
         let generation = self.generation;
         let call = self.rpc.call::<methods::SettingsSet>(&patch);
-        self._fetch = Some(
-            cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-                let result = call.await;
-                let _ = this.update(cx, |s, cx| match result {
-                    Ok(settings) => {
-                        s.error = None;
-                        if s.generation == generation {
-                            s.adopt(settings, cx);
-                        }
-                        let _ = done.send(true);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| match result {
+                Ok(settings) => {
+                    s.error = None;
+                    if s.generation == generation {
+                        s.adopt(settings, cx);
                     }
-                    Err(e) => {
-                        log::warn!("settings.set: {e}");
-                        s.error = Some(e);
-                        cx.notify();
-                        let _ = done.send(false);
-                    }
-                });
-            }),
-        );
+                    let _ = done.send(true);
+                }
+                Err(e) => {
+                    log::warn!("settings.set: {e}");
+                    s.error = Some(e);
+                    cx.notify();
+                    let _ = done.send(false);
+                }
+            });
+        })
+        .detach();
         answer
     }
 
@@ -175,7 +218,12 @@ impl AppSettingsStore {
                 let result = call.await;
                 let _ = this.update(cx, |s, cx| {
                     match result {
-                        Ok(health) => s.health = Some(health),
+                        Ok(health) => {
+                            if health.connected {
+                                s.reconnect_failed = false;
+                            }
+                            s.health = Some(health);
+                        }
                         Err(e) => log::debug!("data.connection: {e}"),
                     }
                     cx.notify();

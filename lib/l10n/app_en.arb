@@ -11668,5 +11668,9 @@
   "notificationCalendarExactDescription": "Allow \"Alarms & reminders\" so calendar reminders arrive on the minute.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "The saved key won't be sent to the new address, so it will be removed. Enter a key for this address.",
+  "@personalConnectionsKeyRemovedForNewAddress": {
+    "description": "Hint shown instead of a stored key when the edit moves the connection to another address: Save removes the saved key there, so the user must enter one for the new address."
   }
 }

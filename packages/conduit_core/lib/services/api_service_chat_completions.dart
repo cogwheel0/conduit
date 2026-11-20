@@ -149,15 +149,36 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         sessionId == null &&
         savedChatId.isNotEmpty &&
         !savedChatId.startsWith('local:');
+    // A Stop that reached this send while it was preparing ([beginSend]),
+    // or that reaches it before its request goes out: the request is never
+    // sent. A request for several answers ([messageIds]) is the send of each:
+    // a Stop on any of them stops it.
+    final answerIds = <String>{
+      messageId,
+      for (final target in messageIds ?? const <ChatCompletionTarget>[])
+        target.messageId,
+    };
+    var stopped = false;
+    for (final id in answerIds) {
+      if (_sendsUnderWay.remove(id) ?? false) stopped = true;
+    }
+    if (stopped) {
+      throw ChatCompletionStopped(
+        RequestOptions(path: '/api/chat/completions'),
+      );
+    }
     CancelToken? activeCancelToken;
     Future<void> abort() async {
+      stopped = true;
       final cancelToken = activeCancelToken;
       if (cancelToken != null && !cancelToken.isCancelled) {
         cancelToken.cancel('User cancelled');
       }
     }
 
-    _streamCancelActions[messageId] = abort;
+    for (final id in answerIds) {
+      _streamCancelActions[id] = abort;
+    }
     var legacyPendingTurnPersisted = false;
 
     Future<void> ensureLegacyPendingTurnPersisted() async {
@@ -178,6 +199,21 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         modelItem: modelItem,
       );
       legacyPendingTurnPersisted = true;
+    }
+
+    // A legacy server's pending-turn save runs without the request's cancel
+    // token: one that fails after a Stop is that Stop, not a retry.
+    Future<void> ensureLegacyPendingTurnPersistedUnlessStopped() async {
+      try {
+        await ensureLegacyPendingTurnPersisted();
+      } on Object {
+        if (stopped) {
+          throw ChatCompletionStopped(
+            RequestOptions(path: '/api/chat/completions'),
+          );
+        }
+        rethrow;
+      }
     }
 
     Future<Response<ResponseBody>> postWithMetadataFormat(
@@ -218,6 +254,11 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         'metadataFormat=${metadataFormat.name})',
       );
 
+      if (stopped) {
+        throw ChatCompletionStopped(
+          RequestOptions(path: '/api/chat/completions'),
+        );
+      }
       final cancelToken = CancelToken();
       activeCancelToken = cancelToken;
 
@@ -246,6 +287,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       try {
         return await postWithMetadataFormat(metadataFormat);
       } on DioException catch (error) {
+        if (stopped && error.type == DioExceptionType.cancel) {
+          throw ChatCompletionStopped(error.requestOptions);
+        }
         if (!heldUntilReplyEnds ||
             error.type != DioExceptionType.receiveTimeout) {
           rethrow;
@@ -269,7 +313,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     var metadataFormat =
         _chatRequestMetadataFormat ?? _ChatRequestMetadataFormat.modernV09;
     if (metadataFormat == _ChatRequestMetadataFormat.legacyPreV09) {
-      await ensureLegacyPendingTurnPersisted();
+      await ensureLegacyPendingTurnPersistedUnlessStopped();
     }
     final firstResponse = await post(metadataFormat);
     if (firstResponse == null) return readSavedReply();
@@ -301,7 +345,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
       metadataFormat = _ChatRequestMetadataFormat.legacyPreV09;
       _chatRequestMetadataFormat = metadataFormat;
-      await ensureLegacyPendingTurnPersisted();
+      await ensureLegacyPendingTurnPersistedUnlessStopped();
       final retryResponse = await post(metadataFormat);
       if (retryResponse == null) return readSavedReply();
       resp = retryResponse;
@@ -845,9 +889,33 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     }
   }
 
-  // Cancel an active streaming message by its messageId (client-side abort)
+  /// The send of the answer [messageId] is under way: from now until its
+  /// completion request is registered ([sendMessageSession]), a Stop
+  /// ([cancelStreamingMessage]) stays with it, and the request is never
+  /// sent. A send that starts afresh forgets an earlier Stop (a regenerate
+  /// keeps its answer's id); one that goes on ([adopt]: the outbox driving a
+  /// send admitted earlier) keeps it.
+  void beginSend(String messageId, {bool adopt = false}) {
+    if (adopt) {
+      _sendsUnderWay.putIfAbsent(messageId, () => false);
+    } else {
+      _sendsUnderWay[messageId] = false;
+    }
+  }
+
+  /// Whether a Stop reached the send of [messageId] before its request.
+  bool sendStopped(String messageId) => _sendsUnderWay[messageId] ?? false;
+
+  /// The send of [messageId] ended before its request: its Stop goes too.
+  void endSend(String messageId) => _sendsUnderWay.remove(messageId);
+
+  // Cancel an active streaming message by its messageId (client-side abort),
+  // or the send of one still preparing ([beginSend]).
   void cancelStreamingMessage(String messageId) {
     try {
+      if (_sendsUnderWay.containsKey(messageId)) {
+        _sendsUnderWay[messageId] = true;
+      }
       final action = _streamCancelActions.remove(messageId);
       if (action != null) {
         action();
@@ -860,6 +928,18 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   void clearStreamCancelToken(String messageId) {
     _streamCancelActions.remove(messageId);
   }
+}
+
+/// A completion request a Stop reached ([ApiService.cancelStreamingMessage]):
+/// stopped before it was sent ([ApiService.beginSend]), or cancelled on its
+/// way. A cancellation, as Dio reports one.
+final class ChatCompletionStopped extends DioException {
+  ChatCompletionStopped(RequestOptions requestOptions)
+    : super(
+        requestOptions: requestOptions,
+        type: DioExceptionType.cancel,
+        error: 'Stopped',
+      );
 }
 
 /// Open WebUI refused files for a knowledge base: too many in one upload,

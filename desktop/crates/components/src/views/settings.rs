@@ -101,6 +101,14 @@ impl SettingsWindow {
     }
 }
 
+/// Scrolls the Settings pane, on its next render, to this fraction of its
+/// height (0 the top, 1 the end): its scroll is the window's, which only a
+/// render can reach (the E2E's shots of sections below the fold).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PaneScrollRequest(pub Option<f32>);
+
+impl gpui_kit::Global for PaneScrollRequest {}
+
 impl RenderOnce for SettingsWindow {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = cx.conduit().clone();
@@ -131,6 +139,12 @@ impl RenderOnce for SettingsWindow {
             })
             .read(cx)
             .clone();
+        // A scroll asked for from outside a render ([`PaneScrollRequest`]).
+        if let Some(fraction) = cx.try_global::<PaneScrollRequest>().and_then(|r| r.0) {
+            let max = scroll.max_offset();
+            scroll.set_offset(gpui_kit::point(px(0.), -max.y * fraction));
+            cx.set_global(PaneScrollRequest(None));
+        }
         let fade = pane_edge_fade(
             f32::from(scroll.offset().y),
             f32::from(scroll.max_offset().y),

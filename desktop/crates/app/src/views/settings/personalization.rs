@@ -131,7 +131,7 @@ impl PersonalizationPane {
             view.update(cx, |v, cx| v.refresh(window, cx));
         }
         let rpc = self.rpc(cx);
-        let models = rpc.call::<methods::ModelsList>(&NoParams);
+        let models = rpc.call::<methods::ModelsList>(&conduit_protocol::ModelListQuery::default());
         let account = rpc.call::<methods::SettingsGetAccount>(&NoParams);
         let memories = rpc.call::<methods::MemoriesList>(&NoParams);
         let store = self.stores.app_settings.read(cx);

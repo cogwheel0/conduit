@@ -131,6 +131,20 @@ pub enum ComposerMenu {
 /// A menu's rows as drawn: each one's group heading and title.
 pub type MenuRows = Vec<(Option<String>, String)>;
 
+/// One row of the + menu.
+pub(crate) enum PlusRow {
+    Item {
+        label: String,
+        disabled: bool,
+        /// A switch's state (`None`: not a switch).
+        checked: Option<bool>,
+        action: ComposerMenu,
+    },
+    Separator,
+    /// Continuity Camera's items (AppKit's), when a device is near.
+    ImportFromDevice,
+}
+
 /// A `/`, `@`, `#` or `$` menu open over the composer.
 struct Menu {
     trigger: Trigger,
@@ -163,18 +177,6 @@ pub(crate) enum Panel {
     ServerFiles(super::composer_panels::ServerFilesPanel),
     WebPage(super::composer_panels::WebPagePanel),
     Mcp(Box<super::composer_panels::McpPanel>),
-}
-
-impl Panel {
-    /// This panel's own id: an answer is taken only by the panel that
-    /// asked for it, never by one opened since.
-    pub(crate) fn id(&self) -> u64 {
-        match self {
-            Self::ServerFiles(p) => p.id,
-            Self::WebPage(p) => p.id,
-            Self::Mcp(p) => p.id,
-        }
-    }
 }
 
 /// One field of a prompt's fill-in form.
@@ -219,6 +221,8 @@ pub enum PickerAction {
     CustomEffort,
     /// Pin or unpin a model.
     Pin(String, bool),
+    /// An option of the selected model's control: `(key, value)`.
+    Control(String, String),
 }
 
 pub struct ChatComposer {
@@ -285,8 +289,23 @@ pub struct ChatComposer {
     sent_recordings: Option<u64>,
     /// The text before the dictation under way; its words follow it.
     dictation_base: Option<String>,
+    /// The prompt being rendered: its request, where its text goes, and the
+    /// draft it was asked over ([`Self::render_prompt`]).
+    rendering: Option<(u64, usize, String)>,
+    /// The composition a saved recording's transcription was asked for in:
+    /// its words are added only while that composition is shown.
+    transcribing: Option<crate::stores::composer::CompositionTicket>,
+    /// Text given while the chat's draft was read ([`Self::give_text`]),
+    /// for the composition it was given in: it goes in, in order, after the
+    /// draft once the read has ended.
+    waiting: Vec<(crate::stores::composer::CompositionTicket, Given)>,
     /// The field's placeholder, put back after "Listening…".
     placeholder: String,
+    /// A host chose the placeholder (Quick Ask's "Ask Conduit…"): the
+    /// selected model never names it.
+    custom_placeholder: bool,
+    /// The placeholder the field shows now (not "Listening…").
+    shown_placeholder: String,
     /// The window this composer is in: Esc cancels dictation there only.
     window_handle: gpui_kit::AnyWindowHandle,
     /// A channel's composer: `@` is the only menu, and a model chosen there
@@ -324,6 +343,15 @@ impl Focusable for ChatComposer {
     }
 }
 
+/// Text given to the field ([`ChatComposer::give_text`]).
+#[derive(Clone, Debug)]
+enum Given {
+    /// At the caret.
+    AtCaret(String),
+    /// A saved recording's words, after what the field holds.
+    Dictated(String),
+}
+
 /// What a quick pill turns on (the daemon's `QuickPillOption::kind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PillKind {
@@ -350,7 +378,7 @@ impl ChatComposer {
                 .submit_on_enter(send_on_enter)
         });
         let weak = cx.entity().downgrade();
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.subscribe_in(
                 &input,
                 window,
@@ -372,13 +400,15 @@ impl ChatComposer {
                     _ => {}
                 },
             ),
-            // Drafts: another chat's replaces what was shown; a draft read
-            // shows unless something was typed meanwhile.
+            // Drafts: another chat's replaces what was shown; the field takes
+            // no input until the chat's draft is read, then shows it.
             cx.subscribe_in(
                 &composer,
                 window,
                 |this, store, e: &ComposerEvent, window, cx| match e {
                     ComposerEvent::DraftSwitched => {
+                        // What waited for the last draft's read was its.
+                        this.waiting.clear();
                         this.input.update(cx, |s, cx| s.set_value("", window, cx));
                         this.menu = None;
                         // The last draft's prompt form and panel go with it:
@@ -391,12 +421,22 @@ impl ChatComposer {
                         this.sync_dictation_target(cx);
                         cx.notify();
                     }
-                    ComposerEvent::DraftLoaded { key, text } => {
-                        let current = store.read(cx).draft_key() == Some(key);
-                        if current && this.text(cx).is_empty() && !text.is_empty() {
+                    // The draft read landed: the stored draft goes into the
+                    // field, which took no text meanwhile (what was given
+                    // waits), caret at its end. It never writes over text.
+                    ComposerEvent::DraftLoaded { key, text }
+                        if store.read(cx).draft_key() == Some(key) =>
+                    {
+                        if this.text(cx).is_empty() {
                             this.set_text(text, window, cx);
+                        } else {
+                            this.insert_at(0, text, window, cx);
+                            this.text_changed(cx);
                         }
                     }
+                    // However the read ended: what was given meanwhile goes
+                    // in now, after the draft.
+                    ComposerEvent::DraftReadEnded => this.give_waiting(window, cx),
                     _ => {}
                 },
             ),
@@ -467,6 +507,10 @@ impl ChatComposer {
                 }
             }),
         ];
+        // The placeholder names the selected model when Settings say so.
+        subscriptions.push(cx.observe_in(&composer, window, |this, _, window, cx| {
+            this.sync_placeholder(window, cx)
+        }));
         Self {
             composer,
             input,
@@ -497,7 +541,12 @@ impl ChatComposer {
             dictation: None,
             sent_recordings: None,
             dictation_base: None,
+            rendering: None,
+            transcribing: None,
+            waiting: Vec::new(),
             placeholder: placeholder.to_string(),
+            custom_placeholder: false,
+            shown_placeholder: placeholder.to_string(),
             window_handle: window.window_handle(),
             channel_mode: false,
             _dictation: vec![],
@@ -518,9 +567,45 @@ impl ChatComposer {
     /// The text field's placeholder (Quick Ask says "Ask Conduit…").
     pub fn set_placeholder(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.placeholder = text.to_string();
+        self.custom_placeholder = true;
+        self.shown_placeholder = text.to_string();
         let text = text.to_string();
         self.input
             .update(cx, |s, cx| s.set_placeholder(text, window, cx));
+    }
+
+    /// What the empty field says: with Settings › Chats › Show Model Name
+    /// in Message Box on, "Ask" and the selected model's name (mobile's
+    /// `chatComposerPlaceholder`); else the app's own words.
+    fn placeholder_now(&self, cx: &App) -> String {
+        let store = self.composer.read(cx);
+        if self.custom_placeholder || self.channel_mode || !store.prefs.show_model_name {
+            return self.placeholder.clone();
+        }
+        store
+            .selected_model()
+            .and_then(|m| crate::stores::composer::placeholder_model_name(&m.name))
+            .map(|name| cx.l10n().message_hint_text_for_model(&name))
+            .unwrap_or_else(|| self.placeholder.clone())
+    }
+
+    /// Puts [`Self::placeholder_now`] in the field when it changed (not
+    /// while dictation says "Listening…").
+    fn sync_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dictation_base.is_some() {
+            return;
+        }
+        let now = self.placeholder_now(cx);
+        if now != self.shown_placeholder {
+            self.shown_placeholder = now.clone();
+            self.input
+                .update(cx, |s, cx| s.set_placeholder(now, window, cx));
+        }
+    }
+
+    /// The placeholder the field shows (the E2E pass reads it).
+    pub fn shown_placeholder(&self) -> &str {
+        &self.shown_placeholder
     }
 
     // ── Dictation ──────────────────────────────────────────────────────
@@ -572,7 +657,8 @@ impl ChatComposer {
             return;
         };
         if !store.read(cx).is_active() {
-            if self.streaming {
+            // Nothing is written while the chat's draft is read.
+            if self.streaming || self.composer.read(cx).draft_reading() {
                 return;
             }
             // A voice call has the microphone.
@@ -620,12 +706,16 @@ impl ChatComposer {
                 }
             }
             DictationEvent::Transcribed(text) => {
-                let current = self.text(cx);
-                self.set_text(&join_dictated(&current, text), window, cx);
-                self.focus_input(window, cx);
+                // Only into the composition it was asked for in.
+                match self.transcribing.take() {
+                    Some(ticket) if self.composer.read(cx).holds(ticket) => {
+                        self.give(Given::Dictated(text.clone()), window, cx);
+                    }
+                    _ => log::info!("dictation: a transcription for another composition; dropped"),
+                }
             }
             DictationEvent::Heard => {
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
             }
@@ -635,7 +725,8 @@ impl ChatComposer {
                 {
                     self.set_text(&base, window, cx);
                 }
-                let placeholder = self.placeholder.clone();
+                let placeholder = self.placeholder_now(cx);
+                self.shown_placeholder = placeholder.clone();
                 self.input
                     .update(cx, |s, cx| s.set_placeholder(placeholder, window, cx));
                 self.focus_input(window, cx);
@@ -653,7 +744,12 @@ impl ChatComposer {
         cx: &mut Context<Self>,
     ) {
         if let Some(store) = self.dictation.clone() {
+            // One at a time: a request while one runs is not taken.
+            let free = store.read(cx).busy.is_none() && !store.read(cx).is_active();
             store.update(cx, |s, cx| s.transcribe_saved(id, on_this_mac, cx));
+            if free && store.read(cx).busy.is_some() {
+                self.transcribing = Some(self.composer.read(cx).ticket());
+            }
         }
     }
 
@@ -822,11 +918,23 @@ impl ChatComposer {
         !self.streaming && self.ready(cx)
     }
 
-    /// Something to send, and nothing holding it back but a running answer.
+    /// A new turn to start: something to send, a model the open chat's own
+    /// list names, and nothing holding it back but a running answer.
     fn ready(&self, cx: &App) -> bool {
+        self.has_message(cx) && self.composer.read(cx).can_name_model()
+    }
+
+    /// Something to send now, the connection up, no file still being read
+    /// and the chat's draft read (nothing goes while it is). Queue, Steer
+    /// and Send Next need no more: they go to the turn or chat already
+    /// running, not to a model the list names.
+    fn has_message(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
         let has_text = !self.text(cx).trim().is_empty();
-        !self.offline && !composer.uploading() && (has_text || composer.has_attachments())
+        !self.offline
+            && !composer.uploading()
+            && !composer.draft_reading()
+            && (has_text || composer.has_attachments())
     }
 
     /// The call button stands where Send would: nothing to send.
@@ -843,13 +951,20 @@ impl ChatComposer {
         self.follow_ups && self.composer.read(cx).options.steer
     }
 
+    /// Whether the Send button takes a click: Send can send, or, behind an
+    /// answer that waits in the outbox, Queue would queue as Enter does,
+    /// which needs no model list.
+    fn send_offered(&self, cx: &App) -> bool {
+        self.can_send(cx) || (self.queue_offer && self.busy_action(cx).is_some())
+    }
+
     /// What Enter does while an answer is written: queue (Open WebUI), hand
     /// to Hermes (a Desktop Gateway), or nothing.
     fn busy_action(&self, cx: &App) -> Option<bool> {
         // The queue is offered behind a running answer, and behind one that
         // waits in the outbox (nothing streams, Send shows).
         if !(self.streaming || self.queue_offer)
-            || !self.ready(cx)
+            || !self.has_message(cx)
             || self.text(cx).trim().is_empty()
         {
             return None;
@@ -933,6 +1048,9 @@ impl ChatComposer {
             return;
         }
         if !self.can_send(cx) {
+            // No list for the chat (it failed, or a new daemon session has
+            // not answered): Send asks for it again.
+            self.composer.update(cx, |c, cx| c.ask_list_again(cx));
             return;
         }
         let (text, mentions) = self.take_text(window, cx);
@@ -1005,7 +1123,9 @@ impl ChatComposer {
     }
 
     /// Puts text back with its `@`/`$` mentions as tokens again, so the
-    /// next send carries them.
+    /// next send carries them. Words typed since stay after it, with theirs
+    /// (as [`OneShot::merge`](crate::stores::composer::OneShot::merge) keeps
+    /// two unsent messages).
     pub fn restore_with(
         &mut self,
         text: &str,
@@ -1013,10 +1133,37 @@ impl ChatComposer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.text(cx).trim().is_empty() {
+        let typed = self.text(cx);
+        let (text, mentions) = if typed.trim().is_empty() {
+            // Dictation going on rebuilds the field from its base: the
+            // refused words are that base now.
+            if let Some(base) = self.dictation_base.as_mut() {
+                *base = text.to_string();
+            }
+            (text.to_string(), mentions.to_vec())
+        } else if text.trim().is_empty() {
             return;
-        }
-        let content = content_with_mentions(text, mentions);
+        } else {
+            let head = format!("{text}\n\n");
+            let shift = head.encode_utf16().count() as i64;
+            let mut all = mentions.to_vec();
+            all.extend(self.mentions(cx).into_iter().map(|mut m| {
+                m.start += shift;
+                m.end += shift;
+                m
+            }));
+            // What sits where the newer words are moves with them: an open
+            // prompt form's place (bytes), and dictation's base, which the
+            // next words heard (or a cancel) rebuild the field from.
+            if let Some(form) = self.form.as_mut() {
+                form.at += head.len();
+            }
+            if let Some(base) = self.dictation_base.as_mut() {
+                base.insert_str(0, &head);
+            }
+            (format!("{head}{typed}"), all)
+        };
+        let content = content_with_mentions(&text, &mentions);
         let end = text.len();
         self.input.update(cx, |s, cx| {
             s.set_value(content, window, cx);
@@ -1225,7 +1372,13 @@ impl ChatComposer {
             let len = models.len();
             let picker = self.picker.as_mut().expect("checked");
             match key {
-                "up" | "down" => picker.highlighted = menu_step(key, picker.highlighted, len),
+                "up" | "down" => {
+                    picker.highlighted = menu_step(key, picker.highlighted, len);
+                    if let Some(m) = models.get(picker.highlighted) {
+                        let label = crate::stores::composer::picker_row_name(m);
+                        crate::views::a11y::announce_row(&label, picker.highlighted, len, cx);
+                    }
+                }
                 "enter" | "tab" => {
                     if let Some(m) = models.get(picker.highlighted).cloned() {
                         self.choose_model(&m.id, window, cx);
@@ -1247,7 +1400,10 @@ impl ChatComposer {
         let len = self.menu_len(cx);
         let menu = self.menu.as_mut().expect("checked");
         match key {
-            "up" | "down" => menu.highlighted = menu_step(key, menu.highlighted, len),
+            "up" | "down" => {
+                menu.highlighted = menu_step(key, menu.highlighted, len);
+                self.announce_menu_row(cx);
+            }
             "enter" | "tab" => {
                 if len == 0 {
                     // Nothing to choose: Enter sends as usual.
@@ -1262,6 +1418,21 @@ impl ChatComposer {
         }
         cx.notify();
         true
+    }
+
+    /// Speaks the open `/`, `@`, `#` or `$` menu's highlighted row and its
+    /// place ([`crate::views::a11y`]: the menu is the field's sibling, so
+    /// its selection alone is never heard).
+    fn announce_menu_row(&self, cx: &mut Context<Self>) {
+        let Some(menu) = &self.menu else {
+            return;
+        };
+        let entries = self.entries(cx);
+        let total = entries.len();
+        if let Some(entry) = entries.get(menu.highlighted.min(total.saturating_sub(1))) {
+            let label = entry_label(entry);
+            crate::views::a11y::announce_row(&label, menu.highlighted, total, cx);
+        }
     }
 
     /// The open menu's trigger and rows as `(group, title)`, as drawn (the
@@ -1480,43 +1651,46 @@ impl ChatComposer {
         let request_id = self.prompt_request;
         let scope = self.composer.read(cx).scope();
         // The draft as it was: the text goes where the trigger was only if
-        // the draft has not changed since, else at its end.
-        let draft = self.text(cx);
+        // the draft has not changed since (a draft put in front moves both),
+        // else at its end.
+        self.rendering = Some((request_id, at, self.text(cx)));
         let task = self
             .composer
             .update(cx, |c, cx| c.render_prompt(request, cx));
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
-            let _ = this.update_in(cx, |this, window, cx| match result {
-                // Cancelled, another prompt chosen since, or another account's.
-                _ if this.prompt_request != request_id
-                    || this.composer.read(cx).scope() != scope => {}
-                Ok(rendered) => {
-                    let at = if this.text(cx) == draft {
-                        at
-                    } else {
-                        this.text(cx).len()
-                    };
-                    this.rendered(prompt, at, rendered, window, cx)
-                }
-                Err(e) => {
-                    log::warn!("prompts.render: {e}");
-                    match &mut this.form {
-                        Some(form) => {
-                            form.busy = false;
-                            form.error = Some(cx.l10n().desktop_something_went_wrong());
+            let _ = this.update_in(cx, |this, window, cx| {
+                let asked = this
+                    .rendering
+                    .take_if(|(request, _, _)| *request == request_id);
+                let at = match &asked {
+                    Some((_, at, draft)) if this.text(cx) == *draft => *at,
+                    _ => this.text(cx).len(),
+                };
+                match result {
+                    // Cancelled, another prompt chosen since, or another account's.
+                    _ if this.prompt_request != request_id
+                        || this.composer.read(cx).scope() != scope => {}
+                    Ok(rendered) => this.rendered(prompt, at, rendered, window, cx),
+                    Err(e) => {
+                        log::warn!("prompts.render: {e}");
+                        match &mut this.form {
+                            Some(form) => {
+                                form.busy = false;
+                                form.error = Some(cx.l10n().desktop_something_went_wrong());
+                            }
+                            None => {
+                                this.form = Some(PromptForm {
+                                    prompt,
+                                    at,
+                                    fields: vec![],
+                                    error: Some(cx.l10n().desktop_something_went_wrong()),
+                                    busy: false,
+                                })
+                            }
                         }
-                        None => {
-                            this.form = Some(PromptForm {
-                                prompt,
-                                at,
-                                fields: vec![],
-                                error: Some(cx.l10n().desktop_something_went_wrong()),
-                                busy: false,
-                            })
-                        }
+                        cx.notify();
                     }
-                    cx.notify();
                 }
             });
         })
@@ -1608,6 +1782,28 @@ impl ChatComposer {
         self.render_prompt(prompt, at, values, window, cx);
     }
 
+    /// A fresh composition starts with `text` alone, even in the new chat
+    /// already shown (the same draft, so no draft switch): the last
+    /// composition's prompt form, panel and menu go, a prompt still being
+    /// rendered for it, a send still out and its dictation land nowhere, and
+    /// what applied to the last message is cleared. (Writing the text replaces a draft read still on its way:
+    /// [`ComposerStore::draft_changed`].)
+    pub fn start_fresh(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // The draft starts over: a send still out from the last composition
+        // gives nothing back to this one.
+        self.composer.update(cx, |c, cx| c.start_over(cx));
+        self.form = None;
+        self.prompt_request += 1;
+        self.panel = None;
+        self.menu = None;
+        // Dictation for the last composition ends: with no base left, its
+        // later words and its cancel write nothing.
+        self.dictation_base = None;
+        self.cancel_dictation(window, cx);
+        self.set_text(text, window, cx);
+        cx.notify();
+    }
+
     /// Another account: drops a prompt form filled for the last one, and
     /// any render still on its way. (A refresh of the same account keeps it.)
     pub fn forget_account(&mut self, cx: &mut Context<Self>) {
@@ -1656,7 +1852,12 @@ impl ChatComposer {
         let Some(list) = &self.composer.read(cx).models else {
             return vec![];
         };
-        crate::stores::composer::picker_rows(list, &query, picker.more)
+        crate::stores::composer::picker_rows(
+            list,
+            &query,
+            picker.more,
+            &cx.l10n().model_picker_coding_agents(),
+        )
     }
 
     /// The models the arrows step through, in the order drawn.
@@ -1682,7 +1883,7 @@ impl ChatComposer {
     /// one checked, then Custom… when the model takes another value.
     fn show_effort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::native_menu::NativeMenu;
-        let Some(options) = self.composer.read(cx).model_options.clone() else {
+        let Some(options) = self.composer.read(cx).answered_model_options().cloned() else {
             return;
         };
         let l10n = cx.l10n().clone();
@@ -1716,6 +1917,33 @@ impl ChatComposer {
         menu.show(window.mouse_position(), window, cx);
     }
 
+    /// A control's menu (a native menu): its options, the one in force
+    /// checked, as mobile's selection sheet lists them.
+    fn show_control_menu(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::component::native_menu::NativeMenu;
+        let Some(control) = self
+            .composer
+            .read(cx)
+            .answered_controls()
+            .and_then(|l| l.controls.iter().find(|c| c.key == key).cloned())
+        else {
+            return;
+        };
+        let l10n = cx.l10n().clone();
+        let mut menu = NativeMenu::new();
+        for option in &control.options {
+            menu = menu.menu_with_check(
+                model_control_option_label(&control, Some(&option.value), &l10n),
+                control.value.as_deref() == Some(option.value.as_str()),
+                Box::new(PickerAction::Control(
+                    control.key.clone(),
+                    option.value.clone(),
+                )),
+            );
+        }
+        menu.show(window.mouse_position(), window, cx);
+    }
+
     fn on_picker_action(
         &mut self,
         action: &PickerAction,
@@ -1737,6 +1965,11 @@ impl ChatComposer {
                 self.composer
                     .update(cx, |c, cx| c.set_pinned(&id, pinned, cx));
             }
+            PickerAction::Control(key, value) => {
+                let (key, value) = (key.clone(), value.clone());
+                self.composer
+                    .update(cx, |c, cx| c.set_model_control(&key, &value, cx));
+            }
         }
         cx.notify();
     }
@@ -1748,8 +1981,7 @@ impl ChatComposer {
         let current = self
             .composer
             .read(cx)
-            .model_options
-            .as_ref()
+            .answered_model_options()
             .map(|o| o.reasoning.current.clone())
             .filter(|c| c != "automatic")
             .unwrap_or_default();
@@ -1861,22 +2093,69 @@ impl ChatComposer {
             .unwrap_or_else(|| cx.l10n().desktop_shortcut_focus_model_picker())
     }
 
-    /// The + menu, in mobile's sections: attachments (Attach Files…, Server
-    /// Files…, Web Page…, MCP Content…), the features (Web Search, Image
-    /// Generation, Code Interpreter, Compare Models…, Save as Note), then
-    /// Tools and Filters under their headings. Switches show a check while
-    /// on.
-    fn show_plus_menu(
+    /// The + menu, in mobile's sections: attachments (Attach Files…,
+    /// Continuity Camera's place, Server Files…, Web Page…, MCP
+    /// Content…), the features (Web Search, Image Generation, Code
+    /// Interpreter, Compare Models…, Save as Note), then Tools (the
+    /// server's, the personal tool servers, the Direct MCP servers,
+    /// LibreChat's), Filters and Terminal under their headings. Switches
+    /// show a check while on. AppKit shows it on macOS (with Continuity
+    /// Camera's items), GPUI Kit's native menu elsewhere: both from
+    /// [`Self::plus_rows`].
+    pub(crate) fn show_plus_menu(
         &mut self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use gpui_kit::component::native_menu::NativeMenu;
+        let rows = self.plus_rows(window, cx);
+        // The menu's action goes to the focused element's path: keep focus
+        // in the composer so its handler hears it.
+        self.focus_input(window, cx);
+        // The entries as drawn, to measure the menu (`None`: a separator).
+        let entries: Vec<Option<String>> = rows
+            .iter()
+            .filter_map(|r| match r {
+                PlusRow::Item { label, .. } => Some(Some(label.clone())),
+                PlusRow::Separator => Some(None),
+                PlusRow::ImportFromDevice => None,
+            })
+            .collect();
+        let origin = self.plus_menu_origin(&entries, position);
+        #[cfg(target_os = "macos")]
+        self.show_plus_rows(rows, origin, window, cx);
+        #[cfg(not(target_os = "macos"))]
+        {
+            use gpui_kit::component::native_menu::NativeMenu;
+            let mut menu = NativeMenu::new();
+            for row in rows {
+                menu = match row {
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        checked: Some(on),
+                        action,
+                    } if !disabled => menu.menu_with_check(label, on, Box::new(action)),
+                    PlusRow::Item {
+                        label,
+                        disabled,
+                        action,
+                        ..
+                    } => menu.menu_with_disabled(label, disabled, Box::new(action)),
+                    PlusRow::Separator => menu.separator(),
+                    PlusRow::ImportFromDevice => menu,
+                };
+            }
+            menu.show(origin, window, cx);
+        }
+    }
+
+    /// The + menu's rows, in order (see [`Self::show_plus_menu`]).
+    pub(crate) fn plus_rows(&self, window: &Window, cx: &App) -> Vec<PlusRow> {
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web, image, code) = (
             store.web_search,
             store.image_generation,
@@ -1886,35 +2165,43 @@ impl ChatComposer {
         let filter_ids = store.filter_ids.clone();
         // Save as Note is the main window's (not Quick Ask's).
         let notes_button = self.follow_ups && store.prefs.show_notes_button;
-        // The entries as drawn, to measure the menu (`None`: a separator).
-        let mut entries: Vec<Option<String>> = vec![];
-        let mut menu = NativeMenu::new();
-        let item = |menu: NativeMenu,
-                    entries: &mut Vec<Option<String>>,
+        // The rows in order; shown by AppKit (with Continuity Camera's
+        // items) or GPUI Kit's native menu.
+        let mut rows: Vec<PlusRow> = vec![];
+        let item = |rows: &mut Vec<PlusRow>,
                     label: String,
                     disabled: bool,
                     checked: Option<bool>,
                     action: ComposerMenu| {
-            entries.push(Some(label.clone()));
-            match checked {
-                Some(on) if !disabled => menu.menu_with_check(label, on, Box::new(action)),
-                _ => menu.menu_with_disabled(label, disabled, Box::new(action)),
-            }
+            rows.push(PlusRow::Item {
+                label,
+                disabled,
+                checked,
+                action,
+            });
         };
         let a = &options.attachments;
         let ellipsis = |s: String| format!("{s}\u{2026}");
-        menu = item(
-            menu,
-            &mut entries,
+        item(
+            &mut rows,
             ellipsis(l10n.desktop_attach_files()),
             !(a.files || a.images),
             None,
             ComposerMenu::AttachFiles,
         );
+        // Take Photo and Scan Documents with a nearby iPhone or iPad
+        // (Continuity Camera): AppKit's own items, in the main window's
+        // composer while it takes pictures.
+        let in_main = cx
+            .try_global::<crate::AppState>()
+            .and_then(|s| s.main_window)
+            == Some(window.window_handle());
+        if a.images && in_main {
+            rows.push(PlusRow::ImportFromDevice);
+        }
         if a.server_files {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.composer_attach_server_files()),
                 false,
                 None,
@@ -1922,9 +2209,8 @@ impl ChatComposer {
             );
         }
         if a.web_page {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.web_page()),
                 false,
                 None,
@@ -1932,9 +2218,8 @@ impl ChatComposer {
             );
         }
         if a.mcp_content {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.direct_mcp_content_action()),
                 false,
                 None,
@@ -1947,13 +2232,11 @@ impl ChatComposer {
         // Not for a temporary chat, which the server never stores.
         let compare = options.compare_models && self.compare_ui && !self.temporary;
         if options.web_search || options.image_generation || code_shown || compare || draft_note {
-            entries.push(None);
-            menu = menu.separator();
+            rows.push(PlusRow::Separator);
         }
         if options.web_search {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.web_search(),
                 false,
                 Some(web),
@@ -1961,9 +2244,8 @@ impl ChatComposer {
             );
         }
         if options.image_generation {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.desktop_image_generation(),
                 false,
                 Some(image),
@@ -1974,9 +2256,8 @@ impl ChatComposer {
             // One that will not run stays visible, off, to say so; one chosen
             // can always be turned off.
             let blocked = options.code_interpreter_block.is_some();
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.code_interpreter(),
                 blocked && !code,
                 Some(code),
@@ -1984,9 +2265,8 @@ impl ChatComposer {
             );
         }
         if compare {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 ellipsis(l10n.chat_compare_models_action()),
                 !has_text,
                 None,
@@ -1994,9 +2274,8 @@ impl ChatComposer {
             );
         }
         if draft_note {
-            menu = item(
-                menu,
-                &mut entries,
+            item(
+                &mut rows,
                 l10n.composer_save_draft_as_note(),
                 false,
                 None,
@@ -2009,20 +2288,11 @@ impl ChatComposer {
         let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
         let librechat = store.librechat_tools();
         if !tools.is_empty() || !librechat.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.tools(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.tools(), true, None, ComposerMenu::Heading);
             for tool in tools {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     tool.name.clone(),
                     false,
                     Some(tool_ids.contains(&tool.id)),
@@ -2051,24 +2321,15 @@ impl ChatComposer {
                 };
                 let checked =
                     matches!(action, ComposerMenu::Tool(_)).then(|| tool_ids.contains(&id));
-                menu = item(menu, &mut entries, label, false, checked, action);
+                item(&mut rows, label, false, checked, action);
             }
         }
         if !options.filters.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
-                l10n.filters(),
-                true,
-                None,
-                ComposerMenu::Heading,
-            );
+            rows.push(PlusRow::Separator);
+            item(&mut rows, l10n.filters(), true, None, ComposerMenu::Heading);
             for filter in &options.filters {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     filter.name.clone(),
                     false,
                     Some(filter_ids.contains(&filter.id)),
@@ -2110,20 +2371,17 @@ impl ChatComposer {
             })
             .unwrap_or_default();
         if !terminals.is_empty() {
-            entries.push(None);
-            menu = menu.separator();
-            menu = item(
-                menu,
-                &mut entries,
+            rows.push(PlusRow::Separator);
+            item(
+                &mut rows,
                 l10n.terminal(),
                 true,
                 None,
                 ComposerMenu::Heading,
             );
             for (id, name, selected) in terminals {
-                menu = item(
-                    menu,
-                    &mut entries,
+                item(
+                    &mut rows,
                     name,
                     false,
                     Some(selected),
@@ -2131,10 +2389,96 @@ impl ChatComposer {
                 );
             }
         }
-        // The menu's action goes to the focused element's path: keep focus
-        // in the composer so its handler hears it.
-        self.focus_input(window, cx);
-        menu.show(self.plus_menu_origin(&entries, position), window, cx);
+        rows
+    }
+
+    /// The + menu built by the app (AppKit's NSMenu), with Continuity
+    /// Camera's placeholder ([`crate::shell::continuity_camera`]); the item
+    /// chosen does what GPUI Kit's menu would dispatch. AppKit's tracking
+    /// loop runs from a task, outside any GPUI borrow.
+    #[cfg(target_os = "macos")]
+    fn show_plus_rows(
+        &mut self,
+        rows: Vec<PlusRow>,
+        origin: gpui_kit::Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::shell::continuity_camera::{self as camera, Entry};
+        let mut actions: Vec<ComposerMenu> = vec![];
+        let mut import = false;
+        let entries: Vec<Entry> = rows
+            .into_iter()
+            .map(|row| match row {
+                PlusRow::Item {
+                    label,
+                    disabled,
+                    checked,
+                    action,
+                } => {
+                    let index = (!disabled).then(|| {
+                        actions.push(action);
+                        actions.len() - 1
+                    });
+                    Entry::Item {
+                        label,
+                        disabled,
+                        checked: checked.unwrap_or(false) && !disabled,
+                        action: index,
+                    }
+                }
+                PlusRow::Separator => Entry::Separator,
+                PlusRow::ImportFromDevice => {
+                    import = true;
+                    Entry::ImportFromDevice
+                }
+            })
+            .collect();
+        let Some(ns_window) = crate::shell::macos::ns_window(window) else {
+            return;
+        };
+        if import {
+            // This menu session's ticket: what a device sends through it is
+            // for this composer, this composition and this account scope
+            // alone.
+            let composer = self.composer.read(cx);
+            let target = crate::shell::continuity_camera::ImportTarget {
+                scope: cx
+                    .try_global::<crate::AppState>()
+                    .and_then(|s| s.stores.accounts.read(cx).scope_key()),
+                draft: composer.draft_key().cloned(),
+                round: composer.draft_round(),
+            };
+            crate::desktop::install_continuity_camera(&ns_window, target, cx);
+        }
+        // The menu's choice acts on this composition only.
+        let ticket = self.composer.read(cx).ticket();
+        cx.spawn_in(window, async move |this, cx| {
+            let Some(view) = ns_window.contentView() else {
+                return;
+            };
+            // `origin` is window-relative, top-left; AppKit's view
+            // coordinates start at the bottom-left.
+            let location = objc2_foundation::NSPoint::new(
+                f32::from(origin.x) as f64,
+                view.bounds().size.height - f32::from(origin.y) as f64,
+            );
+            // The requestor answers only while this menu is open.
+            let report =
+                camera::while_menu_tracks(import, || camera::popup(&view, &entries, location));
+            let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(action) = report.chosen.and_then(|i| actions.get(i))
+                    && this.composer.read(cx).holds(ticket)
+                {
+                    this.on_menu(action, window, cx);
+                }
+                // As GPUI Kit's menu does: wake the window after AppKit's
+                // tracking loop.
+                window.refresh();
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Where the + menu's top-left goes: over the button, its bottom edge
@@ -2257,29 +2601,17 @@ impl ChatComposer {
     // ── Panels ──────────────────────────────────────────────────────────
 
     fn open_server_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let panel = super::composer_panels::ServerFilesPanel::new(window, cx);
-        self.panel = Some(Panel::ServerFiles(panel));
-        self.search_server_files(String::new(), cx);
+        use crate::views::server_files::{ServerFilesEvent, ServerFilesPicker};
+        let rpc = self.composer.read(cx).rpc();
+        let picker = cx.new(|cx| ServerFilesPicker::new(rpc, window, cx));
+        let subscription = cx.subscribe_in(&picker, window, |this, _, e, window, cx| match e {
+            ServerFilesEvent::Picked(file) => this.attach_server_file(file.clone(), window, cx),
+            ServerFilesEvent::Dismissed => this.close_panel(window, cx),
+        });
+        self.panel = Some(Panel::ServerFiles(
+            super::composer_panels::ServerFilesPanel::new(picker, subscription),
+        ));
         cx.notify();
-    }
-
-    pub(crate) fn search_server_files(&mut self, query: String, cx: &mut Context<Self>) {
-        let Some(id) = self.panel.as_ref().map(Panel::id) else {
-            return;
-        };
-        let task = self.composer.update(cx, |c, cx| c.server_files(&query, cx));
-        cx.spawn(async move |this, cx| {
-            let result = task.await;
-            let _ = this.update(cx, |this, cx| {
-                if let Some(Panel::ServerFiles(p)) = &mut this.panel
-                    && p.id == id
-                {
-                    p.loaded(&query, result.map(|l| l.items), cx);
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
     }
 
     /// The server-file picker's choice: attached as it is.
@@ -2371,16 +2703,86 @@ impl ChatComposer {
     /// Puts `text` at the caret (Ask Conduit) and focuses the field.
     pub fn insert_at_caret(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let at = self.input.read(cx).cursor();
+        // Dictation rebuilds the field from its base and the words heard so
+        // far: what goes in goes into the base too, or the next words (or
+        // a cancel) would drop it. With the caret among the words heard, it
+        // goes after the base, ahead of them: they are heard again whole.
+        if let Some(base) = self.dictation_base.clone() {
+            let kept = base.trim_end().len();
+            if at <= kept && base.is_char_boundary(at) {
+                let mut next = base;
+                next.insert_str(at, text);
+                self.dictation_base = Some(next);
+            } else {
+                let field = self.text(cx);
+                let heard = field
+                    .get(kept..)
+                    .unwrap_or_default()
+                    .trim_start()
+                    .to_string();
+                let next = join_dictated(&base, text);
+                self.set_text(&join_dictated(&next, &heard), window, cx);
+                // As every insertion: the field has the focus, the caret
+                // right after what went in.
+                let caret = next.trim_end().len();
+                self.input.update(cx, |s, cx| {
+                    s.set_selected_range(caret..caret, cx);
+                    s.focus(window, cx);
+                });
+                self.dictation_base = Some(next);
+                return;
+            }
+        }
         self.insert_at(at, text, window, cx);
         self.text_changed(cx);
     }
 
+    /// Text the app gives the field, at the caret: the one way in besides
+    /// typing (Ask Conduit, a prefill, a handoff's prompt, MCP Content's
+    /// Insert). While the chat's draft is read it waits, in order, and goes
+    /// in after the draft once the read has ended.
+    pub fn give_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if text.is_empty() {
+            return;
+        }
+        self.give(Given::AtCaret(text.to_string()), window, cx);
+    }
+
+    /// [`Self::give_text`] for any [`Given`].
+    fn give(&mut self, given: Given, window: &mut Window, cx: &mut Context<Self>) {
+        let store = self.composer.read(cx);
+        if store.draft_reading() {
+            self.waiting.push((store.ticket(), given));
+            return;
+        }
+        self.put_given(given, window, cx);
+    }
+
+    fn put_given(&mut self, given: Given, window: &mut Window, cx: &mut Context<Self>) {
+        match given {
+            Given::AtCaret(text) => self.insert_at_caret(&text, window, cx),
+            Given::Dictated(text) => {
+                let current = self.text(cx);
+                self.set_text(&join_dictated(&current, &text), window, cx);
+                self.focus_input(window, cx);
+            }
+        }
+    }
+
+    /// What was given while the draft was read, for the composition shown.
+    fn give_waiting(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ticket = self.composer.read(cx).ticket();
+        for (given_for, given) in std::mem::take(&mut self.waiting) {
+            if given_for == ticket {
+                self.put_given(given, window, cx);
+            }
+        }
+    }
+
     /// MCP Content › Insert: the prompt's or resource's text, at the caret.
     pub(crate) fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let at = self.input.read(cx).cursor();
         self.panel = None;
-        self.insert_at(at, text, window, cx);
-        self.text_changed(cx);
+        self.give_text(text, window, cx);
     }
 
     pub(crate) fn close_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2409,9 +2811,15 @@ impl ChatComposer {
             prompt: Some(prompt.into()),
         });
         let composer = self.composer.clone();
+        // Chosen for this composition: not attached to one that replaced it.
+        let ticket = composer.read(cx).ticket();
         cx.spawn_in(window, async move |_, cx| {
             if let Ok(Ok(Some(paths))) = paths.await {
-                composer.update(cx, |c, cx| c.add_paths(&paths, cx));
+                composer.update(cx, |c, cx| {
+                    if c.holds(ticket) {
+                        c.add_paths(&paths, cx);
+                    }
+                });
             }
         })
         .detach();
@@ -2772,10 +3180,7 @@ impl ChatComposer {
                         i as u64,
                     ))
                     .role(Role::MenuItem)
-                    .aria_label(SharedString::from(match &entry.group {
-                        Some(g) => format!("{}, {g}", entry.title),
-                        None => entry.title.clone(),
-                    }))
+                    .aria_label(SharedString::from(entry_label(&entry)))
                     .aria_selected(hot)
                     .aria_position_in_set(i + 1)
                     .aria_size_of_set(total)
@@ -3126,7 +3531,15 @@ impl ChatComposer {
             .models
             .as_ref()
             .is_some_and(crate::stores::composer::has_more_models);
-        let options = store.model_options.clone();
+        let options = store.answered_model_options().cloned();
+        // A model with an effort control of its own (a coding agent's)
+        // takes it from that control, below; the app's would contradict it.
+        // Unknown until the options for the chat and model on screen answer.
+        let own_effort = !store.options_answered() || store.options.own_effort_control;
+        let controls = store
+            .answered_controls()
+            .map(|c| c.controls.clone())
+            .unwrap_or_default();
         let total = rows
             .iter()
             .filter(|r| matches!(r, PickerRow::Model(_)))
@@ -3184,7 +3597,7 @@ impl ChatComposer {
             ));
         }
         if let Some(options) = options.as_ref() {
-            if options.reasoning.visible {
+            if options.reasoning.visible && !own_effort {
                 let label = if options.reasoning.ollama {
                     l10n.desktop_thinking()
                 } else {
@@ -3253,6 +3666,23 @@ impl ChatComposer {
                         .into_any_element(),
                 );
             }
+        }
+        // The model's own controls, one row each, as mobile's sheet lists
+        // them under its models.
+        for control in controls {
+            let key = control.key.clone();
+            footer.push(self.picker_footer_row(
+                SharedString::from(format!("model-menu-control-{}", control.key)),
+                model_control_title(&control, &l10n),
+                Some(model_control_option_label(
+                    &control,
+                    control.value.as_deref(),
+                    &l10n,
+                )),
+                IconName::ChevronsUpDown,
+                t,
+                cx.listener(move |this, _, window, cx| this.show_control_menu(&key, window, cx)),
+            ));
         }
         Some(
             div()
@@ -3358,8 +3788,17 @@ impl ChatComposer {
         let on = selected == Some(model.id.as_str());
         let hot = i == picker.highlighted;
         let id = model.id.clone();
-        let provider = model.connection.clone().unwrap_or_default();
-        let label = model_label(model);
+        // Apple's model says where it runs, as on the phone.
+        let apple = crate::stores::composer::is_apple_on_device(model);
+        // A coding agent says where it runs: its terminal, as on the phone.
+        let provider = if apple {
+            l10n.desktop_apple_on_this_mac()
+        } else if let Some(place) = crate::stores::composer::agent_place(model) {
+            place
+        } else {
+            model.connection.clone().unwrap_or_default()
+        };
+        let spoken = crate::stores::composer::picker_row_name(model);
         let group = SharedString::from(format!("model-row-{}", model.id));
         let pinned = model.pinned;
         let pin_label = if pinned {
@@ -3376,7 +3815,7 @@ impl ChatComposer {
             .id(ElementId::Name(format!("model-{}", model.id).into()))
             .group(group.clone())
             .role(Role::ListBoxOption)
-            .aria_label(SharedString::from(label))
+            .aria_label(SharedString::from(spoken))
             .aria_selected(hot)
             .aria_toggled(if on {
                 gpui_kit::Toggled::True
@@ -3407,6 +3846,10 @@ impl ChatComposer {
                     None => icon(
                         if pinned {
                             IconName::Pin
+                        } else if model.agent.is_some() {
+                            IconName::SquareTerminal
+                        } else if apple {
+                            IconName::Cpu
                         } else {
                             IconName::Sparkles
                         },
@@ -3495,7 +3938,7 @@ impl ChatComposer {
     /// A row under the picker's list: a label, its value, a trailing glyph.
     fn picker_footer_row(
         &self,
-        id: &'static str,
+        id: impl Into<ElementId>,
         label: String,
         value: Option<String>,
         glyph: IconName,
@@ -3542,6 +3985,54 @@ impl ChatComposer {
     }
 }
 
+/// A model control's name, in the app's language for the two Open WebUI's
+/// coding agents use (mobile's `modelControlTitle`); any other keeps the
+/// server's.
+pub fn model_control_title(
+    control: &conduit_protocol::ModelControlDto,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    match control.key.as_str() {
+        "reasoning_effort" => l10n.desktop_reasoning_effort(),
+        "service_tier" => l10n.model_control_service_tier(),
+        _ if control.label.trim().is_empty() => control.key.clone(),
+        _ => control.label.clone(),
+    }
+}
+
+/// The option `value` of `control` (mobile's `modelControlOptionLabel`): a
+/// reasoning effort the app names in its own language, else the server's
+/// label; "Default" when nothing is picked and the control has no default.
+pub fn model_control_option_label(
+    control: &conduit_protocol::ModelControlDto,
+    value: Option<&str>,
+    l10n: &crate::l10n::L10n,
+) -> String {
+    let Some(option) = value.and_then(|v| control.options.iter().find(|o| o.value == v)) else {
+        return l10n.default_label();
+    };
+    if control.key == "reasoning_effort" {
+        let known = crate::views::chat_settings::effort_label(&option.value, l10n);
+        if known != option.value {
+            return known;
+        }
+    }
+    if option.label.trim().is_empty() {
+        option.value.clone()
+    } else {
+        option.label.clone()
+    }
+}
+
+/// A `/`, `@`, `#` or `$` menu row's name for VoiceOver: its title, then
+/// its group when the menu has groups.
+fn entry_label(entry: &Entry) -> String {
+    match &entry.group {
+        Some(g) => format!("{}, {g}", entry.title),
+        None => entry.title.clone(),
+    }
+}
+
 /// Where ↑ or ↓ takes a menu's highlight from `highlighted` of `len` rows:
 /// one row on, wrapping from the last to the first and back, as AppKit's
 /// menus do.
@@ -3564,7 +4055,6 @@ impl Render for ChatComposer {
         let r = t.roles;
         let m = t.metrics;
         let focused = self.input.read(cx).focus_handle(cx).is_focused(window);
-        let can_send = self.can_send(cx);
         let composer = self.composer.clone();
         let store = composer.read(cx);
         let attachments: Vec<AnyElement> = store
@@ -3579,7 +4069,7 @@ impl Render for ChatComposer {
             .iter()
             .map(|c| context_chip(c, &composer, &t, cx))
             .collect();
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web_search, image_generation) = (store.web_search, store.image_generation);
         let code_interpreter = store.code_interpreter;
         let tool_ids = store.tool_ids.clone();
@@ -3589,6 +4079,9 @@ impl Render for ChatComposer {
             .selected_model()
             .map(model_label)
             .unwrap_or_else(|| l10n.desktop_shortcut_focus_model_picker());
+        // The coding agent this chat was saved with, when another model is
+        // selected: offered, never chosen for the user.
+        let chat_agent = store.chat_agent();
 
         let frame = conduit_components::views::composer::composer_frame(&t);
         // In Quick Ask the panel is itself raised, so its composer sits a
@@ -3676,7 +4169,7 @@ impl Render for ChatComposer {
                 .items_center()
                 .gap(px(6.))
                 .children(busy_buttons)
-                .child(stop)
+                .child(div().debug_selector(|| "composer-stop".into()).child(stop))
                 .into_any_element()
         } else if self.offers_call(cx) {
             // Nothing to send: a voice call, as on the phone.
@@ -3692,13 +4185,15 @@ impl Render for ChatComposer {
             // Waiting on the connection: dimmed, its tooltip saying why
             // (the state itself shows once, in the window's pill).
             let waits = self.offline_reason.clone().filter(|_| self.offline);
-            // Behind an answer that waits in the outbox, Send queues.
+            // Behind an answer that waits in the outbox, Send queues, which
+            // needs no model list (as Enter does).
             let label = if self.queue_offer {
                 l10n.desktop_queue_message()
             } else {
                 l10n.send()
             };
-            IconButton::new("send", IconName::ArrowUp, label)
+            let can_send = self.send_offered(cx);
+            let send = IconButton::new("send", IconName::ArrowUp, label)
                 .size(32., 17.)
                 .when_some(waits.clone(), |b, why| b.tooltip(why))
                 .shortcut(if waits.is_some() {
@@ -3726,6 +4221,21 @@ impl Render for ChatComposer {
                         let _ = weak.update(cx, |c, cx| c.submit(window, cx));
                     }
                 }))
+                .into_any_element();
+            // Dimmed with no list for the chat, Send takes no click; a press
+            // on it asks for the list again, as Send by keyboard does, and
+            // still sends nothing.
+            div()
+                .debug_selector(|| "composer-send".into())
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|c, _, _, cx| {
+                        if !c.send_offered(cx) {
+                            c.composer.update(cx, |s, cx| s.ask_list_again(cx));
+                        }
+                    }),
+                )
+                .child(send)
                 .into_any_element()
         };
 
@@ -3786,7 +4296,10 @@ impl Render for ChatComposer {
         let mic = dictation
             .as_ref()
             .filter(|_| !dictating && !self.streaming && !self.call_on)
-            .map(|_| dictation_view::mic_button(&me, cx));
+            .map(|_| {
+                let reading = self.composer.read(cx).draft_reading();
+                dictation_view::mic_button(&me, !reading, cx)
+            });
         let recordings = dictation
             .as_ref()
             .and_then(|d| dictation_view::recordings_list(&me, d.read(cx), cx));
@@ -3796,10 +4309,14 @@ impl Render for ChatComposer {
             .map(|(d, n)| dictation_view::notice_banner(&me, &d, &n, cx));
 
         let paste_store = composer.clone();
+        // No input while dictating, nor while the chat's draft is read:
+        // what was typed then would be neither the draft nor kept apart
+        // from it.
+        let reading = self.composer.read(cx).draft_reading();
         let textarea = Textarea::new(&self.input)
             .appearance(false)
             .bordered(false)
-            .readonly(dictating)
+            .readonly(dictating || reading)
             .text_size(px(m.body))
             .aria_label(l10n.desktop_message_field())
             .accessibility_id("composer-input")
@@ -4061,6 +4578,7 @@ impl Render for ChatComposer {
             .children(form)
             .children(panel)
             .children(notice)
+            .children(chat_agent.map(|(id, name)| chat_agent_offer(&composer, id, name, cx)))
             .children(recordings)
             .child(
                 div()
@@ -4230,6 +4748,58 @@ impl Render for ChatComposer {
     }
 }
 
+/// "This chat used <agent>" with Switch, above the message box of a chat
+/// saved with a coding agent while another model is selected. Switch picks
+/// it (`models.select`), as choosing it in the picker would.
+fn chat_agent_offer(
+    composer: &Entity<ComposerStore>,
+    id: String,
+    name: String,
+    cx: &mut Context<ChatComposer>,
+) -> AnyElement {
+    let l10n = cx.l10n().clone();
+    let t = cx.conduit().clone();
+    let r = t.roles;
+    let m = t.metrics;
+    let words = l10n.desktop_chat_used_agent(&name);
+    let composer = composer.clone();
+    div()
+        .id("chat-agent-offer")
+        .debug_selector(|| "chat-agent-offer".into())
+        .role(Role::Group)
+        .aria_label(SharedString::from(words.clone()))
+        .mx(px(6.))
+        .px(px(10.))
+        .py(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .rounded(t.card_radius())
+        .border_1()
+        .border_color(r.border)
+        .bg(conduit_components::views::kit::on_raised_fill(&t))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(m.small))
+                .text_color(r.text_subtle)
+                .child(SharedString::from(words)),
+        )
+        .child(
+            div().debug_selector(|| "chat-agent-switch".into()).child(
+                conduit_components::views::kit::Button::new(
+                    "chat-agent-switch",
+                    l10n.desktop_settings_switch_server(),
+                )
+                .on_click(Rc::new(move |_, _, cx| {
+                    composer.update(cx, |s, cx| s.switch_to_chat_agent(&id, cx))
+                })),
+            ),
+        )
+        .into_any_element()
+}
+
 /// `content` without the bytes in `cut` (a trigger word): the tokens after
 /// it move back, one inside it goes, the rest stay tokens.
 fn cut_content(content: &InputContent, cut: std::ops::Range<usize>) -> InputContent {
@@ -4322,10 +4892,15 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        // The composer's own list has answered: it has a model to name.
+        lists_a_model(&daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
@@ -4339,6 +4914,24 @@ mod tests {
             window.draw(cx).clear(cx);
         });
         (view, vcx, seen)
+    }
+
+    /// [daemon] answers `models.list` with one model to name.
+    fn lists_a_model(daemon: &FakeDaemon) {
+        daemon.returns::<conduit_protocol::methods::ModelsList>(conduit_protocol::ModelList {
+            models: vec![conduit_protocol::ModelSummary {
+                id: "k".into(),
+                name: "Kestrel".into(),
+                description: None,
+                pinned: false,
+                capabilities: vec![],
+                connection: None,
+                logo: None,
+                agent: None,
+            }],
+            selected_id: Some("k".into()),
+            ..Default::default()
+        });
     }
 
     fn value(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> String {
@@ -4386,9 +4979,31 @@ mod tests {
             cx,
         );
         assert_eq!(value(&view, cx), "Draft: plant the beans");
+        // Text given while words are heard (a prefill, Insert) goes in
+        // ahead of them, and the next words keep it.
+        cx.update(|window, cx| {
+            window.blur(cx);
+            view.update(cx, |c, cx| c.insert_at_caret("Note:", window, cx))
+        });
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans");
+        // As every insertion: the field has the focus, and the caret is
+        // right after what went in.
+        cx.update(|window, cx| {
+            let input = view.read(cx).input.clone();
+            assert!(input.read(cx).focus_handle(cx).is_focused(window));
+            assert_eq!(input.read(cx).cursor(), "Draft: Note:".len());
+        });
+        emit(
+            DictationEvent::Text {
+                text: "plant the beans deep".into(),
+                done: true,
+            },
+            cx,
+        );
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
         emit(DictationEvent::Ended { restore: false }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // Cancel: back to what was typed before.
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
+        // Cancel: back to what was typed before, and given meanwhile.
         cx.update(|_, cx| view.update(cx, |c, cx| c.dictation_base = Some(c.text(cx))));
         emit(
             DictationEvent::Text {
@@ -4397,11 +5012,21 @@ mod tests {
             },
             cx,
         );
+        cx.update(|window, cx| view.update(cx, |c, cx| c.insert_at_caret("Later:", window, cx)));
         emit(DictationEvent::Ended { restore: true }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // A saved recording's words are added at the end.
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep Later:");
+        // A saved recording's words, asked for in this composition (as
+        // transcribe_recording records it), are added at the end.
+        cx.update(|_, cx| {
+            view.update(cx, |c, cx| {
+                c.transcribing = Some(c.composer.read(cx).ticket())
+            })
+        });
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
+        assert_eq!(
+            value(&view, cx),
+            "Draft: Note: plant the beans deep Later: Then rest."
+        );
     }
 
     /// The call button takes Send's place only with nothing to send: a
@@ -4532,6 +5157,321 @@ mod tests {
         assert!(view.read_with(cx, |c, _| c.form.is_none()));
     }
 
+    /// Send to Conduit, Send Link, Send Image or the widget's Clipboard in
+    /// the new chat already shown (the same draft, so no draft switch):
+    /// neither the last composition's prompt render nor the draft read
+    /// still on its way lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_the_last_one_had_coming(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, PromptsRender};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words"})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        daemon.returns::<PromptsRender>(
+            serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
+        );
+        let render = daemon.hold::<PromptsRender>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        // The new chat's draft is being read, and a prompt rendered in it.
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| {
+            let prompt = serde_json::from_value(serde_json::json!({
+                "command": "/greet", "title": "Greet"
+            }))
+            .unwrap();
+            c.render_prompt(prompt, 0, BTreeMap::new(), window, cx);
+        });
+        // A picture arrives from Shortcuts: no text of its own.
+        view.update_in(cx, |c, window, cx| c.start_fresh("", window, cx));
+        render.release();
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "");
+        assert!(view.read_with(cx, |c, _| c.form.is_none()));
+    }
+
+    /// A composer whose New Chat draft ("Old unsent words ") is read only
+    /// once `read` is released.
+    fn reading_composer(
+        cx: &mut TestAppContext,
+    ) -> (
+        Entity<ChatComposer>,
+        &mut VisualTestContext,
+        crate::stores::rpc::fake::Hold,
+    ) {
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words "})).unwrap(),
+        );
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        cx.run_until_parked();
+        (view, cx, read)
+    }
+
+    /// Text the app gives the field while the draft is read (Ask Conduit
+    /// and a prefill go through `give_text`; MCP Content's Insert through
+    /// `insert_text`) waits, and goes in after the draft once it is read.
+    #[gpui_kit::test]
+    fn text_given_during_the_draft_read_goes_in_after_the_draft(cx: &mut TestAppContext) {
+        for mcp in [false, true] {
+            let (view, cx, read) = reading_composer(cx);
+            view.update_in(cx, |c, window, cx| {
+                if mcp {
+                    c.insert_text("from a resource", window, cx);
+                } else {
+                    c.give_text("asked about this", window, cx);
+                }
+            });
+            cx.run_until_parked();
+            assert_eq!(value(&view, cx), "", "written before the draft was read");
+            read.release();
+            cx.run_until_parked();
+            let given = if mcp {
+                "from a resource"
+            } else {
+                "asked about this"
+            };
+            assert_eq!(value(&view, cx), format!("Old unsent words {given}"));
+        }
+    }
+
+    /// Dictation does not start while the draft is read.
+    #[gpui_kit::test]
+    fn dictation_cannot_start_while_the_draft_is_read(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        let (view, cx, read) = reading_composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.toggle_dictation(window, cx);
+            })
+        });
+        assert!(
+            !dictation.read_with(cx, |d, _| d.is_active()),
+            "dictation started"
+        );
+        assert!(view.read_with(cx, |c, _| c.dictation_base.is_none()));
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Old unsent words ");
+    }
+
+    /// Dictation going on when another chat opens stops before that chat's
+    /// draft is read: none of its words, nor its base, reach the draft.
+    #[gpui_kit::test]
+    fn a_chat_switch_stops_dictation_before_the_new_chats_read(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.on::<DraftsGet>(|q| {
+            let text = if q["chatId"] == "c2" {
+                "Pea trellis plan"
+            } else {
+                ""
+            };
+            Ok(serde_json::json!({"text": text}))
+        });
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let probe = daemon.clone();
+        let (view, cx, _) = composer_on(daemon, cx);
+        let chat = |id: &str| {
+            Some(crate::stores::composer::DraftKey {
+                chat_id: Some(id.into()),
+                folder_id: None,
+            })
+        };
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_draft(chat("c1"), "", cx))
+        });
+        cx.run_until_parked();
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        let read = probe.hold::<DraftsGet>();
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Dictated so far", window, cx);
+                c.toggle_dictation(window, cx);
+            })
+        });
+        assert!(dictation.read_with(cx, |d, _| d.is_active()));
+        view.update(cx, |c, cx| {
+            let text = c.text(cx);
+            c.composer
+                .update(cx, |s, cx| s.switch_draft(chat("c2"), &text, cx))
+        });
+        assert!(
+            !dictation.read_with(cx, |d, _| d.is_active()),
+            "dictation went on into the next chat"
+        );
+        cx.run_until_parked();
+        assert!(view.read_with(cx, |c, _| c.dictation_base.is_none()));
+        read.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Pea trellis plan");
+    }
+
+    /// Shared text that starts a fresh composition while the chat's draft is
+    /// still being read stands alone: the draft read then is the last
+    /// composition's, so it lands nowhere, and nothing is written over the
+    /// stored draft nobody saw.
+    #[gpui_kit::test]
+    fn shared_text_started_fresh_during_a_draft_read_stands_alone(cx: &mut TestAppContext) {
+        use conduit_protocol::methods::{DraftsGet, DraftsSave};
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DraftsGet>(
+            serde_json::from_value(serde_json::json!({"text": "Old unsent words"})).unwrap(),
+        );
+        daemon.returns::<DraftsSave>(
+            serde_json::from_value(serde_json::json!({"text": ""})).unwrap(),
+        );
+        let read = daemon.hold::<DraftsGet>();
+        let probe = daemon.clone();
+        let (view, cx, _) = composer_on(daemon, cx);
+        view.update(cx, |c, cx| {
+            c.composer
+                .update(cx, |s, cx| s.switch_new_chat(None, false, "", cx))
+        });
+        view.update_in(cx, |c, window, cx| c.start_fresh("Shared text", window, cx));
+        read.release();
+        for _ in 0..2 {
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(500));
+            cx.run_until_parked();
+        }
+        assert_eq!(value(&view, cx), "Shared text");
+        assert!(
+            probe.calls::<DraftsSave>().is_empty(),
+            "a draft nobody saw was written over"
+        );
+    }
+
+    /// A fresh composition while dictation runs and a send is still out:
+    /// neither the dictation's words (nor its cancel) nor the refused send's
+    /// text lands in what it brought.
+    #[gpui_kit::test]
+    fn a_fresh_composition_takes_nothing_from_dictation_or_a_send_in_flight(
+        cx: &mut TestAppContext,
+    ) {
+        use crate::stores::dictation::{DictationEvent, DictationStore};
+        let (view, cx, _) = composer(cx);
+        let dictation = cx.new(|_| DictationStore::new(FakeDaemon::new().rpc(), None));
+        cx.update(|window, cx| {
+            view.update(cx, |c, cx| {
+                c.set_dictation(dictation.clone(), window, cx);
+                c.set_text("Draft:", window, cx);
+                // As toggle_dictation does before the store starts.
+                c.dictation_base = Some(c.text(cx));
+            })
+        });
+        // A send still on its way, from before.
+        let used = view.read_with(cx, |c, cx| c.composer.read(cx).one_shot());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let emit = |e: DictationEvent, cx: &mut VisualTestContext| {
+            dictation.update(cx, |_, cx| cx.emit(e));
+            cx.run_until_parked();
+        };
+        emit(
+            DictationEvent::Text {
+                text: "plant the".into(),
+                done: false,
+            },
+            cx,
+        );
+        view.update_in(cx, |c, window, cx| {
+            c.give_back("Old words", used, window, cx)
+        });
+        emit(DictationEvent::Ended { restore: true }, cx);
+        assert_eq!(value(&view, cx), "Copied packing list");
+    }
+
+    /// A saved recording's words, still being transcribed when a fresh
+    /// composition replaces the last one, land nowhere.
+    #[gpui_kit::test]
+    fn a_transcription_asked_for_the_last_composition_lands_nowhere(cx: &mut TestAppContext) {
+        use crate::stores::dictation::DictationStore;
+        use conduit_protocol::methods::{DictationStatus, RecordingsTranscribe};
+        let (view, cx, _) = composer(cx);
+        let daemon = FakeDaemon::new();
+        daemon.returns::<DictationStatus>(
+            serde_json::from_value(serde_json::json!({"engine": "server"})).unwrap(),
+        );
+        daemon.returns::<RecordingsTranscribe>(
+            serde_json::from_value(serde_json::json!({"text": "plant the beans"})).unwrap(),
+        );
+        let held = daemon.hold::<RecordingsTranscribe>();
+        let dictation = cx.new(|_| DictationStore::new(daemon.rpc(), None));
+        view.update_in(cx, |c, window, cx| {
+            c.set_dictation(dictation.clone(), window, cx);
+            c.set_text("Draft:", window, cx);
+            c.transcribe_recording("rec-1", false, window, cx);
+        });
+        cx.run_until_parked();
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        held.release();
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list");
+
+        // Asked in this composition: its words are added.
+        view.update_in(cx, |c, window, cx| {
+            c.transcribe_recording("rec-1", false, window, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(value(&view, cx), "Copied packing list plant the beans");
+    }
+
+    /// Files chosen in Attach Files after a fresh composition replaced the
+    /// one that asked are not attached to it.
+    #[gpui_kit::test]
+    fn files_picked_for_the_last_composition_are_not_attached(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        let dir = std::env::temp_dir().join(format!("conduit-pick-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let notes = dir.join("notes.txt");
+        let _ = std::fs::write(&notes, "Synthetic notes");
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        assert!(cx.did_prompt_for_paths());
+        view.update_in(cx, |c, window, cx| {
+            c.start_fresh("Copied packing list", window, cx)
+        });
+        let picked = notes.clone();
+        cx.simulate_path_prompt_response(move |_| Some(vec![picked]));
+        cx.run_until_parked();
+        assert!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.is_empty()),
+            "files picked for the last composition were attached"
+        );
+        // Picked for this composition: attached.
+        view.update_in(cx, |c, window, cx| c.pick_files(window, cx));
+        cx.simulate_path_prompt_response(move |_| Some(vec![notes]));
+        cx.run_until_parked();
+        assert_eq!(
+            view.read_with(cx, |c, cx| c.composer.read(cx).attachments.len()),
+            1
+        );
+    }
+
     #[gpui_kit::test]
     fn a_prompt_rendered_after_send_stays_out_of_the_next_draft(cx: &mut TestAppContext) {
         let (view, cx, _) = composer(cx);
@@ -4540,7 +5480,10 @@ mod tests {
             serde_json::from_value(serde_json::json!({"content": "LATE", "inputs": []})).unwrap(),
         );
         let held = daemon.hold::<conduit_protocol::methods::PromptsRender>();
+        lists_a_model(&daemon);
         let store = cx.new(|_| ComposerStore::new(daemon.rpc(), None));
+        store.update(cx, |s, cx| s.refresh_models(cx));
+        cx.run_until_parked();
         view.update(cx, |c, _| c.composer = store);
         cx.simulate_input("Hello");
         view.update_in(cx, |c, window, cx| {
@@ -4745,6 +5688,60 @@ mod tests {
         );
     }
 
+    #[gpui_kit::test]
+    fn each_arrow_in_the_slash_menu_says_the_row_and_its_place(cx: &mut TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let (view, cx, _) = composer(cx);
+        cx.update(|_, cx| AnnouncementLog::install(cx));
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        let prompt = |command: &str, title: &str| PromptSummary {
+            command: command.into(),
+            title: title.into(),
+            description: None,
+            uses_clipboard: false,
+        };
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.prompts = Some(vec![
+                    prompt("/summarize", "Summarize"),
+                    prompt("/sow", "Sowing dates"),
+                    prompt("/soil", "Soil check"),
+                ]);
+                cx.notify()
+            })
+        });
+        cx.simulate_input("/s");
+        let rows = view
+            .read_with(cx, |c, cx| c.menu_rows(cx))
+            .expect("a / menu");
+        assert_eq!(rows.1.len(), 3);
+        let titles: Vec<String> = rows.1.iter().map(|(_, t)| t.clone()).collect();
+        let key = |k: &'static str, cx: &mut VisualTestContext| {
+            cx.update(|window, cx| view.update(cx, |c, cx| assert!(c.menu_key(k, window, cx))));
+        };
+        // Opening and typing say nothing; each arrow says where it landed,
+        // wrapping as the highlight does.
+        assert_eq!(cx.update(|_, cx| AnnouncementLog::len(cx)), 0);
+        key("down", cx);
+        key("down", cx);
+        key("down", cx);
+        key("up", cx);
+        let heard = cx.update(|_, cx| AnnouncementLog::texts(cx));
+        assert_eq!(
+            heard,
+            [
+                format!("{}, 2 of 3", titles[1]),
+                format!("{}, 3 of 3", titles[2]),
+                format!("{}, 1 of 3", titles[0]),
+                format!("{}, 3 of 3", titles[2]),
+            ]
+            .map(SharedString::from)
+        );
+        // As drawn: the highlighted row is the one heard last.
+        let highlighted = view.read_with(cx, |c, _| c.menu.as_ref().map(|m| m.highlighted));
+        assert_eq!(highlighted, Some(2));
+    }
+
     /// A composer over `daemon` (so its searches answer), focused.
     fn composer_with<'a>(
         daemon: &FakeDaemon,
@@ -4759,10 +5756,14 @@ mod tests {
             cx.set_global(L10n::new("en"));
             cx.set_global(conduit_components::Strings::default());
         });
+        lists_a_model(daemon);
         let rpc = daemon.rpc();
         let store = cx.new(|_| ComposerStore::new(rpc, None));
         let seen: Seen = Rc::default();
+        let listed = store.clone();
         let (view, vcx) = cx.add_window_view(|window, cx| ChatComposer::new(store, window, cx));
+        listed.update(vcx, |s, cx| s.refresh_models(cx));
+        vcx.run_until_parked();
         vcx.update(|window, cx| {
             let seen = seen.clone();
             cx.subscribe(&view, move |_, e: &ChatComposerEvent, _| {
@@ -4790,6 +5791,72 @@ mod tests {
                 cx.notify()
             })
         });
+    }
+
+    /// The open chat's model list failed while an answer is written: only
+    /// a new turn needs it. The queue still takes the message, and Stop
+    /// still stops.
+    #[gpui_kit::test]
+    fn a_failed_model_list_leaves_the_queue_and_stop(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::DraftsGet>(Default::default());
+        let (view, cx, seen) = composer_with(&daemon, cx);
+        let store = view.read_with(cx, |c, _| c.composer.clone());
+        daemon.once::<conduit_protocol::methods::ModelsList>(Err(conduit_daemon::protocol::error(
+            "rpc.daemonUnavailable",
+            "busy",
+        )));
+        cx.update(|_, cx| {
+            store.update(cx, |s, cx| {
+                s.switch_draft(
+                    Some(crate::stores::composer::DraftKey {
+                        chat_id: Some("chat-9".into()),
+                        folder_id: None,
+                    }),
+                    "",
+                    cx,
+                )
+            })
+        });
+        cx.run_until_parked();
+        assert!(
+            !store.read_with(cx, |s, _| s.can_name_model()),
+            "the chat's list did not fail"
+        );
+        view.update(cx, |c, _| {
+            c.streaming = true;
+            c.queue_offer = true;
+        });
+        cx.simulate_input("And the north side?");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the north side?".into(),
+                mentions: vec![],
+            }]
+        );
+        seen.borrow_mut().clear();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let stop = cx.debug_bounds("composer-stop").expect("Stop is offered");
+        cx.simulate_click(stop.center(), gpui_kit::Modifiers::none());
+        assert_eq!(*seen.borrow(), vec![ChatComposerEvent::Stop]);
+        seen.borrow_mut().clear();
+        // Behind an answer waiting in the outbox (nothing streams), the
+        // Queue button queues as Enter does: the failed list dims nothing.
+        view.update(cx, |c, _| c.streaming = false);
+        cx.simulate_input("And the south side?");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let queue = cx.debug_bounds("composer-send").expect("Queue is offered");
+        cx.simulate_click(queue.center(), gpui_kit::Modifiers::none());
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the south side?".into(),
+                mentions: vec![],
+            }],
+            "the Queue button did not queue"
+        );
     }
 
     #[gpui_kit::test]
@@ -5199,6 +6266,70 @@ mod tests {
             panic!("not sent again");
         };
         assert_eq!(again, mentions);
+    }
+
+    /// Words typed while a send was on its way stay when it is refused:
+    /// the refused words come back first, then the newer ones, each with
+    /// its mentions.
+    #[gpui_kit::test]
+    fn a_refused_send_keeps_the_words_typed_since(cx: &mut TestAppContext) {
+        let (view, cx, seen) = composer(cx);
+        cx.simulate_input("Ask @Av");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(MentionTarget::User("u-1".into()), "Avery", window, cx);
+        });
+        cx.simulate_keystrokes("enter");
+        let ChatComposerEvent::Submit { text, mentions } = seen.borrow()[0].clone() else {
+            panic!("not sent");
+        };
+        cx.simulate_input("then @Bl");
+        view.update_in(cx, |c, window, cx| {
+            c.text_changed(cx);
+            c.insert_mention(MentionTarget::User("u-2".into()), "Blake", window, cx);
+        });
+        view.update_in(cx, |c, window, cx| {
+            let used = c
+                .composer
+                .read(cx)
+                .one_shot()
+                .with_mentions(mentions.clone());
+            c.give_back(&text, used, window, cx);
+        });
+        assert_eq!(
+            value(&view, cx),
+            "Ask @Avery\n\nthen @Blake ",
+            "the refused send's words were lost"
+        );
+        assert_eq!(token_ids(&view, cx), vec!["U:u-1", "U:u-2"]);
+    }
+
+    /// Refused words put back ahead of newer ones move what sits where the
+    /// newer words are: an open prompt form's place, and dictation's base
+    /// (the next words heard, or a cancel, rebuild the field from it).
+    #[gpui_kit::test]
+    fn refused_words_put_first_move_the_form_and_dictation_along(cx: &mut TestAppContext) {
+        let (view, cx, _) = composer(cx);
+        view.update_in(cx, |c, window, cx| {
+            c.set_text("Hi ", window, cx);
+            c.dictation_base = Some(c.text(cx));
+        });
+        select_form(&view, cx);
+        view.update(cx, |c, _| c.form.as_mut().unwrap().at = 3);
+        view.update_in(cx, |c, window, cx| c.restore("First", window, cx));
+        assert_eq!(value(&view, cx), "First\n\nHi ");
+        view.read_with(cx, |c, _| {
+            assert_eq!(
+                c.form.as_ref().map(|f| f.at),
+                Some(10),
+                "the form's text would land inside the refused words"
+            );
+            assert_eq!(
+                c.dictation_base.as_deref(),
+                Some("First\n\nHi "),
+                "dictation would drop the refused words"
+            );
+        });
     }
 
     #[gpui_kit::test]

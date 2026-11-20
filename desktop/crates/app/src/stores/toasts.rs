@@ -1,10 +1,17 @@
 //! Toasts: `notify.show` from the daemon, and the window's own short
 //! notices (an account switched, a sign-out handed over). Newest last; each
 //! leaves after its time, errors stay longer, and the user can dismiss one.
+//!
+//! VoiceOver hears each one as it is shown ([`announce`]: errors and
+//! warnings at once, the rest in turn), even when it repeats the toast on
+//! screen, which shows once: a second Copy is heard as a second "Copied".
+//! A toast's `Role::Alert`/`Status` node alone would be silent (GPUI marks
+//! no node live), so nothing else announces what a toast says.
 
 use std::rc::Rc;
 use std::time::Duration;
 
+use conduit_components::announce::{Priority, announce};
 use conduit_protocol::NoticeLevel;
 use gpui_kit::{App, AsyncApp, Context, WeakEntity};
 
@@ -15,6 +22,9 @@ pub struct Toast {
     pub message: String,
     /// What "Try Again" does, on an error whose change can be sent again.
     pub retry: Option<Retry>,
+    /// The action button's label in place of "Try Again" (a notification
+    /// banner's Open).
+    pub action_label: Option<String>,
 }
 
 /// Sends a failed change again (the toast's "Try Again").
@@ -49,6 +59,14 @@ pub fn lifetime(level: NoticeLevel) -> Duration {
     }
 }
 
+/// How urgently VoiceOver speaks a toast of `level`.
+pub fn priority(level: NoticeLevel) -> Priority {
+    match level {
+        NoticeLevel::Error | NoticeLevel::Warning => Priority::High,
+        _ => Priority::Medium,
+    }
+}
+
 /// At most this many show; the oldest goes first.
 pub const MAX_TOASTS: usize = 3;
 
@@ -76,10 +94,34 @@ impl ToastStore {
         retry: Option<Retry>,
         cx: &mut Context<Self>,
     ) {
-        let message = message.into();
+        self.push(level, message.into(), retry, None, cx);
+    }
+
+    /// A toast whose button says `label` and runs `run` (pressing it
+    /// dismisses the toast first): an in-app notification banner.
+    pub fn show_with_action(
+        &mut self,
+        level: NoticeLevel,
+        message: impl Into<String>,
+        label: impl Into<String>,
+        run: Retry,
+        cx: &mut Context<Self>,
+    ) {
+        self.push(level, message.into(), Some(run), Some(label.into()), cx);
+    }
+
+    fn push(
+        &mut self,
+        level: NoticeLevel,
+        message: String,
+        retry: Option<Retry>,
+        action_label: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if message.trim().is_empty() {
             return;
         }
+        announce(message.clone(), priority(level), cx);
         // The same notice twice in a row is one.
         if self
             .toasts
@@ -95,6 +137,7 @@ impl ToastStore {
             level,
             message,
             retry,
+            action_label,
         });
         while self.toasts.len() > MAX_TOASTS {
             self.toasts.remove(0);
@@ -153,6 +196,38 @@ mod tests {
         cx.executor().advance_clock(Duration::from_secs(3));
         cx.run_until_parked();
         assert!(store.read_with(cx, |s, _| s.toasts.is_empty()));
+    }
+
+    #[gpui_kit::test]
+    fn each_toast_is_announced_even_when_it_shows_once(cx: &mut TestAppContext) {
+        use conduit_components::announce::{Announcement, AnnouncementLog};
+        cx.update(AnnouncementLog::install);
+        let store = cx.new(|_| ToastStore::new());
+        store.update(cx, |s, cx| {
+            s.show(NoticeLevel::Info, "Copied", cx);
+            s.show(NoticeLevel::Info, "Copied", cx);
+            s.show(NoticeLevel::Error, "Couldn't rename the chat.", cx);
+            s.show(NoticeLevel::Info, " ", cx);
+        });
+        assert_eq!(store.read_with(cx, |s, _| s.toasts.len()), 2);
+        let log = cx.update(|cx| cx.global::<AnnouncementLog>().0.clone());
+        assert_eq!(
+            log,
+            [
+                Announcement {
+                    text: "Copied".into(),
+                    priority: Priority::Medium
+                },
+                Announcement {
+                    text: "Copied".into(),
+                    priority: Priority::Medium
+                },
+                Announcement {
+                    text: "Couldn't rename the chat.".into(),
+                    priority: Priority::High
+                },
+            ]
+        );
     }
 
     #[gpui_kit::test]

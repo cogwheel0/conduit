@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.73.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.73.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -349,6 +349,165 @@ const Map<String, String> protocolGoldens = <String, String>{
   }
 }''',
 
+  'serverAddressDto': r'''
+{
+  "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "url": "https://chat.example.com",
+  "label": "Home network",
+  "inUse": true,
+  "allowSelfSignedCertificates": true,
+  "customHeaderNames": [
+    "X-Conduit-Tenant"
+  ],
+  "hasMutualTlsCredentials": true,
+  "mtlsCertificateLabel": "home-client.pem",
+  "mtlsPrivateKeyLabel": "home-client-key.pem",
+  "hasPrivateKeyPassword": true
+}''',
+
+  'serverAddresses': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "name": "Home",
+  "addresses": [
+    {
+      "id": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+      "url": "https://chat.example.com",
+      "inUse": true,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    },
+    {
+      "id": "0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f",
+      "url": "http://chat.home.example.net:8080",
+      "label": "Tailnet",
+      "inUse": false,
+      "allowSelfSignedCertificates": false,
+      "customHeaderNames": [],
+      "hasMutualTlsCredentials": false,
+      "hasPrivateKeyPassword": false
+    }
+  ],
+  "removable": true
+}''',
+
+  'serverRef': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d"
+}''',
+
+  'serverAddressHeader': r'''
+{
+  "name": "X-Conduit-Tenant",
+  "value": "acme"
+}''',
+
+  'serverAddressForm': r'''
+{
+  "url": "chat.home.example.net:8080",
+  "label": "Tailnet",
+  "allowSelfSignedCertificates": true,
+  "headers": [
+    {
+      "name": "X-Conduit-Tenant"
+    },
+    {
+      "name": "X-Region",
+      "value": "north"
+    }
+  ],
+  "mtlsCertificateLabel": "home-client.pem",
+  "clearMutualTls": true
+}''',
+
+  'serverAddressCheckRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "endpointId": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "form": {
+    "url": "https://chat.example.com",
+    "label": "",
+    "allowSelfSignedCertificates": false,
+    "headers": [],
+    "clearMutualTls": false
+  }
+}''',
+
+  'serverAddressCheckAnswered': r'''
+{
+  "outcome": "answered",
+  "checkId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+  "url": "http://chat.home.example.net:8080"
+}''',
+
+  'serverAddressCheckUnusable': r'''
+{
+  "outcome": "unusable",
+  "problem": "headerNameReserved",
+  "headerName": "Authorization"
+}''',
+
+  'serverAddressSaveRequest': r'''
+{
+  "checkId": "5d4c3b2a-1908-4f7e-a6d5-c4b3a2918070",
+  "sendSessionConfirmed": true,
+  "stopReplies": true,
+  "proxy": {
+    "origin": "https://chat.example.com",
+    "cookies": {
+      "_oauth2_proxy": "synthetic-cookie"
+    }
+  }
+}''',
+
+  'serverAddressSaveAsks': r'''
+{
+  "outcome": "needsConfirmation",
+  "confirmation": "sendSession",
+  "host": "chat.home.example.net:8080"
+}''',
+
+  'serverAddressSaveRefused': r'''
+{
+  "outcome": "notSaved",
+  "problem": "differentServer"
+}''',
+
+  'serverAddressRemoveRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "endpointId": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "stopReplies": true
+}''',
+
+  'serverAddressReorderRequest': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "order": [
+    "0a1b2c3d-4e5f-4607-8819-2a3b4c5d6e7f",
+    "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f"
+  ]
+}''',
+
+  'serverAddressEditResult': r'''
+{
+  "outcome": "needsConfirmation",
+  "confirmation": "replyInProgress",
+  "addresses": {
+    "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+    "name": "Home",
+    "addresses": [],
+    "removable": false
+  }
+}''',
+
+  'serversChanged': r'''
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d"
+}''',
+
   'accountUser': r'''
 {
   "name": "Ada Lovelace",
@@ -436,6 +595,18 @@ const Map<String, String> protocolGoldens = <String, String>{
   "force": true
 }''',
 
+  'addAccountOnServer': r'''
+{
+  "server": {
+    "name": "Home",
+    "url": "https://chat.example.com",
+    "allowSelfSignedCertificates": false,
+    "clearMutualTls": false
+  },
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "force": false
+}''',
+
   'accountRef': r'''
 {
   "accountId": "7c1f0b2a-5e3d-4a9c-8b7e-1d2f3a4b5c6d",
@@ -478,7 +649,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "isLoading": false,
   "hasToken": false,
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotSignedIn': r'''
@@ -495,7 +667,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "avatarUrl": "/api/v1/users/c3a1b2d4/avatar"
   },
   "errorArgs": {},
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
 }''',
 
   'authSnapshotError': r'''
@@ -508,13 +681,77 @@ const Map<String, String> protocolGoldens = <String, String>{
   "errorArgs": {
     "attempt": "3"
   },
-  "isReviewerMode": false
+  "isReviewerMode": false,
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotTwoStep': r'''
+{
+  "phase": "unauthenticated",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": false,
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "twoStep": {
+    "stage": "verify",
+    "account": "ada@example.com",
+    "expiresInSeconds": 300,
+    "recoveryCodes": []
+  },
+  "canRenewProxy": false
+}''',
+
+  'authSnapshotConnectionIssue': r'''
+{
+  "phase": "error",
+  "isAuthenticated": false,
+  "isLoading": false,
+  "hasToken": true,
+  "errorCode": "net.connectionFailed",
+  "errorArgs": {},
+  "isReviewerMode": false,
+  "canRenewProxy": true
 }''',
 
   'authUser': r'''
 {
   "id": "c3a1b2d4-5e6f-4708-9a1b-2c3d4e5f6071",
   "name": "Ada Lovelace"
+}''',
+
+  'twoStepChallengeCodes': r'''
+{
+  "stage": "recoveryCodes",
+  "account": "ada@example.com",
+  "expiresInSeconds": 0,
+  "recoveryCodes": [
+    "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+  ]
+}''',
+
+  'twoStepSetup': r'''
+{
+  "manualKey": "MFRGGZDFMZTWQ2LK",
+  "qrSvg": "<svg></svg>",
+  "authenticatorUri": "otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI"
+}''',
+
+  'twoStepCode': r'''
+{
+  "code": "123456",
+  "recovery": false
+}''',
+
+  'twoStepRecoveryCode': r'''
+{
+  "code": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "recovery": true
+}''',
+
+  'twoStepResetToken': r'''
+{
+  "resetToken": "not-a-real-recovery-token"
 }''',
 
   'passwordLogin': r'''
@@ -570,12 +807,16 @@ const Map<String, String> protocolGoldens = <String, String>{
   "selectedId": "gpt-4o",
   "featuredIds": [],
   "moreSections": [],
-  "canPin": false
+  "canPin": false,
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'selectModel': r'''
 {
-  "id": "gpt-4o"
+  "id": "gpt-4o",
+  "temporary": false
 }''',
 
   'sendTurn': r'''
@@ -2037,6 +2278,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Helper",
   "baseModelId": "gemma3:1b",
   "description": "Answers briefly",
+  "imageSource": "inline",
   "tags": [
     "short"
   ],
@@ -2077,6 +2319,10 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "ttsVoice": "alloy",
   "terminalId": "http://127.0.0.1:8000",
+  "builtinTools": {
+    "time": true,
+    "memory": false
+  },
   "active": true,
   "hidden": true,
   "params": {
@@ -2731,7 +2977,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "running": false
     }
   ],
-  "archivedFailed": false
+  "archivedFailed": false,
+  "hiddenScheduledRuns": 4
 }''',
 
   'hermesSessionsSetAside': r'''
@@ -2749,7 +2996,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "archived": [],
-  "archivedFailed": true
+  "archivedFailed": true,
+  "hiddenScheduledRuns": 0
 }''',
 
   'hermesHiddenSession': r'''
@@ -3220,7 +3468,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "name": "Morning brief",
   "prompt": "Summarise the news",
   "schedule": "0 8 * * *",
-  "scheduleText": "At 08:00",
+  "scheduleText": "Every day at 8:00 AM",
+  "cadence": {
+    "kind": "daily",
+    "hour": 8,
+    "minute": 0
+  },
   "enabled": false,
   "lastStatus": "ok",
   "lastError": "none",
@@ -3265,6 +3518,21 @@ const Map<String, String> protocolGoldens = <String, String>{
   "listFailed": true
 }''',
 
+  'hermesCadenceDto': r'''
+{
+  "kind": "everyHours",
+  "every": 6,
+  "minute": 30
+}''',
+
+  'hermesCadenceDtoWeekly': r'''
+{
+  "kind": "weekly",
+  "hour": 17,
+  "minute": 45,
+  "weekday": 4
+}''',
+
   'hermesJobEdit': r'''
 {
   "id": "j1",
@@ -3282,6 +3550,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   'hermesJobRef': r'''
 {
   "id": "j1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesSignInRequest': r'''
+{
   "connection": "0a1b2c3d:2"
 }''',
 
@@ -3430,7 +3703,13 @@ const Map<String, String> protocolGoldens = <String, String>{
   "plainHttp": true,
   "hasApiKey": true,
   "hasLegacyToken": true,
-  "desktopSignedIn": true
+  "desktopSignedIn": true,
+  "accessHeaderNames": [
+    "CF-Access-Client-Id",
+    "CF-Access-Client-Secret"
+  ],
+  "hasMemoryKey": true,
+  "dashboardSignedIn": true
 }''',
 
   'hermesConnections': r'''
@@ -3450,7 +3729,10 @@ const Map<String, String> protocolGoldens = <String, String>{
       "plainHttp": false,
       "hasApiKey": false,
       "hasLegacyToken": false,
-      "desktopSignedIn": false
+      "desktopSignedIn": false,
+      "accessHeaderNames": [],
+      "hasMemoryKey": false,
+      "dashboardSignedIn": false
     }
   ],
   "canAdd": false,
@@ -3469,7 +3751,104 @@ const Map<String, String> protocolGoldens = <String, String>{
   "apiKey": "sk-demo",
   "legacyToken": "demo-token",
   "allowSelfSignedCertificates": true,
-  "allowPlainHttp": true
+  "allowPlainHttp": true,
+  "accessHeaders": [
+    {
+      "name": "CF-Access-Client-Id",
+      "value": "demo.access"
+    },
+    {
+      "name": "X-Gate",
+      "savedName": "X-Old-Gate"
+    }
+  ],
+  "memoryKey": "demo-memory"
+}''',
+
+  'hermesAccessHeaderEdit': r'''
+{
+  "name": "X-Gate",
+  "value": "demo-value",
+  "savedName": "X-Old-Gate"
+}''',
+
+  'hermesProfiles': r'''
+{
+  "profiles": [
+    "default",
+    "writer"
+  ],
+  "selected": "writer",
+  "issue": "signInFirst"
+}''',
+
+  'hermesToolsetToggle': r'''
+{
+  "name": "web",
+  "enabled": false,
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesConnectionRef': r'''
+{
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardStart': r'''
+{
+  "id": "c1",
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesDashboardPlan': r'''
+{
+  "loginUrl": "https://agent.example.test/login",
+  "origin": "https://agent.example.test",
+  "supported": false
+}''',
+
+  'hermesCookieDto': r'''
+{
+  "name": "hermes_session_at",
+  "value": "demo-session",
+  "domain": "agent.example.test",
+  "path": "/",
+  "secure": true,
+  "httpOnly": true,
+  "expiresMs": 1794490018000
+}''',
+
+  'hermesDashboardCookies': r'''
+{
+  "id": "c1",
+  "cookies": [
+    {
+      "name": "hermes_session_rt",
+      "value": "r",
+      "domain": ".example.test",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    }
+  ],
+  "connection": "0a1b2c3d:2",
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardCancel': r'''
+{
+  "attempt": "dashboard-1"
+}''',
+
+  'hermesDashboardResult': r'''
+{
+  "signedIn": true,
+  "connections": {
+    "enabled": false,
+    "activeId": "c1",
+    "connections": [],
+    "canAdd": true
+  }
 }''',
 
   'hermesConnectionTestResult': r'''
@@ -3515,7 +3894,57 @@ const Map<String, String> protocolGoldens = <String, String>{
   'hermesMcpCatalogEntryDto': r'''
 {
   "name": "calendar",
-  "description": "Events from a calendar"
+  "description": "Events from a calendar",
+  "authType": "api_key",
+  "credentials": [
+    {
+      "name": "CALENDAR_TOKEN",
+      "prompt": "Calendar access token",
+      "required": true
+    },
+    {
+      "name": "CALENDAR_REGION",
+      "required": false
+    }
+  ],
+  "canAdd": true,
+  "fromDashboard": true,
+  "oauth": false
+}''',
+
+  'hermesMcpCatalogCredentialDto': r'''
+{
+  "name": "CALENDAR_TOKEN",
+  "prompt": "Calendar access token",
+  "required": true
+}''',
+
+  'hermesMcpCatalogAdd': r'''
+{
+  "name": "calendar",
+  "credentials": {
+    "CALENDAR_TOKEN": "demo-token"
+  },
+  "connection": "0a1b2c3d:2"
+}''',
+
+  'hermesMcpCatalogAdded': r'''
+{
+  "servers": {
+    "available": true,
+    "servers": [
+      {
+        "name": "calendar",
+        "description": "",
+        "enabled": true,
+        "tools": []
+      }
+    ],
+    "canSetApiKey": false,
+    "listFailed": false
+  },
+  "stillInstalling": false,
+  "signIn": true
 }''',
 
   'hermesMcpCatalog': r'''
@@ -3523,7 +3952,11 @@ const Map<String, String> protocolGoldens = <String, String>{
   "entries": [
     {
       "name": "calendar",
-      "description": ""
+      "description": "",
+      "credentials": [],
+      "canAdd": true,
+      "fromDashboard": false,
+      "oauth": false
     }
   ]
 }''',
@@ -4010,6 +4443,60 @@ const Map<String, String> protocolGoldens = <String, String>{
   ]
 }''',
 
+  'intentLink': r'''
+{
+  "url": "https://example.com/tide-tables"
+}''',
+
+  'intentLinkResult': r'''
+{
+  "url": "https://example.com/tide-tables",
+  "youtube": false,
+  "attachment": {
+    "id": "ctx-7",
+    "kind": "web",
+    "name": "Tide tables for Port Wren",
+    "url": "https://example.com/tide-tables",
+    "content": "High water at 06:12 and 18:40."
+  }
+}''',
+
+  'intentLinkResultFailed': r'''
+{
+  "url": "https://youtu.be/abc123",
+  "youtube": true,
+  "error": "noContent"
+}''',
+
+  'locationCommand': r'''
+{
+  "id": 5,
+  "kind": "currentPosition"
+}''',
+
+  'locationReportStatus': r'''
+{
+  "id": 4,
+  "ok": true,
+  "servicesEnabled": true,
+  "permission": "whileInUse"
+}''',
+
+  'locationReportFix': r'''
+{
+  "id": 5,
+  "ok": true,
+  "latitude": 51.5014,
+  "longitude": -0.1419
+}''',
+
+  'locationReportFailed': r'''
+{
+  "id": 6,
+  "ok": false,
+  "error": "no fix"
+}''',
+
   'terminalDisplayFile': r'''
 {
   "chatId": "c1",
@@ -4403,7 +4890,9 @@ const Map<String, String> protocolGoldens = <String, String>{
       "targetId": "tidy"
     }
   ],
-  "voiceCall": true
+  "voiceCall": true,
+  "agentChat": false,
+  "ownEffortControl": false
 }''',
 
   'attachmentAvailability': r'''
@@ -4578,6 +5067,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "frozen": true
 }''',
 
+  'composerInsertText': r'''
+{
+  "chatId": "chat-7c1f0b2a",
+  "text": "Summarise the packing list"
+}''',
+
   'queueState': r'''
 {
   "chatId": "chat-7c1f0b2a",
@@ -4663,6 +5158,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The first answer.",
   "timestampMs": 1758412800000,
   "model": "llama3.2:1b",
+  "modelName": "Llama 3.2 1B",
   "sources": [],
   "blocks": [
     {
@@ -4872,9 +5368,23 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'messageStatus': r'''
 {
-  "description": "Searching Knowledge",
+  "description": "Searching Knowledge for “tide tables”",
+  "phrase": "knowledgeSearch",
+  "query": "tide tables",
   "action": "knowledge_search",
   "done": false,
+  "queries": [],
+  "links": [],
+  "details": []
+}''',
+
+  'messageStatusSources': r'''
+{
+  "description": "Retrieved 3 sources",
+  "phrase": "sourcesRetrieved",
+  "count": 3,
+  "action": "sources_retrieved",
+  "done": true,
   "queries": [],
   "links": [],
   "details": []
@@ -5200,6 +5710,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "content": "The outbox drains oldest-first.",
   "timestampMs": 1758412800000,
   "model": "gpt-4o",
+  "modelName": "GPT-4o",
   "streaming": true,
   "versions": [],
   "sources": [
@@ -5711,6 +6222,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   ],
   "sendOnEnter": true,
   "showComposerNotesButton": false,
+  "showModelNameInComposer": true,
   "temporaryChatByDefault": true,
   "citationShowTitles": true,
   "citationBackground": false,
@@ -5733,6 +6245,7 @@ const Map<String, String> protocolGoldens = <String, String>{
   "directVoiceProvider": {
     "profileId": "dc-lantern"
   },
+  "hermesShowScheduledSessions": false,
   "messageActions": [
     "copy",
     "tts",
@@ -5752,7 +6265,9 @@ const Map<String, String> protocolGoldens = <String, String>{
     "image"
   ],
   "sendOnEnter": true,
+  "showModelNameInComposer": false,
   "ttsSpeed": 1.5,
+  "hermesShowScheduledSessions": false,
   "clear": [
     "defaultModel",
     "inlineMessageActions"
@@ -5927,6 +6442,215 @@ const Map<String, String> protocolGoldens = <String, String>{
   'memoryToggle': r'''
 {
   "enabled": false
+}''',
+
+  'notificationSettingsDto': r'''
+{
+  "enabled": true,
+  "sound": true,
+  "soundAlways": true,
+  "inAppBanner": true,
+  "system": true,
+  "answers": true,
+  "channels": true,
+  "mentionsOnly": true,
+  "synced": true
+}''',
+
+  'notificationSettingsPatch': r'''
+{
+  "inAppBanner": false,
+  "channels": true
+}''',
+
+  'notificationRouteParams': r'''
+{
+  "kind": "channelMessage",
+  "foreground": true,
+  "viewing": false,
+  "alert": true,
+  "mention": true,
+  "direct": false
+}''',
+
+  'notificationRoute': r'''
+{
+  "surface": "banner",
+  "cue": true,
+  "systemSound": false
+}''',
+
+  'answerNotice': r'''
+{
+  "chatId": "tide-tables",
+  "messageId": "reply-7",
+  "title": "Tide tables"
+}''',
+
+  'webhookDto': r'''
+{
+  "id": "harbour-hooks",
+  "enabled": true,
+  "isDefault": true,
+  "events": [
+    "chat.finished",
+    "channel.message"
+  ],
+  "delivery": "always",
+  "maskedUrl": "http://127.0.0.1:19341/...ook"
+}''',
+
+  'webhookEventDto': r'''
+{
+  "event": "chat.finished",
+  "label": "Chat finished",
+  "description": "A response finished."
+}''',
+
+  'webhookList': r'''
+{
+  "available": true,
+  "owner": "w1",
+  "items": [
+    {
+      "id": "ferry-desk",
+      "enabled": false,
+      "isDefault": false,
+      "events": [],
+      "delivery": "away"
+    }
+  ],
+  "events": [
+    {
+      "event": "channel.message",
+      "label": "Channel message"
+    }
+  ],
+  "stale": true,
+  "failed": false
+}''',
+
+  'webhookCreate': r'''
+{
+  "owner": "w1",
+  "url": "https://hooks.example.org/tide",
+  "name": "tide-board",
+  "enabled": true,
+  "events": [
+    "chat.finished"
+  ],
+  "delivery": "away"
+}''',
+
+  'webhookUpdate': r'''
+{
+  "owner": "w1",
+  "id": "tide-board",
+  "enabled": false,
+  "delivery": "always"
+}''',
+
+  'webhookRef': r'''
+{
+  "owner": "w1",
+  "id": "tide-board"
+}''',
+
+  'personalConnectionDto': r'''
+{
+  "kind": "toolServer",
+  "identity": "conduit-0a1b",
+  "name": "Buoy Readings",
+  "endpoint": "http://127.0.0.1:19341/personal",
+  "enabled": true,
+  "editable": true,
+  "description": "Synthetic buoy data.",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "bearer",
+  "hasKey": true,
+  "fingerprint": ""
+}''',
+
+  'personalConnections': r'''
+{
+  "access": "allowed",
+  "owner": "p1",
+  "accountName": "Harbour Admin",
+  "serverName": "Local",
+  "toolServers": [],
+  "terminals": [
+    {
+      "kind": "terminal",
+      "identity": "http://127.0.0.1:9100",
+      "name": "Dock Shell",
+      "endpoint": "",
+      "enabled": false,
+      "editable": true,
+      "description": "",
+      "url": "",
+      "specType": "url",
+      "path": "",
+      "spec": "",
+      "authType": "bearer",
+      "hasKey": false,
+      "fingerprint": ""
+    }
+  ],
+  "cleared": [
+    "Old Gauge"
+  ],
+  "failed": false,
+  "savedForPreviousAccount": false
+}''',
+
+  'personalConnectionDraft': r'''
+{
+  "name": "Buoy Readings",
+  "description": "",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "none",
+  "key": "",
+  "keyMode": "keep",
+  "enabled": true
+}''',
+
+  'personalConnectionSave': r'''
+{
+  "owner": "p1",
+  "kind": "toolServer",
+  "op": "setEnabled",
+  "identity": "conduit-0a1b",
+  "enabled": false
+}''',
+
+  'personalConnectionTest': r'''
+{
+  "owner": "p1",
+  "kind": "terminal",
+  "draft": {
+    "name": "",
+    "description": "",
+    "url": "http://127.0.0.1:9100",
+    "specType": "url",
+    "path": "",
+    "spec": "",
+    "authType": "bearer",
+    "key": "",
+    "keyMode": "replace",
+    "enabled": true
+  }
+}''',
+
+  'personalConnectionTestResult': r'''
+{
+  "ok": false,
+  "failure": "unauthorized"
 }''',
 
   'releaseNoteBullet': r'''
@@ -6631,7 +7355,10 @@ const Map<String, String> protocolGoldens = <String, String>{
     }
   ],
   "canPin": true,
-  "defaultId": "fake-model"
+  "defaultId": "fake-model",
+  "agents": [],
+  "agentNames": {},
+  "revision": 0
 }''',
 
   'modelSection': r'''
@@ -6645,7 +7372,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'setModelPinned': r'''
 {
   "id": "fake-model",
-  "pinned": true
+  "pinned": true,
+  "chatId": "chat-1"
 }''',
 
   'modelOptionsQuery': r'''
@@ -7402,6 +8130,146 @@ const Map<String, String> protocolGoldens = <String, String>{
   "positionMs": 800
 }''',
 
+  'appleEngineStatus': r'''
+{
+  "availability": "available",
+  "contextSize": 4096,
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModelStatus': r'''
+{
+  "model": "onDevice",
+  "availability": "unavailable",
+  "reason": "modelNotReady",
+  "supportsCurrentLocale": true
+}''',
+
+  'appleModels': r'''
+{
+  "models": [
+    {
+      "model": "onDevice",
+      "availability": "available",
+      "contextSize": 4096,
+      "supportsCurrentLocale": true
+    }
+  ]
+}''',
+
+  'appleMessage': r'''
+{
+  "role": "user",
+  "content": "Name three hardy herbs for a windowsill."
+}''',
+
+  'appleToolDefinition': r'''
+{
+  "name": "garden_lookup",
+  "description": "Looks up a plant in the garden notebook.",
+  "inputSchemaJson": "{}"
+}''',
+
+  'appleGeneration': r'''
+{
+  "runId": "run-5c1e",
+  "model": "onDevice",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Answer briefly."
+    },
+    {
+      "role": "user",
+      "content": "Name three hardy herbs for a windowsill."
+    }
+  ],
+  "tools": [],
+  "temperature": 0.4,
+  "maximumResponseTokens": 512
+}''',
+
+  'appleCommandStart': r'''
+{
+  "id": 3,
+  "kind": "start",
+  "request": {
+    "runId": "run-5c1e",
+    "model": "onDevice",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Is thyme hardy?"
+      }
+    ],
+    "tools": []
+  },
+  "toolCancelled": false
+}''',
+
+  'appleCommandToolResult': r'''
+{
+  "id": 4,
+  "kind": "toolResult",
+  "runId": "run-5c1e",
+  "callId": "call-1",
+  "toolContent": "Thyme survives frost.",
+  "toolCancelled": false
+}''',
+
+  'appleReportStatus': r'''
+{
+  "id": 2,
+  "ok": true,
+  "runs": [],
+  "status": {
+    "availability": "unavailable",
+    "reason": "appleIntelligenceNotEnabled"
+  }
+}''',
+
+  'appleReportReady': r'''
+{
+  "ok": true,
+  "kind": "ready",
+  "supported": true,
+  "runs": [
+    "run-5c1e"
+  ]
+}''',
+
+  'appleReportContent': r'''
+{
+  "ok": true,
+  "kind": "content",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "content": "Thyme, rosemary and sage."
+}''',
+
+  'appleReportFailed': r'''
+{
+  "ok": true,
+  "kind": "failed",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 2,
+  "failure": "contextExceeded"
+}''',
+
+  'appleReportToolCall': r'''
+{
+  "ok": true,
+  "kind": "toolCall",
+  "runs": [],
+  "runId": "run-5c1e",
+  "seq": 1,
+  "callId": "call-1",
+  "toolName": "garden_lookup",
+  "argumentsJson": "{}"
+}''',
+
   'hermesWorkWatch': r'''
 {
   "chatId": "local:hermes_s-4f2a",
@@ -7891,6 +8759,22 @@ const Map<String, String> protocolGoldens = <String, String>{
   "defaultChoice": "deny"
 }''',
 
+  'uiRequestHermesModelSwitch': r'''
+{
+  "requestId": "ui-43",
+  "kind": "hermesModelSwitch",
+  "messageCode": "hermes.modelSwitch",
+  "messageArgs": {
+    "model": "Heron Large",
+    "reason": "Heron Large costs more per message."
+  },
+  "detail": {
+    "chatId": "local:hermes_s-1"
+  },
+  "timeoutMs": 300000,
+  "defaultChoice": "cancel"
+}''',
+
   'callStateListening': r'''
 {
   "phase": "listening",
@@ -7924,6 +8808,22 @@ const Map<String, String> protocolGoldens = <String, String>{
   "error": "Call permission denied",
   "notice": "replyIncomplete",
   "noticeCount": 1
+}''',
+
+  'callStateRefused': r'''
+{
+  "phase": "error",
+  "call": 0,
+  "transcript": "",
+  "reply": "",
+  "level": 0.0,
+  "muted": false,
+  "canPause": false,
+  "canResume": false,
+  "errorKind": "message",
+  "error": "Sign in to start a voice call.",
+  "noticeCount": 0,
+  "refusal": "signInRequired"
 }''',
 
   'callStateIdle': r'''
@@ -7968,6 +8868,15 @@ const Map<String, String> protocolGoldens = <String, String>{
   "listen": 0,
   "continuous": false,
   "path": "/calls/call-7"
+}''',
+
+  'callCommandWebRtc': r'''
+{
+  "id": 6,
+  "kind": "webRtcStart",
+  "listen": 0,
+  "continuous": false,
+  "path": "/calls/call-8"
 }''',
 
   'callReportWords': r'''
@@ -8533,7 +9442,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   'automationOption': r'''
 {
   "id": "fake-model",
-  "name": "Fake"
+  "name": "Fake",
+  "agent": false
 }''',
 
   'automationEditorOpen': r'''
@@ -8565,10 +9475,12 @@ const Map<String, String> protocolGoldens = <String, String>{
   "models": [
     {
       "id": "fake-model",
-      "name": ""
+      "name": "",
+      "agent": false
     }
   ],
-  "terminal": true
+  "terminal": true,
+  "agentsUnknown": false
 }''',
 
   'automationDraftEdit': r'''
@@ -8620,6 +9532,298 @@ const Map<String, String> protocolGoldens = <String, String>{
   "changed": true,
   "saved": false,
   "failure": "Schedule too frequent."
+}''',
+
+  'modelListAgents': r'''
+{
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "pinned": false,
+      "capabilities": []
+    }
+  ],
+  "selectedId": "agent:buildbox:codex:gpt-5.1",
+  "featuredIds": [],
+  "moreSections": [],
+  "canPin": false,
+  "agents": [
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "pinned": false,
+      "capabilities": [],
+      "agent": {
+        "terminalId": "buildbox",
+        "terminalName": "Build box",
+        "agent": "codex",
+        "agentName": "Codex",
+        "model": "gpt-5.1"
+      }
+    }
+  ],
+  "agentNames": {
+    "agent:buildbox:pi:default": "Pi · default"
+  },
+  "chatAgent": "agent:buildbox:pi:default",
+  "revision": 0
+}''',
+
+  'terminalAgent': r'''
+{
+  "terminalId": "buildbox",
+  "agent": "claude-code",
+  "agentName": "",
+  "model": "sonnet"
+}''',
+
+  'modelListQuery': r'''
+{
+  "chatId": "chat-1",
+  "temporary": true
+}''',
+
+  'selectModelInChat': r'''
+{
+  "id": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1",
+  "temporary": false
+}''',
+
+  'selectModelTemporary': r'''
+{
+  "id": "gpt-4o",
+  "temporary": true
+}''',
+
+  'modelControlOption': r'''
+{
+  "value": "high",
+  "label": "High"
+}''',
+
+  'modelControl': r'''
+{
+  "key": "service_tier",
+  "label": "Service tier",
+  "description": "How fast the agent answers.",
+  "options": [
+    {
+      "value": "flex",
+      "label": "Flex"
+    },
+    {
+      "value": "priority",
+      "label": "Priority"
+    }
+  ],
+  "defaultValue": "flex",
+  "value": "priority"
+}''',
+
+  'modelControlsQuery': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "chatId": "chat-1"
+}''',
+
+  'modelControlList': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "controls": [
+    {
+      "key": "reasoning_effort",
+      "label": "",
+      "options": [
+        {
+          "value": "low",
+          "label": ""
+        }
+      ]
+    }
+  ]
+}''',
+
+  'setModelControl': r'''
+{
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "key": "reasoning_effort",
+  "value": "high"
+}''',
+
+  'composerOptionsQuery': r'''
+{
+  "chatId": "chat-1",
+  "modelId": "fake-model"
+}''',
+
+  'composerOptionsAgent': r'''
+{
+  "webSearch": false,
+  "imageGeneration": false,
+  "tools": [],
+  "mcpTools": [],
+  "filters": [],
+  "filterDefaults": [],
+  "codeInterpreter": false,
+  "attachments": {
+    "files": true,
+    "serverFiles": false,
+    "images": true,
+    "webPage": false,
+    "mcpContent": false
+  },
+  "skills": false,
+  "context": false,
+  "notes": false,
+  "mentions": false,
+  "steer": false,
+  "imageConversions": [],
+  "compareModels": false,
+  "quickPills": [],
+  "voiceCall": false,
+  "agentChat": true,
+  "ownEffortControl": true
+}''',
+
+  'automationSummaryAgent': r'''
+{
+  "id": "task-agent",
+  "name": "Nightly tidy",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "lastRunFailed": false,
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "Codex",
+    "model": "gpt-5.1"
+  }
+}''',
+
+  'automationDetailTerminal': r'''
+{
+  "summary": {
+    "id": "task-agent",
+    "name": "Nightly tidy",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "lastRunFailed": false
+  },
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "modelName": "Codex · gpt-5.1",
+  "target": "chat",
+  "terminal": true,
+  "terminalId": "buildbox",
+  "terminalName": "Build box",
+  "workingDirectory": "/home/demo/sketches",
+  "agent": {
+    "terminalId": "buildbox",
+    "agent": "codex",
+    "agentName": "",
+    "model": "gpt-5.1"
+  },
+  "nextRuns": []
+}''',
+
+  'automationFieldsTerminal': r'''
+{
+  "name": "Nightly tidy",
+  "prompt": "Tidy the sketch folder.",
+  "modelId": "agent:buildbox:codex:gpt-5.1",
+  "active": true,
+  "schedule": {
+    "kind": "daily",
+    "year": 0,
+    "month": 0,
+    "day": 0,
+    "hour": 2,
+    "minute": 0,
+    "days": [],
+    "rrule": ""
+  },
+  "target": "chat",
+  "terminalId": "buildbox",
+  "workingDirectory": "/home/demo/sketches"
+}''',
+
+  'automationEditorTerminals': r'''
+{
+  "token": "te-2",
+  "isNew": true,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat",
+    "terminalId": "buildbox"
+  },
+  "terminal": false,
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "agentsUnknown": true,
+  "agentName": "Codex · gpt-5.1"
+}''',
+
+  'automationTerminals': r'''
+{
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "agent": false
+    },
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "detail": "Build box",
+      "agent": true
+    }
+  ],
+  "agentsUnknown": false
 }''',
 
 };

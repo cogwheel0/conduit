@@ -5,13 +5,23 @@ library;
 
 import 'package:conduit_core/services/api_service.dart';
 
+/// YouTube's hosts, whose addresses are videos to read transcripts of.
+const Set<String> _youtubeHosts = {
+  'www.youtube.com',
+  'youtube.com',
+  'm.youtube.com',
+  'youtu.be',
+};
+
 /// Whether [url] is a YouTube video, whose transcript is read instead of
-/// the page.
-bool isYoutubeUrl(String url) =>
-    url.startsWith('https://www.youtube.com') ||
-    url.startsWith('https://youtu.be') ||
-    url.startsWith('https://youtube.com') ||
-    url.startsWith('https://m.youtube.com');
+/// the page: an https address on one of YouTube's own hosts (the parsed
+/// host, so `https://youtube.com.example.test` is a page like any other).
+bool isYoutubeUrl(String url) {
+  final parsed = Uri.tryParse(url.trim());
+  return parsed != null &&
+      parsed.isScheme('https') &&
+      _youtubeHosts.contains(parsed.host.toLowerCase());
+}
 
 /// Whether [url] is something the dialog may fetch: an http or https
 /// address.

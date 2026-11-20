@@ -69,6 +69,28 @@ pub struct OpenChat {
     _subscriptions: Vec<Subscription>,
 }
 
+/// What [`ChatPane::compose_new_chat`] writes into a new chat.
+#[derive(Default)]
+pub struct NewChatContent {
+    /// The message box's text.
+    pub text: Option<String>,
+    /// The new chat starts empty, its draft replaced (the phone's Send to
+    /// Conduit, Send Link, Send Image and widget Clipboard reset it); else
+    /// the text goes in and an unsent draft is kept, as New Chat keeps it.
+    pub fresh: bool,
+    /// Files, uploaded as the composer's Attach Files uploads them.
+    pub paths: Vec<std::path::PathBuf>,
+    /// Pictures, attached as a paste attaches them.
+    pub images: Vec<gpui_kit::Image>,
+    /// A web page's text or a video's transcript.
+    pub context: Vec<conduit_protocol::ContextAttachmentDto>,
+    /// Attachments already uploaded (Quick Ask's Open in Conduit).
+    pub carried: Vec<crate::stores::composer::Attachment>,
+    /// The account scope the content was read under, when it is that
+    /// scope's: written only while that same scope is in charge.
+    pub owner: Option<crate::shell::deep_link::ReadUnder>,
+}
+
 pub struct ChatPane {
     stores: Stores,
     layout: Entity<LayoutStore>,
@@ -81,7 +103,10 @@ pub struct ChatPane {
     pub composer: Entity<ChatComposer>,
     pub chat: Option<OpenChat>,
     /// A new chat's first message is on its way.
-    starting: bool,
+    /// The composition a new chat's first message was sent from, while it
+    /// is on its way: it holds back another send (and Chat Settings) only
+    /// while that composition is the one shown.
+    starting: Option<crate::stores::composer::CompositionTicket>,
     /// The active account the composer's attachments belong to.
     account: Option<String>,
     /// The read-only notice's Continue Here or Continue in a Copy is on its
@@ -134,6 +159,11 @@ pub struct ChatPane {
     computer_key: Option<(String, bool, Option<String>, u64)>,
     computer_revision: u64,
     _computer: Option<gpui_kit::Task<()>>,
+    /// Live Updates: where its popover hangs from while open, since when
+    /// the socket has been down, and the wait before its item shows.
+    live_anchor: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    live_down_since: Option<std::time::Instant>,
+    _live_wait: Option<gpui_kit::Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -293,7 +323,7 @@ impl ChatPane {
                     this.account = active;
                     // A first send of the last account's no longer holds
                     // this one's composer back.
-                    this.starting = false;
+                    this.starting = None;
                     this.composer_store.update(cx, |c, cx| c.reset(cx));
                     this.composer.update(cx, |c, cx| c.forget_account(cx));
                     // The new account's draft for what is shown.
@@ -338,6 +368,8 @@ impl ChatPane {
                     chat.transcript
                         .update(cx, |t, cx| t.set_action_prefs(prefs, cx));
                 }
+                // The socket's health: Live Updates in the toolbar.
+                cx.notify();
             }),
             cx.observe(&layout, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
@@ -346,11 +378,29 @@ impl ChatPane {
             cx.subscribe(&stores.connection, |this, _, event, cx| {
                 this.on_connection(event, cx)
             }),
+            // Reload Skills: a Hermes chat's `/` lists the skills read again.
+            cx.subscribe(
+                &stores.hermes_admin,
+                |this, admin, event: &crate::stores::hermes_admin::HermesAdminEvent, cx| {
+                    if matches!(
+                        event,
+                        crate::stores::hermes_admin::HermesAdminEvent::SkillsReloaded
+                    ) {
+                        let connection = admin.read(cx).connection();
+                        this.composer_store
+                            .update(cx, |c, cx| c.reload_hermes_prompts(connection, cx));
+                    }
+                },
+            ),
             cx.subscribe(&stores.router, |this, _, event: &RouterEvent, cx| {
                 let RouterEvent::Remapped { from, to } = event;
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                // The composer's own state for that chat moves too, whether
+                // or not it is the chat shown.
+                this.composer_store
+                    .update(cx, |c, cx| c.rekey_chat(from, to, cx));
             }),
             cx.subscribe_in(
                 &composer,
@@ -370,6 +420,19 @@ impl ChatPane {
                     ChatComposerEvent::Stop => this.stop(cx),
                     ChatComposerEvent::Temporary(on) => {
                         let on = *on;
+                        // Said aloud, as the phone says it when it turns on
+                        // (and the counterpart when it turns off): the
+                        // switch's own state is all VoiceOver reads else.
+                        let said = if on {
+                            cx.l10n().temporary_chat_tooltip()
+                        } else {
+                            cx.l10n().desktop_announce_temporary_off()
+                        };
+                        conduit_components::announce::announce(
+                            said,
+                            conduit_components::announce::Priority::Medium,
+                            cx,
+                        );
                         this.temporary_chosen = true;
                         this.temporary_hand_chosen = true;
                         // The same new chat, in its folder, with the
@@ -411,8 +474,11 @@ impl ChatPane {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // The composer shows its drafts itself.
-                    ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
+                    ComposerEvent::DraftSwitched
+                    | ComposerEvent::DraftLoaded { .. }
+                    | ComposerEvent::DraftReadEnded => return,
                 };
                 this.toast(NoticeLevel::Warning, text, cx);
             }),
@@ -428,7 +494,7 @@ impl ChatPane {
             composer_store,
             composer,
             chat: None,
-            starting: false,
+            starting: None,
             account,
             hermes_continuing: false,
             handoff: None,
@@ -451,6 +517,9 @@ impl ChatPane {
             computer_key: None,
             computer_revision: 0,
             _computer: None,
+            live_anchor: None,
+            live_down_since: None,
+            _live_wait: None,
             _subscriptions: subscriptions,
         };
         // The composer follows the models on offer and the network.
@@ -615,18 +684,20 @@ impl ChatPane {
         self.stores
             .navigation
             .update(cx, |n, cx| n.new_chat(false, cx));
-        if let Some(model) = model {
-            self.composer_store
-                .update(cx, |c, cx| c.select_model(&model, cx));
-        }
-        // Once the new chat's draft has taken the field (the switch, which
-        // empties it, follows this update), the suggested message goes in.
+        // Once the composer is on the new chat (the switch, which empties
+        // the field, follows this update): the suggested model is picked for
+        // it (never for the chat open before), and the suggested message
+        // goes in.
         let prompt = prompt.filter(|p| !p.is_empty());
         cx.spawn_in(window, async move |this, cx| {
             let _ = this.update_in(cx, |this, window, cx| {
+                if let Some(model) = model {
+                    this.composer_store
+                        .update(cx, |c, cx| c.select_model(&model, cx));
+                }
                 if let Some(prompt) = prompt {
                     this.composer
-                        .update(cx, |c, cx| c.restore(&prompt, window, cx));
+                        .update(cx, |c, cx| c.give_text(&prompt, window, cx));
                 }
                 this.composer.update(cx, |c, cx| c.focus_input(window, cx));
             });
@@ -723,12 +794,8 @@ impl ChatPane {
                     }
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
-                        self.composer_store.update(cx, |c, _| {
-                            c.rekey_draft(DraftKey {
-                                chat_id: Some(id.clone()),
-                                folder_id: None,
-                            })
-                        });
+                        self.composer_store
+                            .update(cx, |c, cx| c.rekey_chat(&current, &id, cx));
                         return;
                     }
                 }
@@ -1049,6 +1116,25 @@ impl ChatPane {
                     ChatStoreEvent::Missing => cx.notify(),
                     // For the app's view in the transcript.
                     ChatStoreEvent::McpApp(_) => {}
+                    ChatStoreEvent::InsertText { text } => {
+                        // The composition the words were given to: written
+                        // into it only while it is still the one shown.
+                        let ticket = this.composer_store.read(cx).ticket();
+                        let (pane, text) = (cx.entity().downgrade(), text.clone());
+                        let Some(handle) = cx
+                            .try_global::<crate::AppState>()
+                            .and_then(|s| s.main_window)
+                        else {
+                            return;
+                        };
+                        cx.defer(move |cx| {
+                            let _ = handle.update(cx, |_, window, cx| {
+                                pane.update(cx, |p, cx| {
+                                    p.take_given_text(ticket, &text, window, cx)
+                                })
+                            });
+                        });
+                    }
                 }
             }),
         ];
@@ -1077,7 +1163,9 @@ impl ChatPane {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: the order of model answers starts
+                // again (the open chat, draft and attachments stay).
+                self.composer_store.update(cx, |c, cx| c.reconnected(cx));
                 // A new daemon session: handles and the Computer offer anew.
                 crate::views::terminal::chat::forget_handles(cx);
                 self.computer_revision += 1;
@@ -1171,8 +1259,13 @@ impl ChatPane {
             return;
         }
         // A new chat's first message is still on its way: keep this one in
-        // the composer rather than starting a second chat.
-        if self.chat.is_none() && self.starting {
+        // the composer rather than starting a second chat. So too before the
+        // chat's own list answers (a follow-up from its transcript): the
+        // turn would name another chat's model.
+        if (self.chat.is_none() && self.first_send_pending(cx))
+            || !self.composer_store.read(cx).can_name_model()
+        {
+            self.composer_store.update(cx, |c, cx| c.ask_list_again(cx));
             self.composer.update(cx, |c, cx| {
                 // Not sent: its recordings stay with the draft too.
                 let held = c.take_sent_recordings();
@@ -1243,7 +1336,11 @@ impl ChatPane {
         // "New Chat in Folder": the daemon makes the chat in the folder (the
         // composer keeps which, a temporary chat's too), so the folder's
         // prompt and knowledge apply to the first answer.
-        self.starting = true;
+        // The composition it was sent from: replaced meanwhile (a fresh
+        // Clipboard or Compose in the same new chat), it is not taken over,
+        // nor does it hold the fresh one's send back.
+        let ticket = self.composer_store.read(cx).ticket();
+        self.starting = Some(ticket);
         // The new chat this send came from: if the user has gone elsewhere
         // by the reply, the chat is made but not opened over their choice.
         // A new chat in a folder is the same selection in another folder:
@@ -1266,8 +1363,12 @@ impl ChatPane {
                 if this.account != account {
                     return;
                 }
-                this.starting = false;
-                let still_here = place(this.stores.navigation.read(cx)) == origin;
+                // Its own wait only: a later send owns it now otherwise.
+                if this.starting == Some(ticket) {
+                    this.starting = None;
+                }
+                let still_here = place(this.stores.navigation.read(cx)) == origin
+                    && this.composer_store.read(cx).holds(ticket);
                 match result {
                     // Made (in its folder, by the daemon), but not opened over
                     // where the user went since. Its settings went with it.
@@ -1755,8 +1856,7 @@ impl ChatPane {
             .as_ref()
             .is_some_and(|c| c.store.read(cx).read_only());
         let on = self.stores.call.read(cx).is_active();
-        let composer = self.composer_store.read(cx);
-        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        let ready = !on && self.composer_store.read(cx).call_ready();
         self.composer.update(cx, |c, cx| {
             if c.call_offer != offer || c.call_ready != ready || c.call_on != on {
                 c.call_offer = offer;
@@ -1765,6 +1865,13 @@ impl ChatPane {
                 cx.notify();
             }
         });
+    }
+
+    /// Whether a new chat's first message, sent from the composition shown
+    /// now, is still on its way.
+    fn first_send_pending(&self, cx: &App) -> bool {
+        self.starting
+            .is_some_and(|ticket| self.composer_store.read(cx).holds(ticket))
     }
 
     /// Whether the call's strip belongs in this pane now: the call is in
@@ -1807,8 +1914,36 @@ impl ChatPane {
         cx.notify();
     }
 
+    /// Words the core gave this chat's composer (`composer.insertText`:
+    /// Hermes' prefill), for the composition `ticket` names: nothing once it
+    /// has moved on (started over, another chat or account). Given to the
+    /// composer's one way in ([`ChatComposer::give_text`]): while the chat's
+    /// draft is read they wait, then go in after it.
+    pub fn take_given_text(
+        &mut self,
+        ticket: crate::stores::composer::CompositionTicket,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.composer_store.read(cx).holds(ticket) {
+            return;
+        }
+        self.composer
+            .update(cx, |c, cx| c.give_text(text, window, cx));
+    }
+
+    /// A coding agent answers the open chat (`ComposerOptions.agentChat`):
+    /// no answer is run again and no message edited.
+    pub fn agent_chat(&self, cx: &App) -> bool {
+        self.composer_store.read(cx).agent_chat()
+    }
+
     /// Chat › Regenerate: the newest answer again.
     pub fn regenerate_last(&mut self, cx: &mut Context<Self>) {
+        if self.agent_chat(cx) {
+            return;
+        }
         if let Some(chat) = &self.chat {
             chat.store.update(cx, |s, cx| {
                 if let Some(id) = s.last_answer_id() {
@@ -1856,8 +1991,10 @@ impl ChatPane {
     ) {
         self.sync_selection(cx);
         cx.defer_in(window, move |p, window, cx| {
+            // Given as a prefill is: after the new chat's draft, once read.
             if let Some(text) = &text {
-                p.composer.update(cx, |c, cx| c.set_text(text, window, cx));
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, text, window, cx);
             }
             if !paths.is_empty() {
                 p.composer_store.update(cx, |c, cx| c.add_paths(&paths, cx));
@@ -1868,6 +2005,116 @@ impl ChatPane {
             }
             p.focus_composer(window, cx);
         });
+    }
+
+    /// What a new chat opened from outside starts with (Send to Conduit,
+    /// Send Link, Send Image, the widget's links, Open With, Quick Ask's Open
+    /// in Conduit), once the pane has followed it: written only while the
+    /// new chat that request opened is still the one selected (`ticket`, the
+    /// selection it made). A link handled right after it in the same batch
+    /// (`conduit://chat/<id>`) keeps its own draft. Says whether it was
+    /// written.
+    pub fn compose_new_chat(
+        &mut self,
+        ticket: &Selection,
+        content: NewChatContent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.stores.navigation.read(cx).selection() != ticket {
+            return false;
+        }
+        // Read under one account scope, never written for another (a switch
+        // while it was read, or while it waited for the main window).
+        // "No account" is a scope too: a page read with none never lands
+        // once an account signed in, nor one read under an account once none
+        // is in charge.
+        if content
+            .owner
+            .as_ref()
+            .is_some_and(|crate::shell::deep_link::ReadUnder(scope)| {
+                *scope != self.stores.accounts.read(cx).scope_key()
+            })
+        {
+            log::info!("new chat: its content was read under another account; dropped");
+            return false;
+        }
+        let NewChatContent {
+            text,
+            fresh,
+            paths,
+            images,
+            context,
+            carried,
+            owner: _,
+        } = content;
+        if fresh {
+            let text = text.as_deref().unwrap_or_default();
+            self.composer
+                .update(cx, |c, cx| c.start_fresh(text, window, cx));
+        } else if let Some(text) = &text {
+            // Given as a prefill is: after the new chat's draft, once read.
+            let ticket = self.composer_store.read(cx).ticket();
+            self.take_given_text(ticket, text, window, cx);
+        }
+        if !paths.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.add_paths(&paths, cx));
+        }
+        for image in &images {
+            self.composer_store
+                .update(cx, |c, cx| c.add_image(image, cx));
+        }
+        for item in context {
+            self.composer_store
+                .update(cx, |c, cx| c.add_context(item, cx));
+        }
+        if !carried.is_empty() {
+            self.composer_store
+                .update(cx, |c, cx| c.adopt_attachments(carried, cx));
+        }
+        self.focus_composer(window, cx);
+        true
+    }
+
+    /// The ticket a Continuity Camera photo asked for now would carry: this
+    /// account scope, this composer's draft and its composition.
+    pub fn import_target(&self, cx: &App) -> crate::shell::continuity_camera::ImportTarget {
+        let composer = self.composer_store.read(cx);
+        crate::shell::continuity_camera::ImportTarget {
+            scope: self.stores.accounts.read(cx).scope_key(),
+            draft: composer.draft_key().cloned(),
+            round: composer.draft_round(),
+        }
+    }
+
+    /// A Continuity Camera photo or scan saved at `path` (`name`, as the
+    /// composer names it), with the ticket its + menu session took
+    /// (`asked`): attached only while that account scope, composer and
+    /// composition are still the ones shown. Otherwise it is dropped, and a
+    /// toast says it couldn't be attached. Says whether it was attached.
+    pub fn attach_import(
+        &mut self,
+        asked: &crate::shell::continuity_camera::ImportTarget,
+        path: &std::path::Path,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if *asked != self.import_target(cx) {
+            log::info!(
+                "continuity camera: asked for another account, chat or composition; dropped"
+            );
+            let message = cx.l10n().desktop_attachment_failed(name);
+            self.stores
+                .toasts
+                .update(cx, |t, cx| t.show(NoticeLevel::Warning, message, cx));
+            return false;
+        }
+        self.composer_store
+            .update(cx, |c, cx| c.add_paths(&[path.to_path_buf()], cx));
+        self.focus_composer(window, cx);
+        true
     }
 
     pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2020,7 +2267,7 @@ impl ChatPane {
         }
         // A new chat whose first message is on its way: its settings went
         // with it, and the chat it makes is not open yet.
-        if self.starting && self.open_chat_id(cx).is_none() {
+        if self.first_send_pending(cx) && self.open_chat_id(cx).is_none() {
             return;
         }
         let composer = self.composer_store.read(cx);
@@ -2143,7 +2390,7 @@ impl ChatPane {
             return;
         };
         self.composer
-            .update(cx, |c, cx| c.insert_at_caret(&text, window, cx));
+            .update(cx, |c, cx| c.give_text(&text, window, cx));
     }
 
     /// Copy, from an answer's menu: the selected text.
@@ -2808,6 +3055,32 @@ impl Render for ChatPane {
                 ),
             );
         }
+        // Live Updates, while the realtime socket is down (never in a
+        // Hermes chat, which does not use it).
+        let health = self.stores.app_settings.read(cx).health.clone();
+        let live_down =
+            hermes.is_none() && health.as_ref().is_some_and(|h| h.available && !h.connected);
+        let live_shown = self.track_live(live_down, cx);
+        if live_shown {
+            let pane = cx.entity().downgrade();
+            toolbar = toolbar.trailing(
+                IconButton::new(
+                    "live-connection",
+                    IconName::CloudOff,
+                    l10n.live_connection_details(),
+                )
+                .size(30., 16.)
+                .round()
+                .color(r.danger)
+                .tooltip(l10n.live_connection_details_title())
+                .active(self.live_anchor.is_some())
+                .on_click(Rc::new(move |e, _, cx| {
+                    let at = e.position();
+                    let _ = pane.update(cx, |p, cx| p.toggle_live(at, cx));
+                })),
+            );
+        }
+        let live_popover = self.live_popover(live_shown, health.as_ref(), cx);
         let saveable = self.can_save_temporary(cx);
         match &self.chat {
             // A temporary chat (as opened, or as the server says it is):
@@ -3033,6 +3306,121 @@ impl Render for ChatPane {
             .children(find_bar)
             .child(body)
             .children(picker)
+            .children(live_popover)
+    }
+}
+
+impl ChatPane {
+    /// Keeps time while the socket is down: whether Live Updates shows yet
+    /// (after [`live_connection::SHOW_AFTER`]); its popover closes once the
+    /// socket is back.
+    fn track_live(&mut self, down: bool, cx: &mut Context<Self>) -> bool {
+        use crate::views::chat::live_connection::SHOW_AFTER;
+        if !down {
+            self.live_down_since = None;
+            self._live_wait = None;
+            self.live_anchor = None;
+            return false;
+        }
+        let since = *self
+            .live_down_since
+            .get_or_insert_with(std::time::Instant::now);
+        let elapsed = since.elapsed();
+        if elapsed >= SHOW_AFTER {
+            return true;
+        }
+        if self._live_wait.is_none() {
+            let wait = SHOW_AFTER - elapsed;
+            self._live_wait = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(wait + std::time::Duration::from_millis(20))
+                    .await;
+                let _ = this.update(cx, |p, cx| {
+                    p._live_wait = None;
+                    cx.notify();
+                });
+            }));
+        }
+        false
+    }
+
+    /// Opens or closes the Live Updates popover, hanging from `at`.
+    fn toggle_live(&mut self, at: gpui_kit::Point<gpui_kit::Pixels>, cx: &mut Context<Self>) {
+        self.live_anchor = match self.live_anchor {
+            Some(_) => None,
+            None => Some(at),
+        };
+        cx.notify();
+    }
+
+    /// The Live Updates popover, under its toolbar item, while open.
+    fn live_popover(
+        &self,
+        shown: bool,
+        health: Option<&conduit_protocol::ConnectionHealth>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        use crate::views::chat::live_connection::{self as live, handler};
+        let at = self.live_anchor.filter(|_| shown)?;
+        let health = health?;
+        let t = cx.conduit().clone();
+        let l10n = cx.l10n().clone();
+        let store = self.stores.app_settings.read(cx);
+        let (reconnecting, failed) = (store.reconnecting, store.reconnect_failed);
+        let settings = self.stores.app_settings.clone();
+        let pane = cx.entity().downgrade();
+        let close = pane.clone();
+        let card = live::card(
+            health,
+            reconnecting,
+            failed,
+            handler(move |_, cx| settings.update(cx, |s, cx| s.reconnect(cx))),
+            handler(move |_, cx| {
+                let _ = pane.update(cx, |p, cx| {
+                    p.live_anchor = None;
+                    cx.notify();
+                });
+                crate::open_settings(Some(crate::views::settings::Tab::Connection), cx);
+            }),
+            &l10n,
+            &t,
+        )
+        .on_mouse_down_out(move |_, _, cx| {
+            let _ = close.update(cx, |p, cx| {
+                p.live_anchor = None;
+                cx.notify();
+            });
+        });
+        // Hangs from its item by a tail, as the transcript's popovers do:
+        // the card's right edge a little past the item, the tail's tip
+        // under the item's middle.
+        use crate::views::chat::transcript::{TAIL_HEIGHT, popover_tail};
+        const PAST: f32 = 18.;
+        let r = t.roles;
+        let hung = div()
+            .relative()
+            .pt(px(TAIL_HEIGHT))
+            .child(card)
+            .child(popover_tail(
+                px(live::CARD_WIDTH - PAST),
+                true,
+                r.overlay,
+                r.border_strong,
+            ));
+        Some(
+            gpui_kit::deferred(
+                gpui_kit::anchored()
+                    .anchor(gpui_kit::Anchor::TopRight)
+                    .position(gpui_kit::point(
+                        at.x + px(PAST),
+                        px(conduit_components::window::TOOLBAR_HEIGHT - 6.),
+                    ))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(hung),
+            )
+            .with_priority(3)
+            .into_any_element(),
+        )
     }
 }
 
@@ -3267,6 +3655,21 @@ mod tests {
             cx: &mut TestAppContext,
         ) -> (FakeDaemon, Stores, Entity<ChatPane>, &mut VisualTestContext) {
             let daemon = FakeDaemon::new();
+            // Each chat's list answers with a model to name.
+            daemon.returns::<methods::ModelsList>(conduit_protocol::ModelList {
+                models: vec![conduit_protocol::ModelSummary {
+                    id: "k".into(),
+                    name: "Kestrel".into(),
+                    description: None,
+                    pinned: false,
+                    capabilities: vec![],
+                    connection: None,
+                    logo: None,
+                    agent: None,
+                }],
+                selected_id: Some("k".into()),
+                ..Default::default()
+            });
             let scratch = std::env::temp_dir().join(format!("conduit-pane-{}", std::process::id()));
             let stores = cx.update(|cx| {
                 crate::views::test_globals(cx);
@@ -3297,6 +3700,355 @@ mod tests {
                     .map(|a| a.name.clone())
                     .collect()
             })
+        }
+
+        /// A chat saved with a coding agent, opened while another model is
+        /// selected, shows "This chat used …" with Switch above the message
+        /// box, and Switch picks that agent for the chat, which then shows
+        /// it. Until the chat's list answers, a follow-up from its
+        /// transcript waits in the field.
+        #[gpui_kit::test]
+        fn a_chat_saved_with_an_agent_shows_switch(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            let agent = "agent:north:codex:gpt-test";
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "selectedId": "k",
+                    "agentNames": {agent: "Codex · gpt-test"},
+                    "chatAgent": agent
+                }))
+            });
+            daemon.on::<methods::ModelsSelect>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                    "agents": [{"id": agent, "name": "Codex · gpt-test", "pinned": false, "capabilities": []}],
+                    "selectedId": agent
+                }))
+            });
+            let listing = daemon.hold::<methods::ModelsList>();
+            stores.navigation.update(vcx, |n, cx| n.open("c-agent", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("And the tests?".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.composer.read(cx).text(cx), "And the tests?")
+            });
+            listing.release();
+            vcx.run_until_parked();
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            let switch = vcx
+                .debug_bounds("chat-agent-switch")
+                .expect("Switch is offered for the chat's agent");
+            assert!(daemon.calls::<methods::ModelsSelect>().is_empty());
+            vcx.simulate_click(switch.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1);
+            assert_eq!(picks[0]["id"], agent);
+            assert_eq!(picks[0]["chatId"], "c-agent");
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(vcx.debug_bounds("chat-agent-switch").is_none());
+            pane.read_with(vcx, |p, cx| {
+                let c = p.composer_store.read(cx);
+                assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some(agent));
+            });
+        }
+
+        /// The chat's model list fails on a new daemon session: the window
+        /// says so, and Send asks for the list again, keeping its words.
+        #[gpui_kit::test]
+        fn a_failed_model_list_says_so_and_send_asks_again(cx: &mut TestAppContext) {
+            use crate::l10n::ActiveL10n as _;
+            let (daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            daemon.once::<methods::ModelsList>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "busy",
+            )));
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.reconnected(cx))
+            });
+            vcx.run_until_parked();
+            let failed = vcx.update(|_, cx| cx.l10n().desktop_model_not_selected());
+            let toasts: Vec<String> = stores.toasts.read_with(vcx, |t, _| {
+                t.toasts.iter().map(|t| t.message.clone()).collect()
+            });
+            assert!(toasts.contains(&failed), "{toasts:?}");
+            let asked = daemon.calls::<methods::ModelsList>().len();
+            // A click on Send, dimmed with no list: the list is asked for
+            // again, and nothing is sent.
+            let retry = daemon.hold::<methods::ModelsList>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("Plan the trip", window, cx))
+            });
+            vcx.update(|window, cx| window.draw(cx).clear(cx));
+            let send = vcx.debug_bounds("composer-send").expect("Send is shown");
+            vcx.simulate_click(send.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ModelsList>().len(),
+                asked + 1,
+                "a click on Send asked for no list"
+            );
+            // Send again while that read is out: it is waited for.
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| c.submit(window, cx))
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ModelsList>().len(),
+                asked + 1,
+                "Send started another list read"
+            );
+            retry.release();
+            vcx.run_until_parked();
+            assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+            pane.read_with(vcx, |p, cx| {
+                assert_eq!(p.composer.read(cx).text(cx), "Plan the trip");
+                assert!(p.composer_store.read(cx).can_name_model());
+            });
+        }
+
+        /// A handoff with a suggested model, taken while chat A is open: the
+        /// model is picked for the new chat (New Chat, no chat id) once the
+        /// composer is on it, never for chat A, and the new chat shows it.
+        #[gpui_kit::test]
+        fn a_handoffs_model_is_picked_for_the_new_chat_not_the_open_one(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            let summary = |id: &str| serde_json::json!({"id": id, "name": id, "pinned": false, "capabilities": []});
+            daemon.on::<methods::ModelsSelect>(move |q| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": q["id"],
+                    "revision": 1,
+                }))
+            });
+            daemon.on::<methods::ModelsList>(move |_| {
+                Ok(serde_json::json!({
+                    "models": [summary("k"), summary("suggested")],
+                    "selectedId": "k",
+                }))
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.open_handoff(
+                    Some("suggested".into()),
+                    Some("Carry on from here".into()),
+                    window,
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let picks = daemon.calls::<methods::ModelsSelect>();
+            assert_eq!(picks.len(), 1, "{picks:?}");
+            assert_eq!(picks[0]["id"], "suggested");
+            assert!(
+                picks[0].get("chatId").is_none_or(|c| c.is_null()),
+                "the handoff's model was picked for chat A: {picks:?}"
+            );
+            pane.read_with(vcx, |p, cx| {
+                let c = p.composer_store.read(cx);
+                assert_eq!(c.selected_model().map(|m| m.id.as_str()), Some("suggested"));
+            });
+        }
+
+        /// A link handled right after a new chat's in the same batch
+        /// (`conduit://clipboard`, then `conduit://chat/<id>`) keeps its own
+        /// draft: what the new chat brought is written only while that new
+        /// chat is still the one selected.
+        #[gpui_kit::test]
+        fn a_new_chats_words_never_land_in_a_chat_opened_after_it(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let content = || NewChatContent {
+                text: Some("Copied packing list".into()),
+                fresh: true,
+                ..NewChatContent::default()
+            };
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(!wrote, "written into the chat opened after it");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+
+            // Still on the new chat it opened: written.
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, content(), window, cx)
+            });
+            vcx.run_until_parked();
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Copied packing list"
+            );
+        }
+
+        /// Send Link's page, read under one account, is never written into
+        /// a new chat once another account is in charge.
+        #[gpui_kit::test]
+        fn a_page_read_under_one_account_never_reaches_anothers_new_chat(cx: &mut TestAppContext) {
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let ticket = stores
+                .navigation
+                .read_with(vcx, |n, _| n.selection().clone());
+            let page = |owner: &str| NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(crate::shell::deep_link::ReadUnder(Some(owner.into()))),
+                ..NewChatContent::default()
+            };
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("b"), window, cx)
+            });
+            assert!(!wrote, "account b's page written while a is in charge");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                ""
+            );
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&ticket, page("a"), window, cx)
+            });
+            assert!(wrote);
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
+            );
+        }
+
+        /// "No account" is a scope too (Direct only, Hermes only): a page
+        /// read with no account opens there, and never lands once an
+        /// account has signed in.
+        #[gpui_kit::test]
+        fn a_page_read_with_no_account_lands_only_while_there_is_none(cx: &mut TestAppContext) {
+            use crate::shell::deep_link::ReadUnder;
+            use crate::views::chat_pane::NewChatContent;
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let page = || NewChatContent {
+                text: Some("Summarize this page".into()),
+                fresh: true,
+                owner: Some(ReadUnder(None)),
+                ..NewChatContent::default()
+            };
+            let ticket = |vcx: &mut VisualTestContext| {
+                stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+                vcx.run_until_parked();
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selection().clone())
+            };
+            // An account is in charge: a page read with none is refused.
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(
+                !wrote,
+                "a page read with no account landed under an account"
+            );
+            // No account now: it opens.
+            stores
+                .accounts
+                .update(vcx, |a, cx| a.adopt(list(vec![]), cx));
+            vcx.run_until_parked();
+            assert_eq!(stores.accounts.read_with(vcx, |a, _| a.scope_key()), None);
+            let t = ticket(vcx);
+            let wrote = pane.update_in(vcx, |p, window, cx| {
+                p.compose_new_chat(&t, page(), window, cx)
+            });
+            assert!(wrote, "a page read with no account was refused with none");
+            assert_eq!(
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx)),
+                "Summarize this page"
+            );
+        }
+
+        /// A Continuity Camera photo carries the ticket its + menu took:
+        /// it is attached only while that composer, that composition and
+        /// that account scope are still the ones shown. A later menu (another
+        /// account's) never stands in for it, and replacing the composition
+        /// (Send Text) drops it; otherwise it attaches.
+        #[gpui_kit::test]
+        fn a_continuity_photo_lands_only_in_the_composition_that_asked(cx: &mut TestAppContext) {
+            let (_daemon, stores, pane, vcx) = bench(cx);
+            let dir = std::env::temp_dir().join(format!("conduit-import-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let photo = dir.join("Photo.jpeg");
+            let _ = std::fs::write(&photo, [0xFF, 0xD8, 0xFF, 0xD9]);
+            let attach = |ticket, vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, window, cx| {
+                    p.attach_import(&ticket, &photo, "Photo.jpeg", window, cx)
+                })
+            };
+            let toasts = |vcx: &mut VisualTestContext| -> usize {
+                stores.toasts.read_with(vcx, |t, _| t.toasts.len())
+            };
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+
+            // (1) Asked in account a's chat; account b's + menu opens before
+            // the photo lands: it is judged by its own ticket, not b's.
+            let asked_in_a = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            stores.accounts.update(vcx, |a, cx| {
+                a.adopt(
+                    list(vec![
+                        account("a", "Avery", false, true),
+                        account("b", "Blake", true, true),
+                    ]),
+                    cx,
+                )
+            });
+            vcx.run_until_parked();
+            let _menu_in_b = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(
+                !attach(asked_in_a, vcx),
+                "account a's photo landed in b's composer"
+            );
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(toasts(vcx), 1);
+            stores.toasts.update(vcx, |t, _| t.toasts.clear());
+
+            // (2) Asked, then Send Text replaces the composition (same draft
+            // slot): dropped.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.start_fresh("Shared from Shortcuts", window, cx)
+                })
+            });
+            assert!(!attach(asked, vcx), "a replaced composition took the photo");
+            assert!(attachment_names(&pane, vcx).is_empty());
+            assert_eq!(toasts(vcx), 1);
+
+            // Asked in this composition: attached.
+            let asked = pane.read_with(vcx, |p, cx| p.import_target(cx));
+            assert!(attach(asked, vcx));
+            vcx.run_until_parked();
+            assert_eq!(attachment_names(&pane, vcx), vec!["Photo.jpeg".to_string()]);
         }
 
         /// The widget's and Shortcuts' calls start in the new chat as it
@@ -3429,6 +4181,375 @@ mod tests {
             assert_eq!(
                 saves[0]["accountId"], "a",
                 "the note was asked for under no account"
+            );
+        }
+
+        #[gpui_kit::test]
+        fn words_from_the_core_land_only_in_the_composition_given_them(cx: &mut TestAppContext) {
+            let (_daemon, _stores, pane, vcx) = bench(cx);
+            let text = |pane: &Entity<ChatPane>, vcx: &mut VisualTestContext| {
+                pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+            };
+            // The composition started over (a send, another chat) before
+            // the words landed: they are left out.
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.composer_store.update(cx, |c, cx| c.start_over(cx));
+                p.take_given_text(ticket, "Kept back words", window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(text(&pane, vcx), "", "written into a later composition");
+            // Still the composition they were given to: written.
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "Kept back words", window, cx);
+            });
+            vcx.run_until_parked();
+            assert_eq!(text(&pane, vcx), "Kept back words");
+        }
+
+        /// While its draft is read the composer takes no input: typing
+        /// changes nothing and Send is unavailable (a file already added
+        /// included). Once the read lands, the stored draft shows and the
+        /// field takes typing after it.
+        #[gpui_kit::test]
+        fn a_composer_takes_no_input_while_its_draft_is_read(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|_| {
+                Ok(serde_json::json!({"text": "Pea trellis plan", "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.focus_composer(window, cx);
+                p.composer_store.update(cx, |s, cx| {
+                    s.adopt_attachments(vec![uploaded("notes.md")], cx)
+                });
+            });
+            vcx.simulate_input("the beds");
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "", "typed into a draft not read yet");
+            // Online (the bench has no connection): only the read holds Send.
+            let sends = |pane: &Entity<ChatPane>, vcx: &mut VisualTestContext| {
+                pane.update_in(vcx, |p, _, cx| {
+                    p.composer.update(cx, |c, _| c.offline = false);
+                    p.composer.read(cx).can_send(cx)
+                })
+            };
+            assert!(!sends(&pane, vcx), "Send offered while the draft is read");
+            read.release();
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "Pea trellis plan");
+            pane.update_in(vcx, |p, window, cx| p.focus_composer(window, cx));
+            vcx.simulate_input(", north side");
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "Pea trellis plan, north side");
+            assert!(sends(&pane, vcx), "Send still held once the draft was read");
+        }
+
+        /// A prefill that arrives while the chat's saved draft is read waits
+        /// for it, then goes in at the caret, after the draft: the saved
+        /// draft is never written over, nor saved without it.
+        #[gpui_kit::test]
+        fn a_prefill_given_during_the_draft_read_goes_in_after_the_draft(cx: &mut TestAppContext) {
+            for saved in ["Pea trellis plan ", ""] {
+                let (daemon, stores, pane, vcx) = bench(cx);
+                daemon.on::<methods::DraftsGet>(move |_| {
+                    Ok(serde_json::json!({"text": saved, "stored": true}))
+                });
+                daemon.on::<methods::DraftsSave>(|_| {
+                    Ok(serde_json::json!({"text": "", "stored": true}))
+                });
+                let read = daemon.hold::<methods::DraftsGet>();
+                stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+                vcx.run_until_parked();
+                pane.update_in(vcx, |p, window, cx| {
+                    assert!(p.composer_store.read(cx).draft_reading());
+                    let ticket = p.composer_store.read(cx).ticket();
+                    p.take_given_text(ticket, "/plan ", window, cx);
+                });
+                vcx.run_until_parked();
+                assert_eq!(
+                    text_of(&pane, vcx),
+                    "",
+                    "the prefill went in before the draft"
+                );
+                read.release();
+                wait_past_saves(vcx);
+                assert_eq!(text_of(&pane, vcx), format!("{saved}/plan "));
+                assert!(
+                    saves(&daemon).iter().all(|t| t.starts_with(saved)),
+                    "the prefill was saved over the draft: {:?}",
+                    saves(&daemon)
+                );
+            }
+        }
+
+        /// The chat's id moves while its draft is read: the read is this
+        /// composer's, so it lands on the chat under its new id, and nothing
+        /// is ever written under the old one.
+        #[gpui_kit::test]
+        fn a_draft_read_lands_on_its_chat_after_the_id_moved(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|_| {
+                Ok(serde_json::json!({"text": "Pea trellis plan", "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, _, cx| {
+                p.composer_store
+                    .update(cx, |s, cx| s.rekey_chat("c1", "c9", cx))
+            });
+            read.release();
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "Pea trellis plan");
+            pane.update_in(vcx, |p, window, cx| p.focus_composer(window, cx));
+            vcx.simulate_input(", north side");
+            wait_past_saves(vcx);
+            let calls = daemon.calls::<methods::DraftsSave>();
+            assert!(
+                calls.iter().all(|c| c["chatId"] == "c9"),
+                "a draft was written under the old id: {calls:?}"
+            );
+            assert_eq!(
+                saves(&daemon),
+                vec!["Pea trellis plan, north side".to_string()]
+            );
+        }
+
+        /// Left before the draft read landed (typing then is not taken):
+        /// nothing is written, and the stored draft stays as it was.
+        #[gpui_kit::test]
+        fn leaving_before_the_draft_read_lands_writes_nothing(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.on::<methods::DraftsGet>(|p| {
+                let text = if p["chatId"] == "c1" {
+                    "Pea trellis plan "
+                } else {
+                    ""
+                };
+                Ok(serde_json::json!({"text": text, "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| p.focus_composer(window, cx));
+            vcx.simulate_input("the beds");
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            read.release();
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
+            assert!(
+                daemon.calls::<methods::DraftsSave>().is_empty(),
+                "a draft was written: {:?}",
+                daemon.calls::<methods::DraftsSave>()
+            );
+        }
+
+        /// A draft read that fails ends the wait as a read does: the
+        /// prefill lands.
+        #[gpui_kit::test]
+        fn a_prefill_lands_when_the_draft_read_fails(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.once::<methods::DraftsGet>(Err(conduit_daemon::protocol::error(
+                "rpc.timeout",
+                "no draft",
+            )));
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, "/plan ");
+        }
+
+        /// Two prefills given while the draft is read both land, in order.
+        #[gpui_kit::test]
+        fn every_prefill_given_while_the_draft_is_read_lands(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon
+                .on::<methods::DraftsGet>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+            let read = daemon.hold::<methods::DraftsGet>();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+                p.take_given_text(ticket, "the beds", window, cx);
+            });
+            vcx.run_until_parked();
+            read.release();
+            vcx.run_until_parked();
+            let text = pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx));
+            assert_eq!(text, "/plan the beds");
+        }
+
+        fn no_draft() -> conduit_protocol::RpcError {
+            conduit_daemon::protocol::error("rpc.timeout", "no draft")
+        }
+
+        /// A daemon whose first read of chat c1's draft fails, and that
+        /// answers every later read with what each chat keeps.
+        fn first_read_fails(daemon: &FakeDaemon) {
+            daemon.once::<methods::DraftsGet>(Err(no_draft()));
+            daemon.on::<methods::DraftsGet>(|p| {
+                let text = if p["chatId"] == "c1" {
+                    "Pea trellis plan"
+                } else {
+                    ""
+                };
+                Ok(serde_json::json!({"text": text, "stored": true}))
+            });
+            daemon
+                .on::<methods::DraftsSave>(|_| Ok(serde_json::json!({"text": "", "stored": true})));
+        }
+
+        fn saves(daemon: &FakeDaemon) -> Vec<String> {
+            daemon
+                .calls::<methods::DraftsSave>()
+                .iter()
+                .map(|c| c["text"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+
+        fn text_of(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) -> String {
+            pane.read_with(vcx, |p, cx| p.composer.read(cx).text(cx))
+        }
+
+        fn wait_past_saves(vcx: &mut VisualTestContext) {
+            for _ in 0..2 {
+                vcx.executor()
+                    .advance_clock(std::time::Duration::from_millis(500));
+                vcx.run_until_parked();
+            }
+        }
+
+        /// A draft read that fails is no draft: the prefill still shows,
+        /// and nothing is ever saved over the stored draft by this
+        /// composer.
+        #[gpui_kit::test]
+        fn a_failed_draft_read_never_lets_a_prefill_replace_the_stored_draft(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            first_read_fails(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                let ticket = p.composer_store.read(cx).ticket();
+                p.take_given_text(ticket, "/plan ", window, cx);
+            });
+            wait_past_saves(vcx);
+            assert_eq!(text_of(&pane, vcx), "/plan ");
+            assert!(
+                saves(&daemon).is_empty(),
+                "a draft nobody read was written over"
+            );
+        }
+
+        /// After a failed draft read, typing and then leaving the chat
+        /// write no draft at all: the stored draft stays as it was.
+        #[gpui_kit::test]
+        fn typing_after_a_failed_draft_read_and_leaving_writes_no_draft(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            first_read_fails(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            // The field takes typing once the read has failed: the draft is
+            // unknown, and an unknown draft is never written.
+            pane.update_in(vcx, |p, window, cx| p.focus_composer(window, cx));
+            vcx.simulate_input("the beds");
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "the beds");
+            wait_past_saves(vcx);
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            wait_past_saves(vcx);
+            assert!(
+                saves(&daemon).is_empty(),
+                "drafts were written: {:?}",
+                saves(&daemon)
+            );
+        }
+
+        /// Back in the chat after a failed read, typed and left: the draft
+        /// is read afresh, and only what is edited now is kept (nothing
+        /// from the visit before lands later).
+        #[gpui_kit::test]
+        fn a_chat_opened_again_after_a_failed_read_keeps_only_the_new_edit(
+            cx: &mut TestAppContext,
+        ) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            first_read_fails(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert_eq!(text_of(&pane, vcx), "Pea trellis plan");
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer.update(cx, |c, cx| {
+                    c.set_text("Pea trellis plan, north side", window, cx)
+                });
+            });
+            wait_past_saves(vcx);
+            assert_eq!(
+                saves(&daemon),
+                vec!["Pea trellis plan, north side".to_string()]
+            );
+        }
+
+        /// Back in the chat after a failed read, typed and left, then sent:
+        /// the send clears the draft and nothing from before restores it.
+        #[gpui_kit::test]
+        fn a_chat_opened_again_after_a_failed_read_and_sent_stays_cleared(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            first_read_fails(&daemon);
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.set_text("the beds", window, cx));
+            });
+            stores.navigation.update(vcx, |n, cx| n.open("c2", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            // What a send does with the draft it sent.
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.clear_draft(cx))
+            });
+            wait_past_saves(vcx);
+            assert_eq!(
+                saves(&daemon),
+                vec![String::new()],
+                "a sent draft came back"
             );
         }
 
@@ -4113,6 +5234,58 @@ mod tests {
                 Some("chat-new".to_string()),
                 "a follow-up typed now is kept as the new chat's draft"
             );
+        }
+
+        /// A first send whose composition is replaced while it waits (a
+        /// fresh Clipboard or Send Text in the same new chat): the chat is
+        /// made, but neither opened over the fresh composition nor handed
+        /// its text as a draft.
+        #[gpui_kit::test]
+        fn a_first_send_never_takes_over_a_composition_that_replaced_it(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            // The first send makes chat-old, the next one chat-new.
+            let sent = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let count = sent.clone();
+            daemon.on::<methods::TurnsSend>(move |_| {
+                let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(serde_json::json!({
+                    "chatId": if n == 0 { "chat-old" } else { "chat-new" },
+                    "userMessageId": "m",
+                    "assistantMessageId": "a",
+                }))
+            });
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Hello".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            pane.update_in(vcx, |p, window, cx| {
+                p.composer
+                    .update(cx, |c, cx| c.start_fresh("Copied packing list", window, cx))
+            });
+            // The fresh composition is not held back by the first send.
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Copied packing list".into(), vec![], window, cx)
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::TurnsSend>().len(),
+                2,
+                "the fresh composition's send waited for the replaced one"
+            );
+            held.release();
+            vcx.run_until_parked();
+            // Only the fresh composition's own send opened its chat and
+            // became its draft's owner; the replaced one's took over nothing.
+            assert_eq!(
+                stores
+                    .navigation
+                    .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+                Some("chat-new".to_string()),
+                "the replaced first send opened its chat over the fresh composition"
+            );
+            let key = pane.read_with(vcx, |p, cx| p.composer_store.read(cx).draft_key().cloned());
+            assert_eq!(key.and_then(|k| k.chat_id), Some("chat-new".to_string()));
         }
 
         /// A daemon that keeps drafts by chat (`""` for New Chat).

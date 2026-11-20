@@ -281,7 +281,10 @@ mod mac {
             let (_, parent, container) = parts(window)?;
             let raw = Retained::as_ptr(&container) as *mut c_void;
             let webview = match builder.build_as_child(&Parent(NonNull::new(raw)?)) {
-                Ok(w) => w,
+                Ok(w) => {
+                    crate::shell::web_media::guard(&w);
+                    w
+                }
                 Err(e) => {
                     log::warn!("inline web view: {e}");
                     container.removeFromSuperview();

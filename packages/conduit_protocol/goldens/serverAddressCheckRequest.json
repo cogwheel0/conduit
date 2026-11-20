@@ -1,0 +1,11 @@
+{
+  "serverId": "b5e2c4d6-7f80-4a1b-9c2d-3e4f5a6b7c8d",
+  "endpointId": "f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f",
+  "form": {
+    "url": "https://chat.example.com",
+    "label": "",
+    "allowSelfSignedCertificates": false,
+    "headers": [],
+    "clearMutualTls": false
+  }
+}

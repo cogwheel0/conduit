@@ -1,0 +1,32 @@
+{
+  "token": "te-2",
+  "isNew": true,
+  "fields": {
+    "name": "",
+    "prompt": "",
+    "modelId": "",
+    "active": true,
+    "schedule": {
+      "kind": "daily",
+      "year": 0,
+      "month": 0,
+      "day": 0,
+      "hour": 2,
+      "minute": 0,
+      "days": [],
+      "rrule": ""
+    },
+    "target": "chat",
+    "terminalId": "buildbox"
+  },
+  "terminal": false,
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "agentsUnknown": true,
+  "agentName": "Codex · gpt-5.1"
+}

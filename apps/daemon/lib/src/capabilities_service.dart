@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show appleOnDeviceEnabledProvider, applePccPlatformSupportedProvider;
 import 'package:conduit_core/features/librechat/models/librechat_capabilities.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/navigation/models/account_features.dart';
@@ -51,6 +53,15 @@ final class CapabilitiesService {
       primaryAccountKindProvider,
       (_, _) => _update(),
     );
+    // Apple's on-device model: once the window says this Mac has it.
+    _apple = _container.listen<bool>(
+      applePccPlatformSupportedProvider,
+      (_, _) => _update(),
+    );
+    _appleOn = _container.listen<bool>(
+      appleOnDeviceEnabledProvider,
+      (_, _) => _update(),
+    );
     _update();
   }
 
@@ -63,6 +74,8 @@ final class CapabilitiesService {
   late final ProviderSubscription<AsyncValue<LibreChatCapabilities>>
   _libreChat;
   late final ProviderSubscription<PrimaryAccountKind> _primary;
+  late final ProviderSubscription<bool> _apple;
+  late final ProviderSubscription<bool> _appleOn;
 
   Capabilities _current = Capabilities.none;
 
@@ -75,10 +88,17 @@ final class CapabilitiesService {
             PrimaryAccountKind.libreChat
         ? _container.read(libreChatCapabilitiesProvider).asData?.value
         : null;
-    final next = capabilitiesOf(
+    final account = capabilitiesOf(
       _container.read(accountFeaturesProvider),
       config: _activeServersConfig(),
       libreChat: libreChat,
+    );
+    // Apple's on-device model, whatever the account: this Mac has it and it
+    // is on. Private Cloud Compute stays off (no entitlement in this build).
+    final next = account.copyWith(
+      appleOnDeviceModels:
+          _container.read(applePccPlatformSupportedProvider) &&
+          _container.read(appleOnDeviceEnabledProvider),
     );
     if (next == _current) return;
     _current = next;
@@ -106,6 +126,8 @@ final class CapabilitiesService {
     _server.close();
     _libreChat.close();
     _primary.close();
+    _apple.close();
+    _appleOn.close();
   }
 
   /// The protocol's flags for [features]. [config] is the signed-in Open

@@ -11,11 +11,15 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart'
     show hermesDesktopModel;
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/models/chat_message.dart' as core;
+import 'package:conduit_core/services/chat_completion_transport.dart'
+    show isHeldReplyUnresolvedError;
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/source_reference_helper.dart';
 import 'package:conduit_markdown/conduit_markdown.dart' as md;
 import 'package:conduit_protocol/conduit_protocol.dart';
+
+import 'apple_models_service.dart' show appleErrorType;
 
 /// Assistant messages as wire blocks: the core's display blocks
 /// ([assistantMessageBlocks]) put into [MessageBlockDto]s, with the blocks
@@ -107,6 +111,17 @@ final class MessageBlocks {
         for (final line in block.lines)
           MessageStatusDto(
             description: line.description,
+            phrase: switch (line.phrase) {
+              null => null,
+              ChatStatusPhrase.knowledgeSearch => StatusPhrase.knowledgeSearch,
+              ChatStatusPhrase.searching => StatusPhrase.searching,
+              ChatStatusPhrase.querying => StatusPhrase.querying,
+              ChatStatusPhrase.sourcesRetrieved =>
+                StatusPhrase.sourcesRetrieved,
+              ChatStatusPhrase.processing => StatusPhrase.processing,
+            },
+            count: line.count,
+            query: line.query,
             action: line.action,
             done: line.done,
             queries: line.queries,
@@ -130,7 +145,13 @@ final class MessageBlocks {
     AssistantErrorBlock() => MessageBlockDto(
       kind: MessageBlockKind.error,
       error: block.text,
-      type: block.toolsUnsupported ? 'directToolsUnsupported' : null,
+      type: block.toolsUnsupported
+          ? 'directToolsUnsupported'
+          : isHeldReplyUnresolvedError(block.text)
+          // A polling-only server's reply Conduit stopped waiting for: the
+          // core keeps its words in English; the window says it its way.
+          ? 'heldReplyStillRunning'
+          : appleErrorType(block.text),
       hermesError: switch (block.hermes) {
         final surface? => hermesErrorDto(surface),
         null => null,

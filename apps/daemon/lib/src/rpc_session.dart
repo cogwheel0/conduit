@@ -12,6 +12,7 @@ import 'composer_service.dart';
 import 'drafts_service.dart';
 import 'direct_service.dart';
 import 'web_search_service.dart';
+import 'webhooks_service.dart';
 import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
 import 'notes_service.dart';
@@ -36,6 +37,8 @@ import 'hermes_admin_service.dart';
 import 'hermes_cards_service.dart';
 import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
+import 'apple_models_service.dart';
+import 'location_bridge.dart';
 import 'calls_service.dart';
 import 'librechat_service.dart';
 import 'intents_service.dart';
@@ -48,7 +51,9 @@ import 'data_service.dart';
 import 'access_service.dart';
 import 'chat_settings_service.dart';
 import 'folder_settings_service.dart';
+import 'integrations_service.dart';
 import 'memories_service.dart';
+import 'notifications_service.dart';
 import 'profile_service.dart';
 import 'release_notes_rpc_service.dart';
 
@@ -85,6 +90,9 @@ final class CoreServices {
     this.coreSettings,
     this.profile,
     this.memories,
+    this.notifications,
+    this.webhooks,
+    this.integrations,
     this.libreChat,
     this.releaseNotes,
     this.data,
@@ -95,6 +103,8 @@ final class CoreServices {
     this.folderSettings,
     this.speech,
     this.calls,
+    this.apple,
+    this.location,
     this.handoff,
     this.calendar,
     this.automations,
@@ -133,6 +143,11 @@ final class CoreServices {
   final ProfileService? profile;
   final MemoriesService? memories;
 
+  /// `notifications.*`, `webhooks.*` and `integrations.*`.
+  final NotificationsService? notifications;
+  final WebhooksService? webhooks;
+  final IntegrationsService? integrations;
+
   /// `librechat.*`: LibreChat sign-in, composer tools, memories, Duplicate.
   final LibreChatService? libreChat;
   final ReleaseNotesRpcService? releaseNotes;
@@ -148,6 +163,12 @@ final class CoreServices {
 
   /// `calls.*`: voice calls.
   final CallsService? calls;
+
+  /// `apple.*`: Apple's on-device model, run in the window.
+  final AppleModelsService? apple;
+
+  /// `location.*`: the window's location services, for `{{USER_LOCATION}}`.
+  final WindowLocationBridge? location;
 
   /// A server's `chat:handoff`, put to the windows.
   final HandoffService? handoff;
@@ -237,12 +258,17 @@ class RpcSession {
   CoreSettingsService? get _coreSettings => _services().coreSettings;
   ProfileService? get _profile => _services().profile;
   MemoriesService? get _memories => _services().memories;
+  NotificationsService? get _notifications => _services().notifications;
+  WebhooksService? get _webhooks => _services().webhooks;
+  IntegrationsService? get _integrations => _services().integrations;
   LibreChatService? get _libreChat => _services().libreChat;
   ChatPromptsService? get _chatPrompts => _services().chatPrompts;
   McpAppsService? get _mcpApps => _services().mcpApps;
   HermesCardsService? get _hermesCards => _services().hermesCards;
   SpeechService? get _speech => _services().speech;
   CallsService? get _calls => _services().calls;
+  AppleModelsService? get _apple => _services().apple;
+  WindowLocationBridge? get _location => _services().location;
   ReleaseNotesRpcService? get _releaseNotes => _services().releaseNotes;
   DataService? get _data => _services().data;
   ChatSettingsService? get _chatSettings => _services().chatSettings;
@@ -258,9 +284,24 @@ class RpcSession {
   /// which then tells every window. Null before the core is up.
   final void Function(bool online)? _reportNetwork;
 
-  Future<void> listen() => _peer.listen();
+  /// Serves the window until its socket ends, however it ends (the window
+  /// closed it, it dropped, or it failed), then [close]s: a window gone is
+  /// cleaned up as one closed.
+  Future<void> listen() async {
+    try {
+      await _peer.listen();
+    } finally {
+      await close();
+    }
+  }
 
-  Future<void> close() async {
+  /// Ends the session and lets go of what it held: the one way out for
+  /// every end ([listen] done or failed, the daemon stopping), once however
+  /// often it is called.
+  Future<void> close() => _closing ??= _close();
+  Future<void>? _closing;
+
+  Future<void> _close() async {
     _events.detach(sessionId);
     // If that was the last window, nobody is left to answer: questions
     // still waiting take their conservative default now rather than hang
@@ -271,6 +312,8 @@ class RpcSession {
     _hermesCards?.forgetWindow(sessionId);
     // And the rooms it showed or listed.
     _hermesRooms?.forgetWindow(sessionId);
+    // Its Apple engine runs nothing more; its commands are not answered.
+    _apple?.forgetWindow(sessionId);
     // What this window was recording is kept for its next launch.
     await _recordings?.closeOwnedBy(sessionId);
     await _peer.close();
@@ -431,6 +474,26 @@ class RpcSession {
 
   void _registerServers() {
     _on(ConduitMethodSpecs.serversUpdate, (d) => _requireServers().update(d));
+    _on(
+      ConduitMethodSpecs.serversAddressesList,
+      (r) => _requireServers().addresses(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesCheck,
+      (r) => _requireServers().check(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesSave,
+      (r) => _requireServers().save(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesRemove,
+      (r) => _requireServers().remove(r),
+    );
+    _on(
+      ConduitMethodSpecs.serversAddressesReorder,
+      (r) => _requireServers().reorder(r),
+    );
     _on(ConduitMethodSpecs.serversStatus, (_) => _requireServers().status());
   }
 
@@ -466,6 +529,28 @@ class RpcSession {
       ConduitMethodSpecs.authSetReviewerMode,
       (p) => _requireAuth().setReviewerMode(enabled: p.enabled),
     );
+    _on(
+      ConduitMethodSpecs.authTwoStepSetup,
+      (_) => _requireAuth().twoStepSetup(),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepVerify,
+      (p) => _requireAuth().twoStepVerify(p),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepRedeem,
+      (p) => _requireAuth().twoStepRedeem(p),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepFinish,
+      (_) => _requireAuth().twoStepFinish(),
+    );
+    _on(
+      ConduitMethodSpecs.authTwoStepCancel,
+      (_) => _requireAuth().twoStepCancel(),
+    );
+    _on(ConduitMethodSpecs.authRetry, (_) => _requireAuth().retry());
+    _on(ConduitMethodSpecs.authRenewProxy, (p) => _requireAuth().renewProxy(p));
   }
 
   void _registerSettings() {
@@ -563,6 +648,43 @@ class RpcSession {
       ConduitMethodSpecs.memoriesSetEnabled,
       (p) => _need(_memories).setEnabled(p),
     );
+    _on(
+      ConduitMethodSpecs.notificationsGet,
+      (_) async => _need(_notifications).get(),
+    );
+    _on(
+      ConduitMethodSpecs.notificationsSet,
+      (p) => _need(_notifications).set(p),
+    );
+    _on(
+      ConduitMethodSpecs.notificationsRoute,
+      (p) async => _need(_notifications).route(p),
+    );
+    _on(ConduitMethodSpecs.webhooksList, (_) => _need(_webhooks).list());
+    _on(ConduitMethodSpecs.webhooksCreate, (p) => _need(_webhooks).create(p));
+    _on(ConduitMethodSpecs.webhooksUpdate, (p) => _need(_webhooks).update(p));
+    _on(
+      ConduitMethodSpecs.webhooksMakeDefault,
+      (p) => _need(_webhooks).makeDefault(p),
+    );
+    _on(ConduitMethodSpecs.webhooksTest, (p) => _need(_webhooks).test(p));
+    _on(ConduitMethodSpecs.webhooksDelete, (p) => _need(_webhooks).delete(p));
+    _on(
+      ConduitMethodSpecs.integrationsList,
+      (_) => _need(_integrations).list(),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsSave,
+      (p) => _need(_integrations).save(p),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsTest,
+      (p) => _need(_integrations).test(p),
+    );
+    _on(
+      ConduitMethodSpecs.integrationsClearNotice,
+      (_) => _need(_integrations).clearNotice(),
+    );
   }
 
   void _registerReleaseNotesAndData() {
@@ -601,6 +723,7 @@ class RpcSession {
       (r) => _need(_data).deleteAll(r, caller: this),
     );
     _on(ConduitMethodSpecs.dataConnection, (_) => _need(_data).connection());
+    _on(ConduitMethodSpecs.dataReconnect, (_) => _need(_data).reconnect());
   }
 
   /// [service], or `rpc.daemonUnavailable` while the core is coming up.
@@ -719,7 +842,23 @@ class RpcSession {
   }
 
   void _registerTurns() {
-    _on(ConduitMethodSpecs.turnsSend, (r) => _requireTurns().send(r));
+    _on(ConduitMethodSpecs.turnsSend, (r) async {
+      final models = _models;
+      // What the turn's landing may move is captured before any wait, and
+      // New Chat's pick checked, whether or not the turn names a model. A
+      // temporary first turn takes its own pick, never New Chat's.
+      final sending = await models?.sending(r.chatId, temporary: r.temporary);
+      // A turn that names no model runs with its own chat's (its pick, its
+      // saved agent, else the account's default), never the account's
+      // selection of the moment, which may be another chat's agent.
+      final model =
+          r.model ?? await models?.modelFor(r.chatId, temporary: r.temporary);
+      final accepted = await _requireTurns().send(r.copyWith(model: model));
+      if (sending != null) {
+        models!.sent(sending, toChat: accepted.chatId, model: model);
+      }
+      return accepted;
+    });
     _on(
       ConduitMethodSpecs.turnsRegenerate,
       (r) => _requireTurns().regenerate(r),
@@ -798,6 +937,10 @@ class RpcSession {
       (r) => _need(_automations).checkDraft(r),
     );
     _on(ConduitMethodSpecs.automationsSave, (r) => _need(_automations).save(r));
+    _on(
+      ConduitMethodSpecs.automationsTerminals,
+      (r) => _need(_automations).terminals(r),
+    );
 
     _on(
       ConduitMethodSpecs.turnsRetryQueued,
@@ -841,7 +984,8 @@ class RpcSession {
   }
 
   /// `intents.*`: Shortcuts' Ask Conduit and Open Chat (the Mac's App
-  /// Intents), over the turns and chats services.
+  /// Intents), over the turns and chats services; Send Link to Conduit's
+  /// page or transcript, over the composer's Web Page reader.
   void _registerIntents() {
     IntentsService intents() => IntentsService.over(
       turns: _requireTurns(),
@@ -850,10 +994,14 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.intentsAsk, (request) => intents().ask(request));
     _on(ConduitMethodSpecs.intentsChats, (query) => intents().chats(query));
+    _on(
+      ConduitMethodSpecs.intentsSendLink,
+      (link) => _requireComposer().sendLink(link.url),
+    );
   }
 
   void _registerModels() {
-    _on(ConduitMethodSpecs.composerOptions, (_) {
+    _on(ConduitMethodSpecs.composerOptions, (query) {
       final composer = _composer;
       if (composer == null) {
         throw const RpcError(
@@ -861,7 +1009,7 @@ class RpcSession {
           debugMessage: 'the core is not up yet',
         );
       }
-      return composer.options();
+      return composer.options(query);
     });
     // drafts.*, mentions.*, skills.*, context.*, files.*: what the composer
     // holds and draws on.
@@ -1042,7 +1190,7 @@ class RpcSession {
     );
     _on(ConduitMethodSpecs.hermesTest, (p) => _requireHermes().test(p));
     _on(ConduitMethodSpecs.hermesStatus, (_) => _requireHermes().status());
-    _on(ConduitMethodSpecs.hermesSignIn, (_) => _requireHermes().signIn());
+    _on(ConduitMethodSpecs.hermesSignIn, (p) => _requireHermes().signIn(p));
     _on(ConduitMethodSpecs.hermesSignOut, (_) => _requireHermes().signOut());
     _on(ConduitMethodSpecs.hermesSessions, (_) => _requireHermes().sessions());
     _on(
@@ -1128,6 +1276,30 @@ class RpcSession {
     _on(
       ConduitMethodSpecs.hermesConnectionsSetEnabled,
       (p) => _need(_hermesAdmin).setEnabled(p.enabled),
+    );
+    _on(
+      ConduitMethodSpecs.hermesConnectionsProfiles,
+      (p) => _need(_hermesAdmin).profiles(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesToolsetsSet,
+      (p) => _need(_hermesAdmin).setToolset(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesSkillsReload,
+      (p) => _need(_hermesAdmin).reloadSkills(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDashboardStart,
+      (p) => _need(_hermesAdmin).dashboardStart(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDashboardComplete,
+      (p) => _need(_hermesAdmin).dashboardComplete(p),
+    );
+    _on(
+      ConduitMethodSpecs.hermesDashboardCancel,
+      (p) => _need(_hermesAdmin).dashboardCancel(p),
     );
     _on(
       ConduitMethodSpecs.hermesMcpList,
@@ -1314,6 +1486,22 @@ class RpcSession {
     _on(ConduitMethodSpecs.callsSkip, (_) => _need(_calls).skip());
     _on(ConduitMethodSpecs.callsReport, (p) async {
       _need(_calls).report(p);
+      return const OkResult(ok: true);
+    });
+
+    // apple.*: Apple's on-device model; the chat runs here, the model in
+    // the window.
+    _on(ConduitMethodSpecs.appleStatus, (_) => _need(_apple).status());
+    _on(ConduitMethodSpecs.appleRefresh, (_) => _need(_apple).refresh());
+    _on(ConduitMethodSpecs.appleChoose, (_) => _need(_apple).choose());
+    _on(ConduitMethodSpecs.appleReport, (p) async {
+      _need(_apple).report(p, from: sessionId);
+      return const OkResult(ok: true);
+    });
+
+    // location.*: the window answers the daemon's location questions.
+    _on(ConduitMethodSpecs.locationReport, (p) async {
+      _need(_location).report(p);
       return const OkResult(ok: true);
     });
 
@@ -1553,8 +1741,20 @@ class RpcSession {
     // prompts.*, models.*.
     _on(ConduitMethodSpecs.promptsList, (_) => _requirePrompts().list());
     _on(ConduitMethodSpecs.promptsRender, (r) => _requirePrompts().render(r));
-    _on(ConduitMethodSpecs.modelsList, (_) => _requireModels().list());
-    _on(ConduitMethodSpecs.modelsSelect, (r) => _requireModels().select(r.id));
+    _on(ConduitMethodSpecs.modelsList, (q) => _requireModels().list(q));
+    _on(
+      ConduitMethodSpecs.modelsSelect,
+      (r) => _requireModels().select(
+        r.id,
+        chatId: r.chatId,
+        temporary: r.temporary,
+      ),
+    );
+    _on(ConduitMethodSpecs.modelsControls, (q) => _requireModels().controls(q));
+    _on(
+      ConduitMethodSpecs.modelsSetControl,
+      (r) => _requireModels().setControl(r),
+    );
     _on(
       ConduitMethodSpecs.modelsSetPinned,
       (r) => _requireModels().setPinned(r),

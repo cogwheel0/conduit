@@ -32,7 +32,12 @@ import 'package:conduitd/src/event_bus.dart';
 import 'package:conduitd/src/notes_service.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart'
-    show QueryExecutor, QueryInterceptor, ApplyInterceptor, Value, driftRuntimeOptions;
+    show
+        QueryExecutor,
+        QueryInterceptor,
+        ApplyInterceptor,
+        Value,
+        driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
@@ -177,6 +182,17 @@ void main() {
           ),
         ),
       );
+      // Nor is a recording still waiting played there.
+      await expectLater(
+        notes.waitingRecording('trail-log', 'take-1'),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.sessionExpired,
+          ),
+        ),
+      );
 
       final refused = throwsA(
         isA<RpcError>().having(
@@ -280,75 +296,78 @@ void main() {
       expect(rows.single.data, contains('Low at noon'));
     });
 
-    test('refuses a note read under one account once another is active', () async {
-      await first
-          .into(first.notes)
-          .insert(
-            serverToNoteRow(<String, dynamic>{
-              'id': 'ridge-notes',
-              'title': 'Ridge notes',
-              'data': <String, dynamic>{
-                'content': <String, dynamic>{'md': 'Cairns'},
-              },
-              'created_at': 1,
-              'updated_at': 1,
-            }).copyWith(dirtyData: const Value(true)),
-          );
-      final notes = NotesService(container);
-      // The read waits on the account's rights; account B becomes active
-      // meanwhile.
-      rights = Completer<void>();
-      rightsAsked = Completer<void>();
-      container.invalidate(workspaceCapabilitiesProvider);
-      final reading = notes.get('ridge-notes');
-      await rightsAsked!.future;
-      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
-      active = second;
-      container.invalidate(appDatabaseProvider);
-      rights!.complete();
-      await expectLater(
-        reading,
-        throwsA(
-          isA<RpcError>().having(
-            (e) => e.code,
-            'code',
-            ConduitErrorCodes.sessionExpired,
+    test(
+      'refuses a note read under one account once another is active',
+      () async {
+        await first
+            .into(first.notes)
+            .insert(
+              serverToNoteRow(<String, dynamic>{
+                'id': 'ridge-notes',
+                'title': 'Ridge notes',
+                'data': <String, dynamic>{
+                  'content': <String, dynamic>{'md': 'Cairns'},
+                },
+                'created_at': 1,
+                'updated_at': 1,
+              }).copyWith(dirtyData: const Value(true)),
+            );
+        final notes = NotesService(container);
+        // The read waits on the account's rights; account B becomes active
+        // meanwhile.
+        rights = Completer<void>();
+        rightsAsked = Completer<void>();
+        container.invalidate(workspaceCapabilitiesProvider);
+        final reading = notes.get('ridge-notes');
+        await rightsAsked!.future;
+        await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+        active = second;
+        container.invalidate(appDatabaseProvider);
+        rights!.complete();
+        await expectLater(
+          reading,
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.sessionExpired,
+            ),
           ),
-        ),
-      );
+        );
 
-      // Save as My Own Note begun under A: made under no other account.
-      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
-      active = first;
-      container.invalidate(appDatabaseProvider);
-      rights = Completer<void>();
-      rightsAsked = Completer<void>();
-      container.invalidate(workspaceCapabilitiesProvider);
-      final making = notes.save(
-        const NoteSave(
-          title: 'Ridge notes, mine',
-          ops: <Map<String, dynamic>>[
-            <String, dynamic>{'insert': 'Cairns\n'},
-          ],
-        ),
-      );
-      await rightsAsked!.future;
-      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
-      active = second;
-      container.invalidate(appDatabaseProvider);
-      rights!.complete();
-      await expectLater(
-        making,
-        throwsA(
-          isA<RpcError>().having(
-            (e) => e.code,
-            'code',
-            ConduitErrorCodes.sessionExpired,
+        // Save as My Own Note begun under A: made under no other account.
+        await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
+        active = first;
+        container.invalidate(appDatabaseProvider);
+        rights = Completer<void>();
+        rightsAsked = Completer<void>();
+        container.invalidate(workspaceCapabilitiesProvider);
+        final making = notes.save(
+          const NoteSave(
+            title: 'Ridge notes, mine',
+            ops: <Map<String, dynamic>>[
+              <String, dynamic>{'insert': 'Cairns\n'},
+            ],
           ),
-        ),
-      );
-      expect(await second.select(second.notes).get(), isEmpty);
-    });
+        );
+        await rightsAsked!.future;
+        await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+        active = second;
+        container.invalidate(appDatabaseProvider);
+        rights!.complete();
+        await expectLater(
+          making,
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.sessionExpired,
+            ),
+          ),
+        );
+        expect(await second.select(second.notes).get(), isEmpty);
+      },
+    );
 
     test('writes no save begun under one account into the next one\'s note '
         'of the same id, even once that account has read it', () async {
@@ -408,10 +427,8 @@ void main() {
       expect(kept?.data, isNot(contains('then rain')));
     });
 
-    test('lists no recording for a request begun under the last account', () async {
-      // The daemon restarted under an open editor: it never handed this
-      // note out. Its recordings are asked for under A; the note read is
-      // slow, and B becomes active meanwhile.
+    test('a recordings request still reading its note when shutdown begins '
+        'gets no recorder', () async {
       final gate = _ReadGate();
       final gated = AppDatabase(NativeDatabase.memory().interceptWith(gate));
       addTearDown(gated.close);
@@ -423,13 +440,12 @@ void main() {
         container,
         paths: DaemonDirectories.create(dir.path),
       );
-      addTearDown(notes.dispose);
+      addTearDown(notes.close);
       final release = gate.hold();
       final listing = notes.recordings('kiln-log');
       await gate.asked;
-      await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
-      active = second;
-      container.invalidate(appDatabaseProvider);
+      // Shutdown takes its snapshot of the recorders while the note is read.
+      await notes.close();
       release.complete();
       await expectLater(
         listing,
@@ -437,11 +453,49 @@ void main() {
           isA<RpcError>().having(
             (e) => e.code,
             'code',
-            ConduitErrorCodes.sessionExpired,
+            ConduitErrorCodes.daemonUnavailable,
           ),
         ),
       );
     });
+
+    test(
+      'lists no recording for a request begun under the last account',
+      () async {
+        // The daemon restarted under an open editor: it never handed this
+        // note out. Its recordings are asked for under A; the note read is
+        // slow, and B becomes active meanwhile.
+        final gate = _ReadGate();
+        final gated = AppDatabase(NativeDatabase.memory().interceptWith(gate));
+        addTearDown(gated.close);
+        active = gated;
+        container.invalidate(appDatabaseProvider);
+        final dir = await Directory.systemTemp.createTemp('conduit-notes-rec-');
+        addTearDown(() => dir.delete(recursive: true));
+        final notes = NotesService(
+          container,
+          paths: DaemonDirectories.create(dir.path),
+        );
+        addTearDown(notes.close);
+        final release = gate.hold();
+        final listing = notes.recordings('kiln-log');
+        await gate.asked;
+        await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
+        active = second;
+        container.invalidate(appDatabaseProvider);
+        release.complete();
+        await expectLater(
+          listing,
+          throwsA(
+            isA<RpcError>().having(
+              (e) => e.code,
+              'code',
+              ConduitErrorCodes.sessionExpired,
+            ),
+          ),
+        );
+      },
+    );
   });
 
   test('a recovered note hears of its own recordings', () async {
@@ -494,7 +548,7 @@ void main() {
       events: events,
       paths: DaemonDirectories.create(dir.path),
     );
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('glaze-tests'))?.summary.title, 'Glaze tests');
     // The editor's recordings are asked for: the note's recorder is made.
     await notes.removeRecording(
@@ -503,8 +557,9 @@ void main() {
 
     // The note is deleted behind the editor; its next save keeps the text
     // as a new note, and the recorder moves to it.
-    await (db.update(db.notes)..where((n) => n.id.equals('glaze-tests')))
-        .write(const NotesCompanion(deleted: Value(true)));
+    await (db.update(db.notes)..where((n) => n.id.equals('glaze-tests'))).write(
+      const NotesCompanion(deleted: Value(true)),
+    );
     final recovered = await notes.save(
       const NoteSave(
         id: 'glaze-tests',
@@ -526,6 +581,14 @@ void main() {
     );
     expect(listed.recordings, hasLength(1));
     expect(changed, contains(id));
+
+    // Shut down twice (another caller closing too): the second returns only
+    // once the recorders the first waits for have stopped writing.
+    var firstDone = false;
+    final first = notes.close().then((_) => firstDone = true);
+    await notes.close();
+    expect(firstDone, isTrue, reason: 'the second close did not wait');
+    await first;
   });
   test('a recording kept while another account took charge is not this '
       'request\'s to list', () async {
@@ -568,7 +631,7 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final paths = _HeldPaths(DaemonDirectories.create(dir.path));
     final notes = NotesService(container, paths: paths);
-    addTearDown(notes.dispose);
+    addTearDown(notes.close);
     expect((await notes.get('kiln-log'))?.summary.title, 'Kiln log');
     // The note's recorder is made under A, and settles.
     await notes.removeRecording(
@@ -631,7 +694,6 @@ final class _HeldPaths implements PathsPort {
   @override
   Future<Directory> staging() => _inner.staging();
 }
-
 
 const _ren = User(
   id: 'user-ren',

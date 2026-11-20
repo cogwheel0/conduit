@@ -339,7 +339,11 @@ impl Render for DirectEditorSheet {
         } else {
             l10n.desktop_direct_editor_subtitle()
         };
-        let body = self.form.update(cx, |f, cx| f.body(window, cx));
+        let body = self.form.update(cx, |f, cx| {
+            // The address as it is now, however it got there.
+            f.follow_url_mode(cx);
+            f.body(window, cx)
+        });
         div()
             .id("direct-editor")
             .w_full()

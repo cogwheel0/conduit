@@ -15,6 +15,10 @@
 //! * **The realtime audio.** `calls.command` `audioStart` opens the voice's
 //!   audio ([`crate::voice::realtime`]): the microphone and the voice on one
 //!   echo-cancelled engine, over `WS /calls/{handle}`.
+//! * **The WebRTC peer.** `calls.command` `webRtcStart` opens a Hermes
+//!   GPT-Live call's peer ([`crate::voice::peer`]): a hidden web view with
+//!   WebKit's echo-cancelled microphone and the voice, which the daemon's
+//!   GPT-Live engine signals over the same kind of socket.
 //! * **The speaker.** A Standard call's answers are spoken by the read-aloud
 //!   engine ([`super::speech`]), which the daemon drives as it does a
 //!   reading. While the call is on they play on the call's own engine
@@ -24,6 +28,7 @@
 //!
 //! Minimising the call ([`CallStore::collapsed`]) is this window's own.
 
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -44,6 +49,7 @@ use super::dictation::{DictationEvent, DictationStore, Notice, Target, microphon
 use super::rpc::Rpc;
 use crate::l10n::ActiveL10n as _;
 use crate::voice::InputOverride;
+use crate::voice::peer::{self, PeerHost, PeerStats, Said};
 use crate::voice::realtime::{self, AudioCommand, AudioOut};
 
 /// The events this store follows.
@@ -66,6 +72,101 @@ struct Realtime {
 }
 
 impl Drop for Realtime {
+    fn drop(&mut self) {
+        self.link.abort();
+    }
+}
+
+/// A Hermes GPT-Live call's WebRTC peer under way: the page, its link to
+/// the daemon (on the shared runtime), and the relay between them (on the
+/// main thread, where the page lives). Dropping it closes the page, which
+/// stops its microphone and its connection to the voice.
+struct Peer {
+    host: Rc<PeerHost>,
+    link: tokio::task::JoinHandle<()>,
+    _relay: gpui_kit::Task<()>,
+}
+
+/// Whose WebRTC peer a teardown is for.
+#[derive(Clone, Copy, Debug)]
+enum PeerOwner<'a> {
+    /// Whichever there is (the call ended, another start).
+    Any,
+    /// The one on this socket path (the daemon's `audioStop`).
+    Path(&'a str),
+    /// The one this start opened (its link to the daemon ended).
+    Ticket(u64),
+}
+
+/// Who owns the WebRTC peer: the start under way (its ticket and socket
+/// path), then the page it installed. Every teardown goes through
+/// [`PeerSlot::end`], by owner, so a stop meant for one peer never ends
+/// another, and ending twice is nothing.
+struct PeerSlot<P> {
+    tickets: u64,
+    pending: Option<(u64, String)>,
+    installed: Option<(u64, String, P)>,
+}
+
+impl<P> Default for PeerSlot<P> {
+    fn default() -> Self {
+        Self {
+            tickets: 0,
+            pending: None,
+            installed: None,
+        }
+    }
+}
+
+impl<P> PeerSlot<P> {
+    /// A start for `path`: its ticket, which [`Self::install`] must show.
+    /// The caller has ended whatever was there.
+    fn begin(&mut self, path: &str) -> u64 {
+        self.tickets += 1;
+        self.pending = Some((self.tickets, path.to_string()));
+        self.tickets
+    }
+
+    /// The page start `ticket` opened, kept only while that start is still
+    /// the one pending and the call is on. Otherwise it is handed back to
+    /// be dropped (closed): a stop or another start came meanwhile.
+    fn install(&mut self, ticket: u64, page: P, active: bool) -> Result<(), P> {
+        match self.pending.take() {
+            Some((t, path)) if t == ticket && active => {
+                self.installed = Some((ticket, path, page));
+                Ok(())
+            }
+            other => {
+                self.pending = other.filter(|(t, _)| *t != ticket);
+                Err(page)
+            }
+        }
+    }
+
+    /// Ends `owner`'s start and page: the start, if pending, keeps nothing
+    /// when it lands; the page is dropped here. Whether a page was dropped.
+    fn end(&mut self, owner: PeerOwner<'_>) -> bool {
+        let owns = |ticket: u64, path: &str| match owner {
+            PeerOwner::Any => true,
+            PeerOwner::Path(p) => p == path,
+            PeerOwner::Ticket(t) => t == ticket,
+        };
+        if self.pending.as_ref().is_some_and(|(t, p)| owns(*t, p)) {
+            self.pending = None;
+        }
+        if self.installed.as_ref().is_some_and(|(t, p, _)| owns(*t, p)) {
+            self.installed = None;
+            return true;
+        }
+        false
+    }
+
+    fn get(&self) -> Option<&P> {
+        self.installed.as_ref().map(|(_, _, page)| page)
+    }
+}
+
+impl Drop for Peer {
     fn drop(&mut self) {
         self.link.abort();
     }
@@ -94,6 +195,9 @@ pub struct CallStore {
     ears: Entity<DictationStore>,
     listen: Option<Listen>,
     realtime: Option<Realtime>,
+    /// The realtime audio's socket path, to tell its stop from another's.
+    realtime_path: Option<String>,
+    peer: PeerSlot<Peer>,
     /// The microphone's stand-in (dev builds).
     input: Option<InputOverride>,
     /// Stand-ins for the next listens, one each, the last one kept (the
@@ -112,6 +216,11 @@ pub struct CallStore {
     /// Call states applied so far: a refresh's answer gives way to one
     /// applied after it was asked.
     applied: u64,
+    /// What the WebRTC peer's page did (the E2E pass reads it).
+    pub peer_stats: PeerStats,
+    /// The loopback TURN relay a stand-in call's WebRTC peer uses alone
+    /// (the E2E pass sets it with its stand-in; a release build never).
+    test_relay: Option<peer::Relay>,
 }
 
 impl EventEmitter<CallChanged> for CallStore {}
@@ -140,6 +249,8 @@ impl CallStore {
             ears,
             listen: None,
             realtime: None,
+            realtime_path: None,
+            peer: PeerSlot::default(),
             input: InputOverride::current(),
             queued_inputs: std::collections::VecDeque::new(),
             failure: None,
@@ -150,7 +261,32 @@ impl CallStore {
             said: vec![],
             audio: Arc::new(AudioCounters::default()),
             applied: 0,
+            peer_stats: PeerStats::default(),
+            test_relay: None,
         }
+    }
+
+    /// The loopback TURN relay a stand-in call's WebRTC peer uses alone, so
+    /// a test call never reaches the local network (the E2E pass).
+    pub fn set_test_relay(&mut self, relay: Option<peer::Relay>) {
+        self.test_relay = relay;
+    }
+
+    /// Whether a WebRTC peer's page is open.
+    pub fn has_peer(&self) -> bool {
+        self.peer.get().is_some()
+    }
+
+    /// The WebRTC peer's page, if one is open (the E2E pass asks its media
+    /// policy).
+    pub fn peer_host(&self) -> Option<Rc<PeerHost>> {
+        self.peer.get().map(|p| p.host.clone())
+    }
+
+    /// Whether the WebRTC peer's page is on screen (invisibly), if one is
+    /// open.
+    pub fn peer_on_screen(&self) -> Option<bool> {
+        self.peer.get().map(|p| p.host.on_screen())
     }
 
     // ---------------------------------------------------------------
@@ -419,6 +555,7 @@ impl CallStore {
             // Over: the ears and the audio go with it.
             self.stop_listening(cx);
             self.realtime = None;
+            self.close_peer();
             crate::voice::call_audio::end();
             if was_active {
                 self.collapsed = false;
@@ -477,8 +614,18 @@ impl CallStore {
                 }
             }
             CallCommandKind::AudioStart => self.start_audio(command, cx),
+            CallCommandKind::WebRtcStart => self.start_peer(command, cx),
             CallCommandKind::AudioStop => {
-                self.realtime = None;
+                // Whichever runs on that socket; an older one's stop leaves
+                // a newer one alone.
+                let path = command.path.as_deref();
+                if path.is_none() || self.realtime_path.as_deref() == path {
+                    self.realtime = None;
+                    self.realtime_path = None;
+                }
+                // A peer still starting on that path is ended too: its page
+                // is not kept when it lands.
+                self.end_peer(path.map_or(PeerOwner::Any, PeerOwner::Path));
             }
             // A newer daemon's: nothing this window can do.
             CallCommandKind::Unknown => {}
@@ -626,6 +773,8 @@ impl CallStore {
 
     fn start_audio(&mut self, command: CallCommand, cx: &mut Context<Self>) {
         self.realtime = None;
+        self.realtime_path = command.path.clone();
+        self.close_peer();
         // A realtime call: its own engine has the microphone and the voice.
         crate::voice::call_audio::end();
         let rpc = self.rpc.clone();
@@ -701,6 +850,288 @@ impl CallStore {
         })
         .detach();
     }
+}
+
+impl CallStore {
+    fn close_peer(&mut self) {
+        self.end_peer(PeerOwner::Any);
+    }
+
+    /// The one teardown of a WebRTC peer, by owner (see [`PeerSlot`]).
+    fn end_peer(&mut self, owner: PeerOwner<'_>) {
+        if self.peer.end(owner) {
+            self.peer_stats.closed += 1;
+        }
+    }
+
+    /// Opens the WebRTC peer's page for a Hermes GPT-Live call, and links
+    /// it to the call's socket. The microphone is asked for first (the
+    /// app's permission); a stand-in (dev builds) is looped instead.
+    fn start_peer(&mut self, command: CallCommand, cx: &mut Context<Self>) {
+        self.close_peer();
+        self.realtime = None;
+        self.realtime_path = None;
+        crate::voice::call_audio::end();
+        let rpc = self.rpc.clone();
+        let Some(path) = command.path.clone() else {
+            return;
+        };
+        let ticket = self.peer.begin(&path);
+        let http = self.connection.read(cx).http().cloned();
+        let input = self.stand_in().cloned();
+        let play = !crate::shell::speech_engine::muted();
+        let test_relay = self.test_relay.clone();
+        let id = command.id;
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let fail = |error: String| CallReport {
+                id: Some(id),
+                ok: false,
+                error: Some(error),
+                ..Default::default()
+            };
+            let mut relay = None;
+            let source = match input {
+                Some(InputOverride::File(file)) => {
+                    // A test call reaches nothing but loopback: without its
+                    // relay WebKit would register mDNS names and reach for
+                    // the local network, and macOS would ask about it.
+                    relay = test_relay.filter(peer::Relay::is_loopback);
+                    if relay.is_none() {
+                        report(
+                            &rpc,
+                            fail("a stand-in call needs the loopback test relay".into()),
+                        )
+                        .await;
+                        return;
+                    }
+                    match peer::Source::from_wav(&file) {
+                        Ok(source) => source,
+                        Err(e) => {
+                            report(&rpc, fail(format!("stand-in: {e}"))).await;
+                            return;
+                        }
+                    }
+                }
+                Some(InputOverride::Denied) => {
+                    report(&rpc, fail("The microphone is not allowed.".into())).await;
+                    return;
+                }
+                None => {
+                    if !microphone_allowed().await {
+                        report(&rpc, fail("The microphone is not allowed.".into())).await;
+                        return;
+                    }
+                    peer::Source::Microphone
+                }
+            };
+            let Some(http) = http else {
+                report(&rpc, fail("not connected".into())).await;
+                return;
+            };
+            let (page_tx, page_rx) = mpsc::unbounded::<String>();
+            let options = peer::Options {
+                source,
+                play,
+                relay,
+            };
+            let host = match PeerHost::open(&options, move |text| {
+                let _ = page_tx.unbounded_send(text);
+            }) {
+                Ok(host) => Rc::new(host),
+                Err(e) => {
+                    report(&rpc, fail(e)).await;
+                    return;
+                }
+            };
+            let socket_path = path.clone();
+            let socket = match on_io(async move { http.websocket(&socket_path).await }).await {
+                Some(Ok(socket)) => socket,
+                Some(Err(e)) => {
+                    report(&rpc, fail(e.to_string())).await;
+                    return;
+                }
+                None => {
+                    report(&rpc, fail("dropped".into())).await;
+                    return;
+                }
+            };
+            let (to_daemon, to_daemon_rx) = mpsc::unbounded::<String>();
+            let (from_daemon_tx, from_daemon) = mpsc::unbounded::<String>();
+            let link = conduit_daemon::runtime::shared().spawn(run_peer_link(
+                socket,
+                to_daemon_rx,
+                from_daemon_tx,
+            ));
+            let kept = this
+                .update(cx, |s, cx| {
+                    let relay = {
+                        let host = host.clone();
+                        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                            relay_peer(this, ticket, host, page_rx, from_daemon, to_daemon, cx)
+                                .await;
+                        })
+                    };
+                    s.peer_stats.opened += 1;
+                    s.peer_stats.switches = host.switches();
+                    let peer = Peer {
+                        host,
+                        link,
+                        _relay: relay,
+                    };
+                    let active = s.is_active();
+                    // Stopped, ended or replaced while it started: this page
+                    // closes (dropped) and the peer in use stays.
+                    match s.peer.install(ticket, peer, active) {
+                        Ok(()) => true,
+                        Err(_stale) => {
+                            s.peer_stats.closed += 1;
+                            false
+                        }
+                    }
+                })
+                .unwrap_or(false);
+            if kept {
+                report(
+                    &rpc,
+                    CallReport {
+                        id: Some(id),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            } else {
+                report(
+                    &rpc,
+                    fail("the call moved on while the peer started".into()),
+                )
+                .await;
+            }
+        })
+        .detach();
+    }
+}
+
+/// What the WebRTC peer's relay hears.
+#[derive(Debug, PartialEq)]
+enum PeerEvent {
+    Page(String),
+    Daemon(String),
+    /// The link to the daemon ended (its socket closed or failed, or the
+    /// daemon said stop).
+    LinkEnded,
+}
+
+/// The relay's events: the page's and the daemon's messages, then
+/// [`PeerEvent::LinkEnded`] once the link has stopped sending.
+fn peer_events(
+    page: mpsc::UnboundedReceiver<String>,
+    daemon: mpsc::UnboundedReceiver<String>,
+) -> impl futures::Stream<Item = PeerEvent> + Unpin {
+    let daemon =
+        daemon
+            .map(PeerEvent::Daemon)
+            .chain(futures::stream::once(futures::future::ready(
+                PeerEvent::LinkEnded,
+            )));
+    futures::stream::select(page.map(PeerEvent::Page), daemon)
+}
+
+/// The peer's relay, on the main thread where the page lives: the page's
+/// messages go to the daemon, the daemon's to the page. The page is on
+/// screen (still invisible) while the microphone opens, as WebKit opens
+/// it only for a page it thinks is seen.
+async fn relay_peer(
+    this: WeakEntity<CallStore>,
+    ticket: u64,
+    host: Rc<PeerHost>,
+    page: mpsc::UnboundedReceiver<String>,
+    daemon: mpsc::UnboundedReceiver<String>,
+    to_daemon: mpsc::UnboundedSender<String>,
+    cx: &mut AsyncApp,
+) {
+    let mut events = peer_events(page, daemon);
+    while let Some(event) = events.next().await {
+        if event == PeerEvent::LinkEnded {
+            // Nothing more from the daemon: this peer's page closes (its
+            // microphone and its connection to the voice stop) by the one
+            // teardown, which leaves a newer peer alone.
+            let _ = this.update(cx, |s, _| s.end_peer(PeerOwner::Ticket(ticket)));
+            break;
+        }
+        let alive = this.update(cx, |s, _| match event {
+            PeerEvent::Page(text) => {
+                let value = serde_json::from_str(&text).unwrap_or_default();
+                if s.peer_stats.from_page(&value) == Said::OfferDone {
+                    host.set_on_screen(false);
+                }
+                let _ = to_daemon.unbounded_send(text);
+            }
+            PeerEvent::Daemon(text) => {
+                let value = serde_json::from_str(&text).unwrap_or_default();
+                if s.peer_stats.from_daemon(&value) == Said::OfferAsked {
+                    host.set_on_screen(true);
+                }
+                host.post(&text);
+            }
+            PeerEvent::LinkEnded => {}
+        });
+        if alive.is_err() {
+            break;
+        }
+    }
+}
+
+/// The WebRTC peer's link to the daemon: the page's messages out, the
+/// daemon's in, until the daemon says stop or its socket ends.
+async fn run_peer_link(
+    socket: conduit_daemon::http::DaemonSocket,
+    to_daemon: mpsc::UnboundedReceiver<String>,
+    from_daemon: mpsc::UnboundedSender<String>,
+) {
+    let (sink, stream) = socket.split();
+    peer_link(sink, stream, to_daemon, from_daemon).await;
+}
+
+/// [`run_peer_link`] over any socket halves. When the link ends, the
+/// daemon's side of the relay closes FIRST: the relay hears
+/// [`PeerEvent::LinkEnded`] and the peer's page (its microphone, its
+/// connection to the voice) closes at once, by its ticket. Only then is the
+/// socket closed, with nothing waiting on it: dropping the peer aborts this
+/// task, so a close that never completes is cancelled with it.
+async fn peer_link<S, R, E>(
+    mut sink: S,
+    mut stream: R,
+    mut to_daemon: mpsc::UnboundedReceiver<String>,
+    from_daemon: mpsc::UnboundedSender<String>,
+) where
+    S: futures::Sink<conduit_daemon::http::SocketMessage> + Unpin,
+    R: futures::Stream<Item = Result<conduit_daemon::http::SocketMessage, E>> + Unpin,
+{
+    use conduit_daemon::http::SocketMessage as Message;
+    use futures::SinkExt as _;
+
+    loop {
+        tokio::select! {
+            next = to_daemon.next() => {
+                let Some(text) = next else { break };
+                if sink.send(Message::text(text)).await.is_err() {
+                    break;
+                }
+            }
+            incoming = stream.next() => {
+                let Some(Ok(message)) = incoming else { break };
+                let Message::Text(text) = message else { continue };
+                let stop = serde_json::from_str::<serde_json::Value>(&text)
+                    .is_ok_and(|v| v.get("type").and_then(|t| t.as_str()) == Some("stop"));
+                let _ = from_daemon.unbounded_send(text.to_string());
+                if stop {
+                    break;
+                }
+            }
+        }
+    }
+    drop(from_daemon);
+    let _ = sink.close().await;
 }
 
 /// The realtime audio's link: the microphone's frames and the engine's
@@ -941,6 +1372,174 @@ mod tests {
             stores.call.read_with(vcx, |c, _| c.is_active()),
             "a new call never showed"
         );
+    }
+
+    /// A page that says when it closed, as the WebRTC peer's page stops its
+    /// microphone when dropped.
+    struct Page(&'static str, Rc<std::cell::RefCell<Vec<&'static str>>>);
+
+    impl Drop for Page {
+        fn drop(&mut self) {
+            self.1.borrow_mut().push(self.0);
+        }
+    }
+
+    /// A peer stopped (`audioStop`) or replaced while its page was still
+    /// opening: the page that lands closes, and the peer in use stays.
+    #[test]
+    fn a_peer_stopped_while_it_starts_is_not_kept() {
+        let closed = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut slot = PeerSlot::default();
+        let a = slot.begin("/calls/a");
+        assert!(!slot.end(PeerOwner::Path("/calls/a")));
+        let refused = slot.install(a, Page("a", closed.clone()), true);
+        assert!(refused.is_err(), "a stopped start's page was kept");
+        drop(refused);
+        assert_eq!(*closed.borrow(), ["a"]);
+        assert!(slot.get().is_none());
+        // Replaced: the newer start's page is the one kept.
+        let b = slot.begin("/calls/b");
+        let c = slot.begin("/calls/c");
+        assert!(slot.install(b, Page("b", closed.clone()), true).is_err());
+        assert!(slot.install(c, Page("c", closed.clone()), true).is_ok());
+        assert_eq!(*closed.borrow(), ["a", "b"]);
+        assert_eq!(slot.get().map(|p| p.0), Some("c"));
+        // A call over meanwhile keeps nothing either.
+        let d = slot.begin("/calls/d");
+        assert!(slot.install(d, Page("d", closed.clone()), false).is_err());
+    }
+
+    /// The link to the daemon ending (its socket closed or failed) ends
+    /// that peer by the one teardown: its page closes, which stops the
+    /// microphone. The same end for an older peer leaves a newer one alone,
+    /// and ending twice is nothing.
+    #[test]
+    fn a_peer_whose_link_ended_closes_its_page() {
+        let (page_tx, page_rx) = mpsc::unbounded::<String>();
+        let (daemon_tx, daemon_rx) = mpsc::unbounded::<String>();
+        let mut events = peer_events(page_rx, daemon_rx);
+        daemon_tx
+            .unbounded_send(r#"{"type":"mic"}"#.into())
+            .unwrap();
+        drop(daemon_tx);
+        // Everything ready now, the page still open (so never "all done").
+        let mut heard = Vec::new();
+        while let Some(Some(e)) = futures::FutureExt::now_or_never(events.next()) {
+            heard.push(e);
+        }
+        assert_eq!(
+            heard,
+            [
+                PeerEvent::Daemon(r#"{"type":"mic"}"#.into()),
+                PeerEvent::LinkEnded
+            ],
+            "the link's end went unheard while the page was still open"
+        );
+        drop(page_tx);
+
+        let closed = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut slot = PeerSlot::default();
+        let old = slot.begin("/calls/a");
+        assert!(slot.install(old, Page("a", closed.clone()), true).is_ok());
+        assert!(
+            slot.end(PeerOwner::Ticket(old)),
+            "the ended link's page stayed open"
+        );
+        assert_eq!(*closed.borrow(), ["a"]);
+        assert!(!slot.end(PeerOwner::Ticket(old)));
+        let new = slot.begin("/calls/b");
+        assert!(slot.install(new, Page("b", closed.clone()), true).is_ok());
+        assert!(
+            !slot.end(PeerOwner::Ticket(old)),
+            "an old link's end closed the new page"
+        );
+        assert!(!slot.end(PeerOwner::Path("/calls/a")));
+        assert_eq!(slot.get().map(|p| p.0), Some("b"));
+    }
+
+    /// A socket half whose close never completes (a gateway that never
+    /// answers the close).
+    struct NeverCloses;
+
+    impl futures::Sink<conduit_daemon::http::SocketMessage> for NeverCloses {
+        type Error = ();
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn start_send(
+            self: std::pin::Pin<&mut Self>,
+            _: conduit_daemon::http::SocketMessage,
+        ) -> Result<(), ()> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), ()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    /// The daemon's socket ends but closing it never completes: the peer is
+    /// still torn down (its page closes, which stops the microphone) and
+    /// its slot freed, never waiting on the close. A later start on the same
+    /// call still opens.
+    #[test]
+    fn a_link_whose_close_hangs_still_ends_its_peer() {
+        let (page_tx, page_rx) = mpsc::unbounded::<String>();
+        let (_to_daemon_tx, to_daemon_rx) = mpsc::unbounded::<String>();
+        let (daemon_tx, daemon_rx) = mpsc::unbounded::<String>();
+        let ended =
+            futures::stream::iter(Vec::<Result<conduit_daemon::http::SocketMessage, ()>>::new());
+        let mut pool = futures::executor::LocalPool::new();
+        futures::task::LocalSpawnExt::spawn_local(
+            &pool.spawner(),
+            peer_link(NeverCloses, ended, to_daemon_rx, daemon_tx),
+        )
+        .unwrap();
+        // The link task is now stuck in the close, for good.
+        pool.run_until_stalled();
+        let mut events = peer_events(page_rx, daemon_rx);
+        let mut heard = Vec::new();
+        while let Some(Some(e)) = futures::FutureExt::now_or_never(events.next()) {
+            heard.push(e);
+        }
+        assert_eq!(
+            heard,
+            [PeerEvent::LinkEnded],
+            "the peer waited on the socket's close"
+        );
+        let closed = Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut slot = PeerSlot::default();
+        let first = slot.begin("/calls/a");
+        assert!(slot.install(first, Page("a", closed.clone()), true).is_ok());
+        assert!(slot.end(PeerOwner::Ticket(first)));
+        assert_eq!(
+            *closed.borrow(),
+            ["a"],
+            "the page (and microphone) stayed on"
+        );
+        assert!(slot.get().is_none(), "the peer's slot was not freed");
+        let again = slot.begin("/calls/a");
+        assert!(
+            slot.install(again, Page("a2", closed.clone()), true)
+                .is_ok()
+        );
+        assert_eq!(slot.get().map(|p| p.0), Some("a2"));
+        drop(page_tx);
     }
 
     #[test]

@@ -713,17 +713,21 @@ impl HermesRoomPane {
             return false;
         }
         match key {
-            "up" => {
-                self.mention = Some(Mention {
-                    index: (mention.index + count - 1) % count,
-                    ..mention
-                })
-            }
-            "down" => {
-                self.mention = Some(Mention {
-                    index: (mention.index + 1) % count,
-                    ..mention
-                })
+            "up" | "down" => {
+                let index = if key == "up" {
+                    (mention.index + count - 1) % count
+                } else {
+                    (mention.index + 1) % count
+                };
+                self.mention = Some(Mention { index, ..mention });
+                // Said aloud: the list is the field's sibling (crate::views::a11y).
+                let row = match &self.mention_rows(cx)[index] {
+                    (handle, Some(member)) if !member.name.trim().is_empty() => {
+                        format!("{}, @{handle}", member.name)
+                    }
+                    (handle, _) => format!("@{handle}"),
+                };
+                crate::views::a11y::announce_row(&row, index, count, cx);
             }
             "enter" | "tab" => {
                 let handle = self.mention_rows(cx)[mention.index.min(count - 1)]

@@ -24,6 +24,13 @@
 //!   waits for the call to be on, or says why the core refused it in the
 //!   call strip's words ([`call_outcome`]).
 //! * Open Chat's chat list asks the daemon too (`intents.chats`).
+//! * **Send to Conduit**, **Send Link to Conduit** and **Send Image to
+//!   Conduit** (the phone's three) open a new chat with their content, never
+//!   sent: the text in the message box; a link's page text or YouTube
+//!   transcript attached (`intents.sendLink`, as Web Page reads it) with the
+//!   phone's request to summarize it; an image (up to 20 MB, staged by the
+//!   Swift intent in [`image_folder`]) attached. Each answers the shortcut
+//!   with what it did, in the phone's words.
 //!
 //! An intent can come before anything is ready: the system launches the app
 //! to run it. Requests wait in [`INBOX`] until [`install`] takes them, then
@@ -38,7 +45,8 @@ use std::time::{Duration, Instant};
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    CallPhase, ErrorCode, IntentAnswer, IntentAsk, IntentChatsQuery, TurnFinished, methods,
+    CallPhase, ErrorCode, IntentAnswer, IntentAsk, IntentChatsQuery, IntentLink, IntentLinkResult,
+    TurnFinished, methods,
 };
 use futures::StreamExt as _;
 use futures::channel::mpsc;
@@ -48,7 +56,7 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::desktop;
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::shell::deep_link::{self, OpenRequest};
+use crate::shell::deep_link::{self, Compose, OpenRequest, ReadUnder};
 use crate::stores::session::Route;
 
 /// How long Ask Conduit waits for the answer (the daemon's wait); the
@@ -61,6 +69,23 @@ pub const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How many chats Open Chat's list offers at once.
 const CHAT_LIMIT: i64 = 20;
+
+/// Send Image to Conduit's limit, the phone's.
+pub const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// The folder (under the temporary directory) the Swift intent stages Send
+/// Image's copies in, one folder each: `ImageStaging.folderName` in
+/// intents/ImageStaging.swift.
+pub const IMAGE_FOLDER: &str = "conduit-shortcuts-images";
+
+/// How long a staged image is kept: the composer has read it long before.
+pub const KEEP_IMAGES: Duration = Duration::from_secs(60 * 60);
+
+/// Where Send Image's copies are staged: this process's temporary
+/// directory, which the Swift intent writes in too.
+pub fn image_folder() -> std::path::PathBuf {
+    std::env::temp_dir().join(IMAGE_FOLDER)
+}
 
 /// One request from an intent: `IntentRequest` in intents/Bridge.swift.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -90,6 +115,23 @@ pub enum Request {
         ids: Vec<String>,
         query: Option<String>,
     },
+    SendText {
+        text: Option<String>,
+    },
+    SendLink {
+        url: String,
+    },
+    /// `path`: the copy the Swift intent staged in [`image_folder`]; none
+    /// when it did not stage it (not an image, or too large).
+    SendImage {
+        path: Option<String>,
+        #[serde(default)]
+        filename: String,
+        #[serde(default)]
+        is_image: bool,
+        #[serde(default)]
+        byte_count: u64,
+    },
 }
 
 impl Request {
@@ -102,6 +144,9 @@ impl Request {
             Self::StartVoiceCall => "voice call",
             Self::QuickAsk { .. } => "quick ask",
             Self::Chats { .. } => "chats",
+            Self::SendText { .. } => "send text",
+            Self::SendLink { .. } => "send link",
+            Self::SendImage { .. } => "send image",
         }
     }
 }
@@ -186,6 +231,17 @@ pub enum Failure {
     CallFailed {
         reason: String,
     },
+    /// Send to Conduit with no text.
+    NoText,
+    /// Send Link to Conduit with no link.
+    NoLink,
+    /// Send Image to Conduit with a file that is not an image.
+    NotAnImage,
+    /// Send Image to Conduit with an image over [`MAX_IMAGE_BYTES`].
+    ImageTooLarge,
+    /// The staged image could not be taken (gone, or not where images are
+    /// staged).
+    ImageUnavailable,
     Unexpected,
 }
 
@@ -205,6 +261,11 @@ impl Failure {
             Self::AnswerFailed { detail: None } => l.desktop_intent_ask_failed_plain(),
             Self::ChatMissing => l.desktop_intent_chat_missing(),
             Self::CallFailed { reason } => reason.clone(),
+            Self::NoText => l.desktop_intent_send_text_empty(),
+            Self::NoLink => l.desktop_intent_send_link_empty(),
+            Self::NotAnImage => l.desktop_intent_send_image_not_image(),
+            Self::ImageTooLarge => l.desktop_intent_send_image_too_large(),
+            Self::ImageUnavailable => l.desktop_intent_send_image_failed(),
             Self::Unexpected => l.desktop_intent_unexpected(),
         }
     }
@@ -221,6 +282,11 @@ impl Failure {
             Self::AnswerFailed { .. } => "answer failed",
             Self::ChatMissing => "chat missing",
             Self::CallFailed { .. } => "call failed",
+            Self::NoText => "no text",
+            Self::NoLink => "no link",
+            Self::NotAnImage => "not an image",
+            Self::ImageTooLarge => "image too large",
+            Self::ImageUnavailable => "image unavailable",
             Self::Unexpected => "unexpected",
         }
     }
@@ -399,6 +465,18 @@ pub unsafe extern "C" fn conduit_intents_request(
 /// Starts taking requests: each runs on its own, so a long Ask Conduit
 /// never holds up Open Chat.
 pub fn install(cx: &mut App) {
+    // Send Image's old copies, and Continuity Camera's.
+    cx.background_executor()
+        .spawn(async {
+            let now = std::time::SystemTime::now();
+            let continuity =
+                std::env::temp_dir().join(crate::shell::continuity_camera::IMPORT_FOLDER);
+            let removed = prune_images(&image_folder(), now) + prune_images(&continuity, now);
+            if removed > 0 {
+                log::info!("intents: cleared {removed} staged image(s)");
+            }
+        })
+        .detach();
     let mut jobs = take_inbox();
     cx.spawn(async move |cx| {
         while let Some(Job { request, reply }) = jobs.next().await {
@@ -462,7 +540,199 @@ async fn run(request: Request, cx: &mut AsyncApp) -> Result<Response, Failure> {
         }
         Request::Chats { ids, query } => Ok(Response::chats(chats(ids, query, cx).await?)),
         Request::StartVoiceCall => start_voice_call(cx).await,
+        Request::SendText { text } => {
+            let text = sent_text(text.as_deref()).ok_or(Failure::NoText)?;
+            compose(
+                Compose {
+                    text: Some(text),
+                    ..Compose::default()
+                },
+                cx,
+            );
+            Ok(Response::value(
+                cx.update(|cx| cx.l10n().desktop_intent_sent_text()),
+            ))
+        }
+        Request::SendLink { url } => send_link(url, cx).await,
+        Request::SendImage {
+            path,
+            filename: _,
+            is_image,
+            byte_count,
+        } => {
+            let path = staged_image(path.as_deref(), is_image, byte_count, &image_folder())?;
+            compose(
+                Compose {
+                    files: vec![path],
+                    ..Compose::default()
+                },
+                cx,
+            );
+            Ok(Response::value(
+                cx.update(|cx| cx.l10n().desktop_intent_sent_image()),
+            ))
+        }
     }
+}
+
+/// A new chat with `compose` in it, as a link opens one.
+fn compose(compose: Compose, cx: &mut AsyncApp) {
+    cx.update(|cx| desktop::open_request(OpenRequest::Compose(Box::new(compose)), cx));
+}
+
+/// Send to Conduit's text, trimmed as the phone trims it and cut to what a
+/// link may prefill; none when blank.
+pub fn sent_text(text: Option<&str>) -> Option<String> {
+    let text = text?.trim();
+    (!text.is_empty()).then(|| text.chars().take(deep_link::MAX_TEXT).collect())
+}
+
+/// Send Link to Conduit: the server reads the link (`intents.sendLink`, as
+/// Web Page does); a new chat asks to summarize it, with the page's text or
+/// the video's transcript attached. When nothing could be read the chat
+/// still opens, the link written after the request, as the phone opens it.
+async fn send_link(url: String, cx: &mut AsyncApp) -> Result<Response, Failure> {
+    let url = url.trim().to_string();
+    if url.is_empty() {
+        return Err(Failure::NoLink);
+    }
+    let in_charge = |cx: &App| cx.global::<AppState>().stores.accounts.read(cx).scope_key();
+    let (rpc, asked) = cx.update(|cx| {
+        (
+            cx.global::<AppState>().connection.read(cx).rpc(),
+            in_charge(cx),
+        )
+    });
+    let read = rpc
+        .call::<methods::IntentsSendLink>(&IntentLink { url: url.clone() })
+        .await;
+    let now = cx.update(|cx| in_charge(cx));
+    let result = link_read(&url, read, asked.as_deref(), now.as_deref())?;
+    let (mut compose_with, value) = cx.update(|cx| link_compose(&result, cx.l10n()));
+    // The page is the account's it was read under: the new chat is written
+    // only while that account is in charge (it may wait for the window).
+    compose_with.owner = Some(ReadUnder(asked));
+    compose(compose_with, cx);
+    Ok(Response::value(value))
+}
+
+/// What Send Link opens with after the server's read: the read, or (when
+/// nothing could be read) the link alone; never anything once the account
+/// scope changed while it was read (`asked`, then `now`; `None` is no
+/// account, and a change to or from it counts), or when the daemon refused
+/// it for that reason.
+pub fn link_read(
+    url: &str,
+    read: Result<IntentLinkResult, RpcError>,
+    asked: Option<&str>,
+    now: Option<&str>,
+) -> Result<IntentLinkResult, Failure> {
+    // "No account" (Direct only, Hermes only) is a scope too: only a change
+    // of it refuses.
+    if asked != now {
+        return Err(Failure::Unexpected);
+    }
+    match read {
+        Ok(result) => Ok(result),
+        Err(e) if e.args.get("reason").map(String::as_str) == Some("account") => {
+            Err(Failure::Unexpected)
+        }
+        Err(e) => {
+            log::warn!("intents.sendLink: {e}");
+            Ok(IntentLinkResult {
+                url: url.to_string(),
+                youtube: false,
+                attachment: None,
+                error: Some("failed".into()),
+            })
+        }
+    }
+}
+
+/// What Send Link's new chat starts with, and what the shortcut is told.
+pub fn link_compose(result: &IntentLinkResult, l: &L10n) -> (Compose, String) {
+    let request = if result.youtube {
+        l.desktop_intent_link_prompt_video()
+    } else {
+        l.desktop_intent_link_prompt_page()
+    };
+    match &result.attachment {
+        Some(attachment) => (
+            Compose {
+                text: Some(request),
+                context: vec![attachment.clone()],
+                ..Compose::default()
+            },
+            if result.youtube {
+                l.desktop_intent_sent_video()
+            } else {
+                l.desktop_intent_sent_page()
+            },
+        ),
+        None => (
+            Compose {
+                text: Some(format!("{request} {}", result.url)),
+                ..Compose::default()
+            },
+            l.desktop_intent_sent_link_unread(),
+        ),
+    }
+}
+
+/// The image Send Image staged, checked: an image, within the limit, and a
+/// file inside `folder` (nothing a request names elsewhere is attached).
+pub fn staged_image(
+    path: Option<&str>,
+    is_image: bool,
+    byte_count: u64,
+    folder: &std::path::Path,
+) -> Result<std::path::PathBuf, Failure> {
+    if !is_image {
+        return Err(Failure::NotAnImage);
+    }
+    if byte_count > MAX_IMAGE_BYTES {
+        return Err(Failure::ImageTooLarge);
+    }
+    let path = path.ok_or(Failure::ImageUnavailable)?;
+    let file = std::fs::canonicalize(path).map_err(|_| Failure::ImageUnavailable)?;
+    let folder = std::fs::canonicalize(folder).map_err(|_| Failure::ImageUnavailable)?;
+    if !file.starts_with(&folder) || file == folder {
+        log::warn!("intents: an image outside the staging folder");
+        return Err(Failure::ImageUnavailable);
+    }
+    let size = std::fs::metadata(&file)
+        .ok()
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+        .ok_or(Failure::ImageUnavailable)?;
+    if size == 0 {
+        return Err(Failure::ImageUnavailable);
+    }
+    if size > MAX_IMAGE_BYTES {
+        return Err(Failure::ImageTooLarge);
+    }
+    Ok(file)
+}
+
+/// Clears staged images older than [`KEEP_IMAGES`] (each in its own
+/// folder); how many went. Run off the main thread.
+pub fn prune_images(folder: &std::path::Path, now: std::time::SystemTime) -> usize {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let old = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > KEEP_IMAGES);
+        if old && std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// Ask Conduit: the daemon asks and waits; the reply is the answer.
@@ -490,8 +760,8 @@ async fn ask(prompt: String, open: bool, cx: &mut AsyncApp) -> Result<Response, 
     };
     cx.update(|cx| {
         let due = cx.default_global::<HeldNotifications>().end(answered);
-        for finished in &due {
-            desktop::notify_turn_finished(finished, cx);
+        for (finished, asked) in due {
+            desktop::notify_turn_finished(&finished, asked, cx);
         }
     });
     let answer = answer.map_err(|e| {
@@ -509,12 +779,13 @@ async fn ask(prompt: String, open: bool, cx: &mut AsyncApp) -> Result<Response, 
 
 /// Answer notifications while Ask Conduit waits. `turn.finished` can come
 /// before the ask's reply names its chat, so every answer that finishes
-/// meanwhile is held; once no ask waits, those of chats a shortcut was
-/// given are dropped and the rest are posted.
+/// meanwhile is held, with the account in charge when it finished; once no
+/// ask waits, those of chats a shortcut was given are dropped and the rest
+/// are posted, each only while its account is still in charge.
 #[derive(Debug, Default)]
 pub struct HeldNotifications {
     asking: usize,
-    held: Vec<TurnFinished>,
+    held: Vec<(TurnFinished, Option<String>)>,
     answered: BTreeSet<String>,
 }
 
@@ -525,18 +796,20 @@ impl HeldNotifications {
         self.asking += 1;
     }
 
-    /// Holds `finished` while an ask waits; false when none does.
-    pub fn hold(&mut self, finished: &TurnFinished) -> bool {
+    /// Holds `finished`, which finished while `asked` was the account in
+    /// charge, while an ask waits; false when none does.
+    pub fn hold(&mut self, finished: &TurnFinished, asked: Option<String>) -> bool {
         if self.asking == 0 {
             return false;
         }
-        self.held.push(finished.clone());
+        self.held.push((finished.clone(), asked));
         true
     }
 
     /// An ask ended (`answered`: the chat whose answer the shortcut got).
-    /// What to notify now: nothing until the last waiting ask ends.
-    pub fn end(&mut self, answered: Option<String>) -> Vec<TurnFinished> {
+    /// What to notify now, each with its account: nothing until the last
+    /// waiting ask ends.
+    pub fn end(&mut self, answered: Option<String>) -> Vec<(TurnFinished, Option<String>)> {
         self.asking = self.asking.saturating_sub(1);
         self.answered.extend(answered);
         if self.asking > 0 {
@@ -545,16 +818,17 @@ impl HeldNotifications {
         let answered = std::mem::take(&mut self.answered);
         std::mem::take(&mut self.held)
             .into_iter()
-            .filter(|f| !answered.contains(&f.chat_id))
+            .filter(|(f, _)| !answered.contains(&f.chat_id))
             .collect()
     }
 }
 
-/// Whether the answer notification for `finished` waits for an ask
-/// ([`HeldNotifications`]); [`desktop`] asks before posting one.
-pub fn hold_notification(finished: &TurnFinished, cx: &mut App) -> bool {
+/// Whether the answer notification for `finished`, raised while `asked`
+/// was in charge, waits for an ask ([`HeldNotifications`]); [`desktop`] asks
+/// before posting one.
+pub fn hold_notification(finished: &TurnFinished, asked: Option<String>, cx: &mut App) -> bool {
     cx.try_global::<HeldNotifications>().is_some()
-        && cx.global_mut::<HeldNotifications>().hold(finished)
+        && cx.global_mut::<HeldNotifications>().hold(finished, asked)
 }
 
 /// Open Chat's list, by id, search or recency.
@@ -698,7 +972,7 @@ fn route_readiness(route: Route) -> Readiness {
     match route {
         Route::Main => Readiness::Ready,
         Route::Unknown => Readiness::Waiting,
-        Route::Onboarding | Route::SignIn => Readiness::SignedOut,
+        Route::Onboarding | Route::SignIn | Route::ConnectionIssue => Readiness::SignedOut,
     }
 }
 
@@ -824,7 +1098,186 @@ mod tests {
                 query: None
             }
         );
+        assert_eq!(
+            parse(r#"{"kind":"sendText","text":" Tide times "}"#),
+            Request::SendText {
+                text: Some(" Tide times ".into())
+            }
+        );
+        assert_eq!(
+            parse(r#"{"kind":"sendLink","url":"https://example.com/tides"}"#),
+            Request::SendLink {
+                url: "https://example.com/tides".into()
+            }
+        );
+        assert_eq!(
+            parse(
+                r#"{"kind":"sendImage","path":"/tmp/a/b.png","filename":"b.png","isImage":true,"byteCount":12}"#
+            ),
+            Request::SendImage {
+                path: Some("/tmp/a/b.png".into()),
+                filename: "b.png".into(),
+                is_image: true,
+                byte_count: 12
+            }
+        );
+        assert_eq!(
+            parse(r#"{"kind":"sendImage","filename":"notes.pdf","isImage":false,"byteCount":9}"#),
+            Request::SendImage {
+                path: None,
+                filename: "notes.pdf".into(),
+                is_image: false,
+                byte_count: 9
+            }
+        );
         assert!(serde_json::from_str::<Request>(r#"{"kind":"deleteEverything"}"#).is_err());
+    }
+
+    #[test]
+    fn send_to_conduit_trims_its_text_and_refuses_none() {
+        assert_eq!(sent_text(Some("  Tide times\n")), Some("Tide times".into()));
+        assert_eq!(sent_text(Some(" \n ")), None);
+        assert_eq!(sent_text(None), None);
+        let long = "x".repeat(deep_link::MAX_TEXT + 5);
+        assert_eq!(
+            sent_text(Some(&long)).map(|t| t.chars().count()),
+            Some(deep_link::MAX_TEXT)
+        );
+    }
+
+    fn link(youtube: bool, read: bool) -> IntentLinkResult {
+        IntentLinkResult {
+            url: "https://example.com/tides".into(),
+            youtube,
+            attachment: read.then(|| conduit_protocol::ContextAttachmentDto {
+                id: "ctx".into(),
+                kind: if youtube {
+                    conduit_protocol::ContextAttachmentKind::Youtube
+                } else {
+                    conduit_protocol::ContextAttachmentKind::Web
+                },
+                name: "Tides".into(),
+                url: Some("https://example.com/tides".into()),
+                content: Some("High water at noon.".into()),
+                collection_name: None,
+                file_id: None,
+            }),
+            error: (!read).then(|| "noContent".into()),
+        }
+    }
+
+    #[test]
+    fn send_link_opens_with_no_account_and_refuses_any_change_of_it() {
+        let read = || Ok(link(false, true));
+        // Direct-only or Hermes-only: no account, before and after.
+        let opened = link_read("https://example.org/a", read(), None, None).unwrap();
+        assert_eq!(opened.url, "https://example.com/tides");
+        // An account signed in while it was read.
+        assert_eq!(
+            link_read("https://example.org/a", read(), None, Some("a")).unwrap_err(),
+            Failure::Unexpected
+        );
+    }
+
+    #[test]
+    fn send_link_never_opens_once_another_account_took_charge() {
+        let read = || Ok(link(false, true));
+        assert!(link_read("https://example.org/a", read(), Some("a"), Some("a")).is_ok());
+        assert_eq!(
+            link_read("https://example.org/a", read(), Some("a"), Some("b")).unwrap_err(),
+            Failure::Unexpected
+        );
+        assert_eq!(
+            link_read("https://example.org/a", read(), Some("a"), None).unwrap_err(),
+            Failure::Unexpected
+        );
+        // The daemon refused it: the account changed while it was read.
+        let mut refused = RpcError::new(ErrorCode::SessionExpired);
+        refused.args.insert("reason".into(), "account".into());
+        assert_eq!(
+            link_read("https://example.org/a", Err(refused), Some("a"), Some("a")).unwrap_err(),
+            Failure::Unexpected
+        );
+        // Nothing read for another reason: the chat still opens with the link.
+        let failed = RpcError::new(ErrorCode::ServerError);
+        let opened = link_read("https://example.org/a", Err(failed), Some("a"), Some("a")).unwrap();
+        assert_eq!(opened.error.as_deref(), Some("failed"));
+    }
+
+    #[test]
+    fn send_link_asks_as_the_phone_asks_with_what_the_server_read() {
+        let en = L10n::new("en");
+        let (page, said) = link_compose(&link(false, true), &en);
+        assert_eq!(
+            page.text.as_deref(),
+            Some("Please summarize or analyze this page:")
+        );
+        assert_eq!(page.context.len(), 1);
+        assert_eq!(said, "Webpage attached in Conduit");
+        let (video, said) = link_compose(&link(true, true), &en);
+        assert_eq!(
+            video.text.as_deref(),
+            Some("Please summarize or analyze this video:")
+        );
+        assert_eq!(said, "YouTube video attached in Conduit");
+        // Nothing read: the chat still opens, with the link after the
+        // request so the user sees what was sent.
+        let (unread, said) = link_compose(&link(false, false), &en);
+        assert_eq!(
+            unread.text.as_deref(),
+            Some("Please summarize or analyze this page: https://example.com/tides")
+        );
+        assert!(unread.context.is_empty());
+        assert_eq!(said, en.desktop_intent_sent_link_unread());
+    }
+
+    #[test]
+    fn send_image_takes_only_an_image_staged_where_images_are_staged() {
+        let root = std::env::temp_dir().join(format!("x4-staged-{}", std::process::id()));
+        let folder = root.join("staged");
+        let one = folder.join("one");
+        std::fs::create_dir_all(&one).unwrap();
+        let png = one.join("tide.png");
+        std::fs::write(&png, b"\x89PNG fake").unwrap();
+        let outside = root.join("elsewhere.png");
+        std::fs::write(&outside, b"\x89PNG fake").unwrap();
+        let empty = one.join("empty.png");
+        std::fs::write(&empty, b"").unwrap();
+
+        let staged = staged_image(png.to_str(), true, 10, &folder).unwrap();
+        assert_eq!(staged, std::fs::canonicalize(&png).unwrap());
+        assert_eq!(
+            staged_image(png.to_str(), false, 10, &folder),
+            Err(Failure::NotAnImage)
+        );
+        assert_eq!(
+            staged_image(None, true, MAX_IMAGE_BYTES + 1, &folder),
+            Err(Failure::ImageTooLarge)
+        );
+        assert_eq!(
+            staged_image(outside.to_str(), true, 10, &folder),
+            Err(Failure::ImageUnavailable)
+        );
+        let climbing = format!("{}/../../elsewhere.png", one.display());
+        assert_eq!(
+            staged_image(Some(&climbing), true, 10, &folder),
+            Err(Failure::ImageUnavailable)
+        );
+        assert_eq!(
+            staged_image(empty.to_str(), true, 0, &folder),
+            Err(Failure::ImageUnavailable)
+        );
+        assert_eq!(
+            staged_image(folder.join("gone.png").to_str(), true, 10, &folder),
+            Err(Failure::ImageUnavailable)
+        );
+
+        // Old copies go; new ones stay.
+        let later = std::time::SystemTime::now() + KEEP_IMAGES + Duration::from_secs(60);
+        assert_eq!(prune_images(&folder, std::time::SystemTime::now()), 0);
+        assert_eq!(prune_images(&folder, later), 1);
+        assert!(!one.exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -970,6 +1423,11 @@ mod tests {
             },
             Failure::AnswerFailed { detail: None },
             Failure::ChatMissing,
+            Failure::NoText,
+            Failure::NoLink,
+            Failure::NotAnImage,
+            Failure::ImageTooLarge,
+            Failure::ImageUnavailable,
             Failure::Unexpected,
         ];
         for locale in crate::l10n::LOCALES {
@@ -1004,6 +1462,7 @@ mod tests {
             "ChatEntity.swift",
             "Intents.swift",
             "Shortcuts.swift",
+            "ImageStaging.swift",
         ] {
             let text = std::fs::read_to_string(dir.join(name)).unwrap();
             let mut rest = text.as_str();
@@ -1033,7 +1492,7 @@ mod tests {
         let en = L10n::new("en");
         let swift = swift_words();
         // Titles, descriptions, fields, summaries, dialogs and phrases.
-        assert_eq!(swift.len(), 32, "{swift:#?}");
+        assert_eq!(swift.len(), 55, "{swift:#?}");
         assert!(swift.contains("Ask Conduit {prompt}") && swift.contains("Call {applicationName}"));
         let ours = include_str!("intents.rs");
         let mut english = std::collections::BTreeSet::new();
@@ -1069,25 +1528,26 @@ mod tests {
     #[test]
     fn a_shortcuts_answer_gets_no_notification_and_others_still_do() {
         let mut held = HeldNotifications::default();
+        let avery = || Some("a".to_string());
         // No ask waiting: nothing is held.
-        assert!(!held.hold(&finished("before")));
+        assert!(!held.hold(&finished("before"), avery()));
 
         held.begin();
         held.begin();
         // Two asks wait; answers finish before either reply.
-        assert!(held.hold(&finished("asked-1")));
-        assert!(held.hold(&finished("typed")));
-        assert!(held.hold(&finished("asked-2")));
+        assert!(held.hold(&finished("asked-1"), avery()));
+        assert!(held.hold(&finished("typed"), avery()));
+        assert!(held.hold(&finished("asked-2"), avery()));
         // The first ask ends: still one waiting, nothing posted yet.
         assert!(held.end(Some("asked-1".into())).is_empty());
         // The second ends: the typed chat's answer is posted, the asked ones
         // not.
         let due = held.end(Some("asked-2".into()));
-        assert_eq!(due, vec![finished("typed")]);
+        assert_eq!(due, vec![(finished("typed"), avery())]);
         // A timed-out ask (no chat given) leaves its later answer alone.
         held.begin();
         assert!(held.end(None).is_empty());
-        assert!(!held.hold(&finished("slow")));
+        assert!(!held.hold(&finished("slow"), avery()));
     }
 
     #[test]

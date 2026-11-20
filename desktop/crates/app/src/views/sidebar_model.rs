@@ -451,6 +451,11 @@ pub enum SidebarItem {
         area: Area,
         hint: AreaHint,
     },
+    /// How many scheduled agents' runs Hermes's lists leave out while Show
+    /// Scheduled Runs is off, with Show (the phone's row).
+    HermesScheduledHidden {
+        count: usize,
+    },
     /// Hermes's Archived row, as the phone's, with how many there are.
     HermesArchived {
         count: usize,
@@ -666,8 +671,11 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
         }),
         Area::Hermes => {
             // The phone's Hermes tab: the connection in use (its switcher),
-            // the bots, the rooms, Scheduled Agents, then the conversations
-            // under their own heading.
+            // Scheduled Agents, the bots, the rooms, then the conversations
+            // under their own heading. The phone sets Scheduled Agents
+            // apart as a card after the rooms; a source list's row there
+            // would read as a room, so it stands under the switcher, both
+            // the connection's own.
             let mut out: Vec<SidebarItem> = lists
                 .hermes_connection
                 .map(|(name, count)| SidebarItem::HermesConnection {
@@ -676,15 +684,12 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                 })
                 .into_iter()
                 .collect();
-            let groups = hermes_groups(lists);
-            let headed = !groups.is_empty() || lists.hermes_jobs;
-            out.extend(groups);
-            // The connection's cron jobs, as the phone's tab offers them
-            // above its conversations.
             if lists.hermes_jobs {
                 out.push(SidebarItem::AreaRow(AreaRow::of(AreaItem::HermesJobs)));
             }
-            if headed {
+            let groups = hermes_groups(lists);
+            if !groups.is_empty() {
+                out.extend(groups);
                 out.push(SidebarItem::HermesGroup {
                     group: HermesGroup::Conversations,
                     count: lists.hermes.map_or(0, |h| h.sessions.len()),
@@ -699,7 +704,10 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                 });
                 return out;
             };
-            if !(hermes.sessions.is_empty() && !hermes.archived.is_empty()) {
+            let hidden_runs = hermes.hidden_scheduled_runs.max(0) as usize;
+            // Only runs left out: the row says so, rather than "no
+            // conversations".
+            if !(hermes.sessions.is_empty() && (!hermes.archived.is_empty() || hidden_runs > 0)) {
                 out.extend(listed(
                     area,
                     Some(&hermes.sessions),
@@ -707,6 +715,9 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
                     AreaHint::Empty,
                     session,
                 ));
+            }
+            if hidden_runs > 0 {
+                out.push(SidebarItem::HermesScheduledHidden { count: hidden_runs });
             }
             if !hermes.archived.is_empty() {
                 out.push(SidebarItem::HermesArchived {
@@ -1653,6 +1664,7 @@ mod tests {
             sessions: vec![session("s1", false)],
             archived: vec![session("old", true)],
             archived_failed: false,
+            hidden_scheduled_runs: 0,
         };
         let lists = AreaLists {
             hermes: Some(&hermes),
@@ -1716,6 +1728,151 @@ mod tests {
                 hint: AreaHint::Failed
             }]
         );
+        // Scheduled runs left out: said after the conversations, with Show;
+        // with nothing else listed, instead of "no conversations".
+        let hiding = HermesSessions {
+            hidden_scheduled_runs: 3,
+            ..hermes.clone()
+        };
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                hermes: Some(&hiding),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert_eq!(rows[1], SidebarItem::HermesScheduledHidden { count: 3 });
+        let only_runs = HermesSessions {
+            sessions: vec![],
+            archived: vec![],
+            hidden_scheduled_runs: 2,
+            ..hermes.clone()
+        };
+        let rows = area_rows(
+            Area::Hermes,
+            &AreaLists {
+                hermes: Some(&only_runs),
+                ..Default::default()
+            },
+            false,
+            false,
+        );
+        assert_eq!(rows[0], SidebarItem::HermesScheduledHidden { count: 2 });
+        assert!(
+            !rows
+                .iter()
+                .any(|r| matches!(r, SidebarItem::AreaHint { .. }))
+        );
+    }
+
+    #[test]
+    fn hermes_follows_the_phones_tab_switcher_agents_bots_rooms_then_chats() {
+        let session = |id: &str| HermesSessionDto {
+            id: id.into(),
+            chat_id: format!("local:hermes_{id}"),
+            title: id.into(),
+            preview: None,
+            updated_at_ms: None,
+            pinned: false,
+            archived: false,
+            hidden: false,
+            source: None,
+            running: false,
+        };
+        let hermes = HermesSessions {
+            sessions: vec![session("s1")],
+            archived: vec![],
+            archived_failed: false,
+            hidden_scheduled_runs: 0,
+        };
+        let bots: Vec<HermesBotDto> =
+            serde_json::from_value(serde_json::json!([{"name": "fern", "title": "Fern"}])).unwrap();
+        let rooms: HermesRooms = serde_json::from_value(serde_json::json!({
+            "available": true, "canCreate": true,
+            "rooms": [{"id": "r1", "name": "Greenhouse crew"}],
+        }))
+        .unwrap();
+        let lists = AreaLists {
+            hermes: Some(&hermes),
+            hermes_connection: Some(("Shed", 2)),
+            hermes_jobs: true,
+            bots: &bots,
+            rooms: Some(&rooms),
+            bots_open: true,
+            rooms_open: true,
+            ..Default::default()
+        };
+        let rows = area_rows(Area::Hermes, &lists, false, false);
+        let kinds: Vec<String> = rows
+            .iter()
+            .map(|r| match r {
+                SidebarItem::HermesConnection { name, .. } => format!("switcher {name}"),
+                SidebarItem::HermesGroup { group, .. } => format!("<{group:?}>"),
+                SidebarItem::AreaRow(row) => format!("{:?}", row.item),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "switcher Shed",
+                "HermesJobs",
+                "<Bots>",
+                "HermesBot(\"fern\")",
+                "<Rooms>",
+                "HermesRoom(\"r1\")",
+                "<Conversations>",
+                "HermesSession(\"s1\")",
+                "HermesHidden",
+            ]
+        );
+        // With no bots or rooms the chats need no heading: Scheduled Agents
+        // stands with the switcher, above them.
+        let agents_only = AreaLists {
+            hermes: Some(&hermes),
+            hermes_jobs: true,
+            ..Default::default()
+        };
+        let rows = area_rows(Area::Hermes, &agents_only, false, false);
+        assert_eq!(rows[0].area_item(), Some(&AreaItem::HermesJobs));
+        assert!(
+            !rows
+                .iter()
+                .any(|r| matches!(r, SidebarItem::HermesGroup { .. }))
+        );
+        // Under the groups, even with no chats yet: the hint is the
+        // conversations', not the rooms'.
+        let empty = HermesSessions {
+            sessions: vec![],
+            ..hermes.clone()
+        };
+        let no_chats = AreaLists {
+            hermes: Some(&empty),
+            ..lists
+        };
+        let rows = area_rows(Area::Hermes, &no_chats, false, false);
+        let heading = rows.iter().position(|r| {
+            matches!(
+                r,
+                SidebarItem::HermesGroup {
+                    group: HermesGroup::Conversations,
+                    count: 0,
+                    ..
+                }
+            )
+        });
+        let hint = rows.iter().position(|r| {
+            matches!(
+                r,
+                SidebarItem::AreaHint {
+                    hint: AreaHint::Empty,
+                    ..
+                }
+            )
+        });
+        assert!(matches!((heading, hint), (Some(h), Some(e)) if e == h + 1));
     }
 
     #[test]

@@ -4865,5 +4865,6 @@
   "notificationCalendarExactDescription": "'알람 및 리마인더'를 허용하면 캘린더 알림이 정확한 시간에 도착합니다.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요."
 }

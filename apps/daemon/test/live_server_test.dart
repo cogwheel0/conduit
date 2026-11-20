@@ -498,6 +498,14 @@ void main() {
             expect(fetched.attachment!.content, contains('raised bed'));
           }
           expect((await composer.fetchUrl('not a url')).error, 'invalidUrl');
+          // Shortcuts' Send Link to Conduit reads the page the same way.
+          if (page != null) {
+            final sent = await composer.sendLink(' $page ');
+            expect(sent.url, page);
+            expect(sent.youtube, isFalse);
+            expect(sent.attachment!.kind, ContextAttachmentKind.web);
+            expect(sent.attachment!.content, contains('raised bed'));
+          }
         },
         timeout: const Timeout(Duration(minutes: 2)),
       );
@@ -612,6 +620,198 @@ void main() {
         timeout: const Timeout(Duration(minutes: 4)),
       );
 
+      test('a message sent while a queued batch waits for the chat to settle '
+          'goes first, and the batch follows its answer', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final completed = <String>[];
+        // `turn.started` and the queue's size, in the order they went out.
+        final heard = <String>[];
+        late String chatId;
+        Future<SendTurnAccepted>? meanwhile;
+        events.attach('probe', (envelope) {
+          switch (envelope.event) {
+            case ConduitEvents.turnStarted:
+              heard.add(
+                'started ${TurnStarted.fromJson(envelope.payload).messageId}',
+              );
+            case ConduitEvents.turnCompleted:
+              completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+            case ConduitEvents.queueChanged:
+              final queue = QueueState.fromJson(envelope.payload);
+              heard.add('queued ${queue.drafts.length}');
+              // The answer before it has ended and the batch waits for
+              // the chat to settle: a window that shows Send is used now.
+              if (queue.phase == QueuePhase.admitting && meanwhile == null) {
+                meanwhile = turns.send(
+                  SendTurn(
+                    chatId: chatId,
+                    model: turnModel,
+                    text: 'Reply with exactly the word: kite',
+                  ),
+                )..ignore();
+              }
+          }
+        });
+        final first = await turns.send(
+          SendTurn(model: turnModel, text: 'Reply with exactly the word: pong'),
+        );
+        chatId = first.chatId;
+        created.add(chatId);
+        subscribeWindow(events, turns, 'probe', <String>[chatId]);
+        await _waitFor(() => completed.isNotEmpty, seconds: 60);
+        expect(completed, isNotEmpty);
+
+        // An answer of a few seconds, and a message queued behind it.
+        final long = await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Tell me something long',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the west side?'));
+        await _waitFor(() => meanwhile != null, seconds: 60);
+        expect(completed, contains(long.assistantMessageId));
+
+        // Sent, not refused: it goes first, and the batch waits whole.
+        final kite = await meanwhile!;
+        expect(turns.queueGet(chatId).drafts.map((d) => d.text), <String>[
+          'And the west side?',
+        ]);
+        await _waitFor(
+          () =>
+              completed.length >= 4 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        expect(completed, hasLength(4));
+        expect(completed[2], kite.assistantMessageId);
+        final asked = (await ChatsService(
+          runtime.container,
+          events: events,
+        ).get(chatId))!.messages.where((m) => m.role == 'user');
+        expect(asked.map((m) => m.content), <String>[
+          'Reply with exactly the word: pong',
+          'Tell me something long',
+          'Reply with exactly the word: kite',
+          'And the west side?',
+        ]);
+        // The batch's turn started before it left the queue: once it is
+        // committed, the windows show the chat answering, not Send.
+        final batch = 'started ${completed.last}';
+        final left = heard.indexOf(
+          'queued 0',
+          heard.indexOf('started ${kite.assistantMessageId}'),
+        );
+        expect(heard.indexOf(batch), allOf(isNonNegative, lessThan(left)));
+      }, timeout: const Timeout(Duration(minutes: 4)));
+
+      test('each queued batch goes out once, in a chat whose earlier batch '
+          'went out after a Stop & Send', () async {
+        final events = EventBus();
+        final turns = TurnsService(runtime.container, events);
+        addTearDown(turns.dispose);
+        final completed = <String>[];
+        late String chatId;
+        Future<SendTurnAccepted>? meanwhile;
+        var armed = false;
+        events.attach('probe', (envelope) {
+          switch (envelope.event) {
+            case ConduitEvents.turnCompleted:
+              completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+            case ConduitEvents.queueChanged:
+              final queue = QueueState.fromJson(envelope.payload);
+              // The second batch waits for the chat to settle: a window that
+              // shows Send is used now, as the desktop's E2E does.
+              if (armed &&
+                  queue.phase == QueuePhase.admitting &&
+                  meanwhile == null) {
+                meanwhile = turns.send(
+                  SendTurn(
+                    chatId: chatId,
+                    model: turnModel,
+                    text: 'Reply with exactly the word: lark',
+                  ),
+                )..ignore();
+              }
+          }
+        });
+        final first = await turns.send(
+          SendTurn(model: turnModel, text: 'Reply with exactly the word: pong'),
+        );
+        chatId = first.chatId;
+        created.add(chatId);
+        subscribeWindow(events, turns, 'probe', <String>[chatId]);
+        await _waitFor(() => completed.isNotEmpty, seconds: 60);
+        expect(completed, isNotEmpty);
+
+        // A slow answer, two messages queued behind it, the first sent now.
+        await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Answer slow please',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the north side?'));
+        final two = turns.queueAdd(
+          QueueAdd(chatId: chatId, text: 'And the south side?'),
+        );
+        final now = await turns.queueSendNow(
+          QueueDraftRef(chatId: chatId, draftId: two.drafts.first.id),
+        );
+        expect(now.outcome, 'admitted');
+        await _waitFor(
+          () =>
+              completed.length >= 4 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        expect(completed, hasLength(4));
+
+        // A long answer, one message queued behind it, and a message sent
+        // while that batch waits for the chat to settle.
+        await turns.send(
+          SendTurn(
+            chatId: chatId,
+            model: turnModel,
+            text: 'Tell me something long',
+          ),
+        );
+        await _waitFor(() => turns.queueGet(chatId).offer, seconds: 30);
+        armed = true;
+        turns.queueAdd(QueueAdd(chatId: chatId, text: 'And the east side?'));
+        await _waitFor(() => meanwhile != null, seconds: 60);
+        await meanwhile!;
+        await _waitFor(
+          () =>
+              completed.length >= 7 &&
+              turns.queueGet(chatId).drafts.isEmpty &&
+              !turns.isRunning(chatId),
+          seconds: 60,
+        );
+        final asked = (await ChatsService(
+          runtime.container,
+          events: events,
+        ).get(chatId))!.messages.where((m) => m.role == 'user');
+        expect(asked.map((m) => m.content), <String>[
+          'Reply with exactly the word: pong',
+          'Answer slow please',
+          'And the north side?',
+          'And the south side?',
+          'Tell me something long',
+          'Reply with exactly the word: lark',
+          'And the east side?',
+        ]);
+        expect(completed, hasLength(7));
+      }, timeout: const Timeout(Duration(minutes: 4)));
+
       test('compares two models: one message, two answers', () async {
         final events = EventBus();
         final turns = TurnsService(runtime.container, events);
@@ -645,9 +845,10 @@ void main() {
           // Both written: an empty placeholder is not an answer yet.
           return answer.isNotEmpty &&
               <String>[
-                for (final a in answer) a.content,
-                for (final v in answer.first.versions) v.content,
-              ].where((text) => text.trim().isNotEmpty).length >= 2;
+                    for (final a in answer) a.content,
+                    for (final v in answer.first.versions) v.content,
+                  ].where((text) => text.trim().isNotEmpty).length >=
+                  2;
         }, seconds: 60);
         final answers = detail.messages.where((m) => m.role == 'assistant');
         printOnFailure('messages: ${detail.messages}');
@@ -2314,6 +2515,18 @@ void main() {
           NoteRecordingAdd(noteId: id, path: wav.path),
         );
         expect(added.recordings, isNotEmpty);
+        // While it waits, the window can play it from this computer
+        // (`/recordings/{id}?noteId=`); once uploaded it no longer waits.
+        try {
+          final waiting = await notes.waitingRecording(
+            id,
+            added.recordings.first.id,
+          );
+          expect(waiting.contentType, 'audio/wav');
+          expect(waiting.bytes, isNotEmpty);
+        } on RpcError catch (error) {
+          expect(error.code, ConduitErrorCodes.notFound);
+        }
         Future<List<NoteFileLink>> links() async {
           final note = await notes.get(id);
           return noteFileLinksInMarkdown(note?.markdown ?? '');
@@ -2862,6 +3075,73 @@ void main() {
         timeout: const Timeout(Duration(minutes: 2)),
       );
 
+      // The Build box's coding agents (its fake `/agents`): listed with the
+      // terminal chosen, their controls, and the default model back once
+      // the terminal is turned off.
+      test(
+        "the terminal's coding agents as models",
+        () async {
+          final terminals = TerminalsService(runtime.container);
+          addTearDown(terminals.dispose);
+          final listed = await terminals.servers('');
+          if (!listed.servers.any((s) => s.id == 'buildbox')) {
+            markTestSkipped('the server runs without the fake terminal');
+            return;
+          }
+          final service = ModelsService(runtime.container, events: EventBus());
+          const codex = 'agent:buildbox:codex:gpt-5.1';
+          final before = (await service.list()).selectedId;
+          final previous = listed.selectedId;
+          addTearDown(() async {
+            await terminals.select(previous);
+            if (before != null) await service.select(before);
+          });
+          await terminals.select('buildbox');
+          final offered = await service.list();
+          expect(offered.agents.map((a) => a.id), contains(codex));
+          final agent = offered.agents.firstWhere((a) => a.id == codex);
+          expect(agent.name, 'Codex · gpt-5.1');
+          expect(agent.agent?.terminalName, 'Build box');
+          // A temporary chat is offered none.
+          expect(
+            (await service.list(const ModelListQuery(temporary: true))).agents,
+            isEmpty,
+          );
+
+          final picked = await service.select(codex);
+          expect(picked.selectedId, codex);
+          final options = await service.options(const ModelOptionsQuery());
+          expect(options.modelId, codex);
+          expect(options.reasoning.visible, isFalse);
+          final controls = await service.controls(const ModelControlsQuery());
+          expect(controls.controls.map((c) => c.key), [
+            'reasoning_effort',
+            'service_tier',
+          ]);
+
+          // As a window does: the model, then the agent again.
+          final plain = offered.models.first.id;
+          await service.select(plain);
+          expect((await service.options(const ModelOptionsQuery())).modelId,
+              plain);
+          expect((await service.select(codex)).selectedId, codex);
+
+          final cleared = await terminals.select(null);
+          expect(cleared.selectedId, isNull);
+          await _waitFor(
+            () async =>
+                !((await currentModel(runtime.container))?.id ?? codex)
+                    .startsWith('agent:'),
+            seconds: 15,
+          );
+          final after = await service.list();
+          expect(after.selectedId, isNot(startsWith('agent:')));
+          expect(after.agents, isEmpty);
+          expect((await terminals.servers('')).selectedId, isNull);
+        },
+        timeout: const Timeout(Duration(minutes: 2)),
+      );
+
       // Dictation and speech. The server transcribes a recording: the local
       // server's speech-to-text is the fake model, which answers every
       // recording with the same synthetic sentence, so a tone checks the
@@ -3002,6 +3282,340 @@ void main() {
           final restored = await profile.update(ProfileEdit(name: before.name));
           expect(restored.name, before.name);
         });
+
+        // Notifications parity: the settings, mirrored to the account
+        // where the phone mirrors them, and core's decision per notification.
+        test(
+          'notification settings and the decision per notification',
+          () async {
+            final service = NotificationsService(runtime.container);
+            final start = service.get();
+            expect(start.synced, isTrue);
+            // The desktop's host default: on until the user or server says.
+            expect(start.enabled, isTrue);
+            addTearDown(
+              () => service.set(
+                NotificationSettingsPatch(
+                  soundAlways: start.soundAlways,
+                  inAppBanner: start.inAppBanner,
+                  mentionsOnly: start.mentionsOnly,
+                ),
+              ),
+            );
+            final set = await service.set(
+              const NotificationSettingsPatch(
+                soundAlways: true,
+                inAppBanner: false,
+                mentionsOnly: true,
+              ),
+            );
+            expect(set.soundAlways, isTrue);
+            expect(set.inAppBanner, isFalse);
+            expect(set.mentionsOnly, isTrue);
+            // Sound Always reached the account (Open WebUI's `ui` settings).
+            final api = runtime.container.read(apiServiceProvider)!;
+            var mirrored = false;
+            for (var i = 0; i < 20 && !mirrored; i++) {
+              final settings = await api.getUserSettings();
+              final ui = settings['ui'];
+              mirrored = ui is Map && ui['notificationSoundAlways'] == true;
+              if (!mirrored) {
+                await Future<void>.delayed(const Duration(milliseconds: 100));
+              }
+            }
+            expect(mirrored, isTrue);
+
+            // In front with the banner off: silent, with the cue.
+            final front = service.route(
+              const NotificationRouteParams(
+                kind: NotifyKind.answer,
+                foreground: true,
+              ),
+            );
+            expect(front.surface, NotifySurface.silent);
+            expect(front.cue, isTrue);
+            // Behind: a system notification with its sound.
+            final behind = service.route(
+              const NotificationRouteParams(kind: NotifyKind.answer),
+            );
+            expect(behind.surface, NotifySurface.system);
+            expect(behind.systemSound, isTrue);
+            // Mentions only: a plain channel message stays quiet, a mention
+            // and a direct message notify.
+            expect(
+              service
+                  .route(
+                    const NotificationRouteParams(
+                      kind: NotifyKind.channelMessage,
+                    ),
+                  )
+                  .surface,
+              NotifySurface.suppressed,
+            );
+            expect(
+              service
+                  .route(
+                    const NotificationRouteParams(
+                      kind: NotifyKind.channelMessage,
+                      mention: true,
+                    ),
+                  )
+                  .surface,
+              NotifySurface.system,
+            );
+            expect(
+              service
+                  .route(
+                    const NotificationRouteParams(
+                      kind: NotifyKind.channelMessage,
+                      direct: true,
+                    ),
+                  )
+                  .surface,
+              NotifySurface.system,
+            );
+          },
+        );
+
+        test('adds, tests, edits and deletes a webhook destination', () async {
+          final webhooks = WebhooksService(runtime.container);
+          final start = await webhooks.list();
+          expect(start.available, isTrue);
+          expect(start.failed, isFalse);
+          expect(start.events, isNotEmpty);
+          final base = credentials!.values['FAKE_OPENAI_URL']!.replaceFirst(
+            RegExp(r'/v1/?$'),
+            '',
+          );
+          final created = await webhooks.create(
+            WebhookCreate(
+              owner: start.owner,
+              url: '$base/webhook/live-n6',
+              name: 'live-n6-hook',
+              events: <String>[start.events.first.event],
+            ),
+          );
+          final hook = created.items.firstWhere((h) => h.id == 'live-n6-hook');
+          addTearDown(() async {
+            final now = await webhooks.list();
+            if (now.items.any((h) => h.id == hook.id)) {
+              await webhooks.delete(WebhookRef(owner: now.owner, id: hook.id));
+            }
+          });
+          expect(hook.enabled, isTrue);
+          expect(hook.events, <String>[start.events.first.event]);
+          expect(hook.maskedUrl, isNotNull);
+          expect(hook.maskedUrl, isNot(contains('live-n6')));
+
+          // Test: the server delivers one notification to the receiver.
+          final log = File(credentials.values['FAKE_MODEL_LOG']!);
+          final before = log.existsSync() ? log.readAsLinesSync().length : 0;
+          await webhooks.test(WebhookRef(owner: created.owner, id: hook.id));
+          var delivered = false;
+          for (var i = 0; i < 50 && !delivered; i++) {
+            final lines = log.readAsLinesSync().skip(before);
+            delivered = lines.any((l) => l.contains('/webhook/live-n6'));
+            if (!delivered) {
+              await Future<void>.delayed(const Duration(milliseconds: 100));
+            }
+          }
+          expect(delivered, isTrue);
+
+          final edited = await webhooks.update(
+            WebhookUpdate(
+              owner: created.owner,
+              id: hook.id,
+              enabled: false,
+              delivery: 'always',
+            ),
+          );
+          final after = edited.items.firstWhere((h) => h.id == hook.id);
+          expect(after.enabled, isFalse);
+          expect(after.delivery, 'always');
+          final made = await webhooks.makeDefault(
+            WebhookRef(owner: edited.owner, id: hook.id),
+          );
+          expect(made.items.firstWhere((h) => h.id == hook.id).isDefault, true);
+          // An owner that was never handed out is refused.
+          await expectLater(
+            webhooks.delete(WebhookRef(owner: 'w-none', id: hook.id)),
+            throwsA(isA<RpcError>()),
+          );
+          final deleted = await webhooks.delete(
+            WebhookRef(owner: made.owner, id: hook.id),
+          );
+          expect(deleted.items.any((h) => h.id == hook.id), isFalse);
+        });
+
+        test('a personal tool server runs its tool here, and is edited and '
+            'deleted', () async {
+          final integrations = IntegrationsService(runtime.container);
+          final start = await integrations.list();
+          expect(start.access, PersonalAccess.allowed);
+          final base = credentials!.values['FAKE_OPENAI_URL']!.replaceFirst(
+            RegExp(r'/v1/?$'),
+            '',
+          );
+          const draft = PersonalConnectionDraft(
+            name: 'Live Buoys',
+            url: 'http://127.0.0.1:9/personal',
+            path: 'openapi.json',
+            authType: 'none',
+          );
+          // A form problem is the URL's.
+          await expectLater(
+            integrations.save(
+              PersonalConnectionSave(
+                owner: start.owner,
+                kind: PersonalKind.toolServer,
+                op: PersonalEditOp.add,
+                draft: draft.copyWith(url: 'not a url'),
+              ),
+            ),
+            throwsA(
+              isA<RpcError>().having((e) => e.args['url'], 'url', 'urlInvalid'),
+            ),
+          );
+          // Unreachable, then reachable with one operation.
+          final unreachable = await integrations.test(
+            PersonalConnectionTest(
+              owner: start.owner,
+              kind: PersonalKind.toolServer,
+              draft: draft,
+            ),
+          );
+          expect(unreachable.ok, isFalse);
+          final good = draft.copyWith(url: '$base/personal');
+          final probed = await integrations.test(
+            PersonalConnectionTest(
+              owner: start.owner,
+              kind: PersonalKind.toolServer,
+              draft: good,
+            ),
+          );
+          expect(probed.ok, isTrue);
+          expect(probed.operationCount, 1);
+
+          final added = await integrations.save(
+            PersonalConnectionSave(
+              owner: start.owner,
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.add,
+              draft: good,
+            ),
+          );
+          final server = added.toolServers.firstWhere(
+            (s) => s.name == 'Live Buoys',
+          );
+          addTearDown(() async {
+            final now = await integrations.list();
+            for (final s in now.toolServers.where(
+              (s) => s.name.startsWith('Live Buoys'),
+            )) {
+              await integrations.save(
+                PersonalConnectionSave(
+                  owner: now.owner,
+                  kind: PersonalKind.toolServer,
+                  op: PersonalEditOp.remove,
+                  identity: s.identity,
+                ),
+              );
+            }
+          });
+          expect(server.endpoint, '$base/personal');
+          expect(server.enabled, isTrue);
+
+          // The composer offers it, and a turn that chooses it runs its
+          // tool here: the answer quotes the reading.
+          final options = await ComposerService(runtime.container).options();
+          final tool = options.tools.firstWhere((t) => t.name == 'Live Buoys');
+          expect(tool.id, startsWith('direct_server:'));
+          final log = File(credentials.values['FAKE_MODEL_LOG']!);
+          final before = log.existsSync() ? log.readAsLinesSync().length : 0;
+          final events = EventBus();
+          final turns = TurnsService(runtime.container, events);
+          addTearDown(turns.dispose);
+          final seen = <String>[];
+          final payloads = <String, Map<String, dynamic>>{};
+          events.attach('probe', (envelope) {
+            seen.add(envelope.event);
+            payloads[envelope.event] = envelope.payload;
+          });
+          final accepted = await turns.send(
+            SendTurn(
+              model: turnModel,
+              text: 'What does the buoy say?',
+              toolIds: <String>[tool.id],
+            ),
+          );
+          created.add(accepted.chatId);
+          subscribeWindow(events, turns, 'probe', <String>[accepted.chatId]);
+          final deadline = DateTime.now().add(const Duration(seconds: 90));
+          while (DateTime.now().isBefore(deadline) &&
+              !seen.contains(ConduitEvents.turnCompleted) &&
+              !seen.contains(ConduitEvents.turnFailed)) {
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
+          expect(
+            seen,
+            contains(ConduitEvents.turnCompleted),
+            reason: 'failed: ${payloads[ConduitEvents.turnFailed]}',
+          );
+          final completed = TurnCompleted.fromJson(
+            payloads[ConduitEvents.turnCompleted]!,
+          );
+          expect(completed.text, contains('North Mole buoy reads 0.8 m'));
+          final calls = log
+              .readAsLinesSync()
+              .skip(before)
+              .where((l) => l.contains('"personal_tool"'));
+          expect(calls, isNotEmpty);
+
+          // Switched off, renamed, deleted.
+          final off = await integrations.save(
+            PersonalConnectionSave(
+              owner: added.owner,
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.setEnabled,
+              identity: server.identity,
+              enabled: false,
+            ),
+          );
+          expect(
+            off.toolServers
+                .firstWhere((s) => s.identity == server.identity)
+                .enabled,
+            isFalse,
+          );
+          final renamed = await integrations.save(
+            PersonalConnectionSave(
+              owner: off.owner,
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.patch,
+              identity: server.identity,
+              draft: good.copyWith(
+                name: 'Live Buoys East',
+                keyMode: PersonalKeyMode.keep,
+                enabled: false,
+              ),
+            ),
+          );
+          final east = renamed.toolServers.firstWhere(
+            (s) => s.name == 'Live Buoys East',
+          );
+          final removed = await integrations.save(
+            PersonalConnectionSave(
+              owner: renamed.owner,
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.remove,
+              identity: east.identity,
+            ),
+          );
+          expect(
+            removed.toolServers.any((s) => s.name.startsWith('Live Buoys')),
+            isFalse,
+          );
+        }, timeout: const Timeout(Duration(minutes: 3)));
 
         test('adds, edits and deletes a memory', () async {
           final memories = MemoriesService(runtime.container);
@@ -3305,6 +3919,12 @@ void main() {
                   system: 'Answer in one word.',
                   suggestionPrompts: const <String>['Hello'],
                   capabilities: const <String, bool>{'vision': true},
+                  terminalId: 'buildbox',
+                  builtinTools: const <String, dynamic>{
+                    'time': false,
+                    'memory': true,
+                  },
+                  imageUrl: 'https://pictures.example/gull.png',
                   params: const <String, dynamic>{'temperature': 0.2},
                 ),
               ),
@@ -3315,6 +3935,13 @@ void main() {
           expect(model.system, 'Answer in one word.');
           expect(model.capabilities['vision'], isTrue);
           expect(model.params['temperature'], 0.2);
+          expect(model.terminalId, 'buildbox');
+          expect(model.builtinTools, {'time': false, 'memory': true});
+          // Another site's picture is never fetched for the window.
+          expect(model.imageSource, WorkspaceImageSource.remote);
+          final raw0 = (await api.getWorkspaceModel(id))!;
+          expect(raw0.meta['terminalId'], 'buildbox');
+          expect(raw0.meta['builtinTools'], {'time': false, 'memory': true});
 
           // A key this editor does not show survives a save through it.
           final raw = (await api.getWorkspaceModel(id))!;
@@ -3694,10 +4321,7 @@ void main() {
               ),
             );
             expect(typed.values['limit'], 9);
-            expect(
-              typed.fields.singleWhere((f) => f.key == 'limit').text,
-              '9',
-            );
+            expect(typed.fields.singleWhere((f) => f.key == 'limit').text, '9');
             final listedTool = await workspace.list(
               WorkspaceQuery(kind: WorkspaceKind.tools, query: 'Live typed'),
             );

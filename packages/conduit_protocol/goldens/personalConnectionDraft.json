@@ -1,0 +1,12 @@
+{
+  "name": "Buoy Readings",
+  "description": "",
+  "url": "http://127.0.0.1:19341/personal",
+  "specType": "url",
+  "path": "openapi.json",
+  "spec": "",
+  "authType": "none",
+  "key": "",
+  "keyMode": "keep",
+  "enabled": true
+}

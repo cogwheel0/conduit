@@ -54,6 +54,8 @@ class _NoDrainSyncEngine extends SyncEngine {
 class _OnlineConnectivity extends ConnectivityStatusNotifier {
   @override
   ConnectivityStatus build() => ConnectivityStatus.online;
+
+  void goOffline() => state = ConnectivityStatus.offline;
 }
 
 class _UploadApi extends ApiService {
@@ -74,6 +76,9 @@ class _UploadApi extends ApiService {
 
   /// While set, an upload is answered only once this completes.
   Completer<void>? holdUpload;
+
+  /// Completed, and cleared, when an upload arrives.
+  Completer<void>? uploadEntered;
   List<FileInfo> existingFiles = const <FileInfo>[];
 
   @override
@@ -85,6 +90,9 @@ class _UploadApi extends ApiService {
     CancelToken? cancelToken,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    final entered = uploadEntered;
+    uploadEntered = null;
+    entered?.complete();
     await holdUpload?.future;
     final error = uploadError;
     if (error != null) throw error;
@@ -102,6 +110,36 @@ class _UploadApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
   }) async => existingFiles;
+}
+
+/// A store that counts the recordings it is asked to stage.
+class _CountingStore extends NoteAudioUploadStore {
+  _CountingStore({
+    required super.applicationSupportDirectory,
+    required super.temporaryDirectory,
+  });
+
+  int stages = 0;
+
+  @override
+  Future<PendingNoteAudioUpload> stage({
+    required File source,
+    required String serverId,
+    String accountId = '',
+    required String noteId,
+    required String fileName,
+    String? pageId,
+  }) {
+    stages++;
+    return super.stage(
+      source: source,
+      serverId: serverId,
+      accountId: accountId,
+      noteId: noteId,
+      fileName: fileName,
+      pageId: pageId,
+    );
+  }
 }
 
 /// A store whose account-wide scan waits until the test lets it finish.
@@ -137,6 +175,20 @@ class _HeldScanStore extends NoteAudioUploadStore {
 
   /// While set, a read that would find a recording gone throws instead.
   bool failGoneAnswer = false;
+
+  /// While set, removing a recording waits for it.
+  Completer<void>? holdRemove;
+  final removeEntered = Completer<void>();
+
+  @override
+  Future<void> remove(PendingNoteAudioUpload item) async {
+    final hold = holdRemove;
+    if (hold != null) {
+      if (!removeEntered.isCompleted) removeEntered.complete();
+      await hold.future;
+    }
+    return super.remove(item);
+  }
 
   @override
   Future<PendingNoteAudioUpload?> loadCurrent(
@@ -311,6 +363,191 @@ void main() {
   });
 
   group('NoteAttachmentsController', () {
+    test('a recording asked to be kept after close starts nothing', () async {
+      final counting = _CountingStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      );
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: counting,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await controller.close();
+
+      final kept = await controller.stage(await recording('late.m4a'));
+
+      check(kept).isFalse();
+      check(counting.stages).equals(0);
+    });
+
+    test('close waits for a recording being moved to a recovered note',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('three.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_3.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      check(controller.pending).length.equals(1);
+      // The note recovered as a new one, which its recording moves to.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:recovered',
+              'user_id': 'user-1',
+              'title': 'Three',
+              'data': {
+                'content': {'md': 'three', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      held.holdRebind = Completer<void>();
+      final original = openNote;
+      final recovered = await readNote('local:recovered');
+      openNote = recovered;
+      // Started by the recovery, not awaited by it.
+      final moving = controller.rebindTo(original, recovered);
+      await held.rebindEntered.future;
+
+      var closed = false;
+      final closing = controller.close().then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      held.holdRebind!.complete();
+      await moving;
+      await closing;
+      check(closed).isTrue();
+    });
+
+    test('a close a listener asks for as a removal starts waits for it',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      Future<void>? closing;
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        // The editor goes as the removal starts: its listener closes.
+        onChanged: () {
+          if (held.holdRemove != null) closing ??= controller.close();
+        },
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('four.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_4.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      final id = controller.pending.single.id;
+
+      held.holdRemove = Completer<void>();
+      final removing = controller.removePending(id);
+      await held.removeEntered.future;
+      var closed = false;
+      final done = closing!.then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      held.holdRemove!.complete();
+      await removing;
+      await done;
+      check(closed).isTrue();
+    });
+
+    test('close waits for a retry a caller started, until it stops '
+        'writing', () async {
+      await store.stage(
+        source: await recording('kiln.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      // Loaded offline: the controller starts no retry of its own.
+      (container.read(connectivityStatusProvider.notifier)
+              as _OnlineConnectivity)
+          .goOffline();
+      await controller.loadPending();
+      check(controller.pending).length.equals(1);
+
+      // A retry asked for from outside (the daemon's Retry), held at its
+      // upload.
+      final release = api.holdUpload = Completer<void>();
+      final entered = api.uploadEntered = Completer<void>();
+      final retrying = controller.retry(showFeedback: true);
+      await entered.future;
+
+      var closed = false;
+      final closing = controller.close().then((_) => closed = true);
+      await pumpEventQueue();
+      check(closed).isFalse();
+
+      release.complete();
+      await retrying;
+      await closing;
+      check(closed).isTrue();
+    });
+
     test('stages, uploads and attaches a WAV recording', () async {
       final file = await recording('note_recording_1.wav');
       check(await controller.stage(file)).isTrue();

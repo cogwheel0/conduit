@@ -174,6 +174,9 @@ pub struct ApprovalCard {
     kind: ApprovalKind,
     /// "1 of 2" when more requests are queued.
     queue: Option<(usize, usize)>,
+    /// Which question of one request this is (0-based), when it is one of
+    /// several: see [`Self::step`].
+    step: Option<usize>,
     actions: Option<Vec<ApprovalAction>>,
     on_option: Option<SelectHandler>,
     tile: Option<IconName>,
@@ -198,6 +201,7 @@ impl ApprovalCard {
             source: source.into(),
             kind,
             queue: None,
+            step: None,
             actions: None,
             on_option: None,
             tile: None,
@@ -207,6 +211,15 @@ impl ApprovalCard {
     }
     pub fn queue(mut self, current: usize, total: usize) -> Self {
         self.queue = Some((current, total));
+        self
+    }
+    /// Question `index` (0-based) of the `count` one request asks, shown
+    /// with its place as [`Self::queue`] shows it. Each question is heard
+    /// as Next or Back reaches it, with its place, even one worded as the
+    /// question before.
+    pub fn step(mut self, index: usize, count: usize) -> Self {
+        self.queue = Some((index + 1, count));
+        self.step = Some(index);
         self
     }
     /// The buttons, replacing the kind's defaults.
@@ -696,10 +709,31 @@ impl RenderOnce for ApprovalCard {
         // so the two read as one stack. The request's glyph is neutral, as
         // the answer header's: tint is kept for what is destructive or done.
         let frame = composer_frame(&t);
+        let place = |(c, n): (usize, usize)| {
+            fill(
+                &st.position,
+                &[("index", &c.to_string()), ("count", &n.to_string())],
+            )
+        };
+        let spoken = match (self.step, self.queue) {
+            (Some(_), Some(at)) => format!("{}: {}, {}", self.title, self.detail, place(at)),
+            _ => format!("{}: {}", self.title, self.detail),
+        };
         div()
             .id(ElementId::Name(format!("approval-{id}").into()))
             .role(Role::AlertDialog)
             .aria_label(format!("{}: {}", self.title, self.detail))
+            // Said when it appears over the composer, as the phone's prompt
+            // surface is: the focus stays where the user was typing. A
+            // request's questions are each said with their place.
+            .child(
+                crate::announce::live_text(
+                    "live",
+                    Some(spoken.into()),
+                    crate::announce::Priority::High,
+                )
+                .attempt(self.step.map_or(0, |i| i as u64)),
+            )
             .w_full()
             .flex()
             .flex_col()
@@ -753,12 +787,7 @@ impl RenderOnce for ApprovalCard {
                             .gap(px(8.))
                             .text_size(px(m.caption))
                             .text_color(r.text_subtle)
-                            .when_some(self.queue, |d, (c, n)| {
-                                d.child(SharedString::from(fill(
-                                    &st.position,
-                                    &[("index", &c.to_string()), ("count", &n.to_string())],
-                                )))
-                            })
+                            .when_some(self.queue, |d, at| d.child(SharedString::from(place(at))))
                             .child(self.source.clone()),
                     ),
             )

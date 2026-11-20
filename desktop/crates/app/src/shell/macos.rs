@@ -344,6 +344,15 @@ pub fn app_is_active() -> bool {
     MainThreadMarker::new().is_some_and(|mtm| NSApplication::sharedApplication(mtm).isActive())
 }
 
+/// Plays the named system sound (`Glass`, `Tink`, ...), if there is one.
+pub fn play_sound(name: &str) {
+    if let Some(sound) =
+        objc2_app_kit::NSSound::soundNamed(&objc2_foundation::NSString::from_str(name))
+    {
+        sound.play();
+    }
+}
+
 /// Every display's frame and visible frame (without the menu bar and the
 /// Dock), in AppKit global coordinates.
 pub fn screens() -> Vec<(crate::shell::placement::Rect, crate::shell::placement::Rect)> {

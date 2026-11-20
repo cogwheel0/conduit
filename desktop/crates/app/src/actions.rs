@@ -63,6 +63,11 @@ actions!(conduit, [ChatSettings, ToolSettings]);
 // Window › Quick Ask (also the global shortcut and the menu-bar item).
 actions!(conduit, [ToggleQuickAsk]);
 
+// The Dock icon's menu (`desktop::set_dock_menu`): the phone's home-screen
+// quick actions, New Chat and Voice Call, and Quick Ask. Handled by the app
+// (`desktop::install`), whichever window is in front, or none.
+actions!(conduit, [DockNewChat, DockVoiceCall, DockQuickAsk]);
+
 // Conduit › Check for Updates… (Sparkle; handled only when the build has
 // an updater, so the item is disabled otherwise).
 actions!(conduit, [CheckForUpdates]);
@@ -82,6 +87,13 @@ actions!(conduit, [NewTemporaryChat]);
 // Tab and Shift-Tab in the chat pane: the messages' order, rows off screen
 // included (`Transcript::tab`); elsewhere the window's own.
 actions!(conduit, [FocusNextControl, FocusPreviousControl]);
+
+// Go › Move Focus to Next Area (⌥⌘`) and Previous Area (⌥⌘~), as Xcode's,
+// beside the system's ⌘` for the next window: the window's next or
+// previous stop, as Tab and Shift-Tab, taken by the window before any view
+// that keeps Tab for itself (the terminal's console, whose Tab is the
+// shell's) can see it.
+actions!(conduit, [MoveFocusToNextArea, MoveFocusToPreviousArea]);
 
 // File › New Folder: a folder at the top of the sidebar's Folders, named in
 // place (also the list's own right-click menu).

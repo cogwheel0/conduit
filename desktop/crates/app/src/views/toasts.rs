@@ -1,5 +1,6 @@
-//! Toasts: `notify.show` and the window's own notices. Each is a live
-//! region VoiceOver announces, with a dismiss button.
+//! Toasts: `notify.show` and the window's own notices, each with a dismiss
+//! button. VoiceOver hears each as the store shows it
+//! ([`crate::stores::toasts`]), not from here.
 //!
 //! On the main frame they dock in the chat column, 12 pt above the
 //! composer and in the layout, so a toast never covers the transcript (the
@@ -196,7 +197,10 @@ fn toast_column(
                             div().mt(px(-3.)).flex_none().child(
                                 Button::new(
                                     ElementId::NamedInteger("toast-retry".into(), id),
-                                    try_again.clone(),
+                                    toast
+                                        .action_label
+                                        .clone()
+                                        .unwrap_or_else(|| try_again.clone()),
                                 )
                                 .on_click(Rc::new(
                                     move |_, _, cx| {

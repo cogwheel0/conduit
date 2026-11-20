@@ -146,7 +146,7 @@ class NoteAttachmentsController {
       (previous, next) {
         if (previous == ConnectivityStatus.offline &&
             next == ConnectivityStatus.online) {
-          unawaited(retry());
+          _track(retry());
         }
       },
     );
@@ -163,7 +163,7 @@ class NoteAttachmentsController {
         if (_disposed) return;
         _pending.clear();
         _onChanged();
-        if (_currentNote() != null) unawaited(loadPending());
+        if (_currentNote() != null) _track(loadPending());
       },
     );
   }
@@ -174,6 +174,44 @@ class NoteAttachmentsController {
     _authEpochSubscription?.close();
     _activeCancelToken?.cancel('Note editor disposed.');
     _activeCancelToken = null;
+  }
+
+  /// Work this controller started on its own (a retry, a reload, an
+  /// attachment drain), until it ends.
+  final Set<Future<void>> _running = <Future<void>>{};
+
+  void _track(Future<Object?> work) {
+    final Future<void> settled = work.then<void>(
+      (_) {},
+      onError: (Object _) {},
+    );
+    _running.add(settled);
+    settled.whenComplete(() => _running.remove(settled));
+  }
+
+  /// Runs [writer], one of this controller's writers (a stage, a retry, a
+  /// reload, a removal, a rebind), registered for [close] whoever started
+  /// it -- or, once the controller is disposed, nothing at all: [closed] is
+  /// the answer, and no file is touched after [close] has returned.
+  Future<T> _admit<T>(Future<T> Function() writer, T closed) {
+    if (_disposed) return Future<T>.value(closed);
+    // Registered before it runs: a [close] it reaches before its first wait
+    // (a listener it notifies) waits for it too.
+    final done = Completer<T>();
+    _track(done.future);
+    Future<T>.sync(writer).then(done.complete, onError: done.completeError);
+    return done.future;
+  }
+
+  /// [dispose], then waits until every writer has stopped, whether this
+  /// controller started it or a caller did (a retry asked for, say): the
+  /// files they were writing (a recording's manifest, a staged copy) are
+  /// written by then, and nothing of them writes after.
+  Future<void> close() async {
+    dispose();
+    while (_running.isNotEmpty) {
+      await Future.wait(_running.toList());
+    }
   }
 
   /// Stops any upload in flight and forgets what was queued, as a note
@@ -221,7 +259,10 @@ class NoteAttachmentsController {
   /// losing connectivity cannot discard the recording.
   /// [pageId] is the page the recording was started on; by default the page
   /// shown now.
-  Future<bool> stage(File audioFile, {String? pageId}) async {
+  Future<bool> stage(File audioFile, {String? pageId}) =>
+      _admit(() => _stage(audioFile, pageId: pageId), false);
+
+  Future<bool> _stage(File audioFile, {String? pageId}) async {
     final Note? note = _currentNote();
     final scope = _scope();
     final ApiService? api = _container.read(apiServiceProvider);
@@ -259,7 +300,7 @@ class NoteAttachmentsController {
       }
       _sortPending();
       _notify();
-      unawaited(retry(ids: <String>[item.id], showFeedback: true));
+      _track(retry(ids: <String>[item.id], showFeedback: true));
       return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -275,7 +316,9 @@ class NoteAttachmentsController {
 
   /// Reads the recordings this note (and the ids it was remapped from) still
   /// has on disk, and retries them when online.
-  Future<void> loadPending() async {
+  Future<void> loadPending() => _admit<void>(_loadPending, null);
+
+  Future<void> _loadPending() async {
     final Note? note = _currentNote();
     final scope = _scope();
     final ApiService? api = _container.read(apiServiceProvider);
@@ -350,7 +393,7 @@ class NoteAttachmentsController {
       _notify();
       if (_container.read(connectivityStatusProvider) ==
           ConnectivityStatus.online) {
-        unawaited(retry());
+        _track(retry());
       }
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -364,7 +407,13 @@ class NoteAttachmentsController {
 
   /// Uploads and attaches [ids] (every pending recording by default), one at
   /// a time. [showFeedback] words the outcome to the user.
-  Future<void> retry({Iterable<String>? ids, bool showFeedback = false}) async {
+  Future<void> retry({Iterable<String>? ids, bool showFeedback = false}) =>
+      _admit<void>(() => _retry(ids: ids, showFeedback: showFeedback), null);
+
+  Future<void> _retry({
+    Iterable<String>? ids,
+    bool showFeedback = false,
+  }) async {
     if (_disposed || _scope() == null) return;
     final Iterable<String> requestedIds =
         ids ?? _pending.map((PendingNoteAudioUpload item) => item.id).toList();
@@ -518,7 +567,10 @@ class NoteAttachmentsController {
 
   /// Removes a pending recording the user chose to delete (after asking).
   /// Nothing happens while it uploads, or once the server owns its bytes.
-  Future<void> removePending(String id) async {
+  Future<void> removePending(String id) =>
+      _admit<void>(() => _removePending(id), null);
+
+  Future<void> _removePending(String id) async {
     if (_inFlight.contains(id)) return;
     final int index = _pending.indexWhere(
       (PendingNoteAudioUpload item) => item.id == id,
@@ -694,7 +746,7 @@ class NoteAttachmentsController {
 
     final NoteRow? row = await db.notesDao.getNote(resolvedId);
     if (row == null || row.deleted || !canCommit()) return null;
-    unawaited(_drainAttachment());
+    _track(_drainAttachment());
     return Note.fromJson(noteRowToServer(row));
   }
 
@@ -817,7 +869,7 @@ class NoteAttachmentsController {
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
     final Future<void>? check = _reportChange(id, updated);
-    if (check != null) unawaited(check);
+    if (check != null) _track(check);
   }
 
   /// Applies a change of recording [id]; a report of it gone that is checked
@@ -891,7 +943,7 @@ class NoteAttachmentsController {
     for (final String id in ids.toList()) {
       if (!_goneWhileMoving.remove(id)) continue;
       if (_movedCopies.containsKey(id)) {
-        unawaited(_confirmGone(id));
+        _track(_confirmGone(id));
       } else {
         _setChange(id, null);
       }
@@ -927,7 +979,10 @@ class NoteAttachmentsController {
   /// which is still there: only the recordings made on that page move. The
   /// others stay with [previous], stored for when it is opened again, and
   /// leave this editor, which shows [recovered] from now on.
-  Future<void> rebindTo(
+  Future<void> rebindTo(Note previous, Note recovered, {String? pageId}) =>
+      _admit<void>(() => _rebindTo(previous, recovered, pageId: pageId), null);
+
+  Future<void> _rebindTo(
     Note previous,
     Note recovered, {
     String? pageId,
@@ -1077,7 +1132,7 @@ class NoteAttachmentsController {
       _notify();
       if (_container.read(connectivityStatusProvider) ==
           ConnectivityStatus.online) {
-        unawaited(retry(ids: reboundUploads.keys));
+        _track(retry(ids: reboundUploads.keys));
       }
     }
     _settleMove(attemptedUploadIds, reboundUploads);
@@ -1142,9 +1197,8 @@ Map<String, dynamic>? noteDataWithFileLink(
   final String md = notePageMarkdown(data, pageId);
   final String? fileId = attachment['id']?.toString();
   if (fileId == null ||
-      noteFileLinksInMarkdown(
-        md,
-      ).any((NoteFileLink link) => link.id == fileId)) {
+      noteFileLinksInMarkdown(md)
+          .any((NoteFileLink link) => link.id == fileId)) {
     return null;
   }
   final Map<String, dynamic> content =

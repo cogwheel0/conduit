@@ -1,0 +1,7 @@
+{
+  "owner": "p1",
+  "kind": "toolServer",
+  "op": "setEnabled",
+  "identity": "conduit-0a1b",
+  "enabled": false
+}

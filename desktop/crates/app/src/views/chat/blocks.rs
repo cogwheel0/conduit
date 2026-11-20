@@ -19,6 +19,8 @@
 //! ordinal so a new block in front (a status line arriving) does not
 //! reset the text after it.
 
+use std::collections::HashSet;
+use std::rc::Rc;
 use std::time::Instant;
 
 use conduit_components::ActiveConduitTheme as _;
@@ -28,7 +30,8 @@ use conduit_components::views::focus::ControlExt as _;
 use conduit_components::views::kit::Button;
 use conduit_components::views::markdown::CodeBlock;
 use conduit_protocol::{
-    ChatFileDto, MessageBlockDto, MessageBlockKind, ReasoningTitle, ToolCallDto,
+    ChatFileDto, MessageBlockDto, MessageBlockKind, MessageStatusDto, ReasoningTitle, StatusPhrase,
+    ToolCallDto,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -36,13 +39,18 @@ use gpui_kit::{
     SharedString, Stateful, Transformation, Window, div, img, percentage, px, relative,
 };
 
-use super::markdown::{chat_text, decode_data_image, stable_chunks, streaming_cut};
+use super::lazy_chunk::LazyChunk;
+use super::markdown::{chat_text, chat_text_live, decode_data_image, stable_chunks, streaming_cut};
 use super::pace::Pace;
 use super::rows::AssistantRow;
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::files::{
     FileRef, OpenWith, file_image_state, open_attachment, retry_file_image,
 };
+
+/// How long every chunk of an answer stays laid out for Find in Chat's
+/// reveal: a little longer than TextView keeps a reveal it cannot show.
+const REVEAL_LAYOUT: std::time::Duration = std::time::Duration::from_millis(1_500);
 
 /// Longest argument or result drawn in full (the rest is cut, with an
 /// ellipsis; copying the answer still has all of it).
@@ -179,8 +187,24 @@ pub fn status_line(block: &MessageBlockDto, l10n: &L10n) -> Option<String> {
         .statuses
         .as_ref()?
         .last()
-        .map(|s| s.description.clone())
+        .map(|s| status_text(s, l10n))
         .filter(|d| !d.trim().is_empty())
+}
+
+/// What a status line reads: core's own lines in this language
+/// ([`StatusPhrase`]), else the server's words as they came.
+pub fn status_text(status: &MessageStatusDto, l10n: &L10n) -> String {
+    let query = status.query.as_deref().filter(|q| !q.trim().is_empty());
+    match (status.phrase, query, status.count) {
+        (Some(StatusPhrase::KnowledgeSearch), Some(q), _) => {
+            l10n.desktop_status_searching_knowledge(q)
+        }
+        (Some(StatusPhrase::Searching), _, _) => l10n.desktop_status_searching(),
+        (Some(StatusPhrase::Querying), _, _) => l10n.desktop_status_querying(),
+        (Some(StatusPhrase::SourcesRetrieved), _, Some(n)) => l10n.desktop_status_sources(n),
+        (Some(StatusPhrase::Processing), _, _) => l10n.desktop_status_processing(),
+        _ => status.description.clone(),
+    }
 }
 
 /// What a tool call's line names after its tool ("Port Wren"): the first
@@ -240,14 +264,51 @@ pub fn pretty(text: &str) -> String {
 /// A spinner (rotating loader) while something runs.
 /// What an error block says: the server's own words, or a plain sentence.
 pub fn error_text(block: &MessageBlockDto, l10n: &L10n) -> String {
-    match block.r#type.as_deref() {
-        Some("directToolsUnsupported") => l10n.direct_model_tools_unsupported(),
-        _ => block
+    let typed = match block.r#type.as_deref() {
+        Some("directToolsUnsupported") => Some(l10n.direct_model_tools_unsupported()),
+        // A polling-only server may still be writing it (the core's English
+        // stays out of the window).
+        Some("heldReplyStillRunning") => Some(l10n.held_reply_still_running()),
+        Some(t) => apple_error_text(t, l10n),
+        None => None,
+    };
+    typed.unwrap_or_else(|| {
+        block
             .error
             .clone()
             .filter(|e| !e.trim().is_empty())
-            .unwrap_or_else(|| l10n.desktop_something_went_wrong()),
-    }
+            .unwrap_or_else(|| l10n.desktop_something_went_wrong())
+    })
+}
+
+/// Apple's on-device engine's failure (the daemon's `appleFailure.*` and
+/// `appleUnavailable.*` types) in this language; None for another type,
+/// whose block keeps the words it came with.
+pub fn apple_error_text(kind: &str, l10n: &L10n) -> Option<String> {
+    Some(match kind {
+        "appleUnavailable.systemTooOld" => l10n.desktop_apple_error_system_too_old(),
+        "appleUnavailable.deviceNotEligible" => l10n.desktop_apple_mac_not_eligible(),
+        "appleUnavailable.appleIntelligenceNotEnabled" => {
+            l10n.desktop_apple_error_intelligence_off()
+        }
+        "appleUnavailable.modelNotReady" => l10n.desktop_apple_error_model_not_ready(),
+        "appleUnavailable.notOffered" => l10n.desktop_apple_error_pcc_not_offered(),
+        "appleUnavailable.other" => l10n.desktop_apple_error_unavailable(),
+        "appleFailure.contextExceeded" => l10n.desktop_apple_error_context_exceeded(),
+        "appleFailure.notReady" => l10n.desktop_apple_error_not_ready(),
+        "appleFailure.guardrail" => l10n.desktop_apple_error_guardrail(),
+        "appleFailure.refusal" => l10n.desktop_apple_error_refusal(),
+        "appleFailure.unsupported" => l10n.desktop_apple_error_unsupported(),
+        "appleFailure.decoding" => l10n.desktop_apple_error_decoding(),
+        "appleFailure.busy" => l10n.desktop_apple_error_busy(),
+        "appleFailure.timedOut" => l10n.desktop_apple_error_timed_out(),
+        "appleFailure.invalidRequest" => l10n.desktop_apple_error_invalid_request(),
+        "appleFailure.invalidSchema" => l10n.desktop_apple_error_invalid_schema(),
+        "appleFailure.invalidToolSchema" => l10n.desktop_apple_error_invalid_tool_schema(),
+        "appleFailure.invalidStream" => l10n.desktop_apple_error_invalid_stream(),
+        "appleFailure.failed" => l10n.desktop_apple_error_failed(),
+        _ => return None,
+    })
 }
 
 pub fn spinner(id: impl Into<ElementId>, size: f32, color: gpui_kit::Hsla) -> AnyElement {
@@ -555,6 +616,82 @@ impl AssistantRow {
         out
     }
 
+    /// A settled chunk of a long answer, held while it is far from the
+    /// view ([`LazyChunk`]) only while nothing depends on its live layout:
+    /// nothing in it changes height on its own, it has no focus, the answer
+    /// has no selection (`selected`: being made or made), Find is not
+    /// revealing a match in this answer, and it has no link or code block
+    /// while Full Keyboard Access is on. Its place drops a height measured
+    /// for another text.
+    fn lazy_chunk(
+        &mut self,
+        state: &gpui_kit::Entity<gpui_kit::component::text::TextViewState>,
+        md: &str,
+        selected: bool,
+        text: impl FnOnce() -> AnyElement + 'static,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> LazyChunk {
+        let place = self.places.entry(state.entity_id()).or_default().clone();
+        let facts = place.text_facts(md);
+        let now = cx.background_executor().now();
+        let revealing = self.revealing_until.is_some_and(|until| now < until);
+        let keyboard = conduit_components::views::focus::full_keyboard_access(cx);
+        let s = state.read(cx);
+        // Its height is only kept from a layout of this text, for the
+        // parse that drew it.
+        let rendered = s.rendered_text();
+        let settled = (rendered.source() == md).then_some(rendered);
+        let may_hold = !revealing
+            && !selected
+            && !s.focus_handle().contains_focused(window, cx)
+            && !facts.media
+            && !(keyboard && facts.stops);
+        LazyChunk::new(place, text).holdable(may_hold, settled)
+    }
+
+    /// Whether any text of this answer has a selection, being made or made
+    /// (the drag ended): its chunks then stay laid out, so the selection
+    /// keeps every one of them and Copy takes all of its text. Worked out
+    /// once per frame, however many long text blocks ask.
+    fn has_selection(&mut self, cx: &App) -> bool {
+        if let Some(known) = self.selection_now {
+            return known;
+        }
+        let selected = self.texts.values().any(|(_, state)| {
+            let s = state.read(cx);
+            s.is_selecting() || !s.selected_text().is_empty()
+        });
+        self.selection_now = Some(selected);
+        selected
+    }
+
+    /// Forgets the places of text states this row no longer has.
+    fn prune_places(&mut self) {
+        let leaving = self.leaving_texts().count();
+        if self.places.len() <= self.texts.len() + leaving + 8 {
+            return;
+        }
+        let live: HashSet<gpui_kit::EntityId> = self
+            .texts
+            .values()
+            .map(|(_, s)| s.entity_id())
+            .chain(self.leaving_texts().map(|s| s.entity_id()))
+            .collect();
+        self.places.retain(|id, _| live.contains(id));
+    }
+
+    /// Lays out every chunk of the answer for a moment: Find in Chat is
+    /// revealing a match in it, which only a laid-out chunk can scroll to.
+    pub fn reveal_text(&mut self, cx: &mut Context<Self>) {
+        self.revealing_until = Some(cx.background_executor().now() + REVEAL_LAYOUT);
+        // A comparison's columns draw their own text.
+        for view in self.column_views() {
+            view.update(cx, |r, cx| r.reveal_text(cx));
+        }
+        cx.notify();
+    }
+
     /// Draws block `i`.
     pub(super) fn render_block(
         &mut self,
@@ -584,35 +721,47 @@ impl AssistantRow {
                 if pending {
                     window.request_animation_frame();
                 }
-                let streaming = self.item.streaming && !paced;
+                let (held, live) = text_mode(self.item.streaming, paced);
                 // A long answer is drawn in stable chunks, so streaming
-                // re-lays out only the last one.
+                // re-lays out only the last one, and the earlier ones far
+                // from the view are not laid out at all (`LazyChunk`).
                 let chunks = stable_chunks(md);
                 let last = chunks.len() - 1;
+                let growing = self.item.streaming || pending;
                 let views: Vec<AnyElement> = if chunks.len() == 1 {
                     let state_key = format!("text{ordinal}");
-                    let md = if streaming {
-                        self.held(&state_key, md)
-                    } else {
-                        md
-                    };
+                    let md = if held { self.held(&state_key, md) } else { md };
                     let state = self.text_state(&state_key, md, window, cx);
-                    vec![chat_text(&state, key.clone().into()).into_any_element()]
+                    vec![chat_text_live(&state, key.clone().into(), live).into_any_element()]
                 } else {
-                    chunks
+                    let selected = self.has_selection(cx);
+                    let views = chunks
                         .iter()
                         .enumerate()
                         .map(|(k, chunk)| {
                             let state_key = format!("text{ordinal}.{k}");
                             let mut chunk = chunk.trim_end();
                             // Earlier chunks end at a closed paragraph.
-                            if streaming && k == last {
+                            if held && k == last {
                                 chunk = self.held(&state_key, chunk);
                             }
                             let state = self.text_state(&state_key, chunk, window, cx);
-                            chat_text(&state, key.clone().into()).into_any_element()
+                            let tail = live && k == last;
+                            if growing && k == last {
+                                return chat_text_live(&state, key.clone().into(), tail)
+                                    .into_any_element();
+                            }
+                            // Made only if it is laid out.
+                            let text = {
+                                let (state, key) = (state.clone(), key.clone());
+                                move || chat_text_live(&state, key.into(), tail).into_any_element()
+                            };
+                            self.lazy_chunk(&state, chunk, selected, text, window, cx)
+                                .into_any_element()
                         })
-                        .collect()
+                        .collect();
+                    self.prune_places();
+                    views
                 };
                 div()
                     .w_full()
@@ -1030,7 +1179,7 @@ impl AssistantRow {
                     )
                     // The way out: ask for the answer again, in place (the
                     // failed one stays as an earlier version).
-                    .when(self.flags.can_branch && !self.item.streaming, |d| {
+                    .when(self.flags.can_regenerate() && !self.item.streaming, |d| {
                         let store = self.host.store.clone();
                         let regen = key.clone();
                         d.child(
@@ -1069,7 +1218,8 @@ impl AssistantRow {
                 let timeline = expanded.then(|| {
                     disclosure_body(&t).flex().flex_col().gap(px(6.)).children(
                         statuses.iter().enumerate().map(|(n, s)| {
-                            let repeats = n == last && s.description == header_line;
+                            let said = status_text(s, &l10n);
+                            let repeats = n == last && said == header_line;
                             let indent = if repeats { 0. } else { 18. };
                             div()
                                 .flex()
@@ -1092,7 +1242,7 @@ impl AssistantRow {
                                                 12.,
                                                 r.text_faint,
                                             ))
-                                            .child(SharedString::from(s.description.clone())),
+                                            .child(SharedString::from(said)),
                                     )
                                 })
                                 .when(!s.queries.is_empty(), |d| {
@@ -1538,12 +1688,22 @@ pub fn file_list(
                     crate::views::image_viewer::open(images.clone(), start, cx)
                 }) as OpenImage
             });
+            // Open Image, Copy Image and Save Image…, as an answer's
+            // other pictures have them (`remote_image`).
+            let menu = gallery.iter().find(|(k, _)| *k == n).map(|(_, image)| {
+                Rc::new(super::remote_image::file_image_menu(
+                    &format!("file-{id}-{n}"),
+                    image,
+                    l10n,
+                )) as ImageMenu
+            });
             children.push(image_tile(
                 element_id,
                 &name,
                 state,
                 file_ref.clone(),
                 open,
+                menu,
                 l10n,
                 t,
             ));
@@ -1645,6 +1805,9 @@ pub fn image_label(name: &str) -> Option<String> {
 /// Shows an image in the viewer.
 type OpenImage = std::rc::Rc<dyn Fn(&mut App)>;
 
+/// A picture's context menu.
+type ImageMenu = Rc<dyn Fn(&gpui_kit::MouseDownEvent, &mut Window, &mut App)>;
+
 /// Whether `file` is a video (by its type, else its name), which plays
 /// inline.
 pub fn is_video(file: &ChatFileDto) -> bool {
@@ -1658,12 +1821,14 @@ pub fn is_video(file: &ChatFileDto) -> bool {
 }
 
 /// One inline image in its state. `open` shows it in the viewer.
+#[allow(clippy::too_many_arguments)]
 fn image_tile(
     element_id: ElementId,
     name: &str,
     state: ImageState,
     file: Option<FileRef>,
     open: Option<OpenImage>,
+    menu: Option<ImageMenu>,
     l10n: &L10n,
     t: &ConduitTheme,
 ) -> AnyElement {
@@ -1702,6 +1867,11 @@ fn image_tile(
                     if let Some(open) = &open {
                         open(cx);
                     }
+                })
+                .when_some(menu, |d, menu| {
+                    d.on_mouse_down(gpui_kit::MouseButton::Right, move |e, window, cx| {
+                        menu(e, window, cx)
+                    })
                 })
                 .into_any_element()
         }
@@ -1774,10 +1944,42 @@ fn image_tile(
     }
 }
 
+/// How a text block of a message (`streaming`: still being written) is
+/// drawn this frame, its text `paced` or not: `held` (an open span or a
+/// half-written fence at the end is held back, unless pacing already
+/// released only text free of them) and `live` (the message is still being
+/// written, so a diagram whose fence has not closed stays code: pacing
+/// never makes it final).
+fn text_mode(streaming: bool, paced: bool) -> (bool, bool) {
+    (streaming && !paced, streaming)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::stores::chat::empty_block;
+
+    /// A paced answer that is still streaming keeps its open diagram fence
+    /// as code; only a finished message's diagram is drawn as final.
+    #[test]
+    fn pacing_never_makes_a_streaming_answers_diagram_final() {
+        // Still streaming, paced: nothing held back, but still live.
+        assert_eq!(text_mode(true, true), (false, true));
+        // Still streaming, not paced: held back, live.
+        assert_eq!(text_mode(true, false), (true, true));
+        // Finished: final.
+        assert_eq!(text_mode(false, false), (false, false));
+        assert_eq!(text_mode(false, true), (false, false));
+    }
+
+    #[test]
+    fn a_held_reply_on_a_polling_only_server_is_worded_here() {
+        let l10n = L10n::new("en");
+        let mut block = empty_block(MessageBlockKind::Error);
+        block.error = Some("The server is still working on it (core's own English).".into());
+        block.r#type = Some("heldReplyStillRunning".into());
+        assert_eq!(error_text(&block, &l10n), l10n.held_reply_still_running());
+    }
 
     #[test]
     fn inline_images_keep_their_proportions_and_never_grow() {
@@ -1828,6 +2030,135 @@ mod tests {
         assert_eq!(reasoning_title(&b, &de), "Gedacht für 1 Sekunde");
     }
 
+    /// Core's own English (the phone's words) is what the window says in
+    /// English, and every other language has its own words for it: the
+    /// status lines, Apple's failures, the call refusals and the Hermes
+    /// cadences.
+    #[test]
+    fn core_words_read_in_every_language() {
+        use conduit_protocol::{CallRefusal, HermesCadenceDto, HermesCadenceKind};
+
+        use crate::views::chat::call::refusal_text;
+        use crate::views::panes::hermes_jobs::cadence_text;
+
+        let status = |phrase, count: Option<i64>, query: Option<&str>| MessageStatusDto {
+            description: "server words".into(),
+            phrase: Some(phrase),
+            count,
+            query: query.map(String::from),
+            action: None,
+            done: true,
+            queries: vec![],
+            links: vec![],
+            details: vec![],
+        };
+        let statuses = [
+            status(StatusPhrase::KnowledgeSearch, None, Some("tide tables")),
+            status(StatusPhrase::Searching, None, None),
+            status(StatusPhrase::Querying, None, None),
+            status(StatusPhrase::SourcesRetrieved, Some(0), None),
+            status(StatusPhrase::SourcesRetrieved, Some(1), None),
+            status(StatusPhrase::SourcesRetrieved, Some(4), None),
+            status(StatusPhrase::Processing, None, None),
+        ];
+        let apple = [
+            "appleUnavailable.systemTooOld",
+            "appleUnavailable.deviceNotEligible",
+            "appleUnavailable.appleIntelligenceNotEnabled",
+            "appleUnavailable.modelNotReady",
+            "appleUnavailable.notOffered",
+            "appleUnavailable.other",
+            "appleFailure.contextExceeded",
+            "appleFailure.notReady",
+            "appleFailure.guardrail",
+            "appleFailure.refusal",
+            "appleFailure.unsupported",
+            "appleFailure.decoding",
+            "appleFailure.busy",
+            "appleFailure.timedOut",
+            "appleFailure.invalidRequest",
+            "appleFailure.invalidSchema",
+            "appleFailure.invalidToolSchema",
+            "appleFailure.invalidStream",
+            "appleFailure.failed",
+        ];
+        let refusals = [
+            CallRefusal::ModelRequired,
+            CallRefusal::HermesLoading,
+            CallRefusal::HermesUnavailable,
+            CallRefusal::DirectUnavailable,
+            CallRefusal::SignInRequired,
+            CallRefusal::BackendUnsupported,
+        ];
+        let cadence =
+            |kind, every: Option<i64>, minute: Option<i64>, weekday, day| HermesCadenceDto {
+                kind,
+                every,
+                hour: Some(17),
+                minute,
+                weekday,
+                day,
+            };
+        let cadences = [
+            cadence(HermesCadenceKind::None, None, None, None, None),
+            cadence(HermesCadenceKind::EveryMinute, None, None, None, None),
+            cadence(HermesCadenceKind::EveryMinutes, Some(15), None, None, None),
+            cadence(HermesCadenceKind::EveryHour, None, Some(0), None, None),
+            cadence(HermesCadenceKind::EveryHour, None, Some(5), None, None),
+            cadence(HermesCadenceKind::EveryHours, Some(6), Some(0), None, None),
+            cadence(HermesCadenceKind::EveryHours, Some(6), Some(30), None, None),
+            cadence(HermesCadenceKind::Daily, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekdays, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekends, None, Some(45), None, None),
+            cadence(HermesCadenceKind::Weekly, None, Some(45), Some(4), None),
+            cadence(HermesCadenceKind::Monthly, None, Some(45), None, Some(22)),
+        ];
+        let said = |l: &L10n| -> Vec<String> {
+            let mut out: Vec<String> = statuses.iter().map(|s| status_text(s, l)).collect();
+            out.extend(apple.iter().map(|k| apple_error_text(k, l).expect(k)));
+            out.extend(refusals.iter().map(|r| refusal_text(*r, l).expect("known")));
+            out.extend(cadences.iter().map(|c| cadence_text(c, l).expect("known")));
+            out
+        };
+        let en = said(&L10n::new("en"));
+        // The phone's (core's) English, word for word.
+        for (got, want) in en.iter().zip([
+            "Searching Knowledge for “tide tables”",
+            "Searching",
+            "Querying",
+            "No sources found",
+            "Retrieved 1 source",
+            "Retrieved 4 sources",
+            "Processing",
+        ]) {
+            assert_eq!(got, want);
+        }
+        let english_cadences = &en[en.len() - cadences.len()..];
+        assert_eq!(english_cadences[2], "Every 15 minutes");
+        assert_eq!(english_cadences[4], "Every hour at :05");
+        assert_eq!(english_cadences[6], "Every 6 hours at :30");
+        assert!(english_cadences[10].starts_with("Every Thursday at "));
+        assert!(english_cadences[11].starts_with("Monthly on the 22nd at "));
+        for locale in crate::l10n::LOCALES.iter().filter(|l| **l != "en") {
+            let words = said(&L10n::new(locale));
+            for (i, (got, english)) in words.iter().zip(&en).enumerate() {
+                assert!(!got.trim().is_empty(), "{locale} #{i}");
+                assert!(!got.contains('{'), "{locale} #{i}: {got}");
+                assert_ne!(got, english, "{locale} #{i} is still English");
+            }
+        }
+        // No phrase, or one without what it needs, keeps the server's words.
+        let no_query = status(StatusPhrase::KnowledgeSearch, None, None);
+        assert_eq!(status_text(&no_query, &L10n::new("de")), "server words");
+        let bare = MessageStatusDto {
+            phrase: None,
+            description: "Searched the web".into(),
+            ..status(StatusPhrase::Searching, None, None)
+        };
+        assert_eq!(status_text(&bare, &L10n::new("de")), "Searched the web");
+        assert_eq!(apple_error_text("serverOverloaded", &L10n::new("de")), None);
+    }
+
     #[test]
     fn status_rows_read_the_last_line_or_the_tool_summary() {
         let l10n = L10n::new("en");
@@ -1835,6 +2166,9 @@ mod tests {
         b.statuses = Some(vec![
             conduit_protocol::MessageStatusDto {
                 description: "Searching the web".into(),
+                phrase: None,
+                count: None,
+                query: None,
                 action: None,
                 done: true,
                 queries: vec![],
@@ -1843,6 +2177,9 @@ mod tests {
             },
             conduit_protocol::MessageStatusDto {
                 description: "Read 3 pages".into(),
+                phrase: None,
+                count: None,
+                query: None,
                 action: None,
                 done: true,
                 queries: vec![],

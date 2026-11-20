@@ -19,11 +19,14 @@ offers three models:
     message, which the app must refuse;
   - "display" with a terminal selected: a call to the terminal's
     `display_file` for `/home/demo/notes.txt` (which Open WebUI turns into
-    a `terminal:display_file` event), then a short answer;
+    a `terminal:display_file` event), then a short answer; "tide table"
+    asks for `/home/demo/tides.pdf` at page 2 instead;
   - "ask me": a call to Open WebUI's `ask_user` with two questions, then,
     answered, "You chose X and Y.";
   - "plan the tasks": a call to `create_tasks` with three tasks, then a
     short answer;
+  - "buoy", offered the personal tool server's `read_buoy`: a call to it,
+    then an answer that quotes the reading it came back with;
   - "alerts": one of each GitHub-style alert;
   - "reason": reasoning (`reasoning_content`) first, then the answer below;
   - "code": python, html and mermaid code blocks;
@@ -59,7 +62,11 @@ long as the text would take to say, for the server's speech features;
 "read aloud" in a prompt gets four long sentences to read. `/mcp` is a
 small MCP server (streamable HTTP, JSON answers)
 with one MCP App, `show_tides`, whose page shows the tool's result, for
-Open WebUI's MCP Apps. `fake_direct.py` adds what the desktop's Direct
+Open WebUI's MCP Apps. `/personal` is a personal tool server
+(OpenAPI): `/personal/openapi.json` describes one operation, `read_buoy`
+(`POST /personal/buoy`), which answers with an invented reading; the log
+gets each call. `/webhook/...` takes a webhook delivery (any POST) and logs
+its body, for Open WebUI's webhook destinations. `fake_direct.py` adds what the desktop's Direct
 pass needs: a local Ollama API under `/ollama`, the Responses API, and an
 OAuth-protected MCP server (`/oauth-mcp`) with its authorization server; a
 "ferry" prompt offered that server's tool calls it. Every answer is invented. The log gets each request's roles, tool names,
@@ -278,6 +285,38 @@ def fake_embedding(text, size=16):
     return [v / norm for v in values]
 
 
+# The personal tool server (OpenAPI) under /personal.
+PERSONAL_OPENAPI = {
+    'openapi': '3.1.0',
+    'info': {
+        'title': 'Buoy Readings',
+        'version': '1.0.0',
+        'description': 'Invented readings from the harbour buoys.',
+    },
+    'paths': {
+        '/buoy': {
+            'post': {
+                'operationId': 'read_buoy',
+                'summary': 'Read a harbour buoy',
+                'description': 'The latest wave height and water temperature at a buoy.',
+                'requestBody': {
+                    'required': True,
+                    'content': {'application/json': {'schema': {
+                        'type': 'object',
+                        'properties': {'station': {
+                            'type': 'string', 'description': 'The buoy station, for example North Mole',
+                        }},
+                        'required': ['station'],
+                    }}},
+                },
+                'responses': {'200': {'description': 'The reading'}},
+            },
+        },
+    },
+}
+BUOY_READING = {'station': 'North Mole', 'wave_height_m': 0.8, 'water_temp_c': 14.5}
+
+
 PAGE = (
     '<!doctype html><html><head><title>Raised Bed Basics</title></head><body>'
     '<article><h1>Raised Bed Basics</h1>'
@@ -336,6 +375,15 @@ def answer_for(text):
             '<p>Rendered in a sandbox.</p>\n```\n\n'
             '```mermaid\ngraph TD\n  A[Question] --> B{Fake model}\n  B -->|code| C[Blocks]\n'
             '  B -->|math| D[Formulas]\n```\n'
+        )
+    elif 'diagram' in t:
+        # Streamed slowly (see `do_POST`): the fence stays open for a
+        # while, so a client can be seen to keep it as code until it ends.
+        body = (
+            'Here is the tide cycle as a diagram.\n\n'
+            '```mermaid\ngraph LR\n  A[Low water] --> B[Flood tide]\n'
+            '  B --> C[High water]\n  C --> D[Ebb tide]\n  D --> A\n```\n\n'
+            'Each full cycle takes about twelve and a half hours.'
         )
     elif 'math' in t:
         body = (
@@ -748,6 +796,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        if self.path.split('?')[0].rstrip('/').endswith('/personal/openapi.json'):
+            self._json(200, PERSONAL_OPENAPI)
+            return
         if self.path.rstrip('/').endswith('/page/raised-beds'):
             # A page for Open WebUI to read as a Web Page attachment.
             body = PAGE.encode()
@@ -869,6 +920,33 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(200, answer)
             return
+        if path.endswith('/personal/buoy'):
+            # The personal tool server's one operation: the client runs it
+            # (Open WebUI asks the session that sent the chat to).
+            try:
+                args = json.loads(raw or b'{}')
+            except ValueError:
+                args = {}
+            if self.log_path:
+                with open(self.log_path, 'a') as log:
+                    log.write(json.dumps({'personal_tool': 'read_buoy', 'args': args}) + '\n')
+            reading = dict(BUOY_READING)
+            if isinstance(args, dict) and args.get('station'):
+                reading['station'] = str(args['station'])
+            self._json(200, reading)
+            return
+        if '/webhook' in path:
+            # A webhook delivery from Open WebUI (a destination's Test, or a
+            # real event): logged for the test to find.
+            try:
+                body = json.loads(raw or b'{}')
+            except ValueError:
+                body = {'raw': raw.decode('utf-8', 'replace')}
+            if self.log_path:
+                with open(self.log_path, 'a') as log:
+                    log.write(json.dumps({'webhook': path, 'body': body}) + '\n')
+            self._json(200, {'ok': True})
+            return
         if path.endswith('/embeddings'):
             # Memories need an embedding to be saved: a small vector made
             # from the text's bytes, the same for the same text.
@@ -926,6 +1004,7 @@ class Handler(BaseHTTPRequestHandler):
         ferry = fake_direct.ferry_tool(tool_names)
         ferried = tool_result(after_user, ferry) if ferry else None
         displayed = called(after_user, 'display_file')
+        buoy = tool_result(after_user, 'read_buoy')
 
         reasoning = None
         call = None
@@ -955,6 +1034,15 @@ class Handler(BaseHTTPRequestHandler):
             text = f"You chose {' and '.join(chosen)}." if chosen else 'You did not answer.'
         elif ferried is not None:
             text = f'The ferry tool says: {ferried}'
+        elif buoy is not None:
+            try:
+                reading = json.loads(buoy)
+                if isinstance(reading, list):
+                    reading = reading[0]
+                text = (f"The {reading['station']} buoy reads {reading['wave_height_m']} m waves "
+                        f"and {reading['water_temp_c']} degrees water.")
+            except (ValueError, KeyError, TypeError, IndexError):
+                text = f'The buoy tool says: {buoy}'
         elif planned:
             text = 'The plan is ready: one task done, one under way.'
         elif displayed:
@@ -969,6 +1057,9 @@ class Handler(BaseHTTPRequestHandler):
             facts = [COLOUR_FACT.search(text_of(m)) for m in users[:-1]]
             facts = [f.group(1) for f in facts if f]
             text = facts[-1] if facts else 'You have not told me.'
+        elif 'buoy' in lower and 'read_buoy' in tool_names:
+            call = tool_call('read_buoy', server_fields(tools, 'read_buoy', {'station': 'North Mole'}))
+            text = ''
         elif 'ferry' in lower and ferry:
             call = tool_call(ferry, {'harbour': 'North'})
             text = ''
@@ -977,6 +1068,10 @@ class Handler(BaseHTTPRequestHandler):
             text = ''
         elif 'plan the tasks' in lower and 'create_tasks' in tool_names:
             call = tool_call('create_tasks', server_fields(tools, 'create_tasks', {'tasks': TASKS}))
+            text = ''
+        elif 'tide table' in lower and 'display_file' in tool_names:
+            call = tool_call('display_file', server_fields(
+                tools, 'display_file', {'path': '/home/demo/tides.pdf', 'page': 2}))
             text = ''
         elif 'display' in lower and 'display_file' in tool_names:
             call = tool_call('display_file', server_fields(
@@ -1049,10 +1144,11 @@ class Handler(BaseHTTPRequestHandler):
                         time.sleep(0.016)
                 else:
                     slow = 'slow' in lower
+                    diagram = 'diagram' in lower
                     pieces = text.split(' ')
                     for i, piece in enumerate(pieces):
                         send(chunk(model, {'content': piece + (' ' if i < len(pieces) - 1 else '')}))
-                        time.sleep(0.2 if slow else 0.03)
+                        time.sleep(0.2 if slow else 0.4 if diagram else 0.03)
                 send(chunk(model, {}, 'stop'))
             # As OpenAI's `include_usage` sends it: no choices, the counts,
             # and Groq-style timings for the rates.

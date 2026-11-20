@@ -6,6 +6,7 @@ import 'package:conduit/core/utils/account_display.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/auth/openwebui_server_address.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -94,12 +95,17 @@ void main() {
     );
   });
 
-  testWidgets('an address typed while the saved one is read stays', (
+  testWidgets('the form takes no input until the saved address is read', (
     tester,
   ) async {
     final server = (await tester.runAsync(() async {
       await storage.saveServerConfigs([
-        const ServerConfig(id: 'a', name: 'Chat', url: 'https://chat.example'),
+        const ServerConfig(
+          id: 'a',
+          name: 'Chat',
+          url: 'https://chat.example',
+          customHeaders: {'X-Gate': 'kept'},
+        ),
       ]);
       return (await storage.getOpenWebUiRegistryStrict()).servers.single;
     }))!;
@@ -128,8 +134,15 @@ void main() {
     read.complete();
     await tester.pumpAndSettle();
 
-    expect(find.text('https://typed.example'), findsOneWidget);
-    expect(find.text('https://chat.example'), findsNothing);
+    // Typing before the read lands nowhere; the saved address fills the
+    // form whole, its header included, and is what Save is told apart from.
+    expect(find.text('https://typed.example'), findsNothing);
+    expect(find.text('https://chat.example'), findsOneWidget);
+    final save = tester.widget<ConduitButton>(
+      find.widgetWithText(ConduitButton, 'Save Address'),
+    );
+    expect(save.onPressed, isNotNull);
+    expect(find.text('X-Gate'), findsOneWidget);
   });
 
   // Back abandons the edit: the address the server's accounts use stays.
@@ -404,6 +417,7 @@ void main() {
           url: 'http://100.64.0.7:8080',
         ),
         adding: false,
+        editedFrom: server.endpoints.single,
         cookieOwner: null,
         headers: const {},
         sessionRevision: storage.sessionRevocationRevision,

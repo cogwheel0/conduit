@@ -330,6 +330,10 @@ final class _ConnectionEditor {
   List<Object?>? start;
   bool initialized = false;
 
+  /// The list a save or test was refused against because the entry had
+  /// changed: the form fills again from the next list read, not this one.
+  PersonalConnectionsSnapshot? refusedOn;
+
   String name = '';
   String description = '';
   String url = '';
@@ -364,6 +368,24 @@ final class _ConnectionEditor {
   bool get hasStoredKey =>
       (existing?.raw['key']?.toString() ?? '').trim().isNotEmpty;
 
+  /// Whether Save removes the stored key that the form keeps, because the
+  /// edit moves the connection, or where its document is fetched from, to
+  /// another origin.
+  bool get keyGoesWithMove {
+    final stored = existing?.raw;
+    final opened = this.opened;
+    if (stored == null ||
+        opened == null ||
+        !hasStoredKey ||
+        keyMode != PersonalConnectionSecretMode.keep) {
+      return false;
+    }
+    final edit = patch(opened);
+    return !edit.containsKey('key') &&
+        (mergePersonalConnectionEdit(stored, edit)['key']?.toString() ?? '')
+            .isEmpty;
+  }
+
   List<Object?> values() => [
     name,
     description,
@@ -387,6 +409,8 @@ final class _ConnectionEditor {
   /// Fills the form from [snapshot] once, then follows the entry through
   /// later reads of the list, within the account that opened the form.
   void initialize(PersonalConnectionsSnapshot snapshot) {
+    if (identical(snapshot, refusedOn)) return;
+    refusedOn = null;
     owner ??= snapshot.session;
     if (initialized) {
       if (ownerChanged) return;
@@ -417,7 +441,11 @@ final class _ConnectionEditor {
     if (entry == null) return;
     initialized = true;
     opened = entry.raw;
+    // Every field comes from the entry, the key text too: a form filled
+    // again (after a save refused because the entry changed) shows nothing
+    // typed that the next save would leave out.
     keyMode = PersonalConnectionSecretMode.keep;
+    keyText = '';
     if (isTool) {
       final draft = PersonalToolServerDraft.fromEntry(entry.raw);
       name = draft.name;
@@ -683,6 +711,7 @@ NativeSheetDetailConfig _buildEditorPage(
   final errors = editor.fieldErrors(l10n);
   final showKey = !editor.isTool || editor.authType == 'bearer';
   final removing = editor.keyMode == PersonalConnectionSecretMode.clear;
+  final keyGoes = editor.keyGoesWithMove;
   final keeping =
       editor.keyMode == PersonalConnectionSecretMode.keep &&
       editor.hasStoredKey;
@@ -767,16 +796,23 @@ NativeSheetDetailConfig _buildEditorPage(
               sfSymbol: 'key',
               kind: NativeSheetItemKind.secureTextField,
               value: editor.keyText,
+              // The removal at another address is too long for the
+              // one-line field, so it wraps below it.
+              subtitle: keyGoes
+                  ? l10n.personalConnectionsKeyRemovedForNewAddress
+                  : null,
               // The stored key never reaches the form; the placeholder says
               // what happens to it instead.
               placeholder: removing
                   ? l10n.personalConnectionsKeyWillRemove
-                  : keeping
+                  : keeping && !keyGoes
                   ? l10n.personalConnectionsKeyKept
                   : l10n.apiKey,
               disabled: removing,
             ),
-          if (showKey && editor.hasStoredKey)
+          // At another origin the saved key goes unless one is typed: there
+          // is no keeping it, and nothing for Remove to do.
+          if (showKey && editor.hasStoredKey && !keyGoes)
             NativeSheetItemConfig(
               id: personalConnectionRowId('key-mode', key),
               title: removing
@@ -1111,6 +1147,8 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         existing.identity,
         patch,
         stampKey: editor.isTool ? editor.stampKey : null,
+        // Refused if the entry changed since this form opened it.
+        fingerprint: personalConnectionFingerprint(opened),
       );
     } else {
       return;
@@ -1141,10 +1179,29 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..message = personalConnectionSaveError(l10n, error)
         ..messageIsError = true;
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        // A Test result was about the values refused; the entry the form
+        // fills with now was not tested.
+        editor
+          ..test = _TestState.idle
+          ..testText = null;
+        _reloadChanged(editor);
+      }
     } finally {
       editor.saving = false;
     }
     await _applyEditor(l10n, editor);
+  }
+
+  /// [editor]'s entry changed since it opened it: the form fills again from
+  /// the entry as the list now has it.
+  void _reloadChanged(_ConnectionEditor editor) {
+    editor
+      ..refusedOn = _ref.read(personalConnectionsProvider).asData?.value
+      ..initialized = false;
+    _ref.invalidate(personalConnectionsProvider);
   }
 
   Future<void> _test(AppLocalizations l10n, _ConnectionEditor editor) async {
@@ -1160,9 +1217,16 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     }
     final existing = editor.existing;
     final opened = editor.opened;
-    final entry = existing == null || opened == null
-        ? editor.newEntry()
-        : mergePersonalConnectionPatch(existing.raw, editor.patch(opened));
+    // A stored entry is tested as Save would store the form, against the
+    // settings read again: refused once the entry changed since this form
+    // opened it, so a stale form's key is sent nowhere.
+    final edit = existing == null || opened == null
+        ? null
+        : PatchPersonalConnection(
+            existing.identity,
+            editor.patch(opened),
+            fingerprint: personalConnectionFingerprint(opened),
+          );
     editor
       ..attempted = true
       ..test = _TestState.testing
@@ -1171,11 +1235,13 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
     await _applyEditor(l10n, editor);
     final revision = editor.revision;
     try {
-      final result = await _controller.testConnection(
-        owner,
-        editor.kind,
-        entry,
-      );
+      final result = edit == null
+          ? await _controller.testConnection(
+              owner,
+              editor.kind,
+              editor.newEntry(),
+            )
+          : await _controller.testEdit(owner, editor.kind, edit);
       if (!identical(_editors[editor.key], editor)) return;
       // Edited while it was tested: the answer is about other values.
       if (editor.revision != revision) return;
@@ -1196,6 +1262,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
       editor
         ..test = _TestState.failed
         ..testText = personalConnectionSaveError(l10n, error);
+      if (error case PersonalConnectionEditException(
+        failure: PersonalConnectionEditFailure.changed,
+      )) {
+        _reloadChanged(editor);
+      }
     }
     await _applyEditor(l10n, editor);
   }
@@ -1313,6 +1384,7 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         editor.attempted ||
         editor.test != _TestState.idle ||
         editor.message != null;
+    final keyGoes = editor.keyGoesWithMove;
     switch (field) {
       case 'name' when value is String:
         editor.name = value;
@@ -1370,8 +1442,11 @@ class PersonalConnectionSettingsPages extends SettingsPageModule {
         return true;
     }
     editor.changed();
-    // An issue, test result or message on show follows the text.
-    if (shown) await _applyEditor(l10n, editor);
+    // An issue, test result or message on show follows the text, and so
+    // does what Save does to the saved key.
+    if (shown || editor.keyGoesWithMove != keyGoes) {
+      await _applyEditor(l10n, editor);
+    }
     return true;
   }
 }

@@ -32,7 +32,7 @@ use gpui_kit::{
 
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
-use crate::stores::chat::{CHAT_EVENTS, ChatStore, PendingMessage, Subscribe};
+use crate::stores::chat::{CHAT_EVENTS, ChatStore, ChatStoreEvent, PendingMessage, Subscribe};
 use crate::stores::composer::{ComposerEvent, ComposerPrefs, ComposerStore};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::router::RouterEvent;
@@ -108,7 +108,11 @@ impl QuickAskView {
         // Settings › Chat's choices (Send with Enter, quick pills, Save as
         // Note), kept as they change.
         let prefs = ComposerPrefs::from_settings(stores.app_settings.read(cx).settings());
-        composer_store.update(cx, |c, cx| c.set_prefs(prefs, cx));
+        composer_store.update(cx, |c, cx| {
+            c.set_prefs(prefs, cx);
+            // Quick Ask's chats are ordinary chats, not temporary ones.
+            c.saves_without_draft = true;
+        });
         let placeholder = cx.l10n().message_hint_text();
         let composer = cx.new(|cx| {
             let mut c = ChatComposer::new(composer_store.clone(), window, cx);
@@ -162,6 +166,9 @@ impl QuickAskView {
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                // The composer follows the chat under its new id.
+                this.composer_store
+                    .update(cx, |c, cx| c.rekey_chat(from, to, cx));
             }),
             cx.subscribe_in(
                 &composer,
@@ -197,8 +204,11 @@ impl QuickAskView {
                         l10n.desktop_attachment_failed(name)
                     }
                     ComposerEvent::ModelNotSelected(_) => l10n.desktop_model_not_selected(),
+                    ComposerEvent::ControlNotSaved(_) => l10n.desktop_model_control_not_saved(),
                     // Quick Ask keeps no drafts.
-                    ComposerEvent::DraftSwitched | ComposerEvent::DraftLoaded { .. } => return,
+                    ComposerEvent::DraftSwitched
+                    | ComposerEvent::DraftLoaded { .. }
+                    | ComposerEvent::DraftReadEnded => return,
                 });
                 cx.notify();
             }),
@@ -262,7 +272,10 @@ impl QuickAskView {
     /// draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
-        self.composer_store.update(cx, |c, cx| c.start_over(cx));
+        self.composer_store.update(cx, |c, cx| {
+            c.start_over(cx);
+            c.follow_chat(None, cx);
+        });
         self.composer.update(cx, |c, cx| c.focus_input(window, cx));
     }
 
@@ -337,7 +350,9 @@ impl QuickAskView {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                self.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+                // A new daemon session: the order of model answers starts
+                // again (the open chat, draft and attachments stay).
+                self.composer_store.update(cx, |c, cx| c.reconnected(cx));
             }
             ConnectionEvent::Gap => {
                 if let Some(chat) = &self.chat {
@@ -361,8 +376,7 @@ impl QuickAskView {
 
     fn sync_call(&mut self, cx: &mut Context<Self>) {
         let on = self.stores.call.read(cx).is_active();
-        let composer = self.composer_store.read(cx);
-        let ready = !on && composer.selected_model().is_some() && composer.options.voice_call;
+        let ready = !on && self.composer_store.read(cx).call_ready();
         self.composer.update(cx, |c, cx| {
             if c.call_ready != ready || c.call_on != on {
                 c.call_ready = ready;
@@ -390,7 +404,16 @@ impl QuickAskView {
         });
     }
 
-    fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
+    fn open_chat(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ChatStore> {
+        // The composer follows the chat: its lists, options and next turns
+        // are the chat's (a first send's pick moved there with it).
+        self.composer_store
+            .update(cx, |c, cx| c.follow_chat(Some(id.clone()), cx));
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
@@ -418,16 +441,30 @@ impl QuickAskView {
                 t
             }
         });
-        let subscriptions = vec![cx.observe(&store, |this, store, cx| {
-            let streaming = store.read(cx).is_streaming();
-            this.composer.update(cx, |c, cx| {
-                if c.streaming != streaming {
-                    c.streaming = streaming;
-                    cx.notify();
-                }
-            });
-            cx.notify();
-        })];
+        let subscriptions = vec![
+            cx.observe(&store, |this, store, cx| {
+                let streaming = store.read(cx).is_streaming();
+                this.composer.update(cx, |c, cx| {
+                    if c.streaming != streaming {
+                        c.streaming = streaming;
+                        cx.notify();
+                    }
+                });
+                cx.notify();
+            }),
+            // Words the core gave this chat's composer (Hermes' prefill):
+            // this panel's, while it holds the chat.
+            cx.subscribe_in(
+                &store,
+                window,
+                |this, _, event: &ChatStoreEvent, window, cx| {
+                    if let ChatStoreEvent::InsertText { text } = event {
+                        this.composer
+                            .update(cx, |c, cx| c.give_text(text, window, cx));
+                    }
+                },
+            ),
+        ];
         self.chat = Some(QuickChat {
             store: store.clone(),
             transcript,
@@ -450,8 +487,14 @@ impl QuickAskView {
             return;
         }
         // A follow-up from the transcript while a file still uploads would
-        // go without it: it waits in the field instead.
-        if (self.chat.is_none() && self.starting) || self.composer_store.read(cx).uploading() {
+        // go without it, and one before the chat's own list answers would
+        // name another chat's model: it waits in the field instead.
+        let composer = self.composer_store.read(cx);
+        if (self.chat.is_none() && self.starting)
+            || composer.uploading()
+            || !composer.can_name_model()
+        {
+            self.composer_store.update(cx, |c, cx| c.ask_list_again(cx));
             self.composer
                 .update(cx, |c, cx| c.restore_with(&text, &mentions, window, cx));
             return;
@@ -519,7 +562,7 @@ impl QuickAskView {
                 this.starting = false;
                 match result {
                     Ok(accepted) => {
-                        let store = this.open_chat(accepted.chat_id.clone(), cx);
+                        let store = this.open_chat(accepted.chat_id.clone(), window, cx);
                         store.update(cx, |s, cx| {
                             s.model_hint = model;
                             s.started(pending, &accepted, false, cx)
@@ -531,9 +574,11 @@ impl QuickAskView {
                         this.composer
                             .update(cx, |c, cx| c.give_back(&text, used, window, cx));
                         this.notice = Some(cx.l10n().desktop_action_failed());
+                        // The daemon may have picked the model just now. A
+                        // chat that opened lists itself (`follow_chat`).
+                        this.composer_store.update(cx, |m, cx| m.refresh_models(cx));
                     }
                 }
-                this.composer_store.update(cx, |m, cx| m.refresh_models(cx));
                 cx.notify();
             });
         })
@@ -856,6 +901,9 @@ mod tests {
         }
     }
 
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use conduit_protocol::methods;
     use gpui_kit::{TestAppContext, VisualTestContext};
 
@@ -872,6 +920,13 @@ mod tests {
         &mut VisualTestContext,
     ) {
         let daemon = FakeDaemon::new();
+        // Each chat's list answers with a model to name.
+        daemon.on::<methods::ModelsList>(|_| {
+            Ok(serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "selectedId": "k",
+            }))
+        });
         let scratch =
             std::env::temp_dir().join(format!("conduit-quick-ask-{}", std::process::id()));
         let stores = cx.update(|cx| {
@@ -929,7 +984,7 @@ mod tests {
         let (_daemon, stores, view, vcx) = bench(cx);
         let fill = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
             view.update_in(vcx, |v, window, cx| {
-                v.open_chat("chat-a".into(), cx);
+                v.open_chat("chat-a".into(), window, cx);
                 v.composer
                     .update(cx, |c, cx| c.set_text("draft for A", window, cx));
                 v.composer_store
@@ -970,6 +1025,128 @@ mod tests {
         empty(&view, vcx);
     }
 
+    /// New Chat's agent, shown in Quick Ask, taken by the main window's first
+    /// send: the daemon says the models changed, and New Chat's next list
+    /// (a newer revision, never 0) is shown, so Quick Ask no longer names
+    /// the pick that went.
+    #[gpui_kit::test]
+    fn a_new_chat_pick_taken_elsewhere_leaves_quick_ask(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        let agent = "agent:north:codex:gpt-test";
+        let list = move |selected: &str, revision: i64| {
+            serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "agents": [{"id": agent, "name": "Codex", "pinned": false, "capabilities": []}],
+                "selectedId": selected,
+                "revision": revision,
+            })
+        };
+        let taken = Arc::new(AtomicBool::new(false));
+        let seen = taken.clone();
+        daemon.on::<methods::ModelsList>(move |_| {
+            Ok(if seen.load(Ordering::SeqCst) {
+                list("k", 6)
+            } else {
+                list(agent, 4)
+            })
+        });
+        daemon.on::<methods::ComposerOptions>(|_| Ok(serde_json::json!({})));
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+        });
+        vcx.run_until_parked();
+        let next = |view: &Entity<QuickAskView>, vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |v, cx| {
+                v.composer_store.read(cx).next_model().map(|m| m.id.clone())
+            })
+        };
+        assert_eq!(next(&view, vcx).as_deref(), Some(agent));
+        // The main window's first send took it.
+        taken.store(true, Ordering::SeqCst);
+        view.update(vcx, |v, cx| {
+            v.on_connection(&ConnectionEvent::Daemon(Box::new(Event::ModelsChanged)), cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(next(&view, vcx).as_deref(), Some("k"));
+    }
+
+    /// Quick Ask's first message made a chat: its composer follows that
+    /// chat, so the next message names the agent the chat was started with
+    /// (the daemon's answer for the chat), never New Chat's regular model.
+    /// The chat's list is asked for once, and until it answers a follow-up
+    /// from the transcript waits in the field.
+    #[gpui_kit::test]
+    fn a_follow_up_names_the_agent_its_chat_started_with(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        let agent = "agent:north:codex:gpt-test";
+        let list = move |selected: &str| {
+            serde_json::json!({
+                "models": [{"id": "k", "name": "Kestrel", "pinned": false, "capabilities": []}],
+                "agents": [{"id": agent, "name": "Codex", "pinned": false, "capabilities": []}],
+                "selectedId": selected,
+            })
+        };
+        // New Chat's pick went to the chat the first message made.
+        daemon.on::<methods::ModelsList>(move |q| {
+            Ok(list(if q["chatId"] == "chat-q" { agent } else { "k" }))
+        });
+        daemon.on::<methods::ModelsSelect>(move |_| Ok(list(agent)));
+        daemon.on::<methods::ComposerOptions>(|_| Ok(serde_json::json!({})));
+        daemon.returns::<methods::ChatsGet>(
+            serde_json::from_value(serde_json::json!({"chat": {
+                "summary": {"id": "chat-q", "title": "Quick", "updatedAtMs": 1,
+                    "pinned": false, "archived": false, "tags": [], "shared": false,
+                    "readOnly": false},
+                "messages": [], "readOnly": false
+            }}))
+            .unwrap(),
+        );
+        daemon.on::<methods::TurnsSend>(|_| {
+            Ok(serde_json::json!({
+                "chatId": "chat-q", "userMessageId": "u1", "assistantMessageId": "a1"
+            }))
+        });
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.composer_store
+                .update(cx, |c, cx| c.select_model(agent, cx))
+        });
+        vcx.run_until_parked();
+        let listing = daemon.hold::<methods::ModelsList>();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("First".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| {
+            v.send_text("Then this".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::TurnsSend>().len(), 1);
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "Then this")
+        });
+        listing.release();
+        vcx.run_until_parked();
+        let lists = daemon.calls::<methods::ModelsList>();
+        let chat_lists = lists.iter().filter(|q| q["chatId"] == "chat-q").count();
+        assert_eq!(chat_lists, 1, "{lists:?}");
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| c.set_text("", window, cx));
+            v.send_text("Then this".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        let sends = daemon.calls::<methods::TurnsSend>();
+        assert_eq!(sends.len(), 2, "{sends:?}");
+        assert_eq!(sends[0]["model"], agent);
+        assert_eq!(
+            sends[1]["model"], agent,
+            "the follow-up left the chat's agent"
+        );
+    }
+
     #[gpui_kit::test]
     fn a_failed_send_in_its_chat_gives_nothing_back_after_new_chat(cx: &mut TestAppContext) {
         let (daemon, _stores, view, vcx) = bench(cx);
@@ -985,8 +1162,8 @@ mod tests {
         daemon.on::<methods::TurnsSend>(|_| {
             Err(conduit_daemon::protocol::error("rpc.timeout", "slow"))
         });
-        view.update(vcx, |v, cx| {
-            v.open_chat("chat-q".into(), cx);
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-q".into(), window, cx);
         });
         vcx.run_until_parked();
         let held = daemon.hold::<methods::TurnsSend>();
@@ -1114,6 +1291,7 @@ mod tests {
             }))
             .unwrap(),
         );
+        vcx.run_until_parked();
         let held = daemon.hold::<methods::TurnsSend>();
         view.update_in(vcx, |v, window, cx| {
             v.send_text("First question".into(), vec![], window, cx);
@@ -1132,13 +1310,86 @@ mod tests {
     fn a_services_selection_in_an_idle_panel_starts_a_fresh_exchange(cx: &mut TestAppContext) {
         let (_daemon, _stores, view, vcx) = bench(cx);
         view.update_in(vcx, |v, window, cx| {
-            v.open_chat("chat-q".into(), cx);
+            v.open_chat("chat-q".into(), window, cx);
             let _ = v.ask_about("> Prune in late winter.", window, cx);
         });
         view.read_with(vcx, |v, cx| {
             assert!(v.chat.is_none());
             assert_eq!(v.composer.read(cx).text(cx), "> Prune in late winter.");
             assert!(v.composer_store.read(cx).attachments.is_empty());
+        });
+    }
+
+    /// Its model list fails on a new daemon session: the panel says so,
+    /// and Send or the model picker asks for the list again, keeping the
+    /// words typed.
+    #[gpui_kit::test]
+    fn a_failed_model_list_says_so_and_send_asks_again(cx: &mut TestAppContext) {
+        let (daemon, _stores, view, vcx) = bench(cx);
+        vcx.run_until_parked();
+        let fail = |daemon: &FakeDaemon| {
+            daemon.once::<methods::ModelsList>(Err(conduit_daemon::protocol::error(
+                "rpc.daemonUnavailable",
+                "busy",
+            )));
+        };
+        fail(&daemon);
+        view.update(vcx, |v, cx| {
+            v.composer_store.update(cx, |c, cx| c.reconnected(cx))
+        });
+        vcx.run_until_parked();
+        let failed = vcx.update(|_, cx| cx.l10n().desktop_model_not_selected());
+        view.read_with(vcx, |v, _| {
+            assert_eq!(v.notice.as_deref(), Some(failed.as_str()))
+        });
+        let asked = || daemon.calls::<methods::ModelsList>().len();
+        let before = asked();
+        // Send while it fails again, then the picker.
+        fail(&daemon);
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| {
+                c.set_text("Pack the bags", window, cx);
+                c.submit(window, cx)
+            })
+        });
+        vcx.run_until_parked();
+        assert_eq!(asked(), before + 1);
+        view.update_in(vcx, |v, window, cx| {
+            v.composer.update(cx, |c, cx| c.open_picker(window, cx))
+        });
+        vcx.run_until_parked();
+        assert_eq!(asked(), before + 2);
+        assert!(daemon.calls::<methods::TurnsSend>().is_empty());
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "Pack the bags");
+            assert!(v.composer_store.read(cx).can_name_model());
+        });
+    }
+
+    /// Words the core gives the chat Quick Ask holds (Hermes' prefill) land
+    /// in its field; another chat's do not.
+    #[gpui_kit::test]
+    fn a_prefill_for_its_chat_lands_in_the_panel(cx: &mut TestAppContext) {
+        let (_daemon, _stores, view, vcx) = bench(cx);
+        let given = |chat: &str, text: &str| {
+            ConnectionEvent::Daemon(Box::new(Event::ComposerInsertText(
+                conduit_protocol::ComposerInsertText {
+                    chat_id: chat.into(),
+                    text: text.into(),
+                },
+            )))
+        };
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-q".into(), window, cx)
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| {
+            v.on_connection(&given("chat-other", "/skip "), cx);
+            v.on_connection(&given("chat-q", "/plan "), cx);
+        });
+        vcx.run_until_parked();
+        view.read_with(vcx, |v, cx| {
+            assert_eq!(v.composer.read(cx).text(cx), "/plan ")
         });
     }
 }

@@ -60,6 +60,10 @@ final class IntentsService {
   /// The most chats one `intents.chats` call returns.
   static const int maxChats = 50;
 
+  /// The longest an answer waits for its chat's title: a slow chat read
+  /// gives no title rather than keeping Shortcuts waiting.
+  static const int titleWaitMs = 2000;
+
   Future<IntentAnswer> ask(IntentAsk request) async {
     final text = request.text.trim();
     if (text.isEmpty) {
@@ -176,7 +180,10 @@ final class IntentsService {
   }
 
   Future<String?> _titleOf(String chatId) async {
-    final title = (await _detail(chatId))?.summary.title.trim();
+    final detail = await _detail(
+      chatId,
+    ).timeout(const Duration(milliseconds: titleWaitMs), onTimeout: () => null);
+    final title = detail?.summary.title.trim();
     return title == null || title.isEmpty ? null : title;
   }
 

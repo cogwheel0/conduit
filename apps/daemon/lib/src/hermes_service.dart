@@ -17,6 +17,8 @@ import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show activeServerProvider;
+import 'package:conduit_core/services/settings_service.dart'
+    show appSettingsProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -76,6 +78,14 @@ final class HermesService {
         }
       },
     );
+    // Show Scheduled Runs changes what the lists hold: the windows read
+    // them again.
+    _scheduledWatch = _container.listen<bool>(
+      appSettingsProvider.select((s) => s.hermesShowScheduledSessions),
+      (previous, next) {
+        if (previous != next) _announce();
+      },
+    );
   }
 
   final ProviderContainer _container;
@@ -106,6 +116,8 @@ final class HermesService {
     _lastRead.clear();
   }
 
+  ProviderSubscription<bool>? _scheduledWatch;
+
   /// The bots whose Bot Chats sessions are (`hermes.bots.*`).
   HermesBotChats? botChats;
 
@@ -114,6 +126,7 @@ final class HermesService {
     _connectionWatch?.close();
     _serverWatch?.close();
     connection.dispose();
+    _scheduledWatch?.close();
   }
 
   void _announceChat(String sessionId) => _events?.emit(
@@ -313,7 +326,11 @@ final class HermesService {
   /// Signs in to a desktop gateway with native PKCE: the gateway's page
   /// opens in the system browser, and the tokens it gives back are kept
   /// with the other Hermes secrets.
-  Future<HermesSettings> signIn() async {
+  ///
+  /// Asked for a connection no longer in use (another window switched it
+  /// meanwhile), nothing opens: no sign-in lands on another connection.
+  Future<HermesSettings> signIn(HermesSignInRequest request) async {
+    connection.require(request.connection);
     final service = _container.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService) {
       throw const RpcError(
@@ -378,10 +395,21 @@ final class HermesService {
     for (final session in <HermesSessionSummary>[...sessions, ...archived]) {
       _known[session.id] = session;
     }
+    // Scheduled agents' runs are left out here, as the phone's list leaves
+    // them out, when a server could not leave them out itself; how many
+    // is said, so a list of only runs does not read as empty.
+    final showScheduled = _container
+        .read(appSettingsProvider)
+        .hermesShowScheduledSessions;
+    final listed = hermesListedSessions(sessions, showScheduled: showScheduled);
+    final archivedListed = hermesListedSessions(
+      archived,
+      showScheduled: showScheduled,
+    );
     // Read one after the other, a session archived in between is in both:
     // the later read, the archive, has it.
     final archivedIds = <String>{for (final session in archived) session.id};
-    final active = sessions.where((s) => !archivedIds.contains(s.id));
+    final active = listed.where((s) => !archivedIds.contains(s.id));
     return HermesSessions(
       sessions: <HermesSessionDto>[
         // Pinned first, as the phone's list sections them.
@@ -391,9 +419,14 @@ final class HermesService {
           if (!session.pinned) _sessionDto(session),
       ],
       archived: <HermesSessionDto>[
-        for (final session in archived) _sessionDto(session),
+        for (final session in archivedListed) _sessionDto(session),
       ],
       archivedFailed: archivedFailed,
+      hiddenScheduledRuns:
+          sessions.length -
+          listed.length +
+          archived.length -
+          archivedListed.length,
     );
   });
 

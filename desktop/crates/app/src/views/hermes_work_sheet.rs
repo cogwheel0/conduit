@@ -17,6 +17,7 @@ use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::MONO_FONT;
 use conduit_components::views::focus::{ControlExt as _, Ring};
@@ -63,6 +64,9 @@ pub struct BackgroundWorkSheet {
     busy: bool,
     killing: HashSet<String>,
     notice: Option<Notice>,
+    /// Counts the actions that answered: each answer is heard, even in the
+    /// words of the one before (a Steer refused twice).
+    answers: u64,
     /// The steer was queued: its field empties on the next frame.
     clear_steer: bool,
     _subscriptions: Vec<Subscription>,
@@ -156,6 +160,7 @@ impl BackgroundWorkSheet {
             busy: false,
             killing: HashSet::new(),
             notice: None,
+            answers: 0,
             clear_steer: false,
             _subscriptions: subscriptions,
             _clock: clock,
@@ -219,6 +224,7 @@ impl BackgroundWorkSheet {
             let _ = this.update(cx, |s, cx| {
                 s.busy = false;
                 let l = cx.l10n().clone();
+                s.answers += 1;
                 s.notice = Some(match result {
                     Ok(r) if r.ok => {
                         s.clear_steer = true;
@@ -258,6 +264,7 @@ impl BackgroundWorkSheet {
             let _ = this.update(cx, |s, cx| {
                 s.busy = false;
                 let l = cx.l10n().clone();
+                s.answers += 1;
                 s.notice = Some(match result {
                     Ok(r) if r.ok => Notice {
                         text: l.hermes_subagent_stopped(),
@@ -310,6 +317,7 @@ impl BackgroundWorkSheet {
             let _ = this.update(cx, |s, cx| {
                 s.killing.remove(&id);
                 let l = cx.l10n().clone();
+                s.answers += 1;
                 s.notice = Some(match result {
                     Ok(r) => match r.status {
                         HermesProcessKillStatus::Killed => Notice {
@@ -360,6 +368,19 @@ impl BackgroundWorkSheet {
                     t.roles.text_subtle
                 })
                 .child(SharedString::from(notice.text.clone()))
+                // Said when it appears, as the phone's notice is.
+                .child(
+                    live_text(
+                        "live",
+                        Some(SharedString::from(notice.text.clone())),
+                        if notice.error {
+                            Priority::High
+                        } else {
+                            Priority::Medium
+                        },
+                    )
+                    .attempt(self.answers),
+                )
                 .into_any_element(),
         )
     }

@@ -1,0 +1,5 @@
+{
+  "manualKey": "MFRGGZDFMZTWQ2LK",
+  "qrSvg": "<svg></svg>",
+  "authenticatorUri": "otpauth://totp/Open%20WebUI:ada%40example.com?secret=MFRGGZDFMZTWQ2LK&issuer=Open%20WebUI"
+}

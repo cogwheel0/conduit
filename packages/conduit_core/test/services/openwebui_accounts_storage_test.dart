@@ -216,29 +216,32 @@ void main() {
       check(await vaultedToken('b')).isNull();
     });
 
-    test('a switch whose target vault cannot be read changes nothing', () async {
-      await storage.saveServerConfigs([
-        account('a'),
-        account('b'),
-        account('c'),
-      ]);
-      await signIn('b');
-      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
-      await storage.saveAuthToken('token-a');
-      secure.unreadableKey = 'auth_token_server_v1:b';
+    test(
+      'a switch whose target vault cannot be read changes nothing',
+      () async {
+        await storage.saveServerConfigs([
+          account('a'),
+          account('b'),
+          account('c'),
+        ]);
+        await signIn('b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        secure.unreadableKey = 'auth_token_server_v1:b';
 
-      await check(
-        storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
-      ).throws<StateError>();
-      secure.unreadableKey = null;
+        await check(
+          storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+        ).throws<StateError>();
+        secure.unreadableKey = null;
 
-      check(await storage.getActiveServerId()).equals('a');
-      check(await storage.getAuthTokenStrict()).equals('token-a');
-      check(await vaultedToken('a')).isNull();
-      // Switching on to another account files A's session, not B's.
-      await storage.switchActiveServer(fromServerId: 'a', toServerId: 'c');
-      check(await vaultedToken('b')).equals('token-b');
-    });
+        check(await storage.getActiveServerId()).equals('a');
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+        check(await vaultedToken('a')).isNull();
+        // Switching on to another account files A's session, not B's.
+        await storage.switchActiveServer(fromServerId: 'a', toServerId: 'c');
+        check(await vaultedToken('b')).equals('token-b');
+      },
+    );
 
     test('a saved sign-in naming the account switched to stays live', () async {
       await storage.saveServerConfigs([account('a'), account('b')]);
@@ -260,28 +263,30 @@ void main() {
       check(await vaultedToken('a')).equals('token-a');
     });
 
-    test('a switch that fails taking up the saved sign-in keeps it filed',
-        () async {
-      await storage.saveServerConfigs([account('a'), account('b')]);
-      await signIn('b', password: 'pw-b');
-      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
-      await storage.saveAuthToken('token-a');
-      secure.refusedOnceKey = 'user_credentials_v2';
+    test(
+      'a switch that fails taking up the saved sign-in keeps it filed',
+      () async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('b', password: 'pw-b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        secure.refusedOnceKey = 'user_credentials_v2';
 
-      await check(
-        storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
-      ).throws<StateError>();
+        await check(
+          storage.switchActiveServer(fromServerId: 'a', toServerId: 'b'),
+        ).throws<StateError>();
 
-      // Chosen again, it takes up its session; leaving it files it again.
-      check(
-        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'b'),
-      ).isTrue();
-      check(await storage.getAuthTokenStrict()).equals('token-b');
-      check((await storage.getSavedCredentialsStrict())?['password'])
-          .equals('pw-b');
-      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
-      check((await vaultedCredentials('b'))?['password']).equals('pw-b');
-    });
+        // Chosen again, it takes up its session; leaving it files it again.
+        check(
+          await storage.switchActiveServer(fromServerId: 'b', toServerId: 'b'),
+        ).isTrue();
+        check(await storage.getAuthTokenStrict()).equals('token-b');
+        check((await storage.getSavedCredentialsStrict())?['password'])
+            .equals('pw-b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        check((await vaultedCredentials('b'))?['password']).equals('pw-b');
+      },
+    );
 
     test('lists which accounts hold a session', () async {
       await storage.saveServerConfigs([
@@ -310,6 +315,27 @@ void main() {
     });
   });
 
+  test('a proxy cookie captured for an account is not kept once another '
+      'account is active', () async {
+    await storage.saveServerConfigs([
+      account('a'),
+      account('b', url: 'https://other.example.com'),
+    ]);
+    await storage.setActiveServerId('a');
+    final b = (await storage.getServerConfigs()).singleWhere(
+      (config) => config.id == 'b',
+    );
+
+    final kept = await storage.saveCapturedSessionHeaders(
+      b.copyWith(customHeaders: {...b.customHeaders, 'Cookie': '_gate=open'}),
+      canCommit: () => true,
+    );
+
+    check(kept).isFalse();
+    final registry = await storage.getOpenWebUiRegistryStrict();
+    check(registry.account('b')!.capturedHeaders).isEmpty();
+  });
+
   group('adding an account', () {
     test('keeps the previous account signed in, in its vault', () async {
       await storage.saveServerConfigs([account('a')]);
@@ -327,6 +353,47 @@ void main() {
       check(await vaultedToken('a')).equals('token-a');
       final registry = await storage.getOpenWebUiRegistryStrict();
       check(registry.servers).length.equals(1);
+    });
+
+    test('on a saved server, joins it only while the server still has the '
+        'address it was made from', () async {
+      await storage.saveServerConfigs([account('a')]);
+      final server =
+          (await storage.getOpenWebUiRegistryStrict()).servers.single;
+      final first = server.endpoints.single;
+      await storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(id: 'route-b', url: 'https://b.chat.example.com'),
+        ],
+      );
+      final joining = account('new', url: first.url);
+      // Another window removes that address before the selection is written.
+      await storage.editServerEndpoints(
+        server.id,
+        (endpoints) => [
+          for (final endpoint in endpoints)
+            if (endpoint.id != first.id) endpoint,
+        ],
+      );
+
+      final selected = await storage.selectUnauthenticatedServerConfig(
+        joining,
+        publish: () {},
+        joins: (stored) =>
+            stored
+                .server(server.id)
+                ?.endpoints
+                .any((endpoint) => endpoint.carries(joining)) ??
+            false,
+      );
+
+      check(selected).isFalse();
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers).length.equals(1);
+      check(registry.account('new')).isNull();
+      check(await storage.getActiveServerId()).equals('a');
     });
 
     test('drops an earlier sign-in that never got anywhere', () async {
@@ -573,42 +640,50 @@ void main() {
     );
   });
 
-  test('a server moved by another account\'s edit drops sessions kept aside',
-      () async {
-    // Three accounts on one server; c is signed in but not active.
-    await storage.saveServerConfigs([account('a'), account('b'), account('c')]);
-    await signIn('c', password: 'pw-c');
-    check(
-      await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a'),
-    ).isFalse();
-    final configs = await storage.getServerConfigs();
+  test(
+    'a server moved by another account\'s edit drops sessions kept aside',
+    () async {
+      // Three accounts on one server; c is signed in but not active.
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b'),
+        account('c'),
+      ]);
+      await signIn('c', password: 'pw-c');
+      check(
+        await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a'),
+      ).isFalse();
+      final configs = await storage.getServerConfigs();
 
-    // An edit through b moves the shared endpoint.
-    await storage.saveServerConfigs([
-      for (final config in configs)
-        config.id == 'b'
-            ? config.copyWith(url: 'https://elsewhere.example.org')
-            : config,
-    ]);
+      // An edit through b moves the shared endpoint.
+      await storage.saveServerConfigs([
+        for (final config in configs)
+          config.id == 'b'
+              ? config.copyWith(url: 'https://elsewhere.example.org')
+              : config,
+      ]);
 
-    check(await vaultedToken('c')).isNull();
-    check(await vaultedCredentials('c')).isNull();
-  });
+      check(await vaultedToken('c')).isNull();
+      check(await vaultedCredentials('c')).isNull();
+    },
+  );
 
   // A switch that failed part-way can leave the active account's own session
   // in the vault, where selecting the account again takes it up.
-  test('moving the active account drops the session it has kept aside',
-      () async {
-    await storage.saveServerConfigs([account('a')]);
-    await storage.setActiveServerId('a');
-    await secure.write(key: 'auth_token_server_v1:a', value: 'stale-a');
+  test(
+    'moving the active account drops the session it has kept aside',
+    () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      await secure.write(key: 'auth_token_server_v1:a', value: 'stale-a');
 
-    await storage.saveServerConfigs([
-      account('a', url: 'https://elsewhere.example.org'),
-    ]);
+      await storage.saveServerConfigs([
+        account('a', url: 'https://elsewhere.example.org'),
+      ]);
 
-    check(await vaultedToken('a')).isNull();
-  });
+      check(await vaultedToken('a')).isNull();
+    },
+  );
 
   group('a server moved by selecting an account on it', () {
     // A and B share one server; B is signed in, filed away.
@@ -665,14 +740,17 @@ void main() {
     });
   });
 
-  test('an account in use that cannot be read is not reported as none', () async {
-    await storage.saveServerConfigs([account('a')]);
-    await signIn('a');
-    storage.clearCache();
-    secure.unreadableKey = 'openwebui_registry_v1';
+  test(
+    'an account in use that cannot be read is not reported as none',
+    () async {
+      await storage.saveServerConfigs([account('a')]);
+      await signIn('a');
+      storage.clearCache();
+      secure.unreadableKey = 'openwebui_registry_v1';
 
-    await check(storage.getEffectiveActiveServerId()).throws<StateError>();
-  });
+      await check(storage.getEffectiveActiveServerId()).throws<StateError>();
+    },
+  );
 
   test('signing out still clears cached user data when the account list '
       'cannot be read', () async {
@@ -684,33 +762,33 @@ void main() {
     storage.clearCache();
     secure.unreadableKey = 'openwebui_registry_v1';
 
-    await check(
-      storage.clearActiveAccountAuthDataIf(canClear: () => true),
-    ).throws<StateError>();
+    await check(storage.clearActiveAccountAuthDataIf(canClear: () => true))
+        .throws<StateError>();
 
     check(await storage.getAuthTokenStrict()).isNull();
     check(caches.get(HiveStoreKeys.localUser)).isNull();
   });
 
-  test('signing out files a saved sign-in naming another account under it',
-      () async {
-    await storage.saveServerConfigs([account('a'), account('c')]);
-    await signIn('a');
-    // From before accounts existed: C's sign-in, live while A is active.
-    await storage.saveCredentials(
-      serverId: 'c',
-      username: 'user-c',
-      password: 'pw-c',
-    );
+  test(
+    'signing out files a saved sign-in naming another account under it',
+    () async {
+      await storage.saveServerConfigs([account('a'), account('c')]);
+      await signIn('a');
+      // From before accounts existed: C's sign-in, live while A is active.
+      await storage.saveCredentials(
+        serverId: 'c',
+        username: 'user-c',
+        password: 'pw-c',
+      );
 
-    check(
-      await storage.clearActiveAccountAuthDataIf(canClear: () => true),
-    ).isTrue();
+      check(await storage.clearActiveAccountAuthDataIf(canClear: () => true))
+          .isTrue();
 
-    check((await vaultedCredentials('c'))?['password']).equals('pw-c');
-    check(await storage.getSavedCredentialsStrict()).isNull();
-    check(await storage.getAuthTokenStrict()).isNull();
-  });
+      check((await vaultedCredentials('c'))?['password']).equals('pw-c');
+      check(await storage.getSavedCredentialsStrict()).isNull();
+      check(await storage.getAuthTokenStrict()).isNull();
+    },
+  );
 
   test('signing out keeps a saved sign-in for another account it could not '
       'file', () async {
@@ -723,9 +801,8 @@ void main() {
     );
     secure.refusedKey = 'user_credentials_server_v1:c';
 
-    await check(
-      storage.clearActiveAccountAuthDataIf(canClear: () => true),
-    ).throws<Object>();
+    await check(storage.clearActiveAccountAuthDataIf(canClear: () => true))
+        .throws<Object>();
 
     secure.refusedKey = null;
     // Still where it was, for the next commit to file.
@@ -754,18 +831,21 @@ void main() {
           .deepEquals(['c']);
     });
 
-    test('removing an inactive one leaves the active one marked active', () async {
-      await storage.saveServerConfigs([account('a'), account('b')]);
-      await signIn('a');
+    test(
+      'removing an inactive one leaves the active one marked active',
+      () async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('a');
 
-      await storage.removeAccount('b');
+        await storage.removeAccount('b');
 
-      check(
-        (await storage.getServerConfigs()).map(
-          (config) => (config.id, config.isActive),
-        ),
-      ).deepEquals([('a', true)]);
-    });
+        check(
+          (await storage.getServerConfigs()).map(
+            (config) => (config.id, config.isActive),
+          ),
+        ).deepEquals([('a', true)]);
+      },
+    );
 
     test('an inactive one loses its vault and its record', () async {
       await storage.saveServerConfigs([
@@ -802,46 +882,49 @@ void main() {
           .deepEquals(['b']);
     });
 
-    test('the active one hands a saved sign-in naming the next account to it',
-        () async {
-      await storage.saveServerConfigs([account('a'), account('c')]);
-      await signIn('c', password: 'pw-c-old');
-      await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a');
-      await storage.saveAuthToken('token-a');
-      // From before accounts existed: C's sign-in, live while A is active.
-      await storage.saveCredentials(
-        serverId: 'c',
-        username: 'user-c',
-        password: 'pw-c-new',
-      );
+    test(
+      'the active one hands a saved sign-in naming the next account to it',
+      () async {
+        await storage.saveServerConfigs([account('a'), account('c')]);
+        await signIn('c', password: 'pw-c-old');
+        await storage.switchActiveServer(fromServerId: 'c', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        // From before accounts existed: C's sign-in, live while A is active.
+        await storage.saveCredentials(
+          serverId: 'c',
+          username: 'user-c',
+          password: 'pw-c-new',
+        );
 
-      check(await storage.removeAccount('a', thenActivate: 'c')).isTrue();
+        check(await storage.removeAccount('a', thenActivate: 'c')).isTrue();
 
-      check(await storage.getAuthTokenStrict()).equals('token-c');
-      check((await storage.getSavedCredentialsStrict())?['password'])
-          .equals('pw-c-new');
-      check(await vaultedCredentials('c')).isNull();
-    });
+        check(await storage.getAuthTokenStrict()).equals('token-c');
+        check((await storage.getSavedCredentialsStrict())?['password'])
+            .equals('pw-c-new');
+        check(await vaultedCredentials('c')).isNull();
+      },
+    );
 
-    test('the active one stays when the next one\'s session cannot be read',
-        () async {
-      await storage.saveServerConfigs([account('a'), account('b')]);
-      await signIn('b', password: 'pw-b');
-      await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
-      await storage.saveAuthToken('token-a');
-      secure.unreadableKey = 'auth_token_server_v1:b';
+    test(
+      'the active one stays when the next one\'s session cannot be read',
+      () async {
+        await storage.saveServerConfigs([account('a'), account('b')]);
+        await signIn('b', password: 'pw-b');
+        await storage.switchActiveServer(fromServerId: 'b', toServerId: 'a');
+        await storage.saveAuthToken('token-a');
+        secure.unreadableKey = 'auth_token_server_v1:b';
 
-      await check(
-        storage.removeAccount('a', thenActivate: 'b'),
-      ).throws<StateError>();
+        await check(storage.removeAccount('a', thenActivate: 'b'))
+            .throws<StateError>();
 
-      secure.unreadableKey = null;
-      check(await storage.getActiveServerId()).equals('a');
-      check(await storage.getAuthTokenStrict()).equals('token-a');
-      check(await vaultedToken('b')).equals('token-b');
-      check((await storage.getServerConfigs()).map((config) => config.id))
-          .deepEquals(['a', 'b']);
-    });
+        secure.unreadableKey = null;
+        check(await storage.getActiveServerId()).equals('a');
+        check(await storage.getAuthTokenStrict()).equals('token-a');
+        check(await vaultedToken('b')).equals('token-b');
+        check((await storage.getServerConfigs()).map((config) => config.id))
+            .deepEquals(['a', 'b']);
+      },
+    );
 
     test('the active one is left as it was when handing over fails', () async {
       await storage.saveServerConfigs([
@@ -868,9 +951,8 @@ void main() {
       // B's token is refused as it is taken up, after everything else.
       secure.refusedOnceKey = 'auth_token_v2';
 
-      await check(
-        storage.removeAccount('a', thenActivate: 'b'),
-      ).throws<StateError>();
+      await check(storage.removeAccount('a', thenActivate: 'b'))
+          .throws<StateError>();
 
       check(await storage.getActiveServerId()).equals('a');
       check((await storage.getServerConfigs()).map((config) => config.id))
@@ -964,9 +1046,8 @@ void main() {
       secure.unreadableKey = 'auth_token_server_v1:b';
 
       // Gone first, it could not be cancelled again to try once more.
-      await check(
-        storage.removePendingAccount('a', thenActivate: 'b'),
-      ).throws<StateError>();
+      await check(storage.removePendingAccount('a', thenActivate: 'b'))
+          .throws<StateError>();
 
       secure.unreadableKey = null;
       await checkKept();
@@ -1202,35 +1283,38 @@ void main() {
       check(await storage.getAuthTokenStrict()).equals('token-existing');
     });
 
-    test('a merge that fails part-way leaves both accounts as they were', () async {
-      await storage.saveServerConfigs([account('existing'), account('new')]);
-      await signIn('existing', password: 'pw-existing');
-      await storage.switchActiveServer(
-        fromServerId: 'existing',
-        toServerId: 'new',
-      );
-      await storage.saveAuthToken('fresh-token');
-      await storage.saveCredentials(
-        serverId: 'new',
-        username: 'user',
-        password: 'pw',
-      );
-      secure.refusedKey = 'openwebui_registry_v1';
+    test(
+      'a merge that fails part-way leaves both accounts as they were',
+      () async {
+        await storage.saveServerConfigs([account('existing'), account('new')]);
+        await signIn('existing', password: 'pw-existing');
+        await storage.switchActiveServer(
+          fromServerId: 'existing',
+          toServerId: 'new',
+        );
+        await storage.saveAuthToken('fresh-token');
+        await storage.saveCredentials(
+          serverId: 'new',
+          username: 'user',
+          password: 'pw',
+        );
+        secure.refusedKey = 'openwebui_registry_v1';
 
-      await check(
-        storage.mergeActiveAccountInto(
-          'existing',
-          expectedSourceAccountId: 'new',
-        ),
-      ).throws<StateError>();
+        await check(
+          storage.mergeActiveAccountInto(
+            'existing',
+            expectedSourceAccountId: 'new',
+          ),
+        ).throws<StateError>();
 
-      check(await storage.getActiveServerId()).equals('new');
-      check((await storage.getSavedCredentialsStrict())?['serverId'])
-          .equals('new');
-      check(await vaultedToken('existing')).equals('token-existing');
-      check((await vaultedCredentials('existing'))?['password'])
-          .equals('pw-existing');
-    });
+        check(await storage.getActiveServerId()).equals('new');
+        check((await storage.getSavedCredentialsStrict())?['serverId'])
+            .equals('new');
+        check(await vaultedToken('existing')).equals('token-existing');
+        check((await vaultedCredentials('existing'))?['password'])
+            .equals('pw-existing');
+      },
+    );
 
     Future<void> signedInAsNewOverExisting() async {
       await storage.saveServerConfigs([account('existing'), account('new')]);
@@ -1264,21 +1348,23 @@ void main() {
       check(await storage.getAuthTokenStrict()).equals('fresh-token');
     });
 
-    test('a merge that fails part-way keeps what was kept under the source',
-        () async {
-      await signedInAsNewOverExisting();
-      await secure.write(key: 'auth_token_server_v1:new', value: 'stale-new');
-      secure.refusedKey = 'openwebui_registry_v1';
+    test(
+      'a merge that fails part-way keeps what was kept under the source',
+      () async {
+        await signedInAsNewOverExisting();
+        await secure.write(key: 'auth_token_server_v1:new', value: 'stale-new');
+        secure.refusedKey = 'openwebui_registry_v1';
 
-      await check(
-        storage.mergeActiveAccountInto(
-          'existing',
-          expectedSourceAccountId: 'new',
-        ),
-      ).throws<StateError>();
+        await check(
+          storage.mergeActiveAccountInto(
+            'existing',
+            expectedSourceAccountId: 'new',
+          ),
+        ).throws<StateError>();
 
-      check(await vaultedToken('new')).equals('stale-new');
-    });
+        check(await vaultedToken('new')).equals('stale-new');
+      },
+    );
 
     test(
       'a merge whose active-id write fails leaves both accounts as they were',
@@ -1500,11 +1586,17 @@ void main() {
         mtlsPrivateKeyPem: 'new-key',
       );
 
-      test('with nothing changed keeps the other accounts\' sessions', () async {
-        await storage.selectUnauthenticatedServerConfig(onLan, publish: () {});
+      test(
+        'with nothing changed keeps the other accounts\' sessions',
+        () async {
+          await storage.selectUnauthenticatedServerConfig(
+            onLan,
+            publish: () {},
+          );
 
-        check(await vaultedToken('b')).equals('token-b');
-      });
+          check(await vaultedToken('b')).equals('token-b');
+        },
+      );
 
       test('with a new client certificate ends the sessions kept aside '
           'there', () async {
@@ -1516,21 +1608,24 @@ void main() {
         check(await vaultedToken('b')).isNull();
       });
 
-      test('through a proxy with a new client certificate ends them too', () async {
-        final candidate = withNewCertificate(onLan);
-        final staged = await storage.stageServerConfigCandidate(candidate);
+      test(
+        'through a proxy with a new client certificate ends them too',
+        () async {
+          final candidate = withNewCertificate(onLan);
+          final staged = await storage.stageServerConfigCandidate(candidate);
 
-        check(
-          await storage.commitServerConfigCandidateSession(
-            candidate: candidate,
-            transactionId: staged.transactionId,
-            token: 'token-a-again',
-            canCommit: () => true,
-            publish: () {},
-          ),
-        ).isTrue();
-        check(await vaultedToken('b')).isNull();
-      });
+          check(
+            await storage.commitServerConfigCandidateSession(
+              candidate: candidate,
+              transactionId: staged.transactionId,
+              token: 'token-a-again',
+              canCommit: () => true,
+              publish: () {},
+            ),
+          ).isTrue();
+          check(await vaultedToken('b')).isNull();
+        },
+      );
     });
 
     group('signing in through a route not in use', () {
@@ -1585,12 +1680,10 @@ void main() {
           ),
         ).throws<StateError>();
 
-        check(storage.endpointSelection).deepEquals({
-          server.id: server.endpoints.first.id,
-        });
-        check(
-          PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint),
-        ).equals(hint);
+        check(storage.endpointSelection)
+            .deepEquals({server.id: server.endpoints.first.id});
+        check(PreferencesStore.getString(PreferenceKeys.openWebUiEndpointHint))
+            .equals(hint);
         check((await storage.getServerConfigs()).single.url)
             .equals('https://chat.example.com');
       });
@@ -1843,6 +1936,92 @@ void main() {
       });
     });
 
+    // Two saved servers never reach Open WebUI the same way: an account
+    // added on one would be filed under the first that matches.
+    test('a route is never saved with another server\'s connection', () async {
+      await storage.saveServerConfigs([
+        account('a'),
+        account('b', url: 'https://lab.example.com'),
+      ]);
+      final before = await storage.getOpenWebUiRegistryStrict();
+      final home = before.server(before.account('a')!.serverId)!;
+      final lab = before.server(before.account('b')!.serverId)!;
+      final homeRoute = home.endpoints.single;
+      final labRoute = lab.endpoints.single;
+      final edits = <List<OpenWebUiEndpoint> Function(List<OpenWebUiEndpoint>)>[
+        // An edit of the lab's address to the home server's.
+        (_) => [labRoute.withConnectionOf(homeRoute)],
+        // An address added with the home server's connection.
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(id: 'twin', url: homeRoute.url, label: 'Twin'),
+        ],
+      ];
+      for (final edit in edits) {
+        await check(storage.editServerEndpoints(lab.id, edit))
+            .throws<ServerConnectionTaken>(
+              (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+            );
+      }
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // An edit of the lab's account that moves it to the home server's
+      // connection, as `servers.update` makes one, would make it so too.
+      await check(
+        storage.editServerConfig(
+          'b',
+          (stored) => stored.copyWith(url: homeRoute.url),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict()).server(lab.id),
+      ).equals(lab);
+
+      // So would a sign-in of the lab's account through the home server's
+      // connection: refused before anything of its session moves (the home
+      // account has proved its user, so it stays).
+      await storage.bindAccountUser('a', 'user-a');
+      await signIn('b');
+      final token = await storage.getAuthTokenStrict();
+      await check(
+        storage.selectUnauthenticatedServerConfig(
+          account('b'),
+          publish: () => fail('a refused sign-in was published'),
+        ),
+      ).throws<ServerConnectionTaken>(
+        (it) => it.has((e) => e.serverId, 'serverId').equals(home.id),
+      );
+      final after = await storage.getOpenWebUiRegistryStrict();
+      check(after.server(lab.id)).equals(lab);
+      check(after.server(home.id)).equals(home);
+      check(after.account('a')?.userId).equals('user-a');
+      check(await storage.getAuthTokenStrict()).equals(token);
+      check(await storage.getActiveServerId()).equals('b');
+
+      // A header of its own makes it another connection: saved.
+      await storage.editServerEndpoints(
+        lab.id,
+        (endpoints) => [
+          ...endpoints,
+          OpenWebUiEndpoint(
+            id: 'twin',
+            url: homeRoute.url,
+            customHeaders: const {'X-Lab': 'annex'},
+          ),
+        ],
+      );
+      check(
+        (await storage.getOpenWebUiRegistryStrict())
+            .server(lab.id)!
+            .endpoints
+            .map((endpoint) => endpoint.id),
+      ).deepEquals([labRoute.id, 'twin']);
+    });
+
     test('edits made from the same list both land', () async {
       await storage.saveServerConfigs([account('a')]);
       final server = await addRoute('lan', 'http://10.0.0.2:3000');
@@ -2053,6 +2232,27 @@ void main() {
           .deepEquals(server.endpoints.map((endpoint) => endpoint.id));
       check((await storage.getServerConfigs()).single.url)
           .equals('http://10.0.0.2:3000');
+    });
+
+    // The sign-out could not write the server details back, so reads stay
+    // fenced until a write lands. An edit that leaves them as they are is
+    // that write: it is not skipped as having nothing to change.
+    test('an unchanged edit after a sign-out that could not keep the server '
+        'details writes them, and they read again', () async {
+      await storage.saveServerConfigs([account('a')]);
+      await storage.setActiveServerId('a');
+      final server = await addRoute('lan', 'http://10.0.0.2:3000');
+
+      secure.refusedKey = 'openwebui_registry_v1';
+      await check(
+        storage.clearAllIf(canClear: () => true, preserveServerDetails: true),
+      ).throws<StateError>();
+      secure.refusedKey = null;
+      check(await storage.getServerConfigsStrict()).isEmpty();
+
+      await storage.editServerEndpoints(server.id, (endpoints) => endpoints);
+
+      check((await storage.getServerConfigsStrict()).single.id).equals('a');
     });
 
     test('removing the route in use falls back to the first', () async {

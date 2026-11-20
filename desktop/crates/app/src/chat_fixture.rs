@@ -13,6 +13,11 @@
 //! * `a11y`: activates accessibility, reads GPUI's AccessKit tree and prints
 //!   the labelled articles and controls as JSON (`tests/chat_a11y.rs`
 //!   checks them).
+//! * `perf-a11y`: `perf` with accessibility active, as with VoiceOver on.
+//! * `shots --shots <dir> [--dark]`: the same answer streamed to fixed
+//!   lengths and scrolled to fixed places, each shot taken once the text,
+//!   its fades and the view have come to rest, so two builds' shots can be
+//!   compared pixel for pixel (`fixture-shot-<name>-<light|dark>.png`).
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -45,8 +50,8 @@ pub const MESSAGES: usize = 10_000;
 pub const ANSWER_CHARS: usize = 32 * 1024;
 
 /// A daemon that answers from memory.
-struct FixtureDaemon {
-    chat: Value,
+pub(crate) struct FixtureDaemon {
+    pub(crate) chat: Value,
 }
 
 impl Daemon for FixtureDaemon {
@@ -63,6 +68,7 @@ impl Daemon for FixtureDaemon {
                         capabilities: vec![],
                         connection: None,
                         logo: None,
+                        agent: None,
                     },
                     ModelSummary {
                         id: "fixture-model-2".into(),
@@ -72,6 +78,7 @@ impl Daemon for FixtureDaemon {
                         capabilities: vec![],
                         connection: None,
                         logo: None,
+                        agent: None,
                     },
                 ],
                 selected_id: Some("fixture-model".into()),
@@ -90,7 +97,7 @@ impl Daemon for FixtureDaemon {
     }
 }
 
-fn text_block(markdown: String) -> conduit_protocol::MessageBlockDto {
+pub(crate) fn text_block(markdown: String) -> conduit_protocol::MessageBlockDto {
     conduit_protocol::MessageBlockDto {
         markdown: Some(markdown),
         ..empty_block(conduit_protocol::MessageBlockKind::Text)
@@ -148,6 +155,7 @@ fn chat_value() -> Value {
                 content: content.clone(),
                 timestamp_ms: 1_700_000_000_000 + i as i64,
                 model: assistant.then(|| "Fixture model".into()),
+                model_name: None,
                 streaming: false,
                 error_code: None,
                 versions: vec![],
@@ -406,18 +414,43 @@ fn ticker(store: Entity<ChatStore>, cx: &mut App) {
     .detach();
 }
 
-/// Runs the fixture: `mode` is `perf` or `a11y`.
-pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
+/// Runs the fixture: `mode` is `perf`, `shots`, `diagrams` or `a11y`.
+pub fn run(
+    mode: String,
+    shots: Option<PathBuf>,
+    settings: Entity<crate::stores::settings::SettingsStore>,
+    cx: &mut App,
+) {
     // English labels whatever the Mac's languages: the AccessKit test reads
     // them, as the shell fixture's does.
     cx.set_global(crate::l10n::L10n::new("en"));
     crate::install_component_strings(cx);
+    if mode == "diagrams" {
+        return crate::diagram_fixture::run(shots, cx);
+    }
+    let dark = std::env::args().any(|a| a == "--dark");
+    if mode == "shots" {
+        settings.update(cx, |s, cx| {
+            s.set_appearance(
+                |a| {
+                    a.mode = if dark {
+                        crate::prefs::ThemeMode::Dark
+                    } else {
+                        crate::prefs::ThemeMode::Light
+                    }
+                },
+                cx,
+            )
+        });
+    }
     let rpc = Rpc::new(FixtureDaemon { chat: chat_value() });
     let subscribe: Subscribe = Rc::new(|_, _| {});
     let store = cx.new(|cx| ChatStore::new(rpc.clone(), subscribe, "fixture".into(), cx));
     let composer_store = cx.new(|_| ComposerStore::new(rpc, None));
     composer_store.update(cx, |c, cx| c.refresh_models(cx));
-    let perf = mode == "perf";
+    // `perf-a11y`: the perf run with accessibility active, as with
+    // VoiceOver on (the window builds and sends its AccessKit tree each frame).
+    let perf = mode == "perf" || mode == "perf-a11y";
     let bounds = Bounds::centered(None, size(px(1100.), px(900.)), cx);
     let mut options = cw::window_options("Conduit chat fixture", bounds, false, true);
     options.window_bounds = Some(WindowBounds::Windowed(bounds));
@@ -458,7 +491,28 @@ pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
     };
     cx.activate(true);
     if perf {
+        if mode == "perf-a11y"
+            && let Some(ptr) = handle
+                .update(cx, |_, window, _| cw::macos::ns_window_ptr(window))
+                .ok()
+                .flatten()
+        {
+            // SAFETY: this process's live NSWindow, on the main thread.
+            unsafe { conduit_components::capture::activate_accessibility(ptr) };
+        }
         ticker(store, cx);
+        return;
+    }
+    if mode == "shots" {
+        let dir = shots.unwrap_or_else(|| PathBuf::from("."));
+        shots_run(
+            handle,
+            view,
+            store,
+            dir,
+            if dark { "dark" } else { "light" },
+            cx,
+        );
         return;
     }
     // a11y: one finished answer to read, then the tree.
@@ -601,6 +655,87 @@ pub fn run(mode: String, shots: Option<PathBuf>, cx: &mut App) {
             "{}",
             json!({"articles": articles, "controls": controls, "picker": picker})
         );
+        cx.update(|cx| cx.quit());
+    })
+    .detach();
+}
+
+/// `shots`: the answer streamed to fixed lengths, then scrolled to fixed
+/// places (some further than the transcript keeps laid out), a shot of the
+/// window at rest after each.
+fn shots_run(
+    handle: gpui_kit::AnyWindowHandle,
+    view: Entity<FixtureChat>,
+    store: Entity<ChatStore>,
+    dir: PathBuf,
+    mode: &'static str,
+    cx: &mut App,
+) {
+    std::fs::create_dir_all(&dir).ok();
+    let answer = long_answer();
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        let rest =
+            |ms: u64, cx: &mut AsyncApp| cx.background_executor().timer(Duration::from_millis(ms));
+        let shoot = |name: &str, cx: &mut AsyncApp| {
+            let path = dir.join(format!("fixture-shot-{name}-{mode}.png"));
+            let number = handle
+                .update(cx, |_, window, _| cw::macos::window_number(window))
+                .ok()
+                .flatten();
+            let path = path.to_string_lossy().to_string();
+            match number.map(|n| conduit_components::capture::capture_window(n, &path)) {
+                Some(Ok((w, h))) => println!("SHOT {path} ({w}x{h})"),
+                Some(Err(e)) => println!("SHOT FAILED {path}: {e}"),
+                None => println!("SHOT FAILED {path}: no window"),
+            }
+        };
+        rest(2_000, cx).await;
+        // Streamed as the perf run streams it (about 55 characters a frame).
+        let mut revealed = 0usize;
+        for target in [8 * 1024, 16 * 1024, 24 * 1024, ANSWER_CHARS] {
+            while revealed < target {
+                revealed = (revealed + 55).min(target);
+                while !answer.is_char_boundary(revealed) {
+                    revealed += 1;
+                }
+                let event = Event::TurnBlocks(TurnBlocks {
+                    chat_id: "fixture".into(),
+                    message_id: "live".into(),
+                    blocks: vec![text_block(answer[..revealed].to_string())],
+                    tasks: None,
+                });
+                store.update(cx, |s, cx| s.on_event(&event, cx));
+                rest(16, cx).await;
+            }
+            rest(2_500, cx).await;
+            shoot(&format!("follow-{:02}k", target / 1024), cx);
+        }
+        let transcript = cx.update(|cx| view.read(cx).transcript.clone());
+        let list = cx.update(|cx| transcript.read(cx).list_state().clone());
+        cx.update(|cx| transcript.update(cx, |t, _| t.stop_following()));
+        // Jumps up (each further than the transcript keeps laid out), one
+        // back down, the answer's top, and its end again.
+        for (name, dy) in [
+            ("up-0400", -400.),
+            ("up-2400", -2_000.),
+            ("up-6000", -3_600.),
+            ("down-5000", 1_000.),
+        ] {
+            cx.update(|cx| transcript.update(cx, |t, cx| t.scroll_by(px(dy), cx)));
+            rest(1_500, cx).await;
+            shoot(name, cx);
+        }
+        let live = list.item_count().saturating_sub(1);
+        list.scroll_to(ListOffset {
+            item_ix: live,
+            offset_in_item: px(0.),
+        });
+        cx.update(|cx| view.update(cx, |_, cx| cx.notify()));
+        rest(1_500, cx).await;
+        shoot("answer-top", cx);
+        cx.update(|cx| transcript.update(cx, |t, cx| t.scroll_to_end(cx)));
+        rest(2_000, cx).await;
+        shoot("end", cx);
         cx.update(|cx| cx.quit());
     })
     .detach();

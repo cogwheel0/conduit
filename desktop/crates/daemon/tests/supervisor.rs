@@ -78,9 +78,14 @@ fn setup(name: &str, mode: &str) -> (SupervisorConfig, PathBuf) {
         base_delay: Duration::from_millis(10),
         max_delay: Duration::from_millis(80),
     };
-    config.ready_timeout = Duration::from_millis(800);
-    config.stop_grace = Duration::from_millis(300);
-    config.term_grace = Duration::from_millis(300);
+    // Generous: every test waits on the supervisor's events, never on these
+    // running out, except where one running out is what it tests (it sets
+    // its own). A shell started on a busy machine can take most of a
+    // second to read its first line; a ready timeout that short killed it
+    // before it said it started, and the crash test counted 5 starts of 6.
+    config.ready_timeout = Duration::from_secs(10);
+    config.stop_grace = Duration::from_secs(5);
+    config.term_grace = Duration::from_secs(5);
     (config, dir)
 }
 
@@ -230,7 +235,9 @@ async fn crashes_restart_five_times_then_give_up_and_retry_resets() {
 
 #[tokio::test]
 async fn stop_escalates_to_sigterm() {
-    let (config, _dir) = setup("term", "term");
+    // It ignores stdin closing: SIGTERM after the grace, which it answers.
+    let (mut config, _dir) = setup("term", "term");
+    config.stop_grace = Duration::from_millis(300);
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
     assert_eq!(sup.stop().await, StopOutcome::Terminated);
@@ -238,7 +245,10 @@ async fn stop_escalates_to_sigterm() {
 
 #[tokio::test]
 async fn stop_escalates_to_sigkill() {
-    let (config, _dir) = setup("stubborn", "stubborn");
+    // It ignores stdin closing and SIGTERM: SIGKILL after both graces.
+    let (mut config, _dir) = setup("stubborn", "stubborn");
+    config.stop_grace = Duration::from_millis(300);
+    config.term_grace = Duration::from_millis(300);
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     let ready = until(&mut rx, |e| matches!(e, SupervisorEvent::Ready { .. })).await;
     let SupervisorEvent::Ready { pid, .. } = ready.last().unwrap() else {
@@ -253,7 +263,13 @@ async fn stop_escalates_to_sigkill() {
 
 #[tokio::test]
 async fn no_ready_line_in_time_counts_as_a_failed_start() {
+    // The fake never says it is ready. Its timeout is what this tests, so
+    // it is set here: 3 s, far past what a busy machine takes to start a
+    // shell (800 ms was not, and killed it before it said it started).
+    // Stopping it after is quick: it ignores stdin, and TERM ends it.
     let (mut config, dir) = setup("silent", "silent");
+    config.ready_timeout = Duration::from_secs(3);
+    config.stop_grace = Duration::from_millis(300);
     // The restart waits until stop(), so the count can't move before it is read.
     config.policy.base_delay = Duration::from_secs(3600);
     config.policy.max_delay = Duration::from_secs(3600);

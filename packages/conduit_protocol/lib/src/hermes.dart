@@ -181,6 +181,11 @@ abstract class HermesSessions with _$HermesSessions {
     /// The archived sessions could not be read: the Archived row says so,
     /// with Try Again. The conversations are listed all the same.
     @Default(false) bool archivedFailed,
+
+    /// How many scheduled agents' runs the lists leave out while Show
+    /// Scheduled Runs is off (pinned ones are listed): the list says so,
+    /// with Show.
+    @Default(0) int hiddenScheduledRuns,
   }) = _HermesSessions;
 
   factory HermesSessions.fromJson(Map<String, dynamic> json) =>
@@ -212,6 +217,21 @@ abstract class HermesJobRef with _$HermesJobRef {
 
   factory HermesJobRef.fromJson(Map<String, dynamic> json) =>
       _$HermesJobRefFromJson(json);
+}
+
+/// Params of `hermes.signIn`: the connection the sign-in is for.
+@freezed
+abstract class HermesSignInRequest with _$HermesSignInRequest {
+  const factory HermesSignInRequest({
+    /// The Hermes connection the request was made under
+    /// (`HermesChanged.connection`, or the one an activation answered
+    /// with): refused once another is in use. Null from an older window,
+    /// not checked.
+    String? connection,
+  }) = _HermesSignInRequest;
+
+  factory HermesSignInRequest.fromJson(Map<String, dynamic> json) =>
+      _$HermesSignInRequestFromJson(json);
 }
 
 /// Params for `hermes.renameSession`.
@@ -296,6 +316,50 @@ abstract class HermesChatDto with _$HermesChatDto {
       _$HermesChatDtoFromJson(json);
 }
 
+/// The cadences core reads in a Hermes job's cron schedule (the core's
+/// `HermesCadenceKind`).
+enum HermesCadenceKind {
+  none,
+  everyMinute,
+  everyMinutes,
+  everyHour,
+  everyHours,
+  daily,
+  weekdays,
+  weekends,
+  weekly,
+  monthly,
+}
+
+/// A Hermes job's schedule, read (the core's `HermesCadence`): what
+/// [HermesJobDto.scheduleText] says in English, for the window to word in
+/// its own language.
+@freezed
+abstract class HermesCadenceDto with _$HermesCadenceDto {
+  const factory HermesCadenceDto({
+    required HermesCadenceKind kind,
+
+    /// The step of `everyMinutes` and `everyHours`.
+    int? every,
+
+    /// The time's hour, 0–23.
+    int? hour,
+
+    /// The time's minute, 0–59; for the hourly kinds, the minute past the
+    /// hour.
+    int? minute,
+
+    /// `weekly`'s day: 0 is Sunday, 6 Saturday.
+    int? weekday,
+
+    /// `monthly`'s day of the month, 1–31.
+    int? day,
+  }) = _HermesCadenceDto;
+
+  factory HermesCadenceDto.fromJson(Map<String, dynamic> json) =>
+      _$HermesCadenceDtoFromJson(json);
+}
+
 /// A scheduled agent.
 @freezed
 abstract class HermesJobDto with _$HermesJobDto {
@@ -309,6 +373,10 @@ abstract class HermesJobDto with _$HermesJobDto {
 
     /// The schedule in words, when it could be read.
     String? scheduleText,
+
+    /// [scheduleText] as data, when core read the schedule: the window
+    /// words it in its own language (the English is the fallback).
+    HermesCadenceDto? cadence,
     @Default(true) bool enabled,
     String? lastStatus,
     String? lastError,

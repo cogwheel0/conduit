@@ -14,6 +14,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:crypto/crypto.dart' show sha1;
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:web_socket_channel/io.dart';
@@ -671,12 +672,14 @@ final class TerminalsService {
 }
 
 /// A loopback listener that forwards to one port behind a terminal
-/// server's proxy, with the credential added.
+/// server's proxy, with the credential added: its pages, and the
+/// WebSockets they open (a dev server's live reload), both ways.
 ///
 /// The page it serves is untrusted: it may only reach its own port. So a
 /// path that could climb out of the port's proxy is refused, a redirect is
-/// handed to the browser rather than followed with the credential, and a
-/// state-changing request from another page on this computer is refused.
+/// handed to the browser rather than followed with the credential (one in
+/// answer to a WebSocket is refused), and a state-changing request or a
+/// WebSocket from another page on this computer is refused.
 final class PortPreview {
   PortPreview._(
     this._server,
@@ -773,7 +776,10 @@ final class PortPreview {
         await response.close();
         return;
       }
-      if (!_safeMethods.contains(request.method)) {
+      // A WebSocket is not held to the same-origin rule by the browser, so
+      // it must come from the preview's own page too.
+      if (!_safeMethods.contains(request.method) ||
+          WebSocketTransformer.isUpgradeRequest(request)) {
         final origin = request.headers.value('origin');
         if (origin != null && origin != _origin) {
           response.statusCode = HttpStatus.forbidden;
@@ -785,6 +791,10 @@ final class PortPreview {
         path: '$_prefix${previewUpstreamPath(request.uri.path, _prefix)}',
         query: request.uri.hasQuery ? request.uri.query : null,
       );
+      if (WebSocketTransformer.isUpgradeRequest(request)) {
+        await _tunnel(request, target);
+        return;
+      }
       final forward = await _client.openUrl(request.method, target);
       // A redirect goes to the browser: followed here, the credential would
       // go along to wherever it points.
@@ -844,6 +854,148 @@ final class PortPreview {
 
   static const Set<String> _safeMethods = <String>{'GET', 'HEAD', 'OPTIONS'};
 
+  /// The page's WebSockets open now, closed with the preview.
+  final Set<WebSocket> _sockets = <WebSocket>{};
+
+  /// A WebSocket the page opens (a dev server's live reload), passed to the
+  /// port as its other requests are: the same credential, a sign-in
+  /// proxy's cookies and headers, and the server's TLS settings, never the
+  /// page's own cookie. The port answers first: refused there, it is
+  /// refused here (502), and each side's close reaches the other.
+  Future<void> _tunnel(HttpRequest request, Uri target) async {
+    final offered = <String>[
+      for (final value in request.headers['sec-websocket-protocol'] ?? [])
+        for (final p in value.split(','))
+          if (p.trim().isNotEmpty) p.trim(),
+    ];
+    final headers = <String, String>{..._headers};
+    if (_cookies.isNotEmpty) {
+      headers[HttpHeaders.cookieHeader] = [
+        for (final e in _cookies.entries) '${e.key}=${e.value}',
+      ].join('; ');
+    }
+    final token = _token;
+    if (token != null && token.isNotEmpty) {
+      headers[HttpHeaders.authorizationHeader] = 'Bearer $token';
+    }
+    final WebSocket upstream;
+    try {
+      upstream = await _connectUpstream(target, offered, headers);
+    } on Object catch (error) {
+      _log?.warn('port preview socket refused: $error');
+      request.response.statusCode = HttpStatus.badGateway;
+      await request.response.close();
+      return;
+    }
+    final chosen = upstream.protocol;
+    final WebSocket page;
+    try {
+      page = await WebSocketTransformer.upgrade(
+        request,
+        protocolSelector: chosen != null && offered.contains(chosen)
+            ? (_) => chosen
+            : null,
+      );
+    } on Object catch (error) {
+      _log?.warn('port preview socket upgrade failed: $error');
+      await upstream.close();
+      return;
+    }
+    _sockets
+      ..add(page)
+      ..add(upstream);
+    void ended() {
+      _sockets
+        ..remove(page)
+        ..remove(upstream);
+    }
+
+    page.listen(
+      upstream.add,
+      onDone: () {
+        unawaited(_closeSocket(upstream, page.closeCode, page.closeReason));
+        ended();
+      },
+      onError: (Object _) => unawaited(upstream.close()),
+      cancelOnError: true,
+    );
+    upstream.listen(
+      page.add,
+      onDone: () {
+        unawaited(_closeSocket(page, upstream.closeCode, upstream.closeReason));
+        ended();
+      },
+      onError: (Object _) => unawaited(page.close()),
+      cancelOnError: true,
+    );
+  }
+
+  /// Opens the port's side of a WebSocket. By hand rather than with
+  /// [WebSocket.connect], which follows a redirect: the credential, or a
+  /// sign-in proxy's headers, would go along to wherever it points (the
+  /// terminal's own API, on its host). Here anything but the switch to a
+  /// WebSocket is refused.
+  Future<WebSocket> _connectUpstream(
+    Uri target,
+    List<String> offered,
+    Map<String, String> headers,
+  ) async {
+    final nonce = base64.encode(
+      List<int>.generate(16, (_) => _nonces.nextInt(256)),
+    );
+    final request = await _client.openUrl('GET', target);
+    request.followRedirects = false;
+    headers.forEach(request.headers.set);
+    request.headers
+      ..set(HttpHeaders.connectionHeader, 'Upgrade')
+      ..set(HttpHeaders.upgradeHeader, 'websocket')
+      ..set('sec-websocket-key', nonce)
+      ..set('sec-websocket-version', '13');
+    if (offered.isNotEmpty) {
+      request.headers.set('sec-websocket-protocol', offered.join(', '));
+    }
+    final response = await request.close();
+    final accept = base64.encode(
+      sha1.convert(utf8.encode('$nonce$_webSocketGuid')).bytes,
+    );
+    if (response.statusCode != HttpStatus.switchingProtocols ||
+        response.headers.value('sec-websocket-accept') != accept) {
+      await response.drain<void>().catchError((Object _) {});
+      throw WebSocketException('the port answered ${response.statusCode}');
+    }
+    final protocol = response.headers.value('sec-websocket-protocol');
+    final socket = await response.detachSocket();
+    return WebSocket.fromUpgradedSocket(
+      socket,
+      protocol: protocol,
+      serverSide: false,
+    );
+  }
+
+  static final Random _nonces = Random.secure();
+
+  /// RFC 6455's key suffix for `Sec-WebSocket-Accept`.
+  static const String _webSocketGuid = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+  /// Closes [socket] with [code] when it is one a peer may send, else
+  /// plainly (1005 and 1006 only describe a close).
+  static Future<void> _closeSocket(
+    WebSocket socket,
+    int? code,
+    String? reason,
+  ) async {
+    final sendable =
+        code != null &&
+        (code == WebSocketStatus.normalClosure ||
+            code == WebSocketStatus.goingAway ||
+            (code >= 3000 && code <= 4999));
+    try {
+      await (sendable ? socket.close(code, reason) : socket.close());
+    } on Object {
+      // Already closed.
+    }
+  }
+
   static const Set<String> _hopByHop = <String>{
     'connection',
     'keep-alive',
@@ -857,6 +1009,10 @@ final class PortPreview {
   };
 
   Future<void> close() async {
+    for (final socket in _sockets.toList()) {
+      unawaited(socket.close(WebSocketStatus.goingAway));
+    }
+    _sockets.clear();
     _client.close(force: true);
     await _server.close(force: true);
   }

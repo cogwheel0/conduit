@@ -693,13 +693,8 @@ async fn offline_queue(dir: &Path, cx: &mut AsyncApp) -> bool {
     };
     let quiet = handoffs.iter().all(|f| {
         f.queued
-            && crate::shell::notify::decide(
-                true,
-                &f.chat_id,
-                crate::shell::notify::Outcome::of(f.ok, f.queued),
-                &crate::shell::notify::OnScreen::default(),
-            )
-            .is_none()
+            && crate::shell::notify::kind_for(crate::shell::notify::Outcome::of(f.ok, f.queued))
+                .is_none()
     });
     pass &= ok(
         &format!(

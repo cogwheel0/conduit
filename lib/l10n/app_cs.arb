@@ -7013,5 +7013,6 @@
   "notificationCalendarExactDescription": "Povolte „Budíky a připomenutí“, aby připomenutí kalendáře přicházela na minutu přesně.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "Uložený klíč se na novou adresu neodešle, a proto bude odebrán. Zadejte klíč pro tuto adresu."
 }

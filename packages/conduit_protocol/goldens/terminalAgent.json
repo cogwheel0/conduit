@@ -1,0 +1,6 @@
+{
+  "terminalId": "buildbox",
+  "agent": "claude-code",
+  "agentName": "",
+  "model": "sonnet"
+}

@@ -106,12 +106,23 @@ pub const BACKENDS: [Backend; 4] = [
     Backend::LibreChat,
 ];
 
+/// The chooser's Apple Intelligence section: one row, Apple On-Device,
+/// shown while this Mac's model answers (the phone's `backendChooserApple*`
+/// section; never Private Cloud Compute on the Mac).
+pub struct AppleChoice {
+    pub section: SharedString,
+    pub title: SharedString,
+    pub detail: SharedString,
+    pub on_click: ClickHandler,
+}
+
 /// "How do you want to connect?" with three radio cards.
 #[derive(IntoElement)]
 pub struct BackendChooser {
     selected: Backend,
     on_select: Option<SelectHandler>,
     on_continue: Option<ClickHandler>,
+    apple: Option<AppleChoice>,
     busy: bool,
 }
 
@@ -121,8 +132,15 @@ impl BackendChooser {
             selected,
             on_select: None,
             on_continue: None,
+            apple: None,
             busy: false,
         }
+    }
+    /// The Apple Intelligence section, between the self-hosted backends and
+    /// the model APIs (the phone's order); none when `choice` is None.
+    pub fn apple(mut self, choice: Option<AppleChoice>) -> Self {
+        self.apple = choice;
+        self
     }
     /// Called with the index in [`BACKENDS`] of the card the user picked.
     pub fn on_select(mut self, handler: SelectHandler) -> Self {
@@ -210,6 +228,25 @@ impl RenderOnce for BackendChooser {
                 cx,
             ),
         ];
+        let apple = self.apple.as_ref().map(|choice| {
+            let (on_click, busy) = (choice.on_click.clone(), self.busy);
+            let row = nav_row_badged(
+                "backend-apple",
+                IconName::Laptop,
+                choice.title.clone(),
+                None,
+                Some(choice.detail.clone()),
+                cx,
+            )
+            .on_click(move |e, window, cx| {
+                if !busy {
+                    on_click(e, window, cx)
+                }
+            })
+            .keyboard_control(Ring::Inset(10.), window, cx)
+            .into_any_element();
+            (choice.section.clone(), row)
+        });
         let model_apis = vec![row(
             1,
             IconName::Zap,
@@ -243,6 +280,9 @@ impl RenderOnce for BackendChooser {
                         None,
                         cx,
                     ))
+                    .when_some(apple, |el, (section, row)| {
+                        el.child(grouped_section(Some(section), vec![row], None, cx))
+                    })
                     .child(grouped_section(
                         Some(st.model_apis_section.clone()),
                         model_apis,
@@ -558,7 +598,7 @@ impl Render for SignInForm {
                     .justify_center()
                     .gap(px(16.))
                     .child(link("ldap", st.ldap.clone(), None, cx))
-                    .child(link("api-key", st.api_key.clone(), None, cx)),
+                    .child(link("token", st.token.clone(), None, cx)),
             )
     }
 }

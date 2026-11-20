@@ -8,5 +8,16 @@
   "apiKey": "sk-demo",
   "legacyToken": "demo-token",
   "allowSelfSignedCertificates": true,
-  "allowPlainHttp": true
+  "allowPlainHttp": true,
+  "accessHeaders": [
+    {
+      "name": "CF-Access-Client-Id",
+      "value": "demo.access"
+    },
+    {
+      "name": "X-Gate",
+      "savedName": "X-Old-Gate"
+    }
+  ],
+  "memoryKey": "demo-memory"
 }

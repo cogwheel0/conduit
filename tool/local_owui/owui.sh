@@ -14,6 +14,10 @@
 #                                          sends it (drive_chat.py), into DIR
 #   tool/local_owui/owui.sh showcase DIR   a stored chat with every rich block
 #                                          (showcase.py), its ids into DIR
+#   tool/local_owui/owui.sh media DIR URL  a stored chat with pictures and PDFs
+#                                          from the site at URL (media_site.py)
+#                                          and the server, and diagrams
+#                                          (media_chat.py), its ids into DIR
 #   tool/local_owui/owui.sh tool-permissions on|off
 #                                          auto tool permissions on, or back as
 #                                          they were (tool_permissions.py)
@@ -21,6 +25,17 @@
 #                                          the second user in channels: post,
 #                                          react, type, start a direct message,
 #                                          or an app's card (channel_peer.py)
+#   tool/local_owui/owui.sh two-step       two-step sign-in (TOTP) on, with
+#                                          synthetic accounts that have, lack or
+#                                          lost an authenticator, and one
+#                                          awaiting approval (two_step.py);
+#                                          restarts the server with persistent
+#                                          config, which two-step needs
+#   tool/local_owui/owui.sh proxy start|expire|stop
+#                                          a fake sign-in proxy in front of the
+#                                          server, whose session can be expired
+#                                          (fake_proxy.py; --proxy-port N, the
+#                                          proxy's sign-in page on N+1)
 #
 # Options, also read from the environment:
 #   --dir DIR        the instance: data, logs, pids, secrets
@@ -35,6 +50,8 @@
 #   --terminal-port N  the fake Open Terminal's port, the server's port + 3
 #                    by default (CONDUIT_OWUI_TERMINAL_PORT); Open WebUI
 #                    offers it as the "Build box" terminal
+#   --proxy-port N   the fake sign-in proxy's port (CONDUIT_OWUI_PROXY_PORT,
+#                    default the server's + 5); its sign-in page takes N+1
 #
 #   CONDUIT_DEV_CACHE    the cache root (~/Library/Caches/conduit-dev on
 #                        macOS, ${XDG_CACHE_HOME:-~/.cache}/conduit-dev elsewhere)
@@ -63,16 +80,23 @@ PORT=${CONDUIT_OWUI_PORT:-}
 MODEL_PORT=${CONDUIT_OWUI_MODEL_PORT:-}
 HERMES_PORT=${CONDUIT_OWUI_HERMES_PORT:-}
 TERMINAL_PORT=${CONDUIT_OWUI_TERMINAL_PORT:-}
+PROXY_PORT=${CONDUIT_OWUI_PROXY_PORT:-}
 
 command=${1:-}
 [ $# -gt 0 ] && shift
-# `chat` takes two arguments; nothing else takes any.
+# `chat` and `media` take two arguments; nothing else takes any.
 ARG1=
 ARG2=
 # `peer` hands every argument to channel_peer.py.
 if [ "$command" = peer ]; then
   PEER_ARGS=("$@")
   set --
+fi
+# `proxy` takes one argument: start, expire or stop.
+PROXY_ACTION=
+if [ "$command" = proxy ] && [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+  PROXY_ACTION=$1
+  shift
 fi
 while [ $# -gt 0 ]; do
   case $1 in
@@ -81,9 +105,10 @@ while [ $# -gt 0 ]; do
     --model-port) MODEL_PORT=$2; shift 2 ;;
     --hermes-port) HERMES_PORT=$2; shift 2 ;;
     --terminal-port) TERMINAL_PORT=$2; shift 2 ;;
+    --proxy-port) PROXY_PORT=$2; shift 2 ;;
     -*) echo "unknown option: $1" >&2; exit 64 ;;
     *)
-      if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
+      if { [ "$command" != chat ] && [ "$command" != showcase ] && [ "$command" != media ] && [ "$command" != tool-permissions ]; } || [ -n "$ARG2" ]; then
         echo "unexpected argument: $1" >&2
         exit 64
       fi
@@ -106,6 +131,8 @@ if [ -z "$HERMES_PORT" ] && [ -f "$STATE/hermes_port" ]; then HERMES_PORT=$(cat 
 HERMES_PORT=${HERMES_PORT:-$((PORT + 2))}
 if [ -z "$TERMINAL_PORT" ] && [ -f "$STATE/terminal_port" ]; then TERMINAL_PORT=$(cat "$STATE/terminal_port"); fi
 TERMINAL_PORT=${TERMINAL_PORT:-$((PORT + 3))}
+if [ -z "$PROXY_PORT" ] && [ -f "$STATE/proxy_port" ]; then PROXY_PORT=$(cat "$STATE/proxy_port"); fi
+PROXY_PORT=${PROXY_PORT:-$((PORT + 5))}
 URL=http://127.0.0.1:$PORT
 
 # Each service needs a port of its own: two on one port would both pass the
@@ -118,22 +145,26 @@ fi
 # Pid files and the identity of what they name: tool/local_owui/pids.sh.
 . "$TOOL_DIR/pids.sh"
 
-# Whether NAME (server, fake_model, fake_hermes or fake_terminal) is
-# running: the process its pid file names, and no other one that took its pid
-# since.
+# Whether NAME (server, fake_model, fake_hermes, fake_terminal or fake_proxy)
+# is running: the process its pid file names, and no other one that took its
+# pid since.
 alive() { pid_alive "$STATE/$1.pid"; }
 
 # A running instance keeps the ports it was started on: a different --port,
-# --model-port, --hermes-port or --terminal-port would point seed and chat at
-# whatever listens there instead. Only stopping (reset stops first) may
-# change them.
+# --model-port, --hermes-port or --terminal-port (or --proxy-port while the
+# proxy runs) would point seed and chat at whatever listens there instead.
+# Only stopping (reset stops first) may change them.
 if alive server; then
-  for kind in port model_port hermes_port terminal_port; do
+  for kind in port model_port hermes_port terminal_port proxy_port; do
     case $kind in
       port) wanted=$PORT ;;
       model_port) wanted=$MODEL_PORT ;;
       hermes_port) wanted=$HERMES_PORT ;;
       terminal_port) wanted=$TERMINAL_PORT ;;
+      proxy_port)
+        alive fake_proxy || continue
+        wanted=$PROXY_PORT
+        ;;
     esac
     [ -f "$STATE/$kind" ] || continue
     running=$(cat "$STATE/$kind")
@@ -211,6 +242,13 @@ need_venv() {
     echo "no open-webui in $VENV: run '$0 setup' first" >&2
     exit 1
   fi
+}
+
+# Two-step verification needs persistent config (`owui.sh two-step` turns
+# it on for the instance); everything else runs without it, so env changes
+# apply on the next start.
+persistent_config() {
+  if [ -f "$STATE/persistent_config" ]; then echo true; else echo false; fi
 }
 
 start() {
@@ -295,7 +333,7 @@ start() {
       DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
       OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \
       WEBUI_SECRET_KEY="$(cat "$STATE/secret")" \
-      ENABLE_PERSISTENT_CONFIG=false \
+      ENABLE_PERSISTENT_CONFIG="$(persistent_config)" \
       OFFLINE_MODE=true HF_HUB_OFFLINE=1 \
       ENABLE_VERSION_UPDATE_CHECK=false \
       DO_NOT_TRACK=true SCARF_NO_ANALYTICS=true ANONYMIZED_TELEMETRY=false \
@@ -305,11 +343,13 @@ start() {
       OPENAI_API_KEY=sk-local-fake \
       ENABLE_TOOL_CALL_LABELS=true \
       ENABLE_DIRECT_CONNECTIONS=true \
+      ENABLE_DIRECT_INTEGRATIONS=true \
       TOOL_SERVER_CONNECTIONS="[{\"type\":\"mcp\",\"url\":\"http://127.0.0.1:$MODEL_PORT/mcp\",\"path\":\"\",\"auth_type\":\"none\",\"key\":\"\",\"config\":{\"enable\":true},\"info\":{\"id\":\"harbour\",\"name\":\"Harbour\",\"description\":\"A synthetic MCP server with one app.\"}}]" \
       ENABLE_TOOL_SERVERS=true \
       TERMINAL_SERVER_CONNECTIONS="[{\"id\":\"buildbox\",\"name\":\"Build box\",\"url\":\"http://127.0.0.1:$TERMINAL_PORT\",\"auth_type\":\"bearer\",\"key\":\"$(cat "$STATE/terminal_key")\",\"enabled\":true,\"config\":{}}]" \
       ENABLE_CHANNELS=true \
       ENABLE_APPS=true \
+      ENABLE_USER_WEBHOOKS=true \
       ENABLE_LOCAL_WEB_FETCH=true \
       CODE_INTERPRETER_ENGINE=jupyter \
       CODE_INTERPRETER_JUPYTER_URL=http://127.0.0.1:9 \
@@ -393,13 +433,15 @@ seed() {
     --url "$URL" --state "$STATE" --data "$DATA" --env-file "$ENV_FILE" \
     --fake-model-url "http://127.0.0.1:$MODEL_PORT/v1" \
     --fake-hermes-url "http://127.0.0.1:$HERMES_PORT/v1" \
-    --fake-hermes-key-file "$STATE/hermes_key"
+    --fake-hermes-key-file "$STATE/hermes_key" \
+    --fake-terminal-url "http://127.0.0.1:$TERMINAL_PORT" \
+    --fake-terminal-key-file "$STATE/terminal_key"
   date -u +%FT%TZ > "$STATE/seeded"
   echo "env file: $ENV_FILE"
 }
 
 stop() {
-  for name in server fake_model fake_hermes fake_terminal; do
+  for name in server fake_model fake_hermes fake_terminal fake_proxy; do
     case $(pid_stop "$STATE/$name.pid") in
       stopped) echo "stopped $name" ;;
       killed) echo "stopped $name (killed)" ;;
@@ -444,6 +486,20 @@ showcase() {
     --secret-file "$STATE/secret" --out "$ARG1"
 }
 
+media() {
+  need_venv
+  if [ -z "$ARG1" ] || [ -z "$ARG2" ]; then
+    echo "usage: $0 media OUT-DIR SITE-URL" >&2
+    exit 64
+  fi
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/media_chat.py" --env-file "$ENV_FILE" \
+    --site "$ARG2" --out "$ARG1"
+}
+
 tool_permissions() {
   need_venv
   if [ "$ARG1" != on ] && [ "$ARG1" != off ]; then
@@ -456,6 +512,79 @@ tool_permissions() {
   fi
   "$VENV/bin/python" -I "$TOOL_DIR/tool_permissions.py" --env-file "$ENV_FILE" \
     --state-file "$STATE/tool-permissions.json" "$ARG1"
+}
+
+two_step() {
+  need_venv
+  if ! alive server || [ ! -f "$ENV_FILE" ]; then
+    echo "not running or not seeded: run '$0 up' first" >&2
+    exit 1
+  fi
+  if [ ! -f "$STATE/persistent_config" ]; then
+    # The server again, with persistent config.
+    pid_stop "$STATE/server.pid" 40 > /dev/null
+    rm -f "$STATE/server.pid"
+    date -u +%FT%TZ > "$STATE/persistent_config"
+    start
+  fi
+  "$VENV/bin/python" -I "$TOOL_DIR/two_step.py" --env-file "$ENV_FILE" \
+    --state "$STATE" --data "$DATA" --venv "$VENV"
+}
+
+proxy() {
+  need_venv
+  case $PROXY_ACTION in
+    start)
+      if alive fake_proxy; then
+        echo "proxy already running at http://127.0.0.1:$PROXY_PORT"
+        return
+      fi
+      if ! alive server || [ ! -f "$ENV_FILE" ]; then
+        echo "not running or not seeded: run '$0 up' first" >&2
+        exit 1
+      fi
+      need_free_port proxy "$PROXY_PORT"
+      need_free_port "proxy's sign-in page" "$((PROXY_PORT + 1))"
+      mkdir -p "$STATE"
+      echo "$PROXY_PORT" > "$STATE/proxy_port"
+      nohup "$VENV/bin/python" -I "$TOOL_DIR/fake_proxy.py" \
+        --port "$PROXY_PORT" --sign-in-port "$((PROXY_PORT + 1))" \
+        --upstream "$URL" --log "$STATE/proxy_requests.jsonl" \
+        > "$STATE/fake_proxy.log" 2>&1 &
+      pid_record "$STATE/fake_proxy.pid" $!
+      for _ in $(seq 1 40); do
+        if curl -s --noproxy '*' -o /dev/null "http://127.0.0.1:$PROXY_PORT/__proxy/state"; then
+          # Serving: whatever ran first has handed over.
+          pid_refresh "$STATE/fake_proxy.pid"
+          break
+        fi
+        sleep 0.25
+      done
+      if ! grep -q '^OWUI_PROXY_URL=' "$ENV_FILE"; then
+        printf '\n# The fake sign-in proxy (owui.sh proxy start)\nOWUI_PROXY_URL=http://127.0.0.1:%s\n' "$PROXY_PORT" >> "$ENV_FILE"
+      fi
+      echo "proxy at http://127.0.0.1:$PROXY_PORT (sign-in page on $((PROXY_PORT + 1)))"
+      ;;
+    expire)
+      if ! alive fake_proxy; then
+        echo "the proxy is not running: run '$0 proxy start' first" >&2
+        exit 1
+      fi
+      curl -sf --noproxy '*' -X POST "http://127.0.0.1:$PROXY_PORT/__proxy/expire" >/dev/null
+      echo "proxy sessions expired"
+      ;;
+    stop)
+      case $(pid_stop "$STATE/fake_proxy.pid") in
+        stopped) echo "stopped fake_proxy" ;;
+        killed) echo "stopped fake_proxy (killed)" ;;
+      esac
+      rm -f "$STATE/fake_proxy.pid"
+      ;;
+    *)
+      echo "usage: $0 proxy start|expire|stop" >&2
+      exit 64
+      ;;
+  esac
 }
 
 set_aside() {
@@ -472,7 +601,7 @@ set_aside() {
 }
 
 status() {
-  for name in server fake_model fake_hermes fake_terminal; do
+  for name in server fake_model fake_hermes fake_terminal fake_proxy; do
     if alive "$name"; then
       echo "$name: running (pid $(pid_of "$STATE/$name.pid"))"
     else
@@ -498,10 +627,13 @@ case $command in
   env) echo "$ENV_FILE" ;;
   chat) chat ;;
   showcase) showcase ;;
+  media) media ;;
   peer) peer ;;
   tool-permissions) tool_permissions ;;
+  two-step) two_step ;;
+  proxy) proxy ;;
   *)
-    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

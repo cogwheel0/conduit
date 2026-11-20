@@ -1,0 +1,23 @@
+{
+  "terminals": [
+    {
+      "id": "buildbox",
+      "name": "Build box",
+      "agent": false
+    }
+  ],
+  "models": [
+    {
+      "id": "fake-model",
+      "name": "Kestrel 8B",
+      "agent": false
+    },
+    {
+      "id": "agent:buildbox:codex:gpt-5.1",
+      "name": "Codex · gpt-5.1",
+      "detail": "Build box",
+      "agent": true
+    }
+  ],
+  "agentsUnknown": false
+}

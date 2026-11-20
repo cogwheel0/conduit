@@ -130,7 +130,18 @@ async fn wait_request(
     if !found {
         return None;
     }
-    cx.update(top_request)
+    let request = cx.update(top_request)?;
+    // The card draws it before a field is filled: its first draw of a new
+    // request clears the card's fields (under load the store has a request
+    // a frame or more before the card does).
+    let id = request.request_id.clone();
+    wait_until(cx, Duration::from_secs(10), move |cx| {
+        cx.try_global::<crate::AppState>()
+            .and_then(|s| s.main_view.clone())
+            .is_some_and(|mw| mw.read(cx).approvals.read(cx).drawn_for() == Some(id.as_str()))
+    })
+    .await;
+    Some(request)
 }
 
 async fn wait_no_request(cx: &mut AsyncApp) -> bool {

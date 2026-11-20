@@ -48,6 +48,12 @@ const MAX_NAME: usize = 200;
 const MAX_PURPOSE: usize = 500;
 const MAX_NOTES_BYTES: usize = 4096;
 
+/// A length as conduitd and Hermes count it (UTF-16 units): an emoji is
+/// two.
+fn units(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
 fn sheet_title(id: &'static str, text: String, cx: &App) -> AnyElement {
     let t = cx.conduit();
     div()
@@ -188,7 +194,7 @@ impl CreateRoomSheet {
         let name = forms::text(&self.name, cx);
         !self.creating
             && !name.trim().is_empty()
-            && name.trim().chars().count() <= MAX_NAME
+            && units(name.trim()) <= MAX_NAME
             && (MIN_SEATS..=MAX_SEATS).contains(&self.picked.len())
     }
 
@@ -258,6 +264,10 @@ impl CreateRoomSheet {
 }
 
 impl SheetBody for CreateRoomSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.creating
+    }
+
     fn footer(&mut self, _: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let l = cx.l10n().clone();
         let view = cx.entity().downgrade();
@@ -288,10 +298,43 @@ impl SheetBody for CreateRoomSheet {
         )
     }
 
-    fn cancel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.creating {
-            sheet::dismiss(cx);
+    /// A room name typed or bots picked, not made yet: Quit asks first, as
+    /// Cancel does.
+    fn unsaved(&self, cx: &App) -> bool {
+        !forms::text(&self.name, cx).trim().is_empty() || !self.picked.is_empty()
+    }
+
+    fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.creating {
+            return;
         }
+        if !self.unsaved(cx) {
+            sheet::dismiss(cx);
+            return;
+        }
+        let l = cx.l10n().clone();
+        let spec = SheetSpec::new(
+            l.desktop_discard_changes_title(),
+            l.desktop_discard_changes_message(),
+            l.desktop_discard(),
+            l.cancel(),
+        )
+        .destructive();
+        let ask = present_sheet(window, spec, cx);
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            if !ask.await {
+                return;
+            }
+            // Only this sheet, if it is still the one down when the answer
+            // comes.
+            let _ = this.update(cx, |_, cx| {
+                let this = cx.entity();
+                if sheet::current::<Self>(cx).is_some_and(|open| open == this) {
+                    sheet::dismiss(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn label(&self, cx: &App) -> SharedString {
@@ -618,8 +661,8 @@ impl RoomInfoSheet {
     fn valid(&self) -> bool {
         let name = self.edit.name.trim();
         !name.is_empty()
-            && name.chars().count() <= MAX_NAME
-            && self.edit.purpose.trim().chars().count() <= MAX_PURPOSE
+            && units(name) <= MAX_NAME
+            && units(self.edit.purpose.trim()) <= MAX_PURPOSE
             && !self.notes_too_long()
             && (self.edit.routing != Some(HermesRoomRouting::Lead) || self.edit.lead.is_some())
     }
@@ -960,6 +1003,10 @@ impl RoomInfoSheet {
 }
 
 impl SheetBody for RoomInfoSheet {
+    fn busy(&self, _: &App) -> bool {
+        self.saving
+    }
+
     /// Edits not saved yet: Quit asks first, as Cancel does.
     fn unsaved(&self, _: &App) -> bool {
         self.is_dirty()
@@ -1219,6 +1266,10 @@ impl Render for RoomInfoSheet {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
     use conduit_protocol::{Event, HermesRoomDto, HermesRoomView, RpcError, methods};
     use gpui_kit::{Entity, TestAppContext, VisualTestContext};
     use serde_json::json;
@@ -1400,6 +1451,346 @@ mod tests {
             .navigation
             .read_with(vcx, |n, _| n.selection().clone());
         (open, shown)
+    }
+
+    /// Hermes counts a name's length as conduitd does, in UTF-16 units: a
+    /// name of emoji within 200 characters but over 200 units is refused
+    /// by both sheets before it is sent.
+    #[gpui_kit::test]
+    fn an_emoji_name_too_long_for_hermes_is_not_sent(cx: &mut TestAppContext) {
+        let long = "\u{1F331}".repeat(150);
+        let daemon = FakeDaemon::new();
+        let (info, vcx) = open(cx, &daemon, "emoji");
+        info.update_in(vcx, |s, window, cx| s.type_into("name", &long, window, cx));
+        info.read_with(vcx, |s, _| assert!(!s.valid(), "Room Info would save it"));
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        creatable(&daemon);
+        stores
+            .hermes_rooms
+            .update(vcx, |h, cx| h.set_wanted(true, cx));
+        vcx.run_until_parked();
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.set_name(&long, window, cx);
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+        });
+        sheet.read_with(vcx, |s, cx| assert!(!s.ready(cx), "New Room would send it"));
+    }
+
+    /// New Room open over the bench's main window, "Seed swap" typed.
+    fn new_room_typed(
+        cx: &mut TestAppContext,
+    ) -> (FakeDaemon, Entity<CreateRoomSheet>, &mut VisualTestContext) {
+        let (daemon, stores, vcx) = crate::views::sheet::bench::bench(cx);
+        creatable(&daemon);
+        stores
+            .hermes_rooms
+            .update(vcx, |h, cx| h.set_wanted(true, cx));
+        vcx.run_until_parked();
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .unwrap();
+        vcx.run_until_parked();
+        assert!(!vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)));
+        sheet.update_in(vcx, |s, window, cx| s.set_name("Seed swap", window, cx));
+        (daemon, sheet, vcx)
+    }
+
+    /// Quit through the sheets' own path, with a counter for the app's quit.
+    fn quit(vcx: &mut VisualTestContext) -> Rc<Cell<u32>> {
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        settle(vcx);
+        quits
+    }
+
+    fn answer(vcx: &mut VisualTestContext, yes: bool) {
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(yes))));
+    }
+
+    fn sheet_open(vcx: &mut VisualTestContext) -> bool {
+        vcx.update(|_, cx| crate::views::sheet::current::<CreateRoomSheet>(cx))
+            .is_some()
+    }
+
+    /// Lets the sheet's slide and the saves Quit waits for run out.
+    fn settle(vcx: &mut VisualTestContext) {
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor().advance_clock(Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+    }
+
+    /// A room name typed or bots picked and not made yet: Quit and Cancel
+    /// ask before dropping them, as the other sheets' edits. Kept editing,
+    /// Quit is dropped: a later Discard closes the sheet, not the app.
+    #[gpui_kit::test]
+    fn quit_asks_before_dropping_a_new_room_not_made(cx: &mut TestAppContext) {
+        let (_daemon, sheet, vcx) = new_room_typed(cx);
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::has_unsaved(cx)),
+            "Quit would drop the room name typed"
+        );
+        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
+        vcx.run_until_parked();
+        assert!(
+            sheet_open(vcx),
+            "Cancel dropped the room name without asking"
+        );
+        let quits = quit(vcx);
+        assert!(sheet_open(vcx), "Quit dropped the room name without asking");
+        assert_eq!(
+            quits.get(),
+            0,
+            "Quit went on although the user kept editing"
+        );
+        answer(vcx, true);
+        sheet.update_in(vcx, |s, window, cx| s.cancel(window, cx));
+        settle(vcx);
+        assert!(
+            !sheet_open(vcx),
+            "a confirmed Cancel left the room sheet open"
+        );
+        assert_eq!(
+            quits.get(),
+            0,
+            "a Discard after keeping on editing quit the app"
+        );
+    }
+
+    /// Discard, asked by Quit: the sheet closes and the app quits, once.
+    #[gpui_kit::test]
+    fn quit_goes_on_once_a_new_room_is_discarded(cx: &mut TestAppContext) {
+        let (_daemon, _sheet, vcx) = new_room_typed(cx);
+        answer(vcx, true);
+        let quits = quit(vcx);
+        assert!(!sheet_open(vcx), "Discard left the room sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard closed the sheet but the app stayed"
+        );
+    }
+
+    fn beeps(vcx: &mut VisualTestContext) -> u32 {
+        vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0)
+    }
+
+    /// Answers the `n`th question still held (in the order they came).
+    fn answer_held(vcx: &mut VisualTestContext, n: usize, yes: bool) {
+        vcx.update(|_, cx| {
+            let tx = cx
+                .global_mut::<crate::shell::sheet::HeldAnswers>()
+                .0
+                .remove(n);
+            let _ = tx.send(yes);
+        });
+        settle(vcx);
+    }
+
+    /// Quit while the room is being made queues nothing: the sheet comes
+    /// forward with a beep, and the made room closes it without quitting.
+    #[gpui_kit::test]
+    fn quit_during_a_create_beeps_and_stays(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        assert_eq!(daemon.calls::<methods::HermesRoomsCreate>().len(), 1);
+        let quits = quit(vcx);
+        assert_eq!(beeps(vcx), 1, "Quit during the create did not beep");
+        assert!(
+            sheet_open(vcx),
+            "Quit closed the sheet while its room was being made"
+        );
+        drop(held);
+        settle(vcx);
+        assert!(!sheet_open(vcx), "the made room left its sheet open");
+        assert_eq!(quits.get(), 0, "a Quit waited on the create");
+    }
+
+    /// A refused create leaves the sheet idle with its error: ⌘Q now asks,
+    /// and Discard quits.
+    #[gpui_kit::test]
+    fn after_a_refused_create_quit_asks_and_discard_quits(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        daemon.once::<methods::HermesRoomsCreate>(Err(RpcError::internal("no room")));
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        let early = quit(vcx);
+        drop(held);
+        settle(vcx);
+        assert!(sheet_open(vcx), "a refused create closed its sheet");
+        sheet.read_with(vcx, |s, _| {
+            assert!(s.failure.is_some(), "the refusal is not shown")
+        });
+        assert_eq!(early.get(), 0);
+        answer(vcx, true);
+        let quits = quit(vcx);
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard after the refused create did not quit"
+        );
+    }
+
+    /// A create answered for a store that moved on (stale) leaves the sheet
+    /// idle and still dirty: ⌘Q asks, and Discard quits.
+    #[gpui_kit::test]
+    fn after_a_stale_create_quit_asks_and_discard_quits(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        sheet.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        stores.hermes_rooms.update(vcx, |h, cx| h.reset(cx));
+        drop(held);
+        settle(vcx);
+        assert!(sheet_open(vcx), "the stale create closed its sheet");
+        answer(vcx, true);
+        let quits = quit(vcx);
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "Discard after the stale create did not quit"
+        );
+    }
+
+    /// New Room opened over the main window with "Seed swap" typed.
+    fn another_room_typed(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<CreateRoomSheet> {
+        let sheet_stores = stores.clone();
+        let sheet = vcx
+            .update(|window, cx| {
+                crate::views::sheet::open(window, super::WIDTH, cx, move |w, cx| {
+                    CreateRoomSheet::new(sheet_stores, w, cx)
+                })
+            })
+            .expect("the second sheet opens");
+        vcx.run_until_parked();
+        sheet.update_in(vcx, |s, window, cx| s.set_name("Seed swap", window, cx));
+        sheet
+    }
+
+    /// Discard, and before the Quit it continues runs, another sheet opens
+    /// and starts work (an approval, a link): Quit judges what is on screen
+    /// then and beeps over the busy sheet, rather than quitting over it.
+    #[gpui_kit::test]
+    fn a_busy_sheet_opened_before_the_discarded_quit_runs_beeps(cx: &mut TestAppContext) {
+        let (daemon, sheet, vcx) = new_room_typed(cx);
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        answer(vcx, true);
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert!(!sheet_open(vcx), "Discard left the first sheet open");
+        assert_eq!(quits.get(), 0, "quit before the sheet was ended");
+        // The second sheet comes before the Quit goes on; its question is held.
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let second = another_room_typed(&stores, vcx);
+        let held = daemon.hold::<methods::HermesRoomsCreate>();
+        second.update_in(vcx, |s, window, cx| {
+            s.toggle("fern", cx);
+            s.toggle("moss", cx);
+            s.create(window, cx);
+        });
+        settle(vcx);
+        assert_eq!(quits.get(), 0, "the app quit over a sheet opened meanwhile");
+        assert!(sheet_open(vcx), "the second sheet was closed");
+        assert_eq!(beeps(vcx), 1, "the busy second sheet did not beep");
+        // The made room closes the second sheet; nothing waited, so nothing
+        // quits.
+        drop(held);
+        settle(vcx);
+        assert!(!sheet_open(vcx));
+        assert_eq!(quits.get(), 0, "a Quit waited on the second sheet's create");
+    }
+
+    /// Discard, and before the Quit runs another sheet opens idle with
+    /// edits: its discard question comes up and nothing quits.
+    #[gpui_kit::test]
+    fn an_idle_dirty_sheet_opened_before_the_quit_runs_asks(cx: &mut TestAppContext) {
+        let (_daemon, sheet, vcx) = new_room_typed(cx);
+        let stores = sheet.read_with(vcx, |s, _| s.stores.clone());
+        answer(vcx, true);
+        let quits = Rc::new(Cell::new(0));
+        let counted = quits.clone();
+        vcx.update(|_, cx| {
+            crate::views::sheet::quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1)))
+        });
+        vcx.run_until_parked();
+        assert!(!sheet_open(vcx));
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let _second = another_room_typed(&stores, vcx);
+        settle(vcx);
+        assert_eq!(
+            quits.get(),
+            0,
+            "the app quit over a dirty sheet opened meanwhile"
+        );
+        assert!(sheet_open(vcx), "the second sheet was closed");
+        let asked = vcx.update(|_, cx| cx.global::<crate::shell::sheet::HeldAnswers>().0.len());
+        assert_eq!(asked, 1, "the new sheet's discard question did not come up");
+    }
+
+    /// While the sheet's discard question is up, a question in another window
+    /// answered No is not that Quit's: Discard still quits, once.
+    #[gpui_kit::test]
+    fn another_windows_question_leaves_the_quit_alone(cx: &mut TestAppContext) {
+        let (_daemon, _sheet, vcx) = new_room_typed(cx);
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::HeldAnswers::default()));
+        let quits = quit(vcx);
+        // The main window (not the sheet) asks something.
+        vcx.update(|window, cx| {
+            let spec = crate::shell::sheet::SheetSpec::new(
+                "Sign Out?".to_string(),
+                "You can sign in again later.".to_string(),
+                "Sign Out".to_string(),
+                "Cancel".to_string(),
+            );
+            crate::shell::sheet::present_sheet(window, spec, cx).detach();
+        });
+        answer_held(vcx, 1, false);
+        assert_eq!(quits.get(), 0);
+        answer_held(vcx, 0, true);
+        assert!(!sheet_open(vcx), "Discard left the sheet open");
+        assert_eq!(
+            quits.get(),
+            1,
+            "another window's question dropped the sheet's Quit"
+        );
     }
 
     #[gpui_kit::test]

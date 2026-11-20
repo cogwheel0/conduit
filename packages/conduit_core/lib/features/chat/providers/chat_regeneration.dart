@@ -1283,6 +1283,8 @@ Future<void> regenerateMessage(
       }
     }
 
+    // A new attempt for the same answer: a Stop of an earlier one is over.
+    api?.beginSend(assistantMessageId);
     await _preseedAssistantAndPersist(
       ref,
       existingAssistantId: assistantMessageId,

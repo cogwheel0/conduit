@@ -1,5 +1,5 @@
 {
-  "protocolVersion": "1.64.0",
+  "protocolVersion": "1.73.0",
   "appOrigin": "app://conduit",
   "subprotocol": "conduit.v1",
   "subprotocolsExample": {
@@ -97,6 +97,31 @@
       "result": "ServerSummary"
     },
     {
+      "name": "servers.addresses.list",
+      "params": "ServerRef",
+      "result": "ServerAddresses"
+    },
+    {
+      "name": "servers.addresses.check",
+      "params": "ServerAddressCheckRequest",
+      "result": "ServerAddressCheckResult"
+    },
+    {
+      "name": "servers.addresses.save",
+      "params": "ServerAddressSaveRequest",
+      "result": "ServerAddressSaveResult"
+    },
+    {
+      "name": "servers.addresses.remove",
+      "params": "ServerAddressRemoveRequest",
+      "result": "ServerAddressEditResult"
+    },
+    {
+      "name": "servers.addresses.reorder",
+      "params": "ServerAddressReorderRequest",
+      "result": "ServerAddressEditResult"
+    },
+    {
       "name": "servers.status",
       "params": null,
       "result": "ServerStatus"
@@ -139,6 +164,41 @@
     {
       "name": "auth.setReviewerMode",
       "params": "ReviewerMode",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.setup",
+      "params": null,
+      "result": "TwoStepSetup"
+    },
+    {
+      "name": "auth.twoStep.verify",
+      "params": "TwoStepCode",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.redeem",
+      "params": "TwoStepResetToken",
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.finish",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.twoStep.cancel",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.retry",
+      "params": null,
+      "result": "AuthSnapshot"
+    },
+    {
+      "name": "auth.renewProxy",
+      "params": "ExternalAuthCompletion",
       "result": "AuthSnapshot"
     },
     {
@@ -257,6 +317,71 @@
       "result": "MemoryList"
     },
     {
+      "name": "notifications.get",
+      "params": null,
+      "result": "NotificationSettingsDto"
+    },
+    {
+      "name": "notifications.set",
+      "params": "NotificationSettingsPatch",
+      "result": "NotificationSettingsDto"
+    },
+    {
+      "name": "notifications.route",
+      "params": "NotificationRouteParams",
+      "result": "NotificationRoute"
+    },
+    {
+      "name": "webhooks.list",
+      "params": null,
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.create",
+      "params": "WebhookCreate",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.update",
+      "params": "WebhookUpdate",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.makeDefault",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.test",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "webhooks.delete",
+      "params": "WebhookRef",
+      "result": "WebhookList"
+    },
+    {
+      "name": "integrations.list",
+      "params": null,
+      "result": "PersonalConnections"
+    },
+    {
+      "name": "integrations.save",
+      "params": "PersonalConnectionSave",
+      "result": "PersonalConnections"
+    },
+    {
+      "name": "integrations.test",
+      "params": "PersonalConnectionTest",
+      "result": "PersonalConnectionTestResult"
+    },
+    {
+      "name": "integrations.clearNotice",
+      "params": null,
+      "result": "PersonalConnections"
+    },
+    {
       "name": "releaseNotes.check",
       "params": "ReleaseNotesQuery",
       "result": "ReleaseNotesState"
@@ -318,6 +443,11 @@
     },
     {
       "name": "data.connection",
+      "params": null,
+      "result": "ConnectionHealth"
+    },
+    {
+      "name": "data.reconnect",
       "params": null,
       "result": "ConnectionHealth"
     },
@@ -488,7 +618,7 @@
     },
     {
       "name": "models.list",
-      "params": null,
+      "params": "ModelListQuery",
       "result": "ModelList"
     },
     {
@@ -515,6 +645,16 @@
       "name": "models.setFastTier",
       "params": "SetFastTier",
       "result": "ModelOptionsDto"
+    },
+    {
+      "name": "models.controls",
+      "params": "ModelControlsQuery",
+      "result": "ModelControlList"
+    },
+    {
+      "name": "models.setControl",
+      "params": "SetModelControl",
+      "result": "ModelControlList"
     },
     {
       "name": "chatSettings.get",
@@ -563,7 +703,7 @@
     },
     {
       "name": "composer.options",
-      "params": null,
+      "params": "ComposerOptionsQuery",
       "result": "ComposerOptions"
     },
     {
@@ -1072,6 +1212,31 @@
       "result": "AutomationDraftState"
     },
     {
+      "name": "automations.terminals",
+      "params": "AutomationDraftEdit",
+      "result": "AutomationTerminals"
+    },
+    {
+      "name": "apple.status",
+      "params": null,
+      "result": "AppleModels"
+    },
+    {
+      "name": "apple.refresh",
+      "params": null,
+      "result": "AppleModels"
+    },
+    {
+      "name": "apple.choose",
+      "params": null,
+      "result": "AppleModelStatus"
+    },
+    {
+      "name": "apple.report",
+      "params": "AppleReport",
+      "result": "OkResult"
+    },
+    {
       "name": "notes.list",
       "params": "NoteQuery",
       "result": "NoteList"
@@ -1398,7 +1563,7 @@
     },
     {
       "name": "hermes.signIn",
-      "params": null,
+      "params": "HermesSignInRequest",
       "result": "HermesSettings"
     },
     {
@@ -1527,6 +1692,36 @@
       "result": "HermesConnections"
     },
     {
+      "name": "hermes.connections.profiles",
+      "params": "HermesConnectionEdit",
+      "result": "HermesProfiles"
+    },
+    {
+      "name": "hermes.toolsets.set",
+      "params": "HermesToolsetToggle",
+      "result": "HermesCatalog"
+    },
+    {
+      "name": "hermes.skills.reload",
+      "params": "HermesConnectionRef",
+      "result": "HermesCatalog"
+    },
+    {
+      "name": "hermes.dashboard.start",
+      "params": "HermesDashboardStart",
+      "result": "HermesDashboardPlan"
+    },
+    {
+      "name": "hermes.dashboard.complete",
+      "params": "HermesDashboardCookies",
+      "result": "HermesDashboardResult"
+    },
+    {
+      "name": "hermes.dashboard.cancel",
+      "params": "HermesDashboardCancel",
+      "result": "CancelledResult"
+    },
+    {
       "name": "hermes.mcp.list",
       "params": null,
       "result": "HermesMcpServers"
@@ -1543,8 +1738,8 @@
     },
     {
       "name": "hermes.mcp.addFromCatalog",
-      "params": "HermesMcpRef",
-      "result": "HermesMcpServers"
+      "params": "HermesMcpCatalogAdd",
+      "result": "HermesMcpCatalogAdded"
     },
     {
       "name": "hermes.mcp.setApiKey",
@@ -1900,6 +2095,16 @@
       "name": "intents.chats",
       "params": "IntentChatsQuery",
       "result": "IntentChats"
+    },
+    {
+      "name": "intents.sendLink",
+      "params": "IntentLink",
+      "result": "IntentLinkResult"
+    },
+    {
+      "name": "location.report",
+      "params": "LocationReport",
+      "result": "OkResult"
     }
   ],
   "events": [
@@ -1941,6 +2146,11 @@
     {
       "name": "accounts.changed",
       "payload": "AccountsChanged",
+      "scoped": false
+    },
+    {
+      "name": "servers.changed",
+      "payload": "ServersChanged",
       "scoped": false
     },
     {
@@ -2029,6 +2239,11 @@
       "scoped": false
     },
     {
+      "name": "auth.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
       "name": "voice.changed",
       "payload": "VoiceModels",
       "scoped": false
@@ -2046,6 +2261,16 @@
     {
       "name": "settings.changed",
       "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "notifications.changed",
+      "payload": null,
+      "scoped": false
+    },
+    {
+      "name": "notifications.answered",
+      "payload": "AnswerNotice",
       "scoped": false
     },
     {
@@ -2127,6 +2352,21 @@
       "name": "hermes.rooms.listChanged",
       "payload": "HermesRooms",
       "scoped": false
+    },
+    {
+      "name": "apple.command",
+      "payload": "AppleCommand",
+      "scoped": false
+    },
+    {
+      "name": "location.command",
+      "payload": "LocationCommand",
+      "scoped": false
+    },
+    {
+      "name": "composer.insertText",
+      "payload": "ComposerInsertText",
+      "scoped": true
     }
   ]
 }

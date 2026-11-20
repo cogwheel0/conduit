@@ -12,17 +12,24 @@
 //!   so a run the scheduler or another app starts shows up with its Stop.
 //!
 //! Actions answer with the new list, and a failure is a toast.
+//!
+//! When another connection goes in use, or Hermes is turned off, the store
+//! says so once ([`HermesAdminEvent::Switched`]), however that came about
+//! (the sidebar's switcher, Settings, a deletion, another window). What
+//! the main window showed of the connection left closes by whose page it
+//! is ([`follow_pages`], [`left_behind`]); the bots and rooms follow the
+//! connection `hermes.changed` names, in their own store.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use conduit_daemon::RpcError;
 use conduit_protocol::{
-    Event, HermesCatalog, HermesConnections, HermesJobNotice, HermesJobRef, HermesJobs,
-    HermesMcpServers, HermesRef, HermesSessionDto, HermesStatus, HermesToggle, NoParams,
-    NoticeLevel, events, methods,
+    Event, HermesCatalog, HermesConnectionRef, HermesConnections, HermesJobNotice, HermesJobRef,
+    HermesJobs, HermesMcpCatalogEntryDto, HermesMcpServers, HermesRef, HermesSessionDto,
+    HermesStatus, HermesToggle, HermesToolsetToggle, NoParams, NoticeLevel, events, methods,
 };
-use gpui_kit::{App, AsyncApp, Context, Task, WeakEntity};
+use gpui_kit::{App, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::stores::Stores;
@@ -35,6 +42,11 @@ use crate::stores::rpc::Rpc;
 pub const LIVE_POLL: Duration = Duration::from_secs(2);
 /// How often an idle list is read, so a run started elsewhere shows up.
 pub const IDLE_POLL: Duration = Duration::from_secs(15);
+
+/// How often the MCP servers are read again while a catalog install is
+/// still going, and how many times at most (two minutes).
+pub const INSTALL_REREAD: Duration = Duration::from_secs(5);
+pub const INSTALL_REREADS: usize = 24;
 
 /// The connection a sheet or question was opened under.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -61,6 +73,17 @@ impl<T> Loaded<T> {
     }
 }
 
+/// What the store tells the window.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HermesAdminEvent {
+    /// Another connection is in use, or Hermes was turned on or off:
+    /// `enabled` is the switch now.
+    Switched { enabled: bool },
+    /// The gateway read its skills again (Reload Skills): a Hermes chat's
+    /// `/` list is read again.
+    SkillsReloaded,
+}
+
 #[derive(Default)]
 pub struct HermesAdminStore {
     rpc: Option<Rpc>,
@@ -78,9 +101,24 @@ pub struct HermesAdminStore {
     pub busy: HashSet<String>,
     /// MCP servers with an action in flight.
     pub mcp_busy: HashSet<String>,
+    /// The MCP catalog as Add from Catalog last showed it, and the
+    /// connection it was read for ([`Self::take_catalog`]): a pick opens the
+    /// entry's values sheet from it, or adds it to that connection.
+    mcp_catalog: Vec<HermesMcpCatalogEntryDto>,
+    mcp_catalog_for: Option<String>,
+    /// Catalog servers Hermes is still installing, and whether each signs
+    /// in with OAuth once listed: Settings says so until they are listed.
+    pub mcp_installing: Vec<(String, bool)>,
+    /// Toolsets being turned on or off: their switches wait.
+    pub toolsets_busy: HashSet<String>,
+    /// Reload Skills is in flight.
+    pub skills_reloading: bool,
     /// The Scheduled Agents pane is shown: the list is polled.
     watching_jobs: bool,
     poll: Option<Task<()>>,
+    /// Reads the MCP servers again while a catalog install is still going,
+    /// so Settings lists it once Hermes finishes ([`Self::set_installing`]).
+    install_poll: Option<Task<()>>,
     poll_every: Option<Duration>,
     /// Notices the last list brought, for the window to say once.
     pending_notices: Vec<HermesJobNotice>,
@@ -151,6 +189,20 @@ pub struct Ticket {
     seq: u64,
 }
 
+impl Ticket {
+    /// The store's generation it was asked under ([`HermesAdminStore::is_current`]).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+/// A catalog read as it was asked: the generation and connection in use.
+#[derive(Clone, Debug)]
+pub struct CatalogAsk {
+    generation: u64,
+    connection: Option<String>,
+}
+
 /// A connections-list read or action, as it was asked (its place in the
 /// order they were asked in): answered only if it is newer than the last
 /// list taken and than the last reset. A list that switches connections
@@ -159,6 +211,8 @@ pub struct Ticket {
 pub struct ListTicket {
     list: u64,
 }
+
+impl EventEmitter<HermesAdminEvent> for HermesAdminStore {}
 
 impl HermesAdminStore {
     pub fn new(rpc: Rpc) -> Self {
@@ -223,6 +277,11 @@ impl HermesAdminStore {
         self.generation += 1;
         // Lists asked before the reset are not taken; those asked after are.
         self.list_order.forget();
+        self.forget_catalog();
+        self.mcp_installing.clear();
+        self.install_poll = None;
+        self.toolsets_busy.clear();
+        self.skills_reloading = false;
         self.changed(cx);
     }
 
@@ -231,6 +290,45 @@ impl HermesAdminStore {
     /// the daemon refuses once another is in use.
     pub fn connection(&self) -> Option<String> {
         self.connections.as_ref()?.connection.clone()
+    }
+
+    /// What a catalog read is asked under: its answer is shown only while
+    /// the same connection is in use ([`Self::take_catalog`]).
+    pub fn ask_catalog(&self) -> CatalogAsk {
+        CatalogAsk {
+            generation: self.generation,
+            connection: self.connection(),
+        }
+    }
+
+    /// Keeps `entries`, read as `asked`, for the menu about to show them:
+    /// false (nothing kept, no menu) once another connection came into use,
+    /// so one connection's catalog never stands for another's.
+    pub fn take_catalog(
+        &mut self,
+        asked: &CatalogAsk,
+        entries: Vec<HermesMcpCatalogEntryDto>,
+    ) -> bool {
+        if !self.is_current(asked.generation) || self.connection() != asked.connection {
+            return false;
+        }
+        self.mcp_catalog = entries;
+        self.mcp_catalog_for = asked.connection.clone();
+        true
+    }
+
+    /// Catalog entry `name` as the menu showed it, with the connection it
+    /// was read for: none once another connection came into use (the
+    /// catalog is forgotten then), so a pick from an earlier menu adds
+    /// nothing to the connection in use now.
+    pub fn catalog_entry(&self, name: &str) -> Option<(HermesMcpCatalogEntryDto, Option<String>)> {
+        let entry = self.mcp_catalog.iter().find(|e| e.name == name)?;
+        Some((entry.clone(), self.mcp_catalog_for.clone()))
+    }
+
+    fn forget_catalog(&mut self) {
+        self.mcp_catalog.clear();
+        self.mcp_catalog_for = None;
     }
 
     /// The connection in use now, for a sheet or question to keep.
@@ -375,6 +473,27 @@ impl HermesAdminStore {
                 .connections
                 .as_ref()
                 .is_some_and(|l| l.connection.is_some() && l.connection != list.connection);
+        // A switch from a connection known before (not the first read after
+        // a launch, a reconnect or another account).
+        let left = self.connections.is_some() && switched;
+        let enabled = list.enabled;
+        // The connection in use now reaches its server another way (signed
+        // in or out, another profile, other headers): what was read of it
+        // through the old way is read again.
+        let reached_anew = !switched && self.connections.is_some() && {
+            let way = |l: &HermesConnections| {
+                let id = l.active_id.as_deref()?;
+                let c = l.connections.iter().find(|c| c.id == id)?;
+                Some((
+                    c.desktop_signed_in,
+                    c.dashboard_signed_in,
+                    c.desktop_auth_kind.clone(),
+                    c.desktop_profile.clone(),
+                    c.access_header_names.clone(),
+                ))
+            };
+            self.connections.as_ref().and_then(way) != way(&list)
+        };
         self.connections = Some(list);
         // A page shown before any list was read is the connection's this
         // first list names.
@@ -382,18 +501,51 @@ impl HermesAdminStore {
         if let Some((_, owner @ None)) = &mut self.shown_page {
             *owner = Some(now);
         }
-        if switched {
-            // Another connection's status, catalog, servers and jobs.
+        if reached_anew {
+            let (status, catalog, mcp) = (
+                self.status.is_some(),
+                self.catalog.is_some(),
+                self.mcp.is_some(),
+            );
             self.status = None;
             self.catalog = None;
             self.mcp = None;
+            if status {
+                self.refresh_status(cx);
+            }
+            if catalog {
+                self.refresh_catalog(cx);
+            }
+            if mcp {
+                self.refresh_mcp(cx);
+            }
+        }
+        if left {
+            cx.emit(HermesAdminEvent::Switched { enabled });
+        }
+        if switched {
+            // Another connection's status, catalog, servers and jobs. Servers
+            // shown or being read are read again for it, as `hermes.changed`
+            // reads them (jobs too, while watched).
+            let mcp_shown = self.mcp.is_some();
+            self.status = None;
+            self.catalog = None;
+            self.mcp = None;
+            self.forget_catalog();
+            self.mcp_installing.clear();
+            self.install_poll = None;
             self.jobs = None;
             self.runs.clear();
             self.runs_open.clear();
             self.pending_notices.clear();
             self.busy.clear();
             self.mcp_busy.clear();
+            self.toolsets_busy.clear();
+            self.skills_reloading = false;
             self.generation += 1;
+            if mcp_shown {
+                self.refresh_mcp(cx);
+            }
             if self.watching_jobs {
                 self.refresh_jobs(cx);
             }
@@ -451,6 +603,104 @@ impl HermesAdminStore {
         .detach();
     }
 
+    /// Turns toolset `name` on or off for new sessions (a Desktop
+    /// Gateway's), as the phone's switch: the switch waits meanwhile, and a
+    /// refusal is the phone's toast.
+    pub fn set_toolset(
+        &mut self,
+        stores: &Stores,
+        name: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(rpc) = self.rpc() else { return };
+        if !self.toolsets_busy.insert(name.to_string()) {
+            return;
+        }
+        self.changed(cx);
+        // Made on the connection in use now, or not at all; the catalog it
+        // answers with follows the order catalogs were asked in.
+        let call = rpc.call::<methods::HermesToolsetsSet>(&HermesToolsetToggle {
+            name: name.to_string(),
+            enabled,
+            connection: self.connection(),
+        });
+        let seq = self.catalog_order.ask();
+        let ticket = self.ticket(seq);
+        let name = name.to_string();
+        let toasts = stores.toasts.downgrade();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                // After a switch the marks are the next connection's.
+                if s.is_current(ticket.generation) {
+                    s.toolsets_busy.remove(&name);
+                }
+                match result {
+                    Ok(catalog) => {
+                        if s.answers(ticket, |s| &mut s.catalog_order) {
+                            s.catalog = Some(Loaded::Ready(catalog));
+                        }
+                    }
+                    Err(e) => {
+                        log::info!("hermes.toolsets.set: {e}");
+                        let text = cx.l10n().hermes_toolset_update_failed();
+                        let _ = toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                    }
+                }
+                s.changed(cx);
+            });
+        })
+        .detach();
+    }
+
+    /// Reload Skills: the gateway reads its skills again; the catalog it
+    /// answers with is shown, and Hermes chats read their `/` list again
+    /// ([`HermesAdminEvent::SkillsReloaded`]). A refusal is the phone's
+    /// toast.
+    pub fn reload_skills(&mut self, stores: &Stores, cx: &mut Context<Self>) {
+        let Some(rpc) = self.rpc() else { return };
+        if self.skills_reloading {
+            return;
+        }
+        self.skills_reloading = true;
+        self.changed(cx);
+        let call = rpc.call::<methods::HermesSkillsReload>(&HermesConnectionRef {
+            connection: self.connection(),
+        });
+        let seq = self.catalog_order.ask();
+        let ticket = self.ticket(seq);
+        let toasts = stores.toasts.downgrade();
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let result = call.await;
+            let _ = this.update(cx, |s, cx| {
+                if !s.is_current(ticket.generation) {
+                    // Another connection's: its chats' `/` lists are their own.
+                    if let Err(e) = &result {
+                        log::info!("hermes.skills.reload: {e}");
+                    }
+                    return;
+                }
+                s.skills_reloading = false;
+                match result {
+                    Ok(catalog) => {
+                        if s.answers(ticket, |s| &mut s.catalog_order) {
+                            s.catalog = Some(Loaded::Ready(catalog));
+                        }
+                        cx.emit(HermesAdminEvent::SkillsReloaded);
+                    }
+                    Err(e) => {
+                        log::info!("hermes.skills.reload: {e}");
+                        let text = cx.l10n().hermes_action_failed();
+                        let _ = toasts.update(cx, |t, cx| t.show(NoticeLevel::Error, text, cx));
+                    }
+                }
+                s.changed(cx);
+            });
+        })
+        .detach();
+    }
+
     // ── MCP servers ──────────────────────────────────────────────────
 
     pub fn refresh_mcp(&mut self, cx: &mut Context<Self>) {
@@ -467,13 +717,25 @@ impl HermesAdminStore {
                     return;
                 }
                 s.mcp = Some(match result {
-                    Ok(servers) => Loaded::Ready(servers),
+                    Ok(servers) => {
+                        s.forget_installed(&servers);
+                        Loaded::Ready(servers)
+                    }
                     Err(e) => Loaded::Failed(e.to_string()),
                 });
                 s.changed(cx);
             });
         })
         .detach();
+    }
+
+    /// Reads the servers again after `ticket`'s action failed (a step after
+    /// the install may have failed once it was made): only while its
+    /// connection is still in use, so another's list is never read over.
+    pub fn refresh_mcp_after(&mut self, ticket: Ticket, cx: &mut Context<Self>) {
+        if self.is_current(ticket.generation) {
+            self.refresh_mcp(cx);
+        }
     }
 
     /// An MCP read or action about to be asked.
@@ -499,6 +761,7 @@ impl HermesAdminStore {
             self.refresh_mcp(cx);
             return true;
         }
+        self.forget_installed(&servers);
         self.mcp = Some(Loaded::Ready(servers));
         self.changed(cx);
         true
@@ -508,6 +771,59 @@ impl HermesAdminStore {
     pub fn adopt_mcp(&mut self, servers: HermesMcpServers, cx: &mut Context<Self>) {
         let ticket = self.ask_mcp();
         self.answer_mcp(ticket, servers, cx);
+    }
+
+    /// Catalog server `name` is still being installed (`oauth`: it signs in
+    /// once listed). One already listed (the install finished before the
+    /// list was read) is not. The servers are read again every
+    /// [`INSTALL_REREAD`] while an install is still going, at most
+    /// [`INSTALL_REREADS`] times from the last install asked, so the
+    /// finished server is listed without anything else asking.
+    pub fn set_installing(&mut self, name: &str, oauth: bool, cx: &mut Context<Self>) {
+        let listed = self
+            .mcp
+            .as_ref()
+            .and_then(Loaded::ready)
+            .is_some_and(|l| l.servers.iter().any(|s| s.name == name));
+        if listed {
+            return;
+        }
+        self.mcp_installing.retain(|(n, _)| n != name);
+        self.mcp_installing.push((name.to_string(), oauth));
+        // Each install read for gets the whole budget: a poll going is
+        // replaced.
+        {
+            let generation = self.generation;
+            self.install_poll = Some(cx.spawn(
+                async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+                    for _ in 0..INSTALL_REREADS {
+                        cx.background_executor().timer(INSTALL_REREAD).await;
+                        let go_on = this
+                            .update(cx, |s, cx| {
+                                if !s.is_current(generation) || s.mcp_installing.is_empty() {
+                                    return false;
+                                }
+                                s.refresh_mcp(cx);
+                                true
+                            })
+                            .unwrap_or(false);
+                        if !go_on {
+                            break;
+                        }
+                    }
+                },
+            ));
+        }
+        self.changed(cx);
+    }
+
+    /// Installs that finished: listed now.
+    fn forget_installed(&mut self, servers: &HermesMcpServers) {
+        self.mcp_installing
+            .retain(|(name, _)| !servers.servers.iter().any(|s| &s.name == name));
+        if self.mcp_installing.is_empty() {
+            self.install_poll = None;
+        }
     }
 
     pub fn set_mcp_busy(&mut self, name: &str, busy: bool, cx: &mut Context<Self>) {
@@ -815,8 +1131,9 @@ pub fn follow_pages(stores: &Stores, cx: &mut App) {
     .detach();
     // Whatever changed the list (this window's action, another window's
     // switch heard through hermes.changed, a reconnect's read), a page of
-    // another connection than the one in use goes: a chat when another
-    // connection is in use, any Hermes page with Hermes off.
+    // another connection than the one in use goes: a chat, room or bot when
+    // another connection is in use, any Hermes page with Hermes off
+    // ([`left_behind`]).
     let navigation = stores.navigation.downgrade();
     cx.observe(&stores.hermes_admin, move |admin, cx| {
         let Some(navigation) = navigation.upgrade() else {
@@ -824,9 +1141,9 @@ pub fn follow_pages(stores: &Stores, cx: &mut App) {
         };
         let selection = navigation.read(cx).selection().clone();
         let admin = admin.read(cx);
-        let chat = matches!(selection, Selection::Area(AreaItem::HermesSession(_)));
-        let close =
-            (chat || admin.in_use().is_none()) && admin.shows_another_connections_page(&selection);
+        let enabled = admin.in_use().is_some();
+        let close = matches!(&selection, Selection::Area(item) if left_behind(item, enabled))
+            && admin.shows_another_connections_page(&selection);
         if close {
             navigation.update(cx, |n, cx| n.new_chat(false, cx));
         }
@@ -921,32 +1238,49 @@ pub fn set_enabled(stores: &Stores, enabled: bool, cx: &mut App) {
             // in use now (none, while Hermes stays off) goes.
             a.answer_list(ticket, list, cx);
             if !enabled {
-                close_other_connections_page(a, &navigation, false, cx);
+                close_other_connections_page(a, &navigation, cx);
             }
         },
         cx,
     );
 }
 
-/// Opens a new chat when the main window shows something of Hermes's (a
-/// session, Hidden Chats, Scheduled Agents) that is no longer there.
+/// Opens a new chat when the main window shows something of Hermes's that
+/// opened under another connection than the one in use and is no longer
+/// there ([`left_behind`]).
 fn close_other_connections_page(
     admin: &HermesAdminStore,
     navigation: &WeakEntity<NavigationStore>,
-    chats_only: bool,
     cx: &mut App,
 ) {
+    let enabled = admin.in_use().is_some();
     let _ = navigation.update(cx, |n, cx| {
         let selection = n.selection();
-        let chat = matches!(selection, Selection::Area(AreaItem::HermesSession(_)));
-        if (chat || !chats_only) && admin.shows_another_connections_page(selection) {
+        if matches!(selection, Selection::Area(item) if left_behind(item, enabled))
+            && admin.shows_another_connections_page(selection)
+        {
             n.new_chat(false, cx);
         }
     });
 }
 
-/// Puts connection `id` in use: Hermes's sessions follow. A Hermes chat of
-/// the connection left behind cannot stay open: a new chat takes its place.
+/// Whether the main window's `item` belongs to the connection just left:
+/// with Hermes off, everything of its section; with another connection in
+/// use, its chats (a bot's Bot Chat too), its rooms and its bots (Scheduled
+/// Agents and Hidden Chats show the new connection's).
+pub fn left_behind(item: &AreaItem, enabled: bool) -> bool {
+    if !enabled {
+        return item.area() == Area::Hermes;
+    }
+    matches!(
+        item,
+        AreaItem::HermesSession(_) | AreaItem::HermesRoom(_) | AreaItem::HermesBot(_)
+    )
+}
+
+/// Puts connection `id` in use: Hermes's sessions, bots and rooms follow.
+/// A Hermes chat, room or bot of the connection left behind cannot stay
+/// open: a new chat takes its place.
 pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
     let rpc = stores.connection.read(cx).rpc();
     let call = rpc.call::<methods::HermesConnectionsActivate>(&HermesRef { id: id.to_string() });
@@ -958,11 +1292,12 @@ pub fn activate(stores: &Stores, id: &str, cx: &mut App) {
         failure,
         move |a, list, ticket, cx| {
             // The list follows the order lists were asked in. The clean-up
-            // goes by whose page is shown: a Hermes chat that opened under
-            // another connection than the one in use now closes; one of the
-            // connection in use stays, however late this answer comes.
+            // goes by whose page is shown: a Hermes chat, room or bot that
+            // opened under another connection than the one in use now
+            // closes; one of the connection in use stays, however late this
+            // answer comes.
             a.answer_list(ticket, list, cx);
-            close_other_connections_page(a, &navigation, true, cx);
+            close_other_connections_page(a, &navigation, cx);
         },
         cx,
     );
@@ -1016,10 +1351,170 @@ mod tests {
 
     /// Reads still out when another connection comes into use answer for
     /// the connection before it: none of them lands under the new one.
+    /// MCP servers shown (or being read) when another connection comes into
+    /// use are read again for it, as `hermes.changed` reads them: the list
+    /// does not stay empty until a window happens to ask.
+    #[gpui_kit::test]
+    fn a_switch_reads_the_shown_servers_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(
+                serde_json::to_value(servers(if first { "shed-tools" } else { "studio-tools" }))
+                    .unwrap(),
+            )
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.refresh_mcp(cx);
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.adopt_connections(list("b"), cx));
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the servers were not read again for the connection in use"
+            );
+        });
+    }
+
+    /// A catalog server Hermes is still installing is listed once Hermes is
+    /// done, with nothing else asking: the servers are read again while it
+    /// installs, and no more once it is listed. One already listed is never
+    /// said to be installing.
+    #[gpui_kit::test]
+    fn a_server_still_installing_is_listed_once_hermes_is_done(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let done = count.fetch_add(1, Ordering::SeqCst) > 0;
+            let names: &[&str] = if done { &["shed-tools", "tide_charts"] } else { &["shed-tools"] };
+            Ok(json!({
+                "available": true,
+                "servers": names.iter().map(|n| json!({"name": n, "enabled": true})).collect::<Vec<_>>(),
+            }))
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.adopt_mcp(servers("shed-tools"), cx);
+            s.set_installing("shed-tools", false, cx);
+            assert!(
+                s.mcp_installing.is_empty(),
+                "a listed server was said to be installing"
+            );
+            s.set_installing("tide_charts", false, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| assert_eq!(s.mcp_installing.len(), 1));
+        cx.executor().advance_clock(INSTALL_REREAD);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(
+                s.mcp_installing.is_empty(),
+                "the finished server was never listed"
+            );
+        });
+        cx.executor().advance_clock(INSTALL_REREAD * 4);
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "read again after it was listed"
+        );
+    }
+
+    /// An add that failed after another connection came into use reads
+    /// nothing again: the list shown is the new connection's.
+    #[gpui_kit::test]
+    fn a_failed_add_of_the_connection_before_reads_nothing_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let count = reads.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::to_value(servers("studio-tools")).unwrap())
+        });
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let ticket = store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            s.ask_mcp()
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.adopt_connections(list("b"), cx));
+        cx.run_until_parked();
+        let after_switch = reads.load(Ordering::SeqCst);
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            after_switch,
+            "read again for the old add"
+        );
+        let ticket = store.update(cx, |s, _| s.ask_mcp());
+        store.update(cx, |s, cx| s.refresh_mcp_after(ticket, cx));
+        cx.run_until_parked();
+        assert_eq!(reads.load(Ordering::SeqCst), after_switch + 1);
+    }
+
+    /// A catalog read of one connection is never shown or picked from once
+    /// another is in use: its entries would ask for one server's values and
+    /// send them to the other.
+    #[gpui_kit::test]
+    fn a_catalog_read_before_a_switch_is_never_picked_from(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let entry: HermesMcpCatalogEntryDto = serde_json::from_value(json!({
+            "name": "tide_charts", "description": "Tide tables", "credentials": [],
+            "canAdd": true, "fromDashboard": true, "oauth": false,
+        }))
+        .unwrap();
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list("a"), cx);
+            let asked = s.ask_catalog();
+            s.adopt_connections(list("b"), cx);
+            assert!(
+                !s.take_catalog(&asked, vec![entry.clone()]),
+                "the shed's catalog was kept for the greenhouse"
+            );
+            assert!(s.catalog_entry("tide_charts").is_none());
+
+            let asked = s.ask_catalog();
+            assert!(s.take_catalog(&asked, vec![entry.clone()]));
+            let (_, read_for) = s.catalog_entry("tide_charts").unwrap();
+            assert_eq!(read_for.as_deref(), Some("0a1b2c3d:b"));
+
+            s.adopt_connections(list("a"), cx);
+            assert!(
+                s.catalog_entry("tide_charts").is_none(),
+                "a pick from the greenhouse's menu would add to the shed"
+            );
+        });
+    }
+
     #[gpui_kit::test]
     fn reads_from_the_connection_before_a_switch_are_dropped(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(servers(if first {
+                "seed-catalogue"
+            } else {
+                "studio-tools"
+            }))
+            .unwrap())
+        });
         daemon.returns::<methods::HermesStatus>(
             serde_json::from_value(json!({"configured": true, "reachable": true})).unwrap(),
         );
@@ -1048,7 +1543,12 @@ mod tests {
         drop(held);
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
-            assert_eq!(s.mcp, None, "the last connection's servers landed");
+            // Read again for the connection in use; the last one's never land.
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the last connection's servers landed"
+            );
             assert_eq!(s.status, None, "the last connection's status landed");
             assert_eq!(s.catalog, None, "the last connection's catalog landed");
             assert_eq!(s.jobs, None, "the last connection's jobs landed");
@@ -1065,8 +1565,18 @@ mod tests {
     #[gpui_kit::test]
     fn a_connection_named_anew_is_another(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
-        daemon.returns::<methods::HermesMcpList>(servers("seed-catalogue"));
-        let held = daemon.hold::<methods::HermesMcpList>();
+        let n = Arc::new(AtomicUsize::new(0));
+        let count = n.clone();
+        daemon.on::<methods::HermesMcpList>(move |_| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Ok(serde_json::to_value(servers(if first {
+                "seed-catalogue"
+            } else {
+                "studio-tools"
+            }))
+            .unwrap())
+        });
+        let held = daemon.hold_one::<methods::HermesMcpList>(0);
         let named = |key: &str| {
             let mut l = list("a");
             l.connection = Some(key.to_string());
@@ -1081,7 +1591,13 @@ mod tests {
         drop(held);
         cx.run_until_parked();
         store.read_with(cx, |s, _| {
-            assert_eq!(s.mcp, None, "the connection before's servers landed");
+            // Read again for the connection now named; the one before's never
+            // land.
+            assert_eq!(
+                s.mcp,
+                Some(Loaded::Ready(servers("studio-tools"))),
+                "the connection before's servers landed"
+            );
             assert_eq!(s.connection().as_deref(), Some("0a1b2c3d:2"));
         });
     }
@@ -1475,5 +1991,130 @@ mod tests {
                 "the older poll's notice was lost"
             );
         });
+    }
+
+    /// Connections a and b, `active` in use, Hermes on or off.
+    fn list_of(active: Option<&str>, enabled: bool) -> HermesConnections {
+        serde_json::from_value(json!({
+            "enabled": enabled,
+            "activeId": active,
+            "connections": [
+                {"id": "a", "name": "Shed"},
+                {"id": "b", "name": "Studio"},
+            ],
+        }))
+        .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn a_sign_in_reads_the_status_and_catalog_again(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let with = |signed_in: bool| -> HermesConnections {
+            serde_json::from_value(json!({
+                "enabled": true,
+                "activeId": "a",
+                "connections": [{
+                    "id": "a", "name": "Shed", "mode": "desktop",
+                    "desktopAuthKind": "dashboardCookie",
+                    "dashboardSignedIn": signed_in,
+                }],
+            }))
+            .unwrap()
+        };
+        store.update(cx, |s, cx| {
+            s.adopt_connections(with(false), cx);
+            s.status = Some(Loaded::Failed("not signed in".into()));
+            s.catalog = Some(Loaded::Failed("not signed in".into()));
+        });
+        // The same list again reads nothing.
+        store.update(cx, |s, cx| s.adopt_connections(with(false), cx));
+        cx.run_until_parked();
+        assert!(daemon.calls::<methods::HermesStatus>().is_empty());
+        // Signed in to its dashboard: what was read without the session is
+        // read again, and no switch is said.
+        store.update(cx, |s, cx| s.adopt_connections(with(true), cx));
+        cx.run_until_parked();
+        assert_eq!(daemon.calls::<methods::HermesStatus>().len(), 1);
+        assert_eq!(daemon.calls::<methods::HermesCatalog>().len(), 1);
+    }
+
+    #[test]
+    fn what_a_switch_leaves_behind() {
+        use crate::stores::navigation::WorkspaceSection;
+
+        let session = AreaItem::HermesSession("s1".into());
+        let room = AreaItem::HermesRoom("r1".into());
+        let bot = AreaItem::HermesBot("fern".into());
+        // Another connection: its chats, rooms and bots go; Scheduled
+        // Agents and Hidden Chats show the new one's.
+        for item in [&session, &room, &bot] {
+            assert!(left_behind(item, true), "{item:?}");
+        }
+        assert!(!left_behind(&AreaItem::HermesJobs, true));
+        assert!(!left_behind(&AreaItem::HermesHidden, true));
+        // Hermes off: everything of its section goes, nothing else.
+        for item in [
+            &session,
+            &room,
+            &bot,
+            &AreaItem::HermesJobs,
+            &AreaItem::HermesHidden,
+        ] {
+            assert!(left_behind(item, false), "{item:?}");
+        }
+        assert!(!left_behind(&AreaItem::Calendar, false));
+        assert!(!left_behind(
+            &AreaItem::Workspace(WorkspaceSection::Models),
+            false
+        ));
+    }
+
+    #[gpui_kit::test]
+    fn a_switch_is_said_once_and_never_for_the_first_read(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let store = cx.new(|_| HermesAdminStore::new(daemon.rpc()));
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        {
+            let seen = seen.clone();
+            cx.update(|cx| {
+                cx.subscribe(&store, move |_, event: &HermesAdminEvent, _| {
+                    seen.borrow_mut().push(event.clone())
+                })
+                .detach()
+            });
+        }
+        // The first read after a launch (or a reconnect's reset) is no switch.
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list_of(Some("a"), true), cx)
+        });
+        // The same list again (an action's answer after `hermes.changed`).
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list_of(Some("a"), true), cx)
+        });
+        cx.run_until_parked();
+        assert!(seen.borrow().is_empty());
+        // Another connection in use, then Hermes off.
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list_of(Some("b"), true), cx)
+        });
+        store.update(cx, |s, cx| {
+            s.adopt_connections(list_of(Some("b"), false), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            *seen.borrow(),
+            vec![
+                HermesAdminEvent::Switched { enabled: true },
+                HermesAdminEvent::Switched { enabled: false },
+            ]
+        );
+        // A reconnect forgets the list: its first read says nothing.
+        store.update(cx, |s, cx| {
+            s.reset(cx);
+            s.adopt_connections(list_of(Some("a"), true), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(seen.borrow().len(), 2);
     }
 }

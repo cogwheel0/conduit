@@ -3,11 +3,16 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/features/workspace/models/workspace_model_draft.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
+import 'package:conduit_core/features/workspace/providers/workspace_session.dart'
+    show WorkspaceSessionChanged;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/attachment_upload_retry.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:riverpod/riverpod.dart';
 
+import 'account_scope.dart';
 import 'settled.dart';
 
 /// Implements `POST /upload`: attachments on their way to the server.
@@ -181,6 +186,97 @@ final class FilesService {
     }
     final bytes = base64Decode(content);
     return (bytes: bytes, contentType: _typeOf(bytes));
+  }
+
+  /// A model's profile image, for `GET /files/{server}/models/{model}`:
+  /// the image the model keeps, or a picture at an address on the server
+  /// itself, fetched with the account's credential (core's
+  /// `getWorkspaceModelAvatar`); never one on another site. Refused for any
+  /// server but the active one, as [download] is; not found when the model
+  /// has no picture of its own. Bound to the account it was asked under:
+  /// another account signing in meanwhile gets no bytes of the earlier one's.
+  Future<({Uint8List bytes, String contentType})> modelImage(
+    String serverId,
+    String modelId,
+  ) async {
+    final account = AccountScope.capture(_container);
+    final server = await readSettled(_container, activeServerProvider.future);
+    account.require('the server was read');
+    if (server == null || server.id != serverId) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'not the active server',
+      );
+    }
+    final api = _container.read(apiServiceProvider);
+    if (api == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unauthenticated,
+        debugMessage: 'sign in before loading images',
+      );
+    }
+    String? imageUrl;
+    try {
+      final model = await readSettled(
+        _container,
+        workspaceModelDetailProvider(modelId).future,
+      );
+      if (model != null) {
+        imageUrl = WorkspaceModelDraft.fromSummary(model).profileImageUrl;
+      }
+    } on WorkspaceSessionChanged {
+      // The session it was asked under ended: so does the request.
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the session changed before the model was read',
+      );
+    } on Object {
+      // Unreadable here (no access, offline): the endpoint still answers.
+    }
+    account.require('the model was read');
+    // The credential it fetches with is still the session's own.
+    if (!identical(_container.read(apiServiceProvider), api)) {
+      throw const RpcError(
+        code: ConduitErrorCodes.sessionExpired,
+        args: <String, String>{'reason': 'account'},
+        debugMessage: 'the session changed before the picture was fetched',
+      );
+    }
+    final bytes = await api.getWorkspaceModelAvatar(
+      modelId,
+      imageUrl: imageUrl,
+    );
+    account.require('the picture arrived');
+    if (bytes == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'the model has no picture',
+      );
+    }
+    final data = Uint8List.fromList(bytes);
+    return (bytes: data, contentType: _imageTypeOf(data));
+  }
+
+  /// A picture's type by its signature (the window decodes it by type,
+  /// then by its bytes); never a type a browser would run.
+  static String _imageTypeOf(Uint8List b) {
+    bool starts(List<int> sig, [int at = 0]) {
+      if (b.length < at + sig.length) return false;
+      for (var i = 0; i < sig.length; i++) {
+        if (b[at + i] != sig[i]) return false;
+      }
+      return true;
+    }
+
+    if (starts(const [0x89, 0x50, 0x4E, 0x47])) return 'image/png';
+    if (starts(const [0xFF, 0xD8, 0xFF])) return 'image/jpeg';
+    if (starts(const [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
+    if (starts(const [0x52, 0x49, 0x46, 0x46]) &&
+        starts(const [0x57, 0x45, 0x42, 0x50], 8)) {
+      return 'image/webp';
+    }
+    return 'application/octet-stream';
   }
 
   /// A PDF by its signature, since the core hands non-images over without

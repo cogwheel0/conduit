@@ -49,6 +49,10 @@ pub struct Strings {
     pub previous_version: SharedString,
     pub next_version: SharedString,
     pub copy: SharedString,
+    /// Said after a code block's Copy.
+    pub code_copied: SharedString,
+    /// A code block's accessible name; `{name}` is its language.
+    pub code_block: SharedString,
     pub edit: SharedString,
     pub regenerate: SharedString,
     pub good_response: SharedString,
@@ -129,7 +133,8 @@ pub struct Strings {
     pub or: SharedString,
     pub sso: SharedString,
     pub ldap: SharedString,
-    pub api_key: SharedString,
+    /// The sign-in method that takes a session token (the phone's Token).
+    pub token: SharedString,
     pub change: SharedString,
     /// `{name}`
     pub server_chip: SharedString,
@@ -181,6 +186,8 @@ impl Default for Strings {
             previous_version: s("Previous Answer"),
             next_version: s("Next Answer"),
             copy: s("Copy"),
+            code_copied: s("Code copied to the clipboard."),
+            code_block: s("{name} code"),
             edit: s("Edit"),
             regenerate: s("Regenerate"),
             good_response: s("Good Answer"),
@@ -259,7 +266,7 @@ impl Default for Strings {
             or: s("or"),
             sso: s("Sign In with SSO"),
             ldap: s("Sign In with LDAP"),
-            api_key: s("API Key"),
+            token: s("Token"),
             change: s("Change"),
             server_chip: s("Server: {name}. Change"),
             sync_now: s("Sync Now"),

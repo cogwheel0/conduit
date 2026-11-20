@@ -9,6 +9,8 @@
 //!   microphone and the voice on one echo-cancelled engine;
 //! * [`call_audio`] (and [`call_audio_mac`]): a Standard call's, the
 //!   microphone its listens hear and the player its answers are said on;
+//! * [`peer`]: a Hermes GPT-Live call's WebRTC peer, a hidden web view with
+//!   WebKit's echo-cancelled microphone;
 //! * [`mac`]: the microphone (`AVAudioEngine`), this Mac's recognizer
 //!   (`SFSpeechRecognizer`, on-device) and their permissions.
 //!
@@ -17,6 +19,7 @@
 
 pub mod call_audio;
 pub mod pcm;
+pub mod peer;
 pub mod realtime;
 pub mod session;
 pub mod vad;

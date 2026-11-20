@@ -765,6 +765,19 @@ impl Render for MainWindow {
             }))
             .when(shows_main, |d| {
                 d.on_action(cx.listener(|this, _: &GoBack, _, cx| this.go(true, cx)))
+                    // Go › Move Focus to Next and Previous Area: the window's
+                    // next or previous stop, as Tab and Shift-Tab, out of a
+                    // view that keeps Tab (the terminal's console) too.
+                    .on_action(cx.listener(
+                        |_, _: &crate::actions::MoveFocusToNextArea, window, cx| {
+                            window.focus_next(cx);
+                        },
+                    ))
+                    .on_action(cx.listener(
+                        |_, _: &crate::actions::MoveFocusToPreviousArea, window, cx| {
+                            window.focus_prev(cx);
+                        },
+                    ))
                     .on_action(cx.listener(|this, _: &GoForward, _, cx| this.go(false, cx)))
                     .on_action(cx.listener(|this, a: &GoToSection, window, cx| {
                         this.go_to_section(a.index, window, cx)
@@ -892,11 +905,13 @@ impl Render for MainWindow {
                         cx,
                     )
                 }))
-                .on_action(cx.listener(
-                    |this, _: &RegenerateLastAnswer, _, cx| {
-                        this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
-                    },
-                ))
+            })
+            // Regenerate: not in a chat a coding agent answers, which takes
+            // only new messages at its end.
+            .when(chat_menu && !self.chat_pane.read(cx).agent_chat(cx), |d| {
+                d.on_action(cx.listener(|this, _: &RegenerateLastAnswer, _, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.regenerate_last(cx));
+                }))
             })
             // Save Chat: a temporary chat with messages is open.
             .when(self.chat_pane.read(cx).can_save_temporary(cx), |d| {

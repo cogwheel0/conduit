@@ -98,6 +98,7 @@ class AuthActions {
     required String token,
     required User user,
     bool Function()? canCommit,
+    bool Function()? mayBegin,
   }) {
     return _completeOpenWebUiAuth(
       () => _auth.commitPrevalidatedProxySession(
@@ -105,6 +106,7 @@ class AuthActions {
         token: token,
         user: user,
         canCommit: canCommit,
+        mayBegin: mayBegin,
       ),
     );
   }

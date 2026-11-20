@@ -28,6 +28,7 @@ pub mod channel_fixture;
 pub mod chat_fixture;
 pub mod desktop;
 #[cfg(feature = "harness")]
+pub mod diagram_fixture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod e2e;
 #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -39,6 +40,7 @@ pub mod menus;
 pub mod prefs;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod rooms_fixture;
+pub mod scripted;
 pub mod shell;
 #[cfg(target_os = "macos")]
 pub mod smoke;
@@ -48,6 +50,8 @@ pub mod terminal_fixture;
 pub mod updates;
 pub mod views;
 pub mod voice;
+#[cfg(all(target_os = "macos", feature = "harness"))]
+pub mod web_media_fixture;
 pub mod windows;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod workspace_fixture;
@@ -70,7 +74,7 @@ use crate::views::main_window::MainWindow;
 use crate::views::settings::{SETTINGS_SIZE, SettingsView, Tab};
 
 /// The app's version: `CONDUIT_VERSION` at build time (the release
-/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0` or `1.3.0-beta.2`;
+/// bundle's `CFBundleShortVersionString`, e.g. `1.2.0`;
 /// see packaging/macos/bundle.sh), else the crate version.
 pub const VERSION: &str = match option_env!("CONDUIT_VERSION") {
     Some(v) => v,
@@ -110,11 +114,17 @@ fn arg(args: &[String], key: &str) -> Option<String> {
         .cloned()
 }
 
-/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`)
-/// that drives, resets and photographs its profile.
+/// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
+/// or a fixture: `--fixture`, `--chat-fixture` and the rest) that drives,
+/// resets and photographs its profile, or saves settings to it (a
+/// fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
-    args.iter()
-        .any(|a| a == "--shots" || a.starts_with("--e2e") || a.starts_with("--capture"))
+    args.iter().any(|a| {
+        a == "--shots"
+            || a.starts_with("--e2e")
+            || a.starts_with("--capture")
+            || (a.starts_with("--") && a.ends_with("fixture"))
+    })
 }
 
 /// The profile a scripted run uses: the one named by `named`
@@ -196,17 +206,23 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     }
 }
 
+/// Bytes only a build with the test harness carries: the packaging scripts
+/// look for them in the built binary and never sign it for distribution
+/// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
+/// they were given.
+#[cfg(feature = "harness")]
+pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    // Kept in the binary (never optimized out): the marker is how a harness
+    // build is told from a release one after the fact.
+    #[cfg(feature = "harness")]
+    let _ = std::hint::black_box(HARNESS_MARKER);
     // A build without the test harness refuses its flags rather than
     // starting normally, so a script can never drive a real profile.
     #[cfg(not(feature = "harness"))]
-    if let Some(flag) = args.iter().map(String::as_str).find(|a| {
-        a.starts_with("--e2e")
-            || a.starts_with("--capture")
-            || *a == "--probe"
-            || (a.starts_with("--") && a.ends_with("fixture"))
-    }) {
+    if let Some(flag) = scripted::harness_flag(&args) {
         eprintln!("conduit-desktop: {flag} needs a build with the `harness` feature");
         std::process::exit(64);
     }
@@ -219,6 +235,15 @@ pub fn run() {
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some(dir) = arg(&args, "--cwd") {
         std::env::set_current_dir(dir).ok();
+    }
+    // A scripted launch (a pass, the capture, a fixture) never asks for a
+    // permission: see `scripted`.
+    scripted::set(scripted::requested(&args));
+    // The web views' media policy in real web views (tests/web_media.rs).
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if web_media_fixture::requested(&args) {
+        web_media_fixture::run();
+        return;
     }
     // The sidebar and palette over canned data (tests/a11y.rs, perf).
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -271,6 +296,16 @@ pub fn run() {
     let shots = arg(&args, "--shots").map(PathBuf::from);
     #[cfg(all(target_os = "macos", feature = "harness"))]
     let probe = arg(&args, "--probe").map(PathBuf::from);
+    #[cfg(all(target_os = "macos", feature = "harness"))]
+    if let Some(path) = &probe
+        && e2e::shell::probe_files(path).is_none()
+    {
+        eprintln!(
+            "conduit-desktop: --probe {}: name a file whose .cmd and .quit files are others (say, state.json)",
+            path.display()
+        );
+        std::process::exit(64);
+    }
     #[cfg(target_os = "macos")]
     let smoke_options = smoke::SmokeOptions::from_args(&args);
     #[cfg(all(target_os = "macos", feature = "harness"))]
@@ -289,6 +324,13 @@ pub fn run() {
     let scripted = shots.is_some() || capture.is_some();
     #[cfg(not(all(target_os = "macos", feature = "harness")))]
     let scripted = shots.is_some();
+    // `{{USER_LOCATION}}`: a scripted run (any pass, the capture, a probe
+    // or a fixture: `scripted::active`) answers with a stand-in and never
+    // reaches CoreLocation (no test may raise the system's prompt).
+    shell::location::choose(
+        scripted::active(),
+        std::env::var("CONDUIT_LOCATION_STANDIN").ok(),
+    );
 
     let app = gpui_kit::application().with_assets(crate::views::model_logo::AppAssets);
     // `conduit://` links and "Open with" files, cold launch included: they
@@ -335,7 +377,7 @@ pub fn run() {
         // The chat view over a fixture daemon (perf and AccessKit checks).
         #[cfg(all(target_os = "macos", feature = "harness"))]
         if let Some((mode, shots)) = chat_fixture.clone() {
-            chat_fixture::run(mode, shots, cx);
+            chat_fixture::run(mode, shots, settings.clone(), cx);
             return;
         }
         // A channel's timeline over a fixture daemon (perf).
@@ -583,6 +625,7 @@ fn install_menu_observers(cx: &mut App) {
 }
 
 fn register_actions(cx: &mut App) {
+    views::chat::remote_image::register(cx);
     cx.on_action(|_: &Quit, cx| crate::views::sheet::quit(cx));
     cx.on_action(|_: &About, cx| open_settings(Some(Tab::About), cx));
     cx.on_action(|_: &Hide, cx| cx.hide());
@@ -992,7 +1035,12 @@ mod harness_profile_tests {
         ])));
         assert!(is_scripted(&args(&["app", "--e2e", "chat"])));
         assert!(is_scripted(&args(&["app", "--capture", "/tmp/c"])));
+        // A fixture saves its own settings (the shots' theme), with or
+        // without `--shots`.
+        assert!(is_scripted(&args(&["app", "--chat-fixture", "shots"])));
+        assert!(is_scripted(&args(&["app", "--fixture", "web-media"])));
         assert!(!is_scripted(&args(&["app", "--hidden"])));
+        assert!(!is_scripted(&args(&["app", "--cwd", "/tmp/fixture"])));
 
         let ordinary =
             std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");

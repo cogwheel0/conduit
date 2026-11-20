@@ -7,14 +7,16 @@
 //!
 //! * **On This Mac:** Read Aloud on the answer; the reading speaks live,
 //!   word by word (store state and the transcript's marks); the bar's
-//!   controls are there; pause, Next Sentence while paused, resume; a
-//!   click on a sentence's mark on the bar; a new speed says the rest at
-//!   the new rate; Stop Speaking.
+//!   controls are there; pause, Next Sentence while paused, resume (each
+//!   said to VoiceOver once the reading is so: "Reading paused", "Reading
+//!   resumed"); a click on a sentence's mark on the bar; a new speed says
+//!   the rest at the new rate; Stop Speaking.
 //! * **Keys:** Esc stops the reading; Chat › Read Aloud (⌥⌘R) reads the
 //!   last answer and ⌘. stops it; Chat › Stop Speaking follows.
 //! * **Dictation takes turns with it** (the microphone would hear the
-//!   voice): dictating pauses the reading, Esc cancels the dictation first,
-//!   and Play ends the dictation as Stop does.
+//!   voice): dictating pauses the reading without a word to VoiceOver (the
+//!   microphone would hear it), Esc cancels the dictation first, and Play
+//!   ends the dictation as Stop does.
 //! * **Elsewhere:** the reading pauses when another chat opens; Settings'
 //!   Preview reads through the same engine.
 //! * **Server:** the reading plays the server's speech, fetched from
@@ -30,9 +32,21 @@ use gpui_kit::{AsyncApp, Entity};
 
 use super::chat::{chat_store, in_pane, pane, send, sign_in, wait_answer, wait_models};
 use super::*;
+use crate::l10n::ActiveL10n as _;
 use crate::stores::chat::Role as MessageRole;
 use crate::stores::speech::SpeechStore;
 use crate::views::chat::actions::{RowCommand, RowContext};
+use conduit_components::announce::AnnouncementLog;
+
+/// How many times VoiceOver was told `text` so far.
+fn heard(text: &str, cx: &mut AsyncApp) -> usize {
+    cx.update(|cx| {
+        AnnouncementLog::texts(cx)
+            .iter()
+            .filter(|t| t.as_ref() == text)
+            .count()
+    })
+}
 
 fn speech(cx: &mut App) -> Entity<SpeechStore> {
     cx.global::<AppState>().stores.speech.clone()
@@ -114,11 +128,16 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let Some((url, email, password)) = inputs.owui() else {
         return ok(NO_SERVER, false);
     };
+    cx.update(AnnouncementLog::install);
     let mut pass = sign_in(&url, &email, &password, cx).await;
     let Some((main, _)) = cx.update(main_window) else {
         return ok("main window", false);
     };
     pass &= ok("models.list answered", wait_models(cx).await);
+    let (paused_words, resumed_words) = cx.update(|cx| {
+        let l = cx.l10n().clone();
+        (l.desktop_reading_paused(), l.desktop_reading_resumed())
+    });
     let model = inputs.model();
     in_pane(cx, move |p, _, cx| {
         p.composer_store
@@ -214,12 +233,24 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
 
     // The media keys' play/pause, as Now Playing hands it over.
     let s = cx.update(speech);
+    let (paused0, resumed0) = (heard(&paused_words, cx), heard(&resumed_words, cx));
     s.update(cx, |s, cx| {
         s.remote(crate::stores::speech::RemoteCommand::TogglePause, cx)
     });
     pass &= ok(
         "the play/pause key pauses",
         wait_status(SpeechStatus::Paused, 10, cx).await,
+    );
+    pass &= ok(
+        &format!("…and VoiceOver hears “{paused_words}” once"),
+        wait_until(cx, Duration::from_secs(5), |cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .filter(|t| t.as_ref() == paused_words)
+                .count()
+                == paused0 + 1
+        })
+        .await,
     );
     s.update(cx, |s, cx| {
         s.remote(crate::stores::speech::RemoteCommand::TogglePause, cx)
@@ -228,12 +259,34 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         "…and plays again",
         wait_status(SpeechStatus::Speaking, 10, cx).await,
     );
+    pass &= ok(
+        &format!("…and VoiceOver hears “{resumed_words}” once"),
+        wait_until(cx, Duration::from_secs(5), |cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .filter(|t| t.as_ref() == resumed_words)
+                .count()
+                == resumed0 + 1
+        })
+        .await,
+    );
 
     // Pause, move on while paused, resume.
+    let paused1 = heard(&paused_words, cx);
     s.update(cx, |s, cx| s.pause(cx));
     pass &= ok(
         "Pause pauses",
         wait_status(SpeechStatus::Paused, 10, cx).await,
+    );
+    // The bar's Pause is said as the media key's was; a second Pause on a
+    // paused reading says nothing more.
+    settle(cx, 300).await;
+    s.update(cx, |s, cx| s.pause(cx));
+    settle(cx, 600).await;
+    let said_paused = heard(&paused_words, cx);
+    pass &= ok(
+        &format!("Pause is said once ({} time(s))", said_paused - paused1),
+        said_paused == paused1 + 1,
     );
     shoot_main(dir, "read-aloud-paused", cx).await;
     let said = cx.update(|cx| speech(cx).read(cx).spoken.len());
@@ -255,6 +308,10 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     })
     .await;
     pass &= ok("Resume says the next sentence", resumed);
+    pass &= ok(
+        "…and VoiceOver hears that it resumed",
+        heard(&resumed_words, cx) > resumed0 + 1,
+    );
 
     // A click on a sentence's mark on the bar.
     crate::capture::drive::activate(main, cx);
@@ -494,11 +551,18 @@ async fn with_dictation(main: AnyWindowHandle, dir: &Path, cx: &mut AsyncApp) ->
         "a reading under way",
         wait_status(SpeechStatus::Speaking, 20, cx).await,
     );
+    let paused_words = cx.update(|cx| cx.l10n().desktop_reading_paused());
+    let paused_before = heard(&paused_words, cx);
     set_input(Some(InputOverride::File(wav.clone())), cx);
     toggle(cx);
     pass &= ok(
         "dictating pauses the reading",
         wait_status(SpeechStatus::Paused, 10, cx).await,
+    );
+    settle(cx, 500).await;
+    pass &= ok(
+        "…without a word to VoiceOver (the microphone would hear it)",
+        heard(&paused_words, cx) == paused_before,
     );
     let heard = wait_until(cx, Duration::from_secs(10), listening).await;
     settle(cx, 800).await;

@@ -81,6 +81,8 @@ pub const CHAT_EVENTS: &[&str] = &[
     events::CHAT_PROMPTS_CHANGED,
     events::MCP_APPS_EVENT,
     events::HERMES_WORK_CHANGED,
+    // Words the core gives the chat's composer (a kept Hermes message).
+    events::COMPOSER_INSERT_TEXT,
     // A model's terminal tool showing a file (the chat pane opens it).
     events::TERMINAL_DISPLAY_FILE,
 ];
@@ -106,6 +108,9 @@ pub enum LivePhase {
         code: String,
         /// The server's own words, when it gave any.
         detail: Option<String>,
+        /// Their code, when the daemon knows one (an error block's `type`,
+        /// such as Apple's engine's `appleFailure.*`).
+        kind: Option<String>,
     },
 }
 
@@ -165,11 +170,12 @@ impl LiveTurn {
     /// failed and the snapshot does not say so.
     pub fn display_blocks(&self) -> Vec<MessageBlockDto> {
         let mut blocks = self.blocks.clone();
-        if let LivePhase::Failed { detail, .. } = &self.phase
+        if let LivePhase::Failed { detail, kind, .. } = &self.phase
             && !blocks.iter().any(|b| b.kind == MessageBlockKind::Error)
         {
             let mut error = empty_block(MessageBlockKind::Error);
             error.error = Some(detail.clone().unwrap_or_default());
+            error.r#type = kind.clone();
             // Before sources and follow-ups, after the content.
             let at = blocks
                 .iter()
@@ -305,6 +311,9 @@ pub struct RowItem {
     pub files: Vec<ChatFileDto>,
     pub sources: Vec<ChatSourceDto>,
     pub model: Option<String>,
+    /// The name the answer's model went by when it answered, as the stored
+    /// copy keeps it: the header's fallback for a model not on offer.
+    pub model_name: Option<String>,
     pub timestamp_ms: Option<i64>,
     pub streaming: bool,
     /// The thumb shown (this window's override first).
@@ -399,6 +408,31 @@ pub enum ChatStoreEvent {
     Missing,
     /// An MCP App's host has something for its view.
     McpApp(McpAppEvent),
+    /// Words the core gives the chat's composer (`composer.insertText`):
+    /// what Hermes prefills.
+    InsertText { text: String },
+}
+
+/// Where a step of an answer's version arrows landed: version `index`
+/// (1-based) of `total`, and whether it switched the chat's branch on the
+/// server (what VoiceOver is told: "Continuing from version 2 of 3", or the
+/// arrows' own "Answer 2 of 3").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VersionStep {
+    pub index: usize,
+    pub total: usize,
+    pub branch: bool,
+}
+
+impl VersionStep {
+    /// What VoiceOver hears for this step, in the phone's words.
+    pub fn spoken(self, l: &crate::l10n::L10n) -> String {
+        if self.branch {
+            l.chat_branch_selected_notice(self.index as i64, self.total as i64)
+        } else {
+            l.desktop_version_of(self.index as i64, self.total as i64)
+        }
+    }
 }
 
 pub struct ChatStore {
@@ -1108,6 +1142,7 @@ impl ChatStore {
                 live.phase = LivePhase::Failed {
                     code: e.code.clone(),
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                    kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
                 self.fetch(cx);
                 self.rebuild(cx);
@@ -1126,6 +1161,7 @@ impl ChatStore {
                         LivePhase::Failed {
                             code: e.code.clone().unwrap_or_default(),
                             detail: None,
+                            kind: None,
                         }
                     };
                     self.fetch(cx);
@@ -1138,6 +1174,11 @@ impl ChatStore {
                 self.fetch(cx);
             }
             Event::QueueChanged(queue) => self.set_queue(queue.clone(), cx),
+            Event::ComposerInsertText(e) if e.chat_id == self.chat_id => {
+                cx.emit(ChatStoreEvent::InsertText {
+                    text: e.text.clone(),
+                })
+            }
             Event::ChatPromptsChanged(state) if state.chat_id == self.chat_id => {
                 self.prompt_round += 1;
                 self.set_prompt(state.clone(), cx);
@@ -1179,6 +1220,7 @@ impl ChatStore {
                 c.phase = LivePhase::Failed {
                     code: e.code.clone(),
                     detail: e.args.get("detail").cloned().filter(|d| !d.is_empty()),
+                    kind: e.args.get("type").cloned().filter(|d| !d.is_empty()),
                 };
                 self.fetch(cx);
             }
@@ -1450,7 +1492,8 @@ impl ChatStore {
                 } else {
                     None
                 };
-                let (text, blocks, sources, model, usage, stored_merged) = match shown {
+                let (text, blocks, sources, (model, model_name), usage, stored_merged) = match shown
+                {
                     Some(v) => (
                         v.content.clone(),
                         if assistant {
@@ -1459,7 +1502,15 @@ impl ChatStore {
                             vec![]
                         },
                         v.sources.clone(),
-                        v.model.clone().or(m.model.clone()),
+                        // A version with a model of its own goes by its own
+                        // name; one without, by the message's.
+                        match &v.model {
+                            Some(own) => (Some(own.clone()), v.model_name.clone()),
+                            None => (
+                                m.model.clone(),
+                                v.model_name.clone().or(m.model_name.clone()),
+                            ),
+                        },
                         v.usage.clone(),
                         v.merged.clone(),
                     ),
@@ -1471,7 +1522,7 @@ impl ChatStore {
                             vec![]
                         },
                         m.sources.clone(),
-                        m.model.clone(),
+                        (m.model.clone(), m.model_name.clone()),
                         m.usage.clone(),
                         m.merged.clone(),
                     ),
@@ -1498,6 +1549,7 @@ impl ChatStore {
                     files: m.files.clone(),
                     sources: if assistant { sources } else { vec![] },
                     model,
+                    model_name: model_name.filter(|_| assistant),
                     timestamp_ms: Some(m.timestamp_ms),
                     streaming: m.streaming,
                     rating: current
@@ -1865,23 +1917,31 @@ impl ChatStore {
     }
 
     /// Steps the shown version by `delta`, within bounds: in the server's
-    /// order, switching the chat's branch when it can branch.
-    pub fn step_version(&mut self, message_id: &str, delta: isize, cx: &mut Context<Self>) {
-        let Some(m) = self.messages().iter().find(|m| m.id == message_id) else {
-            return;
-        };
+    /// order, switching the chat's branch when it can branch. Says where it
+    /// landed, when it moved.
+    pub fn step_version(
+        &mut self,
+        message_id: &str,
+        delta: isize,
+        cx: &mut Context<Self>,
+    ) -> Option<VersionStep> {
+        let m = self.messages().iter().find(|m| m.id == message_id)?;
         if m.sibling_ids.len() > 1 {
             let shown = self.shown_version_id(m);
-            let Some(at) = m.sibling_ids.iter().position(|id| *id == shown) else {
-                return;
-            };
-            let last = m.sibling_ids.len() as isize - 1;
-            let next = (at as isize + delta).clamp(0, last) as usize;
-            if next != at {
-                let target = m.sibling_ids[next].clone();
-                self.choose_version(message_id, &target, cx);
+            let at = m.sibling_ids.iter().position(|id| *id == shown)?;
+            let total = m.sibling_ids.len();
+            let next = (at as isize + delta).clamp(0, total as isize - 1) as usize;
+            if next == at {
+                return None;
             }
-            return;
+            let target = m.sibling_ids[next].clone();
+            let branch = self.abilities().branch && !self.is_streaming();
+            self.choose_version(message_id, &target, cx);
+            return Some(VersionStep {
+                index: next + 1,
+                total,
+                branch,
+            });
         }
         let total = m.versions.len();
         let shown = self
@@ -1891,9 +1951,15 @@ impl ChatStore {
             .unwrap_or(total)
             .min(total);
         let next = (shown as isize + delta).clamp(0, total as isize) as usize;
-        if next != shown {
-            self.show_version(message_id, next, cx);
+        if next == shown {
+            return None;
         }
+        self.show_version(message_id, next, cx);
+        Some(VersionStep {
+            index: next + 1,
+            total: total + 1,
+            branch: false,
+        })
     }
 
     // ── Actions ─────────────────────────────────────────────────────────
@@ -2493,6 +2559,7 @@ mod tests {
             content: content.into(),
             timestamp_ms: 1,
             model: (role == "assistant").then(|| "m".into()),
+            model_name: None,
             streaming: false,
             error_code: None,
             versions: vec![],
@@ -3304,6 +3371,66 @@ mod tests {
     }
 
     #[gpui_kit::test]
+    fn an_answer_row_carries_the_name_its_model_went_by(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        // A Hermes answer after a confirmed model switch: an agent id no
+        // model on offer has, and the name the answer kept.
+        let mut answer = message("a2", "assistant", "Basil and thyme.");
+        answer.model = Some("hermes:agent:desktop:7f3a9c".into());
+        answer.model_name = Some("Demo Model Large".into());
+        let version = |id: &str, model: Option<&str>, name: Option<&str>| ChatMessageVersionDto {
+            slot: None,
+            merged: None,
+            streaming: false,
+            error_code: None,
+            id: id.into(),
+            content: "Rosemary.".into(),
+            timestamp_ms: 1,
+            model: model.map(Into::into),
+            model_name: name.map(Into::into),
+            sources: vec![],
+            usage: None,
+            blocks: vec![text_block("Rosemary.")],
+        };
+        answer.versions = vec![
+            version("a0", Some("demo-model"), Some("Demo Model")),
+            version("a1", None, None),
+        ];
+        daemon.returns::<methods::ChatsGet>(chat("c1", vec![message("u1", "user", "q"), answer]));
+        let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, cx| {
+            let named = |s: &ChatStore| {
+                let item = s.item(Row::Stored(1)).unwrap();
+                (item.model, item.model_name)
+            };
+            assert_eq!(
+                named(s),
+                (
+                    Some("hermes:agent:desktop:7f3a9c".into()),
+                    Some("Demo Model Large".into())
+                )
+            );
+            // A version with a model of its own goes by its own name...
+            s.show_version("a2", 0, cx);
+            assert_eq!(
+                named(s),
+                (Some("demo-model".into()), Some("Demo Model".into()))
+            );
+            // ...and one without, by the message's.
+            s.show_version("a2", 1, cx);
+            assert_eq!(
+                named(s),
+                (
+                    Some("hermes:agent:desktop:7f3a9c".into()),
+                    Some("Demo Model Large".into())
+                )
+            );
+            // A question has no model name to show.
+            assert_eq!(s.item(Row::Stored(0)).unwrap().model_name, None);
+        });
+    }
+
+    #[gpui_kit::test]
     fn sending_ends_the_last_answer_so_its_suggestions_go_at_once(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::ChatsGet>(chat(
@@ -3370,6 +3497,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![text_block("old")],
@@ -3393,13 +3521,21 @@ mod tests {
             let item = s.item(s.rows()[1]).unwrap();
             assert_eq!(item.version, Some((2, 2)));
             assert_eq!(item.text, "new");
-            s.step_version("a2", -1, cx);
+            let step = s.step_version("a2", -1, cx);
+            assert_eq!(
+                step,
+                Some(VersionStep {
+                    index: 1,
+                    total: 2,
+                    branch: false
+                })
+            );
             let item = s.item(s.rows()[1]).unwrap();
             assert_eq!(item.version, Some((1, 2)));
             assert_eq!(item.blocks, vec![text_block("old")]);
             // No thumb on an older version.
             assert_eq!(item.rating, None);
-            s.step_version("a2", -1, cx);
+            assert_eq!(s.step_version("a2", -1, cx), None, "already the first");
             assert_eq!(s.item(s.rows()[1]).unwrap().version, Some((1, 2)));
         });
         assert_eq!(keys(&store, cx), vec!["u1", "a1"], "settled, the same row");
@@ -3473,6 +3609,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![text_block("old")],
@@ -3595,6 +3732,7 @@ mod tests {
             content: String::new(),
             timestamp_ms: 1,
             model: Some("m".into()),
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![],
@@ -3639,6 +3777,7 @@ mod tests {
             content: "old".into(),
             timestamp_ms: 1,
             model: None,
+            model_name: None,
             sources: vec![],
             usage: None,
             blocks: vec![],

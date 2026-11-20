@@ -5,6 +5,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart'
     hide HermesDeliveryOptions;
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart'
@@ -14,21 +15,46 @@ import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_http_session.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
     show HermesDesktopRpcException;
-import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart'
+    hide HermesCadenceKind;
+import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart'
+    as core_cadence
+    show HermesCadenceKind;
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
+import 'package:conduit_core/features/push/services/hermes_push_backend.dart'
+    show
+        hermesDeliverIncludesConduit,
+        hermesDeliverWithConduit,
+        kConduitHermesPluginName;
 import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
 import 'hermes_connection.dart';
+import 'hermes_dashboard_cookies.dart';
 import 'hermes_service.dart';
 import 'settled.dart';
+
+/// A job's `deliver` as the editor sent it ([deliver], its targets, which
+/// never list Conduit's push plugin), with the plugin kept as [notify]
+/// says: a phone's Notify Me survives an edit made on this Mac.
+String hermesJobDeliverKeepingNotifyMe(String deliver, {required bool notify}) {
+  final has = parseHermesDeliveryTargets(deliver)
+      .contains(kConduitHermesPluginName);
+  if (has == notify) return deliver;
+  return hermesDeliverWithConduit(deliver, notify: notify);
+}
 
 /// How long a Run Now waits for Hermes to refuse it before answering: the
 /// gateway answers a trigger only once its run ends, so a run that started
@@ -49,8 +75,13 @@ const Duration _kDeliveryOptionsTtl = Duration(seconds: 60);
 /// run, a Stop waiting for its run to end -- is kept here, per connection,
 /// so the window only polls the list while it shows it.
 final class HermesAdminService {
-  HermesAdminService(this._container, {EventBus? events, this.hermes})
-    : _events = events {
+  HermesAdminService(
+    this._container, {
+    EventBus? events,
+    this.hermes,
+    DaemonHermesDashboardCookies? dashboardCookies,
+  }) : _events = events,
+       _dashboardCookies = dashboardCookies {
     // A connection switch leaves nothing of the previous one's jobs to
     // settle.
     _serviceWatch = _container.listen<HermesBackendService?>(
@@ -63,6 +94,9 @@ final class HermesAdminService {
 
   final ProviderContainer _container;
   final EventBus? _events;
+
+  /// The dashboard sessions the window's sign-in hands over.
+  final DaemonHermesDashboardCookies? _dashboardCookies;
 
   /// Hermes's sessions, told of the sessions a job's runs wrote so they
   /// open as any other.
@@ -166,6 +200,7 @@ final class HermesAdminService {
     _stopUnsupported = false;
     _deliveryOptions = null;
     _mcpTools.clear();
+    _catalog = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -193,7 +228,17 @@ final class HermesAdminService {
             config = null;
           }
         }
-        rows.add(_connectionDto(profile, config, active: isActive));
+        rows.add(
+          _connectionDto(
+            profile,
+            config,
+            active: isActive,
+            dashboardSignedIn:
+                profile.desktopAuthKind ==
+                    HermesDesktopAuthKind.dashboardCookie &&
+                (_dashboardCookies?.hasSession(profile.baseUrl) ?? false),
+          ),
+        );
       }
       if (!_current(scope) && attempt < 3) continue;
       _check(scope);
@@ -212,6 +257,7 @@ final class HermesAdminService {
     HermesConnectionProfile profile,
     HermesConfig? config, {
     required bool active,
+    bool dashboardSignedIn = false,
   }) => HermesConnectionDto(
     id: profile.id,
     name: profile.name,
@@ -226,6 +272,9 @@ final class HermesAdminService {
     hasLegacyToken:
         config?.desktopCredentials?.legacyToken?.trim().isNotEmpty ?? false,
     desktopSignedIn: config?.desktopCredentials?.nativeTokens != null,
+    accessHeaderNames: config?.accessHeaders.keys.toList() ?? const [],
+    hasMemoryKey: config?.sessionKey?.trim().isNotEmpty ?? false,
+    dashboardSignedIn: dashboardSignedIn,
   );
 
   /// The stored connection [id] (with its secrets), or a blank one for a
@@ -251,6 +300,12 @@ final class HermesAdminService {
     HermesConfig saved,
   ) {
     final name = edit.name;
+    final headers = edit.accessHeaders == null
+        ? saved.accessHeaders
+        : _accessHeaders(edit.accessHeaders!, saved.accessHeaders);
+    final headersDirty =
+        edit.accessHeaders != null &&
+        !_sameHeaders(headers, saved.accessHeaders);
     return HermesConnectionForm(
       connectionId: edit.id,
       name: name ?? '',
@@ -273,11 +328,77 @@ final class HermesAdminService {
           : null,
       apiKey: edit.apiKey ?? '',
       apiKeyDirty: edit.apiKey != null,
+      sessionKey: edit.memoryKey ?? '',
+      sessionKeyDirty: edit.memoryKey != null,
       legacyToken: edit.legacyToken ?? '',
-      desktopCredentialsDirty: edit.legacyToken != null,
+      desktopCredentialsDirty: edit.legacyToken != null || headersDirty,
       initialAccessHeaders: saved.accessHeaders,
-      accessHeaders: saved.accessHeaders,
+      accessHeaders: headers,
+      accessHeadersDirty: headersDirty,
     );
+  }
+
+  /// The headers [rows] make: a row without a value keeps the saved value
+  /// of the header it was. A list the core refuses is `invalidParams`
+  /// (`reason: accessHeader`, the `issue` and the `header`).
+  static Map<String, String> _accessHeaders(
+    List<HermesAccessHeaderEdit> rows,
+    Map<String, String> saved,
+  ) {
+    String? savedValue(String name) => saved.entries
+        .where((entry) => entry.key.toLowerCase() == name.toLowerCase())
+        .firstOrNull
+        ?.value;
+    final headers = <String, String>{};
+    for (final row in rows) {
+      final value = row.value ?? savedValue(row.savedName ?? row.name);
+      if (value == null) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{
+            'reason': 'accessHeader',
+            'issue': HermesAccessHeaderIssue.invalidValue.name,
+            'header': row.name,
+          },
+          debugMessage: 'a new header needs its value',
+        );
+      }
+      if (headers.keys.any((k) => k.toLowerCase() == row.name.toLowerCase())) {
+        throw RpcError(
+          code: ConduitErrorCodes.invalidParams,
+          args: <String, String>{
+            'reason': 'accessHeader',
+            'issue': HermesAccessHeaderIssue.duplicate.name,
+            'header': row.name,
+          },
+          debugMessage: 'header names must be unique',
+        );
+      }
+      headers[row.name] = value;
+    }
+    final problem = HermesConfig.accessHeadersProblem(headers);
+    if (problem != null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{
+          'reason': 'accessHeader',
+          'issue': problem.issue.name,
+          'header': ?problem.name,
+        },
+        debugMessage: HermesConfig.validateAccessHeaders(headers) ?? '',
+      );
+    }
+    return headers;
+  }
+
+  static bool _sameHeaders(Map<String, String> a, Map<String, String> b) {
+    if (a.length != b.length) return false;
+    final ak = a.keys.toList();
+    final bk = b.keys.toList();
+    for (var i = 0; i < ak.length; i++) {
+      if (ak[i] != bk[i] || a[ak[i]] != b[bk[i]]) return false;
+    }
+    return true;
   }
 
   /// The draft [edit] makes, or the reason it cannot be used: an address
@@ -362,7 +483,7 @@ final class HermesAdminService {
       config = _draft(edit, saved).config;
     } on RpcError catch (error) {
       final reason = error.args['reason'];
-      if (reason == 'plainHttpConsent') rethrow;
+      if (reason == 'plainHttpConsent' || reason == 'accessHeader') rethrow;
       return HermesConnectionTestResult(
         reason: reason == 'keyRequired' ? 'keyRequired' : 'invalid',
       );
@@ -446,6 +567,221 @@ final class HermesAdminService {
     return connections();
   });
 
+  /// The profiles a Desktop Gateway offers [edit]'s connection, as the
+  /// phone's Refresh Profiles lists them: through the live connection when
+  /// the form is the one in use, unchanged, else through one made for the
+  /// form. When none can be listed, why (the form keeps its profile).
+  Future<HermesProfiles> profiles(HermesConnectionEdit edit) async {
+    final saved = await _saved(edit.id);
+    final draft = buildHermesConnectionDraft(
+      saved,
+      _form(edit, saved),
+    ).config.copyWith(enabled: true);
+    final blocked = hermesProfileListBlocker(draft);
+    if (blocked != null) return HermesProfiles(issue: blocked.name);
+    final active = _container.read(hermesConfigProvider);
+    final live = _container.read(hermesApiServiceProvider);
+    final editsActive = edit.id != null && edit.id == active.connectionId;
+    // A token refresh while listing lands with the connection it belongs
+    // to, and only while the form still matches it.
+    final writeCredentials = _config.credentialsWriterFor(saved);
+    final coordinator = HermesDesktopConnectionCoordinator(
+      openExternalUrl: _container.read(openExternalUrlProvider),
+      dashboardBridgeFactory: _container.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
+    );
+    try {
+      final listed = await coordinator.profiles(
+        draft,
+        service: switch (live) {
+          final HermesDesktopApiService service
+              when editsActive &&
+                  hermesDesktopConnectionMatches(saved, draft) =>
+            service,
+          _ => null,
+        },
+        onCredentialsChanged: (credentials) async {
+          if (!hermesDesktopConnectionMatches(saved, draft)) {
+            throw StateError(
+              'Save the Hermes server before refreshing its sign-in.',
+            );
+          }
+          await writeCredentials(credentials);
+        },
+      );
+      if (listed.isEmpty) {
+        return HermesProfiles(issue: HermesProfileListIssue.empty.name);
+      }
+      return HermesProfiles(
+        profiles: listed,
+        selected: hermesProfileAfterRefresh(listed, draft.desktopProfile),
+      );
+    } on Object {
+      return HermesProfiles(issue: HermesProfileListIssue.signInFirst.name);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Toolsets and skills (a Desktop Gateway's)
+  // ---------------------------------------------------------------------------
+
+  /// Turns toolset [toggle] on or off for new sessions, as the phone's
+  /// switch does, on the connection it names; answers the catalog read
+  /// again.
+  Future<HermesCatalog> setToolset(HermesToolsetToggle toggle) =>
+      _change(toggle.connection, (scope) async {
+        final service = _gatewayService();
+        _check(scope);
+        await service.configureTools([toggle.name], enabled: toggle.enabled);
+        _check(scope);
+        _container.invalidate(hermesToolsetsProvider);
+        return catalog();
+      });
+
+  /// Has the gateway [request] names read its skills again (Reload
+  /// Skills); answers the catalog, whose `/` commands the window's Hermes
+  /// chats then offer.
+  Future<HermesCatalog> reloadSkills(HermesConnectionRef request) =>
+      _change(request.connection, (scope) async {
+        final service = _gatewayService();
+        _check(scope);
+        await service.reloadSkills();
+        _check(scope);
+        _container.invalidate(hermesSkillPromptsProvider);
+        _container.invalidate(hermesInstalledSkillsProvider);
+        return catalog();
+      });
+
+  // ---------------------------------------------------------------------------
+  // Dashboard sign-in
+  // ---------------------------------------------------------------------------
+
+  /// Where connection [id]'s dashboard sign-in opens. The window's browser
+  /// window, a WKWebView as on an iPhone, cannot add the access headers to
+  /// the dashboard page's own requests, so with headers it is unsupported,
+  /// as on an iPhone. Only for the connection in use [request] names.
+  Future<HermesDashboardPlan> dashboardStart(HermesDashboardStart request) =>
+      _change(request.connection, (scope) async {
+        final saved = await _dashboardConnection(scope, request.id);
+        final root = hermesDashboardRoot(saved.baseUrl);
+        return HermesDashboardPlan(
+          loginUrl: hermesDashboardLoginUrl(root).toString(),
+          origin: root.origin,
+          supported: hermesDashboardHeadersSupported(
+            isIOS: true,
+            accessHeaders: saved.accessHeaders,
+          ),
+        );
+      });
+
+  /// The sign-in windows closed (`hermes.dashboard.cancel`), newest last:
+  /// their sign-ins keep nothing from then on. A few are enough: a window's
+  /// completions come while it is open.
+  final List<String> _closedAttempts = <String>[];
+
+  /// Sign-in window [request]'s attempt closed: a completion still out for
+  /// it keeps nothing it has not kept already (checked where the cookies
+  /// would be kept), and any later one is refused the same way.
+  Future<CancelledResult> dashboardCancel(HermesDashboardCancel request) async {
+    _closedAttempts
+      ..remove(request.attempt)
+      ..add(request.attempt);
+    if (_closedAttempts.length > 32) _closedAttempts.removeAt(0);
+    return const CancelledResult(cancelled: true);
+  }
+
+  bool _open(String? attempt) =>
+      attempt == null || !_closedAttempts.contains(attempt);
+
+  /// Whether saved connection [id] is the one in use under [scope], and
+  /// [scope] is still current.
+  bool _inUse(_Scope scope, String id) =>
+      _current(scope) && scope.active.connectionId == id;
+
+  /// Saved connection [id] for a dashboard sign-in, the one guard of every
+  /// dashboard path: only the connection in use under [scope] (another
+  /// saved one, never put in use, is refused as a stale connection), and
+  /// only a Desktop Gateway.
+  Future<HermesConfig> _dashboardConnection(_Scope scope, String id) async {
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    final saved = await _saved(id);
+    _check(scope);
+    if (!_inUse(scope, id)) {
+      throw HermesConnectionKey.stale(scope.connection ?? '', id);
+    }
+    if (saved.mode != HermesBackendMode.desktopGateway) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'dashboard sign-in needs a Desktop Gateway',
+      );
+    }
+    return saved;
+  }
+
+  /// Takes the cookies a dashboard page in the sign-in window had: kept,
+  /// and the connection's dashboard requests sent with them, once the
+  /// dashboard says they are a signed-in session. Not yet: nothing is kept
+  /// and the window waits for the next page.
+  /// Refused when it names no connection, or once another than the one
+  /// the sign-in started under is in use.
+  Future<HermesDashboardResult> dashboardComplete(
+    HermesDashboardCookies request,
+  ) => _change(request.connection, (scope) async {
+    final store = _dashboardCookies;
+    if (store == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this daemon keeps no dashboard sessions',
+      );
+    }
+    if (!_open(request.attempt)) return const HermesDashboardResult();
+    final saved = await _dashboardConnection(scope, request.id);
+    final root = hermesDashboardRoot(saved.baseUrl);
+    final signedIn = await store.adopt(
+      root,
+      [for (final cookie in request.cookies) ?_cookie(cookie)],
+      accessHeaders: saved.accessHeaders,
+      httpClient: hermesDashboardHttpClientFor(root, saved),
+      // Checked again where the cookies would be kept, after the dashboard
+      // answered: nothing is kept for a connection no longer in use.
+      // Nor for a sign-in window that closed meanwhile.
+      wanted: () => _inUse(scope, request.id) && _open(request.attempt),
+    );
+    if (!signedIn) return const HermesDashboardResult();
+    _check(scope);
+    // As the phone after its sign-in page: what the gateway offers is read
+    // again, through the session.
+    _container.invalidate(hermesDesktopModelsProvider);
+    _container.invalidate(hermesSessionsProvider);
+    _container.invalidate(hermesCapabilitiesProvider);
+    _container.invalidate(hermesToolsetsProvider);
+    _announce();
+    return HermesDashboardResult(
+      signedIn: true,
+      connections: await connections(),
+    );
+  });
+
+  static HermesDashboardCookie? _cookie(HermesCookieDto dto) {
+    final domain = dto.domain.trim().toLowerCase();
+    if (dto.name.isEmpty || domain.replaceFirst('.', '').isEmpty) return null;
+    return HermesDashboardCookie(
+      name: dto.name,
+      value: dto.value,
+      domain: domain.startsWith('.') ? domain.substring(1) : domain,
+      path: dto.path.startsWith('/') ? dto.path : '/',
+      secure: dto.secure,
+      httpOnly: dto.httpOnly,
+      hostOnly: !domain.startsWith('.'),
+      expires: dto.expiresMs == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(dto.expiresMs!, isUtc: true),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // MCP servers
   // ---------------------------------------------------------------------------
@@ -488,18 +824,49 @@ final class HermesAdminService {
     );
   });
 
+  /// The catalog as last read, with the connection it was read from: an
+  /// add hands core the entry the window was shown.
+  ({HermesDesktopApiService service, List<HermesMcpCatalogEntry> entries})?
+  _catalog;
+
+  /// Reads [service]'s catalog, kept while [scope]'s connection is still
+  /// in use: one read after a switch never stands for the next one's.
+  Future<List<HermesMcpCatalogEntry>> _readCatalog(
+    _Scope scope,
+    HermesDesktopApiService service,
+  ) async {
+    final entries = await service.mcpCatalog();
+    if (_current(scope)) _catalog = (service: service, entries: entries);
+    return entries;
+  }
+
   Future<HermesMcpCatalog> mcpCatalog() => _bound(null, (scope) async {
-    final entries = await _gatewayService().mcpCatalog();
+    final entries = await _readCatalog(scope, _gatewayService());
     return HermesMcpCatalog(
       entries: <HermesMcpCatalogEntryDto>[
-        for (final entry in entries)
-          HermesMcpCatalogEntryDto(
-            name: entry.name,
-            description: entry.description,
-          ),
+        for (final entry in entries) _catalogEntryDto(entry),
       ],
     );
   });
+
+  static HermesMcpCatalogEntryDto _catalogEntryDto(
+    HermesMcpCatalogEntry entry,
+  ) => HermesMcpCatalogEntryDto(
+    name: entry.name,
+    description: entry.description,
+    authType: entry.authType,
+    credentials: <HermesMcpCatalogCredentialDto>[
+      for (final credential in entry.credentials)
+        HermesMcpCatalogCredentialDto(
+          name: credential.name,
+          prompt: credential.prompt,
+          required: credential.required,
+        ),
+    ],
+    canAdd: entry.canAdd,
+    fromDashboard: entry.fromDashboard,
+    oauth: entry.usesOAuth,
+  );
 
   Future<HermesMcpServers> addMcp(HermesMcpAdd add) => _change(add.connection, (
     scope,
@@ -529,32 +896,82 @@ final class HermesAdminService {
     return _mcpAfter();
   });
 
-  Future<HermesMcpServers> addMcpFromCatalog(HermesMcpRef ref) => _change(
-    ref.connection,
-    (scope) async {
-      final name = ref.name;
-      // The catalog's entry by name, added as it stands: a server that needs
-      // credentials is not asked for them here yet, and the dashboard's refusal
-      // of an incomplete install comes back as the error.
-      final service = _gatewayService();
-      final entry = (await service.mcpCatalog())
-          .where((e) => e.name == name)
-          .firstOrNull;
-      if (entry == null) {
-        throw RpcError(
-          code: ConduitErrorCodes.invalidParams,
-          debugMessage: 'no MCP catalog entry named $name',
-        );
-      }
-      // The entry was read from the connection in use when asked.
-      _check(scope);
-      await service.addMcpCatalogEntry(entry);
-      // Every window reads the list again, so one read before the
-      // change cannot leave it out.
+  /// Adds catalog entry [request.name] with the values it asks for, as the
+  /// phone's catalog page does, on the connection [request] names: a
+  /// required value left empty is refused (`invalidParams`, reason
+  /// `missingCredential`), an entry this connection cannot add with all it
+  /// needs too (`cannotAdd`). The values go to Hermes once and are never
+  /// kept or logged here. Says whether Hermes is still installing it, and
+  /// whether it signs in with OAuth next, which the window starts
+  /// (`hermes.mcp.authenticate`) since a sign-in in the browser can outlast
+  /// a call.
+  Future<HermesMcpCatalogAdded> addMcpFromCatalog(
+    HermesMcpCatalogAdd request,
+  ) => _change(request.connection, (scope) async {
+    final service = _gatewayService();
+    HermesMcpCatalogEntry? find(List<HermesMcpCatalogEntry> entries) =>
+        entries.where((e) => e.name == request.name).firstOrNull;
+    final cached = _catalog;
+    var entry = cached != null && identical(cached.service, service)
+        ? find(cached.entries)
+        : null;
+    entry ??= find(await _readCatalog(scope, service));
+    if (entry == null) {
+      throw RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: const <String, String>{'reason': 'notInCatalog'},
+        debugMessage: 'no MCP catalog entry named ${request.name}',
+      );
+    }
+    if (!entry.canAdd) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'cannotAdd'},
+        debugMessage: 'this connection cannot send what the entry needs',
+      );
+    }
+    final credentials = hermesMcpCatalogCredentialValues(
+      entry,
+      request.credentials,
+    );
+    if (credentials == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.invalidParams,
+        args: <String, String>{'reason': 'missingCredential'},
+        debugMessage: 'a required value is empty',
+      );
+    }
+    // The entry was read from the connection in use when asked.
+    _check(scope);
+    final bool stillInstalling;
+    try {
+      stillInstalling = await service.addMcpCatalogEntry(
+        entry,
+        credentials: credentials,
+      );
+    } finally {
+      // Listed again even when a step after the install failed, so the
+      // entry is not asked for again; every window reads the list again,
+      // so one read before the change cannot leave it out. Only this
+      // connection's catalog is forgotten: another's read since stays.
+      if (identical(_catalog?.service, service)) _catalog = null;
       _announce();
-      return _mcpAfter();
-    },
-  );
+    }
+    // Made: a list that cannot be read says so rather than failing the add.
+    final servers = await _mcpAfter();
+    // A server Hermes set up to sign in with OAuth goes on to signing in;
+    // when the list cannot be read, the catalog says whether it does.
+    final signsIn = servers.listFailed
+        ? entry.usesOAuth
+        : servers.servers.any(
+            (server) => server.name == entry!.name && server.auth == 'oauth',
+          );
+    return HermesMcpCatalogAdded(
+      servers: servers,
+      stillInstalling: stillInstalling,
+      signIn: !stillInstalling && signsIn,
+    );
+  });
 
   Future<HermesMcpServers> setMcpApiKey(HermesMcpApiKey request) =>
       _change(request.connection, (scope) async {
@@ -728,6 +1145,7 @@ final class HermesAdminService {
       prompt: job.prompt,
       schedule: job.schedule,
       scheduleText: describeHermesCronSchedule(job.schedule),
+      cadence: hermesCadenceDto(parseHermesCronSchedule(job.schedule)),
       enabled: job.enabled,
       lastStatus: job.lastStatus,
       lastError: job.lastError,
@@ -737,12 +1155,15 @@ final class HermesAdminService {
       // Routes the core could not read are not shown as `local`: an edit
       // of what is shown would replace them.
       deliver: <HermesDeliveryTargetDto>[
+        // A phone's Notify Me (`conduit`) is its own switch, not a target
+        // this Mac lists or edits; a save keeps it as it was.
         if (job.deliveryKnown)
           for (final target in parseHermesDeliveryTargets(job.deliveryTarget))
-            _target(
-              options?.optionFor(target) ??
-                  describeHermesDeliveryTarget(target),
-            ),
+            if (target != kConduitHermesPluginName)
+              _target(
+                options?.optionFor(target) ??
+                    describeHermesDeliveryTarget(target),
+              ),
       ],
       deliveryKnown: job.deliveryKnown,
       lastDeliveryError: job.lastDeliveryError,
@@ -798,7 +1219,7 @@ final class HermesAdminService {
       options: <HermesDeliveryTargetDto>[
         for (final option
             in (options ?? delivery.HermesDeliveryOptions.localOnly).options)
-          _target(option),
+          if (option.target != kConduitHermesPluginName) _target(option),
       ],
     );
   });
@@ -833,14 +1254,40 @@ final class HermesAdminService {
     }
     final scheduling =
         _container.read(hermesApiServiceProvider) is HermesDesktopApiService;
-    // An edit never replaces routes the core could not read: they were
-    // never shown, so no choice of the user's is about them.
-    final unread =
-        edit.id != null &&
-        (_container.read(hermesJobsProvider).value ?? const <HermesJob>[]).any(
-          (j) => j.id == edit.id && !j.deliveryKnown,
+    // Delivery is sent only when the edit changes it, merged with the job's
+    // push target (a phone's Notify Me, never listed here) as the gateway
+    // holds it now: read again, never taken from a list read before, which
+    // the phone may have changed since. A read that fails fails the save; a
+    // job whose routes cannot be read keeps them as stored (they were never
+    // shown, so no choice of the user's is about them).
+    String? deliver;
+    if (scheduling && edit.deliver != null) {
+      if (edit.id == null) {
+        deliver = _deliverValue(
+          hermesJobDeliverKeepingNotifyMe(edit.deliver!, notify: false),
         );
-    final deliver = scheduling && !unread ? _deliverValue(edit.deliver) : null;
+      } else {
+        final HermesJob stored;
+        try {
+          stored = await _jobs.current(edit.id!);
+        } on HermesJobNotFoundException {
+          throw const RpcError(
+            code: ConduitErrorCodes.notFound,
+            debugMessage: 'the job no longer exists',
+          );
+        }
+        deliver = stored.deliveryKnown
+            ? _deliverValue(
+                hermesJobDeliverKeepingNotifyMe(
+                  edit.deliver!,
+                  notify: hermesDeliverIncludesConduit(stored.deliveryTarget),
+                ),
+              )
+            : null;
+      }
+    }
+    // Read on the connection the edit was made under.
+    _check(scope);
     final catchUp = scheduling ? _catchUp(edit.catchUp) : null;
     // The job written, named in the answer: an editor left open saves to
     // it from then on rather than making another.
@@ -1181,3 +1628,29 @@ HermesCapabilities hermesCapabilitiesFallback(HermesBackendService service) =>
 /// The connection a request is made under (`HermesAdminService._enter`):
 /// its name and the configuration in use, read together.
 typedef _Scope = ({String? connection, HermesConfig active});
+
+/// [cadence] on the wire (null when core could not read the schedule).
+HermesCadenceDto? hermesCadenceDto(HermesCadence? cadence) => switch (cadence) {
+  null => null,
+  final c => HermesCadenceDto(
+    kind: switch (c.kind) {
+      core_cadence.HermesCadenceKind.none => HermesCadenceKind.none,
+      core_cadence.HermesCadenceKind.everyMinute =>
+        HermesCadenceKind.everyMinute,
+      core_cadence.HermesCadenceKind.everyMinutes =>
+        HermesCadenceKind.everyMinutes,
+      core_cadence.HermesCadenceKind.everyHour => HermesCadenceKind.everyHour,
+      core_cadence.HermesCadenceKind.everyHours => HermesCadenceKind.everyHours,
+      core_cadence.HermesCadenceKind.daily => HermesCadenceKind.daily,
+      core_cadence.HermesCadenceKind.weekdays => HermesCadenceKind.weekdays,
+      core_cadence.HermesCadenceKind.weekends => HermesCadenceKind.weekends,
+      core_cadence.HermesCadenceKind.weekly => HermesCadenceKind.weekly,
+      core_cadence.HermesCadenceKind.monthly => HermesCadenceKind.monthly,
+    },
+    every: c.every,
+    hour: c.hour,
+    minute: c.minute,
+    weekday: c.weekday,
+    day: c.day,
+  ),
+};

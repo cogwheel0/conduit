@@ -1,0 +1,27 @@
+{
+  "webSearch": false,
+  "imageGeneration": false,
+  "tools": [],
+  "mcpTools": [],
+  "filters": [],
+  "filterDefaults": [],
+  "codeInterpreter": false,
+  "attachments": {
+    "files": true,
+    "serverFiles": false,
+    "images": true,
+    "webPage": false,
+    "mcpContent": false
+  },
+  "skills": false,
+  "context": false,
+  "notes": false,
+  "mentions": false,
+  "steer": false,
+  "imageConversions": [],
+  "compareModels": false,
+  "quickPills": [],
+  "voiceCall": false,
+  "agentChat": true,
+  "ownEffortControl": true
+}

@@ -92,6 +92,8 @@ void main() {
         publish: any(named: 'publish'),
         canCommit: any(named: 'canCommit'),
         onRollbackUncertain: any(named: 'onRollbackUncertain'),
+        joins: any(named: 'joins'),
+        onWriting: any(named: 'onWriting'),
       ),
     ).thenAnswer((invocation) async {
       final config = invocation.positionalArguments.single as ServerConfig;
@@ -104,6 +106,8 @@ void main() {
         await releaseFirst.future;
       }
       if (!canCommit()) return false;
+      // As storage does: its first write is announced before publication.
+      (invocation.namedArguments[#onWriting] as void Function()?)?.call();
       await publish();
       publishedServerIds.add(config.id);
       return true;
@@ -3488,7 +3492,10 @@ void main() {
       role: 'user',
     );
     final storage = _Storage();
-    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    // As storage does: the token a commit saved is the one read back.
+    var savedToken = '';
+    when(() => storage.getAuthTokenStrict())
+        .thenAnswer((_) async => savedToken);
     when(() => storage.getSavedCredentialsStrict())
         .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
@@ -3540,6 +3547,7 @@ void main() {
       // As the storage does: a commit no longer owned leaves the account
       // active before it as it was.
       if (!canCommit()) return false;
+      savedToken = invocation.namedArguments[#token] as String;
       await publish();
       published.add(committing.id);
       return true;
@@ -3600,7 +3608,10 @@ void main() {
       role: 'user',
     );
     final storage = _Storage();
-    when(() => storage.getAuthTokenStrict()).thenAnswer((_) async => '');
+    // As storage does: the token a commit saved is the one read back.
+    var savedToken = '';
+    when(() => storage.getAuthTokenStrict())
+        .thenAnswer((_) async => savedToken);
     when(() => storage.getSavedCredentialsStrict())
         .thenAnswer((_) async => null);
     when(() => storage.saveLocalUser(null)).thenAnswer((_) async {});
@@ -3639,6 +3650,7 @@ void main() {
       final publish =
           invocation.namedArguments[#publish] as FutureOr<void> Function();
       if (!canCommit()) return false;
+      savedToken = invocation.namedArguments[#token] as String;
       await publish();
       return true;
     });

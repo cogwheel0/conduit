@@ -1107,7 +1107,10 @@ pub fn open(stores: Stores, chat_id: String, status: ComputerStatus, cx: &mut Ap
                 }
             });
         let webview = cx.new(|cx| {
-            WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+            let webview =
+                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS");
+            crate::shell::web_media::guard(webview.raw());
+            webview
         });
         load_viewer(&webview, cx);
         let address = cx.new(|cx| InputState::new(window, cx));

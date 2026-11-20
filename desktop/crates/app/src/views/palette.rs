@@ -170,12 +170,20 @@ impl PaletteView {
         self.stores.palette.update(cx, |p, cx| p.set_query(q, cx));
     }
 
-    /// Moves the highlight.
+    /// Moves the highlight, and says where it landed (VoiceOver; the query
+    /// field keeps focus).
     pub fn step(&mut self, down: bool, cx: &mut Context<Self>) {
         let count = self.entries.len();
         self.stores
             .palette
             .update(cx, |p, cx| p.move_selection(down, count, cx));
+        let index = self.stores.palette.read(cx).index;
+        let label = match self.entries.get(index) {
+            Some(PaletteEntry::Chat { title, .. }) => chat_title(title, cx.l10n()),
+            Some(PaletteEntry::Command(c)) => c.label.clone(),
+            None => return,
+        };
+        super::a11y::announce_row(&label, index, count, cx);
     }
 
     /// Opens row `index` (a chat, or runs a command) and closes.
@@ -249,11 +257,7 @@ impl PaletteView {
                     snippet,
                     updated_at_ms,
                 } => {
-                    let title = if title.trim().is_empty() {
-                        l.new_chat()
-                    } else {
-                        title.clone()
-                    };
+                    let title = chat_title(title, &l);
                     let mut item =
                         PaletteItem::new(format!("chat-{chat_id}"), IconName::MessageSquare, title)
                             .trailing(dates::stamp(*updated_at_ms, &now, &l).0)
@@ -403,10 +407,62 @@ impl Render for PaletteView {
     }
 }
 
+/// A chat row's title as drawn and as VoiceOver says it: an untitled chat
+/// is New Chat.
+fn chat_title(title: &str, l: &L10n) -> String {
+    if title.trim().is_empty() {
+        l.new_chat()
+    } else {
+        title.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::keymap::ShortcutAction;
+
+    /// Arrowing onto an untitled chat says the name its row shows, so
+    /// VoiceOver never goes quiet on a row.
+    #[gpui_kit::test]
+    fn an_untitled_chat_is_said_by_the_name_its_row_shows(cx: &mut gpui_kit::TestAppContext) {
+        use conduit_components::announce::AnnouncementLog;
+        let daemon = crate::stores::rpc::fake::FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-palette-say-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            AnnouncementLog::install(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let s = stores.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| PaletteView::new(s, window, cx));
+        view.update(vcx, |v, cx| {
+            v.entries = vec![
+                PaletteEntry::Chat {
+                    chat_id: "c1".into(),
+                    title: "Tide tables".into(),
+                    snippet: None,
+                    updated_at_ms: 0,
+                },
+                PaletteEntry::Chat {
+                    chat_id: "c2".into(),
+                    title: "  ".into(),
+                    snippet: None,
+                    updated_at_ms: 0,
+                },
+            ];
+            v.stores.palette.update(cx, |p, _| p.index = 0);
+            v.step(true, cx);
+        });
+        let said: Vec<String> = vcx.update(|_, cx| {
+            AnnouncementLog::texts(cx)
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        });
+        assert_eq!(said, ["New Chat, 2 of 2".to_string()]);
+    }
 
     #[test]
     fn commands_show_only_chords_that_work() {

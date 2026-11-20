@@ -1629,13 +1629,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     );
   }
 
+  /// Saved first, then shown: the Hermes list follows the value at once, so
+  /// a write that fails (refused while signing out, or not kept on disk)
+  /// throws and leaves it as it is.
   Future<void> setHermesShowScheduledSessions(bool value) async {
     if (!await _awaitHydration()) return;
-    state = state.copyWith(hermesShowScheduledSessions: value);
-    await SettingsService._putPreference(
-      PreferenceKeys.hermesShowScheduledSessions,
+    await PreferencesStore.putChecked(
+      scopedPreferenceWriteKey(PreferenceKeys.hermesShowScheduledSessions),
       value,
     );
+    state = state.copyWith(hermesShowScheduledSessions: value);
   }
 
   Future<void> setHighContrast(bool value) async {

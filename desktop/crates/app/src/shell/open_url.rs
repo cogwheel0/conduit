@@ -26,6 +26,32 @@ pub fn from_payload(payload: &serde_json::Value) -> Option<url::Url> {
     validate(payload.get("url")?.as_str()?)
 }
 
+/// Whether an app on this Mac opens `url`'s scheme (an `otpauth://` link
+/// needs one that adds verification codes, as Passwords does), so the
+/// window can say so instead of opening nothing.
+pub fn has_handler(url: &str) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyObject;
+        use objc2::{class, msg_send};
+        use objc2_foundation::{NSString, NSURL};
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
+            return false;
+        };
+        // SAFETY: a read-only query of the shared workspace.
+        unsafe {
+            let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+            let app: *mut AnyObject = msg_send![workspace, URLForApplicationToOpenURL: &*url];
+            !app.is_null()
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = url;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

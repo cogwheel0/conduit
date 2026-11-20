@@ -558,6 +558,12 @@ mod macos {
     impl PreviewWindow {
         fn copy(&mut self, cx: &mut Context<Self>) {
             cx.write_to_clipboard(ClipboardItem::new_string(self.opened.code.clone()));
+            let said = cx.l10n().desktop_code_copied();
+            conduit_components::announce::announce(
+                said,
+                conduit_components::announce::Priority::Medium,
+                cx,
+            );
             self.copied = true;
             self._reset = Some(cx.spawn(async move |this: WeakEntity<Self>, cx| {
                 cx.background_executor()
@@ -784,7 +790,10 @@ mod macos {
                 })
                 .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
             let webview = cx.new(|cx| {
-                WebView::build(builder, window, cx).expect("a WKWebView always builds on macOS")
+                let webview = WebView::build(builder, window, cx)
+                    .expect("a WKWebView always builds on macOS");
+                crate::shell::web_media::guard(webview.raw());
+                webview
             });
             cx.new(|_| PreviewWindow {
                 opened,

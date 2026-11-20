@@ -5093,5 +5093,6 @@
   "notificationCalendarExactDescription": "允许“闹钟和提醒”，日历提醒才能准时送达。",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "已保存的密钥不会发送到新地址，因此将被移除。请为此地址输入密钥。"
 }

@@ -240,6 +240,13 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("cmd-+", ZoomIn, None),
         KeyBinding::new("cmd-=", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
+        // Edit › Clear Scrollback in a terminal's console: Terminal's own
+        // ⌥⌘K (its ⌘K, Clear to Start, stays the palette here).
+        KeyBinding::new(
+            "alt-cmd-k",
+            crate::views::terminal::console::ClearScrollback,
+            Some(crate::views::terminal::console::CONSOLE_CONTEXT),
+        ),
         // Chat › Delete…, from the sidebar's list (a text field keeps ⌘⌫
         // for deleting to the start of the line).
         KeyBinding::new("cmd-backspace", DeleteChat, Some(SIDEBAR_LIST_CONTEXT)),
@@ -255,6 +262,11 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
         KeyBinding::new("cmd-6", GoToSection { index: 6 }, None),
         KeyBinding::new("cmd-7", GoToSection { index: 7 }, None),
         KeyBinding::new("cmd-8", GoToSection { index: 8 }, None),
+        // Go › Move Focus to Next and Previous Area: ⌥⌘` and ⌥⌘~ (the Mac
+        // reports Shift with ` as ~), as Xcode's, from a text field and the
+        // terminal too.
+        KeyBinding::new("alt-cmd-`", crate::actions::MoveFocusToNextArea, None),
+        KeyBinding::new("alt-cmd-~", crate::actions::MoveFocusToPreviousArea, None),
         // Tab through the chat in the messages' order, rows off screen
         // included (the window's own order holds only what is drawn).
         KeyBinding::new(
@@ -717,6 +729,12 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
                 SelectAll,
                 OsAction::SelectAll,
             ),
+            // Terminal's Clear Scrollback, greyed where no console has the
+            // keys (no handler answers it then).
+            MenuItem::action(
+                l10n.desktop_terminal_clear_scrollback(),
+                crate::views::terminal::console::ClearScrollback,
+            ),
             MenuItem::separator(),
             // Mail's Find submenu: find in what is open, then search the
             // whole list.
@@ -826,6 +844,17 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             GoToSection { index: i + 1 },
         ));
     }
+    // The keyboard's way between the window's areas, and out of the
+    // terminal, whose Tab is the shell's.
+    items.push(MenuItem::separator());
+    items.push(MenuItem::action(
+        l10n.desktop_menu_next_area(),
+        crate::actions::MoveFocusToNextArea,
+    ));
+    items.push(MenuItem::action(
+        l10n.desktop_menu_previous_area(),
+        crate::actions::MoveFocusToPreviousArea,
+    ));
     items
 }
 
@@ -1137,7 +1166,13 @@ mod tests {
     fn go_lists_back_forward_and_the_shown_sections_in_order() {
         let l = L10n::new("en");
         let none = build_menus(&l, &MenuState::default());
-        assert_eq!(titles(menu(&none, "Go")), ["Back", "Forward"]);
+        // Moving focus between the window's areas is always there: the
+        // keyboard's way out of the terminal, whose Tab is the shell's.
+        let focus = ["Move Focus to Next Area", "Move Focus to Previous Area"];
+        assert_eq!(
+            titles(menu(&none, "Go")),
+            ["Back", "Forward", "—", focus[0], focus[1]]
+        );
         assert!(disabled(menu(&none, "Go"), "Back"));
         let state = MenuState {
             areas: vec![Area::Chats, Area::Notes, Area::Channels],
@@ -1148,7 +1183,9 @@ mod tests {
         let go = menu(&menus, "Go");
         assert_eq!(
             titles(go),
-            ["Back", "Forward", "—", "Chats", "Notes", "Channels"]
+            [
+                "Back", "Forward", "—", "Chats", "Notes", "Channels", "—", focus[0], focus[1]
+            ]
         );
         assert!(!disabled(go, "Back"));
         assert!(disabled(go, "Forward"));
@@ -1689,6 +1726,8 @@ mod tests {
             F::GoToSection(n) => Box::new(GoToSection {
                 index: usize::from(n),
             }),
+            F::NextArea => Box::new(crate::actions::MoveFocusToNextArea),
+            F::PreviousArea => Box::new(crate::actions::MoveFocusToPreviousArea),
         }
     }
 
@@ -1719,16 +1758,29 @@ mod tests {
                     K::MarkChecked => Box::new(e::ToggleChecked),
                     K::Quote => Box::new(e::QuoteBlock),
                     K::CodeBlock => Box::new(e::CodeBlock),
-                    // The Workspace editor, the Calendar and Scheduled
-                    // Tasks take theirs in their own key handlers.
+                    K::TerminalFind => Box::new(FindInChat),
+                    K::TerminalClearScrollback => {
+                        Box::new(crate::views::terminal::console::ClearScrollback)
+                    }
+                    // The Workspace editor, the Calendar, Scheduled Tasks,
+                    // a room's field, the scheduled agent sheet and a
+                    // terminal's PDF window take theirs in their own key
+                    // handlers; the console answers the Edit menu's Copy,
+                    // Paste and Select All.
                     K::SaveWorkspaceItem
+                    | K::SavePdf
                     | K::CalendarEarlier
                     | K::CalendarLater
                     | K::CalendarToday
                     | K::DeleteCalendarItem
                     | K::SaveCalendarEvent
                     | K::DeleteScheduledTask
-                    | K::SaveScheduledTask => continue,
+                    | K::SaveScheduledTask
+                    | K::TerminalCopy
+                    | K::TerminalPaste
+                    | K::TerminalSelectAll
+                    | K::SendInRoom
+                    | K::SaveHermesJob => continue,
                 };
                 let bound = cx
                     .key_bindings()

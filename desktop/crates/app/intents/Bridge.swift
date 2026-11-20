@@ -29,6 +29,11 @@ struct IntentRequest: Encodable, Sendable {
     var text: String?
     var ids: [String]?
     var query: String?
+    var url: String?
+    var path: String?
+    var filename: String?
+    var isImage: Bool?
+    var byteCount: Int?
 
     static func ask(prompt: String, openInConduit: Bool) -> Self {
         Self(kind: "ask", prompt: prompt, openInConduit: openInConduit)
@@ -50,6 +55,22 @@ struct IntentRequest: Encodable, Sendable {
 
     static func chats(ids: [String]? = nil, query: String? = nil) -> Self {
         Self(kind: "chats", ids: ids, query: query)
+    }
+
+    static func sendText(_ text: String?) -> Self {
+        Self(kind: "sendText", text: text)
+    }
+
+    static func sendLink(_ url: String) -> Self {
+        Self(kind: "sendLink", url: url)
+    }
+
+    /// `path`: the copy staged for the app ([ImageStaging]), nil when the
+    /// file was not staged (not an image, or too large: the app says so).
+    static func sendImage(path: String?, filename: String, isImage: Bool, byteCount: Int) -> Self {
+        Self(
+            kind: "sendImage", path: path, filename: filename, isImage: isImage,
+            byteCount: byteCount)
     }
 }
 

@@ -22,7 +22,7 @@ use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSObjectProtocol, N
 use objc2_user_notifications::{
     UNAuthorizationOptions, UNAuthorizationStatus, UNMutableNotificationContent, UNNotification,
     UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-    UNNotificationRequest, UNNotificationResponse, UNNotificationSettings,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSettings, UNNotificationSound,
     UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
 
@@ -126,6 +126,13 @@ impl Notifier {
     /// quiet delivery instead, which needs no prompt.
     pub fn request(&self, provisional: bool) -> oneshot::Receiver<Result<bool, String>> {
         let (done, rx) = once();
+        // A scripted run never raises the prompt (see `crate::scripted`);
+        // quiet delivery raises none, so it is still asked for.
+        if !provisional && crate::scripted::active() {
+            log::info!("notifications not asked for: a scripted run");
+            done(Ok(false));
+            return rx;
+        }
         let block = RcBlock::new(move |granted: Bool, error: *mut NSError| {
             done(match error_text(error) {
                 Some(e) => Err(e),
@@ -150,6 +157,9 @@ impl Notifier {
         content.setTitle(&NSString::from_str(&n.title));
         content.setBody(&NSString::from_str(&n.body));
         content.setThreadIdentifier(&NSString::from_str(&n.id));
+        if n.sound {
+            content.setSound(Some(&UNNotificationSound::defaultSound()));
+        }
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
             &NSString::from_str(&n.id),
             &content,

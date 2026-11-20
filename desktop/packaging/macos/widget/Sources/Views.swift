@@ -140,6 +140,9 @@ struct WidgetContent: View {
                 ActionButton(
                     symbol: "waveform", label: l10n(.voiceCall), layout: .iconOnly,
                     url: WidgetLink.voiceCall, palette: palette)
+                ActionButton(
+                    symbol: "doc.on.clipboard", label: l10n(.clipboard), layout: .iconOnly,
+                    url: WidgetLink.clipboard, palette: palette)
             }
             .frame(height: 34)
         }
@@ -161,6 +164,11 @@ struct WidgetContent: View {
                     url: WidgetLink.voiceCall, palette: palette
                 )
                 .frame(width: 44)
+                ActionButton(
+                    symbol: "doc.on.clipboard", label: l10n(.clipboard), layout: .iconOnly,
+                    url: WidgetLink.clipboard, palette: palette
+                )
+                .frame(width: 44)
             }
             .frame(height: 34)
             RecentList(
@@ -176,13 +184,16 @@ struct WidgetContent: View {
             AskBar(title: l10n(.ask), height: 40, palette: palette)
             HStack(spacing: 8) {
                 ActionButton(
-                    symbol: "square.and.pencil", label: l10n(.newChat), layout: .inline,
+                    symbol: "square.and.pencil", label: l10n(.newChat), layout: .stacked,
                     url: WidgetLink.newChat, palette: palette)
                 ActionButton(
-                    symbol: "waveform", label: l10n(.voiceCall), layout: .inline,
+                    symbol: "waveform", label: l10n(.voiceCall), layout: .stacked,
                     url: WidgetLink.voiceCall, palette: palette)
+                ActionButton(
+                    symbol: "doc.on.clipboard", label: l10n(.clipboard), layout: .stacked,
+                    url: WidgetLink.clipboard, palette: palette)
             }
-            .frame(height: 36)
+            .frame(height: 52)
             RecentList(
                 chats: chats, rows: size.rows, rowHeight: 34, snapshot: snapshot, now: now,
                 l10n: l10n, palette: palette
@@ -260,8 +271,11 @@ struct ActionButton: View {
     enum Layout {
         /// The symbol alone (small); the label is VoiceOver's.
         case iconOnly
-        /// The symbol beside its label (medium, large).
+        /// The symbol beside its label.
         case inline
+        /// The symbol over its label (large: three buttons in a row, with
+        /// room for the longer languages' words).
+        case stacked
     }
 
     let symbol: String
@@ -297,6 +311,16 @@ struct ActionButton: View {
                     .minimumScaleFactor(0.8)
             }
             .padding(.horizontal, 10)
+        case .stacked:
+            VStack(spacing: 4) {
+                // One height for every symbol, so the labels line up.
+                image.frame(height: 18)
+                Text(label)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .padding(.horizontal, 6)
         }
     }
 }

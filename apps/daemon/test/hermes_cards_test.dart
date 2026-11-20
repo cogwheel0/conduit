@@ -140,6 +140,66 @@ void main() {
       expect(questions.last['multiSelect'], isTrue);
     });
 
+    test(
+      'a question replayed under a new runtime keeps its card, answered anew',
+      () async {
+        // Reading a chat resumes its session, which replays the questions it
+        // still waits on under the resumed runtime: the same question, new
+        // ids. The card the user may be typing into stays.
+        for (final kind in <String>['secret', 'sudo', 'clarification']) {
+          seen.clear();
+          final first = answer(<String, dynamic>{
+            'kind': kind,
+            'prompt': 'Enter your Demo Weather API key',
+            'requestId': 'srq-$kind',
+          });
+          cards.project('local:hermes_session-1', container, 'c1', first);
+          await pumpEventQueue();
+          final request = requests().single;
+
+          final replayed = first.copyWith(
+            metadata: <String, dynamic>{
+              ...first.metadata!,
+              kHermesDecisionMeta: <String, dynamic>{
+                ...(first.metadata![kHermesDecisionMeta] as Map)
+                    .cast<String, dynamic>(),
+                'requestId': 'srq-$kind-replayed',
+                'runtimeId': 'runtime-2',
+              },
+            },
+          );
+          cards.project('local:hermes_session-1', container, 'c1', replayed);
+          await pumpEventQueue();
+          expect(settled(), isEmpty, reason: kind);
+          expect(requests(), hasLength(1), reason: kind);
+
+          // A different question is another card.
+          final other = replayed.copyWith(
+            metadata: <String, dynamic>{
+              ...replayed.metadata!,
+              kHermesDecisionMeta: <String, dynamic>{
+                ...(replayed.metadata![kHermesDecisionMeta] as Map)
+                    .cast<String, dynamic>(),
+                'requestId': 'srq-$kind-other',
+                'prompt': 'Enter your Demo Maps API key',
+              },
+            },
+          );
+          cards.project('local:hermes_session-1', container, 'c1', other);
+          await pumpEventQueue();
+          expect(settled(), <String>[request.requestId], reason: kind);
+          expect(requests(), hasLength(2), reason: kind);
+          cards.project(
+            'local:hermes_session-1',
+            container,
+            'c1',
+            other.copyWith(metadata: <String, dynamic>{}),
+          );
+          await pumpEventQueue();
+        }
+      },
+    );
+
     test('a question answered elsewhere settles its card', () async {
       final waiting = answer(<String, dynamic>{'kind': 'sudo'});
       cards.project('local:hermes_session-1', container, 'c1', waiting);
@@ -238,6 +298,86 @@ void main() {
         expect(settled(), <String>[request.requestId]);
       },
     );
+
+    // A replay keeps a card only for the connection that asked: asked again
+    // by the next one, the card closes, a new one asks, and nothing typed
+    // for the first goes to the next.
+    test('a question replayed by the next connection is a new card', () async {
+      final connects = <String>[];
+      HermesDesktopApiService gateway(String host) {
+        final service = HermesDesktopApiService(
+          config: HermesConfig(
+            enabled: true,
+            baseUrl: 'https://$host',
+            mode: HermesBackendMode.desktopGateway,
+            desktopAuthKind: HermesDesktopAuthKind.legacyToken,
+            desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+          ),
+          rpc: HermesDesktopRpcClient(
+            channelFactory: (uri, _, {httpClient}) {
+              connects.add(uri.host);
+              throw StateError('No gateway in this test.');
+            },
+          ),
+        );
+        addTearDown(service.close);
+        return service;
+      }
+
+      HermesBackendService current = gateway('hermes-a.example');
+      final chat = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWith((ref) => current),
+          activeConversationProvider.overrideWith(
+            () => _Chat(
+              Conversation(
+                id: 'c1',
+                title: 'Garden shed',
+                createdAt: DateTime.utc(2026, 11, 11),
+                updatedAt: DateTime.utc(2026, 11, 11),
+                metadata: const <String, dynamic>{
+                  'hermesSessionId': 'session-1',
+                },
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(chat.dispose);
+      chat.read(hermesApiServiceProvider);
+      final first = answer(<String, dynamic>{'kind': 'sudo'});
+      cards.project('local:hermes_session-1', chat, 'c1', first);
+      await pumpEventQueue();
+      final request = requests().single;
+
+      current = gateway('hermes-b.example');
+      chat.invalidate(hermesApiServiceProvider);
+      cards.project(
+        'local:hermes_session-1',
+        chat,
+        'c1',
+        first.copyWith(
+          metadata: <String, dynamic>{
+            ...first.metadata!,
+            kHermesDecisionMeta: <String, dynamic>{
+              ...(first.metadata![kHermesDecisionMeta] as Map)
+                  .cast<String, dynamic>(),
+              'requestId': 'srq-1-replayed',
+              'runtimeId': 'runtime-2',
+            },
+          },
+        ),
+      );
+      await pumpEventQueue();
+      expect(settled(), <String>[request.requestId]);
+      expect(requests(), hasLength(2));
+
+      final result = await cards.answer(
+        HermesDecisionAnswer(requestId: request.requestId, value: 'hunter2'),
+      );
+      expect(result.status, HermesDecisionStatus.settled);
+      expect(connects, isNot(contains('hermes-b.example')));
+    });
 
     test('an MCP set-up asks as a Hermes decision', () async {
       cards.project(

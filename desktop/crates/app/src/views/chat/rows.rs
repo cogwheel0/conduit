@@ -19,6 +19,7 @@
 //! is drawn transparent otherwise, so VoiceOver still reaches it.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -40,6 +41,7 @@ use gpui_kit::{
 
 use super::actions::{MessageAction, RowCommand, RowContext, RunRowCommand};
 use super::blocks::{ACTIVITY_GAP, error_text, file_list, spinner};
+use super::lazy_chunk::ChunkPlace;
 use super::pace::Pace;
 use crate::l10n::ActiveL10n as _;
 use crate::stores::chat::{ChatStore, Role as MessageRole, RowItem, shows};
@@ -115,21 +117,26 @@ impl RowHost {
             .unwrap_or_default()
     }
 
-    /// `model` (an id) as the picker names it, else as it is.
-    pub fn model_name(&self, model: &str, cx: &App) -> String {
+    /// `model` (an id) as an answer's header names it
+    /// ([`crate::stores::composer::answer_model_name`]): as the picker does,
+    /// else by the name the answer kept (`fallback`), else as it is.
+    pub fn model_name(&self, model: &str, fallback: Option<&str>, cx: &App) -> String {
+        let composer = self.composer.as_ref().and_then(WeakEntity::upgrade);
+        let composer = composer.as_ref().map(|c| c.read(cx));
+        crate::stores::composer::answer_model_name(
+            composer.and_then(|c| c.models.as_ref()),
+            model,
+            fallback,
+        )
+    }
+
+    /// The chat talks to a coding agent (the composer's
+    /// `ComposerOptions.agentChat`).
+    pub fn agent_chat(&self, cx: &App) -> bool {
         self.composer
             .as_ref()
             .and_then(WeakEntity::upgrade)
-            .and_then(|c| {
-                c.read(cx)
-                    .models
-                    .as_ref()?
-                    .models
-                    .iter()
-                    .find(|m| m.id == model)
-                    .map(|m| m.name.clone())
-            })
-            .unwrap_or_else(|| model.to_string())
+            .is_some_and(|c| c.read(cx).agent_chat())
     }
 }
 
@@ -152,6 +159,22 @@ pub struct RowFlags {
     /// A Hermes session's chat: its answers are not rated, nor run again
     /// with another model (the agent is the model).
     pub hermes: bool,
+    /// A coding agent answers the chat (`ComposerOptions.agentChat`): Open
+    /// WebUI takes only a new message at its end, so no answer is run
+    /// again (Regenerate, Retry) and no message is edited.
+    pub agent_chat: bool,
+}
+
+impl RowFlags {
+    /// An answer may be run again (Regenerate, Retry, Regenerate With).
+    pub fn can_regenerate(&self) -> bool {
+        self.can_branch && !self.agent_chat
+    }
+
+    /// A sent message may be edited and sent again.
+    pub fn can_edit(&self) -> bool {
+        self.can_branch && !self.agent_chat
+    }
 }
 
 /// The answer's More menu: rate it (`turns.rate`). Carries the chat's
@@ -268,11 +291,11 @@ impl AnswerActions {
             if pane && !item.streaming && !answer_markdown(item).trim().is_empty() {
                 available.push(A::ReadAloud);
             }
-            if flags.can_branch {
+            if flags.can_regenerate() {
                 available.push(A::Regenerate);
             }
         }
-        if item.retry_without_effort && flags.can_branch {
+        if item.retry_without_effort && flags.can_regenerate() {
             available.push(A::RetryWithoutEffort);
         }
         let mergeable = item.columns.len() > 1 && item.mergeable.len() > 1;
@@ -304,7 +327,7 @@ impl AnswerActions {
         Self {
             available,
             rate: error.is_none() && flags.can_branch && current && !flags.hermes,
-            regenerate_with: error.is_none() && flags.can_branch && !flags.hermes,
+            regenerate_with: error.is_none() && flags.can_regenerate() && !flags.hermes,
             copy_markdown: error.is_none() || !answer_markdown(item).is_empty(),
             copy_error: error,
         }
@@ -403,6 +426,19 @@ impl RowHost {
     }
 }
 
+/// Says which version the arrows landed on (VoiceOver; focus stays on the
+/// arrow), as the phone's switcher says it.
+fn announce_version(step: Option<crate::stores::chat::VersionStep>, cx: &mut App) {
+    if let Some(step) = step {
+        let text = step.spoken(cx.l10n());
+        conduit_components::announce::announce(
+            text,
+            conduit_components::announce::Priority::High,
+            cx,
+        );
+    }
+}
+
 fn copy_text(text: &str, pane: &RowSink, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
     pane.copied(cx);
@@ -491,6 +527,15 @@ pub struct AssistantRow {
     /// Rich content in the answer, by its place (kept across frames, so
     /// an opened page stays open).
     embeds: HashMap<String, Entity<super::embed::EmbedView>>,
+    /// Where each settled chunk of a long answer was laid out, by its text
+    /// state, so one far from the view can be held ([`LazyChunk`]).
+    pub(super) places: HashMap<gpui_kit::EntityId, Rc<ChunkPlace>>,
+    /// Find in Chat is revealing a match in this answer until then: every
+    /// chunk is laid out, so the one with the match can scroll to it.
+    pub(super) revealing_until: Option<Instant>,
+    /// Whether the answer has a selection, worked out once for the frame
+    /// being drawn (its long text blocks all ask).
+    pub(super) selection_now: Option<bool>,
 }
 
 /// One column of a Compare Models answer.
@@ -549,6 +594,9 @@ impl AssistantRow {
             compare: vec![],
             column_of: None,
             embeds: HashMap::new(),
+            places: HashMap::new(),
+            revealing_until: None,
+            selection_now: None,
         }
     }
 
@@ -601,6 +649,18 @@ impl AssistantRow {
 
     pub fn item(&self) -> &RowItem {
         &self.item
+    }
+
+    /// A comparison's column views.
+    pub(super) fn column_views(&self) -> Vec<Entity<AssistantRow>> {
+        self.compare.iter().map(|(_, view)| view.clone()).collect()
+    }
+
+    /// The text states of a regenerate's old answer, while it crossfades.
+    pub(super) fn leaving_texts(&self) -> impl Iterator<Item = &Entity<TextViewState>> {
+        self.leaving
+            .iter()
+            .flat_map(|l| l.texts.values().map(|(_, state)| state))
     }
 
     /// The newest answer, just finished, whose suggestions may still come
@@ -1066,7 +1126,8 @@ fn version_pager(
             .color(r.text_faint)
             .disabled(shown <= 1)
             .on_click(std::rc::Rc::new(move |_, _, cx| {
-                let _ = prev_store.update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
+                let step = prev_store.update(cx, |s, cx| s.step_version(&prev_key, -1, cx));
+                announce_version(step.ok().flatten(), cx);
             })),
         )
         .child(
@@ -1103,7 +1164,8 @@ fn version_pager(
             .color(r.text_faint)
             .disabled(shown >= total)
             .on_click(std::rc::Rc::new(move |_, _, cx| {
-                let _ = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
+                let step = next_store.update(cx, |s, cx| s.step_version(&next_key, 1, cx));
+                announce_version(step.ok().flatten(), cx);
             })),
         )
         .into_any_element()
@@ -1144,6 +1206,7 @@ impl AssistantRow {
 
         let mut parts: Vec<(bool, AnyElement)> = vec![];
         let mut ordinals: HashMap<MessageBlockKind, usize> = HashMap::new();
+        self.selection_now = None;
         for (i, block) in item.blocks.iter().enumerate() {
             let ordinal = ordinals.entry(block.kind).or_default();
             let n = *ordinal;
@@ -1723,7 +1786,7 @@ impl Render for AssistantRow {
         let model = item
             .model
             .as_deref()
-            .map(|m| self.host.model_name(m, cx))
+            .map(|m| self.host.model_name(m, item.model_name.as_deref(), cx))
             .unwrap_or_default();
 
         let handover = self.handover(now);
@@ -2058,7 +2121,7 @@ impl UserRow {
 
     /// Edit in place: the bubble becomes a field with Cancel and Send.
     pub fn start_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.flags.can_branch || !self.item.stored {
+        if !self.flags.can_edit() || !self.item.stored {
             return;
         }
         let text = self.item.text.clone();
@@ -2255,7 +2318,7 @@ impl Render for UserRow {
                     copy_text(&copy_value, &pane, cx)
                 })),
             )
-            .when(self.flags.can_branch && item.stored, |d| {
+            .when(self.flags.can_edit() && item.stored, |d| {
                 d.child(
                     small_action(
                         format!("edit-{key}"),
@@ -2566,6 +2629,7 @@ mod activity_tests {
             files: vec![],
             sources: vec![],
             model: None,
+            model_name: None,
             timestamp_ms: None,
             streaming: false,
             rating: None,

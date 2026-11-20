@@ -48,6 +48,13 @@ pub trait SheetBody: Render + Sized + 'static {
         false
     }
 
+    /// A save, test or create is on its way: [`Self::cancel`] does nothing
+    /// until it lands, and Quit only beeps (nothing waits for it).
+    fn busy(&self, cx: &App) -> bool {
+        let _ = cx;
+        false
+    }
+
     /// The buttons along the sheet's bottom edge, which stay put while the
     /// body scrolls (as a Mac sheet's).
     fn footer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -77,8 +84,27 @@ type AfterDismiss = Box<dyn FnOnce(&mut App)>;
 /// [`SheetBody::cancel`] (which asks before throwing them away).
 #[derive(Clone)]
 struct Unsaved {
-    edits: Rc<dyn Fn(&App) -> bool>,
+    edits: BodyState,
+    /// [`SheetBody::busy`].
+    busy: BodyState,
     ask: Rc<dyn Fn(&mut App)>,
+}
+
+/// One of the body's states, read through the sheet.
+type BodyState = Rc<dyn Fn(&App) -> bool>;
+
+/// The discard question a Quit asked a sheet with unsaved edits, owned by
+/// that sheet ([`ticket`]). It exists only while that question is on
+/// screen: Discard closes the sheet and quits, No drops it, and the sheet
+/// ending any other way drops it. Nothing else ever waits for a Quit.
+///
+/// [`ticket`]: PendingQuit::ticket
+struct PendingQuit {
+    ticket: u64,
+    sheet: AnyWindowHandle,
+    then: Rc<dyn Fn(&mut App)>,
+    /// Its question is up (set as the body shows it).
+    shown: bool,
 }
 
 /// The sheet on the main window now, if any, and what runs once it has
@@ -88,6 +114,9 @@ struct OpenSheet {
     current: Option<(AnyWindowHandle, AnyEntity)>,
     after: Option<AfterDismiss>,
     unsaved: Option<Unsaved>,
+    quit: Option<PendingQuit>,
+    /// The last [`PendingQuit::ticket`] given.
+    quit_tickets: u64,
 }
 
 impl Global for OpenSheet {}
@@ -150,9 +179,10 @@ pub fn open<V: SheetBody>(
     };
     let body = host.read(cx).body.clone();
     adopt(handle, body.clone().into_any(), cx);
-    let (weak, asked) = (body.downgrade(), body.downgrade());
+    let (weak, asked, busy) = (body.downgrade(), body.downgrade(), body.downgrade());
     cx.default_global::<OpenSheet>().unsaved = Some(Unsaved {
         edits: Rc::new(move |cx: &App| weak.upgrade().is_some_and(|b| b.read(cx).unsaved(cx))),
+        busy: Rc::new(move |cx: &App| busy.upgrade().is_some_and(|b| b.read(cx).busy(cx))),
         ask: Rc::new(move |cx: &mut App| {
             let Some(body) = asked.upgrade() else { return };
             let _ = handle.update(cx, |_, window, cx| {
@@ -184,6 +214,7 @@ pub fn adopt(handle: AnyWindowHandle, body: AnyEntity, cx: &mut App) {
     open.current = Some((handle, body));
     open.after = None;
     open.unsaved = None;
+    open.quit = None;
 }
 
 /// Hangs the sheet window `handle` from `parent` with `beginSheet:`, once
@@ -236,6 +267,7 @@ pub fn forget(handle: AnyWindowHandle, cx: &mut App) {
         open.current = None;
         open.after = None;
         open.unsaved = None;
+        open.quit = None;
     }
 }
 
@@ -275,6 +307,27 @@ pub fn has_unsaved(cx: &App) -> bool {
         .is_some_and(|unsaved| (unsaved.edits)(cx))
 }
 
+/// The sheet window's keyed state that holds its body's scroll.
+const SCROLL_KEY: &str = "sheet-scroll-handle";
+
+/// A scroll of the sheet's body asked for from outside a render.
+#[derive(Clone, Copy, Debug, Default)]
+struct ScrollRequest(Option<f32>);
+
+impl gpui_kit::Global for ScrollRequest {}
+
+/// Scrolls the sheet down now to `fraction` of its body (0 the top, 1 the
+/// end), as a person would to reach what is below the fold: made on the
+/// sheet's next render (its scroll is the window's, which only a render
+/// can reach).
+pub fn scroll_to(fraction: f32, cx: &mut App) {
+    let Some(handle) = current_window(cx) else {
+        return;
+    };
+    cx.set_global(ScrollRequest(Some(fraction)));
+    let _ = handle.update(cx, |_, window, _| window.refresh());
+}
+
 /// Whether a sheet is down on the main window.
 pub fn is_open(cx: &App) -> bool {
     cx.try_global::<OpenSheet>()
@@ -293,23 +346,129 @@ pub(crate) fn quit_with(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
         after_saves(cx, then);
         return;
     }
-    // Unsaved edits: the sheet comes forward and asks, as Esc does; Quit
-    // again once it has gone.
-    if has_unsaved(cx) {
-        if let Some(unsaved) = cx.try_global::<OpenSheet>().and_then(|s| s.unsaved.clone()) {
-            cx.defer(move |cx| (unsaved.ask)(cx));
-        }
+    let open = cx.default_global::<OpenSheet>();
+    let Some((sheet, _)) = open.current.clone() else {
+        return;
+    };
+    let waiting = open.quit.is_some();
+    let unsaved = open.unsaved.clone();
+    // Mid-operation (a save, test or create on its way) or asking something
+    // (its discard question, a consent, any confirmation): Quit queues
+    // nothing. The sheet comes forward and the Mac beeps, as a Mac app does
+    // while it can't take the key; ⌘Q works again once the sheet is idle.
+    let busy = unsaved.as_ref().is_some_and(|u| (u.busy)(cx));
+    if busy || waiting || crate::shell::sheet::question_up(sheet, cx) {
+        let _ = sheet.update(cx, |_, window, _| window.activate_window());
+        crate::shell::sheet::beep(cx);
+        return;
+    }
+    // Unsaved edits: the sheet comes forward and asks now, as Esc does.
+    if unsaved.as_ref().is_some_and(|u| (u.edits)(cx)) {
+        let open = cx.default_global::<OpenSheet>();
+        open.quit_tickets += 1;
+        let ticket = open.quit_tickets;
+        open.quit = Some(PendingQuit {
+            ticket,
+            sheet,
+            then,
+            shown: false,
+        });
+        cx.defer(move |cx| ask(ticket, cx));
         return;
     }
     cx.default_global::<OpenSheet>().after = None;
     dismiss(cx);
+    quit_once_gone(cx, then);
+}
+
+/// The sheet has gone: once AppKit has ended it, Quit comes in again
+/// through [`quit_with`], judging what is on screen then. A sheet opened
+/// meanwhile (an approval, a link) beeps or asks; with none open, the app
+/// quits after the app-wide saves.
+fn quit_once_gone(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.spawn(async move |cx| {
         cx.background_executor()
             .timer(std::time::Duration::from_millis(250))
             .await;
-        cx.update(|cx| after_saves(cx, then));
+        cx.update(|cx| quit_with(cx, then));
     })
     .detach();
+}
+
+/// Quit `ticket`'s sheet asks its discard question (its body's
+/// [`SheetBody::cancel`]). A body that closes itself instead (nothing left
+/// to discard) lets the Quit go on; one that neither asks nor closes leaves
+/// nothing on screen, so the Quit is dropped.
+fn ask(ticket: u64, cx: &mut App) {
+    let open = cx.default_global::<OpenSheet>();
+    let Some(sheet) = open
+        .quit
+        .as_ref()
+        .filter(|q| q.ticket == ticket)
+        .map(|q| q.sheet)
+    else {
+        return;
+    };
+    let Some(unsaved) = open
+        .unsaved
+        .clone()
+        .filter(|_| open.current.as_ref().map(|(h, _)| *h) == Some(sheet))
+    else {
+        open.quit = None;
+        return;
+    };
+    (unsaved.ask)(cx);
+    let open = cx.default_global::<OpenSheet>();
+    if open
+        .quit
+        .as_ref()
+        .is_some_and(|q| q.ticket == ticket && !q.shown)
+    {
+        open.quit = None;
+    }
+}
+
+/// A question is about to show on `window`
+/// ([`crate::shell::sheet::present_sheet`]): the Quit it answers, when it is
+/// the discard question that Quit's own sheet was just asked for. Any other
+/// question (another window, another sheet) is not that Quit's.
+pub(crate) fn question_shown(window: AnyWindowHandle, cx: &mut App) -> Option<u64> {
+    let q = cx.default_global::<OpenSheet>().quit.as_mut()?;
+    if q.sheet != window || q.shown {
+        return None;
+    }
+    q.shown = true;
+    Some(q.ticket)
+}
+
+/// The question [`question_shown`] tied to Quit `asked` was answered: No
+/// (keep editing) drops that Quit; Discard closes the sheet and quits. Any
+/// other question does nothing.
+pub(crate) fn question_answered(asked: Option<u64>, yes: bool, cx: &mut App) {
+    let Some(ticket) = asked else { return };
+    let open = cx.default_global::<OpenSheet>();
+    let Some(sheet) = open
+        .quit
+        .as_ref()
+        .filter(|q| q.ticket == ticket)
+        .map(|q| q.sheet)
+    else {
+        return;
+    };
+    if !yes {
+        open.quit = None;
+        return;
+    }
+    // Outside the question's (and the sheet's) update; the body's own
+    // dismissal may come first, which quits the same way.
+    cx.defer(move |cx| {
+        let open = cx.default_global::<OpenSheet>();
+        let ours = open.quit.as_ref().is_some_and(|q| q.ticket == ticket)
+            && open.current.as_ref().map(|(h, _)| *h) == Some(sheet);
+        if ours {
+            dismiss(cx);
+        }
+    });
 }
 
 /// The longest Quit waits for saves still going (a daemon that does not
@@ -347,7 +506,14 @@ fn after_saves(cx: &mut App, then: Rc<dyn Fn(&mut App)>) {
     cx.spawn(async move |cx| {
         let timer = cx.background_executor().timer(SAVES_BEFORE_QUIT);
         let _ = futures::future::select(futures::future::join_all(pending), Box::pin(timer)).await;
-        cx.update(|cx| then(cx));
+        // A sheet opened while the saves ran: Quit comes in again for it.
+        cx.update(|cx| {
+            if is_open(cx) {
+                quit_with(cx, then)
+            } else {
+                then(cx)
+            }
+        });
     })
     .detach();
 }
@@ -370,8 +536,10 @@ pub fn close_with_account<V: SheetBody>(
             return;
         }
         if current::<V>(cx).is_some_and(|body| body == cx.entity()) {
+            // Closed for the switch, not by the user: nothing reopens, and
+            // a Quit waiting on it is dropped.
             cx.default_global::<OpenSheet>().after = None;
-            dismiss(cx);
+            end_sheet(cx, Ending::ClosedForIt);
         }
     })
 }
@@ -410,17 +578,48 @@ pub fn ask_for_account(
 
 /// Closes the sheet down now (it slides up), from its body or anywhere.
 pub fn dismiss(cx: &mut App) {
+    end_sheet(cx, Ending::Own);
+}
+
+/// How a sheet ends, for a Quit waiting on it.
+#[derive(Clone, Copy, PartialEq)]
+enum Ending {
+    /// The sheet's own outcome: Discard, a save that closed it, Cancel.
+    Own,
+    /// Closed for it (another account): never the Quit's answer.
+    ClosedForIt,
+}
+
+/// The one place a sheet ends. A Quit's discard question goes on to quit
+/// only with the sheet's own ending (Discard, or the sheet closing itself
+/// when asked); closed any other way (another account), the Quit is
+/// dropped and the user can quit again.
+fn end_sheet(cx: &mut App, ending: Ending) {
     let open = cx.default_global::<OpenSheet>();
     let Some((handle, _)) = open.current.take() else {
         return;
     };
     open.unsaved = None;
-    let after = open.after.take();
+    let quit = open
+        .quit
+        .take()
+        .filter(|q| q.sheet == handle && ending == Ending::Own);
+    let after = if quit.is_some() {
+        None
+    } else {
+        open.after.take()
+    };
+    open.after = None;
     // The main window takes the keyboard back as AppKit ends the sheet, its
     // focus where it was.
     crate::views::settings::end_sheet_window(handle, cx);
     if let Some(after) = after {
         cx.defer(after);
+    }
+    // Quit asked about this sheet and it has gone (Discard, or the save it
+    // was busy with closed it): the app quits now.
+    if let Some(quit) = quit {
+        quit_once_gone(cx, quit.then);
     }
 }
 
@@ -460,6 +659,17 @@ impl<V: SheetBody> Render for SheetHost<V> {
         let requested = self.requested.clone();
         let footer_height = self.footer_height.clone();
         let label = self.body.read(cx).label(cx);
+        // The body's scroll, kept by the sheet's window; a scroll asked for
+        // from outside a render ([`scroll_to`]) is made here.
+        let scroll = window
+            .use_keyed_state(SCROLL_KEY, cx, |_, _| gpui_kit::ScrollHandle::new())
+            .read(cx)
+            .clone();
+        if let Some(fraction) = cx.try_global::<ScrollRequest>().and_then(|r| r.0) {
+            let max = scroll.max_offset();
+            scroll.set_offset(gpui_kit::point(gpui_kit::px(0.), -max.y * fraction));
+            cx.set_global(ScrollRequest(None));
+        }
         let footer = self.body.update(cx, |b, cx| b.footer(window, cx));
         let has_footer = footer.is_some();
         // The body's natural height (padding included), and the footer's:
@@ -529,6 +739,7 @@ impl<V: SheetBody> Render for SheetHost<V> {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(&scroll)
                     .child(
                         div()
                             .relative()
@@ -571,6 +782,71 @@ mod tests {
         }
     }
 
+    /// A sheet body that counts how often it is asked to close, and puts
+    /// its discard question up (unanswered) as present_sheet would.
+    struct Probe(Rc<Cell<u32>>, Rc<Cell<Option<u64>>>);
+
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    impl SheetBody for Probe {
+        fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+            self.0.set(self.0.get() + 1);
+            self.1.set(question_shown(window.window_handle(), cx));
+        }
+
+        fn label(&self, _: &App) -> SharedString {
+            "Probe".into()
+        }
+
+        fn unsaved(&self, _: &App) -> bool {
+            true
+        }
+    }
+
+    /// Quit again while the discard question of the first is up: ignored
+    /// with a beep (no second question), and Discard quits once.
+    #[gpui_kit::test]
+    fn a_second_quit_while_the_question_is_up_beeps(cx: &mut gpui_kit::TestAppContext) {
+        let (_daemon, _stores, vcx) = bench::bench(cx);
+        let asks = Rc::new(Cell::new(0));
+        let shown = Rc::new(Cell::new(None));
+        let (probe, question) = (asks.clone(), shown.clone());
+        vcx.update(|window, cx| open(window, 400., cx, move |_, _| Probe(probe, question)))
+            .expect("the sheet opens");
+        vcx.run_until_parked();
+        let quits = Rc::new(Cell::new(0));
+        let quit = |vcx: &mut gpui_kit::VisualTestContext| {
+            let counted = quits.clone();
+            vcx.update(|_, cx| quit_with(cx, Rc::new(move |_| counted.set(counted.get() + 1))));
+            vcx.run_until_parked();
+        };
+        quit(vcx);
+        assert_eq!(asks.get(), 1, "Quit did not ask the sheet");
+        // The sheet's discard question is up, tied to this Quit.
+        let asked = shown.get();
+        assert!(asked.is_some());
+        quit(vcx);
+        assert_eq!(asks.get(), 1, "a second Quit asked again");
+        assert_eq!(
+            vcx.update(|_, cx| cx.global::<crate::shell::sheet::Beeps>().0),
+            1,
+            "the second Quit did not beep"
+        );
+        // Discard.
+        vcx.update(|_, cx| question_answered(asked, true, cx));
+        for _ in 0..2 {
+            vcx.run_until_parked();
+            vcx.executor()
+                .advance_clock(std::time::Duration::from_secs(5));
+        }
+        vcx.run_until_parked();
+        assert_eq!(quits.get(), 1, "Discard did not quit once");
+    }
+
     #[test]
     fn a_sheet_refits_only_when_its_body_changes_height() {
         assert!(needs_fit(None, 310.));
@@ -605,8 +881,10 @@ pub mod bench {
         let scratch = std::env::temp_dir().join(format!("conduit-sheet-{}", std::process::id()));
         let stores = cx.update(|cx| {
             crate::views::test_globals(cx);
-            // Questions answer "no" (keep editing) unless a test says.
+            // Questions answer "no" (keep editing) unless a test says, and
+            // beeps are counted.
             cx.set_global(crate::shell::sheet::AutoAnswer(Some(false)));
+            cx.set_global(crate::shell::sheet::Beeps::default());
             Stores::for_test(daemon.rpc(), &scratch, cx)
         });
         stores.accounts.update(cx, |a, cx| {

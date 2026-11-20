@@ -17,8 +17,10 @@ import 'package:conduit_core/features/workspace/providers/workspace_knowledge_fi
 import 'package:conduit_core/features/workspace/providers/workspace_model_relationships.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_session.dart';
+import 'package:conduit_core/features/workspace/services/workspace_model_avatar_source.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/server_version_compat.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
@@ -1033,26 +1035,94 @@ final class WorkspaceService {
               await api.getWorkspaceSkill(id) ??
               (throw _notFound(request.kind, id));
           sameAccount();
-          final description = (skill.description ?? '').trim();
-          final saved = await _container
-              .read(workspaceSkillsProvider.notifier)
-              .create(
-                WorkspaceSkillForm(
-                  id: WorkspaceClone.skillId(skill.id),
-                  name: WorkspaceClone.name(skill.name.trim(), suffix),
-                  description: description.isEmpty ? null : description,
-                  content: skill.content ?? '',
-                  meta: skill.meta,
-                ),
-              );
-          copyId = saved.id;
+          copyId = await _duplicateSkill(api, skill, suffix, sameAccount);
         case WorkspaceKind.knowledge:
           throw _invalid('knowledge is not duplicated');
       }
+      // Made under the account it was read for: announced and read only
+      // while that account is still the one signed in.
+      sameAccount();
       _announce(request.kind, copyId);
-      return _detail(request.kind, copyId);
+      final detail = await _detail(request.kind, copyId);
+      sameAccount();
+      return detail;
     },
   );
+
+  /// Duplicates [skill], as the phone does: the server is asked to copy it
+  /// itself (`clone`, Open WebUI 0.12 and later), every file of its package
+  /// and its on/off state included. One not known to have it that answers
+  /// 404 or 405 while the skill is still there is sent a copy made from what
+  /// was read. [api] is the account's at the read, and [sameAccount] refuses
+  /// the lookup and the copy once another account signed in after it.
+  Future<String> _duplicateSkill(
+    ApiService api,
+    WorkspaceSkillDetail skill,
+    String suffix,
+    void Function() sameAccount,
+  ) async {
+    final skills = _container.read(workspaceSkillsProvider.notifier);
+    final newId = WorkspaceClone.skillId(skill.id);
+    final name = WorkspaceClone.name(skill.name.trim(), suffix);
+    Future<String> copy() async {
+      sameAccount();
+      final description = (skill.description ?? '').trim();
+      final saved = await skills.create(
+        WorkspaceSkillForm(
+          id: newId,
+          name: name,
+          description: description.isEmpty ? null : description,
+          content: skill.content ?? '',
+          meta: skill.meta,
+          isActive: skill.isActive,
+        ),
+      );
+      return saved.id;
+    }
+
+    final serverClones = _serverClonesSkills();
+    try {
+      final saved = await skills.clone(skill.id, newId: newId, name: name);
+      return saved.id;
+    } on DioException catch (error) {
+      final status = error.response?.statusCode;
+      if (serverClones || (status != 404 && status != 405)) rethrow;
+      // Asked of the account the skill was read under, never the next.
+      sameAccount();
+      // A 404 is also what the clone says of a skill deleted since the
+      // read: copied only while the skill is still there.
+      if (!await _skillStillThere(api, skill.id)) {
+        throw _notFound(WorkspaceKind.skills, skill.id);
+      }
+      return copy();
+    }
+  }
+
+  /// Whether this server is known to clone skills (Open WebUI 0.12 and
+  /// later): only from a config confirmed for the active server (its
+  /// `serverId`) that says so. Anything else, an older version in a cached
+  /// config or another server's, is not known: the clone is tried, and a 404
+  /// or 405 is answered by a copy, so a stale cache never skips the server's
+  /// own copy with its package files.
+  bool _serverClonesSkills() {
+    final activeId = _container.read(activeServerProvider).asData?.value?.id;
+    final config = _container.read(backendConfigProvider).asData?.value;
+    if (activeId == null || config == null || config.serverId != activeId) {
+      return false;
+    }
+    return ServerVersionCompat.knownAtLeast(config.version, '0.12.0') == true;
+  }
+
+  /// Whether skill [id] is still on the server [api] answers for: false only
+  /// when it says it is not (404); any other failure is thrown.
+  Future<bool> _skillStillThere(ApiService api, String id) async {
+    try {
+      return await api.getWorkspaceSkill(id) != null;
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return false;
+      rethrow;
+    }
+  }
 
   /// A skill read from a Markdown file, for the editor to review and save
   /// (the phone's Import Markdown); nothing is sent to the server.
@@ -1329,6 +1399,14 @@ final class WorkspaceService {
         baseModelId: draft.baseModelId,
         description: draft.description,
         imageUrl: draft.profileImageUrl,
+        imageSource: switch (workspaceModelAvatarSource(
+          draft.profileImageUrl,
+          serverBaseUrl: _container.read(apiServiceProvider)?.serverConfig.url,
+        )) {
+          WorkspaceModelAvatarSource.inline => WorkspaceImageSource.inline,
+          WorkspaceModelAvatarSource.server => WorkspaceImageSource.server,
+          WorkspaceModelAvatarSource.remote => WorkspaceImageSource.remote,
+        },
         tags: draft.tags,
         system: draft.system,
         stop: draft.stop,
@@ -1346,6 +1424,7 @@ final class WorkspaceService {
         defaultFeatureIds: draft.defaultFeatureIds,
         ttsVoice: draft.ttsVoice,
         terminalId: draft.terminalId,
+        builtinTools: draft.builtinTools,
         active: draft.isActive,
         hidden: draft.hidden,
         params: draft.advancedParams,
@@ -1431,6 +1510,7 @@ final class WorkspaceService {
       ..defaultFeatureIds = [...dto.defaultFeatureIds]
       ..ttsVoice = dto.ttsVoice
       ..terminalId = dto.terminalId
+      ..builtinTools = {...dto.builtinTools}
       ..isActive = dto.active
       ..hidden = dto.hidden
       ..advancedParams = {...dto.params};

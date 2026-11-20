@@ -5093,5 +5093,6 @@
   "notificationCalendarExactDescription": "Sta \"Wekkers en herinneringen\" toe zodat agendaherinneringen op de minuut komen.",
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres."
 }

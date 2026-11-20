@@ -97,6 +97,11 @@ pub enum Route {
     /// an addition, or an expired session), or the LibreChat account in
     /// charge needs one (its session ended).
     SignIn,
+    /// The active Open WebUI account kept its session, but the server turns
+    /// it away (a sign-in proxy whose session expired, or a refused
+    /// request): the phone's Connection Issue, with Try Again, Sign In to
+    /// Proxy Again and Sign Out, never a sign-out of its own.
+    ConnectionIssue,
     /// Ready: signed in, or a Direct-only or Hermes-only setup.
     Main,
 }
@@ -157,6 +162,9 @@ pub fn derive_route(inputs: RouteInputs<'_>) -> Route {
             // Restoring a session: wait rather than flash the sign-in form.
             AuthPhase::Initial | AuthPhase::Loading => Route::Unknown,
             _ if auth.is_loading => Route::Unknown,
+            // The session is kept: a connection issue, as the phone's router
+            // reads an error with a token.
+            AuthPhase::Error if auth.has_token => Route::ConnectionIssue,
             _ => Route::SignIn,
         };
     }
@@ -711,7 +719,7 @@ impl conduit_protocol::RpcMethod for OnboardingProbe {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::BTreeMap;
 
     use gpui_kit::{AppContext as _, TestAppContext};
@@ -722,7 +730,7 @@ mod tests {
     use crate::stores::accounts::tests::{account, list};
     use crate::stores::rpc::fake::FakeDaemon;
 
-    fn auth(phase: AuthPhase, authenticated: bool) -> AuthSnapshot {
+    pub(crate) fn auth(phase: AuthPhase, authenticated: bool) -> AuthSnapshot {
         AuthSnapshot {
             phase,
             is_authenticated: authenticated,
@@ -732,6 +740,8 @@ mod tests {
             error_code: None,
             error_args: BTreeMap::new(),
             is_reviewer_mode: false,
+            two_step: None,
+            can_renew_proxy: false,
         }
     }
 
@@ -792,6 +802,27 @@ mod tests {
     }
 
     #[test]
+    fn a_kept_session_the_server_turns_away_is_a_connection_issue() {
+        let one = list(vec![account("a", "Avery", true, true)]);
+        let mut issue = auth(AuthPhase::Error, false);
+        issue.has_token = true;
+        assert_eq!(
+            route(Some(false), Some(&one), Some(&issue)),
+            Route::ConnectionIssue
+        );
+        // Without the session it is a sign-in, as before.
+        issue.has_token = false;
+        assert_eq!(route(Some(false), Some(&one), Some(&issue)), Route::SignIn);
+        // A session expired outright asks for the sign-in again.
+        let mut expired = auth(AuthPhase::TokenExpired, false);
+        expired.has_token = true;
+        assert_eq!(
+            route(Some(false), Some(&one), Some(&expired)),
+            Route::SignIn
+        );
+    }
+
+    #[test]
     fn adding_an_account_signs_in_even_while_signed_in() {
         let mut adding = list(vec![
             account("a", "Avery", false, true),
@@ -824,7 +855,7 @@ mod tests {
         assert_eq!(route(Some(false), None, Some(&out)), Route::Unknown);
     }
 
-    fn handshake(needs: Option<bool>) -> Handshake {
+    pub(crate) fn handshake(needs: Option<bool>) -> Handshake {
         let mut raw = json!({
             "protocolVersion": conduit_protocol::PROTOCOL_VERSION,
             "daemonVersion": "0.1.0",
@@ -839,7 +870,7 @@ mod tests {
         Handshake::from_value(raw)
     }
 
-    fn request() -> HandshakeRequest {
+    pub(crate) fn request() -> HandshakeRequest {
         HandshakeRequest {
             protocol_version: conduit_protocol::PROTOCOL_VERSION.into(),
             client_name: "test".into(),

@@ -6,11 +6,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/auth/auth_state_manager.dart' show AuthStatus;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/integrations/personal_connection_settings.dart'
+    show PersonalConnectionKind;
+import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart'
+    hide PersonalConnectionTestResult;
+import 'package:conduit_core/features/notifications/models/notification_target.dart';
+import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
+import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -26,7 +35,9 @@ import 'package:conduitd/conduitd.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
+import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
@@ -112,7 +123,10 @@ void main() {
       peer,
       ConduitMethods.eventsSubscribe,
       params: const EventSubscription(
-        events: <String>[ConduitEvents.settingsChanged],
+        events: <String>[
+          ConduitEvents.settingsChanged,
+          ConduitEvents.notificationsChanged,
+        ],
       ).toJson(),
       decodeResult: EventSubscription.fromJson,
     );
@@ -138,6 +152,157 @@ void main() {
 
   Matcher rpcCode(String code) =>
       throwsA(isA<RpcError>().having((e) => e.code, 'code', code));
+
+  group('notifications.*, webhooks.* and integrations.*', () {
+    test(
+      'notifications start on here, change, persist and announce it',
+      () async {
+        final start = await call(
+          ConduitMethods.notificationsGet,
+          NotificationSettingsDto.fromJson,
+        );
+        // The desktop's host default (the phone's stays off).
+        expect(start.enabled, isTrue);
+        expect(start.answers, isTrue);
+        expect(start.channels, isTrue);
+        expect(start.mentionsOnly, isFalse);
+        // Nothing to mirror to without an account.
+        expect(start.synced, isFalse);
+        // The shared daemon gets its start values back, pass or fail.
+        addTearDown(
+          () => call(
+            ConduitMethods.notificationsSet,
+            NotificationSettingsDto.fromJson,
+            NotificationSettingsPatch(
+              inAppBanner: start.inAppBanner,
+              answers: start.answers,
+            ).toJson(),
+          ),
+        );
+
+        final announced = next(ConduitEvents.notificationsChanged);
+        final after = await call(
+          ConduitMethods.notificationsSet,
+          NotificationSettingsDto.fromJson,
+          const NotificationSettingsPatch(
+            inAppBanner: false,
+            answers: false,
+          ).toJson(),
+        );
+        expect(after.inAppBanner, isFalse);
+        expect(after.answers, isFalse);
+        expect(after.system, isTrue);
+        await announced;
+
+        Future<NotificationRoute> route(NotificationRouteParams p) => call(
+          ConduitMethods.notificationsRoute,
+          NotificationRoute.fromJson,
+          p.toJson(),
+        );
+        // Answers are off now.
+        expect(
+          (await route(const NotificationRouteParams(kind: NotifyKind.answer)))
+              .surface,
+          NotifySurface.suppressed,
+        );
+        // A channel message in front with the banner off: silent.
+        expect(
+          (await route(
+            const NotificationRouteParams(
+              kind: NotifyKind.channelMessage,
+              foreground: true,
+            ),
+          )).surface,
+          NotifySurface.silent,
+        );
+        // Behind: a system notification with its sound.
+        final behind = await route(
+          const NotificationRouteParams(kind: NotifyKind.channelMessage),
+        );
+        expect(behind.surface, NotifySurface.system);
+        expect(behind.systemSound, isTrue);
+      },
+    );
+
+    test(
+      'webhooks and personal connections need an Open WebUI account',
+      () async {
+        final hooks = await call(
+          ConduitMethods.webhooksList,
+          WebhookList.fromJson,
+        );
+        expect(hooks.available, isFalse);
+        final connections = await call(
+          ConduitMethods.integrationsList,
+          PersonalConnections.fromJson,
+        );
+        expect(connections.access, PersonalAccess.noAccount);
+        // An owner no list handed out is refused before anything is sent.
+        await expectLater(
+          call(
+            ConduitMethods.webhooksDelete,
+            WebhookList.fromJson,
+            const WebhookRef(owner: 'w9', id: 'x').toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            const PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.remove,
+              identity: 'x',
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.conflict),
+        );
+      },
+    );
+
+    test('a tool server mode the form does not offer is refused, never read '
+        'as bearer', () async {
+      for (final draft in const <PersonalConnectionDraft>[
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          authType: 'session',
+          key: 'seed-token',
+        ),
+        PersonalConnectionDraft(
+          url: 'https://tools.example.com',
+          specType: 'yaml',
+        ),
+      ]) {
+        await expectLater(
+          call(
+            ConduitMethods.integrationsTest,
+            PersonalConnectionTestResult.fromJson,
+            PersonalConnectionTest(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+        await expectLater(
+          call(
+            ConduitMethods.integrationsSave,
+            PersonalConnections.fromJson,
+            PersonalConnectionSave(
+              owner: 'p9',
+              kind: PersonalKind.toolServer,
+              op: PersonalEditOp.add,
+              draft: draft,
+            ).toJson(),
+          ),
+          rpcCode(ConduitErrorCodes.invalidParams),
+        );
+      }
+    });
+  });
 
   group('settings.get and settings.set', () {
     test("start at core's defaults, with the message action catalog", () async {
@@ -543,7 +708,10 @@ void _withAnAccount() {
     late _Api api;
     late Object epoch;
     late User? user;
+    late ServerConfig server;
+    late AuthStatus status;
     late bool previousWarning;
+    late ProviderContainer mirrorContainer;
 
     setUpAll(() {
       previousWarning = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
@@ -558,19 +726,69 @@ void _withAnAccount() {
       api = _Api();
       epoch = Object();
       user = _ava;
+      server = _server;
+      status = AuthStatus.authenticated;
     });
     tearDown(() async {
       api.dispose();
       await db.close();
     });
 
+    /// Notification settings whose server mirror waits on the account in
+    /// charge: its session, user, sign-in state and server read from
+    /// [epoch], [user], [status] and [server], which [signIn] moves on.
+    NotificationsService mirroring(FakeAsync async) {
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(_NotificationSettings.new),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          currentUserProvider2.overrideWith((ref) => user),
+          authStatusProvider.overrideWith((ref) => status),
+          activeServerProvider.overrideWith((ref) async => server),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(activeServerProvider, (_, _) {});
+      async.flushMicrotasks();
+      mirrorContainer = container;
+      return NotificationsService(container);
+    }
+
+    /// The account's sign-in moves to [next] as [who]: a new session.
+    void signIn(FakeAsync async, AuthStatus next, User? who) {
+      status = next;
+      user = who;
+      epoch = Object();
+      mirrorContainer
+        ..invalidate(authStatusProvider)
+        ..invalidate(currentUserProvider2)
+        ..invalidate(openWebUiAuthSessionEpochProvider);
+      async.elapse(Duration.zero);
+    }
+
+    /// Two changes, the first one's mirror held at the server until
+    /// [Completer.complete]; the second's waits behind it.
+    Completer<void> twoChanges(
+      FakeAsync async,
+      NotificationsService notifications,
+    ) {
+      final held = api.mirrorHeld = Completer<void>();
+      notifications.set(const NotificationSettingsPatch(enabled: false));
+      async.flushMicrotasks();
+      notifications.set(const NotificationSettingsPatch(enabled: true));
+      async.flushMicrotasks();
+      return held;
+    }
+
     /// Set to hold `serverAboutInfo`: completes [aboutAsked] when asked.
     Completer<void>? aboutHeld;
     Completer<void>? aboutAsked;
 
-    ProviderContainer containerWith() {
+    ProviderContainer containerWith({List<Override> extra = const []}) {
       final container = ProviderContainer(
         overrides: [
+          ...extra,
           ...openWebUiStorageOpenOverrides(database: db),
           activeConversationProvider.overrideWith(_ActiveConversation.new),
           apiServiceProvider.overrideWith((ref) => api),
@@ -653,9 +871,9 @@ void _withAnAccount() {
         ],
       );
       addTearDown(container.dispose);
-      final saving = CoreSettingsService(container).set(
-        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
-      );
+      final saving = CoreSettingsService(
+        container,
+      ).set(const AppSettingsPatch(computerEnabled: false, sendOnEnter: false));
       // Another account signs in while the first setting is written.
       epoch = Object();
       container.invalidate(openWebUiAuthSessionEpochProvider);
@@ -679,14 +897,436 @@ void _withAnAccount() {
         () => PreferencesStore.put(PreferenceKeys.activeServerId, before),
       );
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-a');
-      final saving = CoreSettingsService(container).set(
-        const AppSettingsPatch(computerEnabled: false, sendOnEnter: false),
-      );
+      final saving = CoreSettingsService(
+        container,
+      ).set(const AppSettingsPatch(computerEnabled: false, sendOnEnter: false));
       // Account B becomes active with no sign-in: the session epoch stays.
       await PreferencesStore.put(PreferenceKeys.activeServerId, 'server-b');
       settings.written.complete();
       await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
       expect(settings.calls, <String>['computerEnabled']);
+    });
+
+    test('notification settings asked under one account are never written '
+        'for the next', () async {
+      final settings = _Settings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      final saving = NotificationsService(container)
+          .set(const NotificationSettingsPatch(enabled: false, sound: false));
+      // Another account signs in while the first setting is written.
+      await settings.notificationsAsked.future;
+      epoch = Object();
+      container.invalidate(openWebUiAuthSessionEpochProvider);
+      settings.written.complete();
+      await expectLater(saving, refused(ConduitErrorCodes.sessionExpired));
+      expect(settings.calls, <String>['notificationsEnabled']);
+    });
+
+    test('a server mirror that has not answered never holds the next '
+        'notification change', () async {
+      final settings = _NotificationSettings();
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifications = NotificationsService(container);
+      // The first change's mirror is slow to reach the server.
+      final held = api.mirrorHeld = Completer<void>();
+      final off = notifications.set(
+        const NotificationSettingsPatch(enabled: false),
+      );
+      await api.mirrorAsked.future;
+      var answered = false;
+      final on = notifications
+          .set(const NotificationSettingsPatch(enabled: true))
+          .then((dto) => answered = true);
+      await pumpEventQueue();
+      // Written and answered while the server still has not answered.
+      expect(answered, isTrue);
+      expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
+      held.complete();
+      await off;
+      await on;
+      // Settled: the server got both, in order, and holds what this Mac does.
+      await api.mirrorsSettled(2);
+      expect(api.mirrored, <bool?>[false, true]);
+    });
+
+    test("a notification mirror waits for the account's earlier one when "
+        'its API client is replaced and its token renewed in between', () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            activeServerProvider.overrideWith((ref) async => server),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(activeServerProvider, (_, _) {});
+        async.flushMicrotasks();
+        final notifications = NotificationsService(container);
+        final first = api;
+        // The first change's mirror is slow to reach the server.
+        final held = first.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(first.mirrorAsked.isCompleted, isTrue);
+        // The account's client is rebuilt before the next change.
+        final second = api = _Api()..reached = first.reached;
+        container.invalidate(apiServiceProvider);
+        var answered = false;
+        notifications
+            .set(const NotificationSettingsPatch(enabled: true))
+            .then((_) => answered = true);
+        async.flushMicrotasks();
+        // Answered at once; its mirror waits for the account's earlier one.
+        expect(answered, isTrue);
+        expect(second.mirrored, isEmpty);
+        // The same account's token is renewed (a new session) meanwhile, and
+        // its address is read back spelled another way.
+        epoch = Object();
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'HTTPS://Home.invalid/',
+        );
+        container
+          ..invalidate(openWebUiAuthSessionEpochProvider)
+          ..invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        held.complete();
+        async.flushMicrotasks();
+        expect(first.reached, <bool?>[false, true]);
+        expect(second.mirrored, <bool?>[true]);
+      });
+    });
+
+    test("another account taking charge drops the first account's pending "
+        'notification mirror', () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        // Another user signs in before the first account's second mirror.
+        user = _bo;
+        epoch = Object();
+        container
+          ..invalidate(currentUserProvider2)
+          ..invalidate(openWebUiAuthSessionEpochProvider);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    // The token expired, and its user is unknown until the silent sign-in
+    // ends: the mirror waits for it, and goes once the same user is back.
+    test("a notification mirror waits out its account's sign-in renewing, "
+        'then goes', () {
+      fakeAsync((async) {
+        final held = twoChanges(async, mirroring(async));
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false], reason: 'no user to send it as');
+        signIn(async, AuthStatus.authenticated, _ava);
+        expect(api.reached, <bool?>[false, true]);
+      });
+    });
+
+    // Signed out while the mirror waited for its sign-in to renew: it goes
+    // nowhere, the account's queue moves on, and its next change is sent
+    // once it is signed in to again.
+    test('a notification mirror waiting for its account is dropped once the '
+        'account signs out', () {
+      fakeAsync((async) {
+        final notifications = mirroring(async);
+        final held = twoChanges(async, notifications);
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
+        signIn(async, AuthStatus.unauthenticated, null);
+        signIn(async, AuthStatus.authenticated, _ava);
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false, false]);
+      });
+    });
+
+    // The address of the server in charge changed while the mirror waited:
+    // a change and back is still a change, so it never goes.
+    test('a notification mirror waiting for its account is dropped once the '
+        "account's address changes", () {
+      fakeAsync((async) {
+        final held = twoChanges(async, mirroring(async));
+        signIn(async, AuthStatus.loading, null);
+        held.complete();
+        async.flushMicrotasks();
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'https://away.invalid',
+        );
+        mirrorContainer.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        server = _server;
+        mirrorContainer.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        signIn(async, AuthStatus.authenticated, _ava);
+        expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    // Saved before its user was validated, then again after: one account,
+    // one queue, and the server ends up with the last change.
+    test('notification mirrors keep their order across the user being '
+        'validated', () {
+      fakeAsync((async) {
+        user = null;
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        expect(api.mirrorAsked.isCompleted, isTrue);
+        user = _ava;
+        container.invalidate(currentUserProvider2);
+        async.elapse(Duration.zero);
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false, true]);
+      });
+    });
+
+    test("a notification mirror queued for one server never goes once the "
+        "account's address moves to another", () {
+      fakeAsync((async) {
+        final settings = _NotificationSettings();
+        final container = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWith(() => settings),
+            openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+            currentUserProvider2.overrideWith((ref) => user),
+            activeServerProvider.overrideWith((ref) async => server),
+            apiServiceProvider.overrideWith((ref) => api),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(activeServerProvider, (_, _) {});
+        async.flushMicrotasks();
+        final notifications = NotificationsService(container);
+        final held = api.mirrorHeld = Completer<void>();
+        notifications.set(const NotificationSettingsPatch(enabled: false));
+        async.flushMicrotasks();
+        notifications.set(const NotificationSettingsPatch(enabled: true));
+        async.flushMicrotasks();
+        // The saved server keeps its id and user but now reaches another
+        // server, whose account has the same user id.
+        server = const ServerConfig(
+          id: 'server',
+          name: 'Home server',
+          url: 'https://away.invalid',
+        );
+        container.invalidate(activeServerProvider);
+        async.elapse(Duration.zero);
+        held.complete();
+        async.flushMicrotasks();
+        expect(api.reached, <bool?>[false]);
+      });
+    });
+
+    test('notification changes reach the server in the order their settings '
+        'were written', () async {
+      final held = Completer<void>();
+      final settings = _NotificationSettings()..held = held;
+      final container = ProviderContainer(
+        overrides: [
+          appSettingsProvider.overrideWith(() => settings),
+          openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+          apiServiceProvider.overrideWith((ref) => api),
+        ],
+      );
+      addTearDown(container.dispose);
+      final notifications = NotificationsService(container);
+      // The first change's own setting is slow to be written.
+      final off = notifications.set(
+        const NotificationSettingsPatch(enabled: false),
+      );
+      await settings.asked.future;
+      final on = notifications.set(
+        const NotificationSettingsPatch(enabled: true),
+      );
+      held.complete();
+      await off;
+      await on;
+      await api.mirrorsSettled(2);
+      expect(api.mirrored, <bool?>[false, true]);
+      expect(container.read(appSettingsProvider).notificationsEnabled, isTrue);
+    });
+
+    test("a webhook list read under one account is never answered with the "
+        "next one's under the first one's owner", () async {
+      final targets = _Targets();
+      final container = containerWith(
+        extra: [
+          notificationTargetsProvider.overrideWith(() => targets),
+          notificationTargetsAvailableProvider.overrideWithValue(true),
+          authTokenProvider3.overrideWithValue('token-a'),
+        ],
+      );
+      final reading = WebhooksService(container).list();
+      await targets.asked.future;
+      // Another account signs in while the destinations are read.
+      switchAccount(container);
+      targets.held.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
+    });
+
+    test('a webhook list that could not be read is read again when the '
+        'window asks again', () async {
+      user = _avaAdmin;
+      var failing = true;
+      api.targets = () async {
+        if (failing) throw StateError('the server did not answer');
+        return const <NotificationTarget>[_pager];
+      };
+      final webhooks = WebhooksService(containerWith(extra: _webhooksOn));
+      expect((await webhooks.list()).failed, isTrue);
+      failing = false;
+      final again = await webhooks.list();
+      expect(again.failed, isFalse);
+      expect(again.items.map((w) => w.id), <String>['pager']);
+    });
+
+    test('a webhook list read again while the API client is replaced is '
+        'answered, and the next one reads the list', () async {
+      user = _avaAdmin;
+      var failing = true;
+      Completer<void>? held;
+      final asked = Completer<void>();
+      Future<List<NotificationTarget>> targets() async {
+        if (failing) throw StateError('the server did not answer');
+        final wait = held;
+        held = null;
+        if (wait != null) {
+          asked.complete();
+          await wait.future;
+        }
+        return const <NotificationTarget>[_pager];
+      }
+
+      api.targets = targets;
+      final container = containerWith(extra: _webhooksOn);
+      final webhooks = WebhooksService(container);
+      expect((await webhooks.list()).failed, isTrue);
+      failing = false;
+      final release = held = Completer<void>();
+      var settled = false;
+      final again = webhooks.list().whenComplete(() => settled = true);
+      await asked.future;
+      // The same account's API client is replaced while the list is read.
+      api = _Api()..targets = targets;
+      container.invalidate(apiServiceProvider);
+      release.complete();
+      await pumpEventQueue();
+      expect(settled, isTrue, reason: 'the list waits on a load never settled');
+      await again;
+      final next = await webhooks.list();
+      expect(next.failed, isFalse);
+      expect(next.items.map((w) => w.id), <String>['pager']);
+    });
+
+    test("an open editor's owner outlasts other windows' list reads", () async {
+      user = _avaAdmin;
+      api.targets = () async => const <NotificationTarget>[_pager];
+      final webhooks = WebhooksService(containerWith(extra: _webhooksOn));
+      final editor = (await webhooks.list()).owner;
+      // Other windows (and this one's Settings) read the list meanwhile.
+      for (var i = 0; i < 40; i++) {
+        await webhooks.list();
+      }
+      await expectLater(
+        webhooks.update(
+          WebhookUpdate(owner: editor, id: 'pager', enabled: false),
+        ),
+        completes,
+      );
+      expect(api.updatedTargets, <String>['pager']);
+    });
+
+    test('the composer offers a personal tool server once a config cached '
+        'before sign-in is read again', () async {
+      user = _avaAdmin;
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(_PreSignInConfig.new),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final options = await ComposerService(container).options();
+      expect(options.tools.map((t) => t.name), contains('Seed catalogue'));
+    });
+
+    test('an account switch while the composer reads the config again is '
+        'refused', () async {
+      user = _avaAdmin;
+      final config = _PreSignInConfig()..held = Completer<void>();
+      final container = containerWith(
+        extra: [
+          backendConfigProvider.overrideWith(() => config),
+          personalConnectionsProvider.overrideWith(
+            () => _Connections(() => api),
+          ),
+        ],
+      );
+      final reading = ComposerService(container).options();
+      await config.asked.future;
+      // Another account signs in while the config is read again.
+      switchAccount(container);
+      config.held!.complete();
+      await expectLater(reading, refused(ConduitErrorCodes.sessionExpired));
     });
 
     test('a birth date past its month is refused', () async {
@@ -698,22 +1338,26 @@ void _withAnAccount() {
       expect(api.saved, isEmpty);
     });
 
-    test("a profile save survives the sign-in refresh core makes after it",
-        () async {
-      final container = containerWith();
-      final profiles = ProfileService(container);
-      api.saves = true;
-      // Core refreshes the same account's sign-in after a save: a new
-      // session epoch, the same account.
-      api.onSaved = () {
-        epoch = Object();
-        container.invalidate(openWebUiAuthSessionEpochProvider);
-      };
-      addTearDown(() => api.onSaved = null);
-      final saved = await profiles.update(const ProfileEdit(bio: 'A newer bio'));
-      expect(saved.bio, 'A newer bio');
-      expect(api.savedBios, <String?>['A newer bio']);
-    });
+    test(
+      "a profile save survives the sign-in refresh core makes after it",
+      () async {
+        final container = containerWith();
+        final profiles = ProfileService(container);
+        api.saves = true;
+        // Core refreshes the same account's sign-in after a save: a new
+        // session epoch, the same account.
+        api.onSaved = () {
+          epoch = Object();
+          container.invalidate(openWebUiAuthSessionEpochProvider);
+        };
+        addTearDown(() => api.onSaved = null);
+        final saved = await profiles.update(
+          const ProfileEdit(bio: 'A newer bio'),
+        );
+        expect(saved.bio, 'A newer bio');
+        expect(api.savedBios, <String?>['A newer bio']);
+      },
+    );
 
     test("another user signing in on the same entry during a save never gets "
         'the profile', () async {
@@ -917,6 +1561,7 @@ final class _ActiveConversation extends ActiveConversationNotifier {
 final class _Settings extends AppSettingsNotifier {
   final calls = <String>[];
   final written = Completer<void>();
+  final notificationsAsked = Completer<void>();
 
   @override
   AppSettings build() => const AppSettings();
@@ -930,6 +1575,143 @@ final class _Settings extends AppSettingsNotifier {
   @override
   Future<void> setSendOnEnter(bool value) async {
     calls.add('sendOnEnter');
+  }
+
+  @override
+  Future<void> setNotificationsEnabled(bool value) async {
+    calls.add('notificationsEnabled');
+    notificationsAsked.complete();
+    await written.future;
+  }
+
+  @override
+  Future<void> setNotificationSound(bool value) async {
+    calls.add('notificationSound');
+  }
+}
+
+/// Notification settings kept in memory: each setter lands at once.
+final class _NotificationSettings extends AppSettingsNotifier {
+  /// Holds the first write of the master toggle when set; [asked]
+  /// completes as it starts.
+  Completer<void>? held;
+  final asked = Completer<void>();
+
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  Future<void> setNotificationsEnabled(bool value) async {
+    final wait = held;
+    held = null;
+    if (!asked.isCompleted) asked.complete();
+    await wait?.future;
+    state = state.copyWith(notificationsEnabled: value);
+  }
+}
+
+const _avaAdmin = User(
+  id: 'user-1',
+  username: 'ava',
+  email: 'ava@example.com',
+  name: 'Ava',
+  role: 'admin',
+);
+
+/// The config as read before sign-in (no feature flags); read again, it
+/// offers personal connections. [held] holds that second read.
+final class _PreSignInConfig extends BackendConfigNotifier {
+  final asked = Completer<void>();
+  Completer<void>? held;
+
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: false);
+
+  @override
+  Future<void> refresh() async {
+    if (!asked.isCompleted) asked.complete();
+    await held?.future;
+    state = AsyncData(
+      BackendConfig(serverId: _server.id, enableDirectIntegrations: true),
+    );
+  }
+}
+
+/// The account's personal connections: one enabled tool server.
+final class _Connections extends PersonalConnectionsController {
+  _Connections(this._api);
+
+  final ApiService Function() _api;
+
+  @override
+  Future<PersonalConnectionsSnapshot?> build() async {
+    final api = _api();
+    final raw = <String, dynamic>{
+      'url': 'https://tools.example.com',
+      'path': 'openapi.json',
+      'auth_type': 'none',
+      'key': '',
+      'config': <String, dynamic>{'enable': true},
+      'info': <String, dynamic>{'name': 'Seed catalogue'},
+    };
+    final list = <dynamic>[raw];
+    return PersonalConnectionsSnapshot(
+      session: PersonalConnectionsSession(
+        api: api,
+        authSnapshot: api.captureAuthSnapshot(),
+        accountName: 'Ava',
+        isCurrent: () => true,
+      ),
+      serverId: _server.id,
+      accountName: 'Ava',
+      toolServers: <PersonalConnectionEntry>[
+        PersonalConnectionEntry(
+          kind: PersonalConnectionKind.toolServer,
+          index: 0,
+          identity: 'seed',
+          raw: raw,
+          list: list,
+        ),
+      ],
+      terminals: const <PersonalConnectionEntry>[],
+    );
+  }
+}
+
+/// A destination the server lists.
+const _pager = NotificationTarget(
+  id: 'pager',
+  type: NotificationTarget.webhookType,
+  enabled: true,
+  events: <String>[],
+  delivery: NotificationTarget.deliveryAlways,
+);
+
+/// Webhook destinations on: the server offers them, and the account's
+/// session can own them.
+final List<Override> _webhooksOn = [
+  backendConfigProvider.overrideWith(_WebhooksOn.new),
+  authTokenProvider3.overrideWithValue('token-a'),
+];
+
+/// A server with webhook destinations on, for the account's own server.
+final class _WebhooksOn extends BackendConfigNotifier {
+  @override
+  Future<BackendConfig?> build() async =>
+      BackendConfig(serverId: _server.id, enableUserWebhooks: true);
+}
+
+/// Webhook destinations whose first read waits for [held].
+final class _Targets extends NotificationTargets {
+  final asked = Completer<void>();
+  final held = Completer<void>();
+
+  @override
+  Future<NotificationTargetsData> build() async {
+    if (!asked.isCompleted) asked.complete();
+    await held.future;
+    return const NotificationTargetsData();
   }
 }
 
@@ -978,6 +1760,74 @@ final class _Api extends ApiService {
   var deletedAll = 0;
   Future<AccountMetadata> Function() metadata = () async => _avaMetadata();
   Future<Map<String, dynamic>?> Function(String id) details = (_) async => null;
+
+  /// The account's webhook destinations, as the server lists them.
+  Future<List<NotificationTarget>> Function() targets = () async =>
+      throw StateError('no destinations in this test');
+  final updatedTargets = <String>[];
+
+  @override
+  Future<List<NotificationTarget>> getNotificationTargets({
+    required ApiAuthSnapshot authSnapshot,
+  }) => targets();
+
+  @override
+  Future<List<NotificationEvent>> getNotificationEvents({
+    required ApiAuthSnapshot authSnapshot,
+  }) async => const <NotificationEvent>[];
+
+  @override
+  Future<NotificationTarget> updateNotificationTarget(
+    String targetId, {
+    bool? enabled,
+    List<String>? events,
+    String? delivery,
+    String? replacementUrl,
+    required ApiAuthSnapshot authSnapshot,
+  }) async {
+    updatedTargets.add(targetId);
+    return _pager;
+  }
+
+  /// The notification master toggle as each mirror reached the server;
+  /// the first mirror waits for [mirrorHeld] when it is set.
+  final mirrored = <bool?>[];
+
+  /// Every mirror as it reached the server, shared by the clients of one
+  /// account when a test sets it.
+  List<bool?> reached = <bool?>[];
+  final mirrorAsked = Completer<void>();
+  Completer<void>? mirrorHeld;
+  final _mirrorWaits = <(int, Completer<void>)>[];
+
+  /// Completes once [count] mirrors reached the server.
+  Future<void> mirrorsSettled(int count) {
+    if (mirrored.length >= count) return Future<void>.value();
+    final settled = Completer<void>();
+    _mirrorWaits.add((count, settled));
+    return settled.future;
+  }
+
+  @override
+  Future<ServerUserSettings> updateUserNotificationSettings({
+    bool? notificationEnabled,
+    bool? notificationSound,
+    bool? notificationSoundAlways,
+  }) async {
+    final held = mirrorHeld;
+    mirrorHeld = null;
+    if (!mirrorAsked.isCompleted) mirrorAsked.complete();
+    await held?.future;
+    mirrored.add(notificationEnabled);
+    reached.add(notificationEnabled);
+    for (final wait in _mirrorWaits.toList()) {
+      if (mirrored.length >= wait.$1) {
+        _mirrorWaits.remove(wait);
+        wait.$2.complete();
+      }
+    }
+    return ServerUserSettings(notificationEnabled: notificationEnabled);
+  }
 
   @override
   Future<AccountMetadata> getAccountMetadata() => metadata();

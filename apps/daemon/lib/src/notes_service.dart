@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -770,6 +771,50 @@ final class NotesService {
     return _recordingsOf(request.noteId, recorder);
   }
 
+  /// One of [noteId]'s recordings still waiting to go to the server, as
+  /// it was recorded, for `GET /recordings/{id}?noteId=` (the window plays
+  /// it, as the phone plays a recording before it is uploaded).
+  Future<({Uint8List bytes, String contentType})> waitingRecording(
+    String noteId,
+    String id,
+  ) async {
+    // Played only under the account the note was opened under, and only
+    // while it is still the one active (checked again after each wait).
+    final account = _recordingAccount(noteId);
+    final recorder = await _recorderFor(noteId);
+    _requireRecordingStill(noteId, account);
+    final item = recorder.controller.pending
+        .where((p) => p.id == id)
+        .firstOrNull;
+    final file = item == null ? null : File(item.localPath);
+    if (file == null || !await file.exists()) {
+      throw RpcError(
+        code: ConduitErrorCodes.notFound,
+        debugMessage: 'no waiting recording $id',
+      );
+    }
+    final bytes = await file.readAsBytes();
+    _requireRecordingStill(noteId, account);
+    return (bytes: bytes, contentType: audioTypeOf(item!.fileName));
+  }
+
+  /// A recording's type by its name, as players take it.
+  static String audioTypeOf(String name) {
+    final dot = name.lastIndexOf('.');
+    final ext = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+    return switch (ext) {
+      'm4a' || 'mp4' => 'audio/mp4',
+      'wav' => 'audio/wav',
+      'mp3' => 'audio/mpeg',
+      'aac' => 'audio/aac',
+      'caf' => 'audio/x-caf',
+      'flac' => 'audio/flac',
+      'ogg' || 'oga' => 'audio/ogg',
+      'webm' => 'audio/webm',
+      _ => 'application/octet-stream',
+    };
+  }
+
   Future<_NoteRecorder> _recorderFor(String noteId) async {
     final store = _audioStore;
     if (store == null) {
@@ -778,7 +823,11 @@ final class NotesService {
         debugMessage: 'recordings need the daemon\'s storage',
       );
     }
+    _requireOpen();
     final note = await _storedNote(noteId);
+    // Shutdown may have begun while the note was read: no recorder is made
+    // or handed out that it would not wait for.
+    _requireOpen();
     final existing = _recorders[noteId];
     if (existing != null) {
       existing.note = note ?? existing.note;
@@ -867,6 +916,39 @@ final class NotesService {
       recorder.controller.dispose();
     }
     _recorders.clear();
+  }
+
+  /// Set once [close] begins: from then on no recorder is made or handed
+  /// out, so the recorders it waits for are all there are.
+  bool _closing = false;
+
+  void _requireOpen() {
+    if (_closing) {
+      throw const RpcError(
+        code: ConduitErrorCodes.daemonUnavailable,
+        debugMessage: 'the daemon is stopping',
+      );
+    }
+  }
+
+  /// [dispose], and waits until no recorder writes any more: what a
+  /// recording's upload was writing is written, and nothing comes after.
+  /// Recorders are admitted no more first, so none starts after the
+  /// snapshot below. Every call waits for that one drain: a later caller
+  /// finds no recorders left to wait for, yet theirs may still be writing.
+  Future<void> close() => _closed ??= _drain();
+
+  Future<void>? _closed;
+
+  Future<void> _drain() async {
+    _closing = true;
+    final controllers = [
+      for (final recorder in _recorders.values) recorder.controller,
+    ];
+    _recorders.clear();
+    await Future.wait([
+      for (final controller in controllers) controller.close(),
+    ]);
   }
 
   /// `notes.changed` whenever the list does: an edit here, a sync, another

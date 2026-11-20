@@ -17,6 +17,7 @@ pub mod emulator;
 pub mod files;
 pub mod keys;
 pub mod pane;
+pub mod pdf;
 pub mod preview;
 pub mod viewer;
 
