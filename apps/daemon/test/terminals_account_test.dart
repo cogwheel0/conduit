@@ -201,6 +201,39 @@ void main() {
     });
   });
 
+  group('a terminal that needs a saved chat', () {
+    test('is listed for the window, and selected from a saved chat only', () async {
+      final terminals = TerminalsService(container);
+      addTearDown(terminals.dispose);
+      Future<void> notFound(Future<Object?> call) => check(call).throws<RpcError>(
+        (e) => e.has((e) => e.code, 'code').equals(ConduitErrorCodes.notFound),
+      );
+
+      final listed = await terminals.servers('');
+      check(
+        listed.servers.map((s) => (s.id, s.requiresSavedChat)),
+      ).deepEquals([('box', false), ('per-chat', true)]);
+      check(
+        (await terminals.servers('local:draft')).servers.map((s) => s.id),
+      ).deepEquals(['box']);
+
+      await notFound(terminals.select('per-chat', scopeId: 'local:draft'));
+      await notFound(terminals.select('per-chat'));
+      check(container.read(selectedTerminalIdProvider)).equals('box');
+
+      final selected = await terminals.select(
+        'per-chat',
+        scopeId: 'chat-lighthouse',
+      );
+      check(selected.selectedId).equals('per-chat');
+      check(container.read(selectedTerminalIdProvider)).equals('per-chat');
+      // The terminal page opens it outside any chat, which it cannot be.
+      await notFound(
+        terminals.attach(const TerminalAttach(serverId: 'per-chat')),
+      );
+    });
+  });
+
   group('Computer views belong to the account they opened under', () {
     const chat = 'chat-lighthouse';
 
@@ -383,9 +416,19 @@ final class _GatedServer {
         if (!sessionAsked.isCompleted) sessionAsked.complete();
         await sessionHold?.future;
         body = <String, dynamic>{'id': 'session-1'};
+      case ('POST', '/api/v1/users/user/settings/update'):
+        body = <String, dynamic>{};
       case ('GET', '/api/v1/terminals/'):
         body = <Map<String, dynamic>>[
           <String, dynamic>{'id': 'box', 'name': 'Workbench'},
+          // Open WebUI 0.13.4's template that gives each saved chat its own
+          // machine.
+          <String, dynamic>{
+            'id': 'per-chat',
+            'name': 'Chat bench',
+            'template_id': 'bench',
+            'scope': 'chat',
+          },
         ];
       case ('GET', '/api/v1/terminals/box/api/config'):
         body = <String, dynamic>{

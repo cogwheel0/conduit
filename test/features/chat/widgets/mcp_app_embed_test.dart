@@ -1,13 +1,22 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
+import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -53,19 +62,35 @@ final class _RefusingApi extends ApiService {
 /// Serves the app's page, with [csp] as its policy, and runs the tools it
 /// calls.
 final class _ServingApi extends ApiService {
-  _ServingApi({this.csp = "default-src 'none'", this.html = '<p>app</p>'})
-    : super(
-        serverConfig: const ServerConfig(
-          id: 's',
-          name: 'S',
-          url: 'http://localhost:0',
-        ),
-        workerManager: WorkerManager(),
-      );
+  _ServingApi({
+    this.csp = "default-src 'none'",
+    this.html = '<p>app</p>',
+    String serverId = 's',
+  }) : super(
+         serverConfig: ServerConfig(
+           id: serverId,
+           name: 'S',
+           url: 'http://localhost:0',
+         ),
+         workerManager: WorkerManager(),
+       );
 
   final String? csp;
-  final String html;
-  final requests = <({String method, Map<String, dynamic> params})>[];
+  String html;
+  final requests =
+      <
+        ({String method, Map<String, dynamic> params, CancelToken? cancelToken})
+      >[];
+
+  /// While set, the page is sent only once it completes.
+  Completer<void>? hold;
+  bool _closed = false;
+
+  @override
+  void dispose() {
+    _closed = true;
+    super.dispose();
+  }
 
   @override
   Future<Map<String, dynamic>> runMcpAppRequest(
@@ -74,8 +99,11 @@ final class _ServingApi extends ApiService {
     Map<String, dynamic> params = const <String, dynamic>{},
     CancelToken? cancelToken,
   }) async {
-    requests.add((method: method, params: params));
+    requests.add((method: method, params: params, cancelToken: cancelToken));
     if (method == 'ui/resource') {
+      await hold?.future;
+      // As Dio's closed adapter refuses a request it had not sent yet.
+      if (_closed) throw const McpAppRpcException('The app request failed.');
       return {
         'html': html,
         'csp': ?csp,
@@ -167,9 +195,9 @@ final class _OpenApp {
   /// Posts [message] from the page over the MCP Apps bridge.
   Future<Object?> post(Map<String, Object?> message) {
     final script = view.initialUserScripts!.first.source;
-    final token = RegExp(
-      r'const bridgeToken = "([0-9a-f]+)"',
-    ).firstMatch(script)!.group(1);
+    final token = RegExp(r'const bridgeToken = "([0-9a-f]+)"')
+        .firstMatch(script)!
+        .group(1);
     final data = JavaScriptHandlerFunctionData(
       args: [token, jsonEncode(message)],
       isMainFrame: true,
@@ -202,7 +230,6 @@ _WebViews _installWebViews() {
 Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   final webViews = _installWebViews();
   await tester.pumpWidget(_harness(api));
-  await tester.tap(find.text('Open App'));
   await tester.pump();
   await tester.pump();
   final app = _OpenApp(webViews);
@@ -210,13 +237,82 @@ Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
   return app;
 }
 
-Widget _harness(ApiService api, {OpenWebUiMcpApp app = _app}) => ProviderScope(
-  overrides: [apiServiceProvider.overrideWithValue(api)],
+/// An app opened under a 400 pt stand-in for its web view at the top of
+/// the chat, whose 600 pt viewport is the test screen's. Drags on the
+/// stand-in go to the app's recognizer; each side counts the drags it wins.
+final class _DragProbe {
+  _DragProbe(this.app);
+
+  final _OpenApp app;
+  late final HorizontalDragGestureRecognizer recognizer;
+  int appDrags = 0;
+  int chatDrags = 0;
+
+  static Future<_DragProbe> open(WidgetTester tester) async {
+    final webViews = _installWebViews();
+    _DragProbe? probe;
+    await tester.pumpWidget(
+      _harness(
+        _ServingApi(),
+        child: Column(
+          children: [
+            GestureDetector(
+              onVerticalDragUpdate: (_) => probe?.chatDrags++,
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (event) => probe?.recognizer.addPointer(event),
+                child: const SizedBox(width: 800, height: 400),
+              ),
+            ),
+            const McpAppEmbed(app: _app, cacheId: 'message:tool-call'),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final app = _OpenApp(webViews);
+    app.view.onWebViewCreated!(app.controller);
+    final opened = _DragProbe(app);
+    opened.recognizer =
+        app.view.gestureRecognizers!.single.constructor()
+            as HorizontalDragGestureRecognizer;
+    addTearDown(opened.recognizer.dispose);
+    opened.recognizer
+      ..onDown = (_) {}
+      ..onStart = (_) => opened.appDrags++;
+    return probe = opened;
+  }
+}
+
+Widget _harness(
+  ApiService api, {
+  OpenWebUiMcpApp app = _app,
+  Widget? child,
+  String userId = 'invented-user',
+  String? cacheId = 'message:tool-call',
+}) => ProviderScope(
+  overrides: [
+    appDatabaseProvider.overrideWithValue(null),
+    apiServiceProvider.overrideWithValue(api),
+    currentUserProvider2.overrideWithValue(
+      User(
+        id: userId,
+        username: 'invented',
+        email: 'invented@example.com',
+        role: 'user',
+      ),
+    ),
+  ],
   child: MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    home: Scaffold(body: McpAppEmbed(app: app)),
+    home: Scaffold(
+      body: SingleChildScrollView(
+        child: child ?? McpAppEmbed(app: app, cacheId: cacheId),
+      ),
+    ),
   ),
 );
 
@@ -334,7 +430,6 @@ void main() {
     final webViews = _installWebViews();
     await tester.pumpWidget(_harness(_ServingApi(csp: null)));
 
-    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
 
     expect(
@@ -373,9 +468,9 @@ void main() {
     final api = _ServingApi();
     final first = await _openApp(tester, api);
     final firstHost = first.documentUrl.host;
-    final firstToken = RegExp(
-      r'const bridgeToken = "([0-9a-f]+)"',
-    ).firstMatch(first.view.initialUserScripts!.first.source)!.group(1);
+    final firstToken = RegExp(r'const bridgeToken = "([0-9a-f]+)"')
+        .firstMatch(first.view.initialUserScripts!.first.source)!
+        .group(1);
 
     await tester.pumpWidget(
       _harness(
@@ -387,7 +482,6 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Open App'));
     await tester.pump();
     await tester.pump();
 
@@ -419,9 +513,7 @@ void main() {
     expect(document, endsWith('\n<html><body>app</body></html>'));
   });
 
-  testWidgets('comments before an app\'s doctype move with it', (
-    tester,
-  ) async {
+  testWidgets('comments before an app\'s doctype move with it', (tester) async {
     final app = await _openApp(
       tester,
       _ServingApi(
@@ -449,44 +541,85 @@ void main() {
     );
   });
 
-  testWidgets('an app loads only when opened', (tester) async {
+  testWidgets('an app loads automatically when mounted', (tester) async {
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
 
-    expect(find.text('show_map'), findsOneWidget);
-    expect(find.text('Open App'), findsOneWidget);
-    expect(api.requests, isEmpty);
+    expect(find.text('Open App'), findsNothing);
+    expect(api.requests, ['ui/resource']);
+    await tester.pump(const Duration(seconds: 31));
+    expect(api.requests, ['ui/resource']);
   });
 
   testWidgets("a refused app says the server's reason and can be retried", (
     tester,
   ) async {
     final api = _RefusingApi();
-    await tester.pumpWidget(_harness(api));
-
-    await tester.tap(find.text('Open App'));
-    await tester.pumpAndSettle();
-
+    // Its row leaves and comes back without asking the server again.
+    for (var mount = 0; mount < 3; mount++) {
+      await tester.pumpWidget(_harness(api));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'The app could not be loaded: '
+          'Invalid app binding. Run the tool again.',
+        ),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    }
     expect(api.requests, ['ui/resource']);
-    expect(
-      find.text(
-        'The app could not be loaded: Invalid app binding. Run the tool again.',
-      ),
-      findsOneWidget,
-    );
 
+    await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
-  testWidgets('another version of the reply closes the open app', (
+  testWidgets('a load cut short by scrolling away goes on only to be kept', (
+    tester,
+  ) async {
+    final api = _ServingApi()..hold = Completer<void>();
+    final webViews = _installWebViews();
+    Future<void> mount({String? cacheId = 'message:tool-call'}) async {
+      await tester.pumpWidget(_harness(api, cacheId: cacheId));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    Future<void> unmount() =>
+        tester.pumpWidget(_harness(api, child: const SizedBox()));
+
+    // Outside a saved chat nothing keeps the page, so it stops with its row.
+    await mount(cacheId: null);
+    await unmount();
+    expect(api.requests.single.cancelToken!.isCancelled, isTrue);
+
+    await mount();
+    await unmount();
+    // Back while the first request is still on its way.
+    await mount();
+    await unmount();
+    api.hold!.complete();
+    await tester.pump();
+    await mount();
+
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
+    expect(api.requests.last.cancelToken!.isCancelled, isFalse);
+    expect(webViews.built.single.initialData!.data, contains('<p>app</p>'));
+  });
+
+  testWidgets('another version of the reply automatically loads its app', (
     tester,
   ) async {
     // Two answers calling the same tool share its binding.
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
-    await tester.tap(find.text('Open App'));
     await tester.pumpAndSettle();
     expect(find.text('Retry'), findsOneWidget);
 
@@ -503,11 +636,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open App'), findsOneWidget);
-    expect(find.text('Retry'), findsNothing);
+    expect(find.text('Open App'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(api.requests, ['ui/resource', 'ui/resource']);
   });
 
-  testWidgets('an app that did not start loads its page again on retry', (
+  testWidgets('retry fetches repaired HTML when a cached app did not start', (
     tester,
   ) async {
     final api = _ServingApi();
@@ -518,15 +652,527 @@ void main() {
     await tester.pump(const Duration(seconds: 31));
     expect(find.text('The app did not start.'), findsOneWidget);
 
+    api.html = '<p>repaired app</p>';
     await tester.tap(find.text('Retry'));
     await tester.pump();
     await tester.pump();
 
+    expect(app.view.initialData!.data, contains('repaired app'));
     expect(api.requests.map((request) => request.method), [
       'ui/resource',
       'ui/resource',
     ]);
     expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
+  });
+
+  testWidgets('revisiting uses the resource with a fresh isolated page', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    final firstOrigin = app.documentUrl;
+    await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    await tester.pumpWidget(_harness(api));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(app.documentUrl, isNot(firstOrigin));
+
+    final secondOrigin = app.documentUrl;
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          arguments: {'city': 'Oslo'},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
+    expect(app.documentUrl, isNot(secondOrigin));
+
+    final otherAccount = _ServingApi(serverId: 'another-server');
+    await tester.pumpWidget(_harness(otherAccount));
+    await tester.pump();
+    await tester.pump();
+    expect(otherAccount.requests.map((request) => request.method), [
+      'ui/resource',
+    ]);
+    expect(app.documentUrl, isNot(firstOrigin));
+  });
+
+  testWidgets('a new API client for the same account keeps the app open', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    await app.post({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/initialized',
+    });
+    await tester.pump();
+    final page = app.documentUrl;
+
+    // A refreshed token rebuilds the client; the account stays the same.
+    final refreshed = _ServingApi();
+    await tester.pumpWidget(_harness(refreshed));
+    await tester.pump();
+    await tester.pump();
+
+    // Reopening would load a new page under a new origin.
+    expect(app.documentUrl, page);
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(refreshed.requests, isEmpty);
+
+    // The app's own requests go through the current client.
+    final call = app.post({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'tools/call',
+      'params': {'name': 'zoom', 'arguments': <String, Object?>{}},
+    });
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Allow'));
+    await tester.pumpAndSettle();
+    await call;
+    expect(refreshed.requests.map((request) => request.method), ['tools/call']);
+  });
+
+  testWidgets('a load the refreshed client closed is asked again, not failed', (
+    tester,
+  ) async {
+    final webViews = _installWebViews();
+    final stale = _ServingApi()..hold = Completer<void>();
+    await tester.pumpWidget(_harness(stale));
+    await tester.pump();
+    await tester.pump();
+
+    // A token refresh replaces the client while the page is on its way.
+    final refreshed = _ServingApi();
+    await tester.pumpWidget(_harness(refreshed));
+    stale.dispose();
+    stale.hold!.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey<String>('mcp-app-card')), findsNothing);
+    expect(refreshed.requests.map((request) => request.method), [
+      'ui/resource',
+    ]);
+    expect(webViews.built.single.initialData!.data, contains('<p>app</p>'));
+  });
+
+  testWidgets('size notifications expand long apps and shrink dynamically', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    await app.post({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'ui/initialize',
+      'params': {
+        'protocolVersion': '2026-01-26',
+        'appInfo': {'name': 'test', 'version': '1'},
+        'appCapabilities': {},
+      },
+    });
+    expect(app.page.delivered.join(), isNot(contains('maxHeight')));
+    for (final height in [2000, 10000, 2500, 120]) {
+      await app.post({
+        'jsonrpc': '2.0',
+        'method': 'ui/notifications/size-changed',
+        'params': {'height': height},
+      });
+      await tester.pump();
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey<String>('mcp-app-view')))
+            .height,
+        height,
+      );
+    }
+  });
+
+  for (final reverse in [false, true]) {
+    for (final dragging in [false, true]) {
+      for (final inside in [false, true]) {
+        testWidgets(
+          'app resize preserves the reader (reverse=$reverse, dragging=$dragging, inside=$inside)',
+          (tester) async {
+            final api = _ServingApi();
+            final webViews = _installWebViews();
+            final timeline = ChatTimelineViewportController();
+            addTearDown(() async {
+              await tester.pumpWidget(const SizedBox());
+              timeline.dispose();
+            });
+            final ids = List.generate(20, (i) => 'message-$i');
+            await tester.pumpWidget(
+              _harness(
+                api,
+                child: SizedBox(
+                  height: 600,
+                  child: ChatTimelineViewport(
+                    controller: timeline,
+                    ownerGeneration: 1,
+                    initialAnchor: reverse
+                        ? const ChatScrollAnchor(
+                            messageId: 'message-15',
+                            offsetWithinMessage: 0,
+                          )
+                        : null,
+                    messageIds: ids,
+                    rowBuilder: (_, i) => Column(
+                      children: [
+                        if (i == 12 || i == 13)
+                          McpAppEmbed(app: _app, cacheId: ids[i]),
+                        SizedBox(height: 160, child: Text(ids[i])),
+                      ],
+                    ),
+                    topContentInset: 0,
+                    bottomPadding: 0,
+                    horizontalPadding: 0,
+                    cacheExtent: 1200,
+                    physics: const ClampingScrollPhysics(),
+                    maintainVisibleAnchor: true,
+                    followLatest: false,
+                    pinAutomatic: false,
+                    onPointerDown: () {},
+                    onUserDragStart: () {},
+                    onUserDragEnd: () {},
+                    onMetricsChanged: (_) {},
+                    onPinEndSpaceChanged: (_) {},
+                    onTrailingRefresh: () async {},
+                    onNativeScrollToTop: () async {},
+                  ),
+                ),
+              ),
+            );
+            await tester.pump();
+            await tester.pump();
+            final pages = <_OpenApp>[];
+            Future<void> initializePages() async {
+              for (final view in webViews.built.skip(pages.length).toList()) {
+                final page = _OpenApp(_WebViews()..built.add(view));
+                pages.add(page);
+                page.view.onWebViewCreated!(page.controller);
+                await page.post({
+                  'jsonrpc': '2.0',
+                  'method': 'ui/notifications/initialized',
+                });
+                if (inside) {
+                  await page.post({
+                    'jsonrpc': '2.0',
+                    'method': 'ui/notifications/size-changed',
+                    'params': {'height': 2000},
+                  });
+                }
+              }
+              await tester.pump();
+            }
+
+            await initializePages();
+            final target = inside ? ids[13] : ids[14];
+            final seek = timeline.jumpMessageToTop(target);
+            await tester.pump();
+            await initializePages();
+            await initializePages();
+            await tester.pumpAndSettle();
+            await seek;
+            if (inside) {
+              final scroll = await tester.startGesture(const Offset(700, 300));
+              await scroll.moveBy(const Offset(0, -140));
+              await tester.pump();
+              await scroll.up();
+              await tester.pumpAndSettle();
+              expect(timeline.rowRect(target)!.top, lessThan(0));
+              expect(timeline.rowRect(target)!.bottom, greaterThan(600));
+            }
+            final gesture = dragging
+                ? await tester.startGesture(const Offset(700, 300))
+                : null;
+            await gesture?.moveBy(const Offset(0, 30));
+            await tester.pump();
+            final before = timeline.rowRect(target)!.top;
+            for (final app in pages) {
+              await app.post({
+                'jsonrpc': '2.0',
+                'method': 'ui/notifications/size-changed',
+                'params': {'height': 4000},
+              });
+            }
+            await gesture?.moveBy(const Offset(0, 15));
+            await tester.pump();
+            expect(
+              timeline.rowRect(target)?.top,
+              closeTo(before + (dragging ? 15 : 0), 1),
+            );
+            await tester.pump();
+            expect(
+              timeline.rowRect(target)?.top,
+              closeTo(before + (dragging ? 15 : 0), 1),
+            );
+            await gesture?.cancel();
+          },
+        );
+      }
+    }
+  }
+
+  testWidgets('cache keys hash the existing invocation identity', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    _installWebViews();
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          arguments: {'city': 'Invented harbor'},
+          result: {'summary': 'Synthetic route'},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final cache = ProviderScope.containerOf(
+      tester.element(find.byType(McpAppEmbed)),
+    ).read(mcpAppResourceCacheProvider);
+    // Known SHA-256 of the original JSON identity, including input and result.
+    expect(
+      cache['7502bf804c126e44228a1afe02aa232aa582aba63fbf98937390dbfc85149c3e']
+          ?.resource
+          .html,
+      '<p>app</p>',
+    );
+  });
+
+  testWidgets('reopening reserves the last height before the new page loads', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    await app.post({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/size-changed',
+      'params': {'height': 10000},
+    });
+    await tester.pump();
+    final firstOrigin = app.documentUrl;
+    await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    await tester.pumpWidget(_harness(api));
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    await tester.pump();
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    expect(app.documentUrl, isNot(firstOrigin));
+    expect(api.requests, hasLength(1));
+  });
+
+  testWidgets('identical invocations in different messages fetch fresh HTML', (
+    tester,
+  ) async {
+    final api = _ServingApi(html: '<p>first version</p>');
+    final app = await _openApp(tester, api);
+    api.html = '<p>updated version</p>';
+    await tester.pumpWidget(
+      _harness(api, cacheId: 'another-message:tool-call'),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(2));
+    expect(app.view.initialData!.data, contains('updated version'));
+  });
+
+  testWidgets('a revised tool result fetches fresh HTML for the same message', (
+    tester,
+  ) async {
+    final api = _ServingApi(html: '<p>first version</p>');
+    final app = await _openApp(tester, api);
+    api.html = '<p>revised version</p>';
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          result: {'revision': 2},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(2));
+    expect(app.view.initialData!.data, contains('revised version'));
+  });
+
+  for (final method in [
+    'ui/notifications/size-changed',
+    'conduit/canvas-rects',
+  ]) {
+    testWidgets('canvases own pans while ordinary content scrolls ($method)', (
+      tester,
+    ) async {
+      final probe = await _DragProbe.open(tester);
+      await probe.app.post({
+        'jsonrpc': '2.0',
+        'method': method,
+        'params': {
+          'height': 2000,
+          '_conduitCanvasRects': [
+            [0, 0, 200, 400],
+          ],
+        },
+      });
+      await tester.pump();
+      await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+      expect(probe.appDrags, 1);
+      expect(probe.chatDrags, 0);
+      await tester.dragFrom(const Offset(100, 200), const Offset(60, -100));
+      expect(probe.appDrags, 2);
+      expect(probe.chatDrags, 0);
+      await tester.dragFrom(const Offset(300, 200), const Offset(0, -100));
+      expect(probe.appDrags, 2);
+      expect(probe.chatDrags, greaterThan(0));
+      await tester.dragFrom(const Offset(300, 200), const Offset(100, 0));
+      expect(probe.appDrags, 3);
+    });
+  }
+
+  testWidgets('a canvas report over the message limit is dropped unread', (
+    tester,
+  ) async {
+    final probe = await _DragProbe.open(tester);
+    await probe.app.post({
+      'jsonrpc': '2.0',
+      'method': 'conduit/canvas-rects',
+      'params': {
+        '_conduitCanvasRects': [
+          [0, 0, 200, 400],
+        ],
+        'pad': 'x' * kMcpAppMaxMessageBytes,
+      },
+    });
+
+    await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+    expect(probe.appDrags, 0);
+    expect(probe.chatDrags, greaterThan(0));
+  });
+
+  testWidgets('a region as tall as the chat leaves it vertical drags', (
+    tester,
+  ) async {
+    final probe = await _DragProbe.open(tester);
+    Future<void> reportRegion(double height) => probe.app.post({
+      'jsonrpc': '2.0',
+      'method': 'conduit/canvas-rects',
+      'params': {
+        '_conduitCanvasRects': [
+          [0, 0, 800, height],
+        ],
+      },
+    });
+
+    // A wrapper around the whole app, as tall as the chat's viewport or more.
+    for (final height in [600.0, 2000.0]) {
+      await reportRegion(height);
+      await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+      expect(probe.appDrags, 0);
+      expect(probe.chatDrags, greaterThan(0));
+    }
+    probe.chatDrags = 0;
+    await tester.dragFrom(const Offset(100, 200), const Offset(100, 0));
+    expect(probe.appDrags, 1);
+
+    // A map shorter than the chat keeps its vertical pans.
+    await reportRegion(300);
+    await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+    expect(probe.appDrags, 2);
+    expect(probe.chatDrags, 0);
+  });
+
+  testWidgets('resize rounding noise and unrenderable heights are ignored', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    Future<void> resize(Object height) async {
+      await app.post({
+        'jsonrpc': '2.0',
+        'method': 'ui/notifications/size-changed',
+        'params': {'height': height},
+      });
+      await tester.pump();
+    }
+
+    await resize(10000);
+    for (final height in [10000.1, 9999.9, 0, -1, 1e300, '20000']) {
+      await resize(height);
+      expect(tester.getSize(find.byType(McpAppEmbed)).height, 10000);
+    }
+    await resize(50000);
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 50000);
+    await resize(2000);
+    expect(tester.getSize(find.byType(McpAppEmbed)).height, 2000);
+  });
+
+  testWidgets('the resource cache is bounded and clears on session changes', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    _installWebViews();
+    for (var i = 0; i < 33; i++) {
+      await tester.pumpWidget(
+        _harness(
+          api,
+          app: OpenWebUiMcpApp(
+            serverId: 'maps',
+            toolName: 'show_map',
+            binding: '$i',
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+    expect(api.requests, hasLength(33));
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: '0',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(34));
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: '0',
+        ),
+        userId: 'another-user',
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(api.requests, hasLength(35));
   });
 
   testWidgets('on Android the loaded page cannot load itself again', (
@@ -580,7 +1226,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining(const JsonEncoder.withIndent('  ').convert(arguments)),
+      find.textContaining(
+        const JsonEncoder.withIndent('  ').convert(arguments),
+      ),
       findsOneWidget,
     );
 
@@ -588,7 +1236,10 @@ void main() {
     await tester.pumpAndSettle();
     await call;
     expect(api.requests.last.method, 'tools/call');
-    expect(api.requests.last.params, {'name': 'delete', 'arguments': arguments});
+    expect(api.requests.last.params, {
+      'name': 'delete',
+      'arguments': arguments,
+    });
 
     // A started app is told it is going, and is not waited for.
     await tester.pumpWidget(const SizedBox());

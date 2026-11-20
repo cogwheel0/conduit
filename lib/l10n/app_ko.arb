@@ -4913,5 +4913,39 @@
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   },
+  "notificationCalendarTitle": "캘린더 알림",
+  "@notificationCalendarTitle": {
+    "description": "Toggle title for reminders of Open WebUI calendar events."
+  },
+  "notificationCalendarDescription": "앱이 닫혀 있어도 캘린더 일정을 알려 줍니다.",
+  "@notificationCalendarDescription": {
+    "description": "Toggle description for calendar event reminders."
+  },
+  "notificationChannelCalendarName": "캘린더 알림",
+  "@notificationChannelCalendarName": {
+    "description": "Android notification channel name for calendar event reminders."
+  },
+  "notificationChannelCalendarDescription": "다가오는 캘린더 일정 알림",
+  "@notificationChannelCalendarDescription": {
+    "description": "Android notification channel description for calendar event reminders."
+  },
+  "calendarReminderStartsAt": "{time}에 시작",
+  "@calendarReminderStartsAt": {
+    "description": "Body of a calendar event reminder: when the event starts. {time} is a clock time such as 14:30 or 2:30 PM.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "14:30"
+      }
+    }
+  },
+  "notificationCalendarExactTitle": "정확한 시간",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "'알람 및 리마인더'를 허용하면 캘린더 알림이 정확한 시간에 도착합니다.",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
+  },
   "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요."
 }

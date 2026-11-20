@@ -103,6 +103,8 @@ class SettingsService {
       PreferenceKeys.notificationScheduledEnabled;
   static const String _notificationChannelMentionsOnlyKey =
       PreferenceKeys.notificationChannelMentionsOnly;
+  static const String _notificationCalendarEnabledKey =
+      PreferenceKeys.notificationCalendarEnabled;
 
   // Settings that name a server's data are stored per Open WebUI account;
   // see account_scoped_preferences.dart. Every read and write below resolves
@@ -250,6 +252,17 @@ class SettingsService {
     return _putPreference(_notificationChannelMentionsOnlyKey, value);
   }
 
+  /// Whether calendar events are reminded of. Device-wide.
+  static Future<bool> getNotificationCalendarEnabled() {
+    return Future.value(
+      _getPreference<bool>(_notificationCalendarEnabledKey) ?? true,
+    );
+  }
+
+  static Future<void> setNotificationCalendarEnabled(bool value) {
+    return _putPreference(_notificationCalendarEnabledKey, value);
+  }
+
   /// Get high contrast preference
   static Future<bool> getHighContrast() {
     final value = _getPreference<bool>(_highContrastKey);
@@ -363,6 +376,7 @@ class SettingsService {
       _notificationChatEnabledKey: settings.notificationChatEnabled,
       _notificationChannelEnabledKey: settings.notificationChannelEnabled,
       _notificationScheduledEnabledKey: settings.notificationScheduledEnabled,
+      _notificationCalendarEnabledKey: settings.notificationCalendarEnabled,
       // Mentions only has its own setter, so a stale bulk snapshot (another
       // setting's save waiting its turn) cannot undo it.
     };
@@ -889,6 +903,8 @@ class SettingsService {
           get<bool>(_notificationScheduledEnabledKey) ?? true,
       notificationChannelMentionsOnly:
           get<bool>(_notificationChannelMentionsOnlyKey) ?? false,
+      notificationCalendarEnabled:
+          get<bool>(_notificationCalendarEnabledKey) ?? true,
       webSearchEngine: WebSearchEngineChoice.parse(
         get<String>(PreferenceKeys.webSearchEngine),
       ),
@@ -1015,6 +1031,7 @@ class AppSettings {
   /// With [notificationChannelEnabled], only messages that mention the user
   /// or arrive in a direct message alert.
   final bool notificationChannelMentionsOnly;
+  final bool notificationCalendarEnabled;
   // On-device web search (Direct models without provider-hosted search).
   final WebSearchEngineChoice webSearchEngine;
   final SafeSearch webSearchSafeSearch;
@@ -1075,6 +1092,7 @@ class AppSettings {
     this.notificationChannelEnabled = true,
     this.notificationScheduledEnabled = true,
     this.notificationChannelMentionsOnly = false,
+    this.notificationCalendarEnabled = true,
     this.webSearchEngine = WebSearchEngineChoice.auto,
     this.webSearchSafeSearch = SafeSearch.moderate,
     this.webSearchRegion,
@@ -1131,6 +1149,7 @@ class AppSettings {
     bool? notificationChannelEnabled,
     bool? notificationScheduledEnabled,
     bool? notificationChannelMentionsOnly,
+    bool? notificationCalendarEnabled,
     WebSearchEngineChoice? webSearchEngine,
     SafeSearch? webSearchSafeSearch,
     Object? webSearchRegion = const _DefaultValue(),
@@ -1219,6 +1238,8 @@ class AppSettings {
       notificationChannelMentionsOnly:
           notificationChannelMentionsOnly ??
           this.notificationChannelMentionsOnly,
+      notificationCalendarEnabled:
+          notificationCalendarEnabled ?? this.notificationCalendarEnabled,
       webSearchEngine: webSearchEngine ?? this.webSearchEngine,
       webSearchSafeSearch: webSearchSafeSearch ?? this.webSearchSafeSearch,
       webSearchRegion: webSearchRegion is _DefaultValue
@@ -1282,6 +1303,7 @@ class AppSettings {
         other.notificationScheduledEnabled == notificationScheduledEnabled &&
         other.notificationChannelMentionsOnly ==
             notificationChannelMentionsOnly &&
+        other.notificationCalendarEnabled == notificationCalendarEnabled &&
         other.webSearchEngine == webSearchEngine &&
         other.webSearchSafeSearch == webSearchSafeSearch &&
         other.webSearchRegion == webSearchRegion &&
@@ -1339,6 +1361,7 @@ class AppSettings {
       notificationChannelEnabled,
       notificationScheduledEnabled,
       notificationChannelMentionsOnly,
+      notificationCalendarEnabled,
       webSearchEngine,
       webSearchSafeSearch,
       webSearchRegion,
@@ -1519,6 +1542,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     if (!await _awaitHydration()) return;
     state = state.copyWith(notificationChannelMentionsOnly: value);
     await SettingsService.setNotificationChannelMentionsOnly(value);
+  }
+
+  Future<void> setNotificationCalendarEnabled(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(notificationCalendarEnabled: value);
+    await SettingsService.setNotificationCalendarEnabled(value);
   }
 
   /// Applies the three server-synced notification prefs fetched from Open WebUI

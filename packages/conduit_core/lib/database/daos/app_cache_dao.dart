@@ -64,6 +64,16 @@ class AppCacheDao extends DatabaseAccessor<AppDatabase>
     return (delete(appCache)..where((_) => _startsWith(prefix))).go();
   }
 
+  Future<List<AppCacheData>> entriesWithPrefix(String prefix) {
+    return (select(appCache)
+          ..where((_) => _startsWith(prefix))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.updatedAt),
+            (t) => OrderingTerm.asc(t.key),
+          ]))
+        .get();
+  }
+
   // An exact, case-sensitive prefix match; LIKE would treat `_` and `%` in
   // [prefix] as wildcards and ignore ASCII case.
   Expression<bool> _startsWith(String prefix) =>

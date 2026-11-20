@@ -1616,6 +1616,7 @@ class BlockRenderer {
     return MarkdownDetailsBlock(
       key: _detailsKeyFromStateId(inlineExpansionStateId),
       detailsData: block.detailsData,
+      mcpAppCacheId: nestedStateScopeId,
       deferHeavyContent: heavyBlockPolicy == MarkdownHeavyBlockPolicy.defer,
       inlineExpansionStateId: inlineExpansionStateId,
       bodyBuilder: block.hasBody

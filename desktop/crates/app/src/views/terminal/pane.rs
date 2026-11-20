@@ -43,7 +43,8 @@ fn option_as_meta(cx: &App) -> bool {
 pub struct SwitchServer(pub String);
 
 /// The server picker (mobile's, in the toolbar's title): every terminal
-/// server the account has, the one shown checked.
+/// server the page can open (none that needs a saved chat), the one shown
+/// checked.
 pub fn server_menu(
     current: &str,
     position: gpui_kit::Point<gpui_kit::Pixels>,
@@ -57,6 +58,7 @@ pub fn server_menu(
             a.terminals
                 .iter()
                 .flatten()
+                .filter(|t| !t.requires_saved_chat)
                 .map(|t| {
                     let name = if t.name.trim().is_empty() {
                         t.id.clone()

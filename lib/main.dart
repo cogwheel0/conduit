@@ -111,6 +111,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 
 import 'platform/quick_actions_service.dart';
 import 'core/providers/app_startup_providers.dart';
+import 'features/notifications/services/calendar_reminder_scheduler.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'features/notifications/providers/notification_socket_listener.dart'
     show notificationRouterProvider;
@@ -411,12 +412,24 @@ void main() {
                     );
               }
               final local = ref.read(localNotificationServiceProvider);
-              final clearing = accountId == null
-                  ? local.cancelAll()
+              // Its calendar reminders that have not fired yet, including any
+              // a sync still running schedules after this.
+              final reminders = Future.sync(
+                () => ref
+                    .read(calendarReminderSchedulerProvider)
+                    .signedOut(
+                      accountId == null
+                          ? null
+                          : NotificationScope.openWebUi(accountId).value,
+                    ),
+              );
+              final Future<void> clearing = accountId == null
+                  ? Future.wait([local.cancelAll(), reminders])
                   : Future.wait([
                       local.cancelScope(
                         NotificationScope.openWebUi(accountId).value,
                       ),
+                      reminders,
                       // Pushes that arrived while the sign-out ran.
                       ref
                           .read(pushPlatformPortProvider)

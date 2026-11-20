@@ -661,14 +661,21 @@ pub fn area_rows(area: Area, lists: &AreaLists, all: bool, archived: bool) -> Ve
             dimmed: c.muted,
             ..AreaRow::of(AreaItem::Channel(c.id.clone()))
         }),
-        Area::Terminal => listed(area, lists.terminals, all, missing(area), |t| AreaRow {
-            title: if t.name.trim().is_empty() {
-                t.id.clone()
-            } else {
-                t.name.clone()
-            },
-            ..AreaRow::of(AreaItem::Terminal(t.id.clone()))
-        }),
+        Area::Terminal => {
+            // The page opens a terminal outside any chat: one that needs a
+            // saved chat is the composer's only.
+            let page: Option<Vec<&TerminalServerDto>> = lists
+                .terminals
+                .map(|t| t.iter().filter(|t| !t.requires_saved_chat).collect());
+            listed(area, page.as_deref(), all, missing(area), |t| AreaRow {
+                title: if t.name.trim().is_empty() {
+                    t.id.clone()
+                } else {
+                    t.name.clone()
+                },
+                ..AreaRow::of(AreaItem::Terminal(t.id.clone()))
+            })
+        }
         Area::Hermes => {
             // The phone's Hermes tab: the connection in use (its switcher),
             // Scheduled Agents, the bots, the rooms, then the conversations
@@ -1644,6 +1651,31 @@ mod tests {
             labels(&area_rows(Area::Channels, &held, false, false)),
             ["Empty"]
         );
+    }
+
+    #[test]
+    fn the_terminal_page_leaves_out_a_terminal_that_needs_a_saved_chat() {
+        let terminal = |id: &str, requires_saved_chat: bool| TerminalServerDto {
+            id: id.into(),
+            name: id.into(),
+            kind: "system".into(),
+            requires_saved_chat,
+        };
+        let both = [terminal("box", false), terminal("per-chat", true)];
+        let only_chats = [terminal("per-chat", true)];
+        let rows = |terminals: &[TerminalServerDto]| {
+            labels(&area_rows(
+                Area::Terminal,
+                &AreaLists {
+                    terminals: Some(terminals),
+                    ..Default::default()
+                },
+                false,
+                false,
+            ))
+        };
+        assert_eq!(rows(&both), [r#"Terminal("box")"#]);
+        assert_eq!(rows(&only_chats), ["Empty"]);
     }
 
     #[test]
