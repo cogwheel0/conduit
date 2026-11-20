@@ -2748,8 +2748,23 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// [turn]'s question is held by the server ([_heldQuestion]): the turn
   /// ends here, with neither an answer nor a failure, as a queued one does
   /// ([_handOffQueued]). The windows fetch the chat, where the question shows
-  /// waiting, and the answer comes with a later fetch of it.
+  /// waiting, and the answer comes with a later fetch of it. A comparison's
+  /// other answers end held first, the same way.
   void _endHeld(_ChatSession session, _Turn turn) {
+    for (final entry in turn.companions.entries) {
+      if (entry.value.finished) continue;
+      entry.value.finished = true;
+      _remember(entry.key);
+      _events.emit(
+        ConduitEventSpecs.turnFinished,
+        TurnFinished(
+          chatId: turn.chatId,
+          messageId: entry.key,
+          ok: true,
+          held: true,
+        ),
+      );
+    }
     turn.finished = true;
     if (!turn.ended.isCompleted) turn.ended.complete();
     turn.ticker?.cancel();

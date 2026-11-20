@@ -414,6 +414,9 @@ final class FakeOwuiChats {
   Completer<void>? holdChatSaves;
   Completer<void> chatSaveAsked = Completer<void>();
 
+  /// While set, [holdChatSaves] holds only this chat's saves.
+  String? holdChatSavesOf;
+
   /// A held chat read or save, once let go, loses its connection instead of
   /// being answered, as when the network drops.
   bool dropHeldChats = false;
@@ -936,7 +939,11 @@ final class FakeOwuiChats {
     }
     if (chatId != null && stored.containsKey(chatId)) {
       final row = stored[chatId]!;
-      final held = post ? holdChatSaves : holdChatReads;
+      final held = !post
+          ? holdChatReads
+          : holdChatSavesOf == null || holdChatSavesOf == chatId
+          ? holdChatSaves
+          : null;
       if (held != null) {
         final asked = post ? chatSaveAsked : chatReadAsked;
         if (!asked.isCompleted) asked.complete();

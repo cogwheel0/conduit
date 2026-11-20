@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:conduit_core/database/database_provider.dart'
     show openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -393,4 +394,95 @@ void main() {
       expect(owui.chats.completions, hasLength(2));
     },
   );
+
+  test('a comparison the server holds ends each of its other columns held, '
+      'before its own', () async {
+    const chatId = 'chat-scullery';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    // The account's model, as one picked or offered by default.
+    runtime.container
+        .read(selectedModelProvider.notifier)
+        .set(const core.Model(id: 'kettle-model', name: 'kettle-model'));
+    final started = <TurnStarted>[];
+    final finished = <TurnFinished>[];
+    final completed = <String>[];
+    events.attach('probe', (envelope) {
+      switch (envelope.event) {
+        case ConduitEvents.turnStarted:
+          started.add(TurnStarted.fromJson(envelope.payload));
+        case ConduitEvents.turnFinished:
+          finished.add(TurnFinished.fromJson(envelope.payload));
+        case ConduitEvents.turnCompleted:
+          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+      }
+    });
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is the kettle on?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    await until(() => completed.isNotEmpty);
+
+    final elsewhere = chats.runElsewhere(chatId);
+    // A drain already running (another chat's send, its save held here)
+    // takes the comparison's request once it is free: the comparison's send
+    // returns first, and its turn starts with its columns before the server
+    // holds it.
+    const otherId = 'chat-larder';
+    chats
+      ..seed(otherId, userId: 'user-ada')
+      ..holdChatSavesOf = otherId
+      ..chatSaveAsked = Completer<void>();
+    final saves = chats.holdChatSaves = Completer<void>();
+    final other = clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: otherId,
+          model: 'kettle-model',
+          text: 'Is the oven on?',
+        ),
+      ),
+    );
+    await clock.during(chats.chatSaveAsked.future);
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          compareModels: <String>['kettle-model', 'kettle-model'],
+          text: 'And the pantry?',
+        ),
+      ),
+    );
+    final main = sent.assistantMessageId;
+    await until(() => started.any((s) => s.messageId == main));
+    chats.holdChatSaves = null;
+    saves.complete();
+    await clock.during(other);
+    await until(() => finished.any((f) => f.messageId == main));
+
+    final turn = started.lastWhere((s) => s.messageId == main);
+    final others = [
+      for (final id in turn.companionIds)
+        if (id != main) id,
+    ];
+    expect(others, hasLength(1));
+    expect(chats.heldCompletions, hasLength(1));
+    expect(
+      [
+        for (final f in finished)
+          if (f.messageId == main || others.contains(f.messageId))
+            (f.messageId, f.ok, f.held),
+      ],
+      [for (final id in others) (id, true, true), (main, true, true)],
+    );
+    expect(completed, isNot(contains(anyOf([main, ...others]))));
+    elsewhere.complete();
+    await pumpEventQueue();
+  });
 }
