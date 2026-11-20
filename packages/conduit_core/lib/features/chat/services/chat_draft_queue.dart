@@ -669,6 +669,11 @@ class ChatDraftQueueController extends Notifier<List<ChatDraftQueue>> {
         !draft.attachmentIds.contains(attachmentId)) {
       return false;
     }
+    // A draft of files alone would be sent empty once its last file goes.
+    if (draft.text.trim().isEmpty &&
+        draft.attachmentIds.every((owned) => owned == attachmentId)) {
+      return removeDraft(draftId);
+    }
     _replace(
       queue.id,
       (queue) => queue._copyWith(

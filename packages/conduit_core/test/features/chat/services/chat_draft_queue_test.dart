@@ -686,15 +686,27 @@ void main() {
       final s = await _Session.start();
       s.attach([_file('bad.txt', status: FileUploadStatus.failed)]);
       final broken = s.queue.enqueue('has a bad file')!;
+      // A draft of files alone has nothing left once its file goes.
+      s.attach([_file('also-bad.txt', status: FileUploadStatus.failed)]);
+      final filesOnly = s.queue.enqueue('')!;
       s.queue.enqueue('fine');
 
       s.finishResponse();
       await s.settle();
       check(await s.sentUserRows()).isEmpty();
-      check(s.active!.drafts).length.equals(2);
+      check(s.active!.drafts).length.equals(3);
 
       check(s.queue.removeDraftAttachment(broken.id, broken.attachmentIds.single))
           .isTrue();
+      check(
+        s.queue.removeDraftAttachment(
+          filesOnly.id,
+          filesOnly.attachmentIds.single,
+        ),
+      ).isTrue();
+      check(s.active!.drafts.map((draft) => draft.id)).not(
+        (it) => it.contains(filesOnly.id),
+      );
       await s.until(() => s.active == null);
 
       check((await s.sentUserRows()).single.content)
