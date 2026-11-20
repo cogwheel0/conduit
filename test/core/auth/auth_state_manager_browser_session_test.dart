@@ -1480,10 +1480,9 @@ void main() {
 
         async.elapse(const Duration(minutes: 5));
         var settled = false;
-        rig.auth.browserRevocationsSettled.then(
-          (_) => settled = true,
-          onError: caught,
-        );
+        rig.auth.browserRevocationsSettled.then((_) {
+          settled = true;
+        }, onError: caught);
         async.elapse(const Duration(seconds: 1));
         rethrowCaught();
         check(settled).isTrue();
