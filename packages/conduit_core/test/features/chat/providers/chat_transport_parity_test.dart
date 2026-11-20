@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/socket_service.dart';
@@ -526,7 +527,19 @@ class _MockSocketService implements SocketService {
   Stream<void> get onReconnect => _injector.reconnects.stream;
 
   @override
+  Stream<SocketHealth> get healthStream => const Stream<SocketHealth>.empty();
+
+  @override
+  Stream<void> get transportPolicyChanges => const Stream<void>.empty();
+
+  @override
   bool get isConnected => true;
+
+  @override
+  bool get isAppForeground => true;
+
+  @override
+  bool get mayMaintainTransport => true;
 
   @override
   String? get sessionId => _injector.sessionId;
