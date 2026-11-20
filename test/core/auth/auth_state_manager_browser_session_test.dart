@@ -1440,9 +1440,21 @@ void main() {
       fakeAsync((async) {
         Object? failure;
         StackTrace? trace;
-        var done = false;
+        void caught(Object error, StackTrace stackTrace) {
+          failure ??= error;
+          trace ??= stackTrace;
+        }
+
+        void rethrowCaught() {
+          if (failure case final error?) {
+            Error.throwWithStackTrace(error, trace!);
+          }
+        }
+
+        late _Rig rig;
+        var heldBack = false;
         () async {
-          final rig = await _Rig.start();
+          rig = await _Rig.start();
           when(() => rig.storage.browserSignInSessionFor('account-b'))
               .thenAnswer((_) async => _session);
           when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
@@ -1460,25 +1472,24 @@ void main() {
           await rig.auth.signOutAccount('account-b');
           await pumpEventQueue();
           check(rig.service.revoked).isEmpty();
+          heldBack = true;
+        }().then((_) {}, onError: caught);
+        async.elapse(const Duration(minutes: 1));
+        rethrowCaught();
+        check(heldBack).isTrue();
 
-          await Future<void>.delayed(const Duration(minutes: 5, seconds: 1));
-          await rig.auth.browserRevocationsSettled;
-          check(
-            rig.service.revoked.map((session) => session.refreshToken),
-          ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
-        }().then(
-          (_) => done = true,
-          onError: (Object error, StackTrace stackTrace) {
-            failure = error;
-            trace = stackTrace;
-            done = true;
-          },
+        async.elapse(const Duration(minutes: 5));
+        var settled = false;
+        rig.auth.browserRevocationsSettled.then(
+          (_) => settled = true,
+          onError: caught,
         );
-        while (!done && async.elapsed < const Duration(minutes: 10)) {
-          async.elapse(const Duration(seconds: 1));
-        }
-        if (failure case final error?) Error.throwWithStackTrace(error, trace!);
-        check(done).isTrue();
+        async.elapse(const Duration(seconds: 1));
+        rethrowCaught();
+        check(settled).isTrue();
+        check(
+          rig.service.revoked.map((session) => session.refreshToken),
+        ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
       });
     });
 
