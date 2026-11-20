@@ -1579,6 +1579,72 @@ void main() {
     },
   );
 
+  for (final (:bargeIn, :serverRecorder, :voiceChat) in const [
+    (bargeIn: false, serverRecorder: false, voiceChat: false),
+    (bargeIn: true, serverRecorder: false, voiceChat: true),
+    (bargeIn: false, serverRecorder: true, voiceChat: true),
+  ]) {
+    test('iOS speaks ${voiceChat ? 'in voice chat' : 'at media loudness'} with '
+        'barge-in ${bargeIn ? 'on' : 'off'}'
+        '${serverRecorder ? ' and the server recorder held' : ''}', () async {
+      final input = _FakeVoiceInputService()..nativeLocalStt = !serverRecorder;
+      if (serverRecorder) {
+        input
+          ..localSttAvailable = false
+          ..serverSttAvailable = true
+          ..sttPreference = SttPreference.serverOnly
+          ..holdServerRecorderOnComplete = true;
+      }
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            AppSettings(
+              voiceBargeInEnabled: bargeIn,
+              sttPreference: serverRecorder
+                  ? SttPreference.serverOnly
+                  : SttPreference.deviceOnly,
+            ),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          voiceModePlatformProvider.overrideWithValue(
+            const _IosVoiceModePlatform(),
+          ),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent(
+        'how loud is the reply',
+        close: serverRecorder,
+      );
+      await _until(() => tts.finishedTexts.isNotEmpty);
+
+      // Voice chat's processing plays the reply far quieter than media
+      // (#912), so it is kept for when something still listens through it.
+      check(audioSession.speakingCalls).equals(1);
+      check(audioSession.bargeInSpeakingCalls).equals(voiceChat ? 1 : 0);
+      await controller.stop();
+    });
+  }
+
   test('tracks the spoken assistant chunk and word progress', () async {
     final input = _FakeVoiceInputService();
     final tts = _FakeTextToSpeechService()..holdCompletion = true;
@@ -3749,9 +3815,24 @@ class _FakeChatVoiceBackgroundCoordinator implements VoiceBackgroundPort {
   }
 }
 
+class _IosVoiceModePlatform implements VoiceModePlatformPort {
+  const _IosVoiceModePlatform();
+
+  @override
+  bool get isIOS => true;
+  @override
+  bool get isAndroid => false;
+  @override
+  Future<void> requestCallRoutingPermission() async {}
+}
+
 class _FakeChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   int listeningCalls = 0;
   int speakingCalls = 0;
+
+  /// The speaking passes that asked for voice chat, which [speakingCalls]
+  /// counts too.
+  int bargeInSpeakingCalls = 0;
   int deactivateCalls = 0;
   int defaultRouteCalls = 0;
   bool throwOnDeactivate = false;
@@ -3810,6 +3891,7 @@ class _FakeChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   @override
   Future<void> configureForBargeInSpeaking() async {
     speakingCalls += 1;
+    bargeInSpeakingCalls += 1;
   }
 
   @override

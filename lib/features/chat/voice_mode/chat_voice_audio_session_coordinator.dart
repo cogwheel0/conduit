@@ -553,12 +553,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
     // in or pulled out during the scan above arrives as the first event and
     // corrects this snapshot.
     _watchAudioDevices();
-    if (attached != false) {
-      // A failed scan says nothing about what is plugged in, and playing an
-      // answer out of the loudspeaker over someone's headset is worse than
-      // leaving the route alone.
-      return;
-    }
+    // A failed scan starts on the loudspeaker too: a call on the earpiece is
+    // one nobody holding the phone out can hear (#912), and the device watch
+    // above moves the call to a headset it finds.
+    if (attached == true) return;
     _speakerphoneEnabled = true;
     _defaultRouteAwaitingConfirmation = true;
   }

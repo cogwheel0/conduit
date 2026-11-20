@@ -1697,7 +1697,12 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
           inputOwnsResponseCapture = await input.prepareResponseWaitHandoff();
           if (!_isCurrent(token)) return;
         }
-        if (_platform.isIOS) {
+        // Voice chat's processing plays replies far quieter than spoken audio
+        // (#912), so iOS keeps it only while something still listens: barge-in,
+        // or a server recorder held through the reply, which `record` does
+        // not restart after a mode change. The native response-wait capture
+        // does restart.
+        if (_platform.isIOS && (keepListening || inputOwnsResponseCapture)) {
           await _audioSessionCoordinator?.configureForBargeInSpeaking();
         } else {
           await _audioSessionCoordinator?.configureForSpeaking();
