@@ -3666,6 +3666,7 @@ mod tests {
                     connection: None,
                     logo: None,
                     agent: None,
+                    device: None,
                 }],
                 selected_id: Some("k".into()),
                 ..Default::default()

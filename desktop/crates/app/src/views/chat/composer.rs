@@ -2282,10 +2282,50 @@ impl ChatComposer {
                 ComposerMenu::SaveAsNote,
             );
         }
-        // Tools, then filters, each under its heading. A LibreChat model's
-        // own switches (web search, code, file search, the user's MCP
-        // servers) are tools here too.
-        let tools: Vec<_> = options.tools.iter().chain(&options.mcp_tools).collect();
+        // The terminal its tool uses, as mobile's Tools section offers it
+        // (Open WebUI turns only; a server that needs a saved chat waits
+        // for one). A device's are listed with its tools.
+        let chat_saved = self
+            .composer
+            .read(cx)
+            .draft_key()
+            .is_some_and(|k| k.chat_id.is_some());
+        let (device_terminals, terminals): (Vec<_>, Vec<_>) = cx
+            .try_global::<crate::AppState>()
+            .map(|s| s.stores.areas.read(cx))
+            .filter(|_| options.context)
+            .map(|areas| {
+                areas
+                    .terminals
+                    .iter()
+                    .flatten()
+                    .filter(|t| chat_saved || !t.requires_saved_chat)
+                    .map(|t| {
+                        let name = if t.name.trim().is_empty() {
+                            t.id.clone()
+                        } else {
+                            t.name.clone()
+                        };
+                        (
+                            t.id.clone(),
+                            name,
+                            areas.terminal_selected.as_deref() == Some(t.id.as_str()),
+                            t.device,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .partition(|t| t.3);
+        // Tools, then what the user's devices offer, then filters, each
+        // under its heading. A LibreChat model's own switches (web search,
+        // code, file search, the user's MCP servers) are tools here too.
+        let (device_tools, tools): (Vec<_>, Vec<_>) = options
+            .tools
+            .iter()
+            .chain(&options.mcp_tools)
+            .partition(|t| t.device);
         let librechat = store.librechat_tools();
         if !tools.is_empty() || !librechat.is_empty() {
             rows.push(PlusRow::Separator);
@@ -2324,6 +2364,34 @@ impl ChatComposer {
                 item(&mut rows, label, false, checked, action);
             }
         }
+        if !device_tools.is_empty() || !device_terminals.is_empty() {
+            rows.push(PlusRow::Separator);
+            item(
+                &mut rows,
+                l10n.desktop_your_devices(),
+                true,
+                None,
+                ComposerMenu::Heading,
+            );
+            for tool in device_tools {
+                item(
+                    &mut rows,
+                    tool.name.clone(),
+                    false,
+                    Some(tool_ids.contains(&tool.id)),
+                    ComposerMenu::Tool(tool.id.clone()),
+                );
+            }
+            for (id, name, selected, _) in device_terminals {
+                item(
+                    &mut rows,
+                    name,
+                    false,
+                    Some(selected),
+                    ComposerMenu::Terminal(id),
+                );
+            }
+        }
         if !options.filters.is_empty() {
             rows.push(PlusRow::Separator);
             item(&mut rows, l10n.filters(), true, None, ComposerMenu::Heading);
@@ -2337,39 +2405,6 @@ impl ChatComposer {
                 );
             }
         }
-        // The terminal its tool uses, as mobile's Tools section offers it
-        // (Open WebUI turns only; a server that needs a saved chat waits
-        // for one).
-        let chat_saved = self
-            .composer
-            .read(cx)
-            .draft_key()
-            .is_some_and(|k| k.chat_id.is_some());
-        let terminals: Vec<(String, String, bool)> = cx
-            .try_global::<crate::AppState>()
-            .map(|s| s.stores.areas.read(cx))
-            .filter(|_| options.context)
-            .map(|areas| {
-                areas
-                    .terminals
-                    .iter()
-                    .flatten()
-                    .filter(|t| chat_saved || !t.requires_saved_chat)
-                    .map(|t| {
-                        let name = if t.name.trim().is_empty() {
-                            t.id.clone()
-                        } else {
-                            t.name.clone()
-                        };
-                        (
-                            t.id.clone(),
-                            name,
-                            areas.terminal_selected.as_deref() == Some(t.id.as_str()),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         if !terminals.is_empty() {
             rows.push(PlusRow::Separator);
             item(
@@ -2379,7 +2414,7 @@ impl ChatComposer {
                 None,
                 ComposerMenu::Heading,
             );
-            for (id, name, selected) in terminals {
+            for (id, name, selected, _) in terminals {
                 item(
                     &mut rows,
                     name,
@@ -3790,10 +3825,11 @@ impl ChatComposer {
         let id = model.id.clone();
         // Apple's model says where it runs, as on the phone.
         let apple = crate::stores::composer::is_apple_on_device(model);
-        // A coding agent says where it runs: its terminal, as on the phone.
+        // A coding agent or a device's model says where it runs, as on the
+        // phone.
         let provider = if apple {
             l10n.desktop_apple_on_this_mac()
-        } else if let Some(place) = crate::stores::composer::agent_place(model) {
+        } else if let Some(place) = crate::stores::composer::model_place(model) {
             place
         } else {
             model.connection.clone().unwrap_or_default()
@@ -4928,6 +4964,7 @@ mod tests {
                 connection: None,
                 logo: None,
                 agent: None,
+                device: None,
             }],
             selected_id: Some("k".into()),
             ..Default::default()
@@ -5777,6 +5814,53 @@ mod tests {
             window.draw(cx).clear(cx);
         });
         (view, vcx, seen)
+    }
+
+    /// The + menu's labels, headings included, in order.
+    fn plus_labels(view: &Entity<ChatComposer>, cx: &mut VisualTestContext) -> Vec<String> {
+        cx.update(|window, cx| {
+            view.read(cx)
+                .plus_rows(window, cx)
+                .into_iter()
+                .filter_map(|row| match row {
+                    PlusRow::Item { label, .. } => Some(label),
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    #[gpui_kit::test]
+    fn the_tools_a_users_devices_offer_are_listed_under_your_devices(cx: &mut TestAppContext) {
+        let tool = |id: &str, name: &str, device: bool| conduit_protocol::ToolSummary {
+            id: id.into(),
+            name: name.into(),
+            description: None,
+            device,
+        };
+        let daemon = FakeDaemon::new();
+        daemon.returns::<conduit_protocol::methods::ComposerOptions>(ComposerOptions {
+            tools: vec![
+                tool("weather", "Weather", false),
+                tool(
+                    "server:tether:3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d:garage_tools",
+                    "Studio Mac \u{b7} Garage tools",
+                    true,
+                ),
+            ],
+            ..Default::default()
+        });
+        let (view, cx, _) = composer_on(daemon, cx);
+        let l10n = L10n::new("en");
+
+        let labels = plus_labels(&view, cx);
+
+        let after = |heading: String| labels.iter().skip_while(|l| **l != heading).nth(1).cloned();
+        assert_eq!(after(l10n.tools()).as_deref(), Some("Weather"));
+        assert_eq!(
+            after(l10n.desktop_your_devices()).as_deref(),
+            Some("Studio Mac \u{b7} Garage tools")
+        );
     }
 
     fn set_options(

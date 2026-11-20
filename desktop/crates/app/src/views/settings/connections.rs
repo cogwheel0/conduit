@@ -369,7 +369,9 @@ impl Render for PersonalConnectionsPane {
             return div().child(controls::lead(l10n.desktop_loading(), cx));
         };
         let blocked = match list.access {
-            PersonalAccess::Allowed | PersonalAccess::Unknown => None,
+            PersonalAccess::Allowed | PersonalAccess::MovedToTether | PersonalAccess::Unknown => {
+                None
+            }
             PersonalAccess::NoAccount => Some(l10n.personal_connections_no_account()),
             PersonalAccess::ServerDisabled => Some(l10n.personal_connections_unavailable_server()),
             PersonalAccess::NoPermission => {
@@ -393,6 +395,9 @@ impl Render for PersonalConnectionsPane {
                         }))
                         .into_any_element(),
                 ]));
+        }
+        if list.access == PersonalAccess::MovedToTether {
+            return moved(&list, &l10n, cx);
         }
         let account = crate::views::privacy::name(&list.account_name, cx);
         let server = crate::views::privacy::host(&list.server_name, cx);
@@ -459,6 +464,52 @@ impl Render for PersonalConnectionsPane {
     }
 }
 
+/// A server that moved personal connections to Tether (Open WebUI 0.13.4):
+/// why they no longer apply, and the saved ones as they are, to read only.
+fn moved(list: &PersonalConnections, l10n: &L10n, cx: &App) -> gpui_kit::Div {
+    let mut sections: Vec<AnyElement> = vec![
+        controls::lead(l10n.personal_connections_moved_to_tether(), cx)
+            .debug_selector(|| "personal-connections-moved".into())
+            .into_any_element(),
+    ];
+    if !list.tool_servers.is_empty() || !list.terminals.is_empty() {
+        sections.push(
+            controls::lead(l10n.personal_connections_saved_list_unused(), cx).into_any_element(),
+        );
+    }
+    for (title, entries) in [
+        (l10n.tool_servers(), &list.tool_servers),
+        (l10n.personal_connections_terminals(), &list.terminals),
+    ] {
+        if entries.is_empty() {
+            continue;
+        }
+        let rows = entries
+            .iter()
+            .map(|entry| {
+                let name = if entry.name.trim().is_empty() {
+                    l10n.tool_server()
+                } else {
+                    entry.name.clone()
+                };
+                let place = if entry.editable {
+                    entry.endpoint.clone()
+                } else {
+                    l10n.personal_connections_unsupported()
+                };
+                let subtitle = if entry.enabled {
+                    place
+                } else {
+                    format!("{place} \u{b7} {}", l10n.disabled())
+                };
+                setting_row(name, Some(subtitle.into()), div(), cx).into_any_element()
+            })
+            .collect();
+        sections.push(settings_section(title, None, rows, cx).into_any_element());
+    }
+    div().flex().flex_col().gap(px(22.)).children(sections)
+}
+
 #[cfg(test)]
 mod tests {
     use conduit_protocol::{PersonalConnectionDto, PersonalConnections, PersonalKind, methods};
@@ -489,6 +540,22 @@ mod tests {
     fn pane(stores: &Stores, vcx: &mut VisualTestContext) -> Entity<PersonalConnectionsPane> {
         let stores = stores.clone();
         vcx.update(|window, cx| cx.new(|cx| PersonalConnectionsPane::new(stores, window, cx)))
+    }
+
+    /// A server that moved them to Tether says so, and lists the saved ones
+    /// with no way to change them: no owner was handed out.
+    #[gpui_kit::test]
+    fn a_server_that_moved_them_to_tether_says_so(cx: &mut gpui_kit::TestAppContext) {
+        let (daemon, stores, vcx) = bench(cx);
+        let mut moved = named("Tide tables");
+        moved.access = conduit_protocol::PersonalAccess::MovedToTether;
+        moved.owner = String::new();
+        daemon.returns::<methods::IntegrationsList>(moved);
+        let (_pane, vcx) =
+            vcx.add_window_view(move |window, cx| PersonalConnectionsPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(vcx.debug_bounds("personal-connections-moved").is_some());
     }
 
     /// A read that lands after a newer one is not shown over it.

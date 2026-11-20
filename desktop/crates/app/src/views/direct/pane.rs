@@ -1291,6 +1291,24 @@ impl Render for DirectPane {
                     .into_any_element(),
             );
         }
+        // A server that moved its users' connections to Tether says so where
+        // they were.
+        if !list.open_web_ui_available && list.open_web_ui_moved_to_tether {
+            sections.push(
+                settings_section(
+                    l10n.open_web_ui_direct_connections_section_title(),
+                    None,
+                    vec![
+                        controls::lead(l10n.open_web_ui_direct_connections_moved_to_tether(), cx)
+                            .debug_selector(|| "direct-owui-moved".into())
+                            .p(px(10.))
+                            .into_any_element(),
+                    ],
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         sections.push(
             self.connections(
                 Connections {
@@ -1450,6 +1468,32 @@ mod tests {
             built.iter().any(|r| r.end == 500),
             "the scroll never reached the last model"
         );
+    }
+
+    /// A server that moved its users' connections to Tether says so where
+    /// they were listed; one that keeps them does not.
+    #[gpui_kit::test]
+    fn a_server_that_moved_its_connections_to_tether_says_so(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::stores::rpc::fake::FakeDaemon;
+        let daemon = FakeDaemon::new();
+        let scratch = std::env::temp_dir().join(format!("conduit-dmoved-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let moved = DirectConnectionList {
+            open_web_ui_moved_to_tether: true,
+            ..Default::default()
+        };
+        daemon.returns::<methods::DirectReload>(moved.clone());
+        daemon.returns::<methods::DirectList>(moved);
+        let (_pane, vcx) =
+            cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx));
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(vcx.debug_bounds("direct-owui-moved").is_some());
     }
 
     /// A history switch the daemon did not take shows where chats really

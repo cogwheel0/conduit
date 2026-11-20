@@ -269,6 +269,10 @@ pub fn error_text(block: &MessageBlockDto, l10n: &L10n) -> String {
         // A polling-only server may still be writing it (the core's English
         // stays out of the window).
         Some("heldReplyStillRunning") => Some(l10n.held_reply_still_running()),
+        // A relay to one of the user's Tether devices that failed.
+        Some("tetherInterrupted") => Some(l10n.tether_relay_interrupted()),
+        Some("tetherUnavailable") => Some(l10n.tether_relay_unavailable()),
+        Some("tetherBusy") => Some(l10n.tether_relay_busy()),
         Some(t) => apple_error_text(t, l10n),
         None => None,
     };
@@ -1979,6 +1983,21 @@ mod tests {
         block.error = Some("The server is still working on it (core's own English).".into());
         block.r#type = Some("heldReplyStillRunning".into());
         assert_eq!(error_text(&block, &l10n), l10n.held_reply_still_running());
+    }
+
+    #[test]
+    fn a_failed_relay_to_a_users_device_is_worded_here() {
+        let l10n = L10n::new("en");
+        for (kind, words) in [
+            ("tetherInterrupted", l10n.tether_relay_interrupted()),
+            ("tetherUnavailable", l10n.tether_relay_unavailable()),
+            ("tetherBusy", l10n.tether_relay_busy()),
+        ] {
+            let mut block = empty_block(MessageBlockKind::Error);
+            block.error = Some("Tether's own English, from the server.".into());
+            block.r#type = Some(kind.into());
+            assert_eq!(error_text(&block, &l10n), words);
+        }
     }
 
     #[test]
