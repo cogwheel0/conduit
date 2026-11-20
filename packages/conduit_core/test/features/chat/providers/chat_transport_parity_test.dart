@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/socket_service.dart';
@@ -61,6 +62,34 @@ class _TrackingApiService extends ApiService {
   }) async {
     chatCompletedCalls += 1;
     return const <String, dynamic>{};
+  }
+}
+
+/// Answers a read of the chat only once [release] completes, with
+/// [conversation].
+class _HeldSnapshotApi extends ApiService {
+  _HeldSnapshotApi(this.conversation)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final Conversation conversation;
+  final asked = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    if (!asked.isCompleted) asked.complete();
+    await release.future;
+    return conversation;
   }
 }
 
@@ -392,6 +421,15 @@ class FakeSocketInjector {
 
   bool get hasChatHandler => _registrations.isNotEmpty;
 
+  /// Reports that events were dropped from the replay buffer.
+  void replayGap() {
+    for (final registration in List<_ChatHandlerRegistration>.from(
+      _registrations,
+    )) {
+      registration.onReplayGap?.call(SocketReplayGapReason.eventLimit);
+    }
+  }
+
   void emitChatEvent(
     String type,
     dynamic payload, {
@@ -438,6 +476,7 @@ class _ChatHandlerRegistration {
     required this.messageId,
     required this.requireFocus,
     required this.handler,
+    this.onReplayGap,
   });
 
   final String id;
@@ -446,6 +485,7 @@ class _ChatHandlerRegistration {
   final String? messageId;
   final bool requireFocus;
   final SocketChatEventHandler handler;
+  final SocketReplayGapCallback? onReplayGap;
 }
 
 bool _shouldDeliver(
@@ -506,6 +546,7 @@ class _MockSocketService implements SocketService {
         messageId: messageId,
         requireFocus: requireFocus,
         handler: handler,
+        onReplayGap: onReplayGap,
       ),
     );
     return SocketEventSubscription(
@@ -714,6 +755,62 @@ void main() {
 
       check(log.messages.single.error?.relay)
           .equals(TetherRelayFailure.interrupted);
+    });
+
+    test('a device\'s failure keeps its relay when a snapshot read before '
+        'it arrived brings the saved copy of the same error', () async {
+      const generic = 'Open WebUI: Server Connection Error';
+      final api = _HeldSnapshotApi(
+        Conversation(
+          id: 'conv-1',
+          title: 'Relay',
+          createdAt: DateTime.utc(2026, 11, 20),
+          updatedAt: DateTime.utc(2026, 11, 20),
+          messages: [
+            ChatMessage(
+              id: 'msg-1',
+              role: 'assistant',
+              content: '',
+              timestamp: DateTime.utc(2026, 11, 20),
+              metadata: const {'responseDone': true},
+              error: const ChatMessageError(content: generic),
+            ),
+          ],
+        ),
+      );
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        api: api,
+        socketService: _MockSocketService(registrar),
+        viaTether: true,
+      );
+
+      registrar.replayGap();
+      await api.asked.future;
+      registrar.emitChatEvent(
+        'chat:message:error',
+        const {
+          'error': {'content': generic},
+          'done': true,
+        },
+        conversationId: 'conv-1',
+        sessionId: 'sess-1',
+        messageId: 'msg-1',
+      );
+      api.release.complete();
+      await pumpEventQueue();
+
+      check(log.messages.single.error).isNotNull()
+        ..has((it) => it.content, 'content').equals(generic)
+        ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.interrupted);
     });
 
     test('taskSocket completion calls chatCompleted exactly once', () async {

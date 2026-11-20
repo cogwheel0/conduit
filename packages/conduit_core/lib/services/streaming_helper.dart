@@ -2668,7 +2668,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             isStreaming: recoverAuthoritativeState
                 ? recoveredStreamingState
                 : null,
-            error: recoverAuthoritativeState ? assistant.error : null,
+            // The saved copy carries no relay: its error is read here, and
+            // the same words keep the relay already recorded.
+            error: recoverAuthoritativeState && assistant.error != null
+                ? answerError(
+                    assistant.error!.content,
+                    recorded:
+                        assistant.error!.relay ??
+                        (current.error?.content == assistant.error!.content
+                            ? current.error?.relay
+                            : null),
+                  )
+                : null,
             clearError: recoverAuthoritativeState && assistant.error == null,
           );
         },
