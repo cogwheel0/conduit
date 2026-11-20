@@ -1617,11 +1617,8 @@ class NativeSheetHydrationService {
           kind: NativeSheetItemKind.toggle,
           value: s.notificationCalendarEnabled,
         ),
-      // Android delivers them on the minute only with "Alarms & reminders",
-      // which is off for new installs since Android 14. Offered, never asked.
-      if (defaultTargetPlatform == TargetPlatform.android &&
-          s.notificationCalendarEnabled &&
-          _ref.read(calendarAvailableProvider) &&
+      // Offered, never asked.
+      if (_offersExactTiming(s) &&
           _ref.read(localNotificationServiceProvider).exactRemindersAllowed ==
               false)
         NativeSheetItemConfig(
@@ -1641,6 +1638,26 @@ class NativeSheetHydrationService {
     ];
   }
 
+  /// Whether the page has a place for the Exact Timing row: Android delivers
+  /// calendar reminders on the minute only with "Alarms & reminders", which
+  /// is off for new installs since Android 14.
+  bool _offersExactTiming(AppSettings s) =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      s.notificationsEnabled &&
+      s.notificationCalendarEnabled &&
+      _ref.read(calendarAvailableProvider);
+
+  /// Asks whether calendar reminders can fire on the minute, where the page
+  /// would offer Exact Timing. A reminder sync asks only once it has read the
+  /// agenda, and the answer can change in Android's settings at any time.
+  /// Returns whether it changed.
+  Future<bool> _readExactReminders() async {
+    if (!_offersExactTiming(_ref.read(appSettingsProvider))) return false;
+    final notifications = _ref.read(localNotificationServiceProvider);
+    final before = notifications.exactRemindersAllowed;
+    return await notifications.canScheduleExactReminders() != before;
+  }
+
   /// Shows the local toggles at once, then adds the Webhook destinations group
   /// once the bounded permission and list reads settle.
   Future<void> _hydrateNativeNotificationsDetail(AppLocalizations l10n) async {
@@ -1655,7 +1672,9 @@ class NativeSheetHydrationService {
         ),
         detailSheets: _nativePushDetailSheets(l10n),
       );
-      if (await _readPushDistributors() &&
+      final distributorsRead = await _readPushDistributors();
+      final exactChanged = await _readExactReminders();
+      if ((distributorsRead || exactChanged) &&
           _notificationsHydration.isActive(generation)) {
         await _applyNativeDetail(
           NativeSheetDetailConfig(

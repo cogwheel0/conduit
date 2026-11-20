@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:conduit/core/providers/app_startup_providers.dart';
 import 'package:conduit/core/router/app_router.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
+import 'package:conduit/features/notifications/services/local_notification_service.dart';
 import 'package:conduit/main.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/platform/quick_actions_service.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
 import 'package:conduit_core/features/notifications/providers/notification_target_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -102,6 +104,18 @@ class _Targets extends NotificationTargets {
   }
 }
 
+/// Android without "Alarms & reminders", which the service only knows once it
+/// has asked.
+final class _NoExactAlarms extends LocalNotificationService {
+  bool? _allowed;
+
+  @override
+  bool? get exactRemindersAllowed => _allowed;
+
+  @override
+  Future<bool> canScheduleExactReminders() async => _allowed = false;
+}
+
 final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
   NativeSheetHostApi.pigeonChannelCodec,
@@ -153,6 +167,8 @@ Future<_NativeSettings> _pumpApp(
   int? targetCount = 0,
   bool signedIn = true,
   bool notificationsOn = true,
+  bool calendar = false,
+  LocalNotificationService? notifications,
 }) async {
   if (advanced) {
     await PreferencesStore.put(PreferenceKeys.advancedFeaturesEnabled, true);
@@ -217,6 +233,9 @@ Future<_NativeSettings> _pumpApp(
         ),
       ),
       userPermissionsProvider.overrideWith((ref) async => permissions),
+      if (calendar) calendarAccessProvider.overrideWithValue(true),
+      if (notifications != null)
+        localNotificationServiceProvider.overrideWithValue(notifications),
       notificationTargetsProvider.overrideWith(() => _Targets(targetCount)),
       appStartupFlowProvider.overrideWith(_IdleStartup.new),
       quickActionsCoordinatorProvider.overrideWith(_IdleQuickActions.new),
@@ -379,6 +398,27 @@ void main() {
     expect(master.items.single.subtitle, isNull);
     expect(master.footer, isNotNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  // A reminder sync asks only once it has read the agenda, which may not have
+  // happened by the time the page opens.
+  testWidgets('on Android the page asks whether calendar reminders can fire '
+      'on the minute, and offers Exact Timing when they cannot', (
+    tester,
+  ) async {
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      calendar: true,
+      notifications: _NoExactAlarms(),
+    );
+
+    await native.detailAppeared(_detail);
+
+    expect(
+      native.items(_detail).map((item) => item.id),
+      contains('notification-calendar-exact'),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('an unreadable list leaves the row without a count', (
     tester,
