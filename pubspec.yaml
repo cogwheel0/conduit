@@ -120,6 +120,7 @@ dependencies:
   share_plus: ^13.3.1
   riverpod_annotation: ^4.0.7
   flutter_local_notifications: ^23.0.0
+  timezone: ^0.11.0
   connectivity_plus: ^7.3.0
   flutter_cache_manager: ^3.4.1
   http: ^1.5.0

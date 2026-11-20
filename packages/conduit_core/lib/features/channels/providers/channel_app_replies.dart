@@ -9,9 +9,10 @@ part 'channel_app_replies.g.dart';
 /// [AppChannelReplyEvent.key], for the channel [channelId] itself
 /// ([parentId] null) or for its thread [parentId].
 ///
-/// Mirrors Open WebUI's Messages.svelte: replies arrive over `events:app` or
-/// as the answer to a button press, are never stored, and are dropped when the
-/// view that shows them goes away, so this provider is not kept alive.
+/// Mirrors Open WebUI's Messages.svelte: replies arrive over the socket
+/// (`events:app`, or a `channel:app` event from 0.13.4) or as the answer to a
+/// button press, are never stored, and are dropped when the view that shows
+/// them goes away, so this provider is not kept alive.
 @riverpod
 class ChannelAppReplies extends _$ChannelAppReplies {
   @override

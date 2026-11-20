@@ -235,6 +235,16 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
       return false;
     }
 
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, event.position, event.viewId);
+    for (final hit in result.path) {
+      final target = hit.target;
+      if (target is RenderHorizontalGestureExclusion &&
+          target.excludePrioritizedGestures) {
+        return false;
+      }
+    }
+
     final localPosition = renderObject.globalToLocal(event.position);
     return localPosition.dx >= _rawDrawerEdgeWidth &&
         localPosition.dx < _edgeWidth;

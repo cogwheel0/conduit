@@ -1619,6 +1619,12 @@ class SocketService {
     // Conduit's prompts keep their own deadline, so there is nothing to do.
     if (type == 'request:interaction:done') return;
 
+    // Open WebUI 0.13.4 sends what older servers sent as `events:app` here.
+    if (type == 'channel:app') {
+      _handleAppEvent((event as Map)['data']);
+      return;
+    }
+
     // A direct tool call is consumed here for the same reason: the server
     // blocks until this session answers, whichever chat is open.
     if (type == 'execute:tool') {

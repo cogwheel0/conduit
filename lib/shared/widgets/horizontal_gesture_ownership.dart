@@ -4,17 +4,34 @@ import 'package:flutter/rendering.dart';
 /// Marks content that owns horizontal gestures so an ancestor recognizer can
 /// stay out of its gesture arena.
 class HorizontalGestureExclusion extends SingleChildRenderObjectWidget {
-  const HorizontalGestureExclusion({super.key, required super.child});
+  const HorizontalGestureExclusion({
+    super.key,
+    required super.child,
+    this.excludePrioritizedGestures = false,
+  });
+
+  /// Embedded controls keep their drags even inside selectable Markdown.
+  final bool excludePrioritizedGestures;
 
   @override
-  RenderObject createRenderObject(BuildContext context) =>
-      RenderHorizontalGestureExclusion();
+  RenderHorizontalGestureExclusion createRenderObject(BuildContext context) =>
+      RenderHorizontalGestureExclusion(
+        excludePrioritizedGestures: excludePrioritizedGestures,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderHorizontalGestureExclusion renderObject,
+  ) => renderObject.excludePrioritizedGestures = excludePrioritizedGestures;
 }
 
 class RenderHorizontalGestureExclusion
     extends RenderProxyBoxWithHitTestBehavior {
-  RenderHorizontalGestureExclusion()
+  RenderHorizontalGestureExclusion({this.excludePrioritizedGestures = false})
     : super(behavior: HitTestBehavior.translucent);
+
+  bool excludePrioritizedGestures;
 }
 
 /// Publishes the leading-edge state of a horizontal scrollable through the

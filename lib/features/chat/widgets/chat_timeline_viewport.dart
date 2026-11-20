@@ -92,6 +92,8 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
 
   static const double _latestEpsilon = 0.5;
 
+  double? pendingMcpScrollOffset;
+
   final bool Function() shouldMaintainLatest;
   final double? Function(ScrollMetrics metrics) resolveRecenterOffset;
 
@@ -106,6 +108,13 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
     ScrollMetrics oldPosition,
     ScrollMetrics newPosition,
   ) {
+    final mcpOffset = pendingMcpScrollOffset;
+    pendingMcpScrollOffset = null;
+    if (mcpOffset != null && (pixels - mcpOffset).abs() > _latestEpsilon) {
+      // A lazy sliver's estimate can be too short until the corrected layout.
+      correctPixels(mcpOffset);
+      return false;
+    }
     final seek = resolveRecenterOffset(newPosition);
     if (seek != null) {
       final target = seek.clamp(
@@ -327,6 +336,13 @@ class ChatTimelineViewport extends StatefulWidget {
          !maintainVisibleAnchor || !followLatest,
          'Visible-anchor maintenance and latest-follow are exclusive.',
        );
+
+  /// Retains the visible conversation while a lazily loaded MCP App grows.
+  static void preserveMcpAppScrollPosition(BuildContext context, double delta) {
+    context
+        .findAncestorStateOfType<_ChatTimelineViewportState>()
+        ?._preserveMcpAppScrollPosition(context, delta);
+  }
 
   final ChatTimelineViewportController controller;
   final int ownerGeneration;
@@ -596,6 +612,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _invalidateInitialPositionCallback();
     _setCenterMessageId(_resolveInitialCenter());
     _freeAnchor = null;
+    if (_scrollController.hasClients) {
+      final position = _scrollController.position as _ChatTimelineScrollPosition;
+      position.pendingMcpScrollOffset = null;
+    }
     _pendingRecenter = null;
     _centerRecoveryPending = false;
     _metricsSnapshot = null;
@@ -1934,6 +1954,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
+    final position = _dimensionedPosition as _ChatTimelineScrollPosition?;
+    if (notification is ScrollUpdateNotification &&
+        position?.pendingMcpScrollOffset != null) {
+      position!.pendingMcpScrollOffset =
+          position.pendingMcpScrollOffset! + (notification.scrollDelta ?? 0);
+    }
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
       _handleUserDragStart();
@@ -2138,6 +2164,38 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       index -= 1;
     }
     return _messageIds[index];
+  }
+
+  void _preserveMcpAppScrollPosition(BuildContext context, double delta) {
+    if (!_initialPositionResolved ||
+        !widget.maintainVisibleAnchor ||
+        _programmaticNavigationActive) {
+      return;
+    }
+    final row = context.findAncestorWidgetOfExactType<_MountedTimelineRow>();
+    final index = row == null ? null : _messageIndexById[row.messageId];
+    final box = context.findRenderObject();
+    final viewport = _viewportRect;
+    final position = _dimensionedPosition as _ChatTimelineScrollPosition?;
+    if (index == null ||
+        box is! RenderBox ||
+        !box.hasSize ||
+        viewport == null ||
+        position == null) {
+      return;
+    }
+    final above =
+        box.localToGlobal(Offset(0, box.size.height)).dy <=
+        viewport.top + widget.topContentInset;
+    // The older sliver grows upwards; the center sliver grows downwards.
+    // Preserve content below an app above the viewport, or above one below it.
+    final correction =
+        (above ? delta : 0.0) - (index < _centerIndex ? delta : 0.0);
+    position.pendingMcpScrollOffset =
+        (position.pendingMcpScrollOffset ?? position.pixels) + correction;
+    // Row-top anchoring would undo this correction for a growing reverse row.
+    _freeAnchor = null;
+    _scheduleLayoutMaintenance();
   }
 
   double? _resolveRecenterOffset(ScrollMetrics metrics) {

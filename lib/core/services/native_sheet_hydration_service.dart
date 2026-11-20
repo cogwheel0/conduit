@@ -70,6 +70,8 @@ import 'package:conduit_core/features/push/models/push_status.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 import '../../features/push/widgets/push_target_actions.dart'
     show pushTargetNeedsAttention, pushTargetTitle;
+import '../../features/notifications/services/local_notification_service.dart'
+    show localNotificationServiceProvider;
 
 import '../utils/model_icon_utils.dart';
 import '../utils/model_logos.dart';
@@ -1604,6 +1606,28 @@ class NativeSheetHydrationService {
             : NativeSheetItemKind.info,
         value: s.notificationScheduledEnabled,
       ),
+      // Reminders of the Open WebUI calendar, shown where the account can use
+      // the calendar.
+      if (_ref.read(calendarAvailableProvider))
+        NativeSheetItemConfig(
+          id: 'notification-calendar',
+          title: l10n.notificationCalendarTitle,
+          subtitle: l10n.notificationCalendarDescription,
+          sfSymbol: 'calendar',
+          kind: NativeSheetItemKind.toggle,
+          value: s.notificationCalendarEnabled,
+        ),
+      // Offered, never asked.
+      if (_offersExactTiming(s) &&
+          _ref.read(localNotificationServiceProvider).exactRemindersAllowed ==
+              false)
+        NativeSheetItemConfig(
+          id: nativeNotificationCalendarExactId,
+          title: l10n.notificationCalendarExactTitle,
+          subtitle: l10n.notificationCalendarExactDescription,
+          sfSymbol: 'clock',
+          showsDisclosure: true,
+        ),
     ];
     return [
       masterSection,
@@ -1612,6 +1636,28 @@ class NativeSheetHydrationService {
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
     ];
+  }
+
+  /// Whether the page has a place for the Exact Timing row: Android delivers
+  /// calendar reminders on the minute only with "Alarms & reminders", which
+  /// is off for new installs since Android 14.
+  bool _offersExactTiming(AppSettings s) =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      s.notificationsEnabled &&
+      s.notificationCalendarEnabled &&
+      _ref.read(calendarAvailableProvider);
+
+  /// Asks whether calendar reminders can fire on the minute, where the page
+  /// would offer Exact Timing. A reminder sync asks only once it has read the
+  /// agenda, and the answer can change in Android's settings at any time.
+  /// Returns whether it asked: a sync can also learn the answer while the
+  /// first page is drawn, so the page is drawn again from what is known now.
+  Future<bool> _readExactReminders() async {
+    if (!_offersExactTiming(_ref.read(appSettingsProvider))) return false;
+    await _ref
+        .read(localNotificationServiceProvider)
+        .canScheduleExactReminders();
+    return true;
   }
 
   /// Shows the local toggles at once, then adds the Webhook destinations group
@@ -1628,7 +1674,9 @@ class NativeSheetHydrationService {
         ),
         detailSheets: _nativePushDetailSheets(l10n),
       );
-      if (await _readPushDistributors() &&
+      final distributorsRead = await _readPushDistributors();
+      final exactRead = await _readExactReminders();
+      if ((distributorsRead || exactRead) &&
           _notificationsHydration.isActive(generation)) {
         await _applyNativeDetail(
           NativeSheetDetailConfig(

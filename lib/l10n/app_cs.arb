@@ -7266,5 +7266,39 @@
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   },
+  "notificationCalendarTitle": "Připomenutí kalendáře",
+  "@notificationCalendarTitle": {
+    "description": "Toggle title for reminders of Open WebUI calendar events."
+  },
+  "notificationCalendarDescription": "Připomínat události v kalendáři, i když je aplikace zavřená.",
+  "@notificationCalendarDescription": {
+    "description": "Toggle description for calendar event reminders."
+  },
+  "notificationChannelCalendarName": "Připomenutí kalendáře",
+  "@notificationChannelCalendarName": {
+    "description": "Android notification channel name for calendar event reminders."
+  },
+  "notificationChannelCalendarDescription": "Připomenutí nadcházejících událostí v kalendáři",
+  "@notificationChannelCalendarDescription": {
+    "description": "Android notification channel description for calendar event reminders."
+  },
+  "calendarReminderStartsAt": "Začíná v {time}",
+  "@calendarReminderStartsAt": {
+    "description": "Body of a calendar event reminder: when the event starts. {time} is a clock time such as 14:30 or 2:30 PM.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "14:30"
+      }
+    }
+  },
+  "notificationCalendarExactTitle": "Přesný čas",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "Povolte „Budíky a připomenutí“, aby připomenutí kalendáře přicházela na minutu přesně.",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
+  },
   "personalConnectionsKeyRemovedForNewAddress": "Uložený klíč se na novou adresu neodešle, a proto bude odebrán. Zadejte klíč pro tuto adresu."
 }

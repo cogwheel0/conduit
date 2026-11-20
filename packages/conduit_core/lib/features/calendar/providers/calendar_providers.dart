@@ -171,7 +171,15 @@ bool calendarPermitted({
 ///
 /// This only reads [userPermissionsProvider] and [backendConfigProvider]. The
 /// operations recheck the same rule themselves.
-final calendarAvailableProvider = Provider<bool>((ref) {
+final calendarAvailableProvider = Provider<bool>(
+  (ref) => ref.watch(calendarAccessProvider) ?? false,
+);
+
+/// [calendarAvailableProvider], but null while the answer is not known: the
+/// server's config or the account's permissions are still loading, or could
+/// not be read. For callers that remove something when the calendar is off,
+/// such as scheduled reminders.
+final calendarAccessProvider = Provider<bool?>((ref) {
   final api = ref.watch(apiServiceProvider);
   ref.watch(openWebUiAuthSessionEpochProvider);
   final user = ref.watch(currentUserProvider2);
@@ -179,7 +187,10 @@ final calendarAvailableProvider = Provider<bool>((ref) {
   final permissions =
       ref.watch(userPermissionsProvider).asData?.value ??
       (user?.role == 'admin' ? const <String, dynamic>{} : null);
-  if (api == null || permissions == null) return false;
+  if (api == null) return null;
+  if (config == null || config.serverId != api.serverConfig.id) return null;
+  if (config.enableCalendar != true) return false;
+  if (permissions == null) return null;
   return calendarPermitted(
     config: config,
     serverId: api.serverConfig.id,

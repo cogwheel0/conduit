@@ -8,13 +8,15 @@
 //!   Hermes when it is on, Notes, the terminal and Channels on an Open
 //!   WebUI server that has them, and the workspace sections, the calendar
 //!   and scheduled tasks the account may use.
-//! * **Lists**, for the areas shown only: `notes.list` (pinned first, then
+//! * **Lists**, for the areas shown: `notes.list` (pinned first, then
 //!   recent) on `notes.changed`; `channels.list` (with unread counts) on
 //!   `channels.changed`; `hermes.sessions` (pinned, conversations,
 //!   archived) on `hermes.changed`, and when an answer in a Hermes chat
 //!   ends (a new chat is a new session); `terminal.servers` when the area
-//!   appears. Everything is refetched after a reconnect or an event gap,
-//!   and forgotten when the account changes. Nothing is patched locally.
+//!   appears, and on any Open WebUI account, whose composer offers its
+//!   terminals with or without the area. Everything is refetched after a
+//!   reconnect or an event gap, and forgotten when the account changes.
+//!   Nothing is patched locally.
 //!
 //! Hermes sessions never come in `chats.list` (their chats are the
 //! daemon's `local:hermes_*` ids, which are not stored), so listing them
@@ -32,7 +34,7 @@ use super::Stores;
 use super::connection::ConnectionEvent;
 use super::navigation::{Area, WorkspaceSection};
 use super::rpc::Rpc;
-use super::session::Route;
+use super::session::{Backend, Route};
 
 /// The areas `capabilities` lets the account use, in the sidebar's order.
 pub fn visible_areas(capabilities: &Capabilities) -> Vec<Area> {
@@ -98,7 +100,8 @@ pub struct AreasStore {
     pub failed: BTreeSet<Area>,
     /// The server chats send as `terminal_id` (`terminal.select`).
     pub terminal_selected: Option<String>,
-    /// The areas shown, whose lists are kept.
+    /// The areas whose lists are kept: those shown, and the terminals the
+    /// composer offers.
     wanted: BTreeSet<Area>,
     /// Bumped whenever a list changes (the sidebar's rows cache).
     revision: u64,
@@ -186,8 +189,8 @@ impl AreasStore {
         self.terminals.iter().flatten().find(|t| t.id == id)
     }
 
-    /// Shows `areas` from now on: lists each one newly shown, and forgets
-    /// the lists of those that went.
+    /// Keeps the lists of `areas` from now on: lists each one new, and
+    /// forgets the lists of those that went.
     pub fn set_wanted(&mut self, areas: &[Area], cx: &mut Context<Self>) {
         let next: BTreeSet<Area> = areas.iter().copied().collect();
         if next == self.wanted {
@@ -433,7 +436,14 @@ pub fn wire(stores: &Stores, cx: &mut App) {
             }
             let session = s.session.read(cx);
             let wanted = if session.route(cx) == Route::Main {
-                visible_areas(&session.capabilities())
+                let mut wanted = visible_areas(&session.capabilities());
+                // The composer offers Open WebUI's terminals in chats, also
+                // when the Terminal area is hidden because each one needs a
+                // saved chat.
+                if session.backend(cx) == Some(Backend::OpenWebUi) {
+                    wanted.push(Area::Terminal);
+                }
+                wanted
             } else {
                 vec![]
             };
@@ -648,6 +658,72 @@ mod tests {
         store.read_with(cx, |s, _| {
             assert_eq!(s.notes.as_ref().map(Vec::len), Some(1));
             assert!(s.failed.is_empty());
+        });
+    }
+
+    /// An Open WebUI account whose every terminal needs a saved chat (Open
+    /// WebUI 0.13.4's chat-scoped templates) has no Terminal area, since the
+    /// page opens terminals outside any chat. Its chats still get them: a
+    /// saved chat is offered them, a new one is not.
+    #[gpui_kit::test]
+    fn chats_are_offered_terminals_the_hidden_terminal_area_cannot_open(cx: &mut TestAppContext) {
+        use crate::stores::Stores;
+        use crate::stores::accounts::tests::{account, list};
+        use crate::stores::session::tests::{auth, handshake, request};
+        use crate::views::terminal::chat::offered;
+
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::AccountsList>(list(vec![account("a", "Avery", true, true)]));
+        daemon
+            .returns::<methods::AuthStatus>(auth(conduit_protocol::AuthPhase::Authenticated, true));
+        daemon
+            .on::<methods::SystemHandshake>(|_| Ok(serde_json::json!({"needsOnboarding": false})));
+        daemon.returns::<methods::SystemCapabilities>(Capabilities {
+            notes: true,
+            ..Default::default()
+        });
+        daemon.returns::<methods::TerminalServers>(conduit_protocol::TerminalServers {
+            servers: vec![TerminalServerDto {
+                id: "per-chat".into(),
+                name: "Chat bench".into(),
+                kind: "system".into(),
+                requires_saved_chat: true,
+            }],
+            selected_id: None,
+        });
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-areas-terminals-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            wire(&stores, cx);
+            stores
+        });
+        stores
+            .session
+            .update(cx, |s, cx| s.on_connected(&handshake(None), request(), cx));
+        cx.run_until_parked();
+
+        let capabilities = stores.session.read_with(cx, |s, cx| {
+            assert_eq!(s.route(cx), Route::Main);
+            s.capabilities()
+        });
+        assert_eq!(
+            visible_areas(&capabilities),
+            [Area::Chats, Area::Notes],
+            "the Terminal area was shown, but it can open none of these terminals"
+        );
+        stores.areas.read_with(cx, |a, _| {
+            let servers = a.terminals.as_deref().unwrap_or_default();
+            let selected = a.terminal_selected.as_deref();
+            assert_eq!(
+                offered(servers, selected, Some("chat-harbour")),
+                [("per-chat".to_string(), "Chat bench".to_string(), false)],
+                "a saved chat was offered none of the account's terminals"
+            );
+            assert!(
+                offered(servers, selected, None).is_empty(),
+                "a new chat was offered a terminal that needs a saved chat"
+            );
         });
     }
 

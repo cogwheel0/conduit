@@ -10,6 +10,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart'
     show
         directMcpAppBridgeMessageAllowed,
@@ -19,23 +20,24 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/external_link_launcher.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_document.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 const double _initialHeight = 300;
 const double _minHeight = 100;
-const double _maxHeight = 1600;
 const Duration _startTimeout = Duration(seconds: 30);
 
 /// An MCP App a tool call showed in an Open WebUI chat (0.13 and later).
 ///
-/// It loads when the user opens it, like other embedded content. The app's
+/// It loads when mounted near the chat viewport. The app's
 /// page comes from the server's app RPC and runs in a sealed web view: no
 /// storage, cookies, popups or navigation, and only the network origins the
 /// app declared, which the server's content security policy enforces; an app
@@ -43,9 +45,12 @@ const Duration _startTimeout = Duration(seconds: 30);
 /// talks to Conduit over the MCP Apps bridge ([McpAppHost]); every tool it
 /// calls is confirmed by the user first.
 class McpAppEmbed extends ConsumerStatefulWidget {
-  const McpAppEmbed({super.key, required this.app});
+  const McpAppEmbed({super.key, required this.app, required this.cacheId});
 
   final OpenWebUiMcpApp app;
+
+  /// Stable message/tool-call identity; absent outside a saved conversation.
+  final String? cacheId;
 
   @override
   ConsumerState<McpAppEmbed> createState() => _McpAppEmbedState();
@@ -58,9 +63,29 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   OpenWebUiMcpAppResource? _resource;
   McpAppHost? _host;
   InAppWebViewController? _controller;
-  CancelableLoad? _load;
+
+  /// The current open; a load that finishes for an earlier one is dropped.
+  Object? _attempt;
+
+  /// A load no cache keeps, which stops with this row.
+  CancelToken? _uncachedLoad;
   Timer? _startTimer;
+  late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
+
+  String? _appCacheKey() =>
+      McpAppResourceCache.keyFor(widget.cacheId, widget.app);
+
+  double get _cachedHeight {
+    final height = ref.read(mcpAppResourceCacheProvider)[_cacheKey]?.height;
+    return height != null && _validHeight(height) ? height : _initialHeight;
+  }
+
+  // Flutter's float32 coordinates must still distinguish adjacent pixels.
+  bool _validHeight(double height) =>
+      height.isFinite &&
+      height > 0 &&
+      height * MediaQuery.devicePixelRatioOf(context) <= (1 << 24);
   double _width = 0;
   Brightness? _brightness;
 
@@ -85,9 +110,25 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     _deliverName = '__conduitMcpDeliver_${_randomHex(12)}';
   }
 
-  final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
-    Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+  List<Rect> _canvasRects = const [];
+  late final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
+    Factory<OneSequenceGestureRecognizer>(
+      () => _McpAppDragGestureRecognizer(_ownsDrag),
+    ),
   };
+
+  // A region as tall as the chat's viewport, such as an app-wide wrapper,
+  // could fill the screen and leave the reader nowhere to scroll the chat
+  // past the app, so only a shorter one keeps vertical drags.
+  bool _ownsDrag(Offset position) {
+    final chat = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+    final limit = chat != null && chat.hasViewportDimension
+        ? chat.viewportDimension
+        : double.infinity;
+    return _canvasRects.any(
+      (rect) => rect.height < limit && rect.contains(position),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -97,14 +138,18 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _host?.hostContextChanged({'theme': _themeName(brightness)});
     }
     _brightness = brightness;
+    if (!_opened) _height = _cachedHeight;
+    _scheduleOpen();
   }
 
   @override
   void didUpdateWidget(covariant McpAppEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Another version of the reply calls the same tool with other data: the
-    // open app showed the old one, so it closes and is offered again.
-    if (oldWidget.app != widget.app) _close();
+    // Another version of the reply needs a fresh page with its own data.
+    if (oldWidget.app != widget.app || oldWidget.cacheId != widget.cacheId) {
+      _cacheKey = _appCacheKey();
+      _close();
+    }
   }
 
   @override
@@ -117,7 +162,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   @override
   void activate() {
     super.activate();
-    // Moved elsewhere: the app was told it is going, so it is offered again.
+    // Moved elsewhere: recreate the page after telling the app it is going.
     // The element rebuilds on activation, so no setState is needed.
     if (_opened) _close(rebuild: false);
   }
@@ -130,7 +175,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   void _stop() {
     _startTimer?.cancel();
-    _load?.cancel();
+    _attempt = null;
+    _uncachedLoad?.cancel('closed');
+    _uncachedLoad = null;
     final host = _host;
     _host = null;
     host?.teardown();
@@ -144,11 +191,19 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _failure = null;
       _resource = null;
       _controller = null;
+      _canvasRects = const [];
       _documentLoaded = false;
-      _height = _initialHeight;
+      _height = _cachedHeight;
     }
 
     rebuild ? setState(reset) : reset();
+    _scheduleOpen();
+  }
+
+  void _scheduleOpen() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_opened) unawaited(_open());
+    });
   }
 
   Future<void> _open() async {
@@ -161,36 +216,80 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       // host of its own like any other page.
       _documentLoaded = false;
       _controller = null;
+      _canvasRects = const [];
       _newPage();
     });
     if (api == null) {
       setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
       return;
     }
-    final load = CancelableLoad();
-    _load = load;
+    final attempt = _attempt = Object();
     try {
-      final json = await api.runMcpAppRequest(
-        widget.app,
-        method: 'ui/resource',
-        cancelToken: load.token,
+      final cache = ref.read(mcpAppResourceCacheProvider);
+      final key = _cacheKey;
+      final app = widget.app;
+      final loaded = await cache.load(
+        key,
+        height: _initialHeight,
+        cancelToken: key == null ? _uncachedLoad = CancelToken() : null,
+        fetch: (client, token) async => OpenWebUiMcpAppResource.fromJson(
+          await client.runMcpAppRequest(
+            app,
+            method: 'ui/resource',
+            cancelToken: token,
+          ),
+        ),
       );
-      if (!mounted || load.cancelled) return;
-      final resource = OpenWebUiMcpAppResource.fromJson(json);
+      if (!mounted || attempt != _attempt) return;
+      final resource = loaded.resource;
+      final height = _validHeight(loaded.height)
+          ? loaded.height
+          : _initialHeight;
+      if (height != _height) {
+        ChatTimelineViewport.preserveMcpAppScrollPosition(
+          context,
+          height - _height,
+        );
+        _height = height;
+      }
       _resource = resource;
       _host = McpAppHost(
         app: widget.app,
         resource: resource,
-        runRequest: (method, params) =>
-            api.runMcpAppRequest(widget.app, method: method, params: params),
+        runRequest: (method, params) async {
+          final current = mounted ? cache.client : null;
+          if (current == null) {
+            throw const McpAppRpcException('The app was closed.');
+          }
+          return current.runMcpAppRequest(
+            widget.app,
+            method: method,
+            params: params,
+          );
+        },
         confirmToolCall: _confirmToolCall,
         openLink: _confirmOpenLink,
         send: _deliver,
         hostContext: _hostContext,
         onSizeChanged: (height) {
           if (!mounted) return;
-          setState(() => _height = height.clamp(_minHeight, _maxHeight));
+          if (!_validHeight(height)) return;
+          final nextHeight = max(_minHeight, height.ceilToDouble());
+          // Ignore rounding noise from the page's layout/ResizeObserver cycle.
+          if ((nextHeight - _height).abs() <= 1) return;
+          ChatTimelineViewport.preserveMcpAppScrollPosition(
+            context,
+            nextHeight - _height,
+          );
+          setState(() => _height = nextHeight);
+          if (key != null && cache[key]?.resource == resource) {
+            cache.put(key, (resource: resource, height: nextHeight));
+          }
         },
+        onCanvasRects: (rects) => _canvasRects = [
+          for (final rect in rects)
+            Rect.fromLTWH(rect.left, rect.top, rect.width, rect.height),
+        ],
         onInitialized: () {
           _startTimer?.cancel();
           if (mounted) setState(() => _started = true);
@@ -204,20 +303,18 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       });
       setState(() {});
     } on McpAppRpcException catch (error) {
-      if (mounted && !load.cancelled) {
+      if (mounted && attempt == _attempt) {
         setState(() => _failure = l10n.mcpAppLoadFailed(error.message));
       }
     } catch (error, stackTrace) {
-      if (load.cancelled) return;
+      if (!mounted || attempt != _attempt) return;
       DebugLogger.error(
         'mcp-app-load-failed',
         scope: 'chat/mcp-app',
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) {
-        setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
-      }
+      setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
     }
   }
 
@@ -228,10 +325,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     'availableDisplayModes': const ['inline'],
     'locale': Localizations.maybeLocaleOf(context)?.toLanguageTag() ?? 'en',
     'deviceCapabilities': const {'touch': true, 'hover': false},
-    'containerDimensions': {
-      if (_width > 0) 'width': _width,
-      'maxHeight': _maxHeight,
-    },
+    'containerDimensions': {if (_width > 0) 'width': _width},
   };
 
   static String _themeName(Brightness brightness) =>
@@ -318,6 +412,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(mcpAppResourceCacheProvider, (_, _) => _close());
     final l10n = AppLocalizations.of(context)!;
     final failure = _failure;
     if (failure != null) {
@@ -325,20 +420,17 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         title: widget.app.toolName,
         message: failure,
         actionLabel: _opened ? l10n.retry : null,
-        onAction: _opened ? _open : null,
-      );
-    }
-    if (!_opened) {
-      return _McpAppCard(
-        title: widget.app.toolName,
-        message: l10n.mcpAppPreviewDescription(widget.app.serverId),
-        actionLabel: l10n.mcpAppOpen,
-        onAction: _open,
+        onAction: _opened
+            ? () {
+                ref.read(mcpAppResourceCacheProvider).remove(_cacheKey);
+                unawaited(_open());
+              }
+            : null,
       );
     }
     final resource = _resource;
     if (resource == null || _host == null) {
-      return const _McpAppLoading(height: _initialHeight);
+      return _McpAppLoading(height: _height);
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -348,7 +440,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           _width = width;
           if (changed) {
             _host?.hostContextChanged({
-              'containerDimensions': {'width': width, 'maxHeight': _maxHeight},
+              'containerDimensions': {'width': width},
             });
           }
         }
@@ -359,7 +451,12 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             height: _height,
             child: Stack(
               children: [
-                Positioned.fill(child: _webView(resource)),
+                Positioned.fill(
+                  child: HorizontalGestureExclusion(
+                    excludePrioritizedGestures: true,
+                    child: _webView(resource),
+                  ),
+                ),
                 if (!_started)
                   const Positioned.fill(
                     child: IgnorePointer(
@@ -564,9 +661,44 @@ String mcpAppBridgeScript({
   const bridgeToken = ${jsonEncode(bridgeToken)};
   const queue = [];
   const nativePostMessage = window.postMessage.bind(window);
+  // Explicit touch policies reserve vertical gestures for maps and DOM controls.
+  // Ordinary charts/content retain browser vertical panning and scroll the chat.
+  // A policy on <html> or <body> covers the whole page rather than marking a
+  // canvas, and touch-action is not inherited, so the elements in it are read
+  // on their own.
+  let canvases = [];
+  const findCanvases = () => {
+    canvases = Array.from(document.querySelectorAll('body *')).filter(element => {
+      const action = getComputedStyle(element).touchAction;
+      return action !== 'auto' && action !== 'manipulation' &&
+        !action.split(' ').some(value => ['pan-y', 'pan-up', 'pan-down'].includes(value));
+    });
+  };
+  const canvasRects = () => canvases
+    .map(element => {
+      const r = element.getBoundingClientRect();
+      return [r.x, r.y, r.width, r.height];
+    }).filter(rect => rect[2] > 0 && rect[3] > 0)
+    .slice(0, $kMcpAppMaxCanvasRects);
+  let lastRects = '[]';
   const deliverToHost = (message) => {
     let payload;
-    try { payload = JSON.stringify(message); } catch (_) { return; }
+    let rects;
+    try {
+      if (message.method === 'ui/notifications/size-changed') {
+        // Offscreen pages can briefly lay out at zero width; keep the cached
+        // height until their existing observer measures a real viewport.
+        if (document.documentElement.clientWidth === 0) return;
+        // Reuse the app's layout notifications; no extra resize observer/RPC.
+        findCanvases();
+        rects = canvasRects();
+        message = {...message, params: {...message.params,
+          _conduitCanvasRects: rects,
+        }};
+      }
+      payload = JSON.stringify(message);
+    } catch (_) { return; }
+    if (rects) lastRects = JSON.stringify(rects);
     const bridge = window.flutter_inappwebview;
     if (bridge && typeof bridge.callHandler === 'function') {
       bridge.callHandler(bridgeName, bridgeToken, payload);
@@ -574,6 +706,42 @@ String mcpAppBridgeScript({
       queue.push(message);
     }
   };
+  let rectReportPending = false;
+  let canvasesChanged = false;
+  // At most once a frame, and only when a region moved.
+  const reportRects = (changed) => {
+    canvasesChanged = canvasesChanged || changed;
+    if (rectReportPending) return;
+    rectReportPending = true;
+    requestAnimationFrame(() => {
+      rectReportPending = false;
+      if (canvasesChanged) findCanvases();
+      canvasesChanged = false;
+      const rects = canvasRects();
+      const encoded = JSON.stringify(rects);
+      if (encoded === lastRects) return;
+      lastRects = encoded;
+      deliverToHost({jsonrpc: '2.0', method: 'conduit/canvas-rects',
+        params: {_conduitCanvasRects: rects}});
+    });
+  };
+  new MutationObserver(records => {
+    if (records.some(record => record.type === 'childList'
+      ? [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)
+      : record.attributeName === 'class' ||
+        (record.oldValue || '').includes('touch-action') ||
+        record.target.style.touchAction)) {
+      reportRects(true);
+    }
+  }).observe(document, {childList: true, subtree: true, attributes: true,
+    attributeOldValue: true, attributeFilter: ['class', 'style']});
+  // A pane scrolling inside the page moves the regions in it without a resize.
+  addEventListener('scroll', () => reportRects(false), {capture: true, passive: true});
+  // A transform, an animation or a style sheet moves regions with no event to
+  // follow, so they are measured again while there are any.
+  setInterval(() => {
+    if (canvases.length && !document.hidden) reportRects(false);
+  }, 250);
   // The page's parent is the page itself in a web view: what it posts over
   // the MCP Apps bridge goes to Conduit, and anything else, such as a
   // library's own scheduling, stays the page's.
@@ -618,13 +786,17 @@ String mcpAppBridgeScript({
 })();
 ''';
 
-/// A request that is dropped when its widget goes away.
-@visibleForTesting
-final class CancelableLoad {
-  final token = CancelToken();
-  bool get cancelled => token.isCancelled;
-  void cancel() {
-    if (!token.isCancelled) token.cancel('closed');
+// Maps and other interactive canvases need vertical/diagonal drags and pinch.
+// Everywhere else, retain horizontal controls while the chat owns vertical drags.
+class _McpAppDragGestureRecognizer extends HorizontalDragGestureRecognizer {
+  _McpAppDragGestureRecognizer(this.isCanvas);
+
+  final bool Function(Offset position) isCanvas;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    super.addAllowedPointer(event);
+    if (isCanvas(event.localPosition)) resolve(GestureDisposition.accepted);
   }
 }
 
@@ -666,7 +838,11 @@ class _McpAppCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.widgets_outlined, size: 16, color: theme.iconSecondary),
+                Icon(
+                  Icons.widgets_outlined,
+                  size: 16,
+                  color: theme.iconSecondary,
+                ),
                 const SizedBox(width: Spacing.xs),
                 Expanded(
                   child: Text(

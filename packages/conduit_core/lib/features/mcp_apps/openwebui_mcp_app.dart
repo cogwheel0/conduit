@@ -99,6 +99,14 @@ final class OpenWebUiMcpAppResource {
   final Map<String, dynamic> ui;
   final Map<String, dynamic> tool;
 
+  Map<String, dynamic> toJson() => {
+    'html': html,
+    'csp': csp,
+    'additional_csp': additionalCsp,
+    'ui': ui,
+    'tool': tool,
+  };
+
   /// The domains the app declared, by kind (`connectDomains`,
   /// `resourceDomains`, `frameDomains`, `baseUriDomains`).
   Map<String, dynamic> get declaredCsp {
