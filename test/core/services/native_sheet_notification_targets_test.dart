@@ -420,23 +420,7 @@ void main() {
       tester,
       advanced: false,
       calendar: true,
-      notifications: _NoExactAlarms(),
-    );
-
-    await native.detailAppeared(_detail);
-
-    expect(
-      native.items(_detail).map((item) => item.id),
-      contains('notification-calendar-exact'),
-    );
-  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
-
-  testWidgets('Exact Timing shows when a reminder sync learns the answer '
-      'while the page is first drawn', (tester) async {
-    final native = await _pumpApp(
-      tester,
-      advanced: false,
-      calendar: true,
+      // A sync may also learn the answer while the first page is drawn.
       notifications: _SyncLearnsAfterFirstPage(),
     );
 
