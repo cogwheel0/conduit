@@ -20,7 +20,9 @@ const String _serverConnectionError = 'Open WebUI: Server Connection Error';
 /// The relay failure [error] reports, or null when it is not one.
 ///
 /// [error] is a message, or a body such as a tool's result or a terminal's
-/// 502 (`{"error": ..., "code": "tether_interrupted"}`).
+/// 502 (`{"error": ..., "code": "tether_interrupted"}`), or a message's saved
+/// error (`{"content": ...}`). A relay's code anywhere in it decides over any
+/// words in it ([tetherRelayFailureByCode]).
 ///
 /// [viaTether] says the request went to one of the user's devices, as the
 /// request recorded when it was sent. The server's generic connection error
@@ -30,31 +32,61 @@ const String _serverConnectionError = 'Open WebUI: Server Connection Error';
 TetherRelayFailure? tetherRelayFailureOf(
   Object? error, {
   bool viaTether = false,
+}) =>
+    tetherRelayFailureByCode(error) ??
+    _relayFailureInWordsOf(error, viaTether: viaTether);
+
+/// The relay failure a code in [error] names (`tether_interrupted`), however
+/// deep in it the code is, or null. Unlike words, a code cannot be another
+/// failure that quotes a relay's.
+TetherRelayFailure? tetherRelayFailureByCode(Object? error) {
+  final body = _decoded(error);
+  if (body is! Map) return null;
+  if (body['code'] == 'tether_interrupted') {
+    return TetherRelayFailure.interrupted;
+  }
+  for (final key in _nestedErrorKeys) {
+    final failure = tetherRelayFailureByCode(body[key]);
+    if (failure != null) return failure;
+  }
+  return null;
+}
+
+/// Where an error object keeps the error it wraps, or its words.
+const List<String> _nestedErrorKeys = ['error', 'detail', 'message', 'content'];
+
+TetherRelayFailure? _relayFailureInWordsOf(
+  Object? error, {
+  required bool viaTether,
 }) {
-  if (error is Map) {
-    if (error['code'] == 'tether_interrupted') {
-      return TetherRelayFailure.interrupted;
-    }
-    for (final key in const ['error', 'detail', 'message']) {
-      final failure = tetherRelayFailureOf(error[key], viaTether: viaTether);
+  final body = _decoded(error);
+  if (body is Map) {
+    for (final key in _nestedErrorKeys) {
+      final failure = _relayFailureInWordsOf(body[key], viaTether: viaTether);
       if (failure != null) return failure;
     }
     return null;
   }
-  if (error is! String) return null;
-  final trimmed = error.trim();
-  if (trimmed.startsWith('{')) {
-    try {
-      final body = jsonDecode(trimmed);
-      if (body is Map) return tetherRelayFailureOf(body, viaTether: viaTether);
-    } on FormatException {
-      // Words that start with a brace.
-    }
-  }
+  if (body is! String) return null;
+  final trimmed = body.trim();
   if (viaTether && trimmed == _serverConnectionError) {
     return TetherRelayFailure.interrupted;
   }
   return _relayFailureInWords(trimmed);
+}
+
+/// [error], or the JSON object its words are.
+Object? _decoded(Object? error) {
+  if (error is! String) return error;
+  final trimmed = error.trim();
+  if (!trimmed.startsWith('{')) return error;
+  try {
+    final body = jsonDecode(trimmed);
+    return body is Map ? body : error;
+  } on FormatException {
+    // Words that start with a brace.
+    return error;
+  }
 }
 
 /// Whether [answer]'s request went to a model one of the user's devices

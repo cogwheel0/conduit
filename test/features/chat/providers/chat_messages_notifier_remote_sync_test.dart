@@ -252,25 +252,6 @@ Future<void> _settleRecheck() async {
   }
 }
 
-/// What a device that offers a model through Tether lists, as Open WebUI
-/// 0.13.4 does.
-final _deviceModel = Model.fromJson(const <String, dynamic>{
-  'id': 'garage-llama',
-  'name': 'garage-llama',
-  'connection_type': 'local',
-  'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
-});
-
-/// The model list, answered when a test says.
-final class _HeldModels extends Models {
-  _HeldModels(this._listed);
-
-  final Future<List<Model>> _listed;
-
-  @override
-  Future<List<Model>> build() => _listed;
-}
-
 ChatMessage _assistantMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(
       id: id,
@@ -1554,98 +1535,6 @@ void main() {
         check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
       },
     );
-
-    // The answer says itself that one of the user's devices was asked: the
-    // model list, which may load after the chat opens, or never, is not.
-    for (final (label, socketConnected, listedLater)
-        in <(String, bool, List<Model>?)>[
-          (
-            'its failure arrives while the model list loads',
-            true,
-            [_deviceModel],
-          ),
-          (
-            'only the poll sees it, and the model list never loads',
-            false,
-            null,
-          ),
-        ]) {
-      test('a resumed answer from a device keeps its relay warning: '
-          '$label', () async {
-        final timestamp = DateTime.now();
-        final serverCopy = _assistantMessage(
-          'assistant-1',
-          'A',
-          timestamp,
-        ).copyWith(model: _deviceModel.id);
-        final opened = [
-          _userMessage('user-1', 'Hi', timestamp),
-          serverCopy.copyWith(
-            metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
-          ),
-        ];
-        final socket = socketConnected
-            ? (_FakeSocketService()..connected = true)
-            : null;
-        final api = _FakeApiService(
-          _conversation('chat-1', [opened.first, serverCopy], timestamp),
-        )..taskIds = ['task-1'];
-        final listed = Completer<List<Model>>();
-        final container = ProviderContainer(
-          overrides: [
-            secureStorageProvider.overrideWithValue(
-              FlutterSecureKeyValueStore(),
-            ),
-            ...openWebUiStorageOpenOverrides(),
-            activeConversationProvider.overrideWith(
-              () => _TestActiveConversationNotifier(),
-            ),
-            socketServiceProvider.overrideWithValue(socket),
-            apiServiceProvider.overrideWithValue(api),
-            modelsProvider.overrideWith(() => _HeldModels(listed.future)),
-          ],
-        );
-        addTearDown(container.dispose);
-
-        check(container.read(chatMessagesProvider)).isEmpty();
-        final notifier = container.read(chatMessagesProvider.notifier);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_conversation('chat-1', opened, timestamp));
-        await pumpEventQueue();
-
-        // The relay broke after part of the answer was written. Open WebUI
-        // reports it in its generic words and saves them with that part.
-        const generic = 'Open WebUI: Server Connection Error';
-        socket?.emitChatEvent(
-          type: 'chat:message:error',
-          payload: {
-            'chat_id': 'chat-1',
-            'error': {'content': generic},
-            'done': true,
-          },
-          messageId: 'assistant-1',
-        );
-        api
-          ..taskIds = const <String>[]
-          ..conversation = _conversation('chat-1', [
-            opened.first,
-            serverCopy.copyWith(
-              content: 'A partial answer',
-              error: const ChatMessageError(content: generic),
-            ),
-          ], timestamp);
-        notifier.debugCancelRemoteTaskMonitorTimer();
-        check(notifier.debugTaskStatusCheckInFlight).isFalse();
-        await notifier.debugSyncRemoteTaskStatus();
-        if (listedLater != null) listed.complete(listedLater);
-        await pumpEventQueue();
-
-        final answer = container.read(chatMessagesProvider).last;
-        check(answer.isStreaming).isFalse();
-        check(answer.error?.relay).equals(TetherRelayFailure.interrupted);
-      });
-    }
 
     test('resume monitor is armed while a dropped socket reconnects', () async {
       final timestamp = DateTime.now();

@@ -1359,6 +1359,13 @@ void main() {
         {
           'error': {'message': 'Connection lost', 'code': 'tether_interrupted'},
         },
+        // The code decides, though the words name another relay failure.
+        {
+          'error': {
+            'code': 'tether_interrupted',
+            'message': 'Tether is offline.',
+          },
+        },
       ]) {
         test('a relay that broke, by its body\'s code ($body)', () async {
           final adapter = _QueuedFakeAdapter([

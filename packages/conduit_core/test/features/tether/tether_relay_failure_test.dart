@@ -32,6 +32,38 @@ void main() {
     check(
       tetherRelayFailureOf('Tether has too many active operations.'),
     ).equals(TetherRelayFailure.busy);
+    // A saved answer's error, and a socket's error event, keep it under
+    // `content`.
+    check(
+      tetherRelayFailureOf(<String, dynamic>{
+        'content': <String, dynamic>{
+          'error': 'Connection lost',
+          'code': 'tether_interrupted',
+        },
+      }),
+    ).equals(TetherRelayFailure.interrupted);
+  });
+
+  test("a relay's code decides over words that name another failure", () {
+    for (final error in <Object>[
+      <String, dynamic>{
+        'error': <String, dynamic>{
+          'code': 'tether_interrupted',
+          'message': 'Tether is offline.',
+        },
+      },
+      <String, dynamic>{
+        'error': 'Tether is offline.',
+        'detail': <String, dynamic>{'code': 'tether_interrupted'},
+      },
+      '{"message": "Tether has too many active operations.", '
+          '"error": {"code": "tether_interrupted"}}',
+    ]) {
+      check(
+        tetherRelayFailureOf(error),
+        because: '$error',
+      ).equals(TetherRelayFailure.interrupted);
+    }
   });
 
   test('leaves every other failure alone', () {

@@ -2184,9 +2184,9 @@ abstract class _ApiServiceBase {
   /// keeps its words under `error.message`; any other object is kept as JSON.
   ///
   /// The refusal's relay to one of the user's devices is read from what this
-  /// returns ([ChatCompletionHttpException.relay]), so a body that tells one
-  /// by its code (`tether_interrupted`) stays whole unless its words tell it
-  /// too.
+  /// returns ([ChatCompletionHttpException.relay]), so a body whose code
+  /// (`tether_interrupted`) names a relay failure its words do not, or names
+  /// another than its words do, stays whole: the code decides.
   Future<String> _decodeChatCompletionError(Response<ResponseBody> resp) async {
     try {
       final bytes = await _collectBytes(resp.data!.stream);
@@ -2202,8 +2202,7 @@ abstract class _ApiServiceBase {
         Map() || List() => jsonEncode(reason),
         _ => reason.toString(),
       };
-      if (tetherRelayFailureOf(json) != null &&
-          tetherRelayFailureOf(words) == null) {
+      if (tetherRelayFailureOf(json) != tetherRelayFailureOf(words)) {
         return text;
       }
       return words;
