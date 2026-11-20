@@ -20,5 +20,32 @@ void main() {
       check(attachments.single.displayName).equals('Sprint Plan');
       check(attachments.single.type).equals(ChatContextAttachmentType.note);
     });
+
+    test('addKnowledgeBase attaches a whole base once', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final notifier = container.read(contextAttachmentsProvider.notifier);
+      notifier.addKnowledge(
+        displayName: 'Field Guide.md',
+        fileId: 'file-1',
+        collectionName: 'Garden Notes',
+      );
+      notifier.addKnowledgeBase(
+        id: 'base-1',
+        name: 'Garden Notes',
+        description: 'Seasonal planting notes',
+      );
+      notifier.addKnowledgeBase(id: 'base-1', name: 'Garden Notes');
+
+      final attachments = container.read(contextAttachmentsProvider);
+      check(attachments).has((it) => it.length, 'length').equals(2);
+      final base = attachments.last;
+      check(base.isKnowledgeBase).isTrue();
+      check(base.id).equals('base-1');
+      check(base.displayName).equals('Garden Notes');
+      check(base.content).equals('Seasonal planting notes');
+      check(attachments.first.isKnowledgeBase).isFalse();
+    });
   });
 }

@@ -621,6 +621,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   static const Duration _contextSuggestionDelay = Duration(milliseconds: 250);
   static const int _maxContextSuggestionsPerType = 4;
 
+  /// The knowledge picker's row for the whole base, among its files' ids.
+  static const String _wholeKnowledgeBaseOptionId =
+      'conduit.knowledge.whole-base';
+
   // The expanded composer keeps a soft, pill-like corner.
   static const double _composerRadius = AppBorderRadius.xl;
   static const double _composerHorizontalInset = Spacing.sm;
@@ -2696,6 +2700,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return _skillSuggestions.asData?.value.isNotEmpty ?? false;
   }
 
+  void _attachWholeKnowledgeBase(KnowledgeBase base) {
+    ref
+        .read(contextAttachmentsProvider.notifier)
+        .addKnowledgeBase(
+          id: base.id,
+          name: base.name,
+          description: base.description,
+        );
+  }
+
   Future<void> _openKnowledgePicker({String? initialBaseId}) async {
     _hidePromptOverlay();
 
@@ -2762,6 +2776,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               title: selectedBaseModel.name,
               subtitle: l10n.files,
               options: [
+                NativeSheetOptionConfig(
+                  id: _wholeKnowledgeBaseOptionId,
+                  label: selectedBaseModel.name,
+                  subtitle: l10n.knowledgeBase,
+                  sfSymbol: 'books.vertical',
+                ),
                 for (final file in files)
                   NativeSheetOptionConfig(
                     id: file.id,
@@ -2773,6 +2793,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               rethrowErrors: true,
             );
         if (selectedFileId == null || !mounted) {
+          return;
+        }
+        if (selectedFileId == _wholeKnowledgeBaseOptionId) {
+          _attachWholeKnowledgeBase(selectedBaseModel);
           return;
         }
         for (final file in files) {
@@ -2817,6 +2841,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       cacheState.isLoading ||
                       (selectedBaseId != null &&
                           !filesMap.containsKey(selectedBaseId));
+                  final KnowledgeBase? wholeBase = files.isEmpty
+                      ? null
+                      : bases
+                            .where((base) => base.id == selectedBaseId)
+                            .firstOrNull;
 
                   Future<void> loadFiles(KnowledgeBase base) async {
                     setModalState(() {
@@ -2869,8 +2898,39 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                       child: AdaptiveProgressIndicator(),
                                     )
                                   : ListView.builder(
-                                      itemCount: files.length,
+                                      itemCount:
+                                          files.length +
+                                          (wholeBase == null ? 0 : 1),
                                       itemBuilder: (context, index) {
+                                        if (wholeBase != null) {
+                                          if (index == 0) {
+                                            return AdaptiveListTile(
+                                              leading: Icon(
+                                                Platform.isIOS
+                                                    ? CupertinoIcons.folder
+                                                    : Icons.folder_outlined,
+                                              ),
+                                              title: Text(
+                                                wholeBase.name,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                AppLocalizations.of(context)!
+                                                    .knowledgeBase,
+                                              ),
+                                              onTap: () {
+                                                _attachWholeKnowledgeBase(
+                                                  wholeBase,
+                                                );
+                                                if (modalContext.mounted) {
+                                                  Navigator.of(modalContext)
+                                                      .pop();
+                                                }
+                                              },
+                                            );
+                                          }
+                                          index -= 1;
+                                        }
                                         final file = files[index];
                                         final KnowledgeBase? selectedBase =
                                             bases.isEmpty
