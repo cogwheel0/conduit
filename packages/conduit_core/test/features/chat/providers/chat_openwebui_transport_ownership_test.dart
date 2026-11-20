@@ -1119,12 +1119,16 @@ final class _ServerCopyApi extends _GatedCompletionApi {
   final List<ChatMessage> serverMessages;
   int getConversationCalls = 0;
 
+  /// Runs while the read is out, before its reply arrives.
+  Future<void> Function()? whileReading;
+
   @override
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     getConversationCalls++;
+    await whileReading?.call();
     return Conversation(
       id: id,
       title: 'A',
@@ -3019,6 +3023,35 @@ void main() {
       final refreshed = await pullChatOrFetch(container, chatId);
 
       check(api.getConversationCalls).equals(1);
+      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
+    });
+
+    test('a delete that lands while the server\'s copy is read still keeps '
+        'the empty answer out of that copy', () async {
+      await seedTurn();
+      final seq = await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerCopyApi([
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ])..whileReading = () => db.outboxDao.markDone(seq);
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
       check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
     });
 

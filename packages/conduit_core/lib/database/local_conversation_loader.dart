@@ -198,6 +198,7 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
   if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   if (refreshed == null) {
     if (api == null) return null;
+    final pendingBefore = await unsentMessageDeletesOf(ownership.database, id);
     try {
       refreshed = await api.getConversation(id);
     } catch (error, stackTrace) {
@@ -214,21 +215,37 @@ Future<Conversation?> pullChatOrFetch(dynamic ref, String id) async {
     refreshed = await withoutUnsentMessageDeletes(
       ownership.database,
       refreshed,
+      pendingBefore: pendingBefore,
     );
     if (!openWebUiConversationReadIsCurrent(ref, ownership)) return null;
   }
   return refreshed;
 }
 
+/// The messages of chat [chatId] whose delete on the server has not landed
+/// yet ([OutboxDao.unsentMessageDeletes]).
+Future<Set<String>> unsentMessageDeletesOf(
+  AppDatabase? database,
+  String chatId,
+) async => database == null
+    ? const <String>{}
+    : await database.outboxDao.unsentMessageDeletes(chatId);
+
 /// [conversation], read straight from the server, without the messages whose
-/// delete there has not landed yet ([OutboxDao.unsentMessageDeletes]), as a
-/// pull leaves them out: the server's copy still has them.
+/// delete there has not landed yet, as a pull leaves them out: the server's
+/// copy still has them. [pendingBefore] is what was pending when the read
+/// started: a delete that lands while the read is out leaves no op behind,
+/// but the copy may still have the message.
 Future<Conversation> withoutUnsentMessageDeletes(
   AppDatabase? database,
-  Conversation conversation,
-) async {
+  Conversation conversation, {
+  Set<String> pendingBefore = const {},
+}) async {
   if (database == null) return conversation;
-  final ids = await database.outboxDao.unsentMessageDeletes(conversation.id);
+  final ids = {
+    ...pendingBefore,
+    ...await database.outboxDao.unsentMessageDeletes(conversation.id),
+  };
   if (!conversation.messages.any((m) => ids.contains(m.id))) {
     return conversation;
   }
