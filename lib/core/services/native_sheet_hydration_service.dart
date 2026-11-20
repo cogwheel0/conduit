@@ -1650,12 +1650,14 @@ class NativeSheetHydrationService {
   /// Asks whether calendar reminders can fire on the minute, where the page
   /// would offer Exact Timing. A reminder sync asks only once it has read the
   /// agenda, and the answer can change in Android's settings at any time.
-  /// Returns whether it changed.
+  /// Returns whether it asked: a sync can also learn the answer while the
+  /// first page is drawn, so the page is drawn again from what is known now.
   Future<bool> _readExactReminders() async {
     if (!_offersExactTiming(_ref.read(appSettingsProvider))) return false;
-    final notifications = _ref.read(localNotificationServiceProvider);
-    final before = notifications.exactRemindersAllowed;
-    return await notifications.canScheduleExactReminders() != before;
+    await _ref
+        .read(localNotificationServiceProvider)
+        .canScheduleExactReminders();
+    return true;
   }
 
   /// Shows the local toggles at once, then adds the Webhook destinations group
@@ -1673,8 +1675,8 @@ class NativeSheetHydrationService {
         detailSheets: _nativePushDetailSheets(l10n),
       );
       final distributorsRead = await _readPushDistributors();
-      final exactChanged = await _readExactReminders();
-      if ((distributorsRead || exactChanged) &&
+      final exactRead = await _readExactReminders();
+      if ((distributorsRead || exactRead) &&
           _notificationsHydration.isActive(generation)) {
         await _applyNativeDetail(
           NativeSheetDetailConfig(

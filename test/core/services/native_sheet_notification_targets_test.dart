@@ -116,6 +116,17 @@ final class _NoExactAlarms extends LocalNotificationService {
   Future<bool> canScheduleExactReminders() async => _allowed = false;
 }
 
+/// As [_NoExactAlarms], with a reminder sync learning the answer just after
+/// the first page read it.
+final class _SyncLearnsAfterFirstPage extends _NoExactAlarms {
+  @override
+  bool? get exactRemindersAllowed {
+    final shown = _allowed;
+    _allowed = false;
+    return shown;
+  }
+}
+
 final _applyDetailPatchChannel = BasicMessageChannel<Object?>(
   'dev.flutter.pigeon.conduit.NativeSheetHostApi.applyDetailPatch',
   NativeSheetHostApi.pigeonChannelCodec,
@@ -410,6 +421,23 @@ void main() {
       advanced: false,
       calendar: true,
       notifications: _NoExactAlarms(),
+    );
+
+    await native.detailAppeared(_detail);
+
+    expect(
+      native.items(_detail).map((item) => item.id),
+      contains('notification-calendar-exact'),
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets('Exact Timing shows when a reminder sync learns the answer '
+      'while the page is first drawn', (tester) async {
+    final native = await _pumpApp(
+      tester,
+      advanced: false,
+      calendar: true,
+      notifications: _SyncLearnsAfterFirstPage(),
     );
 
     await native.detailAppeared(_detail);
