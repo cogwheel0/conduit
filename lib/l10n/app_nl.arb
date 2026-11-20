@@ -5060,5 +5060,33 @@
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres."
+  "personalConnectionsKeyRemovedForNewAddress": "De opgeslagen sleutel wordt niet naar het nieuwe adres verzonden en wordt daarom verwijderd. Voer een sleutel in voor dit adres.",
+  "personalConnectionsMovedToTether": "Deze server haalt persoonlijke hulpmiddelen en terminals nu via Tether van je apparaten.",
+  "@personalConnectionsMovedToTether": {
+    "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."
+  },
+  "personalConnectionsSavedListUnused": "De server gebruikt de hier opgeslagen verbindingen niet meer. Ze blijven ter referentie bewaard.",
+  "@personalConnectionsSavedListUnused": {
+    "description": "Shown above the personal tool servers and terminals saved on a server that moved them to Tether: the server ignores them, and they are listed to read only."
+  },
+  "openWebUiDirectConnectionsMovedToTether": "Deze server heeft directe verbindingen naar Tether verplaatst. Modellen van je apparaten staan bij de andere modellen van de server.",
+  "@openWebUiDirectConnectionsMovedToTether": {
+    "description": "Shown in the Open WebUI section of Direct Connections settings when the server is 0.13.4 or later, which replaced the direct connections users kept on it with Tether, Open WebUI's companion app. Keep 'Tether' untranslated."
+  },
+  "composerYourDevices": "Je apparaten",
+  "@composerYourDevices": {
+    "description": "Heading in the message box's tools menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later)."
+  },
+  "tetherRelayInterrupted": "De verbinding met je apparaat is onderbroken. De bewerking kan toch zijn voltooid, dus controleer dat voordat je het opnieuw probeert.",
+  "@tetherRelayInterrupted": {
+    "description": "Shown for a reply or request Open WebUI relayed to one of the user's own devices through Tether when the relay broke: the operation may still have completed, so the user should check its result rather than repeat it."
+  },
+  "tetherRelayUnavailable": "Je apparaat is nu niet bereikbaar via Tether. Controleer of Tether erop draait.",
+  "@tetherRelayUnavailable": {
+    "description": "Shown when Open WebUI could not reach the user's own device through Tether: the device is offline or no longer offers the connection. Keep 'Tether' untranslated."
+  },
+  "tetherRelayBusy": "Je apparaat is via Tether bezig met andere verzoeken. Probeer het opnieuw als die klaar zijn.",
+  "@tetherRelayBusy": {
+    "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  }
 }
