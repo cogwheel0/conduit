@@ -1055,8 +1055,7 @@ void main() {
   // A device that joined or left while the app was away told a socket that
   // wasn't there, so the reconnect asks for the device lists again.
   test(
-    'resume reconnect emits onReconnect after the new socket connects, and '
-    'reads the device lists again',
+    'resume reconnect emits onReconnect and reads the device lists again',
     () async {
       final lifecycle = FakeAppLifecycle();
       addTearDown(lifecycle.dispose);
