@@ -381,6 +381,18 @@ void main() {
       check(h.fetches).equals(1);
     });
 
+    test('reminders turned off while the agenda is read are not handed over',
+        () async {
+      final h = _Harness()
+        ..agenda = [_event('due', startInMinutes: 5), _event('later')];
+      h.onFetch = () => h.enabled = false;
+
+      await h.sync();
+
+      check(h.notifications.delivered).isEmpty();
+      check(h.notifications.scheduled).isEmpty();
+    });
+
     test('keeps the reminders while calendar access is unknown, and drops '
         'them once it is off', () async {
       final h = _Harness()..agenda = [_event('a')];

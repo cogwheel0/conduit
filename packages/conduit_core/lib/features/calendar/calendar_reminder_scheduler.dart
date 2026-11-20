@@ -272,11 +272,15 @@ class CalendarReminderScheduler {
       await _cancelScheduled(account.scope);
       return;
     }
+    // The last check before each handover, with no await after it, so nothing
+    // reaches the OS under settings the user has changed since; the sync that
+    // change starts applies the new ones.
     bool stale() =>
         _disposed ||
         _signedOut.contains(null) ||
         _signedOut.contains(account.scope) ||
-        _account() != account;
+        _account() != account ||
+        _settings() != settings;
 
     final start = clock.now().toUtc();
     final items = await _fetchAgenda(start, start.add(calendarReminderHorizon));
