@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.74.0";
+pub const PROTOCOL_VERSION: &str = "1.75.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -13141,8 +13141,10 @@ fn default_terminal_server_dto_kind() -> String {
     "system".to_owned()
 }
 
-/// Params for `terminal.servers`: the servers usable in `scopeId` -- a
-/// chat id, or empty for the terminal page on its own.
+/// Params for `terminal.servers`: the servers usable in `scopeId`, a chat
+/// id. Empty lists every one the account's chats may use, a server that
+/// needs a saved chat marked `requiresSavedChat`: the terminal page, which
+/// opens outside any chat, cannot use that one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalScope {
@@ -13167,6 +13169,10 @@ pub struct TerminalServers {
 pub struct TerminalSelect {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_id: Option<String>,
+    /// The chat it is selected from, empty for none: a server that needs a
+    /// saved chat is selected from a saved one only.
+    #[serde(default)]
+    pub scope_id: String,
 }
 
 /// Params for `terminal.attach`.

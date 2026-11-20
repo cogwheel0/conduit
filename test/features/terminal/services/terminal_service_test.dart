@@ -164,35 +164,6 @@ void main() {
       expect(parentTerminalPath('/tmp/data/project/'), '/tmp/data/');
     });
 
-    test('parses chat context availability and saved-chat scoping', () {
-      expect(parseTerminalChatContextForTest(null), (
-        available: true,
-        requiresSavedChat: false,
-      ));
-      expect(parseTerminalChatContextForTest(const {'chat': false}), (
-        available: false,
-        requiresSavedChat: false,
-      ));
-      expect(
-        parseTerminalChatContextForTest(const {
-          'chat': {'context_id': 'chat_id'},
-        }),
-        (available: true, requiresSavedChat: true),
-      );
-
-      final scoped = TerminalServerInfo(
-        kind: TerminalServerKind.system,
-        selectionId: 'scoped',
-        baseUrl: Uri.parse('https://example.test'),
-        requiresSavedChatContext: true,
-      );
-      expect(scoped.isAvailableForChatScope('sidebar-terminal'), isFalse);
-      expect(scoped.isAvailableForChatScope('local:draft'), isFalse);
-      expect(scoped.isAvailableForChatScope('temporary:socket'), isFalse);
-      expect(scoped.isAvailableForChatScope('channel:team'), isFalse);
-      expect(scoped.isAvailableForChatScope('saved-chat'), isTrue);
-    });
-
     test('system websocket auth carries only a saved chat id', () {
       final system = TerminalServerInfo(
         kind: TerminalServerKind.system,

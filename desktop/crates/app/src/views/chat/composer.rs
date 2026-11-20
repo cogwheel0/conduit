@@ -2150,6 +2150,15 @@ impl ChatComposer {
         }
     }
 
+    /// The saved chat this composer writes in: None for a new or
+    /// temporary chat, and for Quick Ask, which keeps no draft.
+    fn saved_chat(&self, cx: &App) -> Option<String> {
+        self.composer
+            .read(cx)
+            .draft_key()
+            .and_then(|k| k.chat_id.clone())
+    }
+
     /// The + menu's rows, in order (see [`Self::show_plus_menu`]).
     pub(crate) fn plus_rows(&self, window: &Window, cx: &App) -> Vec<PlusRow> {
         let l10n = cx.l10n().clone();
@@ -2283,35 +2292,17 @@ impl ChatComposer {
             );
         }
         // Only an Open WebUI turn gets a terminal.
-        let chat_saved = self
-            .composer
-            .read(cx)
-            .draft_key()
-            .is_some_and(|k| k.chat_id.is_some());
+        let chat = self.saved_chat(cx);
         let (device_terminals, terminals): (Vec<_>, Vec<_>) = cx
             .try_global::<crate::AppState>()
             .map(|s| s.stores.areas.read(cx))
             .filter(|_| options.context)
             .map(|areas| {
-                areas
-                    .terminals
-                    .iter()
-                    .flatten()
-                    .filter(|t| chat_saved || !t.requires_saved_chat)
-                    .map(|t| {
-                        let name = if t.name.trim().is_empty() {
-                            t.id.clone()
-                        } else {
-                            t.name.clone()
-                        };
-                        (
-                            t.id.clone(),
-                            name,
-                            areas.terminal_selected.as_deref() == Some(t.id.as_str()),
-                            t.device,
-                        )
-                    })
-                    .collect::<Vec<_>>()
+                crate::views::terminal::chat::offered(
+                    areas.terminals.as_deref().unwrap_or_default(),
+                    areas.terminal_selected.as_deref(),
+                    chat.as_deref(),
+                )
             })
             .unwrap_or_default()
             .into_iter()
@@ -2578,7 +2569,8 @@ impl ChatComposer {
             }
             ComposerMenu::Filter(id) => composer.update(cx, |c, cx| c.toggle_filter(id, cx)),
             ComposerMenu::Terminal(id) => {
-                crate::views::terminal::chat::toggle_terminal(id.clone(), cx)
+                let chat = self.saved_chat(cx);
+                crate::views::terminal::chat::toggle_terminal(id.clone(), chat, cx)
             }
             ComposerMenu::Heading => {}
         }

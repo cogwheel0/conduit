@@ -116,16 +116,26 @@ final class TerminalsService {
   // Servers
   // ---------------------------------------------------------------------------
 
-  Future<List<TerminalServerInfo>> _available(String scopeId) =>
-      _guard(() async {
-        final servers = await _service().getAvailableServers();
-        return servers
-            .where((s) => s.isAvailableForChatScope(_scope(scopeId)))
-            .toList(growable: false);
-      });
+  /// Every server the account's chats may use, those that need a saved chat
+  /// among them.
+  Future<List<TerminalServerInfo>> _chatServers() => _guard(() async {
+    final servers = await _service().getAvailableServers();
+    return servers.where((s) => s.chatContextAvailable).toList(growable: false);
+  });
 
+  /// The servers usable in [scopeId]: a chat, or the page with none.
+  Future<List<TerminalServerInfo>> _available(String scopeId) async => [
+    for (final server in await _chatServers())
+      if (server.isAvailableForChatScope(_scope(scopeId))) server,
+  ];
+
+  /// The servers [scopeId]'s chat may use. With none, every one the
+  /// account's chats may use: the window offers one that needs a saved chat
+  /// only to a saved chat, and never on the page, which opens outside any.
   Future<TerminalServers> servers(String scopeId) async {
-    final servers = await _available(scopeId);
+    final servers = scopeId.trim().isEmpty
+        ? await _chatServers()
+        : await _available(scopeId);
     final selected = resolveSelectedTerminalServerForTest(
       servers,
       _container.read(selectedTerminalIdProvider),
@@ -145,11 +155,15 @@ final class TerminalsService {
     );
   }
 
-  /// Selects the terminal chats send and the page opens. A direct server
-  /// is also marked in the account's settings, where mobile and the web
-  /// client read the choice.
-  Future<TerminalServers> select(String? serverId) async {
-    final servers = await _available('');
+  /// Selects the terminal chats send and the page opens, from the chat
+  /// [scopeId] (or none), which must be able to use it. A direct server is
+  /// also marked in the account's settings, where mobile and the web client
+  /// read the choice.
+  Future<TerminalServers> select(
+    String? serverId, {
+    String scopeId = '',
+  }) async {
+    final servers = await _available(scopeId);
     final server = serverId == null
         ? null
         : servers.where((s) => s.selectionId == serverId).firstOrNull ??

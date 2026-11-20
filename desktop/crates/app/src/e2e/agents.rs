@@ -48,7 +48,7 @@ async fn choose_terminal(server: Option<&str>, cx: &mut AsyncApp) -> bool {
     let stores = cx.update(|cx| cx.global::<AppState>().stores.clone());
     let rpc = cx.update(|cx| stores.connection.read(cx).rpc());
     let asked = cx.update(|cx| {
-        crate::views::terminal::chat::select_server(&rpc, server.map(String::from), cx)
+        crate::views::terminal::chat::select_server(&rpc, server.map(String::from), None, cx)
     });
     let Some(servers) = asked.await else {
         println!("SMOKE note terminal.select({server:?}) failed");

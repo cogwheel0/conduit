@@ -1418,7 +1418,7 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     ],
     selectedId: 't1',
   ),
-  'terminalSelect': const TerminalSelect(serverId: 't1'),
+  'terminalSelect': const TerminalSelect(serverId: 't1', scopeId: 'c1'),
   'terminalAttach': const TerminalAttach(serverId: 't1', scopeId: 'c1'),
   'terminalAttached': const TerminalAttached(
     handle: 'h1',
