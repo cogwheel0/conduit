@@ -136,6 +136,7 @@ class _Harness {
       notifications: notifications,
       settings: () => (enabled: enabled, playSound: true),
       account: () => account,
+      access: () => access,
       fetchAgenda: (start, end) async {
         fetches++;
         lastRange = (start, end);
@@ -156,7 +157,8 @@ class _Harness {
   void Function()? onFetch;
   bool enabled = true;
   CalendarReminderAccount? account = (scope: _scope, userId: _me);
-  List<CalendarAgendaItem>? agenda = const [];
+  bool? access = true;
+  List<CalendarAgendaItem> agenda = const [];
   Object? fetchError;
   int fetches = 0;
   (DateTime, DateTime)? lastRange;
@@ -298,11 +300,18 @@ void main() {
       check(h.fetches).equals(1);
     });
 
-    test('without a calendar, the account\'s reminders go', () async {
+    test('keeps the reminders while calendar access is unknown, and drops '
+        'them once it is off', () async {
       final h = _Harness()..agenda = [_event('a')];
       await h.sync();
 
-      h.agenda = null;
+      h.access = null;
+      await h.sync();
+
+      check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
+      check(h.fetches).equals(1);
+
+      h.access = false;
       await h.sync();
 
       check(h.notifications.keysIn(_scope)).isEmpty();
@@ -336,6 +345,7 @@ void main() {
         notifications: h.notifications,
         settings: () => (enabled: true, playSound: true),
         account: () => h.account,
+        access: () => true,
         fetchAgenda: (start, end) async {
           h.account = (scope: _otherScope, userId: 'someone-else');
           return h.agenda;

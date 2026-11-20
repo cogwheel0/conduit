@@ -75,9 +75,10 @@ CalendarReminderScheduler calendarReminderScheduler(Ref ref) {
         userId: user.id,
       );
     },
+    access: () => ref.read(calendarAccessProvider),
     fetchAgenda: (start, end) async {
       final api = ref.read(apiServiceProvider);
-      if (api == null || !ref.read(calendarAvailableProvider)) return null;
+      if (api == null) throw StateError('No Open WebUI connection');
       const zone = DeviceCalendarZone();
       return api.getCalendarEvents(
         startIso: isoWithOffset(
@@ -117,7 +118,7 @@ CalendarReminderScheduler calendarReminderScheduler(Ref ref) {
     currentUserProvider2.select((user) => user?.id),
     (_, _) => resync(),
   );
-  ref.listen<bool>(calendarAvailableProvider, (_, _) => resync());
+  ref.listen<bool?>(calendarAccessProvider, (_, _) => resync());
   // A reply in the open chat finished, however it arrived (socket or the HTTP
   // completion recovery): the calendar tool may have added an event.
   ref.listen<bool>(isChatStreamingProvider, (previous, next) {

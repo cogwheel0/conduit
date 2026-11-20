@@ -66,21 +66,33 @@ final _operations = <String, _Operation>{
 void main() {
   group('capability', () {
     // Each case is one way the account may not use the calendar. The load and
-    // every operation must refuse before any request.
-    final denied = <String, void Function(_Session session)>{
-      'server flag off': (s) => s.config = _config(enabled: false),
-      'server flag missing': (s) => s.config = _config(enabled: null),
-      'config from another server': (s) =>
-          s.config = _config(serverId: 'other-server'),
-      'no permission document entry': (s) => s.permissions = const {},
-      'permission off': (s) => s.permissions = const {
-        'features': {'calendar': false},
-      },
+    // every operation must refuse before any request. Access is false where
+    // the account is known not to have the calendar, and null where that is
+    // not known yet.
+    final denied = <String, (void Function(_Session session), bool?)>{
+      'server flag off': ((s) => s.config = _config(enabled: false), false),
+      'server flag missing': ((s) => s.config = _config(enabled: null), false),
+      'config from another server': (
+        (s) => s.config = _config(serverId: 'other-server'),
+        null,
+      ),
+      'config not loaded': ((s) => s.config = null, null),
+      'no permission document entry': ((s) => s.permissions = const {}, false),
+      'permission off': (
+        (s) => s.permissions = const {
+          'features': {'calendar': false},
+        },
+        false,
+      ),
+      'permissions not read': (
+        (s) => s.permissionsError = StateError('offline'),
+        null,
+      ),
     };
 
-    for (final MapEntry(:key, :value) in denied.entries) {
+    for (final MapEntry(:key, value: (configure, access)) in denied.entries) {
       test('$key refuses the load and every operation', () async {
-        final session = await _Session.start(configure: value);
+        final session = await _Session.start(configure: configure);
         addTearDown(session.dispose);
         final calendar = session.container.read(
           calendarAgendaProvider.notifier,
@@ -101,6 +113,7 @@ void main() {
 
         check(session.server.requests).isEmpty();
         check(session.container.read(calendarAvailableProvider)).isFalse();
+        check(session.container.read(calendarAccessProvider)).equals(access);
       });
     }
 
@@ -121,6 +134,7 @@ void main() {
 
         check(data.calendars.map((c) => c.id)).contains('cal-mine');
         check(session.container.read(calendarAvailableProvider)).isTrue();
+        check(session.container.read(calendarAccessProvider)).equals(true);
       }
     });
   });
@@ -845,7 +859,11 @@ final class _Session {
         authTokenProvider3.overrideWith((ref) => token),
         openWebUiAuthSessionEpochProvider.overrideWith((ref) => _epoch),
         backendConfigProvider.overrideWith(() => _FakeBackendConfig(this)),
-        userPermissionsProvider.overrideWith((ref) async => permissions),
+        userPermissionsProvider.overrideWith((ref) async {
+          final error = permissionsError;
+          if (error != null) throw error;
+          return permissions;
+        }),
         calendarZoneProvider.overrideWithValue(const _FixedZone()),
         calendarClockProvider.overrideWithValue(
           () => DateTime.utc(2026, 10, 6, 10),
@@ -867,7 +885,9 @@ final class _Session {
     final session = _Session._(api, server);
     configure?.call(session);
     await session.container.read(activeServerProvider.future);
-    await session.container.read(userPermissionsProvider.future);
+    await session.container
+        .read(userPermissionsProvider.future)
+        .then<void>((_) {}, onError: (Object _) {});
     await session.container.read(backendConfigProvider.future);
     await pumpEventQueue();
     return session;
@@ -883,6 +903,7 @@ final class _Session {
   Map<String, dynamic> permissions = const {
     'features': {'calendar': true, 'automations': true},
   };
+  Object? permissionsError;
 
   void switchAccount() {
     _epoch = Object();

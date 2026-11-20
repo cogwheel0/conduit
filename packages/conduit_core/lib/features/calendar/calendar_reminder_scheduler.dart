@@ -166,7 +166,8 @@ class CalendarReminderScheduler {
     required CalendarReminderPort notifications,
     required CalendarReminderSettings Function() settings,
     required CalendarReminderAccount? Function() account,
-    required Future<List<CalendarAgendaItem>?> Function(
+    required bool? Function() access,
+    required Future<List<CalendarAgendaItem>> Function(
       DateTime start,
       DateTime end,
     )
@@ -176,6 +177,7 @@ class CalendarReminderScheduler {
   }) : _notifications = notifications,
        _settings = settings,
        _account = account,
+       _access = access,
        _fetchAgenda = fetchAgenda,
        _text = text;
 
@@ -183,10 +185,13 @@ class CalendarReminderScheduler {
   final CalendarReminderSettings Function() _settings;
   final CalendarReminderAccount? Function() _account;
 
-  /// The agenda between two instants; null when the account cannot use the
-  /// calendar. Throws when it could not be read, which leaves the reminders
-  /// scheduled so far in place.
-  final Future<List<CalendarAgendaItem>?> Function(DateTime start, DateTime end)
+  /// Whether the active account can use the calendar; null while that is not
+  /// known, which leaves the reminders scheduled so far in place.
+  final bool? Function() _access;
+
+  /// The agenda between two instants. Throws when it could not be read, which
+  /// leaves the reminders scheduled so far in place.
+  final Future<List<CalendarAgendaItem>> Function(DateTime start, DateTime end)
   _fetchAgenda;
   final ({String title, String body}) Function(CalendarReminder reminder) _text;
 
@@ -230,6 +235,12 @@ class CalendarReminderScheduler {
     }
     final account = _account();
     if (account == null) return;
+    final access = _access();
+    if (access == null) return;
+    if (!access) {
+      await _cancelScheduled(account.scope);
+      return;
+    }
 
     final start = clock.now().toUtc();
     final items = await _fetchAgenda(start, start.add(calendarReminderHorizon));
@@ -237,13 +248,11 @@ class CalendarReminderScheduler {
     if (_disposed || _account() != account) return;
 
     // Planned after the read, so an event that started meanwhile gets none.
-    final plan = items == null
-        ? const <CalendarReminder>[]
-        : planCalendarReminders(
-            items: items,
-            userId: account.userId,
-            now: clock.now(),
-          );
+    final plan = planCalendarReminders(
+      items: items,
+      userId: account.userId,
+      now: clock.now(),
+    );
     // Checked on every sync, so reminders move onto exact alarms once the
     // user allows them (and Settings knows whether to offer it).
     final exact = await _notifications.canScheduleExactReminders();
