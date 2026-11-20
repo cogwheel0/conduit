@@ -8,7 +8,7 @@ import 'dart:convert';
 import 'package:conduit_core/models/chat_message.dart';
 
 /// Set on an assistant message whose turn went to a model one of the user's
-/// devices offers ([isTetherModel]).
+/// devices offers (`isTetherModel`).
 const String kTetherTurnMetadataKey = 'tetherTurn';
 
 /// What Open WebUI 0.13.4's completion router reports for any failure before
