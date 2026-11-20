@@ -88,6 +88,7 @@ class SocketService {
   bool _wasBackgrounded = false;
   bool _resumeReconnectInFlight = false;
   bool _signalReconnectOnConnect = false;
+  bool _hasConnected = false;
   bool _hasNetwork = true;
   int _backgroundActivityLeases = 0;
   final Set<String> _backgroundLeaseHandlerIds = <String>{};
@@ -1365,7 +1366,18 @@ class SocketService {
     // Emit health update
     _emitHealthUpdate();
 
-    _publishPendingResumeReconciliation();
+    // Any connection after the first is a reconnect, however it came back:
+    // Socket.IO reconnecting this socket (socket_io_client 3 sends
+    // `reconnect` to the manager alone, so only `connect` arrives here), or a
+    // new socket after the network gate, a resume or a chat's lease.
+    final reconnected = _hasConnected;
+    _hasConnected = true;
+    if (reconnected) {
+      _clearPendingResumeReconnect();
+      _announceReconnect();
+    } else {
+      _publishPendingResumeReconciliation();
+    }
   }
 
   void _handleReconnectAttempt(dynamic attempt) {

@@ -1333,6 +1333,80 @@ void main() {
     },
   );
 
+  // Each way a connection comes back after the first, as the socket that
+  // connects next.
+  for (final (label, comeBack)
+      in <(String, io.Socket Function(SocketService, List<io.Socket>))>[
+        (
+          'the network returns',
+          (service, sockets) {
+            service
+              ..updateNetworkAvailability(false)
+              ..updateNetworkAvailability(true);
+            return sockets.last;
+          },
+        ),
+        (
+          'Socket.IO reconnects it',
+          (service, sockets) {
+            sockets.single
+              ..connected = false
+              ..emitReserved('disconnect', 'transport close');
+            return sockets.single;
+          },
+        ),
+        (
+          'a chat needs it',
+          (service, sockets) {
+            sockets.single
+              ..connected = false
+              ..emitReserved('disconnect', 'transport close');
+            service.addChatEventHandler(
+              keepsAliveInBackground: true,
+              handler: (_, _) {},
+            );
+            return sockets.last;
+          },
+        ),
+      ]) {
+    test('a later connection is announced when $label', () async {
+      final socketFactory = _RecordingSocketFactory();
+      final service = SocketService(
+        serverConfig: _serverConfig,
+        socketFactory: socketFactory.create,
+      );
+      addTearDown(service.dispose);
+      var reconnectSignals = 0;
+      final reconnectSub = service.onReconnect.listen(
+        (_) => reconnectSignals++,
+      );
+      addTearDown(reconnectSub.cancel);
+      var deviceRefreshes = 0;
+      service.tetherDevicesChangedHandler = () => deviceRefreshes++;
+
+      await service.connect();
+      socketFactory.sockets.single
+        ..connected = true
+        ..id = 'first-session'
+        ..emitReserved('connect');
+      await _flushMicrotasks(2);
+      expect(reconnectSignals, 0);
+      expect(deviceRefreshes, 0);
+
+      final next = comeBack(service, socketFactory.sockets);
+      await _flushMicrotasks(2);
+      next
+        ..connected = true
+        ..id = 'next-session'
+        ..emitReserved('connect');
+      await _flushMicrotasks(2);
+
+      expect(service.sessionId, 'next-session');
+      expect(reconnectSignals, 1);
+      expect(deviceRefreshes, 1);
+    });
+  }
+
   group('bounded pre-handler replay', () {
     Map<String, dynamic> event(
       String chatId,
