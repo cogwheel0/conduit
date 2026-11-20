@@ -387,6 +387,11 @@ class MediaUploadController {
   final Map<String, int> _pathGenerations = <String, int>{};
   int _nextGeneration = 0;
 
+  /// The finished row of each photo the tray keeps (one compressed as it was
+  /// picked), by path. It goes once the photo leaves the tray and is deleted.
+  final Map<String, ({AttachmentUploadQueue queue, String id})> _trayHeldRows =
+      {};
+
   @visibleForTesting
   int get debugTrackedPathGenerationCount => _pathGenerations.length;
 
@@ -848,12 +853,26 @@ class MediaUploadController {
     var queueOwnedCleanup = false;
     queueOwnedCleanup = await inflight.cancel();
     if (!queueOwnedCleanup) {
-      await _cleanupAttachmentForGeneration(
+      final cleaned = await _cleanupAttachmentForGeneration(
         targetPath: filePath,
         ownershipPath: filePath,
         inflight: inflight,
         fencePathIdentity: true,
       );
+      final held = _trayHeldRows.remove(filePath);
+      if (cleaned && held != null) {
+        try {
+          await held.queue.acknowledgeTerminal(held.id);
+        } catch (error, stackTrace) {
+          DebugLogger.error(
+            'tray-held-upload-acknowledgement-failed',
+            scope: 'media/upload',
+            error: error,
+            stackTrace: stackTrace,
+            data: {'id': held.id},
+          );
+        }
+      }
     }
     _tryPrunePathGeneration(filePath, inflight);
   }
@@ -1571,6 +1590,7 @@ class MediaUploadController {
         if (pickedConversion &&
             entry?.status == QueuedAttachmentStatus.completed &&
             _currentAttachment(filePath) != null) {
+          _trayHeldRows[filePath] = (queue: uploader, id: id);
           return;
         }
 

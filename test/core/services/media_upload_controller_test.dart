@@ -1045,10 +1045,14 @@ void main() {
     final attached = container.read(attachedFilesProvider).single;
     expect(attached.status, FileUploadStatus.completed);
     expect(await photo.exists(), isTrue);
+    // Its row stays too, to clean the photo up after a restart.
+    expect(await database.attachmentQueueDao.getAll(), hasLength(1));
 
     await controller.removeAttachment(photo.path);
 
     expect(await photo.exists(), isFalse);
+    expect(queue.queue, isEmpty, reason: 'the photo is gone, its row stayed');
+    expect(await database.attachmentQueueDao.getAll(), isEmpty);
   });
 
   test(
