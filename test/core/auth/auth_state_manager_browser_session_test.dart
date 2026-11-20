@@ -58,18 +58,21 @@ String _jwt(Duration expiresIn, {String tag = 'session'}) {
 final _issued = _jwt(const Duration(days: 1), tag: 'issued');
 final _renewed = _jwt(const Duration(days: 1), tag: 'renewed');
 
-BrowserSignInGrant _grant({String? refreshToken = 'idp-refresh'}) =>
-    BrowserSignInGrant(
-      serverId: 'server-1',
-      provider: 'oidc',
-      clientId: 'conduit',
-      issuer: 'https://id.example',
-      tokenEndpoint: Uri.parse('https://id.example/token'),
-      revocationEndpoint: Uri.parse('https://id.example/revoke'),
-      accessToken: 'idp-access',
-      refreshToken: refreshToken,
-      scope: 'openid email profile offline_access',
-    );
+BrowserSignInGrant _grant({
+  String? refreshToken = 'idp-refresh',
+  String? subject,
+}) => BrowserSignInGrant(
+  serverId: 'server-1',
+  provider: 'oidc',
+  clientId: 'conduit',
+  issuer: 'https://id.example',
+  tokenEndpoint: Uri.parse('https://id.example/token'),
+  revocationEndpoint: Uri.parse('https://id.example/revoke'),
+  accessToken: 'idp-access',
+  refreshToken: refreshToken,
+  scope: 'openid email profile offline_access',
+  subject: subject,
+);
 
 const _session = BrowserSignInSession(
   serverId: 'server-1',
@@ -1032,6 +1035,95 @@ void main() {
       check(rig.state.status).equals(AuthStatus.authenticated);
       check(rig.state.token).equals(token);
       verifyNever(() => rig.storage.deleteSavedCredentialsIfMatches(any()));
+    });
+  });
+
+  group('a grant nothing keeps is revoked', () {
+    const secondStep = BrowserSignInSecondStep(
+      OpenWebUiTwoStepChallenge(
+        kind: OpenWebUiTwoStepKind.verify,
+        challengeToken: 'user-a.challenge',
+        expiresIn: Duration(minutes: 5),
+      ),
+    );
+
+    for (final (name, abandon) in <(String, Future<void> Function(_Rig))>[
+      ('when Cancel follows the browser', (rig) async {
+        rig.service.exchanging = Completer<void>();
+        final signIn = rig.auth.loginWithBrowser(config: _config);
+        await pumpEventQueue();
+        await rig.auth.cancelBrowserSignIn();
+        rig.service.exchanging!.complete();
+        check(await signIn).isFalse();
+      }),
+      ('when Open WebUI refuses it', (rig) async {
+        rig.service.exchangeError = const BrowserSignInException(
+          BrowserSignInFailure.exchangeDisabled,
+        );
+        await check(
+          rig.auth.loginWithBrowser(config: _config),
+        ).throws<BrowserSignInException>();
+      }),
+      ('when a sign-in in the browser again drops its retry', (rig) async {
+        rig.service.exchangeError = const BrowserSignInException(
+          BrowserSignInFailure.userNotFound,
+        );
+        await check(
+          rig.auth.loginWithBrowser(config: _config),
+        ).throws<BrowserSignInException>();
+        await pumpEventQueue();
+        check(rig.service.revoked).isEmpty();
+        rig.service.grant = null;
+        await rig.auth.loginWithBrowser(config: _config);
+      }),
+      ('when its second step is left', (rig) async {
+        rig.service.answer = () => secondStep;
+        await check(
+          rig.auth.loginWithBrowser(config: _config),
+        ).throws<OpenWebUiTwoStepRequired>();
+        await pumpEventQueue();
+        check(rig.service.revoked).isEmpty();
+        rig.auth.cancelTwoStepSignIn();
+      }),
+    ]) {
+      test(name, () async {
+        final rig = await _Rig.start();
+        rig.service.grant = _grant(subject: 'idp-user');
+
+        await abandon(rig);
+        await pumpEventQueue();
+
+        check(
+          rig.service.revoked.map((session) => session.refreshToken),
+        ).deepEquals(['idp-refresh']);
+      });
+    }
+
+    test('but not once signed in, nor without the provider\'s user, who may '
+        'hold a stored session of the same grant', () async {
+      final signedIn = await _Rig.start();
+      signedIn.service.grant = _grant(subject: 'idp-user');
+      signedIn.service.answer = () => secondStep;
+      await check(
+        signedIn.auth.loginWithBrowser(config: _config),
+      ).throws<OpenWebUiTwoStepRequired>();
+      final session = await signedIn.auth.submitTwoStepCode(
+        secondStep.challenge,
+        '123456',
+      );
+      check(await signedIn.auth.finishTwoStepSignIn(session)).isTrue();
+
+      final unknown = await _Rig.start();
+      unknown.service.exchangeError = const BrowserSignInException(
+        BrowserSignInFailure.exchangeDisabled,
+      );
+      await check(
+        unknown.auth.loginWithBrowser(config: _config),
+      ).throws<BrowserSignInException>();
+
+      await pumpEventQueue();
+      check(signedIn.service.revoked).isEmpty();
+      check(unknown.service.revoked).isEmpty();
     });
   });
 
