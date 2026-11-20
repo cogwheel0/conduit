@@ -406,6 +406,36 @@ void main() {
     });
   });
 
+  // 0.13.4 passes both on to the provider instead of reading them.
+  for (final (version, carried) in const [
+    ('0.13.3', true),
+    ('0.13.4', false),
+  ]) {
+    group('against a fake Open WebUI $version', () {
+      setUp(() => signIn(version: version));
+
+      test('a send ${carried ? 'carries' : 'leaves out'} model_item and '
+          'tool_servers', () async {
+        owui.chats.seed('chat-kitchen', userId: 'user-ada');
+
+        await clock.during(
+          turns.send(
+            const SendTurn(
+              chatId: 'chat-kitchen',
+              model: 'kettle-model',
+              text: 'Milk?',
+            ),
+          ),
+        );
+        await clock.during(owui.chats.admissionAsked.future);
+
+        final asked = owui.chats.completions.single;
+        expect(asked.containsKey('model_item'), carried);
+        expect(asked.containsKey('tool_servers'), carried);
+      });
+    });
+  }
+
   group('against a fake Open WebUI before 0.9', () {
     setUp(() => signIn(version: '0.8.5'));
 
