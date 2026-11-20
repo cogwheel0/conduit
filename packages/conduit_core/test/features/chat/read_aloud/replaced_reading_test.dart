@@ -11,9 +11,10 @@ import 'package:conduit_core/ports/audio_playback_port.dart';
 import 'package:test/fake.dart';
 import 'package:test/test.dart';
 
-/// A reading replaced while an earlier one still has work under way: none of
+/// A reading replaced, or ended, while it still has work under way: none of
 /// the earlier reading's late work may reach the player, the clips or the
-/// listeners of the one that replaced it.
+/// listeners of the one that replaced it. A device reading's renders ahead
+/// join in order.
 void main() {
   final player = _Player();
   final previousFactory = AudioPlaybackPort.hostFactory;
@@ -229,33 +230,71 @@ void main() {
     check(File(oldFile).existsSync()).isFalse();
   });
 
-  /// Starts a device reading of three chunks: the first playing, the other
-  /// two asked for and not yet answered.
+  test(
+    'a device reading renders three chunks ahead and adds them in order',
+    () async {
+      engine.queueRenders = true;
+      final reading = manager.speak(
+        'A strip.\n\nB strip.\n\nC strip.\n\nD strip.\n\nE strip.',
+        seekable: true,
+      );
+      await pumpEventQueue();
+      engine.answerFirst();
+      await reading;
+      await pumpEventQueue();
+      check(engine.waiting).deepEquals(['B strip.', 'C strip.', 'D strip.']);
+
+      // A later chunk rendered first waits for the one before it.
+      engine.answer('C strip.');
+      await pumpEventQueue();
+      check(player.clips.map((clip) => clip.tag)).deepEquals([0]);
+
+      engine.answer('B strip.');
+      await pumpEventQueue();
+      check(player.clips.map((clip) => clip.tag)).deepEquals([0, 1, 2]);
+      check(engine.waiting).deepEquals(['D strip.', 'E strip.']);
+
+      engine.answer('E strip.');
+      engine.answer('D strip.');
+      await pumpEventQueue();
+      check(player.clips.map((clip) => clip.tag)).deepEquals([0, 1, 2, 3, 4]);
+      check(manager.playbackDuration).equals(const Duration(seconds: 100));
+    },
+  );
+
+  /// Starts a device reading of four chunks: the first playing, the other
+  /// three asked for and not yet answered.
   Future<void> startReadingWithRendersUnderWay() async {
     engine.queueRenders = true;
     final old = manager.speak(
-      'Old one.\n\nOld two.\n\nOld three.',
+      'Old one.\n\nOld two.\n\nOld three.\n\nOld four.',
       seekable: true,
     );
     await pumpEventQueue();
     engine.answerFirst();
     await old;
     await pumpEventQueue();
-    check(engine.waiting).deepEquals(['Old two.', 'Old three.']);
+    check(engine.waiting).deepEquals(['Old two.', 'Old three.', 'Old four.']);
   }
 
   test('a reading whose render fails drops the renders still under way, so '
       'the next reading\'s goes first', () async {
     await startReadingWithRendersUnderWay();
-    final stillWriting = engine.queued.last.path;
+    final finishedEarly = engine.pathOf('Old three.');
+    final stillWriting = engine.pathOf('Old four.');
     final failed = manager.events.firstWhere((event) => event is TtsError);
 
+    // The third chunk lands before the second fails, the fourth never does.
+    engine.answer('Old three.');
     engine.failFirst();
     await failed;
+    check(manager.isPlaying).isFalse();
+    check(player.clips.map((clip) => clip.tag)).deepEquals([0]);
     final replacing = manager.speak('New one.', seekable: true);
     await pumpEventQueue();
 
     check(engine.waiting).deepEquals(['New one.']);
+    check(File(finishedEarly).existsSync()).isFalse();
     check(File(stillWriting).existsSync()).isFalse();
     engine.answerFirst();
     await replacing;
@@ -277,7 +316,7 @@ void main() {
     final replacing = manager.speak('New one.', seekable: true);
     await pumpEventQueue();
     // Asked for only once the engine has dropped the old ones.
-    check(engine.waiting).deepEquals(['Old three.']);
+    check(engine.waiting).deepEquals(['Old three.', 'Old four.']);
     dropping.complete();
     await pumpEventQueue();
 
@@ -412,10 +451,10 @@ final class _Player extends NullAudioPlayback {
 /// A device voice that renders each chunk to a file under [dir], and whose
 /// [cancelSynthesis] waits for [cancelGate] when set.
 ///
-/// With [queueRenders] set it works as both bridges do: renders are answered
-/// one at a time in the order asked ([answerFirst], [failFirst]), each file
-/// exists from the moment it is asked for, and [cancelSynthesis] fails every
-/// render not yet answered and deletes its file.
+/// With [queueRenders] set, a render waits until the test answers it
+/// ([answer], [answerFirst], [failFirst]), its file there from the moment it
+/// is asked for; [cancelSynthesis] fails every render not yet answered and
+/// deletes its file, as both bridges do.
 final class _Engine extends Fake implements DeviceSpeechEngine {
   _Engine(this.dir);
 
@@ -426,15 +465,21 @@ final class _Engine extends Fake implements DeviceSpeechEngine {
   bool queueRenders = false;
   final queued = <_Render>[];
 
-  /// The texts of the renders not yet answered, the one being written first.
+  /// The texts of the renders not yet answered, in the order asked.
   List<String> get waiting => [for (final render in queued) render.text];
 
-  void answerFirst() {
-    final render = queued.removeAt(0);
+  String pathOf(String text) =>
+      queued.firstWhere((render) => render.text == text).path;
+
+  void answer(String text) {
+    final render = queued.firstWhere((render) => render.text == text);
+    queued.remove(render);
     render.answer.complete(
       NativeTtsAudio(render.path, const Duration(seconds: 20)),
     );
   }
+
+  void answerFirst() => answer(queued.first.text);
 
   void failFirst() => queued.removeAt(0).fail();
 
