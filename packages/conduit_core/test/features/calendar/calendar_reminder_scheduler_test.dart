@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:clock/clock.dart';
 import 'package:conduit_core/features/calendar/calendar_reminder_scheduler.dart';
 import 'package:conduit_core/features/calendar/calendar_reminders.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:test/test.dart';
 
 const _scope = 'owui:acct-1';
@@ -29,11 +32,18 @@ CalendarEventModel _event(
 );
 
 /// Keeps scheduled reminders in memory, the way the plugin's pending list
-/// reports them back.
+/// reports them back, and refuses a time that is not in the future, as
+/// flutter_local_notifications does.
 class _FakeNotifications implements CalendarReminderPort {
   final scheduled = <ScheduledCalendarReminder>[];
   final scheduledAt = <String, DateTime>{};
   final cancelled = <int>[];
+
+  /// Reminders the user saw: posted at once, or fired from the schedule.
+  final delivered = <String>[];
+
+  /// Reminders handed to the plugin with a time that had passed.
+  final rejected = <String>[];
   int _nextId = 100;
   Completer<void>? holdSchedule;
   final enteredSchedule = Completer<void>();
@@ -58,6 +68,10 @@ class _FakeNotifications implements CalendarReminderPort {
   }) async {
     if (!enteredSchedule.isCompleted) enteredSchedule.complete();
     await holdSchedule?.future;
+    if (!reminder.fireAt.isAfter(clock.now())) {
+      rejected.add(reminder.key);
+      return false;
+    }
     scheduled.add(
       ScheduledCalendarReminder(
         id: _nextId++,
@@ -77,14 +91,32 @@ class _FakeNotifications implements CalendarReminderPort {
   }
 
   @override
-  Future<void> cancelScheduled(int id) async {
-    cancelled.add(id);
-    scheduled.removeWhere((r) => r.id == id);
+  Future<bool> postCalendarReminder(
+    CalendarReminder reminder, {
+    required String scope,
+    required String title,
+    required String body,
+    required bool playSound,
+  }) async {
+    delivered.add(reminder.key);
+    return true;
+  }
+
+  /// What the OS does once a scheduled reminder is due: posts it and drops it
+  /// from the pending list.
+  void fireDue() {
+    final now = clock.now();
+    scheduled.removeWhere((r) {
+      if (scheduledAt[r.key]!.isAfter(now)) return false;
+      delivered.add(r.key);
+      return true;
+    });
   }
 
   @override
-  Future<void> cancelCalendarReminders({String? scope}) async {
-    scheduled.removeWhere((r) => scope == null || r.scope == scope);
+  Future<void> cancelScheduled(int id) async {
+    cancelled.add(id);
+    scheduled.removeWhere((r) => r.id == id);
   }
 
   Set<String> keysIn(String scope) => {
@@ -95,6 +127,11 @@ class _FakeNotifications implements CalendarReminderPort {
 
 class _Harness {
   _Harness() {
+    restart();
+  }
+
+  /// A new scheduler over the same device, as after the app restarts.
+  void restart() {
     scheduler = CalendarReminderScheduler(
       notifications: notifications,
       settings: () => (enabled: enabled, playSound: true),
@@ -102,17 +139,21 @@ class _Harness {
       fetchAgenda: (start, end) async {
         fetches++;
         lastRange = (start, end);
+        onFetch?.call();
         final error = fetchError;
         if (error != null) throw error;
         return agenda;
       },
       text: (reminder) => (title: reminder.title, body: 'body'),
-      now: () => _now,
     );
   }
 
+  Future<void> sync() => withClock(Clock(() => now), scheduler.sync);
+
   final notifications = _FakeNotifications();
-  late final CalendarReminderScheduler scheduler;
+  late CalendarReminderScheduler scheduler;
+  DateTime now = _now;
+  void Function()? onFetch;
   bool enabled = true;
   CalendarReminderAccount? account = (scope: _scope, userId: _me);
   List<CalendarAgendaItem>? agenda = const [];
@@ -122,6 +163,11 @@ class _Harness {
 }
 
 void main() {
+  setUp(() {
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    addTearDown(PreferencesStore.debugReset);
+  });
+
   group('CalendarReminderScheduler', () {
     test('schedules the upcoming alerts of the agenda', () async {
       final h = _Harness()
@@ -130,67 +176,102 @@ void main() {
           _event('b', startInMinutes: 120),
         ];
 
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.keysIn(_scope)).deepEquals({'a|', 'b|'});
-      check(
-        h.notifications.scheduledAt['a|'],
-      ).equals(_now.add(const Duration(minutes: 45)));
-      check(h.lastRange).isNotNull().has((r) => r.$2.difference(r.$1), 'span')
+      check(h.notifications.scheduledAt['a|'])
+          .equals(_now.add(const Duration(minutes: 45)));
+      check(h.lastRange)
+          .isNotNull()
+          .has((r) => r.$2.difference(r.$1), 'span')
           .equals(calendarReminderHorizon);
     });
 
     test('keeps a reminder that still matches', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
       final id = h.notifications.scheduled.single.id;
 
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.scheduled.single.id).equals(id);
       check(h.notifications.cancelled).isEmpty();
     });
 
+    test('posts an alert that is already due at once, and once only', () async {
+      // "Remind me in 5 minutes": the default 10-minute alert has passed. The
+      // other event starts while the agenda is being read.
+      final h = _Harness()
+        ..agenda = [
+          _event('due', startInMinutes: 5),
+          _event('starting', startInMinutes: 1),
+        ];
+      h.onFetch = () => h.now = _now.add(const Duration(minutes: 2));
+
+      await h.sync();
+      h.restart();
+      await h.sync();
+
+      check(h.notifications.delivered).deepEquals(['due|']);
+      check(h.notifications.rejected).isEmpty();
+      check(h.notifications.scheduled).isEmpty();
+    });
+
+    test('a reminder that fired on schedule is not posted again', () async {
+      final h = _Harness()..agenda = [_event('a')];
+      await h.sync();
+
+      h.now = _now.add(const Duration(minutes: 52));
+      h.notifications.fireDue();
+      h.restart();
+      await h.sync();
+
+      check(h.notifications.delivered).deepEquals(['a|']);
+      check(h.notifications.rejected).isEmpty();
+    });
+
     test('replaces a reminder whose event moved or was renamed', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
       final id = h.notifications.scheduled.single.id;
 
       h.agenda = [_event('a', startInMinutes: 90, title: 'Moved')];
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.cancelled).deepEquals([id]);
       check(h.notifications.scheduled.single.id).not((it) => it.equals(id));
-      check(
-        h.notifications.scheduledAt['a|'],
-      ).equals(_now.add(const Duration(minutes: 80)));
+      check(h.notifications.scheduledAt['a|'])
+          .equals(_now.add(const Duration(minutes: 80)));
     });
 
     test('moves reminders onto exact alarms once they are allowed', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
       final id = h.notifications.scheduled.single.id;
       check(h.notifications.exactByKey['a|']).equals(false);
 
       h.notifications.exactAllowed = true;
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.cancelled).deepEquals([id]);
       check(h.notifications.exactByKey['a|']).equals(true);
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
-    test('drops reminders of deleted events and of alerts turned off', () async {
-      final h = _Harness()..agenda = [_event('a'), _event('b')];
-      await h.scheduler.sync();
+    test(
+      'drops reminders of deleted events and of alerts turned off',
+      () async {
+        final h = _Harness()..agenda = [_event('a'), _event('b')];
+        await h.sync();
 
-      h.agenda = [
-        _event('b', meta: {'alert_minutes': -1}),
-      ];
-      await h.scheduler.sync();
+        h.agenda = [
+          _event('b', meta: {'alert_minutes': -1}),
+        ];
+        await h.sync();
 
-      check(h.notifications.keysIn(_scope)).isEmpty();
-    });
+        check(h.notifications.keysIn(_scope)).isEmpty();
+      },
+    );
 
     test('leaves the reminders of other accounts alone', () async {
       final h = _Harness()..agenda = [_event('a')];
@@ -203,7 +284,7 @@ void main() {
         ),
       );
 
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.keysIn(_otherScope)).deepEquals({'other|'});
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
@@ -211,10 +292,10 @@ void main() {
 
     test('turned off, it unschedules every reminder', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
 
       h.enabled = false;
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.scheduled).isEmpty();
       check(h.fetches).equals(1);
@@ -222,20 +303,20 @@ void main() {
 
     test('without a calendar, the account\'s reminders go', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
 
       h.agenda = null;
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.keysIn(_scope)).isEmpty();
     });
 
     test('a failed read keeps what is scheduled', () async {
       final h = _Harness()..agenda = [_event('a')];
-      await h.scheduler.sync();
+      await h.sync();
 
       h.fetchError = StateError('offline');
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
@@ -245,41 +326,43 @@ void main() {
         ..account = null
         ..agenda = [_event('a')];
 
-      await h.scheduler.sync();
+      await h.sync();
 
       check(h.fetches).equals(0);
       check(h.notifications.scheduled).isEmpty();
     });
 
-    test('an agenda read for an account that switched away is dropped', () async {
-      final h = _Harness();
-      h.agenda = [_event('a')];
-      final scheduler = CalendarReminderScheduler(
-        notifications: h.notifications,
-        settings: () => (enabled: true, playSound: true),
-        account: () => h.account,
-        fetchAgenda: (start, end) async {
-          h.account = (scope: _otherScope, userId: 'someone-else');
-          return h.agenda;
-        },
-        text: (reminder) => (title: reminder.title, body: 'body'),
-        now: () => _now,
-      );
+    test(
+      'an agenda read for an account that switched away is dropped',
+      () async {
+        final h = _Harness();
+        h.agenda = [_event('a')];
+        final scheduler = CalendarReminderScheduler(
+          notifications: h.notifications,
+          settings: () => (enabled: true, playSound: true),
+          account: () => h.account,
+          fetchAgenda: (start, end) async {
+            h.account = (scope: _otherScope, userId: 'someone-else');
+            return h.agenda;
+          },
+          text: (reminder) => (title: reminder.title, body: 'body'),
+        );
 
-      await scheduler.sync();
+        await withClock(Clock.fixed(_now), scheduler.sync);
 
-      check(h.notifications.scheduled).isEmpty();
-    });
+        check(h.notifications.scheduled).isEmpty();
+      },
+    );
 
     test('calls during a sync fold into one more run', () async {
       final h = _Harness()..agenda = [_event('a')];
       final hold = Completer<void>();
       h.notifications.holdSchedule = hold;
 
-      final first = h.scheduler.sync();
+      final first = h.sync();
       await h.notifications.enteredSchedule.future;
-      final second = h.scheduler.sync();
-      final third = h.scheduler.sync();
+      final second = h.sync();
+      final third = h.sync();
       hold.complete();
       await Future.wait([first, second, third]);
 

@@ -37,9 +37,9 @@ final class CalendarReminder {
   final bool allDay;
   final String? location;
 
-  /// When the reminder is due, in UTC. Never earlier than the moment the plan
-  /// was made: a reminder whose alert time already passed while the event has
-  /// not started yet is due right away.
+  /// When the reminder is due, in UTC. Earlier than the moment the plan was
+  /// made when the alert time already passed while the event has not started
+  /// yet; such a reminder is due right away.
   final DateTime fireAt;
 
   @override
@@ -87,8 +87,7 @@ List<CalendarReminder> planCalendarReminders({
   required DateTime now,
   int limit = calendarReminderLimit,
 }) {
-  final nowUtc = now.toUtc();
-  final nowNs = nowUtc.microsecondsSinceEpoch * nanosPerMicrosecond;
+  final nowNs = now.toUtc().microsecondsSinceEpoch * nanosPerMicrosecond;
   final reminders = <String, CalendarReminder>{};
   for (final item in items) {
     if (item is! CalendarEventModel) continue;
@@ -96,9 +95,8 @@ List<CalendarReminder> planCalendarReminders({
     if (item.startAtNs < nowNs) continue;
     final minutes = calendarAlertMinutes(item);
     if (minutes == null) continue;
-    final alertAt = instantFromNanoseconds(
-      item.startAtNs,
-    ).subtract(Duration(minutes: minutes));
+    final alertAt = instantFromNanoseconds(item.startAtNs)
+        .subtract(Duration(minutes: minutes));
     reminders[item.key] = CalendarReminder(
       key: item.key,
       eventId: item.id,
@@ -106,7 +104,7 @@ List<CalendarReminder> planCalendarReminders({
       startAtNs: item.startAtNs,
       allDay: item.allDay,
       location: item.location,
-      fireAt: alertAt.isBefore(nowUtc) ? nowUtc : alertAt,
+      fireAt: alertAt,
     );
   }
   final sorted = reminders.values.toList()

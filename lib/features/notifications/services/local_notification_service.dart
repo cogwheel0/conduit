@@ -396,34 +396,13 @@ class LocalNotificationService implements CalendarReminderPort {
     if (!Platform.isAndroid && !Platform.isIOS) return false;
     if (!_initialized) await initialize();
 
-    final l10n = currentAppLocalizations();
-    final androidDetails = AndroidNotificationDetails(
-      _calendarChannelId,
-      l10n.notificationChannelCalendarName,
-      channelDescription: l10n.notificationChannelCalendarDescription,
-      importance: Importance.high,
-      priority: Priority.high,
-      category: AndroidNotificationCategory.reminder,
-      icon: '@mipmap/ic_launcher',
-      playSound: playSound,
-    );
-    final iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: playSound,
-      threadIdentifier: '$scope|calendar',
-    );
-
     try {
       await _plugin.zonedSchedule(
         id: nextNotificationId(),
         title: title,
         body: body,
         scheduledDate: tz.TZDateTime.from(reminder.fireAt, tz.UTC),
-        notificationDetails: NotificationDetails(
-          android: androidDetails,
-          iOS: iosDetails,
-        ),
+        notificationDetails: _calendarDetails(scope, playSound: playSound),
         androidScheduleMode: exact
             ? AndroidScheduleMode.exactAllowWhileIdle
             : AndroidScheduleMode.inexactAllowWhileIdle,
@@ -450,6 +429,65 @@ class LocalNotificationService implements CalendarReminderPort {
     }
   }
 
+  @override
+  Future<bool> postCalendarReminder(
+    CalendarReminder reminder, {
+    required String scope,
+    required String title,
+    required String body,
+    required bool playSound,
+  }) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return false;
+    if (!_initialized) await initialize();
+    try {
+      await _plugin.show(
+        id: nextNotificationId(),
+        title: title,
+        body: body,
+        notificationDetails: _calendarDetails(scope, playSound: playSound),
+        payload: ScheduledCalendarReminder.encode(
+          key: reminder.key,
+          scope: scope,
+          fingerprint: '',
+        ),
+      );
+      return true;
+    } catch (e, st) {
+      DebugLogger.error(
+        'failed to post calendar reminder',
+        error: e,
+        stackTrace: st,
+        scope: 'notifications/calendar',
+      );
+      return false;
+    }
+  }
+
+  NotificationDetails _calendarDetails(
+    String scope, {
+    required bool playSound,
+  }) {
+    final l10n = currentAppLocalizations();
+    return NotificationDetails(
+      android: AndroidNotificationDetails(
+        _calendarChannelId,
+        l10n.notificationChannelCalendarName,
+        channelDescription: l10n.notificationChannelCalendarDescription,
+        importance: Importance.high,
+        priority: Priority.high,
+        category: AndroidNotificationCategory.reminder,
+        icon: '@mipmap/ic_launcher',
+        playSound: playSound,
+      ),
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: playSound,
+        threadIdentifier: '$scope|calendar',
+      ),
+    );
+  }
+
   /// The calendar reminders scheduled and not yet posted, for every account.
   @override
   Future<List<ScheduledCalendarReminder>> scheduledCalendarReminders() async {
@@ -474,7 +512,6 @@ class LocalNotificationService implements CalendarReminderPort {
 
   /// Unschedules the calendar reminders of [scope], or of every account when
   /// [scope] is null. Reminders already posted stay.
-  @override
   Future<void> cancelCalendarReminders({String? scope}) async {
     if (!Platform.isAndroid && !Platform.isIOS) return;
     try {

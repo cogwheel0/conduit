@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:conduit_core/features/calendar/calendar_reminders.dart';
+import 'package:conduit_core/features/calendar/calendar_time.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/notifications/models/notification_scope.dart';
+import 'package:conduit_core/persistence/persistence_keys.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:meta/meta.dart';
 
@@ -11,6 +15,10 @@ import 'package:meta/meta.dart';
 /// resume and finished reply, so this only has to cover the time the app may
 /// stay unopened.
 const Duration calendarReminderHorizon = Duration(days: 14);
+
+/// A reminder due this soon is posted at once rather than scheduled: the
+/// notification plugin refuses a time that has passed by the moment it checks.
+const Duration _dueMargin = Duration(seconds: 5);
 
 /// The signed-in account a sync schedules reminders for.
 typedef CalendarReminderAccount = ({String scope, String userId});
@@ -123,12 +131,18 @@ abstract interface class CalendarReminderPort {
     required bool exact,
   });
 
+  /// Posts [reminder] for [scope] now. Returns false when it could not be
+  /// posted.
+  Future<bool> postCalendarReminder(
+    CalendarReminder reminder, {
+    required String scope,
+    required String title,
+    required String body,
+    required bool playSound,
+  });
+
   /// Unschedules the reminder scheduled under [id].
   Future<void> cancelScheduled(int id);
-
-  /// Unschedules the calendar reminders of [scope], or of every account when
-  /// [scope] is null. Reminders already posted stay.
-  Future<void> cancelCalendarReminders({String? scope});
 }
 
 /// Keeps the device's scheduled calendar reminders in line with the active
@@ -140,11 +154,13 @@ abstract interface class CalendarReminderPort {
 /// alert as a local notification, which the OS posts on time even when the
 /// app is not running. A sync keeps the reminders that still match, replaces
 /// the changed ones and drops those whose event moved away, was deleted or
-/// lost its alert.
+/// lost its alert. An alert whose time has passed while its event has not
+/// started yet is posted at once. What was handed to the OS is remembered, so
+/// no occurrence is posted twice.
 ///
 /// Reminders belong to the account they were scheduled for: a sync only
 /// touches the active account's, and signing out of an account unschedules
-/// its own ([CalendarReminderPort.cancelCalendarReminders]).
+/// its own.
 class CalendarReminderScheduler {
   CalendarReminderScheduler({
     required CalendarReminderPort notifications,
@@ -157,13 +173,11 @@ class CalendarReminderScheduler {
     fetchAgenda,
     required ({String title, String body}) Function(CalendarReminder reminder)
     text,
-    DateTime Function() now = DateTime.now,
   }) : _notifications = notifications,
        _settings = settings,
        _account = account,
        _fetchAgenda = fetchAgenda,
-       _text = text,
-       _now = now;
+       _text = text;
 
   final CalendarReminderPort _notifications;
   final CalendarReminderSettings Function() _settings;
@@ -174,9 +188,7 @@ class CalendarReminderScheduler {
   /// scheduled so far in place.
   final Future<List<CalendarAgendaItem>?> Function(DateTime start, DateTime end)
   _fetchAgenda;
-  final ({String title, String body}) Function(CalendarReminder reminder)
-  _text;
-  final DateTime Function() _now;
+  final ({String title, String body}) Function(CalendarReminder reminder) _text;
 
   Future<void>? _running;
   bool _again = false;
@@ -213,20 +225,25 @@ class CalendarReminderScheduler {
   Future<void> _syncOnce() async {
     final settings = _settings();
     if (!settings.enabled) {
-      await _notifications.cancelCalendarReminders();
+      await _cancelScheduled();
       return;
     }
     final account = _account();
     if (account == null) return;
 
-    final now = _now().toUtc();
-    final items = await _fetchAgenda(now, now.add(calendarReminderHorizon));
+    final start = clock.now().toUtc();
+    final items = await _fetchAgenda(start, start.add(calendarReminderHorizon));
     // The account may have changed while the agenda was read.
     if (_disposed || _account() != account) return;
 
+    // Planned after the read, so an event that started meanwhile gets none.
     final plan = items == null
         ? const <CalendarReminder>[]
-        : planCalendarReminders(items: items, userId: account.userId, now: now);
+        : planCalendarReminders(
+            items: items,
+            userId: account.userId,
+            now: clock.now(),
+          );
     // Checked on every sync, so reminders move onto exact alarms once the
     // user allows them (and Settings knows whether to offer it).
     final exact = await _notifications.canScheduleExactReminders();
@@ -246,6 +263,8 @@ class CalendarReminderScheduler {
       );
     }
 
+    final delivered = _readDelivered();
+    final mine = delivered.putIfAbsent(account.scope, () => <String, int>{});
     final scheduled = await _notifications.scheduledCalendarReminders();
     for (final existing in scheduled) {
       if (existing.scope != account.scope) continue;
@@ -254,20 +273,96 @@ class CalendarReminderScheduler {
         wanted.remove(existing.key);
       } else {
         await _notifications.cancelScheduled(existing.id);
+        mine.remove(existing.key);
       }
     }
+    final planned = {for (final reminder in plan) reminder.key};
+    mine.removeWhere((key, _) => !planned.contains(key));
+    await _saveDelivered(delivered);
 
     for (final (reminder, title, body, _) in wanted.values) {
       if (_disposed) return;
-      await _notifications.scheduleCalendarReminder(
-        reminder,
-        scope: account.scope,
-        title: title,
-        body: body,
-        playSound: settings.playSound,
-        exact: exact,
-      );
+      final now = clock.now().toUtc();
+      if (reminder.startAtNs <
+          now.microsecondsSinceEpoch * nanosPerMicrosecond) {
+        continue;
+      }
+      final alertAt = reminder.fireAt.millisecondsSinceEpoch;
+      final due = !reminder.fireAt.isAfter(now.add(_dueMargin));
+      // Fired from its schedule, or posted by an earlier sync.
+      if (due && mine[reminder.key] == alertAt) continue;
+      // Recorded before it is handed over, so a sync cut short in between
+      // cannot post it twice.
+      mine[reminder.key] = alertAt;
+      await _saveDelivered(delivered);
+      final handedOver = due
+          ? await _notifications.postCalendarReminder(
+              reminder,
+              scope: account.scope,
+              title: title,
+              body: body,
+              playSound: settings.playSound,
+            )
+          : await _notifications.scheduleCalendarReminder(
+              reminder,
+              scope: account.scope,
+              title: title,
+              body: body,
+              playSound: settings.playSound,
+              exact: exact,
+            );
+      if (!handedOver) {
+        mine.remove(reminder.key);
+        await _saveDelivered(delivered);
+      }
     }
+  }
+
+  /// Unschedules the reminders of [scope], or of every account when null, and
+  /// forgets them, so ones that come due later can still be posted.
+  Future<void> _cancelScheduled([String? scope]) async {
+    final delivered = _readDelivered();
+    for (final reminder in await _notifications.scheduledCalendarReminders()) {
+      if (scope != null && reminder.scope != scope) continue;
+      await _notifications.cancelScheduled(reminder.id);
+      delivered[reminder.scope]?.remove(reminder.key);
+    }
+    await _saveDelivered(delivered);
+  }
+
+  /// The reminders handed to the OS, scheduled or posted: for each account,
+  /// each occurrence's key with the alert time it was handed over for.
+  static Map<String, Map<String, int>> _readDelivered() {
+    final raw = PreferencesStore.getString(
+      PreferenceKeys.calendarRemindersDelivered,
+    );
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      return {
+        for (final MapEntry(:key, :value) in decoded.entries)
+          if (key is String && value is Map)
+            key: {
+              for (final MapEntry(key: occurrence, value: alertAt)
+                  in value.entries)
+                if (occurrence is String && alertAt is int) occurrence: alertAt,
+            },
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> _saveDelivered(Map<String, Map<String, int>> delivered) {
+    final kept = {
+      for (final MapEntry(:key, :value) in delivered.entries)
+        if (value.isNotEmpty) key: value,
+    };
+    final raw = kept.isEmpty ? null : jsonEncode(kept);
+    const key = PreferenceKeys.calendarRemindersDelivered;
+    if (raw == PreferencesStore.getString(key)) return Future<void>.value();
+    return PreferencesStore.put(key, raw);
   }
 
   void dispose() => _disposed = true;
