@@ -2039,6 +2039,69 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Settles a turn whose question [questionId] the server holds until a reply
+  /// running in its chat ends ([kMessageHeldByServerMetadataKey]): its empty
+  /// answers [assistantMessageIds] go, and the question keeps the server's
+  /// `meta.status: 'pending'`, so a later push of the chat keeps the hold.
+  ///
+  /// Nothing is marked for a push. The server answers the question under new
+  /// ids, and a push of this copy after that would bring the held question
+  /// back for it to answer twice. Caller holds the chat lock.
+  Future<void> settleHeldTurn(
+    String chatId, {
+    required String? questionId,
+    required Iterable<String> assistantMessageIds,
+  }) {
+    return transaction(() async {
+      final answerIds = assistantMessageIds.toList(growable: false);
+      final answers = answerIds.isEmpty
+          ? const <MessageRow>[]
+          : await (select(messages)..where(
+                  (t) =>
+                      t.chatId.equals(chatId) &
+                      t.id.isIn(answerIds) &
+                      t.role.equals('assistant'),
+                ))
+                .get();
+      if (answers.isNotEmpty) {
+        await (delete(messages)..where(
+              (t) =>
+                  t.chatId.equals(chatId) &
+                  t.id.isIn([for (final row in answers) row.id]),
+            ))
+            .go();
+      }
+
+      if (questionId == null) return;
+      final question =
+          await (select(messages)..where(
+                (t) => t.chatId.equals(chatId) & t.id.equals(questionId),
+              ))
+              .getSingleOrNull();
+      if (question == null) return;
+      final payload = _decodeJsonObject(question.payload);
+      final children = payload['childrenIds'];
+      if (children is List) {
+        payload['childrenIds'] = [
+          for (final child in children)
+            if (!answerIds.contains(child)) child,
+        ];
+      }
+      final meta = payload['meta'];
+      payload['meta'] = <String, dynamic>{
+        if (meta is Map)
+          for (final entry in meta.entries) entry.key.toString(): entry.value,
+        'status': 'pending',
+      };
+      await (update(messages)
+            ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
+          .write(MessagesCompanion(payload: Value(jsonEncode(payload))));
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(currentMessageId: Value<String?>(questionId)),
+      );
+    });
+  }
+
   /// Cancels one queued assistant completion from the chat UI. Unlike
   /// [cancelPendingCompletion], this is scoped to a single assistant placeholder
   /// and also removes parked `failed` ops so the failed-response affordance can

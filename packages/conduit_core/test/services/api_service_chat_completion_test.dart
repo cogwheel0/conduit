@@ -1166,6 +1166,27 @@ void main() {
       check(session.taskId).isNull();
     });
 
+    test('a message the server holds behind a running reply is no answer', () async {
+      // Open WebUI 0.13.4 keeps a message sent while a reply in its chat is
+      // still running, and answers it once that reply ends.
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'queued': true,
+        'chat_id': 'chat-1',
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await check(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          responseMessageId: 'assistant-1',
+          sessionIdOverride: 'socket-1',
+        ),
+      ).throws<ChatCompletionHeld>();
+    });
+
     test('JSON null uses an empty HTTP stream for recovery', () async {
       final adapter = _FakeAdapter.raw(
         bytes: utf8.encode('null'),

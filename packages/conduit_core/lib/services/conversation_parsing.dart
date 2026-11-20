@@ -652,6 +652,16 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   final voice = meta is Map ? meta['voice'] : null;
   if (voice is Map) metadata[kMessageVoiceMetadataKey] = _coerceJsonMap(voice);
 
+  // A sub-agent's or a timer's pending message is the server's own, not one
+  // the user is waiting on.
+  metadata.remove(kMessageHeldByServerMetadataKey);
+  if (role == 'user' &&
+      meta is Map &&
+      meta['status'] == 'pending' &&
+      meta['internal'] != true) {
+    metadata[kMessageHeldByServerMetadataKey] = true;
+  }
+
   // The user's thumbs up (1) or down (-1), and the evaluation record it was
   // filed under. Open WebUI keeps both on the message, so a rating made in
   // its web client shows here, and one made here updates the same record.

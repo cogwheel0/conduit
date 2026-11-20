@@ -573,6 +573,17 @@ class _GatedCompletionApi extends ApiService implements _AssistantIdSource {
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
 
+  /// Messages deleted from the server's copy, as `chatId/messageId`.
+  final List<String> deletedMessages = <String>[];
+
+  @override
+  Future<void> deleteConversationMessage(
+    String conversationId,
+    String messageId,
+  ) async {
+    deletedMessages.add('$conversationId/$messageId');
+  }
+
   @override
   Future<ChatCompletionSession> sendMessageSession({
     required List<Map<String, dynamic>> messages,
@@ -2719,6 +2730,123 @@ void main() {
       check(container.read(chatMessagesProvider).last.error?.content)
           .equals('Incorrect API key provided');
       check(api.sessionChecks).equals(1);
+    });
+  });
+
+  group('a queued completion the server holds behind a running reply', () {
+    // Open WebUI 0.13.4 keeps a message sent while a reply in its chat is
+    // still running ({queued: true}, no task), and answers it under new ids
+    // once that reply ends. The empty answer the outbox pushed beforehand
+    // would make the held message look answered, so the server never would.
+    const chatId = 'held-chat';
+    const userId = 'held-user';
+    const assistantId = 'held-assistant';
+
+    Future<void> seedTurn() async {
+      await _seedChat(db, chatId, assistantId: assistantId);
+      await db
+          .into(db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: userId,
+              chatId: chatId,
+              role: 'user',
+              content: 'Say the word: heron',
+              createdAt: 1,
+              orderIndex: 0,
+              payload: jsonEncode(<String, dynamic>{
+                'id': userId,
+                'role': 'user',
+                'content': 'Say the word: heron',
+                'timestamp': 1,
+              }),
+            ),
+          );
+    }
+
+    Future<Map<String, dynamic>?> storedMessage(String id) async {
+      final row = await db.messagesDao.getMessage(chatId, id);
+      return row == null
+          ? null
+          : jsonDecode(row.payload) as Map<String, dynamic>;
+    }
+
+    test('keeps the question waiting and records no answer', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+
+      // Settled, not thrown: the outbox must not send it again.
+      await runQueuedCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      );
+
+      check(api.completionCalls).equals(1);
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+      check(await storedMessage(assistantId)).isNull();
+      check((await storedMessage(userId))!['meta']).isA<Map>().deepEquals({
+        'status': 'pending',
+      });
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+    });
+
+    test('a chat that is not open keeps it waiting too', () async {
+      await seedTurn();
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final syncEngine = _PersistingSyncEngine(db, api);
+      final onScreen = <ChatMessage>[_user('other-user', 'Another chat')];
+      final container = _container(
+        db: db,
+        active: _conversation(
+          'another-chat',
+          onScreen,
+          ChatStorageKind.openWebUi,
+        ),
+        messages: onScreen,
+        api: api,
+        syncEngine: syncEngine,
+      );
+      addTearDown(container.dispose);
+      final history = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, ''),
+      ];
+
+      await runHeadlessCompletion(
+        container,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        messages: history,
+        conversation: _conversation(chatId, history, ChatStorageKind.openWebUi),
+        model: 'model-1',
+      );
+
+      check(await storedMessage(assistantId)).isNull();
+      check((await storedMessage(userId))!['meta']).isA<Map>().deepEquals({
+        'status': 'pending',
+      });
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+      check(_snapshot(container.read(chatMessagesProvider)))
+          .equals(_snapshot(onScreen));
     });
   });
 

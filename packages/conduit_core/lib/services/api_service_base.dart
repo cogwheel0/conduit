@@ -2166,6 +2166,11 @@ abstract class _ApiServiceBase {
       );
     }
 
+    if (json['queued'] == true) {
+      _traceApi('classifyChatCompletionResponse → held by the server');
+      throw const ChatCompletionHeld();
+    }
+
     _traceApi('classifyChatCompletionResponse → jsonCompletion');
     return ChatCompletionSession.jsonCompletion(
       messageId: messageId,

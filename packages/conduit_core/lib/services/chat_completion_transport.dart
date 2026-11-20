@@ -179,6 +179,19 @@ final class ChatCompletionSession {
   final Future<void> Function()? abort;
 }
 
+/// The server kept the message instead of answering it: Open WebUI 0.13.4
+/// answers `{queued: true}`, with no task, to a message sent while a reply in
+/// its chat is still running, and answers it under new ids once that reply
+/// ends. No answer comes for this request, and it must not be sent again.
+final class ChatCompletionHeld implements Exception {
+  const ChatCompletionHeld();
+
+  @override
+  String toString() =>
+      'The server holds this message until its chat\'s '
+      'running reply ends';
+}
+
 /// Ends the byte stream of a held completion whose saved reply was still not
 /// finished when Conduit stopped waiting for it: the server may still be
 /// writing it. The turn shows [kHeldReplyUnresolvedMessage] instead of closing

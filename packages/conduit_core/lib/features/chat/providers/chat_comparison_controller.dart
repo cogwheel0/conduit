@@ -982,6 +982,15 @@ Future<void> runComparisonCompletion(
         assistantMessageIds: slotIds,
       );
       return;
+    } on ChatCompletionHeld {
+      await settleHeldOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        questionId: userMessageMap?['id']?.toString(),
+        assistantMessageIds: slotIds,
+      );
+      return;
     }
     final completed = await _markComparisonAcceptedOrAbort(
       ref,

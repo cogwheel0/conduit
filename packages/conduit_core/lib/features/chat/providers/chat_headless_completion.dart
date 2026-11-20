@@ -279,6 +279,15 @@ Future<void> runQueuedCompletion(
         assistantMessageIds: [assistantMessageId],
       );
       return;
+    } on ChatCompletionHeld {
+      await settleHeldOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        questionId: parentMsgMap?['id']?.toString() ?? lastUserMessageId,
+        assistantMessageIds: [assistantMessageId],
+      );
+      return;
     } on ChatCompletionHttpException catch (refusal) {
       if (refusal.mayPassLater) rethrow;
       await _settleRefusedOpenWebUiCompletion(
@@ -612,6 +621,15 @@ Future<void> runHeadlessCompletion(
       assistantMessageIds: [assistantMessageId],
     );
     return;
+  } on ChatCompletionHeld {
+    await settleHeldOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      questionId: parentMsgMap?['id']?.toString() ?? lastUserMessageId,
+      assistantMessageIds: [assistantMessageId],
+    );
+    return;
   } on ChatCompletionHttpException catch (refusal) {
     if (refusal.mayPassLater) rethrow;
     await _settleRefusedOpenWebUiCompletion(
@@ -636,6 +654,68 @@ Future<void> runHeadlessCompletion(
     assistantMessageId: assistantMessageId,
     submissionAlreadyMarked: true,
   );
+}
+
+/// Settles a turn the server holds ([ChatCompletionHeld]) until a reply
+/// running in its chat ends: it answers question [questionId] then, under new
+/// ids, and `chat:reload` brings that answer to a chat on screen.
+///
+/// The empty answers [assistantMessageIds] go, from the server first: the
+/// outbox pushed them with the question before the request, and Open WebUI
+/// answers a held question only while nothing answers it. The question stays,
+/// held, and the request is never sent again.
+Future<void> settleHeldOpenWebUiCompletion(
+  dynamic ref, {
+  required Object? api,
+  required OpenWebUiCompletionOwner owner,
+  required String? questionId,
+  required Iterable<String> assistantMessageIds,
+}) async {
+  final answerIds = assistantMessageIds.toList(growable: false);
+  DebugLogger.log(
+    'queued-completion-held',
+    scope: 'chat/completion',
+    data: {'chatId': owner.chatId, 'assistantMessageIds': answerIds},
+  );
+  if (api is ApiService) {
+    for (final id in answerIds) {
+      api.endSend(id);
+      try {
+        await api.deleteConversationMessage(owner.chatId, id);
+      } catch (error) {
+        DebugLogger.warning(
+          'held-answer-delete-failed',
+          scope: 'chat/completion',
+          data: {'chatId': owner.chatId, 'error': error.toString()},
+        );
+      }
+    }
+  }
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
+  await locks.runExclusive(owner.chatId, () async {
+    await owner.database?.chatsDao.settleHeldTurn(
+      owner.chatId,
+      questionId: questionId,
+      assistantMessageIds: answerIds,
+    );
+  });
+  if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+  final notifier =
+      ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
+  for (final id in answerIds) {
+    notifier.removeMessageById(id);
+  }
+  if (questionId != null) {
+    notifier.updateMessageById(
+      questionId,
+      (question) => question.copyWith(
+        metadata: <String, dynamic>{
+          ...?question.metadata,
+          kMessageHeldByServerMetadataKey: true,
+        },
+      ),
+    );
+  }
 }
 
 /// Settles a queued Open WebUI turn whose completion request the server
