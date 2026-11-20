@@ -176,7 +176,7 @@ class _TimeoutResponse extends _FakeAdapter {
 class _VersionedServer implements HttpClientAdapter {
   _VersionedServer({required this.version, required this.completions});
 
-  final String? version;
+  String? version;
   final List<_FakeAdapter> completions;
   final completionBodies = <Map<String, dynamic>>[];
 
@@ -1846,6 +1846,35 @@ void main() {
         server.completionBodies.single['regeneration_message_id'],
         because: '$version, read before: $read',
       ).equals(named ? 'assistant-2' : null);
+    }
+  });
+
+  test('a version that could not be told is read again later', () async {
+    for (final unusable in const [null, 'main']) {
+      final server = _VersionedServer(
+        version: unusable,
+        completions: [
+          _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+          _FakeAdapter.json({'task_id': 'task-2', 'status': true}),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+      Future<void> regenerate() => api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-2',
+        regenerationMessageId: 'assistant-2',
+      );
+
+      await regenerate();
+      server.version = '0.13.4';
+      await regenerate();
+
+      check([
+        for (final body in server.completionBodies)
+          body['regeneration_message_id'],
+      ], because: '$unusable').deepEquals([null, 'assistant-2']);
     }
   });
 

@@ -129,8 +129,8 @@ abstract class _ApiServiceBase {
   // Whether the server holds messages sent under a running reply, and reads
   // `regeneration_message_id`: null until its version says.
   bool? _holdsMessages;
-  // Whether `/api/config` has answered with the server's version, readable
-  // or not, and the read of it a request is waiting on.
+  // Whether `/api/config` has answered with a version that can be told, and
+  // the read of it a request is waiting on.
   bool _serverVersionRead = false;
   Future<void>? _serverVersionReading;
   // Public getter for dio instance
@@ -1271,9 +1271,10 @@ abstract class _ApiServiceBase {
   }
 
   /// Reads the server's version from `/api/config` for a request whose shape
-  /// depends on it, unless a read has already answered. Requests waiting at
-  /// once share one read, and wait at most 5 seconds: one that fails or takes
-  /// longer leaves the version unknown, and a later request reads it again.
+  /// depends on it, unless a read has already told it. Requests waiting at
+  /// once share one read, and wait at most 5 seconds: one that fails, takes
+  /// longer, or finds no version that can be told leaves the version unknown,
+  /// and a later request reads it again.
   Future<void> _readServerVersionIfUnknown() async {
     if (_serverVersionRead) return;
     final reading = _serverVersionReading ??= () async {
@@ -1297,7 +1298,6 @@ abstract class _ApiServiceBase {
   }
 
   void _setChatRequestMetadataFormatFromVersion(dynamic rawVersion) {
-    _serverVersionRead = true;
     final inferred = _inferChatRequestMetadataFormatFromVersion(rawVersion);
     // Open WebUI 0.9 moved outlet filters into completion itself. Keep this
     // separate from request-shape negotiation, which also updates the format.
@@ -1312,12 +1312,14 @@ abstract class _ApiServiceBase {
     if (passedOn != null) {
       _sendsClientModelFields = !passedOn;
     }
-    _holdsMessages =
-        ServerVersionCompat.knownAtLeast(
-          rawVersion?.toString(),
-          ServerVersionCompat.heldMessagesVersion,
-        ) ??
-        _holdsMessages;
+    final holdsMessages = ServerVersionCompat.knownAtLeast(
+      rawVersion?.toString(),
+      ServerVersionCompat.heldMessagesVersion,
+    );
+    if (holdsMessages != null) {
+      _holdsMessages = holdsMessages;
+      _serverVersionRead = true;
+    }
   }
 
   _ChatRequestMetadataFormat? _inferChatRequestMetadataFormatFromVersion(
