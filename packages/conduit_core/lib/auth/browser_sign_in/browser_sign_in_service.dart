@@ -25,6 +25,8 @@ import 'package:conduit_core/utils/server_version_compat.dart';
 /// The Open WebUI OAuth providers a browser sign-in works with: those whose
 /// token exchange takes an access token issued to Conduit's own client.
 /// GitHub and Feishu stay with the in-app sign-in.
+typedef _RotationKey = ({String issuer, String clientId, String refreshToken});
+
 const Set<String> browserSignInProviders = {'oidc', 'microsoft', 'google'};
 
 /// The client ID the settings start with: the one the admin guide suggests
@@ -301,13 +303,16 @@ class BrowserSignInService {
   /// the rotation's now. By token, not account, so the rotation goes where
   /// a merge moves its session, and ends where the session ends
   /// ([revokeEnded]).
-  final Map<String, BrowserSignInSession> _unsavedRotations = {};
+  final Map<_RotationKey, BrowserSignInSession> _unsavedRotations = {};
 
   /// [_unsavedRotations]' key for the rotation of [spent]: a refresh token
-  /// means something only to the client and provider that issued it.
-  static String _rotationKey(BrowserSignInSession spent) =>
-      '${normalizeBrowserSignInIssuer(spent.issuer)} ${spent.clientId} '
-      '${spent.refreshToken}';
+  /// means something only to the client and provider that issued it, as
+  /// its provider's own document named the provider.
+  static _RotationKey _rotationKey(BrowserSignInSession spent) => (
+    issuer: spent.issuer,
+    clientId: spent.clientId,
+    refreshToken: spent.refreshToken,
+  );
 
   bool get isSupported => _port.isSupported;
 

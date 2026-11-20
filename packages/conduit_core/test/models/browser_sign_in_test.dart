@@ -187,14 +187,11 @@ void main() {
       });
 
       test('by the Open WebUI user on the server, when a provider user is '
-          'not known', () {
+          'not known, and with anyone\'s when no Open WebUI user is known '
+          'yet', () {
         check(of().sharesGrantWith(of(subject: 'ada'))).isTrue();
         check(of().sharesGrantWith(of(owuiUserId: 'user-2'))).isFalse();
         check(of().sharesGrantWith(of(serverId: 'server-2'))).isFalse();
-      });
-
-      test('with anyone\'s, when no Open WebUI user is known for it yet and '
-          'a provider user is not known', () {
         final unclaimed = of(subject: 'ada', owuiUserId: '');
         check(
           unclaimed.sharesGrantWith(of(serverId: 'server-2', owuiUserId: 'u')),
