@@ -664,6 +664,58 @@ void main() {
         ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.busy);
     });
 
+    // A failed relay's error may say how it failed only by its code, beside
+    // words of its own.
+    const relayError = <String, dynamic>{
+      'code': 'tether_interrupted',
+      'message': 'Connection lost',
+      'content': 'Connection lost',
+    };
+
+    test("a JSON completion's error keeps the relay its code names", () async {
+      final log = _CallbackLog();
+      _attach(
+        session: ChatCompletionSession.jsonCompletion(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          jsonPayload: const {'error': relayError},
+        ),
+        log: log,
+      );
+
+      await pumpEventQueue();
+
+      check(log.messages.single.error?.relay)
+          .equals(TetherRelayFailure.interrupted);
+    });
+
+    test("a socket's error event keeps the relay its code names", () async {
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          taskId: 'task-1',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+
+      registrar.emitChatEvent(
+        'chat:message:error',
+        const {'error': relayError, 'done': true},
+        conversationId: 'conv-1',
+        sessionId: 'sess-1',
+        messageId: 'msg-1',
+      );
+      await pumpEventQueue();
+
+      check(log.messages.single.error?.relay)
+          .equals(TetherRelayFailure.interrupted);
+    });
+
     test('taskSocket completion calls chatCompleted exactly once', () async {
       final api = _TrackingApiService();
       final log = _CallbackLog();

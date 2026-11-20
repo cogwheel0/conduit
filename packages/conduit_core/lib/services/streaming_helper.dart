@@ -702,13 +702,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   bool viaTether = false,
 }) {
   // A failure is read here, once, and the answer keeps what it was. A saved
-  // error that already records its relay keeps that.
+  // error that already records its relay keeps that. [raw] is the error as
+  // it arrived, whose code may say what its words do not.
   ChatMessageError answerError(
     String? content, {
     TetherRelayFailure? recorded,
+    Object? raw,
   }) => ChatMessageError(
     content: content,
-    relay: recorded ?? tetherRelayFailureOf(content, viaTether: viaTether),
+    relay:
+        recorded ??
+        tetherRelayFailureOf(raw, viaTether: viaTether) ??
+        tetherRelayFailureOf(content, viaTether: viaTether),
   );
 
   // Track if streaming has been finished to avoid duplicate cleanup
@@ -1801,7 +1806,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         applyAssistantServerPatch(
           targetId: assistantMessageId,
           buildPatch: (_) => _AssistantServerPatch(
-            error: answerError(error['message']?.toString()),
+            error: answerError(error['message']?.toString(), raw: error),
           ),
         );
 
@@ -4125,7 +4130,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
             return message.copyWith(
-              error: answerError(errorContent.isNotEmpty ? errorContent : null),
+              error: answerError(
+                errorContent.isNotEmpty ? errorContent : null,
+                raw: err,
+              ),
               statusHistory: filtered,
               metadata: {
                 ...?message.metadata,
@@ -4771,7 +4779,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             applyAssistantServerPatch(
               targetId: assistantMessageId,
               buildPatch: (_) => _AssistantServerPatch(
-                error: answerError(errorMap['message']?.toString()),
+                error: answerError(
+                  errorMap['message']?.toString(),
+                  raw: errorMap,
+                ),
               ),
             );
             wrappedFinishStreaming();
