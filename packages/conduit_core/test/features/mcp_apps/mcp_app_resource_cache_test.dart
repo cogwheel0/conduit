@@ -6,6 +6,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart'
     show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
@@ -193,6 +194,79 @@ void main() {
       expect(restored?.resource.toJson(), _resource.toJson());
     });
   }
+
+  test('a failed load is remembered until it is removed', () async {
+    final first = await cache(open('a'));
+    var requests = 0;
+    Future<OpenWebUiMcpAppResource> refuse(CancelToken _) async {
+      requests++;
+      throw const McpAppRpcException('Invalid app binding.');
+    }
+
+    for (var mount = 0; mount < 3; mount++) {
+      await expectLater(
+        first.load('expired', height: 300, fetch: refuse),
+        throwsA(
+          isA<McpAppRpcException>().having(
+            (error) => error.message,
+            'message',
+            'Invalid app binding.',
+          ),
+        ),
+      );
+    }
+    expect(requests, 1);
+
+    first.remove('expired');
+    await expectLater(
+      first.load('expired', height: 300, fetch: refuse),
+      throwsA(isA<McpAppRpcException>()),
+    );
+    expect(requests, 2);
+  });
+
+  test('a load nobody waits for any more still fills the cache', () async {
+    final first = await cache(open('a'));
+    final response = Completer<OpenWebUiMcpAppResource>();
+    var requests = 0;
+    Future<OpenWebUiMcpAppResource> fetch(CancelToken _) {
+      requests++;
+      return response.future;
+    }
+
+    // The first row leaves before the answer; the next joins the request.
+    unawaited(first.load('call', height: 300, fetch: fetch));
+    final joined = first.load('call', height: 300, fetch: fetch);
+    await pumpEventQueue();
+    expect(requests, 1);
+    response.complete(_resource);
+    expect((await joined).resource, same(_resource));
+
+    final later = await first.load('call', height: 300, fetch: fetch);
+    expect(later.resource, same(_resource));
+    expect(later.height, 300);
+    expect(requests, 1);
+  });
+
+  test('closing the cache cancels the loads on their way', () async {
+    final first = McpAppResourceCache();
+    caches.add(first);
+    final tokens = <CancelToken>[];
+    unawaited(
+      first.load(
+        'call',
+        height: 300,
+        fetch: (token) {
+          tokens.add(token);
+          return Completer<OpenWebUiMcpAppResource>().future;
+        },
+      ),
+    );
+    await pumpEventQueue();
+    expect(tokens.single.isCancelled, isFalse);
+    first.dispose();
+    expect(tokens.single.isCancelled, isTrue);
+  });
 
   test('explicit removal survives restart and keeps other entries', () async {
     final database = open('a');

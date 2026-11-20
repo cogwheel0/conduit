@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
@@ -72,6 +73,9 @@ final class _ServingApi extends ApiService {
   String html;
   final requests = <({String method, Map<String, dynamic> params})>[];
 
+  /// While set, the page is sent only once it completes.
+  Completer<void>? hold;
+
   @override
   Future<Map<String, dynamic>> runMcpAppRequest(
     OpenWebUiMcpApp app, {
@@ -81,6 +85,7 @@ final class _ServingApi extends ApiService {
   }) async {
     requests.add((method: method, params: params));
     if (method == 'ui/resource') {
+      await hold?.future;
       return {
         'html': html,
         'csp': ?csp,
@@ -497,6 +502,58 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(api.requests, ['ui/resource', 'ui/resource']);
+  });
+
+  testWidgets('a refused app is not asked for again when its row returns', (
+    tester,
+  ) async {
+    final api = _RefusingApi();
+    for (var mount = 0; mount < 3; mount++) {
+      await tester.pumpWidget(_harness(api));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'The app could not be loaded: '
+          'Invalid app binding. Run the tool again.',
+        ),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(_harness(api, child: const SizedBox()));
+    }
+    expect(api.requests, ['ui/resource']);
+
+    await tester.pumpWidget(_harness(api));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(api.requests, ['ui/resource', 'ui/resource']);
+  });
+
+  testWidgets('a load cut short by scrolling away is not asked for again', (
+    tester,
+  ) async {
+    final api = _ServingApi()..hold = Completer<void>();
+    final webViews = _installWebViews();
+    Future<void> mount() async {
+      await tester.pumpWidget(_harness(api));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    Future<void> unmount() =>
+        tester.pumpWidget(_harness(api, child: const SizedBox()));
+
+    await mount();
+    await unmount();
+    // Back while the first request is still on its way.
+    await mount();
+    await unmount();
+    api.hold!.complete();
+    await tester.pump();
+    await mount();
+
+    expect(api.requests.map((request) => request.method), ['ui/resource']);
+    expect(webViews.built.single.initialData!.data, contains('<p>app</p>'));
   });
 
   testWidgets('another version of the reply automatically loads its app', (

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:drift/drift.dart' show Variable;
 import 'package:riverpod/riverpod.dart';
 
@@ -53,11 +54,15 @@ class McpAppResourceCache {
   static const _prefix = 'mcp_app_resource:';
   static const _maxEntries = 32;
   static const _maxBytes = 20 * 1024 * 1024;
+  static const _maxFailures = 256;
   final AppDatabase? _database;
   final DatabaseManager? _manager;
   final _entries = <String, McpAppCacheEntry>{};
   final _sizes = <String, int>{};
   final _heightWrites = <String, Map<String, num>>{};
+  final _loads = <String, Future<McpAppCacheEntry>>{};
+  final _failures = <String, Object>{};
+  final _tokens = <CancelToken>{};
   int _bytes = 0;
   int _lastUsed = 0;
   bool _disposed = false;
@@ -69,6 +74,65 @@ class McpAppResourceCache {
 
   Future<McpAppCacheEntry?> read(String? key) async {
     await ready;
+    return _use(key);
+  }
+
+  /// [key]'s entry: the cached one, the request already on its way for it,
+  /// or a new one through [fetch], stored at [height].
+  ///
+  /// The request finishes into the cache even when its caller has gone, so
+  /// a row scrolled away mid-load does not ask again when it comes back;
+  /// only [dispose] cancels it. A failure is remembered until [remove], so a
+  /// failed app is not asked for again each time its row mounts. Without a
+  /// [key] nothing is shared or kept.
+  Future<McpAppCacheEntry> load(
+    String? key, {
+    required double height,
+    required Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
+  }) async {
+    if (key == null) return (resource: await _fetch(fetch), height: height);
+    await ready;
+    if (_use(key) case final entry?) return entry;
+    if (_failures[key] case final failure?) throw failure;
+    return _loads[key] ??= _fetchInto(key, height, fetch);
+  }
+
+  Future<McpAppCacheEntry> _fetchInto(
+    String key,
+    double height,
+    Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
+  ) async {
+    try {
+      final entry = (resource: await _fetch(fetch), height: height);
+      put(key, entry);
+      return entry;
+    } catch (error) {
+      if (!_disposed) {
+        _failures[key] = error;
+        if (_failures.length > _maxFailures) {
+          _failures.remove(_failures.keys.first);
+        }
+      }
+      rethrow;
+    } finally {
+      _loads.remove(key);
+    }
+  }
+
+  Future<OpenWebUiMcpAppResource> _fetch(
+    Future<OpenWebUiMcpAppResource> Function(CancelToken token) fetch,
+  ) async {
+    if (_disposed) throw StateError('The MCP App cache is closed.');
+    final token = CancelToken();
+    _tokens.add(token);
+    try {
+      return await fetch(token);
+    } finally {
+      _tokens.remove(token);
+    }
+  }
+
+  McpAppCacheEntry? _use(String? key) {
     final entry = _entries.remove(key);
     if (entry == null || _disposed) return null;
     _entries[key!] = entry;
@@ -153,8 +217,10 @@ class McpAppResourceCache {
     );
   }
 
+  /// Forgets [key]'s entry and its failure, so the next [load] asks again.
   void remove(String? key) {
     if (_disposed || key == null) return;
+    _failures.remove(key);
     _heightWrites.remove(key);
     _entries.remove(key);
     _bytes -= _sizes.remove(key) ?? 0;
@@ -240,6 +306,12 @@ class McpAppResourceCache {
 
   void dispose() {
     _disposed = true;
+    for (final token in _tokens) {
+      token.cancel('closed');
+    }
+    _tokens.clear();
+    _loads.clear();
+    _failures.clear();
     _entries.clear();
     _sizes.clear();
     _bytes = 0;

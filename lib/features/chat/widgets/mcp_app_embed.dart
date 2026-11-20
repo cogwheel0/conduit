@@ -3,7 +3,6 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -62,7 +61,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   OpenWebUiMcpAppResource? _resource;
   McpAppHost? _host;
   InAppWebViewController? _controller;
-  CancelableLoad? _load;
+
+  /// The current open; a load that finishes for an earlier one is dropped.
+  Object? _attempt;
   Timer? _startTimer;
   late String? _cacheKey = _appCacheKey();
   double _height = _initialHeight;
@@ -158,7 +159,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 
   void _stop() {
     _startTimer?.cancel();
-    _load?.cancel();
+    _attempt = null;
     final host = _host;
     _host = null;
     host?.teardown();
@@ -204,16 +205,26 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
       return;
     }
-    final load = CancelableLoad();
-    _load = load;
+    final attempt = _attempt = Object();
     try {
       final cache = ref.read(mcpAppResourceCacheProvider);
       final key = _cacheKey;
-      final cached = await cache.read(key);
-      if (!mounted || load.cancelled) return;
-      var resource = cached?.resource;
-      final height = cached != null && _validHeight(cached.height)
-          ? cached.height
+      final app = widget.app;
+      final loaded = await cache.load(
+        key,
+        height: _initialHeight,
+        fetch: (token) async => OpenWebUiMcpAppResource.fromJson(
+          await api.runMcpAppRequest(
+            app,
+            method: 'ui/resource',
+            cancelToken: token,
+          ),
+        ),
+      );
+      if (!mounted || attempt != _attempt) return;
+      final resource = loaded.resource;
+      final height = _validHeight(loaded.height)
+          ? loaded.height
           : _initialHeight;
       if (height != _height) {
         ChatTimelineViewport.preserveMcpAppScrollPosition(
@@ -221,18 +232,6 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           height - _height,
         );
         _height = height;
-      }
-      if (resource == null) {
-        final json = await api.runMcpAppRequest(
-          widget.app,
-          method: 'ui/resource',
-          cancelToken: load.token,
-        );
-        if (!mounted || load.cancelled) return;
-        resource = OpenWebUiMcpAppResource.fromJson(json);
-      }
-      if (key != null && cached == null) {
-        cache.put(key, (resource: resource, height: _height));
       }
       _resource = resource;
       _host = McpAppHost(
@@ -256,7 +255,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           );
           setState(() => _height = nextHeight);
           if (key != null && cache[key]?.resource == resource) {
-            cache.put(key, (resource: resource!, height: nextHeight));
+            cache.put(key, (resource: resource, height: nextHeight));
           }
         },
         onInitialized: () {
@@ -272,20 +271,18 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       });
       setState(() {});
     } on McpAppRpcException catch (error) {
-      if (mounted && !load.cancelled) {
+      if (mounted && attempt == _attempt) {
         setState(() => _failure = l10n.mcpAppLoadFailed(error.message));
       }
     } catch (error, stackTrace) {
-      if (load.cancelled) return;
+      if (!mounted || attempt != _attempt) return;
       DebugLogger.error(
         'mcp-app-load-failed',
         scope: 'chat/mcp-app',
         error: error,
         stackTrace: stackTrace,
       );
-      if (mounted) {
-        setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
-      }
+      setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
     }
   }
 
@@ -794,16 +791,6 @@ class _McpAppDragGestureRecognizer extends HorizontalDragGestureRecognizer {
   }
 }
 
-/// A request that is dropped when its widget goes away.
-@visibleForTesting
-final class CancelableLoad {
-  final token = CancelToken();
-  bool get cancelled => token.isCancelled;
-  void cancel() {
-    if (!token.isCancelled) token.cancel('closed');
-  }
-}
-
 String _randomHex(int bytes) {
   final random = Random.secure();
   return [
@@ -842,7 +829,11 @@ class _McpAppCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.widgets_outlined, size: 16, color: theme.iconSecondary),
+                Icon(
+                  Icons.widgets_outlined,
+                  size: 16,
+                  color: theme.iconSecondary,
+                ),
                 const SizedBox(width: Spacing.xs),
                 Expanded(
                   child: Text(
