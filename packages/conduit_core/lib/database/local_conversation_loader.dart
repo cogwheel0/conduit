@@ -327,18 +327,23 @@ Future<Conversation> _readChatWithoutUnsentDeletes(
   }
   // A chat gone meanwhile, or not read again, leaves the first copy.
   if (response == null) return _withoutMessages(conversation, ids);
-  final payload = {'response': response, 'ids': ids.toList()};
   final history = (response['chat'] as Map?)?['history'];
   final messages = history is Map ? history['messages'] : null;
-  if (messages is Map && messages.length > kLocalConversationWorkerThreshold) {
-    final workerManager = ref.read(workerManagerProvider) as WorkerManager;
-    return workerManager.schedule(
-      _parseChatWithout,
-      payload,
-      debugLabel: 'db.readChatWithout',
-    );
+  if (messages is! Map ||
+      messages.length <= kLocalConversationWorkerThreshold) {
+    return _parseChatWithout({'response': response, 'ids': ids.toList()});
   }
-  return _parseChatWithout(payload);
+  final workerManager = ref.read(workerManagerProvider) as WorkerManager;
+  while (true) {
+    final parsed = await workerManager.schedule(_parseChatWithout, {
+      'response': response,
+      'ids': ids.toList(),
+    }, debugLabel: 'db.readChatWithout');
+    // A delete asked for while the worker parsed counts too.
+    final asked = await unsentMessageDeletesOf(database, id);
+    if (ids.containsAll(asked)) return parsed;
+    ids.addAll(asked);
+  }
 }
 
 /// [payload]'s `response`, a chat as the server returns it, parsed without

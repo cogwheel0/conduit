@@ -3713,72 +3713,108 @@ void main() {
       check(refreshed.messages.single.isHeldByServer).isTrue();
     });
 
-    test('the turns below the answer shown in place of the empty one leave '
-        'out an empty answer whose delete is asked for and lands while they '
-        'are read', () async {
-      await seedTurn();
-      await db.outboxDao.enqueue(
-        kind: OutboxKind.deleteMessages,
-        chatId: chatId,
-        payload: {
-          kDeleteMessagesIdsKey: [assistantId],
-        },
-      );
-      final api = _ServerChatApi(assistantId, {
-        userId: _historyEntry(
-          userId,
-          'user',
-          'Name a bird',
-          childrenIds: ['answer-1', assistantId],
-        ),
-        'answer-1': _historyEntry(
-          'answer-1',
-          'assistant',
-          'heron',
-          parentId: userId,
-          childrenIds: ['question-2'],
-        ),
-        'question-2': _historyEntry(
-          'question-2',
-          'user',
-          'Another one',
-          parentId: 'answer-1',
-          childrenIds: ['empty-answer-2'],
-        ),
-        'empty-answer-2': _historyEntry(
-          'empty-answer-2',
-          'assistant',
-          '',
-          parentId: 'question-2',
-          done: false,
-        ),
-        assistantId: _historyEntry(
-          assistantId,
-          'assistant',
-          '',
-          parentId: userId,
-          done: false,
-        ),
+    // A long chat's tree is parsed by a worker, and a delete asked for while
+    // it parses counts too.
+    for (final (label, long) in [
+      ('and lands while they are read', false),
+      ('while a worker parses them', true),
+    ]) {
+      test('the turns below the answer shown in place of the empty one leave '
+          'out an empty answer whose delete is asked for $label', () async {
+        await seedTurn();
+        await db.outboxDao.enqueue(
+          kind: OutboxKind.deleteMessages,
+          chatId: chatId,
+          payload: {
+            kDeleteMessagesIdsKey: [assistantId],
+          },
+        );
+        final earlier = long ? kLocalConversationWorkerThreshold : 0;
+        final api = _ServerChatApi(assistantId, {
+          for (var i = 0; i < earlier; i++)
+            'earlier-$i': _historyEntry(
+              'earlier-$i',
+              i.isEven ? 'user' : 'assistant',
+              'Turn $i',
+              parentId: i == 0 ? null : 'earlier-${i - 1}',
+              childrenIds: [i == earlier - 1 ? userId : 'earlier-${i + 1}'],
+            ),
+          userId: _historyEntry(
+            userId,
+            'user',
+            'Name a bird',
+            parentId: long ? 'earlier-${earlier - 1}' : null,
+            childrenIds: ['answer-1', assistantId],
+          ),
+          'answer-1': _historyEntry(
+            'answer-1',
+            'assistant',
+            'heron',
+            parentId: userId,
+            childrenIds: ['question-2'],
+          ),
+          'question-2': _historyEntry(
+            'question-2',
+            'user',
+            'Another one',
+            parentId: 'answer-1',
+            childrenIds: ['empty-answer-2'],
+          ),
+          'empty-answer-2': _historyEntry(
+            'empty-answer-2',
+            'assistant',
+            '',
+            parentId: 'question-2',
+            done: false,
+          ),
+          assistantId: _historyEntry(
+            assistantId,
+            'assistant',
+            '',
+            parentId: userId,
+            done: false,
+          ),
+        });
+        if (!long) {
+          api.whileReadingRaw = () {
+            api.whileReadingRaw = null;
+            return deleteLands(api, 'empty-answer-2');
+          };
+        }
+        final worker = _HeldWorker(holding: long);
+        final messages = <ChatMessage>[_user(userId, 'Name a bird')];
+        final container = _container(
+          db: db,
+          active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+          messages: messages,
+          api: api,
+          syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+          extraOverrides: [
+            workerManagerProvider.overrideWithValue(
+              WorkerManager(worker: worker),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final read = pullChatOrFetch(container, chatId);
+        if (long) {
+          await worker.asked.future;
+          await db.outboxDao.enqueue(
+            kind: OutboxKind.deleteMessages,
+            chatId: chatId,
+            payload: {
+              kDeleteMessagesIdsKey: ['empty-answer-2'],
+            },
+          );
+          worker.release.complete();
+        }
+        final refreshed = await read;
+
+        check(refreshed!.messages.skip(earlier).map((m) => m.id).toList())
+            .deepEquals([userId, 'answer-1', 'question-2']);
       });
-      api.whileReadingRaw = () {
-        api.whileReadingRaw = null;
-        return deleteLands(api, 'empty-answer-2');
-      };
-      final messages = <ChatMessage>[_user(userId, 'Name a bird')];
-      final container = _container(
-        db: db,
-        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
-        messages: messages,
-        api: api,
-        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
-      );
-      addTearDown(container.dispose);
-
-      final refreshed = await pullChatOrFetch(container, chatId);
-
-      check(refreshed!.messages.map((m) => m.id).toList())
-          .deepEquals([userId, 'answer-1', 'question-2']);
-    });
+    }
 
     // The newest answer kept beside the empty one shows in its place, with
     // the others as its versions, as Open WebUI makes its parent's last child
