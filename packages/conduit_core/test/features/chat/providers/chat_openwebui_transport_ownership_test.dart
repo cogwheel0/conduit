@@ -1270,31 +1270,58 @@ final class _ServerCopyApi extends _GatedCompletionApi {
 final class _ServerChatApi extends _GatedCompletionApi {
   _ServerChatApi(this.currentId, this.history) : super(Completer<void>());
 
-  final String currentId;
+  String currentId;
   final Map<String, Map<String, dynamic>> history;
 
-  Map<String, dynamic> _response(String id) => {
-    'id': id,
-    'title': 'A',
-    'created_at': 1,
-    'updated_at': 2,
-    'chat': {
+  /// Run while a parsed or a raw read is out, once it has read the chat and
+  /// before its reply arrives.
+  Future<void> Function()? whileReading;
+  Future<void> Function()? whileReadingRaw;
+
+  Map<String, dynamic> _response(String id) => jsonDecode(
+    jsonEncode({
+      'id': id,
       'title': 'A',
-      'history': {'currentId': currentId, 'messages': history},
-    },
-  };
+      'created_at': 1,
+      'updated_at': 2,
+      'chat': {
+        'title': 'A',
+        'history': {'currentId': currentId, 'messages': history},
+      },
+    }),
+  ) as Map<String, dynamic>;
+
+  /// Deletes message [id] as the server does: its parent stops naming it,
+  /// and its parent is current if it was.
+  void deleteMessage(String id) {
+    final parentId = history.remove(id)!['parentId'] as String;
+    final parent = history[parentId]!;
+    parent['childrenIds'] = [
+      for (final child in parent['childrenIds'] as List)
+        if (child != id) child,
+    ];
+    if (currentId == id) currentId = parentId;
+  }
 
   @override
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => parseFullConversationModel(_response(id));
+  }) async {
+    final response = _response(id);
+    await whileReading?.call();
+    return parseFullConversationModel(response);
+  }
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => _response(id);
+  }) async {
+    final response = _response(id);
+    await whileReadingRaw?.call();
+    return response;
+  }
 }
 
 /// Message [id] of a chat's history, under [parentId].
@@ -3575,6 +3602,125 @@ void main() {
         check(refreshed.messages.single.isHeldByServer).isTrue();
       });
     }
+
+    // A held turn's settle asks for its empty answer's delete, which lands at
+    // once: no op is left to name the empty answer.
+    Future<void> deleteLands(_ServerChatApi api, String messageId) async {
+      final seq = await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [messageId],
+        },
+      );
+      api.deleteMessage(messageId);
+      await db.outboxDao.markDone(seq);
+      db.chatsDao.notePushLanded(chatId);
+    }
+
+    test('a copy read straight from the server leaves out an empty answer '
+        'whose delete is asked for and lands while it is read', () async {
+      await seedTurn();
+      final api = _ServerChatApi(assistantId, {
+        userId: _historyEntry(
+          userId,
+          'user',
+          'Say the word: heron',
+          childrenIds: [assistantId],
+        ),
+        assistantId: _historyEntry(
+          assistantId,
+          'assistant',
+          '',
+          parentId: userId,
+          done: false,
+        ),
+      });
+      api.whileReading = () {
+        api.whileReading = null;
+        return deleteLands(api, assistantId);
+      };
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
+    });
+
+    test('the turns below the answer shown in place of the empty one leave '
+        'out an empty answer whose delete is asked for and lands while they '
+        'are read', () async {
+      await seedTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerChatApi(assistantId, {
+        userId: _historyEntry(
+          userId,
+          'user',
+          'Name a bird',
+          childrenIds: ['answer-1', assistantId],
+        ),
+        'answer-1': _historyEntry(
+          'answer-1',
+          'assistant',
+          'heron',
+          parentId: userId,
+          childrenIds: ['question-2'],
+        ),
+        'question-2': _historyEntry(
+          'question-2',
+          'user',
+          'Another one',
+          parentId: 'answer-1',
+          childrenIds: ['empty-answer-2'],
+        ),
+        'empty-answer-2': _historyEntry(
+          'empty-answer-2',
+          'assistant',
+          '',
+          parentId: 'question-2',
+          done: false,
+        ),
+        assistantId: _historyEntry(
+          assistantId,
+          'assistant',
+          '',
+          parentId: userId,
+          done: false,
+        ),
+      });
+      api.whileReadingRaw = () {
+        api.whileReadingRaw = null;
+        return deleteLands(api, 'empty-answer-2');
+      };
+      final messages = <ChatMessage>[_user(userId, 'Name a bird')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(refreshed!.messages.map((m) => m.id).toList())
+          .deepEquals([userId, 'answer-1', 'question-2']);
+    });
 
     test('a copy read straight from the server is read only as the account '
         'that asked for it', () async {

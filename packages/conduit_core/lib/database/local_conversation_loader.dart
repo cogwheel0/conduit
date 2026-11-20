@@ -245,6 +245,10 @@ Future<Set<String>> unsentMessageDeletesOf(
     ? const <String>{}
     : await database.outboxDao.unsentMessageDeletes(chatId);
 
+/// How many times [readChatWithoutUnsentDeletes] reads a chat while pushes
+/// of it keep landing.
+const int _kChatReadsWhilePushesLand = 3;
+
 /// Chat [id] read straight from the server by [api], as the account
 /// [authSnapshot] holds, without the messages whose delete there has not
 /// landed yet, as a pull leaves them out: the server's copy still has them,
@@ -252,6 +256,31 @@ Future<Set<String>> unsentMessageDeletesOf(
 /// started counts too: a delete that lands while the read is out leaves no op
 /// behind, but the copy may still have the message.
 Future<Conversation> readChatWithoutUnsentDeletes(
+  dynamic ref,
+  ApiService api,
+  AppDatabase? database,
+  String id, {
+  required ApiAuthSnapshot authSnapshot,
+}) async {
+  for (var reads = 1; ; reads++) {
+    final pushes = database?.chatsDao.pushVersion(id);
+    final conversation = await _readChatWithoutUnsentDeletes(
+      ref,
+      api,
+      database,
+      id,
+      authSnapshot: authSnapshot,
+    );
+    // A delete asked for and landed while the copy was read left no op to
+    // name its message, only a push landed: the chat is read again.
+    if (pushes == database?.chatsDao.pushVersion(id) ||
+        reads == _kChatReadsWhilePushesLand) {
+      return conversation;
+    }
+  }
+}
+
+Future<Conversation> _readChatWithoutUnsentDeletes(
   dynamic ref,
   ApiService api,
   AppDatabase? database,
