@@ -1339,6 +1339,29 @@ void main() {
         );
       });
 
+      // A relay to one of the user's devices that broke is told by its body's
+      // code: the turn may have run there, so it is not sent again by itself.
+      for (final body in <Map<String, dynamic>>[
+        {'error': 'Connection lost', 'code': 'tether_interrupted'},
+        {
+          'error': {'message': 'Connection lost', 'code': 'tether_interrupted'},
+        },
+      ]) {
+        test('a relay that broke, by its body\'s code ($body)', () async {
+          final adapter = _QueuedFakeAdapter([
+            _FakeAdapter.json(body, statusCode: 502),
+            _FakeAdapter.json(chatWithReply(null)),
+          ]);
+
+          await check(send(adapter)).throws<ChatCompletionHttpException>(
+            (it) => it
+              ..has((e) => e.relay, 'relay')
+                  .equals(TetherRelayFailure.interrupted)
+              ..has((e) => e.mayPassLater, 'mayPassLater').isFalse(),
+          );
+        });
+      }
+
       test('a temporary chat fails without reading any chat', () async {
         final adapter = _QueuedFakeAdapter([
           _FakeAdapter.json({'detail': 'boom'}, statusCode: 400),

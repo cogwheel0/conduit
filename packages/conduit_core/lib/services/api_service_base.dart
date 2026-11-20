@@ -2181,15 +2181,31 @@ abstract class _ApiServiceBase {
 
   /// Attempts to decode a non-2xx response body into a human-readable
   /// error string.
+  /// The words of an error answer to a completion request: its `error`, or
+  /// FastAPI's `detail`, an object among them as JSON.
+  ///
+  /// The refusal's relay to one of the user's devices is read from what this
+  /// returns ([ChatCompletionHttpException.relay]), so a body that tells one
+  /// by its code (`tether_interrupted`) stays whole unless its words tell it
+  /// too.
   Future<String> _decodeChatCompletionError(Response<ResponseBody> resp) async {
     try {
       final bytes = await _collectBytes(resp.data!.stream);
       final text = utf8.decode(bytes, allowMalformed: true);
       final json = _tryParseJsonMap(text);
-      if (json != null) {
-        return json['error']?.toString() ?? json['detail']?.toString() ?? text;
+      if (json == null) return text;
+      final reason = json['error'] ?? json['detail'];
+      final words = switch (reason) {
+        null => text,
+        String() => reason,
+        Map() || List() => jsonEncode(reason),
+        _ => reason.toString(),
+      };
+      if (tetherRelayFailureOf(json) != null &&
+          tetherRelayFailureOf(words) == null) {
+        return text;
       }
-      return text;
+      return words;
     } catch (_) {
       return 'status ${resp.statusCode}';
     }
