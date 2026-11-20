@@ -223,7 +223,7 @@ void main() {
       ('tried again while the session owns the chat', 200, 'user-1', false),
       ('terminal once the chat is another account\'s', 200, 'user-2', true),
       ('terminal once the session is refused', 401, 'user-1', true),
-      ('tried again while the session can\'t be read', 503, 'user-1', false),
+      ('parked while the session can\'t be read', 503, 'user-1', true),
     ]) {
       test('a 401 is $label', () async {
         final client = _buildClient(

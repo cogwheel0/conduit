@@ -387,10 +387,12 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
         if (code == 404) continue;
         if (code == 401 || code == 403) {
           // Open WebUI 0.13.4 also answers 401 for a delete whose write
-          // failed (routers/chats.py:1683-1687). Only an owner the server
-          // says is not this session parks it.
+          // failed (routers/chats.py:1683-1687), so only a session that owns
+          // the chat retries in place. Anything else parks: a parked delete
+          // holds up none of its chat's later work, and its recovery asks
+          // again, a few times when the check can't tell.
           final ownership = await _chatOwnership(chatId, authSnapshot);
-          if (ownership != ChatOwnership.notOwner) rethrow;
+          if (ownership == ChatOwnership.owns) rethrow;
           throw SyncTerminalException(
             statusCode: code,
             message: 'deleteChatMessages forbidden',
