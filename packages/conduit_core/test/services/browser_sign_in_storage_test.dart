@@ -797,43 +797,52 @@ void main() {
       check(await storedSession('gone')).isNull();
     });
 
-    group('never when it cannot be deleted, which leaves the saved sign-in '
-        'deleted and the session to the sweep', () {
-      for (final (name, delete, forgetsActive)
-          in <(String, Future<bool> Function(), bool)>[
-            ('whoever it names', () async {
-              await storage.deleteSavedCredentials();
-              return true;
-            }, false),
-            ('when it matches', () => storage.deleteSavedCredentialsIfMatches(
-                  browserSignIn('gone'),
-                ), false),
-            ('when its account is no longer saved', () => storage
-                .deleteSavedCredentialsIfMatchesAndServerMissing(
-                  browserSignIn('gone'),
-                ), true),
-          ]) {
-        test(name, () async {
-          await signInToGone();
-          final preferences = InMemoryKeyValueStore({
-            PreferenceKeys.activeServerId: 'gone',
+    group('never when it cannot be read or deleted, which leaves the saved '
+        'sign-in deleted and the session to the sweep', () {
+      for (final unreadable in [true, false]) {
+        for (final (name, delete, forgetsActive)
+            in <(String, Future<bool> Function(), bool)>[
+              ('whoever it names', () async {
+                await storage.deleteSavedCredentials();
+                return true;
+              }, false),
+              ('when it matches', () => storage.deleteSavedCredentialsIfMatches(
+                    browserSignIn('gone'),
+                  ), false),
+              ('when its account is no longer saved', () => storage
+                  .deleteSavedCredentialsIfMatchesAndServerMissing(
+                    browserSignIn('gone'),
+                  ), true),
+            ]) {
+          test('$name${unreadable ? ', unread' : ''}', () async {
+            await signInToGone();
+            final preferences = InMemoryKeyValueStore({
+              PreferenceKeys.activeServerId: 'gone',
+            });
+            PreferencesStore.debugOverride(preferences);
+            const key = 'browser_sign_in_session_v1:gone';
+            if (unreadable) {
+              secure.unreadableKey = key;
+            } else {
+              secure.undeletableKey = key;
+            }
+
+            late bool deleted;
+            final dropped = await droppedBy(() async => deleted = await delete());
+
+            check(deleted).isTrue();
+            check(dropped).isEmpty();
+            check(await storage.getSavedCredentialsStrict()).isNull();
+            check(preferences.getString(PreferenceKeys.activeServerId))
+                .equals(forgetsActive ? null : 'gone');
+            secure
+              ..unreadableKey = null
+              ..undeletableKey = null;
+            check(
+              await storage.sweepOrphanBrowserSignInSessions(),
+            ).deepEquals([(accountId: 'gone', session: goneSession)]);
           });
-          PreferencesStore.debugOverride(preferences);
-          secure.undeletableKey = 'browser_sign_in_session_v1:gone';
-
-          late bool deleted;
-          final dropped = await droppedBy(() async => deleted = await delete());
-
-          check(deleted).isTrue();
-          check(dropped).isEmpty();
-          check(await storage.getSavedCredentialsStrict()).isNull();
-          check(preferences.getString(PreferenceKeys.activeServerId))
-              .equals(forgetsActive ? null : 'gone');
-          secure.undeletableKey = null;
-          check(
-            await storage.sweepOrphanBrowserSignInSessions(),
-          ).deepEquals([(accountId: 'gone', session: goneSession)]);
-        });
+        }
       }
     });
 

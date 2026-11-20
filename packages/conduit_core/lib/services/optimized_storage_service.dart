@@ -379,26 +379,34 @@ class OptimizedStorageService {
   }
 
   /// [_takeBrowserSessionUnlocked], for a change that has already deleted
-  /// the saved sign-in the session renews. One it cannot delete renews
-  /// nothing without that sign-in, so it never fails the change: the sweep
-  /// ([sweepOrphanBrowserSignInSessions]) takes it later.
+  /// the saved sign-in the session renews. One it cannot read or delete
+  /// renews nothing without that sign-in, so it never fails the change: the
+  /// sweep ([sweepOrphanBrowserSignInSessions]) takes it later, and returns
+  /// it for revocation.
   Future<StoredBrowserSignInSession?> _takeOrphanedBrowserSessionUnlocked(
     String accountId,
   ) async {
-    StoredBrowserSignInSession? taken;
+    const scope = 'storage/optimized/browser-sign-in';
     try {
-      await _retrySecureStorageWrite(
-        () async => taken = await _takeBrowserSessionUnlocked(accountId),
-        scope: 'storage/optimized/browser-sign-in',
+      final session = BrowserSignInSession.tryDecode(
+        await _retrySecureStorageRead(
+          () => _secureCredentialStorage.getBrowserSignInSession(accountId),
+          scope: scope,
+        ),
       );
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.deleteBrowserSignInSession(accountId),
+        scope: scope,
+      );
+      return session == null ? null : (accountId: accountId, session: session);
     } catch (error) {
       DebugLogger.warning(
         'browser-session-end-failed',
-        scope: 'storage/optimized/browser-sign-in',
+        scope: scope,
         data: {'errorType': error.runtimeType.toString()},
       );
+      return null;
     }
-    return taken;
   }
 
   // These fail-closed read fences are intentionally independent of
