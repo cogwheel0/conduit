@@ -11,6 +11,7 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/socket_health.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart'
     show openWebUiConfirmationText;
 
@@ -717,6 +718,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   String terminalRecoverySource = '';
   Duration terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
   bool terminalRecoveryParkedInBackground = false;
+  StreamSubscription<SocketHealth>? parkedRecoveryTransportSub;
   bool serverEndedReply = false;
   bool terminalRecoveryAllowContentOnlyTerminal = false;
   bool terminalRecoveryAllowStableNonTerminalLocalFallback = false;
@@ -2879,6 +2881,31 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     }
   }
 
+  // In the background a socket a lease keeps up can still miss done, and the
+  // stream's lease would then outlive the reply, so only a socket that is let
+  // go there (no lease, or no network) holds recovery back.
+  bool terminalRecoveryMustWaitForTransport() =>
+      socketService?.isAppForeground == false &&
+      socketService?.mayMaintainTransport == false;
+
+  late final void Function() resumeParkedTerminalRecovery;
+
+  void parkTerminalRecovery() {
+    terminalRecoveryParkedInBackground = true;
+    final service = socketService;
+    if (service == null || parkedRecoveryTransportSub != null) return;
+    // A return to the foreground ends with a reconnect signal, but the
+    // network coming back, or a lease reviving the transport, while still in
+    // the background connects a fresh socket without one. Its health update
+    // is then the first word that the transport may be kept up again.
+    parkedRecoveryTransportSub = service.healthStream.listen((_) {
+      if (localResourcesDisposed) return;
+      if (!terminalRecoveryMustWaitForTransport()) {
+        resumeParkedTerminalRecovery();
+      }
+    });
+  }
+
   void fireTerminalCompletionRecovery() {
     terminalCompletionRecoveryTimer = null;
     if (hasFinished || isObsoleteStream) {
@@ -2887,12 +2914,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (currentAssistantTargetId() != assistantMessageId) {
       return;
     }
-    // A socket a lease keeps up in the background can still miss done, and
-    // the stream's lease would then outlive the reply; only a socket that is
-    // let go waits for the reconnect after resume.
-    if (socketService?.isAppForeground == false &&
-        socketService?.mayMaintainTransport == false) {
-      terminalRecoveryParkedInBackground = true;
+    if (terminalRecoveryMustWaitForTransport()) {
+      parkTerminalRecovery();
       return;
     }
     final source = terminalRecoverySource;
@@ -2934,6 +2957,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       fireTerminalCompletionRecovery,
     );
   }
+
+  resumeParkedTerminalRecovery = () {
+    if (!terminalRecoveryParkedInBackground) return;
+    terminalRecoveryParkedInBackground = false;
+    final transportSub = parkedRecoveryTransportSub;
+    parkedRecoveryTransportSub = null;
+    unawaited(transportSub?.cancel());
+    if (hasFinished || isObsoleteStream) return;
+    terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
+    armTerminalCompletionRecoveryTimer();
+  };
 
   void noteServerEndedReply() {
     if (serverEndedReply) return;
@@ -2998,13 +3032,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
 
       // The socket service reconnects (or re-announces a kept connection)
-      // after every return from the background, so this is where a recovery
-      // parked there picks up again.
-      if (terminalRecoveryParkedInBackground) {
-        terminalRecoveryParkedInBackground = false;
-        terminalRecoveryPollDelay = debugTaskSocketTerminalRecoveryDelay;
-        armTerminalCompletionRecoveryTimer();
-      }
+      // after every return from the background, so a recovery parked there
+      // picks up again here, as it does on the health update that follows a
+      // transport revived in the background (see parkTerminalRecovery).
+      resumeParkedTerminalRecovery();
 
       // Brief delay then check server for missed completion
       reconnectDelayTimer?.cancel();
@@ -3056,6 +3087,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   void disposeSocketSubscriptions() {
     terminalCompletionRecoveryTimer?.cancel();
     terminalCompletionRecoveryTimer = null;
+    unawaited(parkedRecoveryTransportSub?.cancel());
+    parkedRecoveryTransportSub = null;
     resetTerminalCompletionRecoveryStability();
 
     // Cancel HTTP subscription (if any — only taskSocket path creates one)

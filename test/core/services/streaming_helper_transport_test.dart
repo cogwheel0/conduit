@@ -11,15 +11,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/socket_health.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/testing.dart' show FakeAppLifecycle;
 import 'package:dio/dio.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../support/fake_time.dart';
 
@@ -619,6 +623,12 @@ class _MockSocketService implements SocketService {
   @override
   Stream<void> get onReconnect => reconnects.stream;
 
+  final StreamController<SocketHealth> healthUpdates =
+      StreamController<SocketHealth>.broadcast();
+
+  @override
+  Stream<SocketHealth> get healthStream => healthUpdates.stream;
+
   @override
   bool get isConnected => true;
 
@@ -646,6 +656,56 @@ class _MockSocketService implements SocketService {
   // Stubs for remaining SocketService interface
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// A [_MockSocketService] whose foreground, network and lease state, and its
+/// reconnect and health signals, come from a real [SocketService] driven by a
+/// [FakeAppLifecycle]. The stream's own chat handler takes its background
+/// lease on that service, as it does in the app.
+class _TransportBackedSocketService extends _MockSocketService {
+  _TransportBackedSocketService(super.injector, this.transport);
+
+  final SocketService transport;
+
+  @override
+  bool get isAppForeground => transport.isAppForeground;
+
+  @override
+  bool get mayMaintainTransport => transport.mayMaintainTransport;
+
+  @override
+  Stream<void> get onReconnect => transport.onReconnect;
+
+  @override
+  Stream<SocketHealth> get healthStream => transport.healthStream;
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    bool requireFocus = true,
+    bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
+    required SocketChatEventHandler handler,
+  }) {
+    final subscription = super.addChatEventHandler(
+      conversationId: conversationId,
+      sessionId: sessionId,
+      messageId: messageId,
+      requireFocus: requireFocus,
+      keepsAliveInBackground: keepsAliveInBackground,
+      onReplayGap: onReplayGap,
+      handler: handler,
+    );
+    final lease = keepsAliveInBackground
+        ? transport.acquireBackgroundActivityLease()
+        : null;
+    return SocketEventSubscription(() {
+      lease?.dispose();
+      subscription.dispose();
+    }, handlerId: subscription.handlerId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4647,10 +4707,13 @@ void main() {
       attachTaskSocket(
         ApiService api, {
         bool allowForeignMessageBinding = true,
+        SocketService? transport,
       }) {
         final log = _CallbackLog();
         final socket = FakeSocketInjector();
-        final service = _MockSocketService(socket);
+        final service = transport == null
+            ? _MockSocketService(socket)
+            : _TransportBackedSocketService(socket, transport);
         _attach(
           allowForeignMessageBinding: allowForeignMessageBinding,
           session: ChatCompletionSession.taskSocket(
@@ -4782,6 +4845,79 @@ void main() {
           async.elapse(const Duration(seconds: 10));
           check(log.finishCount).equals(1);
           check(log.messages.last.content).equals('Recovered reply.');
+        });
+      });
+
+      test('in the background with its lease held, a recovery parked by a '
+          'network outage resumes when the network returns and finds the '
+          'missed done', () {
+        fakeAsync((async) {
+          final lifecycle = FakeAppLifecycle();
+          final sockets = <io.Socket>[];
+          final transport = SocketService(
+            lifecycle: lifecycle,
+            serverConfig: const ServerConfig(
+              id: 'test',
+              name: 'Test',
+              url: 'http://localhost:0',
+            ),
+            // Never opened: the test plays each handshake itself.
+            socketFactory: (_, _, _) {
+              final socket = io.io(
+                'http://localhost:${19000 + sockets.length}',
+                <String, dynamic>{
+                  'autoConnect': false,
+                  'forceNew': true,
+                  'reconnection': false,
+                },
+              );
+              sockets.add(socket);
+              return socket;
+            },
+          );
+          void completeHandshake() {
+            sockets.last
+              ..connected = true
+              ..id = 'session-${sockets.length}';
+            sockets.last.emitReserved('connect');
+            async.flushMicrotasks();
+          }
+
+          unawaited(transport.connect());
+          async.flushMicrotasks();
+          completeHandshake();
+
+          final api = _buildFakeApi(
+            pollResponse: _serverConversationResponse(
+              messages: [_serverAssistantMessage(content: 'Recovered reply.')],
+            ),
+          );
+          final (:log, socket: _, service: _) = attachTaskSocket(
+            api,
+            transport: transport,
+          );
+          async.flushMicrotasks();
+
+          lifecycle.emit(AppLifecyclePhase.paused);
+          check(transport.mayMaintainTransport).isTrue();
+          transport.updateNetworkAvailability(false);
+          async.elapse(const Duration(minutes: 5));
+          check(chatFetches(api)).equals(0);
+
+          // Still in the background: the network coming back connects a
+          // fresh socket, and no return to the foreground follows it.
+          transport.updateNetworkAvailability(true);
+          async.flushMicrotasks();
+          check(sockets).length.equals(2);
+          completeHandshake();
+
+          async.elapse(const Duration(seconds: 10));
+          check(log.finishCount).equals(1);
+          check(log.messages.last.content).equals('Recovered reply.');
+
+          transport.dispose();
+          unawaited(lifecycle.dispose());
+          async.flushMicrotasks();
         });
       });
 
