@@ -2282,9 +2282,7 @@ impl ChatComposer {
                 ComposerMenu::SaveAsNote,
             );
         }
-        // The terminal its tool uses, as mobile's Tools section offers it
-        // (Open WebUI turns only; a server that needs a saved chat waits
-        // for one). A device's are listed with its tools.
+        // Only an Open WebUI turn gets a terminal.
         let chat_saved = self
             .composer
             .read(cx)
@@ -2318,9 +2316,8 @@ impl ChatComposer {
             .unwrap_or_default()
             .into_iter()
             .partition(|t| t.3);
-        // Tools, then what the user's devices offer, then filters, each
-        // under its heading. A LibreChat model's own switches (web search,
-        // code, file search, the user's MCP servers) are tools here too.
+        // A LibreChat model's own switches (web search, code, file search,
+        // the user's MCP servers) are tools here too.
         let (device_tools, tools): (Vec<_>, Vec<_>) = options
             .tools
             .iter()
