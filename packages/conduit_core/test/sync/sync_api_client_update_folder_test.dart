@@ -194,13 +194,13 @@ void main() {
     });
   });
 
-  group('ApiSyncApiClient.deleteChatMessage', () {
+  group('ApiSyncApiClient.deleteChatMessages', () {
     test('a message already gone from the server is deleted', () async {
       final client = _buildClient(
         _FixedAdapter(statusCode: 404, body: {'detail': 'Not found'}),
       );
 
-      await client.deleteChatMessage('c1', 'a1');
+      await client.deleteChatMessages('c1', ['a1']);
     });
 
     test('a refusal is terminal', () async {
@@ -208,8 +208,45 @@ void main() {
         _FixedAdapter(statusCode: 403, body: {'detail': 'Forbidden'}),
       );
 
-      await check(client.deleteChatMessage('c1', 'a1'))
+      await check(client.deleteChatMessages('c1', ['a1']))
           .throws<SyncTerminalException>();
+    });
+  });
+
+  group('a held answer\'s delete drained later', () {
+    test('goes as the account it started as, for every message', () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final remapper = IdRemapper(db);
+      addTearDown(remapper.dispose);
+      final adapter = _RecordingAdapter();
+      final api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://server.example',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'session-a',
+      );
+      addTearDown(api.dispose);
+      api.dio.httpClientAdapter = adapter;
+      final push = PushSync(
+        client: ApiSyncApiClient(api),
+        db: db,
+        chatLocks: ConversationLocks(),
+        folderLocks: FolderLocks(),
+        clock: _FixedClock(),
+        remapper: remapper,
+      );
+      // Another account signs in once the first delete has gone out.
+      adapter.onFetch = () => api.updateAuthToken('session-b');
+
+      await check(push.pushDeleteMessages('c1', ['a1', 'a2']))
+          .throws<DioException>();
+
+      check(adapter.requests.map((request) => request.headers['Authorization']))
+          .deepEquals(['Bearer session-a']);
     });
   });
 
@@ -254,6 +291,9 @@ class _FixedClock implements SyncClock {
 class _RecordingAdapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
 
+  /// Runs as each request arrives.
+  void Function()? onFetch;
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -261,6 +301,7 @@ class _RecordingAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
+    onFetch?.call();
     return ResponseBody.fromString(
       jsonEncode({'id': 'p', 'name': 'Project', 'updated_at': 3}),
       200,

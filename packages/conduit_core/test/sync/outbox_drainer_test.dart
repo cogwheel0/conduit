@@ -105,11 +105,15 @@ class RecordingSyncApiClient implements SyncApiClient {
   }
 
   @override
-  Future<void> deleteChatMessage(String chatId, String messageId) {
-    calls.add('deleteChatMessage:$chatId/$messageId');
-    events.add('deleteChatMessage:$chatId/$messageId');
+  Future<void> deleteChatMessages(String chatId, List<String> messageIds) {
+    for (final messageId in messageIds) {
+      calls.add('deleteChatMessage:$chatId/$messageId');
+      events.add('deleteChatMessage:$chatId/$messageId');
+    }
     return _track(chatId, () async {
-      server.deleteChatMessage(chatId, messageId);
+      for (final messageId in messageIds) {
+        server.deleteChatMessage(chatId, messageId);
+      }
     });
   }
 

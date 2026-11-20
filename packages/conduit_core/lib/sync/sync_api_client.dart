@@ -114,12 +114,14 @@ abstract interface class SyncApiClient {
   /// [SyncTerminalException].
   Future<bool> deleteChat(String id);
 
-  /// DELETE `/api/v1/chats/{id}/messages/{messageId}` (or, on a server older
-  /// than that route, the same edit of its history). Completes when the
-  /// message is gone, a 404 included: the message or its chat is already
-  /// gone. Throws [SyncTerminalException] for 401/403, and the error itself
-  /// for anything worth trying again.
-  Future<void> deleteChatMessage(String chatId, String messageId);
+  /// DELETE `/api/v1/chats/{id}/messages/{messageId}` for each of
+  /// [messageIds] in turn (or, on a server older than that route, the same
+  /// edit of its history), all as the session the call starts in: once
+  /// another replaces it, the deletes left are refused unsent. Completes when
+  /// the messages are gone, a 404 included: the message or its chat is
+  /// already gone. Throws [SyncTerminalException] for 401/403, and the error
+  /// itself for anything worth trying again.
+  Future<void> deleteChatMessages(String chatId, List<String> messageIds);
 
   /// GET `/api/v1/chats/{id}/pinned` -> bool. (Toggle-delta source for
   /// pin/archive; see [togglePin].)
@@ -345,19 +347,29 @@ class ApiSyncApiClient implements SyncApiClient {
   Future<bool> deleteChat(String id) => api.deleteChatRaw(id);
 
   @override
-  Future<void> deleteChatMessage(String chatId, String messageId) async {
-    try {
-      await api.deleteConversationMessage(chatId, messageId);
-    } on DioException catch (e) {
-      final code = e.response?.statusCode;
-      if (code == 404) return;
-      if (code == 401 || code == 403) {
-        throw SyncTerminalException(
-          statusCode: code,
-          message: 'deleteChatMessage forbidden',
+  Future<void> deleteChatMessages(
+    String chatId,
+    List<String> messageIds,
+  ) async {
+    final authSnapshot = api.captureAuthSnapshot();
+    for (final messageId in messageIds) {
+      try {
+        await api.deleteConversationMessage(
+          chatId,
+          messageId,
+          authSnapshot: authSnapshot,
         );
+      } on DioException catch (e) {
+        final code = e.response?.statusCode;
+        if (code == 404) continue;
+        if (code == 401 || code == 403) {
+          throw SyncTerminalException(
+            statusCode: code,
+            message: 'deleteChatMessages forbidden',
+          );
+        }
+        rethrow;
       }
-      rethrow;
     }
   }
 
