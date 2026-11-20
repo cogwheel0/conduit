@@ -2106,6 +2106,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     int maxAttempts = 3,
     bool inferDoneFromMissingStreaming = true,
     bool rethrowLastFailure = false,
+    bool Function()? isCurrent,
   }) async {
     if (isObsoleteStream) {
       return null;
@@ -2117,7 +2118,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       }
 
       final resp = await api.dio.get('/api/v1/chats/$chatId');
-      if (isObsoleteStream) {
+      // A poll something newer made stale must not bind the reply's server
+      // message either.
+      if (isObsoleteStream || !(isCurrent?.call() ?? true)) {
         return null;
       }
       final data = resp.data as Map<String, dynamic>?;
@@ -2203,6 +2206,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           maxAttempts: maxAttempts,
           inferDoneFromMissingStreaming: inferDoneFromMissingStreaming,
           rethrowLastFailure: rethrowLastFailure,
+          isCurrent: isCurrent,
         );
       }
 
@@ -2832,7 +2836,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   }
 
   // `chat:active` false: the server's task for this chat is gone, so whatever
-  // the reply shows now is all of it.
+  // the reply shows now is all of it. A task-socket stream makes this poll
+  // through its recovery controller instead.
   Future<void> recoverAfterChatInactive() async {
     const source = 'taskSocket inactive recovery';
     try {
@@ -2851,18 +2856,21 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   // One poll for a missed done. Under the quiet policy only the server's own
   // done finishes the reply; once the server has ended it, stable snapshots
-  // may finish it from what it shows. A failed request is reported back to
-  // be tried again, except on the last attempt, which counts as a missed
-  // poll. Nothing is applied once a newer poll or policy took over.
+  // may finish it from what it shows, and after chat:active false whatever
+  // it shows does. A failed request is reported back to be tried again,
+  // except on the last attempt, which counts as a missed poll. Nothing is
+  // applied, or bound, once something newer made the poll stale.
   Future<_RecoveryPollResult> pollForMissedDone(
-    _RecoveryPolicy policy, {
+    _RecoveryPoll poll, {
     required bool lastAttempt,
     required bool Function() isCurrent,
   }) async {
-    final ended = policy == _RecoveryPolicy.ended;
-    final source = ended
-        ? 'taskSocket ended-reply recovery'
-        : 'taskSocket quiet-socket recovery';
+    final source = switch (poll) {
+      _RecoveryPoll.quiet => 'taskSocket quiet-socket recovery',
+      _RecoveryPoll.ended => 'taskSocket ended-reply recovery',
+      _RecoveryPoll.chatInactive => 'taskSocket inactive recovery',
+    };
+    final ended = poll != _RecoveryPoll.quiet;
     DebugLogger.log(
       '$source: polling for a missed done',
       scope: 'streaming/helper',
@@ -2873,19 +2881,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         maxAttempts: 1,
         inferDoneFromMissingStreaming: ended,
         rethrowLastFailure: true,
+        isCurrent: isCurrent,
       );
     } catch (_) {
       if (!lastAttempt) return _RecoveryPollResult.failed;
     }
     if (hasFinished || isObsoleteStream) return _RecoveryPollResult.finished;
     if (!isCurrent()) return _RecoveryPollResult.stillStreaming;
-    final settled = settleTerminalRecoverySnapshot(
-      result,
-      source: source,
-      allowContentOnlyTerminal: ended,
-      allowStableNonTerminalLocalFallback: ended,
-      countStableSnapshots: true,
-    );
+    final settled = poll == _RecoveryPoll.chatInactive
+        ? settleTerminalRecoverySnapshot(
+            result,
+            source: source,
+            allowContentOnlyTerminal: true,
+            allowLocalContentFallback: true,
+          )
+        : settleTerminalRecoverySnapshot(
+            result,
+            source: source,
+            allowContentOnlyTerminal: ended,
+            allowStableNonTerminalLocalFallback: ended,
+            countStableSnapshots: true,
+          );
     return settled
         ? _RecoveryPollResult.finished
         : _RecoveryPollResult.stillStreaming;
@@ -2915,8 +2931,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
   missedDoneRecovery = _MissedDoneRecovery(
     socketService: socketService,
+    // Once done arrives nothing was missed; a blank reply's one-shot done
+    // recovery takes over.
     mayRecover: () =>
         !hasFinished &&
+        !completionDoneHandled &&
         !isObsoleteStream &&
         !localResourcesDisposed &&
         currentAssistantTargetId() == assistantMessageId,
@@ -2938,10 +2957,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         scope: 'streaming/helper',
       );
 
-      // Moves the handlers to the new session (issue #172) and resumes a
-      // recovery parked while the socket was let go.
-      missedDoneRecovery.noteTransportChanged();
       final convId = activeConversationId;
+      final temporaryChatId = convId != null && isTemporaryChat(convId)
+          ? convId
+          : null;
+      // A task-socket stream's recovery makes the catch-up poll, so that it
+      // overlaps no other and its retries wait while the socket is let go.
+      if (session.transport == ChatCompletionTransport.taskSocket &&
+          temporaryChatId == null) {
+        missedDoneRecovery.noteReconnected();
+        return;
+      }
+      // Moves the handlers to the new session (issue #172).
+      missedDoneRecovery.noteTransportChanged();
 
       // Brief delay then check server for missed completion
       reconnectDelayTimer?.cancel();
@@ -2949,9 +2977,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         if (localResourcesDisposed) {
           return;
         }
-        final temporaryChatId = convId != null && isTemporaryChat(convId)
-            ? convId
-            : null;
         final resumeSessionId = socketService.sessionId;
         // Wrap async work in unawaited to handle errors properly
         unawaited(
@@ -3457,6 +3482,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       delayedDoneRecoveryTimer = null;
       unawaited(() async {
         try {
+          // A missed-done poll from before done may still be out.
+          await missedDoneRecovery.idle;
           if (isObsoleteStream) {
             return;
           }
@@ -4258,9 +4285,12 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             }
             onChatActiveChanged?.call(activeConversationId, active);
             if (!active && !hasFinished) {
-              missedDoneRecovery.noteServerEnded();
-              startMissedDoneRecovery();
-              unawaited(recoverAfterChatInactive());
+              if (session.transport == ChatCompletionTransport.taskSocket) {
+                missedDoneRecovery.noteChatInactive();
+                startMissedDoneRecovery();
+              } else {
+                unawaited(recoverAfterChatInactive());
+              }
             }
           }
         } catch (_) {}
@@ -5079,24 +5109,48 @@ enum _RecoveryPolicy {
   ended,
 }
 
+/// What one recovery poll is for, which decides what its snapshot may do.
+enum _RecoveryPoll {
+  /// Under [_RecoveryPolicy.quiet], or a reconnect's catch-up then: only the
+  /// server's own `done` finishes the reply.
+  quiet,
+
+  /// Under [_RecoveryPolicy.ended]: stable snapshots may finish the reply.
+  ended,
+
+  /// The poll `chat:active` false asks for: the server's task is gone, so
+  /// the reply finishes from whatever it shows.
+  chatInactive,
+}
+
 enum _RecoveryPollResult { finished, stillStreaming, failed }
 
-/// Schedules the polls that recover a reply whose `done` the socket missed.
+/// How long after a reconnect its catch-up poll waits.
+const Duration _reconnectCatchUpDelay = Duration(milliseconds: 500);
+
+/// Makes every poll that recovers a reply whose `done` the socket missed,
+/// one request at a time.
 ///
 /// Its state is the policy, the quiet wait, the failed attempts, whether it
-/// is parked, and a generation that each poll and policy change takes. Every
-/// signal (socket events for the reply, the socket's health, reconnects and
-/// foreground or lease changes, poll results) goes through [_reschedule],
-/// which recomputes the one timer from that state and the socket's facts. A
-/// poll's result applies only while its generation is current, so a poll
-/// started under one policy cannot act for the next.
+/// is parked, the polls asked for (after `chat:active` false, or a
+/// reconnect), the request out and a generation. Every signal (socket events
+/// for the reply, the socket's health, reconnects and foreground or lease
+/// changes, poll results) goes through [_reschedule], which recomputes the
+/// one timer from that state and the socket's facts.
+///
+/// Each poll takes the next generation, and so does each signal that makes
+/// its answer stale: a socket event for the reply, or a policy change. Only
+/// a poll still current when it returns may apply its snapshot, bind the
+/// reply's server message, or set the next wait. A stale poll's request is
+/// still out, though, and no other starts until it returns: a poll that
+/// comes due meanwhile runs then.
 class _MissedDoneRecovery {
   _MissedDoneRecovery({
     required SocketService? socketService,
     required bool Function() mayRecover,
     required void Function() reconcileSession,
     required Future<_RecoveryPollResult> Function(
-      _RecoveryPolicy policy, {
+      _RecoveryPoll poll, {
       required bool lastAttempt,
       required bool Function() isCurrent,
     })
@@ -5110,7 +5164,7 @@ class _MissedDoneRecovery {
   final bool Function() _mayRecover;
   final void Function() _reconcileSession;
   final Future<_RecoveryPollResult> Function(
-    _RecoveryPolicy policy, {
+    _RecoveryPoll poll, {
     required bool lastAttempt,
     required bool Function() isCurrent,
   })
@@ -5127,12 +5181,20 @@ class _MissedDoneRecovery {
   bool _parked = false;
   bool _finished = false;
   bool _disposed = false;
+  bool _chatInactivePollDue = false;
+  bool _catchUpDue = false;
   int _generation = 0;
-  int? _pollGeneration;
+
+  /// The generation of the request out, or null when none is.
+  int? _requestGeneration;
+
+  /// A poll came due while a stale request was out, and runs when it returns.
+  bool _pollDue = false;
+  Completer<void>? _idle;
   Timer? _timer;
   final _transportSignals = <StreamSubscription<Object?>>[];
 
-  bool get _pollInFlight => _pollGeneration == _generation;
+  bool get _requestOut => _requestGeneration != null;
 
   // In the background a socket that a lease keeps up can still miss done,
   // so only a socket let go there (no lease, or no network) holds polls
@@ -5142,6 +5204,13 @@ class _MissedDoneRecovery {
     return service == null ||
         service.isAppForeground ||
         service.mayMaintainTransport;
+  }
+
+  /// Completes when no recovery request is out, so that another poll for
+  /// the reply can start without overlapping one.
+  Future<void> get idle {
+    if (!_requestOut) return Future<void>.value();
+    return (_idle ??= Completer<void>()).future;
   }
 
   void listenToTransport() {
@@ -5161,17 +5230,42 @@ class _MissedDoneRecovery {
   }
 
   /// A socket event for this reply: the socket is alive, so the wait starts
-  /// over.
+  /// over, and a poll still out answers from before the event.
   void noteActivity() {
+    if (_disposed) return;
+    _generation++;
     _quietDelay = _quietRecoveryDelay;
     _failedAttempts = 0;
     _reschedule(restartWait: true);
   }
 
+  /// A terminal `finish_reason`.
   void noteServerEnded() {
-    if (_policy == _RecoveryPolicy.ended) return;
+    if (_disposed || _policy == _RecoveryPolicy.ended) return;
     _policy = _RecoveryPolicy.ended;
     _generation++;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  /// `chat:active` false: the reply has ended, and is polled right away.
+  void noteChatInactive() {
+    if (_disposed || _chatInactivePollDue) return;
+    _policy = _RecoveryPolicy.ended;
+    _chatInactivePollDue = true;
+    _generation++;
+    _failedAttempts = 0;
+    _reschedule(restartWait: true);
+  }
+
+  /// The socket reconnected and may have missed events while it was down,
+  /// so the reply is polled shortly.
+  void noteReconnected() {
+    if (_disposed) return;
+    _reconcileSession();
+    _catchUpDue = true;
+    // The poll already due catches up.
+    if (_pollDue) return;
     _failedAttempts = 0;
     _reschedule(restartWait: true);
   }
@@ -5184,8 +5278,7 @@ class _MissedDoneRecovery {
 
   void dispose() {
     _disposed = true;
-    _timer?.cancel();
-    _timer = null;
+    _stopWaiting();
     for (final subscription in _transportSignals) {
       unawaited(subscription.cancel());
     }
@@ -5195,13 +5288,11 @@ class _MissedDoneRecovery {
   void _reschedule({bool restartWait = false}) {
     if (_disposed || !_started || _finished) return;
     if (!_mayRecover()) {
-      _cancelTimer();
+      _stopWaiting();
       return;
     }
-    // The poll's own result reschedules.
-    if (_pollInFlight) return;
     if (!_transportKept) {
-      _cancelTimer();
+      _stopWaiting();
       _parked = true;
       return;
     }
@@ -5212,32 +5303,46 @@ class _MissedDoneRecovery {
       _failedAttempts = 0;
       restartWait = true;
     }
-    if (_timer != null && !restartWait) return;
-    _timer?.cancel();
+    // A current poll's own result reschedules.
+    if (_requestGeneration == _generation) return;
+    if ((_timer != null || _pollDue) && !restartWait) return;
+    _stopWaiting();
     _timer = Timer(_nextDelay, _fire);
   }
 
   Duration get _nextDelay {
     if (_failedAttempts > 0) return Duration(seconds: _failedAttempts);
+    if (_chatInactivePollDue) return Duration.zero;
+    if (_catchUpDue) return _reconnectCatchUpDelay;
     return _policy == _RecoveryPolicy.ended ? _endedRecoveryDelay : _quietDelay;
   }
 
-  void _cancelTimer() {
+  void _stopWaiting() {
     _timer?.cancel();
     _timer = null;
+    _pollDue = false;
   }
 
   void _fire() {
     _timer = null;
-    if (_disposed || !_mayRecover()) return;
+    if (_disposed || _finished || !_mayRecover()) return;
     if (!_transportKept) {
       _reschedule();
       return;
     }
+    if (_requestOut) {
+      _pollDue = true;
+      return;
+    }
     final generation = ++_generation;
-    _pollGeneration = generation;
-    final policy = _policy;
-    if (policy == _RecoveryPolicy.quiet && _failedAttempts == 0) {
+    _requestGeneration = generation;
+    _catchUpDue = false;
+    final poll = _chatInactivePollDue
+        ? _RecoveryPoll.chatInactive
+        : _policy == _RecoveryPolicy.ended
+        ? _RecoveryPoll.ended
+        : _RecoveryPoll.quiet;
+    if (poll == _RecoveryPoll.quiet && _failedAttempts == 0) {
       final doubled = _quietDelay * 2;
       _quietDelay = doubled > _quietRecoveryMaxDelay
           ? _quietRecoveryMaxDelay
@@ -5246,7 +5351,7 @@ class _MissedDoneRecovery {
     unawaited(
       _runPoll(
         generation,
-        policy,
+        poll,
         lastAttempt: _failedAttempts >= _retriesAfterFailure,
       ),
     );
@@ -5254,14 +5359,14 @@ class _MissedDoneRecovery {
 
   Future<void> _runPoll(
     int generation,
-    _RecoveryPolicy policy, {
+    _RecoveryPoll poll, {
     required bool lastAttempt,
   }) async {
     bool isCurrent() => !_disposed && generation == _generation;
     _RecoveryPollResult result;
     try {
       result = await _poll(
-        policy,
+        poll,
         lastAttempt: lastAttempt,
         isCurrent: isCurrent,
       );
@@ -5272,18 +5377,32 @@ class _MissedDoneRecovery {
       );
       result = _RecoveryPollResult.stillStreaming;
     }
-    if (!isCurrent()) return;
-    _pollGeneration = null;
-    switch (result) {
-      case _RecoveryPollResult.finished:
-        _finished = true;
-        _cancelTimer();
-        return;
-      case _RecoveryPollResult.failed:
-        _failedAttempts++;
-      case _RecoveryPollResult.stillStreaming:
-        _failedAttempts = 0;
+    _requestGeneration = null;
+    final due = _pollDue;
+    _pollDue = false;
+    if (!isCurrent()) {
+      // What made this poll stale scheduled the next one, which may have
+      // come due while it was out.
+      if (due) _fire();
+    } else {
+      switch (result) {
+        case _RecoveryPollResult.finished:
+          _finished = true;
+          _stopWaiting();
+        case _RecoveryPollResult.failed:
+          _failedAttempts++;
+        case _RecoveryPollResult.stillStreaming:
+          _failedAttempts = 0;
+          if (poll == _RecoveryPoll.chatInactive) {
+            _chatInactivePollDue = false;
+          }
+      }
+      _reschedule(restartWait: true);
     }
-    _reschedule(restartWait: true);
+    if (!_requestOut) {
+      final idle = _idle;
+      _idle = null;
+      idle?.complete();
+    }
   }
 }

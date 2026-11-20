@@ -271,11 +271,47 @@ void main() {
       });
     });
 
-    test('after chat:active false with no done, the next poll comes 2 s '
-        'later', () {
+    test('after chat:active false, the reply is polled as soon as a quiet poll '
+        'still in flight returns, and a blank result again 2 s later', () {
       fakeAsync((async) {
         final server = FakeChatServer([
           stillStreaming(''),
+          stillStreaming(''),
+          finished('Saved reply.'),
+        ], latency: const Duration(seconds: 1));
+        final socket = FakeStreamSocket();
+        final (:log, stream: _) = attachTaskSocketStream(
+          api: fakeApi(server),
+          socket: socket,
+        );
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(milliseconds: 10500));
+        socket.emitChatEvent('chat:active', {
+          'active': false,
+        }, messageId: 'msg-1');
+        async.elapse(Duration.zero);
+        check(server.chatFetches).equals(1);
+        async.elapse(const Duration(milliseconds: 500));
+        check(server.chatFetches).equals(2);
+
+        // That poll finds nothing to finish with.
+        async.elapse(const Duration(milliseconds: 2900));
+        check(server.chatFetches).equals(2);
+        check(log.finishCount).equals(0);
+        async.elapse(const Duration(milliseconds: 100));
+        check(server.chatFetches).equals(3);
+        async.elapse(const Duration(seconds: 1));
+        check(log.finishCount).equals(1);
+        check(log.reply.content).equals('Saved reply.');
+      });
+    });
+
+    test('a failed chat:active false poll is not retried while the transport '
+        'is let go, and is tried again as soon as it may be kept', () {
+      fakeAsync((async) {
+        final server = FakeChatServer([
+          FakeChatServer.failure,
           finished('Saved reply.'),
         ]);
         final socket = FakeStreamSocket();
@@ -284,17 +320,23 @@ void main() {
           socket: socket,
         );
         async.flushMicrotasks();
+        socket.setTransport(foreground: false);
 
         socket.emitChatEvent('chat:active', {
           'active': false,
         }, messageId: 'msg-1');
         async.elapse(Duration.zero);
-        // The inactive recovery's own poll finds nothing to finish with.
+        check(server.chatFetches).equals(1);
+        // The network drops before the failed poll is tried again.
+        socket.setTransport(keepable: false, connected: false);
+        socket.emitHealth();
+
+        async.elapse(const Duration(minutes: 1));
         check(server.chatFetches).equals(1);
         check(log.finishCount).equals(0);
 
-        async.elapse(const Duration(seconds: 2));
-        check(server.chatFetches).equals(2);
+        socket.setTransport(keepable: true);
+        async.elapse(Duration.zero);
         check(log.finishCount).equals(1);
         check(log.reply.content).equals('Saved reply.');
       });
@@ -380,15 +422,24 @@ void main() {
     });
 
     test('a quiet poll still in flight when finish_reason arrives cannot undo '
-        'the ended-reply policy', () {
+        'the ended-reply policy, or bind the reply to its server message', () {
       fakeAsync((async) {
         final server = FakeChatServer([
-          stillStreaming('Hello there.'),
+          serverChat([
+            serverUserMessage(content: 'Say hello.'),
+            serverAssistantMessage(
+              id: 'srv-1',
+              content: 'Hello there.',
+              done: false,
+              isStreaming: true,
+            ),
+          ]),
         ], latency: const Duration(seconds: 1));
         final socket = FakeStreamSocket();
         final (:log, stream: _) = attachTaskSocketStream(
           api: fakeApi(server),
           socket: socket,
+          userPrompt: 'Say hello.',
         );
         async.flushMicrotasks();
 
@@ -397,11 +448,114 @@ void main() {
         // The quiet poll's answer is still on its way.
         async.elapse(const Duration(milliseconds: 500));
         emitFinishReason(socket, content: 'Hello there.');
+        async.elapse(const Duration(milliseconds: 500));
+        check(log.remoteBindings).isEmpty();
 
-        // Three stable polls 2 s apart (each answered 1 s later) finish it.
-        async.elapse(const Duration(seconds: 9));
+        // Three stable polls 2 s apart (each answered 1 s later) finish it,
+        // and the first binds the server's message to the reply.
+        async.elapse(const Duration(milliseconds: 8500));
         check(log.finishCount).equals(1);
         check(log.reply.content).equals('Hello there.');
+        check(log.remoteBindings).deepEquals(['srv-1']);
+      });
+    });
+
+    test('socket activity during a poll drops its result and its retry, and '
+        'the next poll comes 10 s after the activity', () {
+      fakeAsync((async) {
+        final server = FakeChatServer([
+          serverChat([
+            serverAssistantMessage(
+              content: 'partial',
+              done: false,
+              isStreaming: true,
+              followUps: ['Stale follow-up'],
+            ),
+          ]),
+          FakeChatServer.failure,
+          stillStreaming(),
+        ], latency: const Duration(seconds: 3));
+        final socket = FakeStreamSocket();
+        final (:log, stream: _) = attachTaskSocketStream(
+          api: fakeApi(server),
+          socket: socket,
+        );
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 12));
+        check(server.chatFetches).equals(1);
+        socket.emitChatEvent('chat:message:follow_ups', {
+          'follow_ups': ['Fresh follow-up'],
+        }, messageId: 'msg-1');
+        // The poll then answers with what the server had before that event.
+        async.elapse(const Duration(seconds: 1));
+        check(log.reply.followUps).deepEquals(['Fresh follow-up']);
+        async.elapse(const Duration(seconds: 8));
+        check(server.chatFetches).equals(1);
+        async.elapse(const Duration(seconds: 1));
+        check(server.chatFetches).equals(2);
+
+        // This poll fails after the next event, and is not tried again.
+        async.elapse(const Duration(seconds: 2));
+        emitDelta(socket);
+        async.elapse(const Duration(seconds: 9));
+        check(server.chatFetches).equals(2);
+        async.elapse(const Duration(seconds: 1));
+        check(server.chatFetches).equals(3);
+      });
+    });
+
+    test('a poll that comes due while an older request is still out waits for '
+        'it, then polls once', () {
+      fakeAsync((async) {
+        final server = FakeChatServer([
+          stillStreaming(),
+        ], latency: const Duration(seconds: 30));
+        final socket = FakeStreamSocket();
+        attachTaskSocketStream(api: fakeApi(server), socket: socket);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 15));
+        emitDelta(socket);
+        // The wait from that event ends at 25 s; the request is out until 40 s.
+        async.elapse(const Duration(seconds: 24));
+        check(server.chatFetches).equals(1);
+        async.elapse(const Duration(seconds: 1));
+        check(server.chatFetches).equals(2);
+      });
+    });
+
+    test('after a blank done, only the one-shot done recovery polls, once a '
+        'poll still in flight has returned', () {
+      fakeAsync((async) {
+        final server = FakeChatServer([
+          stillStreaming(''),
+          finished('The answer.'),
+        ], latency: const Duration(seconds: 3));
+        final socket = FakeStreamSocket();
+        final (:log, stream: _) = attachTaskSocketStream(
+          api: fakeApi(server),
+          socket: socket,
+        );
+        async.flushMicrotasks();
+
+        emitFinishReason(socket);
+        async.elapse(const Duration(milliseconds: 2500));
+        check(server.chatFetches).equals(1);
+        socket.emitChatEvent('chat:completion', {
+          'done': true,
+        }, messageId: 'msg-1');
+        // The done recovery comes due at 4.5 s; the ended poll is out until 5 s.
+        async.elapse(const Duration(seconds: 2));
+        check(server.chatFetches).equals(1);
+        async.elapse(const Duration(milliseconds: 500));
+        check(server.chatFetches).equals(2);
+
+        async.elapse(const Duration(minutes: 1));
+        check(log.finishCount).equals(1);
+        check(log.reply.content).equals('The answer.');
+        // The done recovery's poll, then its snapshot refresh.
+        check(server.chatFetches).equals(3);
       });
     });
 
@@ -434,10 +588,12 @@ void main() {
     });
 
     test('polling pauses in the background while the socket is let go, and '
-        'resumes after the reconnect that follows a return to the '
-        'foreground', () {
+        'resumes with the catch-up poll of the reconnect that follows a '
+        'return to the foreground, which no other poll overlaps', () {
       fakeAsync((async) {
-        final server = FakeChatServer([stillStreaming()]);
+        final server = FakeChatServer([
+          stillStreaming(),
+        ], latency: const Duration(seconds: 10));
         final socket = FakeStreamSocket();
         final (:log, stream: _) = attachTaskSocketStream(
           api: fakeApi(server),
@@ -461,7 +617,11 @@ void main() {
         // The reconnect's own catch-up poll.
         check(server.chatFetches).equals(1);
 
-        async.elapse(const Duration(seconds: 9));
+        // Answered at 10.5 s with the reply still streaming, it doubles the
+        // next wait to 20 s.
+        async.elapse(const Duration(seconds: 29));
+        check(server.chatFetches).equals(1);
+        async.elapse(const Duration(milliseconds: 500));
         check(server.chatFetches).equals(2);
         check(log.finishCount).equals(0);
       });

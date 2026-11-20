@@ -22,6 +22,7 @@ Map<String, dynamic> serverAssistantMessage({
   bool? isStreaming,
   Map<String, dynamic>? error,
   List<Map<String, dynamic>>? output,
+  List<String>? followUps,
 }) => {
   'id': id,
   'role': 'assistant',
@@ -31,6 +32,18 @@ Map<String, dynamic> serverAssistantMessage({
   'isStreaming': ?isStreaming,
   'error': ?error,
   'output': ?output,
+  'followUps': ?followUps,
+};
+
+/// A persisted user message as `GET /api/v1/chats/:id` returns it.
+Map<String, dynamic> serverUserMessage({
+  String id = 'user-1',
+  required String content,
+}) => {
+  'id': id,
+  'role': 'user',
+  'content': content,
+  'timestamp': _serverTimestamp,
 };
 
 /// A chat snapshot holding [messages].
@@ -263,8 +276,15 @@ class FakeStreamSocket implements SocketService {
 
 /// The chat state a stream writes through its callbacks.
 class RecordedStream {
-  RecordedStream({String content = ''})
+  RecordedStream({String content = '', String? userPrompt})
     : messages = [
+        if (userPrompt != null)
+          ChatMessage(
+            id: 'user-1',
+            role: 'user',
+            content: userPrompt,
+            timestamp: DateTime.utc(2026),
+          ),
         ChatMessage(
           id: 'msg-1',
           role: 'assistant',
@@ -276,6 +296,9 @@ class RecordedStream {
 
   List<ChatMessage> messages;
   int finishCount = 0;
+
+  /// Each server message id the stream bound to its reply, in order.
+  final remoteBindings = <String>[];
 
   ChatMessage get reply => messages.last;
 
@@ -300,16 +323,18 @@ class RecordedStream {
 }
 
 /// Attaches a task-socket stream for message `msg-1` in chat `conv-1`, whose
-/// socket session is `sess-1`, and returns what it writes.
+/// socket session is `sess-1`, and returns what it writes. With [userPrompt]
+/// the reply follows a user message `user-1` that asked it.
 ({RecordedStream log, ActiveChatStream stream}) attachTaskSocketStream({
   required ApiService api,
   required FakeStreamSocket socket,
   String chatId = 'conv-1',
   String initialContent = '',
+  String? userPrompt,
   bool allowForeignMessageBinding = true,
   Future<void> Function()? abort,
 }) {
-  final log = RecordedStream(content: initialContent);
+  final log = RecordedStream(content: initialContent, userPrompt: userPrompt);
   final stream = attachUnifiedChunkedStreaming(
     session: ChatCompletionSession.taskSocket(
       messageId: 'msg-1',
@@ -328,6 +353,7 @@ class RecordedStream {
     socketService: socket,
     workerManager: WorkerManager(maxConcurrentTasks: 1),
     allowForeignMessageBinding: allowForeignMessageBinding,
+    onRemoteMessageBound: log.remoteBindings.add,
     appendToLastMessage: (chunk) => log._updateLast(
       (message) => message.copyWith(content: message.content + chunk),
     ),
