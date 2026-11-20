@@ -85,6 +85,12 @@ enum TetherRelayFailure {
 /// Open WebUI's own `content`.
 const String kTetherRelayErrorKey = 'tetherRelay';
 
+/// The key in an answer's stored `metadata`, beside the mark that its
+/// request was sent (`completionSubmitted`), that records the request went
+/// to a model one of the user's devices offers. A later run that collects
+/// the answer by pull reads the server's saved error with it.
+const String kCompletionViaTetherKey = 'completionViaTether';
+
 /// Error information for a chat message, matching OpenWebUI's error format.
 /// OpenWebUI stores errors as `{ error: { content: "..." } }` on messages.
 @freezed

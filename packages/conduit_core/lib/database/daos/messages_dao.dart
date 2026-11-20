@@ -3,7 +3,11 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import '../../models/chat_message.dart'
-    show ChatMessageError, TetherRelayFailure, kTetherRelayErrorKey;
+    show
+        ChatMessageError,
+        TetherRelayFailure,
+        kCompletionViaTetherKey,
+        kTetherRelayErrorKey;
 
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
@@ -180,16 +184,22 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// claim that the server accepted the request or that a response landed. A
   /// recreated outbox runner recovers by pull only, preventing a duplicate POST
   /// across crashes in the ambiguous marker-to-response window.
+  ///
+  /// [viaTether] is kept with it ([kCompletionViaTetherKey]): whether the
+  /// request went to a model one of the user's devices offers, which that
+  /// recovery reads the server's saved error with.
   Future<bool> markAssistantCompletionSubmitted({
     required String chatId,
     required String messageId,
+    required bool viaTether,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
       mutate: (payload) {
         final metadata = _asJsonMap(payload['metadata'])
-          ..remove('responseDone');
+          ..remove('responseDone')
+          ..remove(kCompletionViaTetherKey);
         payload
           ..remove('error')
           ..remove('done')
@@ -197,6 +207,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
           ..['metadata'] = <String, dynamic>{
             ...metadata,
             'completionSubmitted': true,
+            if (viaTether) kCompletionViaTetherKey: true,
           };
       },
     );

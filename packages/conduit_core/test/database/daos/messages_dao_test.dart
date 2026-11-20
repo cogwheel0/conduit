@@ -717,6 +717,7 @@ void main() {
         final marked = await db.messagesDao.markAssistantCompletionSubmitted(
           chatId: 'chat-retry',
           messageId: 'assistant-retry',
+          viaTether: false,
         );
 
         check(marked).isTrue();

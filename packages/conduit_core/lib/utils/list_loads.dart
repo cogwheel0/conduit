@@ -62,8 +62,7 @@ final class ListLoad {
 
   /// No read started after this one, and the build it was made for, if
   /// any, is still current.
-  bool get isNewest =>
-      _loads._newest == _number && (_current?.call() ?? true);
+  bool get isNewest => _loads._newest == _number && (_current?.call() ?? true);
 
   /// Runs [save] after every cache write asked for before it, if this read
   /// is still the newest by then.
