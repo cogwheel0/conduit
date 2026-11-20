@@ -70,6 +70,11 @@ class ServerVersionCompat {
   /// their own settings come from their Tether devices instead.
   static const String directConnectionsRemovedVersion = '0.13.4';
 
+  /// The first Open WebUI release that no longer reads `model_item` and
+  /// `tool_servers` from a chat request, and passes them on to the provider
+  /// with the rest of it.
+  static const String clientModelFieldsPassedOnVersion = '0.13.4';
+
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.
   static bool? knownAtLeast(String? rawVersion, String minimum) {

@@ -635,6 +635,9 @@ Future<List<Map<String, dynamic>>?> _resolveToolServersForRequest({
 /// effective system message (chat `params.system`, then the legacy
 /// conversation prompt, then the user prompt) when one is absent, then apply
 /// [_buildChatCompletionMessages].
+///
+/// Only a temporary chat's history keeps its attachments, so only there are
+/// they fetched: a saved chat's request carries its system message alone.
 Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
   required dynamic api,
   required List<ChatMessage> messages,
@@ -650,7 +653,7 @@ Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
     if (!_shouldIncludeConversationHistoryMessage(msg)) continue;
     final cleaned = outboundProviderReplayText(msg);
     final attachments = msg.attachmentIds ?? const <String>[];
-    if (attachments.isNotEmpty) {
+    if (attachments.isNotEmpty && isTemporary) {
       final messageMap = await _buildMessagePayloadWithAttachments(
         api: api,
         role: msg.role,
@@ -696,13 +699,15 @@ Future<List<Map<String, dynamic>>> _buildCompletionRequestMessages({
 Future<List<Map<String, dynamic>>>
 buildOpenWebUiCompletionRequestMessagesForTest({
   required List<ChatMessage> messages,
+  dynamic api,
+  bool isTemporary = true,
 }) => _buildCompletionRequestMessages(
-  api: null,
+  api: api,
   messages: messages,
   chatParams: const <String, dynamic>{},
   conversationSystemPrompt: null,
   userSystemPrompt: null,
-  isTemporary: true,
+  isTemporary: isTemporary,
 );
 
 /// Last `user`-role message id in [messages], scanning newest-first; `null`

@@ -1180,6 +1180,10 @@ Future<void> _sendMessageInternal(
     return;
   }
 
+  final isTemporary =
+      (activeConversation != null && isTemporaryChat(activeConversation.id)) ||
+      ref.read(temporaryChatEnabledProvider);
+
   // Get conversation history for context
   final List<ChatMessage> messages = ref.read(chatMessagesProvider);
   final List<Map<String, dynamic>> conversationMessages =
@@ -1192,8 +1196,10 @@ Future<void> _sendMessageInternal(
       // Prepare cleaned text content (strip tool details etc.)
       final cleaned = outboundProviderReplayText(msg);
 
+      // Only a temporary chat's request keeps its history
+      // ([_buildChatCompletionMessages]), so only there are images fetched.
       final List<String> ids = msg.attachmentIds ?? const <String>[];
-      if (ids.isNotEmpty) {
+      if (ids.isNotEmpty && isTemporary) {
         final messageMap = await _buildMessagePayloadWithAttachments(
           api: api!,
           role: msg.role,
@@ -1233,9 +1239,6 @@ Future<void> _sendMessageInternal(
   final selectedToolIds = toolIds ?? const <String>[];
   final toolIdsForApi = _extractToolIdsForApi(selectedToolIds);
   final selectedTerminalId = ref.read(selectedTerminalIdProvider);
-  final isTemporary =
-      (activeConversation != null && isTemporaryChat(activeConversation.id)) ||
-      ref.read(temporaryChatEnabledProvider);
 
   // Check feature toggles for API (gated by server availability)
   final webSearchEnabled =
