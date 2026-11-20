@@ -303,6 +303,12 @@ class BrowserSignInService {
   /// ([revokeEnded]).
   final Map<String, BrowserSignInSession> _unsavedRotations = {};
 
+  /// [_unsavedRotations]' key for the rotation of [spent]: a refresh token
+  /// means something only to the client and provider that issued it.
+  static String _rotationKey(BrowserSignInSession spent) =>
+      '${normalizeBrowserSignInIssuer(spent.issuer)} ${spent.clientId} '
+      '${spent.refreshToken}';
+
   bool get isSupported => _port.isSupported;
 
   /// Ends the browser sign-in in progress, if any, as cancelled: the
@@ -536,7 +542,7 @@ class BrowserSignInService {
     BrowserSignInSession stored,
     OptimizedStorageService storage,
   ) async {
-    final unsaved = _unsavedRotations[stored.refreshToken];
+    final unsaved = _unsavedRotations[_rotationKey(stored)];
     if (unsaved == null) return stored;
     // The rest as stored now: a merge may have moved the session.
     final rotated = stored.copyWith(
@@ -550,7 +556,7 @@ class BrowserSignInService {
     )) {
       throw const BrowserSignInException(BrowserSignInFailure.accountChanged);
     }
-    _unsavedRotations.remove(stored.refreshToken);
+    _unsavedRotations.remove(_rotationKey(stored));
     return rotated;
   }
 
@@ -620,7 +626,7 @@ class BrowserSignInService {
       } catch (_) {
         // The stored refresh token is spent all the same: the next renewal
         // saves this one first, and refreshes with it.
-        _unsavedRotations[session.refreshToken] = rotated;
+        _unsavedRotations[_rotationKey(session)] = rotated;
         rethrow;
       }
       if (!replaced) {
@@ -765,14 +771,6 @@ class BrowserSignInService {
     bool Function()? stillWanted,
   }) async {
     if (sessions.isEmpty) return true;
-    // A rotation of an ended session that could not be saved ends with it.
-    final ended = [...sessions];
-    for (final entry in sessions) {
-      if (_unsavedRotations.remove(entry.session.refreshToken)
-          case final rotated?) {
-        ended.add((session: rotated, route: entry.route));
-      }
-    }
     final List<StoredBrowserSignInSession> stored;
     try {
       stored = await storage.browserSignInSessionsForRevocation();
@@ -784,6 +782,14 @@ class BrowserSignInService {
       return true;
     }
     if (!(stillWanted?.call() ?? true)) return false;
+    // A rotation of an ended session that could not be saved ends with it.
+    final ended = [...sessions];
+    for (final entry in sessions) {
+      if (_unsavedRotations.remove(_rotationKey(entry.session))
+          case final rotated?) {
+        ended.add((session: rotated, route: entry.route));
+      }
+    }
     final revocable = [
       for (final entry in ended)
         if (!stored.any((kept) => kept.session.sharesGrantWith(entry.session)))

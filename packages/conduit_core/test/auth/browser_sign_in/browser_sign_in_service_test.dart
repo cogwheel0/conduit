@@ -750,13 +750,17 @@ void main() {
       when(
         () => storage.getOpenWebUiRegistryStrict(),
       ).thenAnswer((_) async => _registry(accountId: 'account-b'));
+      var refreshesBeforeSave = -1;
       when(
         () => storage.replaceBrowserSignInSessionIfCurrent(
           'account-b',
           expected: any(named: 'expected'),
           next: any(named: 'next'),
         ),
-      ).thenAnswer((_) async => true);
+      ).thenAnswer((_) async {
+        refreshesBeforeSave = idp.tokenRequests.length;
+        return true;
+      });
 
       final renewal = await service.renew(
         accountId: 'account-b',
@@ -768,6 +772,78 @@ void main() {
       check(
         idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
       ).deepEquals(['saved-refresh', 'rotated-refresh']);
+      // Saved under account-b before it is sent.
+      check(refreshesBeforeSave).equals(1);
+      final saved = verify(
+        () => storage.replaceBrowserSignInSessionIfCurrent(
+          'account-b',
+          expected: captureAny(named: 'expected'),
+          next: captureAny(named: 'next'),
+        ),
+      ).captured;
+      check(saved).deepEquals([
+        _session(),
+        _session(refreshToken: 'rotated-refresh'),
+      ]);
+    });
+
+    test('a rotation that could not be saved stays for its session when a '
+        'revocation is called off', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => throw StateError('keychain locked'));
+      await check(renew()).throws<StateError>();
+      when(
+        () => storage.browserSignInSessionsForRevocation(),
+      ).thenAnswer((_) async => const []);
+
+      check(
+        await service.revokeEnded(
+          [(session: _session(), route: api.serverConfig)],
+          storage: storage,
+          stillWanted: () => false,
+        ),
+      ).isFalse();
+
+      saves(() async => true);
+      await renew();
+      check(
+        idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
+      ).deepEquals(['saved-refresh', 'rotated-refresh']);
+    });
+
+    test('a rotation that could not be saved is not taken up by a session '
+        'of another provider with the same refresh token', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => throw StateError('keychain locked'));
+      await check(renew()).throws<StateError>();
+      final elsewhere = BrowserSignInSession(
+        serverId: 'server-1',
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: 'https://other-id.example',
+        tokenEndpoint: _tokenEndpoint,
+        refreshToken: 'saved-refresh',
+        owuiUserId: 'user-a',
+      );
+      when(
+        () => storage.browserSignInSessionFor('account-b'),
+      ).thenAnswer((_) async => elsewhere);
+      when(
+        () => storage.getOpenWebUiRegistryStrict(),
+      ).thenAnswer((_) async => _registry(accountId: 'account-b'));
+      when(
+        () => storage.replaceBrowserSignInSessionIfCurrent(
+          'account-b',
+          expected: any(named: 'expected'),
+          next: any(named: 'next'),
+        ),
+      ).thenAnswer((_) async => true);
+
+      await service.renew(accountId: 'account-b', api: api, storage: storage);
+
+      check(
+        idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
+      ).deepEquals(['saved-refresh', 'saved-refresh']);
     });
 
     test('two callers at once share one refresh', () async {

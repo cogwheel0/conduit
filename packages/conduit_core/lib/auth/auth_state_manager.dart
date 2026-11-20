@@ -456,14 +456,13 @@ class AuthStateManager extends _$AuthStateManager {
   /// grant of a session still stored ([BrowserSignInSession.sharesGrantWith]),
   /// which revoking it could end.
   void _releaseBrowserGrant(BrowserSignInGrant? grant) {
-    if (grant == null ||
-        grant.subject == null ||
-        identical(_retryableBrowserGrant?.grant, grant) ||
-        identical(_pendingTwoStep?.browserGrant, grant) ||
-        !ref.mounted) {
-      return;
+    if (grant != null &&
+        grant.subject != null &&
+        !identical(_retryableBrowserGrant?.grant, grant) &&
+        !identical(_pendingTwoStep?.browserGrant, grant)) {
+      _abandonedBrowserGrants.add(grant);
     }
-    _abandonedBrowserGrants.add(grant);
+    // One dropped may have held others back.
     _revokeAbandonedBrowserGrants();
   }
 
@@ -471,8 +470,8 @@ class AuthStateManager extends _$AuthStateManager {
   /// one may be getting a grant of the same user, not stored yet, which
   /// revoking an older one can end at providers that revoke a whole grant.
   /// Asked again once what is stored was read, right before they go. One
-  /// that may share its grant with one a retry or second step holds is
-  /// left alone.
+  /// that may share its grant with one a retry or second step holds waits
+  /// until that one is let go of or stored.
   void _revokeAbandonedBrowserGrants() {
     if (_browserSignInsUnderWay > 0 ||
         _abandonedBrowserGrants.isEmpty ||
@@ -483,7 +482,10 @@ class AuthStateManager extends _$AuthStateManager {
       for (final grant in _abandonedBrowserGrants)
         if (!_mayShareHeldBrowserGrant(grant)) grant,
     ];
-    _abandonedBrowserGrants.clear();
+    if (grants.isEmpty) return;
+    _abandonedBrowserGrants.removeWhere(
+      (grant) => grants.any((going) => identical(going, grant)),
+    );
     final route = ref.read(apiServiceProvider)?.serverConfig;
     final sessions = <BrowserSessionRevocation>[
       for (final grant in grants)
@@ -499,8 +501,11 @@ class AuthStateManager extends _$AuthStateManager {
               _browserSignInsUnderWay == 0 &&
               !grants.any(_mayShareHeldBrowserGrant),
         ).then((revoked) {
-          // A sign-in began meanwhile: they wait for it to end.
-          if (!revoked && ref.mounted) _abandonedBrowserGrants.addAll(grants);
+          // Held back meanwhile: they wait for what held them.
+          if (!revoked && ref.mounted) {
+            _abandonedBrowserGrants.addAll(grants);
+            _revokeAbandonedBrowserGrants();
+          }
         }).whenComplete(() => _abandonedGrantRevocations.remove(revoking));
     _abandonedGrantRevocations.add(revoking);
     unawaited(revoking);
@@ -510,6 +515,11 @@ class AuthStateManager extends _$AuthStateManager {
   /// sign-in begun before one lands could have its grant ended with it.
   Future<void> _awaitAbandonedGrantRevocations() =>
       Future.wait([..._abandonedGrantRevocations]);
+
+  /// Completes once the revocations of abandoned grants sent so far ended.
+  @visibleForTesting
+  Future<void> get abandonedGrantRevocationsSettled =>
+      _awaitAbandonedGrantRevocations();
 
   /// Whether [grant] may be of the grant of one a retry or second step
   /// holds: the same client and issuer, for the same provider user or one
@@ -4173,7 +4183,11 @@ class AuthStateManager extends _$AuthStateManager {
         _resolveAbortedAuthAttempt(attemptRevision);
         return false;
       }
-      if (identical(_pendingTwoStep, pending)) _pendingTwoStep = null;
+      if (identical(_pendingTwoStep, pending)) {
+        _pendingTwoStep = null;
+        // Grants it held back: the stored session now keeps those of its own.
+        _revokeAbandonedBrowserGrants();
+      }
 
       DebugLogger.auth('Two-step sign-in successful');
       return true;

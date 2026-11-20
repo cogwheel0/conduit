@@ -77,7 +77,8 @@ final class BrowserSignInSession {
   /// Whether [other] may hold a refresh token of the same grant: the same
   /// client at the same identity provider, for the same user -- by
   /// [subject] when both know theirs, else the same Open WebUI user on the
-  /// same server.
+  /// same server. A session no Open WebUI user is known for yet (an empty
+  /// [owuiUserId]: a grant no exchange signed in) may be anyone's.
   ///
   /// Some providers end every refresh token of a user's grant to a client
   /// when one is revoked, so one such session is never revoked while the
@@ -91,6 +92,7 @@ final class BrowserSignInSession {
     final mine = subject;
     final theirs = other.subject;
     if (mine != null && theirs != null) return mine == theirs;
+    if (owuiUserId.isEmpty || other.owuiUserId.isEmpty) return true;
     return other.serverId == serverId && other.owuiUserId == owuiUserId;
   }
 

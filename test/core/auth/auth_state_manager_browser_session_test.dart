@@ -1099,6 +1099,26 @@ void main() {
       });
     }
 
+    /// A sign-in of [rig]'s grant, cancelled once it reached its exchange,
+    /// which [release] lets finish: its grant is abandoned then.
+    Future<Future<bool>> cancelledInExchange(
+      _Rig rig,
+      Completer<void> release,
+    ) async {
+      final reached = Completer<void>();
+      rig.service
+        ..exchanging = release
+        ..duringExchange = reached.complete;
+      final attempt = rig.auth.loginWithBrowser(config: _config);
+      await reached.future;
+      rig.service.duringExchange = null;
+      await rig.auth.cancelBrowserSignIn();
+      return attempt;
+    }
+
+    Iterable<String> revokedTokens(_Rig rig) =>
+        rig.service.revoked.map((session) => session.refreshToken);
+
     // Revoking a grant can end every grant of its user at some providers:
     // an older one waits for a newer sign-in to end, from its browser on.
     test('once a newer sign-in begun meanwhile ends without storing one '
@@ -1106,28 +1126,52 @@ void main() {
       final rig = await _Rig.start();
       rig.service.grant = _grant(subject: 'idp-user');
       final older = Completer<void>();
-      rig.service.exchanging = older;
-      final cancelled = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
-      await rig.auth.cancelBrowserSignIn();
+      final cancelled = await cancelledInExchange(rig, older);
 
       final browser = Completer<void>();
-      rig.service.browserOpen = browser;
+      final inBrowser = Completer<void>();
+      rig.service
+        ..browserOpen = browser
+        ..duringBrowser = inBrowser.complete;
       final signIn = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
+      await inBrowser.future;
       older.complete();
       check(await cancelled).isFalse();
-      await pumpEventQueue();
+      await rig.auth.abandonedGrantRevocationsSettled;
       check(rig.service.revoked).isEmpty();
 
       // Closed without signing in.
       rig.service.grant = null;
       browser.complete();
       check(await signIn).isFalse();
-      await pumpEventQueue();
+      await rig.auth.abandonedGrantRevocationsSettled;
+      check(revokedTokens(rig)).deepEquals(['idp-refresh']);
+    });
+
+    test('once a newer second step that held it back is left', () async {
+      final rig = await _Rig.start();
+      rig.service.grant = _grant(subject: 'idp-user');
+      final older = Completer<void>();
+      final cancelled = await cancelledInExchange(rig, older);
+
+      // The same user signs in again, and stops at a second step.
+      rig.service
+        ..exchanging = null
+        ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user')
+        ..answer = () => secondStep;
+      await check(
+        rig.auth.loginWithBrowser(config: _config),
+      ).throws<OpenWebUiTwoStepRequired>();
+      older.complete();
+      check(await cancelled).isFalse();
+      await rig.auth.abandonedGrantRevocationsSettled;
+      check(rig.service.revoked).isEmpty();
+
+      rig.auth.cancelTwoStepSignIn();
+      await rig.auth.abandonedGrantRevocationsSettled;
       check(
-        rig.service.revoked.map((session) => session.refreshToken),
-      ).deepEquals(['idp-refresh']);
+        revokedTokens(rig),
+      ).unorderedEquals(['idp-refresh', 'idp-refresh-2']);
     });
 
     test('before a newer sign-in opens its browser', () async {
@@ -1138,15 +1182,18 @@ void main() {
           BrowserSignInFailure.exchangeDisabled,
         );
       final sent = Completer<void>();
-      rig.service.revoking = sent;
+      final sending = Completer<void>();
+      rig.service
+        ..revoking = sent
+        ..duringRevoke = sending.complete;
       await check(
         rig.auth.loginWithBrowser(config: _config),
       ).throws<BrowserSignInException>();
-      await pumpEventQueue();
-      check(rig.service.revoked).length.equals(1);
+      await sending.future;
 
       rig.service.exchangeError = null;
       final signIn = rig.auth.loginWithBrowser(config: _config);
+      // Its chance to open the browser too soon.
       await pumpEventQueue();
       check(rig.service.browserOpened).equals(1);
 
@@ -1160,21 +1207,20 @@ void main() {
       final rig = await _Rig.start();
       rig.service.grant = _grant(subject: 'idp-user');
       final older = Completer<void>();
-      rig.service.exchanging = older;
-      final cancelled = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
-      await rig.auth.cancelBrowserSignIn();
+      final cancelled = await cancelledInExchange(rig, older);
 
       // The same user signs in again, and is still being exchanged.
       final newer = Completer<void>();
+      final exchanging = Completer<void>();
       rig.service
         ..exchanging = newer
+        ..duringExchange = exchanging.complete
         ..grant = _grant(refreshToken: 'idp-refresh-2', subject: 'idp-user');
       final signIn = rig.auth.loginWithBrowser(config: _config);
-      await pumpEventQueue();
+      await exchanging.future;
       older.complete();
       check(await cancelled).isFalse();
-      await pumpEventQueue();
+      await rig.auth.abandonedGrantRevocationsSettled;
       check(rig.service.revoked).isEmpty();
 
       rig.storage.storedSessions = [
@@ -1194,7 +1240,7 @@ void main() {
       ];
       newer.complete();
       check(await signIn).isTrue();
-      await pumpEventQueue();
+      await rig.auth.abandonedGrantRevocationsSettled;
       check(rig.service.revoked).isEmpty();
     });
 
@@ -1220,7 +1266,8 @@ void main() {
         unknown.auth.loginWithBrowser(config: _config),
       ).throws<BrowserSignInException>();
 
-      await pumpEventQueue();
+      await signedIn.auth.abandonedGrantRevocationsSettled;
+      await unknown.auth.abandonedGrantRevocationsSettled;
       check(signedIn.service.revoked).isEmpty();
       check(unknown.service.revoked).isEmpty();
     });
@@ -1723,6 +1770,12 @@ final class _Service extends BrowserSignInService {
   BrowserSignInGrant? grant = _grant();
   void Function()? duringBrowser;
 
+  /// Runs as each exchange starts, before [exchanging] holds it.
+  void Function()? duringExchange;
+
+  /// Runs as each revocation is sent.
+  void Function()? duringRevoke;
+
   /// Keeps the browser open until completed.
   Completer<void>? browserOpen;
 
@@ -1808,6 +1861,7 @@ final class _Service extends BrowserSignInService {
     bool renewal = false,
   }) async {
     exchanges.add((api: api, accessToken: accessToken));
+    duringExchange?.call();
     await exchanging?.future;
     final error = exchangeError;
     if (error != null) throw error;
@@ -1834,6 +1888,7 @@ final class _Service extends BrowserSignInService {
     ServerConfig? route,
   }) async {
     revoked.add(session);
+    duringRevoke?.call();
     await revoking?.future;
   }
 
