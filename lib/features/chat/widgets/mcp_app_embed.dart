@@ -687,31 +687,39 @@ String mcpAppBridgeScript({
   // A policy on <html> or <body> covers the whole page rather than marking a
   // canvas, and touch-action is not inherited, so the elements in it are read
   // on their own.
-  const canvasRects = () => Array.from(document.querySelectorAll('body *'))
-    .filter(element => {
+  let canvases = [];
+  const findCanvases = () => {
+    canvases = Array.from(document.querySelectorAll('body *')).filter(element => {
       const action = getComputedStyle(element).touchAction;
       return action !== 'auto' && action !== 'manipulation' &&
         !action.split(' ').some(value => ['pan-y', 'pan-up', 'pan-down'].includes(value));
-    })
+    });
+  };
+  const canvasRects = () => canvases
     .map(element => {
       const r = element.getBoundingClientRect();
       return [r.x, r.y, r.width, r.height];
     }).filter(rect => rect[2] > 0 && rect[3] > 0)
     .slice(0, $kMcpAppMaxCanvasRects);
+  let lastRects = '[]';
   const deliverToHost = (message) => {
     let payload;
+    let rects;
     try {
       if (message.method === 'ui/notifications/size-changed') {
         // Offscreen pages can briefly lay out at zero width; keep the cached
         // height until their existing observer measures a real viewport.
         if (document.documentElement.clientWidth === 0) return;
         // Reuse the app's layout notifications; no extra resize observer/RPC.
+        findCanvases();
+        rects = canvasRects();
         message = {...message, params: {...message.params,
-          _conduitCanvasRects: canvasRects(),
+          _conduitCanvasRects: rects,
         }};
       }
       payload = JSON.stringify(message);
     } catch (_) { return; }
+    if (rects) lastRects = JSON.stringify(rects);
     const bridge = window.flutter_inappwebview;
     if (bridge && typeof bridge.callHandler === 'function') {
       bridge.callHandler(bridgeName, bridgeToken, payload);
@@ -720,17 +728,16 @@ String mcpAppBridgeScript({
     }
   };
   let rectReportPending = false;
-  let lastRects = '';
-  new MutationObserver(records => {
-    const changed = records.some(record => record.type === 'childList'
-      ? [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)
-      : record.attributeName === 'class' ||
-        (record.oldValue || '').includes('touch-action') ||
-        record.target.style.touchAction);
-    if (!changed || rectReportPending) return;
+  let canvasesChanged = false;
+  // At most once a frame, and only when a region moved.
+  const reportRects = (changed) => {
+    canvasesChanged = canvasesChanged || changed;
+    if (rectReportPending) return;
     rectReportPending = true;
     requestAnimationFrame(() => {
       rectReportPending = false;
+      if (canvasesChanged) findCanvases();
+      canvasesChanged = false;
       const rects = canvasRects();
       const encoded = JSON.stringify(rects);
       if (encoded === lastRects) return;
@@ -738,8 +745,19 @@ String mcpAppBridgeScript({
       deliverToHost({jsonrpc: '2.0', method: 'conduit/canvas-rects',
         params: {_conduitCanvasRects: rects}});
     });
+  };
+  new MutationObserver(records => {
+    if (records.some(record => record.type === 'childList'
+      ? [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1)
+      : record.attributeName === 'class' ||
+        (record.oldValue || '').includes('touch-action') ||
+        record.target.style.touchAction)) {
+      reportRects(true);
+    }
   }).observe(document, {childList: true, subtree: true, attributes: true,
     attributeOldValue: true, attributeFilter: ['class', 'style']});
+  // A pane scrolling inside the page moves the regions in it without a resize.
+  addEventListener('scroll', () => reportRects(false), {capture: true, passive: true});
   // The page's parent is the page itself in a web view: what it posts over
   // the MCP Apps bridge goes to Conduit, and anything else, such as a
   // library's own scheduling, stays the page's.

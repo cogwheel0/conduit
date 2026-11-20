@@ -393,6 +393,23 @@ void main() {
     expect(script, contains('writable: false'));
   });
 
+  test('a pane scrolling inside the page reports where its canvases went', () {
+    final script = mcpAppBridgeScript(
+      bridgeName: 'bridge',
+      bridgeToken: 'token',
+      deliverName: 'deliver',
+    );
+    // Scroll events do not bubble, so only a capturing listener hears a
+    // pane's; the page's own fling is never held up by it.
+    expect(
+      script,
+      contains(
+        "addEventListener('scroll', () => reportRects(false), "
+        '{capture: true, passive: true});',
+      ),
+    );
+  });
+
   test("a form's submit reaches the app's handlers but loads no page", () {
     final script = mcpAppBridgeScript(
       bridgeName: 'bridge',
