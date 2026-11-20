@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:riverpod/misc.dart' show Override;
 import 'package:riverpod/riverpod.dart';
+import 'package:synchronized/synchronized.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
@@ -165,6 +166,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// refresh still lands after a switch; a sign-in it carries must not land
   /// after the user signed out.
   final Map<String, int> _desktopSignOuts = <String, int>{};
+
+  /// One per gateway connection, for [tokenAccessFor]'s guard.
+  final Map<String, Lock> _tokenLocks = <String, Lock>{};
 
   /// Counts the live Desktop clients built; the newest is the live one.
   int _liveClientGeneration = 0;
@@ -541,8 +545,14 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// [credentialsWriterFor]'s writer, with a reader the client calls before
   /// it renews. The reader hands it the stored tokens, which another client
   /// may have rotated meanwhile, and the writer then expects those: the
-  /// client adopts them rather than send a spent refresh token.
-  ({HermesDesktopCredentialsWriter write, HermesDesktopTokensReader read})
+  /// client adopts them rather than send a spent refresh token. The guard,
+  /// shared by every client of [connection]'s connection, makes each
+  /// renewal's read, refresh and save one step.
+  ({
+    HermesDesktopCredentialsWriter write,
+    HermesDesktopTokensReader read,
+    HermesDesktopTokenGuard guard,
+  })
   tokenAccessFor(HermesConfig connection, {bool live = false}) {
     final generation = live ? ++_liveClientGeneration : null;
     final connectionId = connection.connectionId;
@@ -627,7 +637,13 @@ class HermesConfigController extends Notifier<HermesConfig> {
       return tokens;
     }
 
-    return (write: write, read: read);
+    final lock = connectionId == null
+        ? Lock()
+        : _tokenLocks.putIfAbsent(connectionId, Lock.new);
+    Future<T> guard<T>(Future<T> Function() action) =>
+        lock.synchronized(action);
+
+    return (write: write, read: read, guard: guard);
   }
 
   /// Rebuilds the live client so it takes the stored tokens, but only once
@@ -2324,7 +2340,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
     // Rotations land even after this client is replaced, as by a switch
     // away: the server has already spent the refresh token they replace.
     // They never overwrite tokens this client did not hold.
-    final (write: writeCredentials, :read) = ref
+    final (write: writeCredentials, :read, :guard) = ref
         .read(hermesConfigProvider.notifier)
         .tokenAccessFor(config, live: true);
     final desktopService = HermesDesktopApiService(
@@ -2336,6 +2352,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
       ),
       confirmModelSwitch: ref.read(hermesModelSwitchPromptProvider),
       readStoredTokens: read,
+      guardTokens: guard,
       onCredentialsChanged: (credentials) async {
         try {
           await writeCredentials(credentials);

@@ -17,6 +17,7 @@ import 'package:conduit_core/ports/external_url_port.dart';
 import 'package:clock/clock.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:synchronized/synchronized.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -267,6 +268,7 @@ void main() {
       BrowserAuthPort? browserAuth,
       HermesDesktopTokensReader? readStoredTokens,
       HermesDesktopCredentialsWriter? writeCredentials,
+      HermesDesktopTokenGuard? guardTokens,
     }) {
       final service = HermesDesktopApiService(
         config: HermesConfig(
@@ -285,6 +287,7 @@ void main() {
         dio: Dio()..httpClientAdapter = rest,
         browserAuth: browserAuth,
         readStoredTokens: readStoredTokens,
+        guardTokens: guardTokens,
         onCredentialsChanged:
             writeCredentials ??
             (credentials) async => saved.add(credentials),
@@ -429,6 +432,94 @@ void main() {
         check(store.tokens?.refreshToken).equals('signed-in-refresh');
       });
     }
+
+    // The live client and a push pass renew the same tokens as the app
+    // resumes: the second waits for the first, then takes what it stored,
+    // rather than send the refresh token the first just spent.
+    test('two clients renewing at once send the refresh token once',
+        () => withClock(Clock.fixed(now), () async {
+      final held = Completer<void>();
+      final rest = _TokenRest(refreshGate: held.future);
+      final store = _SharedTokens(
+        HermesDesktopTokenSet(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAt: now.add(const Duration(seconds: 30)),
+        ),
+      );
+      HermesDesktopApiService client() {
+        final (:read, :write) = store.client();
+        return service(
+          rest,
+          expiresAt: now.add(const Duration(seconds: 30)),
+          saved: [],
+          readStoredTokens: read,
+          writeCredentials: write,
+          guardTokens: store.guard,
+        );
+      }
+
+      final live = client();
+      final push = client();
+      final jobs = [live.listJobs(), push.listJobs()];
+      await rest.refreshArrived.future;
+      await pumpEventQueue();
+      held.complete();
+      await Future.wait(jobs);
+
+      check(rest.refreshTokensSent).deepEquals(['refresh']);
+      check(rest.jobsAuthorizations).deepEquals([
+        'Bearer renewed-access',
+        'Bearer renewed-access',
+      ]);
+    }));
+
+    // Another client's rotation that lands between a sign-in's read of the
+    // stored tokens and its save would make that save expect tokens no
+    // longer stored, and drop the sign-in.
+    test('a sign-in holds off other clients from its read to its save',
+        () async {
+      final store = _SharedTokens(
+        HermesDesktopTokenSet(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAt: DateTime.utc(2099),
+        ),
+      );
+      final other = store.client();
+      final (:read, :write) = store.client();
+      final gateway = service(
+        _TokenRest(),
+        expiresAt: DateTime.utc(2099),
+        saved: [],
+        browserAuth: _Sheet(),
+        readStoredTokens: () async {
+          final tokens = await read();
+          unawaited(
+            store.guard(
+              () => other.write(
+                HermesDesktopCredentials(
+                  nativeTokens: HermesDesktopTokenSet(
+                    accessToken: 'pushed-access',
+                    refreshToken: 'pushed-refresh',
+                    expiresAt: DateTime.utc(2099),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await pumpEventQueue();
+          return tokens;
+        },
+        writeCredentials: write,
+        guardTokens: store.guard,
+      );
+
+      check(await gateway.signInNative()).isNotNull();
+      await pumpEventQueue();
+
+      check(store.tokens?.refreshToken).equals('signed-in-refresh');
+    });
 
     // Saving this client's rotation failed, so storage still holds the
     // refresh token it spent. That one is older, not newer: the client
@@ -931,6 +1022,35 @@ final class _TokenStore {
     if (tokens?.refreshToken != expected) return;
     tokens = credentials.nativeTokens;
     expected = tokens?.refreshToken;
+  }
+}
+
+/// Stored gateway tokens shared by several clients, each with its own
+/// expectation of them, as the controller's `tokenAccessFor` hands them out,
+/// and its guard for the gateway connection.
+final class _SharedTokens {
+  _SharedTokens(this.tokens);
+
+  HermesDesktopTokenSet? tokens;
+  final _lock = Lock();
+
+  Future<T> guard<T>(Future<T> Function() action) =>
+      _lock.synchronized(action);
+
+  ({HermesDesktopTokensReader read, HermesDesktopCredentialsWriter write})
+  client() {
+    var expected = tokens?.refreshToken;
+    return (
+      read: () async {
+        expected = tokens?.refreshToken;
+        return tokens;
+      },
+      write: (credentials) async {
+        if (tokens?.refreshToken != expected) return;
+        tokens = credentials.nativeTokens;
+        expected = tokens?.refreshToken;
+      },
+    );
   }
 }
 

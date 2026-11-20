@@ -175,8 +175,10 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       // A sign-in replaces what is stored, even tokens another client wrote
       // since this one last read them: reading first makes the save expect
       // those, where a renewal's save would be refused.
-      await _readStoredTokens?.call();
-      await _saveTokens(tokens);
+      await _guardingTokens(() async {
+        await _readStoredTokens?.call();
+        await _saveTokens(tokens);
+      });
       return tokens;
     } finally {
       await server.close(force: true);
@@ -371,21 +373,30 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
   ) async {
     final read = _readStoredTokens;
     if (read == null) return _refreshNative(held);
-    final stored = await read();
-    if (!identical(_nativeTokens, held)) return _nativeTokens;
-    final storedToken = stored?.refreshToken;
-    // Storage moves on only by a save, and a spent token never comes back:
-    // the one storage still holds is the only one worth remembering.
-    _spentRefreshTokens.retainWhere((token) => token == storedToken);
-    if (storedToken == held.refreshToken ||
-        _spentRefreshTokens.contains(storedToken)) {
-      return _refreshNative(held);
-    }
-    // Another client rotated the tokens, or signed out: the held refresh
-    // token is spent, and sending it back would end the session.
-    _nativeTokens = stored;
-    if (stored == null || !stale(stored)) return stored;
-    return _refreshNative(stored);
+    return _guardingTokens(() async {
+      final stored = await read();
+      if (!identical(_nativeTokens, held)) return _nativeTokens;
+      final storedToken = stored?.refreshToken;
+      // Storage moves on only by a save, and a spent token never comes
+      // back: the one storage still holds is the only one worth remembering.
+      _spentRefreshTokens.retainWhere((token) => token == storedToken);
+      if (storedToken == held.refreshToken ||
+          _spentRefreshTokens.contains(storedToken)) {
+        return _refreshNative(held);
+      }
+      // Another client rotated the tokens, or signed out: the held refresh
+      // token is spent, and sending it back would end the session.
+      _nativeTokens = stored;
+      if (stored == null || !stale(stored)) return stored;
+      return _refreshNative(stored);
+    });
+  }
+
+  /// [action], under [_guardTokens] when this client shares its gateway
+  /// tokens with others.
+  Future<T> _guardingTokens<T>(Future<T> Function() action) {
+    final guard = _guardTokens;
+    return guard == null ? action() : guard(action);
   }
 
   Future<HermesDesktopTokenSet?> _refreshNative(

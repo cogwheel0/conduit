@@ -68,6 +68,13 @@ typedef HermesDesktopCredentialsWriter = Future<void> Function(
 /// to renew. Another client may have rotated them since it read its own.
 typedef HermesDesktopTokensReader = Future<HermesDesktopTokenSet?> Function();
 
+/// Runs [action] while no other client of the same gateway connection runs
+/// one: a renewal reads the stored tokens, spends their refresh token and
+/// saves the new ones, and a sign-in reads and replaces them, each as one
+/// step.
+typedef HermesDesktopTokenGuard =
+    Future<T> Function<T>(Future<T> Function() action);
+
 /// A [HermesDesktopCredentialsWriter] refused a token rotation because
 /// another client of the same gateway tokens stored its own first. The
 /// stored tokens are the newer ones; nobody signed out.
@@ -255,6 +262,7 @@ final class HermesDesktopApiService
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
     HermesDesktopTokensReader? readStoredTokens,
+    HermesDesktopTokenGuard? guardTokens,
     HermesModelSwitchPrompt? confirmModelSwitch,
     @visibleForTesting
     this.gatewayStartRetryDelays = const [
@@ -272,6 +280,7 @@ final class HermesDesktopApiService
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
        _readStoredTokens = readStoredTokens,
+       _guardTokens = guardTokens,
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -311,6 +320,11 @@ final class HermesDesktopApiService
   /// a settings probe) rotate them too, and a refresh token one of them
   /// spent ends the whole session at a provider that detects its reuse.
   final HermesDesktopTokensReader? _readStoredTokens;
+
+  /// Shared by the clients of the same gateway connection: without it, two
+  /// renewing at once (the live client and push, as the app resumes) would
+  /// both send the refresh token storage holds.
+  final HermesDesktopTokenGuard? _guardTokens;
 
   /// How long to wait before each new attempt to reach a gateway that said
   /// it is not ready (starting, restarting or draining).

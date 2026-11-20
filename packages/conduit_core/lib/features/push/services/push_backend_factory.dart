@@ -214,7 +214,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
   }
 
   HermesDesktopApiService _desktopService(HermesConfig config) {
-    final (write: writeCredentials, :read) = _ref
+    final (write: writeCredentials, :read, :guard) = _ref
         .read(hermesConfigProvider.notifier)
         .tokenAccessFor(config);
     return HermesDesktopApiService(
@@ -223,6 +223,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
         hostHermesDashboardBridgeFactoryProvider,
       ),
       readStoredTokens: read,
+      guardTokens: guard,
       // Another client storing its rotation first, as the live one does
       // renewing the same tokens on resume, is no sign-out: the stored tokens
       // stay theirs, and the ones this client holds still serve its one pass.

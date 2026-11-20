@@ -1384,6 +1384,48 @@ void main() {
       ).throws<HermesTokenRotationSuperseded>();
     });
 
+    test('clients of one connection take turns with its tokens', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example').copyWith(
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        ),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_desktop_credentials_v1:$_b': jsonEncode(
+            _nativeCredentials('refresh-0').toJson(),
+          ),
+        }),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final beta = await controller.savedConnectionConfig(_b);
+      final alpha = await controller.savedConnectionConfig(_a);
+
+      final renewing = Completer<void>();
+      final first = controller.tokenAccessFor(beta).guard(
+        () => renewing.future,
+      );
+      var secondRan = false;
+      final second = controller.tokenAccessFor(beta).guard(
+        () async => secondRan = true,
+      );
+      var otherRan = false;
+      await controller.tokenAccessFor(alpha).guard(
+        () async => otherRan = true,
+      );
+      await pumpEventQueue();
+
+      check(otherRan).isTrue();
+      check(secondRan).isFalse();
+      renewing.complete();
+      await Future.wait([first, second]);
+      check(secondRan).isTrue();
+    });
+
     // A client of the active connection refreshes its tokens; the server
     // has spent the old refresh token by the time the new ones land.
     for (final (change, leave)

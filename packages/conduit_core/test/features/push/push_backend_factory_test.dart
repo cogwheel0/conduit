@@ -30,12 +30,17 @@ final class _Configs extends HermesConfigController {
   Object? refusal;
 
   @override
-  ({HermesDesktopCredentialsWriter write, HermesDesktopTokensReader read})
+  ({
+    HermesDesktopCredentialsWriter write,
+    HermesDesktopTokensReader read,
+    HermesDesktopTokenGuard guard,
+  })
   tokenAccessFor(HermesConfig connection, {bool live = false}) => (
     write: (credentials) async {
       if (refusal case final error?) throw error;
     },
     read: () async => saved.desktopCredentials?.nativeTokens,
+    guard: _unguarded,
   );
 
   @override
@@ -47,6 +52,8 @@ final class _Configs extends HermesConfigController {
     return saved;
   }
 }
+
+Future<T> _unguarded<T>(Future<T> Function() action) => action();
 
 const _home = HermesConfig(
   enabled: true,
