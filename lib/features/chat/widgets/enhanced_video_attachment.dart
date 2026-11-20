@@ -45,6 +45,7 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
     this.filenameHint,
     this.contentType,
     this.sizeBytes,
+    this.transport,
   });
 
   final String attachmentId;
@@ -55,6 +56,10 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
 
   /// Shown on the placeholder card when known.
   final int? sizeBytes;
+
+  /// Fetches the video in place of the account's API client, for an address
+  /// that client must not answer for.
+  final VideoTransport Function(String url)? transport;
 
   @override
   ConsumerState<EnhancedVideoAttachment> createState() =>
@@ -309,6 +314,8 @@ class _EnhancedVideoAttachmentState
   /// self-signed certificates and client certificates) apply; foreign URLs
   /// get a throwaway client carrying the eligible image headers.
   VideoTransport _transportFor(ApiService? api, String url) {
+    final transport = widget.transport;
+    if (transport != null) return transport(url);
     final baseUrl = api?.baseUrl;
     final sameOrigin =
         api != null && baseUrl != null && imageUrlIsServerOrigin(baseUrl, url);

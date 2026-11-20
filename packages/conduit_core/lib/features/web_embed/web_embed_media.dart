@@ -430,14 +430,13 @@ final class WebEmbedMediaRefused implements Exception {
 
 /// Part of a media file: [stream] holds [contentLength] bytes from [offset]
 /// in a file [sourceLength] long; a null length is one the server did not
-/// give. [rangeable] says whether the server answered a range.
+/// give.
 typedef WebEmbedMediaBody = ({
   Stream<List<int>> stream,
   int offset,
   int? contentLength,
   int? sourceLength,
   String? contentType,
-  bool rangeable,
 });
 
 final RegExp _contentRange = RegExp(
@@ -501,7 +500,6 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
       contentLength: int.parse(range[2]!) - first + 1,
       sourceLength: int.tryParse(range[3]!),
       contentType: type,
-      rangeable: true,
     );
   }
 
@@ -516,7 +514,6 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
     contentLength: take,
     sourceLength: length,
     contentType: type,
-    rangeable: false,
   );
 }
 

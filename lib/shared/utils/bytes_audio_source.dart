@@ -1,6 +1,7 @@
 // ignore_for_file: experimental_member_use
 import 'dart:typed_data';
 
+import 'package:conduit_core/features/web_embed/web_embed_media.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// A [StreamAudioSource] that plays audio from raw bytes in memory.
@@ -52,6 +53,31 @@ class BytesAudioSource extends StreamAudioSource {
       offset: start,
       stream: Stream.value(_bytes.sublist(start, end)),
       contentType: _mimeType,
+    );
+  }
+}
+
+/// A [StreamAudioSource] that reads its audio in ranges through [_open], so
+/// the player streams and seeks without holding the whole file.
+class RangedAudioSource extends StreamAudioSource {
+  RangedAudioSource(this._open, {super.tag});
+
+  final Future<WebEmbedMediaBody> Function(int? start, int? end) _open;
+
+  @override
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    final body = await _open(start, end);
+    final length = body.contentLength;
+    return StreamAudioResponse(
+      // Ranges the server does not answer are read from the start, so any
+      // file of a known size can seek.
+      rangeRequestsSupported: body.sourceLength != null,
+      sourceLength: body.sourceLength,
+      contentLength: length,
+      // just_audio answers a range only for a reply of a known length.
+      offset: length == null ? null : body.offset,
+      stream: body.stream,
+      contentType: body.contentType ?? 'audio/mpeg',
     );
   }
 }

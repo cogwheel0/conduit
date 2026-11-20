@@ -1,9 +1,20 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:conduit/features/chat/services/video_attachment_cache.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
+import 'package:conduit/shared/widgets/web_embed_media_player.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:checks/checks.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -435,4 +446,138 @@ void main() {
 
     expect(resetCount, 1);
   });
+
+  group('media on the account\'s server', () {
+    const page =
+        '<h3>Clips</h3>'
+        '<audio controls title="Morning note" '
+        'src="/api/v1/files/a1/content"></audio>'
+        '<video controls title="Walkthrough">'
+        '<source src="https://chat.example.test/api/v1/files/v1/content">'
+        '</video>'
+        '<audio controls src="https://cdn.example.test/public.mp3"></audio>';
+
+    String framePage(WidgetTester tester) =>
+        tester.widget<WebContentFrame>(find.byType(WebContentFrame)).source;
+
+    testWidgets('plays beside the page instead of in it', (tester) async {
+      await tester.pumpWidget(_buildServerHarness(page));
+
+      check(framePage(tester))
+        ..contains('<h3>Clips</h3>')
+        ..contains('src="https://cdn.example.test/public.mp3"')
+        ..not((it) => it.contains('/api/v1/files/'));
+      check(find.byType(WebEmbedMediaPlayer).evaluate()).length.equals(2);
+      check(find.text('Morning note').evaluate()).length.equals(1);
+      check(find.text('Walkthrough').evaluate()).length.equals(1);
+    });
+
+    testWidgets('a page of nothing but that media shows only the player', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _buildServerHarness(
+          '<!doctype html><html><body style="margin:0">'
+          '<audio controls src="/api/v1/files/a1/content"></audio>'
+          '</body></html>',
+        ),
+      );
+
+      check(find.byType(WebContentFrame).evaluate()).isEmpty();
+      check(find.byType(WebEmbedMediaPlayer).evaluate()).length.equals(1);
+    });
+
+    testWidgets('the credentials reach the player and never the page', (
+      tester,
+    ) async {
+      final cache = _RecordingVideoCache();
+      await tester.pumpWidget(_buildServerHarness(page, videoCache: cache));
+
+      final html = framePage(tester);
+      for (final document in [
+        html,
+        WebContentEmbed.debugWrapHtmlDocument(html),
+      ]) {
+        for (final secret in [
+          _sessionToken,
+          _proxySecret,
+          'Authorization',
+          'Bearer',
+        ]) {
+          check(because: secret, document).not((it) => it.contains(secret));
+        }
+      }
+
+      await tester.tap(find.text('Walkthrough'));
+      await tester.pump();
+
+      check(cache.urls)
+          .deepEquals(['https://chat.example.test/api/v1/files/v1/content']);
+      final transport = cache.transports.single(cache.urls.single);
+      addTearDown(() => transport.client.close(force: true));
+      check(transport.ownsClient).isTrue();
+      check(transport.client.options.headers)
+        ..containsKey('Authorization')
+        ..has(
+          (it) => it['Authorization'],
+          'Authorization',
+        ).equals('Bearer $_sessionToken')
+        ..has(
+          (it) => it['X-Proxy-Session'],
+          'X-Proxy-Session',
+        ).equals(_proxySecret);
+      check(transport.client.options.followRedirects).isFalse();
+    });
+  });
+}
+
+const _sessionToken = 'synthetic-session-token';
+const _proxySecret = 'synthetic-proxy-secret';
+
+Widget _buildServerHarness(String source, {VideoAttachmentCache? videoCache}) {
+  final api = ApiService(
+    serverConfig: const ServerConfig(
+      id: 'synthetic',
+      name: 'Synthetic',
+      url: 'https://chat.example.test',
+      customHeaders: {'X-Proxy-Session': _proxySecret},
+    ),
+    workerManager: WorkerManager(),
+  );
+  return ProviderScope(
+    overrides: [
+      apiServiceProvider.overrideWithValue(api),
+      authTokenProvider3.overrideWithValue(_sessionToken),
+      if (videoCache != null)
+        videoAttachmentCacheProvider.overrideWithValue(videoCache),
+    ],
+    child: MaterialApp(
+      theme: AppTheme.light(TweakcnThemes.t3Chat),
+      localizationsDelegates: conduitLocalizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(
+        body: SingleChildScrollView(child: WebContentEmbed(source: source)),
+      ),
+    ),
+  );
+}
+
+/// Records what a video row fetches, and with what, and leaves it loading.
+class _RecordingVideoCache extends VideoAttachmentCache {
+  final List<String> urls = [];
+  final List<VideoTransport Function(String url)> transports = [];
+
+  @override
+  Future<File> fetchForPlayback({
+    required VideoDownloadClaim claim,
+    required String url,
+    required String cacheIdentity,
+    required String extension,
+    required VideoTransport Function(String url) transport,
+    required bool Function() isCurrent,
+  }) {
+    urls.add(url);
+    transports.add(transport);
+    return Completer<File>().future;
+  }
 }

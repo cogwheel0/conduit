@@ -320,7 +320,6 @@ void main() {
       check(body.contentLength).equals(4);
       check(body.sourceLength).equals(100);
       check(body.contentType).equals('audio/wav');
-      check(body.rangeable).isTrue();
       check(await _collect(body.stream)).deepEquals([10, 11, 12, 13]);
     });
 
@@ -336,7 +335,6 @@ void main() {
       check(body.offset).equals(5);
       check(body.contentLength).equals(3);
       check(body.sourceLength).equals(8);
-      check(body.rangeable).isFalse();
       check(await _collect(body.stream)).deepEquals([5, 6, 7]);
     });
   });

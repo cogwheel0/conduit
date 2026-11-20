@@ -3,15 +3,19 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/web_embed/web_embed_document.dart';
+import 'package:conduit_core/features/web_embed/web_embed_media.dart';
 import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/external_link_launcher.dart';
+import 'web_embed_media_player.dart';
 import 'webview_content_height.dart';
 
 const _embedDefaultHeight = kWebEmbedDefaultHeight;
@@ -56,7 +60,7 @@ class WebContentEmbed extends StatefulWidget {
     String argsText = '',
     bool fillAvailableHeight = false,
   }) {
-    return _WebContentEmbedState._wrapHtmlDocument(
+    return _WebContentFrameState._wrapHtmlDocument(
       source,
       argsText: argsText,
       fillAvailableHeight: fillAvailableHeight,
@@ -67,28 +71,28 @@ class WebContentEmbed extends StatefulWidget {
   static String debugWrapRemoteDocument(
     String source, {
     bool fillAvailableHeight = false,
-  }) => _WebContentEmbedState._wrapRemoteDocument(
+  }) => _WebContentFrameState._wrapRemoteDocument(
     Uri.parse(source),
     fillAvailableHeight: fillAvailableHeight,
   );
 
   @visibleForTesting
   static String debugFrameBootstrapScript(String argsText) =>
-      _WebContentEmbedState._frameBootstrapScript(argsText);
+      _WebContentFrameState._frameBootstrapScript(argsText);
 
   @visibleForTesting
   static String debugAllFrameBootstrapScript() =>
-      _WebContentEmbedState._allFrameBootstrapScript;
+      _WebContentFrameState._allFrameBootstrapScript;
 
   @visibleForTesting
   static String debugInlineArgumentsScript(String argsText) =>
-      _WebContentEmbedState._inlineArgumentsScript(argsText);
+      _WebContentFrameState._inlineArgumentsScript(argsText);
 
   @visibleForTesting
   static Future<bool> debugOpenExternalLink(
     String rawUrl, {
     required Future<bool> Function(String url) launcher,
-  }) => _WebContentEmbedState._openAllowedExternalLink(
+  }) => _WebContentFrameState._openAllowedExternalLink(
     rawUrl,
     launcher: launcher,
   );
@@ -98,7 +102,7 @@ class WebContentEmbed extends StatefulWidget {
     required String targetUrl,
     String? currentUrl,
     required bool userActivated,
-  }) => _WebContentEmbedState._shouldOpenNavigationExternally(
+  }) => _WebContentFrameState._shouldOpenNavigationExternally(
     targetUrl: targetUrl,
     currentUrl: currentUrl,
     userActivated: userActivated,
@@ -106,13 +110,13 @@ class WebContentEmbed extends StatefulWidget {
 
   @visibleForTesting
   static bool debugShouldAllowAutomaticNavigation(String targetUrl) =>
-      _WebContentEmbedState._shouldAllowAutomaticNavigation(targetUrl);
+      _WebContentFrameState._shouldAllowAutomaticNavigation(targetUrl);
 
   @visibleForTesting
   static bool debugShouldHandleCreateWindow({
     required bool requestIsCurrent,
     required String? targetUrl,
-  }) => _WebContentEmbedState._shouldHandleCreateWindow(
+  }) => _WebContentFrameState._shouldHandleCreateWindow(
     requestIsCurrent: requestIsCurrent,
     targetUrl: targetUrl,
   );
@@ -121,7 +125,7 @@ class WebContentEmbed extends StatefulWidget {
   static bool debugShouldResolveMissingPopupUrl({
     required bool requestIsCurrent,
     required String? targetUrl,
-  }) => _WebContentEmbedState._shouldResolveMissingPopupUrl(
+  }) => _WebContentFrameState._shouldResolveMissingPopupUrl(
     requestIsCurrent: requestIsCurrent,
     targetUrl: targetUrl,
   );
@@ -130,21 +134,21 @@ class WebContentEmbed extends StatefulWidget {
   static bool debugHasUserActivationEvidence({
     required bool? hasGesture,
     required bool linkActivated,
-  }) => _WebContentEmbedState._hasUserActivationEvidence(
+  }) => _WebContentFrameState._hasUserActivationEvidence(
     hasGesture: hasGesture,
     linkActivated: linkActivated,
   );
 
   @visibleForTesting
   static bool debugShouldAllowInlineFragmentNavigation(String targetUrl) =>
-      _WebContentEmbedState._shouldAllowInlineFragmentNavigation(targetUrl);
+      _WebContentFrameState._shouldAllowInlineFragmentNavigation(targetUrl);
 
   @visibleForTesting
   static bool debugShouldSurfaceLoadFailure({
     required bool isForMainFrame,
     required Iterable<String> remoteEmbedUrls,
     required String requestUrl,
-  }) => _WebContentEmbedState._shouldSurfaceLoadFailure(
+  }) => _WebContentFrameState._shouldSurfaceLoadFailure(
     isForMainFrame: isForMainFrame,
     remoteEmbedUrls: remoteEmbedUrls,
     requestUrl: requestUrl,
@@ -154,7 +158,143 @@ class WebContentEmbed extends StatefulWidget {
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
 
+/// Takes the audio and video an inline page names on the active account's
+/// server out of it ([extractWebEmbedServerMedia]) and plays them in the
+/// app's own players beside the page, which shows in a [WebContentFrame]
+/// unless nothing else is left in it.
 class _WebContentEmbedState extends State<WebContentEmbed> {
+  WebEmbedServerMedia? _media;
+  String? _mediaSource;
+  Uri? _mediaServer;
+
+  WebEmbedServerMedia _serverMedia() {
+    final server = _activeServer();
+    final cached = _media;
+    if (cached != null &&
+        _mediaSource == widget.source &&
+        _mediaServer == server) {
+      return cached;
+    }
+    _mediaSource = widget.source;
+    _mediaServer = server;
+    return _media = isRemoteWebEmbedSource(widget.source)
+        ? WebEmbedServerMedia(html: widget.source)
+        : extractWebEmbedServerMedia(widget.source, server: server);
+  }
+
+  Uri? _activeServer() {
+    try {
+      final api = ProviderScope.containerOf(
+        context,
+        listen: false,
+      ).read(apiServiceProvider);
+      return api == null ? null : Uri.tryParse(api.serverConfig.url);
+    } catch (_) {
+      // No app owner, as in teardown: the page shows as given.
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = _serverMedia();
+    final frame = WebContentFrame(
+      source: media.html,
+      argsText: widget.argsText,
+      deferUntilExpanded: widget.deferUntilExpanded,
+      initiallyExpanded: widget.initiallyExpanded,
+      showChrome: widget.showChrome,
+      fillAvailableHeight: widget.fillAvailableHeight,
+      previewTitle: widget.previewTitle,
+      previewDescription: widget.previewDescription,
+      debugTreatAsSupported: widget.debugTreatAsSupported,
+      debugSeedControllerForTesting: widget.debugSeedControllerForTesting,
+      debugOnControllerReset: widget.debugOnControllerReset,
+    );
+    if (media.items.isEmpty) return frame;
+
+    final players = Padding(
+      padding: widget.showChrome
+          ? EdgeInsets.only(top: media.mediaOnly ? 0 : Spacing.sm)
+          : const EdgeInsets.all(Spacing.sm),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, item) in media.items.indexed) ...[
+            if (index > 0) const SizedBox(height: Spacing.sm),
+            WebEmbedMediaPlayer(
+              key: ValueKey('$index|${item.url}'),
+              item: item,
+            ),
+          ],
+        ],
+      ),
+    );
+    Widget stacked() => media.mediaOnly
+        ? players
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [frame, players],
+          );
+
+    if (!widget.fillAvailableHeight) return stacked();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (!constraints.hasBoundedHeight) return stacked();
+        if (media.mediaOnly) return SingleChildScrollView(child: players);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: frame),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * 0.4,
+              ),
+              child: SingleChildScrollView(child: players),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The web view [WebContentEmbed] shows a page in, exactly as given.
+class WebContentFrame extends StatefulWidget {
+  const WebContentFrame({
+    super.key,
+    required this.source,
+    this.argsText = '',
+    this.deferUntilExpanded = true,
+    this.initiallyExpanded = false,
+    this.showChrome = true,
+    this.fillAvailableHeight = false,
+    this.previewTitle,
+    this.previewDescription,
+    this.debugTreatAsSupported,
+    this.debugSeedControllerForTesting = false,
+    this.debugOnControllerReset,
+  });
+
+  final String source;
+  final String argsText;
+  final bool deferUntilExpanded;
+  final bool initiallyExpanded;
+  final bool showChrome;
+  final bool fillAvailableHeight;
+  final String? previewTitle;
+  final String? previewDescription;
+  final bool? debugTreatAsSupported;
+  final bool debugSeedControllerForTesting;
+  final VoidCallback? debugOnControllerReset;
+
+  @override
+  State<WebContentFrame> createState() => _WebContentFrameState();
+}
+
+class _WebContentFrameState extends State<WebContentFrame> {
   final Set<Factory<OneSequenceGestureRecognizer>> _gestureRecognizers =
       <Factory<OneSequenceGestureRecognizer>>{
         Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
@@ -224,7 +364,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
   }
 
   @override
-  void didUpdateWidget(covariant WebContentEmbed oldWidget) {
+  void didUpdateWidget(covariant WebContentFrame oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source ||
         oldWidget.argsText != widget.argsText ||
