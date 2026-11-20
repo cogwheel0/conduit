@@ -256,8 +256,8 @@ void main() {
       check(h.notifications.rejected).isEmpty();
     });
 
-    test('only reminders still waiting to fire count toward the limit',
-        () async {
+    test('only reminders still waiting to fire count toward the '
+        'limit', () async {
       // Day-ahead alerts that have gone off, and more upcoming alerts than
       // the limit.
       final h = _Harness()
@@ -373,9 +373,8 @@ void main() {
       await h.sync();
 
       check(h.notifications.scheduled).length.equals(calendarReminderLimit);
-      check(h.notifications.keysIn(_scope)).deepEquals({
-        for (var i = 0; i < soon; i++) 'soon$i|',
-      });
+      check(h.notifications.keysIn(_scope))
+          .deepEquals({for (var i = 0; i < soon; i++) 'soon$i|'});
 
       // Back on the first account, its 12:01 alerts are about to fire and
       // still pending.
@@ -418,8 +417,8 @@ void main() {
       check(h.fetches).equals(1);
     });
 
-    test('reminders turned off while the agenda is read are not handed over',
-        () async {
+    test('reminders turned off while the agenda is read are not handed '
+        'over', () async {
       final h = _Harness()
         ..agenda = [_event('due', startInMinutes: 5), _event('later')];
       h.onFetch = () => h.enabled = false;
