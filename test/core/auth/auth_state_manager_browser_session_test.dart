@@ -1001,7 +1001,8 @@ void main() {
         storedToken: token,
         saved: _savedBrowserSignIn(token),
         renew: () async {
-          held.complete();
+          // Renewed again once refused.
+          if (!held.isCompleted) held.complete();
           await release.future;
           throw const BrowserSignInException(BrowserSignInFailure.timeout);
         },
