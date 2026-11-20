@@ -945,6 +945,69 @@ void main() {
     expect(await larger.exists(), isFalse);
   });
 
+  // The picker compresses a large photo once, into a JPEG of its own. One
+  // that stays over 500 KiB was encoded again on its way up, and the upload
+  // deleted it while the tray still showed it.
+  test('a photo compressed when it was picked goes up as it is, and stays '
+      'for the tray until it is removed', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final picked = await Directory.systemTemp.createTemp('conduit_img_');
+    addTearDown(() async {
+      if (await picked.exists()) await picked.delete(recursive: true);
+    });
+    final photo = File('${picked.path}/converted.jpg');
+    await photo.writeAsBytes(List<int>.filled(600 * 1024, 7));
+    final converted = <String>[];
+    final uploaded = <String>[];
+    final queue = AttachmentUploadQueue();
+    await queue.initialize(
+      onUpload: (filePath, fileName, {cancelToken}) async {
+        uploaded.add(fileName);
+        return 'server-$fileName';
+      },
+      database: () => database,
+    );
+    addTearDown(queue.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachmentUploadQueueProvider.overrideWithValue(queue),
+        imageUploadConverterProvider.overrideWithValue((filePath) async {
+          converted.add(filePath);
+          return null;
+        }),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([
+            _pendingImage(photo, reportedBytes: 600 * 1024),
+          ]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    await controller
+        .upload(
+          filePath: photo.path,
+          fileName: 'photo.jpg',
+          fileSize: 600 * 1024,
+          mimeType: 'image/jpeg',
+        )
+        .timeout(const Duration(seconds: 1));
+
+    expect(converted, isEmpty);
+    expect(uploaded, ['photo.jpg']);
+    final attached = container.read(attachedFilesProvider).single;
+    expect(attached.status, FileUploadStatus.completed);
+    expect(await photo.exists(), isTrue);
+
+    await controller.removeAttachment(photo.path);
+
+    expect(await photo.exists(), isFalse);
+  });
+
   test(
     'durable queue ownership survives synchronous publication failure',
     () async {

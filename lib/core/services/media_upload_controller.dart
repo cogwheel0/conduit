@@ -1349,7 +1349,9 @@ class MediaUploadController {
     String uploadFileName = fileName;
     String? uploadMimeType = mimeType;
     String? convertedTempPath;
-    if (isImage) {
+    final pickedConversion = isImage && await _isPickedConversion(filePath);
+    _throwIfOperationNotActive(filePath, inflight);
+    if (isImage && !pickedConversion) {
       if (convertsImageForUpload(lowerName, fileSize ?? 0)) {
         var convertedPath = await _ref.read(imageUploadConverterProvider)(
           filePath,
@@ -1561,6 +1563,15 @@ class MediaUploadController {
               data: {'fileName': displayFileName},
             );
           }
+        }
+
+        // A photo compressed as it was picked is the tray's own copy, which
+        // its preview reads until the attachment is sent or removed; those
+        // delete it. The row stays to clean it up after a restart.
+        if (pickedConversion &&
+            entry?.status == QueuedAttachmentStatus.completed &&
+            _currentAttachment(filePath) != null) {
+          return;
         }
 
         // Keep the durable terminal row until every app-owned source/temp path
@@ -2006,6 +2017,7 @@ class MediaUploadController {
     var uploadMime = mimeType ?? _libreChatMimeType(fileName);
     String? convertedPath;
     if (isImage &&
+        !await _isPickedConversion(filePath) &&
         convertsImageForUpload(fileName, await File(filePath).length())) {
       convertedPath = await _ref.read(imageUploadConverterProvider)(filePath);
       if (convertedPath != null &&
@@ -2298,6 +2310,12 @@ class MediaUploadController {
       );
     }
   }
+
+  /// Whether [filePath] is the JPEG `compressPickedImage` made of a photo as
+  /// it was picked. It went through [convertsImageForUpload] then, and is not
+  /// encoded again.
+  Future<bool> _isPickedConversion(String filePath) async =>
+      await resolveConvertedUploadFile(filePath) != null;
 
   /// Whether the JPEG at [convertedPath] goes up in place of [filePath], an
   /// image named [fileName]. The name decides: a staged path need not keep
