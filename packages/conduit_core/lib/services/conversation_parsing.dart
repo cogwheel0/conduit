@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show kChatStorageKindMetadataKey;
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart'
+    show tetherRelayFailureByCode;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart'
     show kTetherRelayErrorKey, tetherRelayFailureFromJson;
@@ -494,9 +496,13 @@ Map<String, dynamic>? _extractErrorData(
 ) {
   final data = _extractErrorContent(msgData, historyMsg);
   final errorRaw = msgData['error'] ?? historyMsg?['error'];
-  final relay = errorRaw is Map
-      ? tetherRelayFailureFromJson(errorRaw[kTetherRelayErrorKey])
-      : null;
+  // What this app saved with the error, else a relay's code in what Open
+  // WebUI saved: only the code is kept from the whole of it.
+  final relay =
+      (errorRaw is Map
+          ? tetherRelayFailureFromJson(errorRaw[kTetherRelayErrorKey])
+          : null) ??
+      tetherRelayFailureByCode(errorRaw);
   if (data == null || relay == null) return data;
   return {...data, kTetherRelayErrorKey: relay.name};
 }

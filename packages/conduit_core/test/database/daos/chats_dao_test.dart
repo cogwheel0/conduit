@@ -363,6 +363,22 @@ void main() {
       });
     });
 
+    test("is read from the code beside the error's words", () async {
+      await serverCopy(
+        null,
+        updatedAt: 1,
+        metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
+      );
+
+      await serverCopy(const {
+        'content': 'Connection lost',
+        'code': 'tether_interrupted',
+      }, updatedAt: 2);
+
+      check(((await storedPayload())['error'] as Map)['tetherRelay'])
+          .equals('interrupted');
+    });
+
     test('is read from the error stored when the record is made', () async {
       // The request went to a device, but the error the pull stored is
       // another model's words, not a relay's.

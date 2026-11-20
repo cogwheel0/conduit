@@ -135,11 +135,12 @@ ChatMessage withTetherRecordOf(ChatMessage incoming, ChatMessage local) {
       : kept;
 }
 
-/// [payload], a stored answer, as [withTetherRecord] makes it.
+/// [payload], a stored answer, as [withTetherRecord] makes it, its error
+/// read from the whole of what the server saved.
 Map<String, dynamic> payloadWithTetherRecord(Map<String, dynamic> payload) {
   final error = payload['error'];
   final relay = error is Map && error[kTetherRelayErrorKey] == null
-      ? tetherRelayFailureOf(error['content'], viaTether: true)
+      ? tetherRelayFailureOf(error, viaTether: true)
       : null;
   if (_payloadViaTether(payload) && relay == null) return payload;
   final metadata = payload['metadata'];
