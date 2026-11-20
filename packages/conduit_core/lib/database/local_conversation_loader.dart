@@ -254,7 +254,9 @@ const int _kChatReadsWhilePushesLand = 3;
 /// landed yet, as a pull leaves them out: the server's copy still has them,
 /// as answers and among answers' versions. What was pending as the read
 /// started counts too: a delete that lands while the read is out leaves no op
-/// behind, but the copy may still have the message.
+/// behind, but the copy may still have the message. A copy that the last read
+/// pushes allow still finds overtaken goes without every message whose
+/// delete waits or has landed here by then.
 Future<Conversation> readChatWithoutUnsentDeletes(
   dynamic ref,
   ApiService api,
@@ -273,9 +275,12 @@ Future<Conversation> readChatWithoutUnsentDeletes(
     );
     // A delete asked for and landed while the copy was read left no op to
     // name its message, only a push landed: the chat is read again.
-    if (pushes == database?.chatsDao.pushVersion(id) ||
-        reads == _kChatReadsWhilePushesLand) {
-      return conversation;
+    if (pushes == database?.chatsDao.pushVersion(id)) return conversation;
+    if (reads == _kChatReadsWhilePushesLand) {
+      return _withoutMessages(conversation, {
+        ...await unsentMessageDeletesOf(database, id),
+        ...?database?.chatsDao.landedMessageDeletes(id),
+      });
     }
   }
 }

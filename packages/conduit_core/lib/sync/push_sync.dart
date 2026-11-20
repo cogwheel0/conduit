@@ -411,7 +411,7 @@ class PushSync {
     List<String> messageIds,
   ) async {
     await _client.deleteChatMessages(chatId, messageIds);
-    _db.chatsDao.notePushLanded(chatId);
+    _db.chatsDao.noteMessageDeletesLanded(chatId, messageIds);
   }
 
   /// Sends again each `deleteMessages` op parked on a refusal whose chat this

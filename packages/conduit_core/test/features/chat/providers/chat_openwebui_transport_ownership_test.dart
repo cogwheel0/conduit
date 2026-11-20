@@ -3660,6 +3660,59 @@ void main() {
       check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
     });
 
+    test('a copy read straight from the server leaves out an empty answer '
+        'whose delete is asked for and lands while the last read pushes allow '
+        'is out', () async {
+      await seedTurn();
+      final api = _ServerChatApi(assistantId, {
+        userId: _historyEntry(
+          userId,
+          'user',
+          'Say the word: heron',
+          childrenIds: [assistantId],
+        ),
+        assistantId: _historyEntry(
+          assistantId,
+          'assistant',
+          '',
+          parentId: userId,
+          done: false,
+        ),
+      });
+      api.whileDeleting = () async => api.deleteMessage(assistantId);
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+      final owner = captureOpenWebUiCompletionOwner(container, chatId: chatId);
+      var reads = 0;
+      api.whileReading = () async {
+        // Pushes of the chat land while the first two reads are out; while
+        // the third is, the held turn's settle deletes its empty answer.
+        if (++reads < 3) return db.chatsDao.notePushLanded(chatId);
+        api.whileReading = null;
+        await settleHeldOpenWebUiCompletion(
+          container,
+          api: api,
+          owner: owner,
+          questionId: userId,
+          assistantMessageIds: const [assistantId],
+        );
+      };
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(reads).equals(3);
+      check(api.deletedMessages).deepEquals(['$chatId/$assistantId']);
+      check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
+      check(refreshed.messages.single.isHeldByServer).isTrue();
+    });
+
     test('the turns below the answer shown in place of the empty one leave '
         'out an empty answer whose delete is asked for and lands while they '
         'are read', () async {

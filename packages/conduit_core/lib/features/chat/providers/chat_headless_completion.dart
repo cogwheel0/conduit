@@ -791,7 +791,7 @@ Future<void> settleHeldOpenWebUiCompletion(
       }
       // Landed as a push does: a copy of the chat read before it still has
       // the empty answer, and a pull stores nothing of it.
-      database?.chatsDao.notePushLanded(owner.chatId);
+      database?.chatsDao.noteMessageDeletesLanded(owner.chatId, [id]);
     }
     await locks.runExclusive(owner.chatId, () async {
       final settled = await database?.chatsDao.settleHeldTurn(

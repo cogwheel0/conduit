@@ -230,6 +230,30 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _pushVersions[chatId] = pushVersion(chatId) + 1;
   }
 
+  final _landedMessageDeletes = <String, Set<String>>{};
+
+  /// The newest messages of chat [chatId] whose delete has landed on the
+  /// server here ([noteMessageDeletesLanded]). No op names them any more, but
+  /// a copy read before the delete landed may still hold them.
+  Set<String> landedMessageDeletes(String chatId) => {
+    ...?_landedMessageDeletes[chatId],
+  };
+
+  /// The deletes of [messageIds] from chat [chatId] have landed on the
+  /// server, as a push of it does ([notePushLanded]).
+  void noteMessageDeletesLanded(String chatId, Iterable<String> messageIds) {
+    final landed = _landedMessageDeletes.putIfAbsent(chatId, () => <String>{});
+    for (final id in messageIds) {
+      landed
+        ..remove(id)
+        ..add(id);
+    }
+    while (landed.length > 64) {
+      landed.remove(landed.first);
+    }
+    notePushLanded(chatId);
+  }
+
   final _localTurnVersions = <String, int>{};
 
   /// Counts the turns of chat [chatId] this device stored from its own copy
