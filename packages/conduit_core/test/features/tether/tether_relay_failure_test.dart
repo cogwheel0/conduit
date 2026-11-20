@@ -37,6 +37,11 @@ void main() {
   test('leaves every other failure alone', () {
     check(tetherRelayFailureOf('Open WebUI: Server Connection Error')).isNull();
     check(tetherRelayFailureOf('Service Unavailable')).isNull();
+    check(
+      tetherRelayFailureOf(
+        'Upstream unavailable for model tether_interrupted_backup',
+      ),
+    ).isNull();
     check(tetherRelayFailureOf(<String, dynamic>{'error': 'Rate limited'}))
         .isNull();
     check(tetherRelayFailureOf(null)).isNull();

@@ -3,6 +3,8 @@
 /// `utils/tether.py`).
 library;
 
+import 'dart:convert';
+
 import 'package:conduit_core/models/chat_message.dart';
 
 /// Set on an assistant message whose turn went to a model one of the user's
@@ -50,12 +52,20 @@ TetherRelayFailure? tetherRelayFailureOf(
     return null;
   }
   if (error is! String) return null;
-  if (viaTether && error.trim() == _serverConnectionError) {
+  final trimmed = error.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      final body = jsonDecode(trimmed);
+      if (body is Map) return tetherRelayFailureOf(body, viaTether: viaTether);
+    } on FormatException {
+      // Words that start with a brace.
+    }
+  }
+  if (viaTether && trimmed == _serverConnectionError) {
     return TetherRelayFailure.interrupted;
   }
-  final text = error.toLowerCase();
-  if (text.contains('tether_interrupted') ||
-      text.contains('tether connection interrupted')) {
+  final text = trimmed.toLowerCase();
+  if (text.contains('tether connection interrupted')) {
     return TetherRelayFailure.interrupted;
   }
   if (text.contains('tether has too many active operations')) {
