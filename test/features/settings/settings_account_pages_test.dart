@@ -37,6 +37,8 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/foundation.dart' show LicenseRegistry;
 
+import '../../support/native_database.dart';
+
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('en'));
 
 User _user(String id) =>
@@ -921,6 +923,7 @@ void main() {
       });
       final photo = File('${picked.path}/converted.jpg')
         ..writeAsBytesSync([1, 2, 3]);
+      Future<void>? edit;
       final rig = await _pump(
         tester,
         cached: _profile('Old'),
@@ -932,8 +935,11 @@ void main() {
         home: Scaffold(
           body: Consumer(
             builder: (context, ref, _) => GestureDetector(
-              onTap: () =>
-                  editSettingsProfileField(context, ref, 'profile-photo'),
+              onTap: () => edit = editSettingsProfileField(
+                context,
+                ref,
+                'profile-photo',
+              ),
               child: const Text('Photo'),
             ),
           ),
@@ -944,11 +950,8 @@ void main() {
       await tester.tap(find.text('Photo'));
       await tester.pumpAndSettle();
       await tester.tap(find.text(_l10n.uploadFromDevice));
-      // The editor reads the photo from disk.
-      for (var turn = 0; turn < 500 && rig.profile.savedNames.isEmpty; turn++) {
-        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-        await tester.pump();
-      }
+      // The editor reads the photo from disk and removes the copy.
+      await pumpDatabaseOperation(tester, () => edit!);
       await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 5));
 
