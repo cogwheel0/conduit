@@ -2544,7 +2544,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     applied =
         applyAssistantServerPatch(
           targetId: assistantMessageId,
-          buildPatch: (_) => _AssistantServerPatch(
+          buildPatch: (current) => _AssistantServerPatch(
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
@@ -2552,10 +2552,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 ? {'openwebuiRecoverableError': !isDone}
                 : null,
             mergeMetadata: true,
+            // The server saves an error's words, not its code: the same words
+            // keep the relay already recorded here.
             error: adoptsError
                 ? answerError(
                     errorContent.isNotEmpty ? errorContent : null,
-                    recorded: errorRelay,
+                    recorded:
+                        errorRelay ??
+                        (errorContent.isNotEmpty &&
+                                current.error?.content == errorContent
+                            ? current.error?.relay
+                            : null),
                   )
                 : null,
           ),

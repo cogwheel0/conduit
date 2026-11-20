@@ -1047,6 +1047,63 @@ void main() {
         ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.interrupted);
     });
 
+    // The server saves the error's words, not its code.
+    test("a poll read after a failure keeps the failure's relay for the same "
+        'words', () async {
+      final server = _HeldPollAdapter({
+        'id': 'conv-1',
+        'chat': {
+          'history': {
+            'messages': {
+              'msg-1': {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': '',
+                'done': true,
+                'error': {'content': words},
+              },
+            },
+          },
+        },
+      });
+      final log = _CallbackLog();
+      final registrar = FakeSocketInjector();
+      final bytes = StreamController<List<int>>();
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          conversationId: 'conv-1',
+          byteStream: bytes.stream,
+          abort: () async {},
+        ),
+        log: log,
+        api: _buildFakeApi()..dio.httpClientAdapter = server,
+        socketService: _MockSocketService(registrar),
+      );
+
+      registrar.emitChatEvent(
+        'chat:message:error',
+        const {
+          'error': {'content': words, 'code': 'tether_interrupted'},
+          'done': false,
+        },
+        conversationId: 'conv-1',
+        sessionId: 'sess-1',
+        messageId: 'msg-1',
+      );
+      await pumpEventQueue();
+      // The stream ends without its [DONE], so the chat is read again.
+      await bytes.close();
+      await server.asked.future;
+      server.release.complete();
+      await pumpEventQueue();
+
+      check(log.messages.single.error).isNotNull()
+        ..has((it) => it.content, 'content').equals(words)
+        ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.interrupted);
+    });
+
     test('taskSocket completion calls chatCompleted exactly once', () async {
       final api = _TrackingApiService();
       final log = _CallbackLog();
