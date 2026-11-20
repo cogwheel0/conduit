@@ -3006,10 +3006,6 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       reconnectDelayTimer?.cancel();
       reconnectSub?.cancel();
     });
-
-    if (session.transport == ChatCompletionTransport.taskSocket) {
-      missedDoneRecovery.listenToTransport();
-    }
   }
 
   Timer? imageCollectionDebounce;
@@ -4489,6 +4485,11 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         channelSub.dispose();
       } else {
         addSocketSubscription(channelSub.dispose);
+        // After the handlers exist, so moving to the socket's session now
+        // moves them too.
+        if (session.transport == ChatCompletionTransport.taskSocket) {
+          missedDoneRecovery.listenToTransport();
+        }
       }
     }
   }
@@ -5221,6 +5222,9 @@ class _MissedDoneRecovery {
       ..add(
         service.transportPolicyChanges.listen((_) => noteTransportChanged()),
       );
+    // The socket may have connected a new session since the stream took its
+    // own, with nothing left to announce it.
+    _reconcileSession();
   }
 
   void start() {

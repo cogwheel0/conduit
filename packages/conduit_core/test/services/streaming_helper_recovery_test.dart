@@ -28,6 +28,25 @@ void main() {
       }, messageId: 'msg-1');
     }
 
+    void emitDeltaOnSession(
+      FakeStreamSocket socket,
+      String content,
+      String sessionId,
+    ) {
+      socket.emitChatEvent(
+        'chat:completion',
+        {
+          'choices': [
+            {
+              'delta': {'content': content},
+            },
+          ],
+        },
+        messageId: 'msg-1',
+        sessionId: sessionId,
+      );
+    }
+
     void emitFinishReason(FakeStreamSocket socket, {String content = ''}) {
       socket.emitChatEvent('chat:completion', {
         'choices': [
@@ -678,48 +697,42 @@ void main() {
       });
     });
 
-    test('a health update that resumes a parked recovery moves the stream to '
-        'the new socket session, once', () {
+    test("a stream takes the socket's new session when it attaches, and "
+        'again, once, from a health update after the transport may be kept '
+        'again', () {
       fakeAsync((async) {
         final server = FakeChatServer([stillStreaming()]);
-        final socket = FakeStreamSocket();
+        // The socket connected again before the stream attached.
+        final socket = FakeStreamSocket()..setTransport(sessionId: 'sess-2');
         final (:log, stream: _) = attachTaskSocketStream(
           api: fakeApi(server),
           socket: socket,
         );
         async.flushMicrotasks();
+        check(socket.sessionUpdates).deepEquals([('conv-1', 'sess-2')]);
+        emitDeltaOnSession(socket, 'The ', 'sess-2');
+        check(log.reply.content).equals('The ');
+
         socket.setTransport(foreground: false);
         socket.setTransport(keepable: false, connected: false);
         socket.emitHealth();
         async.elapse(const Duration(minutes: 5));
-
-        socket.setTransport(
-          keepable: true,
-          connected: true,
-          sessionId: 'sess-2',
-        );
+        // The transport may be kept again before the new connection exists.
+        socket.setTransport(keepable: true);
+        async.flushMicrotasks();
+        socket.setTransport(connected: true, sessionId: 'sess-3');
         socket.emitHealth();
         socket.emitHealth();
         async.flushMicrotasks();
-        check(socket.sessionUpdates).deepEquals([('conv-1', 'sess-2')]);
+        check(socket.sessionUpdates)
+            .deepEquals([('conv-1', 'sess-2'), ('conv-1', 'sess-3')]);
 
-        socket.emitChatEvent(
-          'chat:completion',
-          {
-            'choices': [
-              {
-                'delta': {'content': 'The rest.'},
-              },
-            ],
-          },
-          messageId: 'msg-1',
-          sessionId: 'sess-2',
-        );
+        emitDeltaOnSession(socket, 'rest.', 'sess-3');
         socket.emitChatEvent(
           'chat:completion',
           {'done': true},
           messageId: 'msg-1',
-          sessionId: 'sess-2',
+          sessionId: 'sess-3',
         );
         async.flushMicrotasks();
         check(log.reply.content).equals('The rest.');

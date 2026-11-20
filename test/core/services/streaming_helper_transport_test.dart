@@ -619,8 +619,9 @@ class _MockSocketService implements SocketService {
   @override
   bool get mayMaintainTransport => true;
 
+  /// The connected socket's session, which the stream's own starts as.
   @override
-  String? get sessionId => 'test-session';
+  String? sessionId = 'sess-1';
 
   @override
   void onEvent(String eventName, void Function(dynamic) handler) {
@@ -749,6 +750,7 @@ void main() {
           log.messages.last.metadata?['openwebuiRecoverableError'],
           isTrue,
         );
+        socket.sessionId = 'test-session';
         socket.reconnects.add(null);
         await waitForCondition(
           () => log.messages.last.content == 'Recovered output',
