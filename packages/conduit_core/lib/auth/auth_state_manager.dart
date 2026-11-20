@@ -390,9 +390,9 @@ class AuthStateManager extends _$AuthStateManager {
   /// ([_revokeAbandonedBrowserGrants]).
   final List<BrowserSignInGrant> _abandonedBrowserGrants = [];
 
-  /// Their revocations still out, each ended within the service's
-  /// revocation time limit.
-  final Set<Future<void>> _abandonedGrantRevocations = {};
+  /// Browser sign-in revocations still out, each ended within the
+  /// service's revocation time limit ([_revokeBrowserSessions]).
+  final Set<Future<void>> _browserRevocations = {};
 
   /// Whether this process has looked for browser sign-in sessions left
   /// behind by an operation interrupted part-way.
@@ -506,20 +506,24 @@ class AuthStateManager extends _$AuthStateManager {
             _abandonedBrowserGrants.addAll(grants);
             _revokeAbandonedBrowserGrants();
           }
-        }).whenComplete(() => _abandonedGrantRevocations.remove(revoking));
-    _abandonedGrantRevocations.add(revoking);
+        }).whenComplete(() => _browserRevocations.remove(revoking));
+    // Until its grants are queued again, if they are.
+    _browserRevocations.add(revoking);
     unawaited(revoking);
   }
 
-  /// Waits for the revocations of abandoned grants already sent: a browser
-  /// sign-in begun before one lands could have its grant ended with it.
-  Future<void> _awaitAbandonedGrantRevocations() =>
-      Future.wait([..._abandonedGrantRevocations]);
+  /// Waits for the browser sign-in revocations still out: a provider that
+  /// ends a user's whole grant would end the grant of a sign-in begun before
+  /// one lands.
+  Future<void> _awaitBrowserRevocations() async {
+    while (_browserRevocations.isNotEmpty) {
+      await Future.wait([..._browserRevocations]);
+    }
+  }
 
-  /// Completes once the revocations of abandoned grants sent so far ended.
+  /// Completes once no browser sign-in revocation is still out.
   @visibleForTesting
-  Future<void> get abandonedGrantRevocationsSettled =>
-      _awaitAbandonedGrantRevocations();
+  Future<void> get browserRevocationsSettled => _awaitBrowserRevocations();
 
   /// Whether [grant] may be of the grant of one a retry or second step
   /// holds: the same client and issuer, for the same provider user or one
@@ -1447,7 +1451,7 @@ class AuthStateManager extends _$AuthStateManager {
         _canCommitAuth(canCommit);
     bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
-      await _awaitAbandonedGrantRevocations();
+      await _awaitBrowserRevocations();
       if (stopped()) return false;
       await _ensureApiServiceAvailable();
       final api = ref.read(apiServiceProvider);
@@ -2431,11 +2435,17 @@ class AuthStateManager extends _$AuthStateManager {
       _logAuthenticationFailure('browser-session-revoke-failed', error);
       return true;
     }
-    return service.revokeEnded(
+    final revoking = service.revokeEnded(
       sessions,
       storage: storage,
       stillWanted: stillWanted,
     );
+    _browserRevocations.add(revoking);
+    try {
+      return await revoking;
+    } finally {
+      _browserRevocations.remove(revoking);
+    }
   }
 
   /// Holds renewals of [accountIds] ([BrowserSignInService.holdRenewalsOf]),
