@@ -127,6 +127,13 @@ final class PreferenceKeys {
   /// Device-wide, not per account: scheduled tasks come from Hermes.
   static const String notificationScheduledEnabled =
       'notification_scheduled_enabled';
+  /// Device-wide: reminders of the Open WebUI calendar events.
+  static const String notificationCalendarEnabled =
+      'notification_calendar_enabled';
+  /// Device-wide: the calendar reminders handed to the OS, per account, so
+  /// one that already fired is not posted again.
+  static const String calendarRemindersDelivered =
+      'calendar_reminders_delivered';
 
   // Push notifications. Device-wide, never account-scoped: one toggle covers
   // every account and connection, and no key or token is stored here.

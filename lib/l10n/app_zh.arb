@@ -5060,6 +5060,40 @@
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   },
+  "notificationCalendarTitle": "日历提醒",
+  "@notificationCalendarTitle": {
+    "description": "Toggle title for reminders of Open WebUI calendar events."
+  },
+  "notificationCalendarDescription": "即使应用已关闭，也提醒我日历事件。",
+  "@notificationCalendarDescription": {
+    "description": "Toggle description for calendar event reminders."
+  },
+  "notificationChannelCalendarName": "日历提醒",
+  "@notificationChannelCalendarName": {
+    "description": "Android notification channel name for calendar event reminders."
+  },
+  "notificationChannelCalendarDescription": "即将到来的日历事件提醒",
+  "@notificationChannelCalendarDescription": {
+    "description": "Android notification channel description for calendar event reminders."
+  },
+  "calendarReminderStartsAt": "{time} 开始",
+  "@calendarReminderStartsAt": {
+    "description": "Body of a calendar event reminder: when the event starts. {time} is a clock time such as 14:30 or 2:30 PM.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "14:30"
+      }
+    }
+  },
+  "notificationCalendarExactTitle": "准确时间",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "允许“闹钟和提醒”，日历提醒才能准时送达。",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
+  },
   "personalConnectionsKeyRemovedForNewAddress": "已保存的密钥不会发送到新地址，因此将被移除。请为此地址输入密钥。",
   "personalConnectionsMovedToTether": "此服务器现在通过 Tether 从您的设备获取个人工具和终端。",
   "@personalConnectionsMovedToTether": {

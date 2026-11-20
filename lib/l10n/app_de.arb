@@ -5060,6 +5060,40 @@
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
   },
+  "notificationCalendarTitle": "Kalendererinnerungen",
+  "@notificationCalendarTitle": {
+    "description": "Toggle title for reminders of Open WebUI calendar events."
+  },
+  "notificationCalendarDescription": "An Kalendertermine erinnern, auch wenn die App geschlossen ist.",
+  "@notificationCalendarDescription": {
+    "description": "Toggle description for calendar event reminders."
+  },
+  "notificationChannelCalendarName": "Kalendererinnerungen",
+  "@notificationChannelCalendarName": {
+    "description": "Android notification channel name for calendar event reminders."
+  },
+  "notificationChannelCalendarDescription": "Erinnerungen an anstehende Kalendertermine",
+  "@notificationChannelCalendarDescription": {
+    "description": "Android notification channel description for calendar event reminders."
+  },
+  "calendarReminderStartsAt": "Beginnt um {time}",
+  "@calendarReminderStartsAt": {
+    "description": "Body of a calendar event reminder: when the event starts. {time} is a clock time such as 14:30 or 2:30 PM.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "14:30"
+      }
+    }
+  },
+  "notificationCalendarExactTitle": "Genaue Uhrzeit",
+  "@notificationCalendarExactTitle": {
+    "description": "Settings row under Calendar Reminders on Android, shown when reminders cannot fire at the exact time. Opens the system's Alarms & reminders permission."
+  },
+  "notificationCalendarExactDescription": "\"Wecker & Erinnerungen\" erlauben, damit Kalendererinnerungen auf die Minute genau kommen.",
+  "@notificationCalendarExactDescription": {
+    "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
+  },
   "personalConnectionsKeyRemovedForNewAddress": "Der gespeicherte Schlüssel wird nicht an die neue Adresse gesendet und daher entfernt. Gib einen Schlüssel für diese Adresse ein.",
   "personalConnectionsMovedToTether": "Dieser Server bezieht persönliche Werkzeuge und Terminals jetzt über Tether von deinen Geräten.",
   "@personalConnectionsMovedToTether": {
