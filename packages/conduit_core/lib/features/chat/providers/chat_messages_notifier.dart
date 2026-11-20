@@ -1298,6 +1298,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return true;
   }
 
+  /// The answers in the open chat recorded as asked of one of the user's
+  /// devices, by id, as the last copy of the chat read with this device's
+  /// records found them, on screen or among another's versions.
+  Set<String> _deviceAnswerIds = const <String>{};
+
   /// [serverMessages] with what this device recorded on its own copies of
   /// the answers (see [withTetherRecordOf]): Open WebUI's copies keep
   /// neither that one of the user's devices was asked nor the relay that
@@ -1305,13 +1310,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ///
   /// Matched by answer id, wherever either side keeps the answer: on screen
   /// or among another answer's versions, as a comparison's other answers and
-  /// a regeneration's earlier ones are kept.
+  /// a regeneration's earlier ones are kept. A version holds no record of its
+  /// own, so [_deviceAnswerIds] keeps it for an answer seen on screen first.
   List<ChatMessage> _withLocalTetherRecords(List<ChatMessage> serverMessages) {
     final viaTether = <String>{};
     final relayErrors = <String, ChatMessageError>{};
     for (final message in state) {
       if (message.role != 'assistant') continue;
       for (final version in message.versions) {
+        if (_deviceAnswerIds.contains(version.id)) viaTether.add(version.id);
         if (version.error case final error? when error.relay != null) {
           relayErrors[version.id] = error;
         }
@@ -1321,6 +1328,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         relayErrors[message.id] = error;
       }
     }
+    _deviceAnswerIds = viaTether;
     if (viaTether.isEmpty && relayErrors.isEmpty) return serverMessages;
     bool recorded(String id) =>
         viaTether.contains(id) || relayErrors.containsKey(id);

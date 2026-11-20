@@ -410,5 +410,61 @@ void main() {
             .equals(TetherRelayFailure.interrupted);
       });
     }
+
+    test("a device's answer stays one among another's versions", () async {
+      final question = _message('user-1', 'user', 'Compare');
+      final shown = _message('answer-a', 'assistant', 'An answer');
+      final running = ChatMessageVersion(
+        id: 'answer-b',
+        content: 'Part of',
+        timestamp: DateTime.utc(2026, 11, 20),
+        model: _deviceModel.id,
+      );
+      final container = _openChatContainer(
+        api: _FakeApiService(_chat(const [])),
+      );
+      container.read(chatMessagesProvider);
+      final opened = container.read(activeConversationProvider.notifier)
+        ..set(
+          _chat([
+            question,
+            shown,
+            _message('answer-b', 'assistant', running.content).copyWith(
+              model: _deviceModel.id,
+              metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
+            ),
+          ]),
+        );
+      await pumpEventQueue();
+
+      // Open WebUI's copy keeps the device's answer, with no error yet, among
+      // the versions of the other; the relay fails after that.
+      opened.set(
+        _chat([
+          question,
+          shown.copyWith(versions: [running]),
+        ]),
+      );
+      await pumpEventQueue();
+      opened.set(
+        _chat([
+          question,
+          shown.copyWith(
+            content: 'An answer, finished',
+            versions: [
+              running.copyWith(
+                error: const ChatMessageError(content: _generic),
+              ),
+            ],
+          ),
+        ]),
+      );
+      await pumpEventQueue();
+
+      final answer = container.read(chatMessagesProvider).last;
+      check(answer.content).equals('An answer, finished');
+      check(answer.versions.single.error?.relay)
+          .equals(TetherRelayFailure.interrupted);
+    });
   });
 }
