@@ -1,10 +1,10 @@
-//! Pixels from this process's own windows: its on-screen windows, named by
-//! id and composited within a screen rect, or one window alone, kept as a
-//! [`Frame`] so it can be compared, cropped or written later, from any
-//! thread. Every capture names the windows it takes, so another app's
-//! window (or a notification) never ends up in one. The appearance switch
-//! covers each window with its old look while the new one draws
-//! (`shell::macos`), when [`capture_allowed`].
+//! Pixels from this process's own windows, for the scripted runs: its
+//! on-screen windows, named by id and composited within a screen rect, or
+//! one window alone, kept as a [`Frame`] so it can be compared, cropped or
+//! written later, from any thread. Every capture names the windows it
+//! takes, so another app's window (or a notification) never ends up in one.
+//! Even a capture of the app's own windows can make macOS ask for Screen
+//! Recording access, so nothing in ordinary use captures.
 
 use std::ffi::{CString, c_void};
 use std::path::Path;
@@ -64,7 +64,6 @@ unsafe extern "C" {
     fn CGDataProviderCopyData(provider: *mut c_void) -> *const c_void;
     fn CGImageCreateWithImageInRect(img: *mut c_void, rect: CGRect) -> *mut c_void;
     fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const c_void;
-    fn CGPreflightScreenCaptureAccess() -> bool;
     static kCGWindowOwnerPID: *const c_void;
     static kCGWindowNumber: *const c_void;
 }
@@ -104,16 +103,6 @@ fn create_image_from_array_fn() -> Option<CreateImageFromArrayFn> {
     let p = symbol("CGWindowListCreateImageFromArray")?;
     // SAFETY: the symbol has this C signature.
     Some(unsafe { std::mem::transmute::<*mut c_void, CreateImageFromArrayFn>(p) })
-}
-
-/// Whether this process already has Screen Recording access, checked
-/// without a prompt. Capturing even this process's own windows can make
-/// macOS ask for that access, and ordinary use must never raise that
-/// prompt: outside the scripted runs, capture only when this is true, and
-/// never request the access.
-pub fn capture_allowed() -> bool {
-    // SAFETY: a CoreGraphics query with no arguments.
-    unsafe { CGPreflightScreenCaptureAccess() }
 }
 
 /// The ids (CGWindowIDs) of this process's on-screen windows, front to
