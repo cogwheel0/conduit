@@ -1140,7 +1140,13 @@ final class _GatedRecovery implements SyncEntityAdapter, ParkedOpRecovery {
   @override
   Future<bool> rearmRecoverable({required int nowEpochSeconds}) async {
     await gate.future;
-    await dao.requeueParked(seq, nowEpochSeconds: nowEpochSeconds);
+    try {
+      await dao.requeueParked(seq, nowEpochSeconds: nowEpochSeconds);
+    } catch (error, stackTrace) {
+      // The claim waiting on it reports the failure instead of timing out.
+      rearmed.completeError(error, stackTrace);
+      rethrow;
+    }
     rearmed.complete();
     return false;
   }
