@@ -43,14 +43,19 @@ const Set<String> allSupportedImageFormats = {
   ...alwaysConvertImageFormats,
 };
 
+/// The largest image the composer attaches, on any backend.
+const int kAttachedImageMaxBytes = 20 * 1024 * 1024;
+
 /// Whether an image named [fileName] of [sizeBytes] is re-encoded as JPEG
 /// before it is sent: always in a format models cannot read, and when it is
 /// a JPEG over 500 KiB. PNG, GIF and WebP go as picked: as JPEG a screenshot's
 /// text blurs, often in a larger file, and transparency and animation are
-/// lost.
+/// lost. A PNG over [kAttachedImageMaxBytes] could not be attached at all, so
+/// it is converted too.
 bool convertsImageForUpload(String fileName, int sizeBytes) {
   final extension = path.extension(fileName).toLowerCase();
   if (alwaysConvertImageFormats.contains(extension)) return true;
+  if (extension == '.png') return sizeBytes > kAttachedImageMaxBytes;
   return (extension == '.jpg' || extension == '.jpeg') &&
       sizeBytes > 500 * 1024;
 }

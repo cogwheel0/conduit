@@ -1889,9 +1889,9 @@ class MediaUploadController {
       );
     }
 
-    var measuredTotalBytes = 0;
-    var currentSourceBytes = 0;
+    var otherImageBytes = 0;
     for (final path in imagePaths) {
+      if (path == filePath) continue;
       final attachment = imagesByPath[path];
       final preparedDataUrl =
           attachment?.base64DataUrl ??
@@ -1901,22 +1901,36 @@ class MediaUploadController {
       final bytes = preparedDataUrl != null
           ? decodedImageByteLength(
               preparedDataUrl,
-              maxDecodedBytes: kDirectMaxDecodedImageBytes - measuredTotalBytes,
+              maxDecodedBytes: kDirectMaxDecodedImageBytes - otherImageBytes,
             )
           : await File(path).length();
       _throwIfOperationNotActive(filePath, inflight);
-      measuredTotalBytes += bytes;
-      if (path == filePath) currentSourceBytes = bytes;
-      if (measuredTotalBytes > kDirectMaxDecodedImageBytes) {
+      otherImageBytes += bytes;
+      if (otherImageBytes > kDirectMaxDecodedImageBytes) {
         throw const DirectChatInputException(
           'Direct chat images must be 20 MB or less in total.',
         );
       }
     }
-
-    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
-      File(filePath),
+    final source = await _inlineImageSource(
+      filePath,
+      budget: kDirectMaxDecodedImageBytes - otherImageBytes,
+      inflight: inflight,
     );
+    if (source == null) {
+      throw const DirectChatInputException(
+        'Direct chat images must be 20 MB or less in total.',
+      );
+    }
+
+    final String? dataUrl;
+    try {
+      dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+        File(source),
+      );
+    } finally {
+      if (source != filePath) await cleanupTerminalAttachmentFile(source);
+    }
     _throwIfOperationNotActive(filePath, inflight);
     if (dataUrl == null) {
       throw const DirectChatInputException(
@@ -1925,7 +1939,7 @@ class MediaUploadController {
     }
     final decodedBytes = validatePreparedDirectImageDataUrl(
       dataUrl,
-      otherImageBytes: measuredTotalBytes - currentSourceBytes,
+      otherImageBytes: otherImageBytes,
     );
 
     final existing = _ownedAttachment(filePath, inflight);
@@ -2191,9 +2205,9 @@ class MediaUploadController {
       );
     }
 
-    var measuredTotalBytes = 0;
-    var currentSourceBytes = 0;
+    var otherImageBytes = 0;
     for (final path in imagePaths) {
+      if (path == filePath) continue;
       final attachment = imagesByPath[path];
       final preparedDataUrl =
           attachment?.base64DataUrl ??
@@ -2205,26 +2219,39 @@ class MediaUploadController {
         bytes = preparedDataUrl != null
             ? decodedImageByteLength(
                 preparedDataUrl,
-                maxDecodedBytes:
-                    kHermesMaxDecodedImageBytes - measuredTotalBytes,
+                maxDecodedBytes: kHermesMaxDecodedImageBytes - otherImageBytes,
               )
             : await File(path).length();
       } on DirectChatInputException catch (error) {
         throw HermesChatInputException(error.message);
       }
       _throwIfOperationNotActive(filePath, inflight);
-      measuredTotalBytes += bytes;
-      if (path == filePath) currentSourceBytes = bytes;
-      if (measuredTotalBytes > kHermesMaxDecodedImageBytes) {
+      otherImageBytes += bytes;
+      if (otherImageBytes > kHermesMaxDecodedImageBytes) {
         throw const HermesChatInputException(
           'Hermes images must be 6 MB or less in total.',
         );
       }
     }
-
-    final dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
-      File(filePath),
+    final source = await _inlineImageSource(
+      filePath,
+      budget: kHermesMaxDecodedImageBytes - otherImageBytes,
+      inflight: inflight,
     );
+    if (source == null) {
+      throw const HermesChatInputException(
+        'Hermes images must be 6 MB or less in total.',
+      );
+    }
+
+    final String? dataUrl;
+    try {
+      dataUrl = await _ref.read(directImageDataUrlEncoderProvider)(
+        File(source),
+      );
+    } finally {
+      if (source != filePath) await cleanupTerminalAttachmentFile(source);
+    }
     _throwIfOperationNotActive(filePath, inflight);
     if (dataUrl == null) {
       throw const HermesChatInputException(
@@ -2235,15 +2262,12 @@ class MediaUploadController {
     try {
       decodedBytes = decodedImageByteLength(
         dataUrl,
-        maxDecodedBytes:
-            kHermesMaxDecodedImageBytes -
-            (measuredTotalBytes - currentSourceBytes),
+        maxDecodedBytes: kHermesMaxDecodedImageBytes - otherImageBytes,
       );
     } on DirectChatInputException catch (error) {
       throw HermesChatInputException(error.message);
     }
-    if (measuredTotalBytes - currentSourceBytes + decodedBytes >
-        kHermesMaxDecodedImageBytes) {
+    if (otherImageBytes + decodedBytes > kHermesMaxDecodedImageBytes) {
       throw const HermesChatInputException(
         'Hermes images must be 6 MB or less in total.',
       );
@@ -2309,6 +2333,36 @@ class MediaUploadController {
         data: {'fileId': fileId},
       );
     }
+  }
+
+  /// The file [filePath] goes inline from, with [budget] bytes of the
+  /// message's images left for it: itself when it fits, else a JPEG of it
+  /// when that fits, else null. Hermes and Direct measure an image before
+  /// encoding it, and a PNG is kept as picked, so a large screenshot meets
+  /// their limit here. The caller removes a JPEG made here once it is
+  /// encoded.
+  Future<String?> _inlineImageSource(
+    String filePath, {
+    required int budget,
+    required _InflightUpload inflight,
+  }) async {
+    final sourceBytes = await File(filePath).length();
+    _throwIfOperationNotActive(filePath, inflight);
+    if (sourceBytes <= budget) return filePath;
+    final converted = await _ref.read(imageUploadConverterProvider)(filePath);
+    if (converted == null) return null;
+    var fits = false;
+    try {
+      fits = await File(converted).length() <= budget;
+    } on FileSystemException {
+      fits = false;
+    }
+    if (!fits || !_isOperationActive(filePath, inflight)) {
+      await cleanupTerminalAttachmentFile(converted);
+      _throwIfOperationNotActive(filePath, inflight);
+      return null;
+    }
+    return converted;
   }
 
   /// Whether [filePath] is the JPEG `compressPickedImage` made of a photo as

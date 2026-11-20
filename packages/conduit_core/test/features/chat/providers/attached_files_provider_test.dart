@@ -55,6 +55,16 @@ void main() {
       }
     });
 
+    // The composer drops a picked image over 20 MB, and a PNG is no longer
+    // re-encoded by the picker to fit under it.
+    test('a PNG over the size an attached image may be is converted', () {
+      check(convertsImageForUpload('screenshot.png', kAttachedImageMaxBytes))
+          .isFalse();
+      check(
+        convertsImageForUpload('screenshot.png', kAttachedImageMaxBytes + 1),
+      ).isTrue();
+    });
+
     test('a large JPEG is compressed, a small one is not', () {
       check(convertsImageForUpload('photo.jpg', large)).isTrue();
       check(convertsImageForUpload('photo.JPEG', large)).isTrue();

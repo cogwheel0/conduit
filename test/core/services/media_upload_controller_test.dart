@@ -73,6 +73,53 @@ void main() {
     expect(encodeCalls, 0);
   });
 
+  test(
+    'a PNG over the Direct limit goes as a JPEG of it when that fits',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'conduit_direct_media_',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final screenshot = File('${directory.path}/screenshot.png');
+      await _truncate(screenshot, kDirectMaxDecodedImageBytes + 1);
+      final conversion = await Directory.systemTemp.createTemp('conduit_img_');
+      addTearDown(() async {
+        if (await conversion.exists()) await conversion.delete(recursive: true);
+      });
+      final jpeg = File('${conversion.path}/converted.jpg');
+      await jpeg.writeAsBytes([1, 2, 3]);
+      final encoded = <String>[];
+      final container = _directContainer(
+        attachments: [_pendingImage(screenshot, reportedBytes: 1)],
+        encoder: (file) async {
+          encoded.add(file.path);
+          return 'data:image/jpeg;base64,AQID';
+        },
+        extraOverrides: [
+          imageUploadConverterProvider.overrideWithValue(
+            (filePath) async => jpeg.path,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(mediaUploadControllerProvider)
+          .upload(
+            filePath: screenshot.path,
+            fileName: 'screenshot.png',
+            fileSize: 1,
+          );
+
+      expect(encoded, [jpeg.path]);
+      expect(
+        container.read(attachedFilesProvider).single.status,
+        FileUploadStatus.completed,
+      );
+      expect(await conversion.exists(), isFalse);
+    },
+  );
+
   test('direct upload stats every pending image for aggregate limit', () async {
     final directory = await Directory.systemTemp.createTemp(
       'conduit_direct_media_',
@@ -3621,6 +3668,55 @@ void main() {
       expect(encodeCalls, 0);
     });
 
+    // A PNG is kept as picked, so Hermes's 6 MB is the first limit a large
+    // screenshot meets. A JPEG of it goes instead when that fits.
+    test(
+      'a PNG over the limit goes as a JPEG of it, which is then removed',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'conduit_hermes_media_',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final screenshot = File('${directory.path}/screenshot.png');
+        await _truncate(screenshot, kHermesMaxDecodedImageBytes + 1);
+        final conversion = await Directory.systemTemp.createTemp(
+          'conduit_img_',
+        );
+        addTearDown(() async {
+          if (await conversion.exists())
+            await conversion.delete(recursive: true);
+        });
+        final jpeg = File('${conversion.path}/converted.jpg');
+        await jpeg.writeAsBytes([1, 2, 3]);
+        final encoded = <String>[];
+        final container = await _hermesContainer(
+          capabilities: const HermesCapabilities(inputImages: true),
+          attachments: [_pendingImage(screenshot, reportedBytes: 1)],
+          converter: (filePath) async => jpeg.path,
+          encoder: (file) async {
+            encoded.add(file.path);
+            return 'data:image/jpeg;base64,AQID';
+          },
+        );
+        addTearDown(container.dispose);
+
+        await container
+            .read(mediaUploadControllerProvider)
+            .upload(
+              filePath: screenshot.path,
+              fileName: 'screenshot.png',
+              fileSize: 1,
+            );
+
+        expect(encoded, [jpeg.path]);
+        final stored = container.read(attachedFilesProvider).single;
+        expect(stored.status, FileUploadStatus.completed);
+        expect(stored.base64DataUrl, 'data:image/jpeg;base64,AQID');
+        expect(stored.file.path, screenshot.path);
+        expect(await conversion.exists(), isFalse);
+      },
+    );
+
     test('aggregate image size uses local file stats', () async {
       final directory = await Directory.systemTemp.createTemp(
         'conduit_hermes_media_',
@@ -3905,10 +4001,13 @@ Future<ProviderContainer> _hermesContainer({
   required List<FileUploadState> attachments,
   required DirectImageDataUrlEncoder encoder,
   AttachmentUploadQueue? uploadQueue,
+  ImageUploadConverter? converter,
 }) async {
   final container = ProviderContainer(
     overrides: [
       apiServiceProvider.overrideWithValue(null),
+      if (converter != null)
+        imageUploadConverterProvider.overrideWithValue(converter),
       selectedModelProvider.overrideWith(
         () => _SeededSelectedModel(hermesSyntheticModel()),
       ),
