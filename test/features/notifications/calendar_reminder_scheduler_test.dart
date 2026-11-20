@@ -8,6 +8,7 @@ import 'package:conduit_core/features/calendar/calendar_reminders.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 const _scope = 'owui:acct-1';
 const _otherScope = 'owui:acct-2';
@@ -39,6 +40,7 @@ class _FakeNotifications extends Fake implements LocalNotificationService {
   final cancelled = <int>[];
   int _nextId = 100;
   Completer<void>? holdSchedule;
+  final enteredSchedule = Completer<void>();
   bool exactAllowed = false;
   final exactByKey = <String, bool>{};
 
@@ -58,6 +60,7 @@ class _FakeNotifications extends Fake implements LocalNotificationService {
     required bool playSound,
     required bool exact,
   }) async {
+    if (!enteredSchedule.isCompleted) enteredSchedule.complete();
     await holdSchedule?.future;
     scheduled.add(
       ScheduledCalendarReminder(
@@ -278,7 +281,7 @@ void main() {
       h.notifications.holdSchedule = hold;
 
       final first = h.scheduler.sync();
-      await Future<void>.delayed(Duration.zero);
+      await h.notifications.enteredSchedule.future;
       final second = h.scheduler.sync();
       final third = h.scheduler.sync();
       hold.complete();
@@ -290,6 +293,8 @@ void main() {
   });
 
   group('calendarReminderText', () {
+    setUpAll(() => initializeDateFormatting('en'));
+
     final l10n = lookupAppLocalizations(const Locale('en'));
     final start = DateTime(2026, 11, 13, 14, 30);
     final startNs = start.toUtc().microsecondsSinceEpoch * 1000;
