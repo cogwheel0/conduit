@@ -729,6 +729,18 @@ Future<void> settleHeldOpenWebUiCompletion(
     notifier.removeMessageById(id);
   }
   if (questionId != null) {
+    // A regenerated answer's earlier one, kept hidden in the transcript while
+    // the new one runs: the held question ends the chat now, as it does in
+    // the stored copy.
+    final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
+    final at = shown.indexWhere((m) => m.id == questionId);
+    if (at >= 0) {
+      for (final later in shown.skip(at + 1).toList()) {
+        if (_isArchivedAssistantVariant(later)) {
+          notifier.removeMessageById(later.id);
+        }
+      }
+    }
     notifier.updateMessageById(
       questionId,
       (question) => question.copyWith(

@@ -2945,11 +2945,8 @@ void main() {
       check(await heldDeletes()).isEmpty();
     });
 
-    test('a regeneration the server holds fails with the reason, and keeps '
-        'the earlier answer', () async {
-      // The server answers a held message only while nothing answers it, and
-      // a regenerated question keeps its earlier answer: the server would
-      // never answer it, so it must not show waiting.
+    test('a regeneration the server holds waits as a send does, with no '
+        'failure', () async {
       await _seedChat(db, chatId);
       final api = _GatedCompletionApi(Completer<void>())
         ..onSend = () => throw const ChatCompletionHeld();
@@ -2973,28 +2970,14 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      await check(regenerateMessage(container, 'Say the word: heron', null))
-          .throws<ChatCompletionHeld>();
+      await regenerateMessage(container, 'Say the word: heron', null);
 
       check(api.completionCalls).equals(1);
       final placeholder = api.assistantMessageId!;
       final shown = container.read(chatMessagesProvider);
-      check(shown.map((m) => m.id).toList())
-          .deepEquals([userId, 'earlier-answer', placeholder]);
-      check(shown.first.isHeldByServer).isFalse();
-      check(shown.last)
-        ..has((m) => m.isStreaming, 'isStreaming').isFalse()
-        ..has(
-          (m) => m.error?.content,
-          'error',
-        ).equals(kReplyStillRunningMessage)
-        ..has(
-          (m) => m.versions.map((v) => v.id).toList(),
-          'versions',
-        ).deepEquals(['earlier-answer']);
-      // The placeholder never reached the server: nothing to delete there.
-      check(api.deletedMessages).isEmpty();
-      check(container.read(chatMainAnswerActiveProvider)).isFalse();
+      check(shown.map((m) => m.id).toList()).deepEquals([userId]);
+      check(shown.single.isHeldByServer).isTrue();
+      check(api.deletedMessages).deepEquals(['$chatId/$placeholder']);
     });
   });
 
