@@ -285,6 +285,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             cache.put(key, (resource: resource, height: nextHeight));
           }
         },
+        onCanvasRects: (rects) => _canvasRects = [
+          for (final rect in rects)
+            Rect.fromLTWH(rect.left, rect.top, rect.width, rect.height),
+        ],
         onInitialized: () {
           _startTimer?.cancel();
           if (mounted) setState(() => _started = true);
@@ -531,35 +535,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             )) {
               return false;
             }
-            final message = data.args[1] as String;
-            Object? decoded;
-            try {
-              decoded = jsonDecode(message);
-            } catch (_) {
-              // The protocol host handles malformed messages as before.
-            }
-            final params = decoded is Map ? decoded['params'] : null;
-            if (decoded is Map &&
-                (decoded['method'] == 'ui/notifications/size-changed' ||
-                    decoded['method'] == 'conduit/canvas-rects') &&
-                params is Map) {
-              final rects = params['_conduitCanvasRects'];
-              if (rects is List) {
-                _canvasRects = [
-                  for (final rect in rects)
-                    if (rect is List &&
-                        rect.length == 4 &&
-                        rect.every((v) => v is num && v.isFinite))
-                      Rect.fromLTWH(
-                        (rect[0] as num).toDouble(),
-                        (rect[1] as num).toDouble(),
-                        (rect[2] as num).toDouble(),
-                        (rect[3] as num).toDouble(),
-                      ),
-                ];
-              }
-            }
-            await _host?.receive(message);
+            await _host?.receive(data.args[1] as String);
             return true;
           },
         );
@@ -720,7 +696,8 @@ String mcpAppBridgeScript({
     .map(element => {
       const r = element.getBoundingClientRect();
       return [r.x, r.y, r.width, r.height];
-    }).filter(rect => rect[2] > 0 && rect[3] > 0);
+    }).filter(rect => rect[2] > 0 && rect[3] > 0)
+    .slice(0, $kMcpAppMaxCanvasRects);
   const deliverToHost = (message) => {
     let payload;
     try {

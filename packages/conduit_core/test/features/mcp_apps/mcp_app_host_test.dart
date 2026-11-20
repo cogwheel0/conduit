@@ -53,6 +53,7 @@ final class _Rig {
       send: (message) => sent.add(jsonDecode(message) as Map<String, dynamic>),
       hostContext: () => {'theme': 'dark', 'displayMode': 'inline'},
       onSizeChanged: heights.add,
+      onCanvasRects: canvases.add,
     );
   }
 
@@ -65,6 +66,7 @@ final class _Rig {
   final confirmations = <({String name, Map<String, dynamic> arguments})>[];
   final links = <Uri>[];
   final heights = <double>[];
+  final canvases = <List<McpAppCanvasRect>>[];
 
   Future<void> request(Object id, String method, [Object? params]) =>
       host.receive(
@@ -282,6 +284,29 @@ void main() {
       });
       await rig.notify('ui/notifications/size-changed', {'height': -1});
 
+      check(rig.heights).deepEquals([480.0]);
+    });
+
+    test('reads a bounded number of well-formed canvas regions', () async {
+      final rig = _Rig();
+
+      await rig.notify('ui/notifications/size-changed', {
+        'height': 480,
+        '_conduitCanvasRects': [
+          [0, 10, 200, 300],
+          [0, 0, 'wide', 1],
+          [0, 0, 1],
+        ],
+      });
+      await rig.notify('conduit/canvas-rects', {
+        '_conduitCanvasRects': [
+          for (var i = 0; i <= kMcpAppMaxCanvasRects; i++) [0, i, 10, 10],
+        ],
+      });
+
+      check(rig.canvases.first)
+          .deepEquals([(left: 0.0, top: 10.0, width: 200.0, height: 300.0)]);
+      check(rig.canvases.last).length.equals(kMcpAppMaxCanvasRects);
       check(rig.heights).deepEquals([480.0]);
     });
 

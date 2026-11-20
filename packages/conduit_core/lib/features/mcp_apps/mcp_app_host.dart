@@ -12,6 +12,17 @@ const int kMcpAppMaxMessageBytes = 256 * 1024;
 /// The most requests an app may have waiting on the host at once.
 const int kMcpAppMaxPendingRequests = 16;
 
+/// The most canvas regions an app's page may report at once.
+const int kMcpAppMaxCanvasRects = 64;
+
+/// A region of an app's page, in the page's own coordinates.
+typedef McpAppCanvasRect = ({
+  double left,
+  double top,
+  double width,
+  double height,
+});
+
 /// Runs one request through the server's app RPC.
 typedef McpAppRequestRunner =
     Future<Map<String, dynamic>> Function(
@@ -39,6 +50,7 @@ final class McpAppHost {
     required this.send,
     required this.hostContext,
     this.onSizeChanged,
+    this.onCanvasRects,
     this.onInitialized,
     this.hostName = 'Conduit',
     this.hostVersion = '1',
@@ -64,6 +76,11 @@ final class McpAppHost {
 
   /// The height the app's content asks for, in logical pixels.
   final void Function(double height)? onSizeChanged;
+
+  /// The regions of the page whose touch policy keeps vertical pans, such
+  /// as a map's, as Conduit's bridge script reports them: the first
+  /// [kMcpAppMaxCanvasRects] of each report.
+  final void Function(List<McpAppCanvasRect> rects)? onCanvasRects;
 
   /// Called once the app has started.
   final void Function()? onInitialized;
@@ -257,11 +274,30 @@ final class McpAppHost {
         _notify('ui/notifications/tool-result', app.result);
         onInitialized?.call();
       case 'ui/notifications/size-changed':
+        _canvasRects(params);
         final height = params['height'];
         if (height is num && height.isFinite && height > 0) {
           onSizeChanged?.call(height.toDouble());
         }
+      case 'conduit/canvas-rects':
+        _canvasRects(params);
     }
+  }
+
+  void _canvasRects(Map<String, dynamic> params) {
+    final rects = params['_conduitCanvasRects'];
+    if (rects is! List) return;
+    onCanvasRects?.call([
+      for (final rect in rects.take(kMcpAppMaxCanvasRects))
+        if (rect case [final num x, final num y, final num w, final num h]
+            when [x, y, w, h].every((value) => value.isFinite))
+          (
+            left: x.toDouble(),
+            top: y.toDouble(),
+            width: w.toDouble(),
+            height: h.toDouble(),
+          ),
+    ]);
   }
 
   void _notify(String method, Map<String, dynamic> params) =>

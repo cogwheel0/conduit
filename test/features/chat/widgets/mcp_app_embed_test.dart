@@ -10,6 +10,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_resource_cache.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
@@ -1068,6 +1069,26 @@ void main() {
       expect(probe.appDrags, 3);
     });
   }
+
+  testWidgets('a canvas report over the message limit is dropped unread', (
+    tester,
+  ) async {
+    final probe = await _DragProbe.open(tester);
+    await probe.app.post({
+      'jsonrpc': '2.0',
+      'method': 'conduit/canvas-rects',
+      'params': {
+        '_conduitCanvasRects': [
+          [0, 0, 200, 400],
+        ],
+        'pad': 'x' * kMcpAppMaxMessageBytes,
+      },
+    });
+
+    await tester.dragFrom(const Offset(100, 200), const Offset(0, -100));
+    expect(probe.appDrags, 0);
+    expect(probe.chatDrags, greaterThan(0));
+  });
 
   testWidgets('a region as tall as the chat leaves it vertical drags', (
     tester,
