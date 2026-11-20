@@ -1078,7 +1078,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     final text = _controller.text.trim();
-    if (!draftHasSendableContent(text, ref.read(attachedFilesProvider))) {
+    final files = ref.read(attachedFilesProvider);
+    // As Send does, wait for every file: the send would leave out one still
+    // uploading.
+    if (!files.every((file) => file.status == FileUploadStatus.completed) ||
+        !draftHasSendableContent(text, files)) {
       return;
     }
     // While a reply runs the send button is Stop, and no other way to send

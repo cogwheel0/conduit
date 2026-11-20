@@ -729,6 +729,43 @@ void main() {
     expect(rig.container.read(attachedFilesProvider), isEmpty);
   });
 
+  // Send waits for every file, and so does Enter: the send would leave out a
+  // file still uploading.
+  testQueue('Enter sends nothing while a file is still uploading', (
+    tester,
+  ) async {
+    final rig = await _pump(tester, streaming: false);
+    final directory = Directory.systemTemp.createTempSync('queue-widget-');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final done = File('${directory.path}/done.png')..writeAsBytesSync([1]);
+    final busy = File('${directory.path}/busy.png')..writeAsBytesSync([2]);
+    final tray = rig.container.read(attachedFilesProvider.notifier);
+    tray.addFiles([
+      LocalAttachment(file: done, displayName: 'done.png'),
+      LocalAttachment(file: busy, displayName: 'busy.png'),
+    ]);
+    tray.updateFileState(
+      done.path,
+      FileUploadState(
+        file: done,
+        fileName: 'done.png',
+        fileSize: 1,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: 'file-done',
+        isImage: true,
+      ),
+    );
+    await rig.type('with both');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.typed, 'with both');
+    expect(rig.container.read(attachedFilesProvider), hasLength(2));
+  });
+
   testQueue('a failed file can be uploaded again from its own draft', (
     tester,
   ) async {
