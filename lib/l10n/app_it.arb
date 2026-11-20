@@ -5094,5 +5094,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "La chiave salvata non verrà inviata al nuovo indirizzo, quindi verrà rimossa. Inserisci una chiave per questo indirizzo."
+  "personalConnectionsKeyRemovedForNewAddress": "La chiave salvata non verrà inviata al nuovo indirizzo, quindi verrà rimossa. Inserisci una chiave per questo indirizzo.",
+  "knowledgeBaseEntire": "Intera base di conoscenza",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }

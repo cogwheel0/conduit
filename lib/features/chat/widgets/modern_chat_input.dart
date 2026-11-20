@@ -2774,12 +2774,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         final selectedBaseModel = bases.firstWhere(
           (base) => base.id == selectedBase,
         );
+        // The whole base is offered however many files it lists, none
+        // included.
         final files =
             ref.read(knowledgeCacheProvider).files[selectedBase] ??
             const <KnowledgeBaseFile>[];
-        if (files.isEmpty) {
-          return;
-        }
         final selectedFileId = await NativeSheetBridge.instance
             .presentOptionsSelector(
               title: selectedBaseModel.name,
@@ -2787,8 +2786,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               options: [
                 NativeSheetOptionConfig(
                   id: _wholeKnowledgeBaseOptionId,
-                  label: selectedBaseModel.name,
-                  subtitle: l10n.knowledgeBase,
+                  label: l10n.knowledgeBaseEntire,
                   sfSymbol: 'books.vertical',
                 ),
                 for (final file in files)
@@ -2850,11 +2848,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       cacheState.isLoading ||
                       (selectedBaseId != null &&
                           !filesMap.containsKey(selectedBaseId));
-                  final KnowledgeBase? wholeBase = files.isEmpty
-                      ? null
-                      : bases
-                            .where((base) => base.id == selectedBaseId)
-                            .firstOrNull;
+                  final KnowledgeBase? wholeBase = bases
+                      .where((base) => base.id == selectedBaseId)
+                      .firstOrNull;
 
                   Future<void> loadFiles(KnowledgeBase base) async {
                     setModalState(() {
@@ -2920,12 +2916,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                                                     : Icons.folder_outlined,
                                               ),
                                               title: Text(
-                                                wholeBase.name,
-                                                overflow: TextOverflow.ellipsis,
+                                                AppLocalizations.of(context)!
+                                                    .knowledgeBaseEntire,
                                               ),
                                               subtitle: Text(
-                                                AppLocalizations.of(context)!
-                                                    .knowledgeBase,
+                                                wholeBase.name,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                               onTap: () {
                                                 _attachWholeKnowledgeBase(

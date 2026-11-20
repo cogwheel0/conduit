@@ -5094,5 +5094,9 @@
   "@notificationCalendarExactDescription": {
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
-  "personalConnectionsKeyRemovedForNewAddress": "La clave guardada no se enviará a la nueva dirección, así que se quitará. Escribe una clave para esta dirección."
+  "personalConnectionsKeyRemovedForNewAddress": "La clave guardada no se enviará a la nueva dirección, así que se quitará. Escribe una clave para esta dirección.",
+  "knowledgeBaseEntire": "Toda la base de conocimientos",
+  "@knowledgeBaseEntire": {
+    "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."
+  }
 }
