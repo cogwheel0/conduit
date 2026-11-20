@@ -30,15 +30,8 @@ CalendarEventModel _event(
   location: 'Room 1',
 );
 
-List<CalendarReminder> _plan(
-  List<CalendarAgendaItem> items, {
-  int limit = calendarReminderLimit,
-}) => planCalendarReminders(
-  items: items,
-  userId: _me,
-  now: _now,
-  limit: limit,
-);
+List<CalendarReminder> _plan(List<CalendarAgendaItem> items) =>
+    planCalendarReminders(items: items, userId: _me, now: _now);
 
 void main() {
   group('calendarAlertMinutes', () {
@@ -174,14 +167,14 @@ void main() {
       check(plan).length.equals(1);
     });
 
-    test('keeps the soonest reminders up to the limit', () {
+    test('plans the reminders soonest first', () {
       final plan = _plan([
         _event('late', startInMinutes: 300),
         _event('soon', startInMinutes: 30),
         _event('middle', startInMinutes: 120),
-      ], limit: 2);
+      ]);
 
-      check(plan.map((r) => r.eventId)).deepEquals(['soon', 'middle']);
+      check(plan.map((r) => r.eventId)).deepEquals(['soon', 'middle', 'late']);
     });
 
     test('carries all-day events through', () {

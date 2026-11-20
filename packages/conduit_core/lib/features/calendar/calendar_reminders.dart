@@ -74,18 +74,21 @@ int? calendarAlertMinutes(CalendarEventModel event) {
   return value.floor();
 }
 
-/// The reminders to keep scheduled for [items], soonest first, at most [limit].
+/// The reminders [items] call for, soonest first.
 ///
 /// Mirrors when Open WebUI's server raises `calendar:alert`: only for the
 /// account's own events ([userId] is the organizer), never for a cancelled
 /// one, and only while the event has not started. Unlike the server, which
 /// looks only at a series' stored start, every occurrence of a recurring event
 /// the agenda returned gets its own reminder.
+///
+/// Not cut to [calendarReminderLimit]: a reminder that already went off, or
+/// is posted at once, takes no pending place, so only the scheduler can tell
+/// which ones the limit applies to.
 List<CalendarReminder> planCalendarReminders({
   required Iterable<CalendarAgendaItem> items,
   required String userId,
   required DateTime now,
-  int limit = calendarReminderLimit,
 }) {
   final nowNs = now.toUtc().microsecondsSinceEpoch * nanosPerMicrosecond;
   final reminders = <String, CalendarReminder>{};
@@ -113,5 +116,5 @@ List<CalendarReminder> planCalendarReminders({
       final byTime = a.fireAt.compareTo(b.fireAt);
       return byTime != 0 ? byTime : a.key.compareTo(b.key);
     });
-  return List<CalendarReminder>.unmodifiable(sorted.take(limit));
+  return List<CalendarReminder>.unmodifiable(sorted);
 }

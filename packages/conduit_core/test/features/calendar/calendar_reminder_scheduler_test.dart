@@ -256,6 +256,34 @@ void main() {
       check(h.notifications.rejected).isEmpty();
     });
 
+    test('only reminders still waiting to fire count toward the limit',
+        () async {
+      // Day-ahead alerts that have gone off, and more upcoming alerts than
+      // the limit.
+      final h = _Harness()
+        ..agenda = [
+          for (var i = 0; i < calendarReminderLimit; i++) ...[
+            _event(
+              'fired$i',
+              startInMinutes: 60 + i,
+              meta: {'alert_minutes': 24 * 60},
+            ),
+            _event('later$i', startInMinutes: 600 + i),
+          ],
+        ];
+      await h.sync();
+
+      check(h.notifications.delivered).length.equals(calendarReminderLimit);
+      check(h.notifications.scheduled).length.equals(calendarReminderLimit);
+
+      h.agenda = [...h.agenda, _event('new', startInMinutes: 30)];
+      await h.sync();
+
+      check(h.notifications.keysIn(_scope)).contains('new|');
+      check(h.notifications.scheduled).length.equals(calendarReminderLimit);
+      check(h.notifications.delivered).length.equals(calendarReminderLimit);
+    });
+
     test('replaces a reminder whose event moved or was renamed', () async {
       final h = _Harness()..agenda = [_event('a')];
       await h.sync();
