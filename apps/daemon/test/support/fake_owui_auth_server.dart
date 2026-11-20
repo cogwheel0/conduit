@@ -417,6 +417,12 @@ final class FakeOwuiChats {
   /// While set, [holdChatSaves] holds only this chat's saves.
   String? holdChatSavesOf;
 
+  /// While set, a message delete (`DELETE /api/v1/chats/{id}/messages/{id}`)
+  /// is done, and its answer waits for it; [messageDeleteAsked] completes as
+  /// one reaches it.
+  Completer<void>? holdMessageDeletes;
+  Completer<void> messageDeleteAsked = Completer<void>();
+
   /// A held chat read or save, once let go, loses its connection instead of
   /// being answered, as when the network drops.
   bool dropHeldChats = false;
@@ -442,6 +448,11 @@ final class FakeOwuiChats {
 
   /// Completion requests held behind an answer running elsewhere.
   final List<Map<String, dynamic>> heldCompletions = <Map<String, dynamic>>[];
+
+  /// While set, the end of an answer [runElsewhere] started answers each
+  /// message held under it in place, under its own id, rather than as a copy
+  /// under a new one.
+  bool answerHeldInPlace = false;
 
   /// Messages deleted with `DELETE /api/v1/chats/{id}/messages/{id}`, as
   /// `chatId/messageId`.
@@ -516,6 +527,7 @@ final class FakeOwuiChats {
       holdStream,
       holdChatReads,
       holdChatSaves,
+      holdMessageDeletes,
       ..._holds.values,
       ..._streamHolds,
     ]) {
@@ -780,6 +792,28 @@ final class FakeOwuiChats {
     ];
     if (waiting.isEmpty) return;
     final n = ++_tasks;
+    if (answerHeldInPlace) {
+      final question = waiting.last;
+      final answerId = 'held-answer-$n';
+      for (final message in waiting) {
+        message['meta'] = <String, dynamic>{};
+      }
+      question['childrenIds'] = <String>[answerId];
+      messages[answerId] = <String, dynamic>{
+        'id': answerId,
+        'parentId': question['id'],
+        'childrenIds': <String>[],
+        'role': 'assistant',
+        'content': answer,
+        'model': 'kettle-model',
+        'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+        'done': true,
+      };
+      history['currentId'] = answerId;
+      _touch(chatId);
+      _event(chatId, answerId, <String, dynamic>{'type': 'chat:reload'});
+      return;
+    }
     final questionId = 'held-question-$n';
     final answerId = 'held-answer-$n';
     for (final message in waiting) {
@@ -923,6 +957,10 @@ final class FakeOwuiChats {
           history['currentId'] = gone['parentId'];
         }
         _touch(deleted[1]!);
+      }
+      if (holdMessageDeletes case final held?) {
+        if (!messageDeleteAsked.isCompleted) messageDeleteAsked.complete();
+        await held.future;
       }
       return json(row);
     }

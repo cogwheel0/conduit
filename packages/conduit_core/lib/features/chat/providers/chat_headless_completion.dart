@@ -673,6 +673,34 @@ Future<void> runHeadlessCompletion(
   );
 }
 
+/// The answers whose request the server held ([ChatCompletionHeld]), as
+/// [settleHeldOpenWebUiCompletion] records them before settling them. What
+/// follows a turn reads its outcome here: a pull can answer the held question
+/// or replace it meanwhile, and the settle then leaves it unmarked.
+final heldCompletionsProvider = Provider<HeldCompletions>(
+  (_) => HeldCompletions(),
+);
+
+/// The newest held answer ids ([heldCompletionsProvider]).
+final class HeldCompletions {
+  static const int _limit = 512;
+  final Set<String> _held = <String>{};
+
+  void _record(Iterable<String> answerIds) {
+    for (final id in answerIds) {
+      _held
+        ..remove(id)
+        ..add(id);
+    }
+    while (_held.length > _limit) {
+      _held.remove(_held.first);
+    }
+  }
+
+  /// Whether the server held the request that was to write answer [answerId].
+  bool contains(String answerId) => _held.contains(answerId);
+}
+
 /// Settles a turn the server holds ([ChatCompletionHeld]) until a reply
 /// running in its chat ends: it answers question [questionId] then, under new
 /// ids, and `chat:reload` brings that answer to a chat on screen.
@@ -685,7 +713,8 @@ Future<void> runHeadlessCompletion(
 /// is recorded in the outbox before anything else ([ChatsDao.recordHeldTurn]),
 /// where no pull reaches it, so a retry of the turn after a failed settle
 /// only settles it again. A question the server answered meanwhile is not
-/// shown waiting.
+/// shown waiting; its answers are recorded held all the same, first of all
+/// ([heldCompletionsProvider]).
 ///
 /// [earlierHoldIds] are the empty answers an earlier hold of the question
 /// left, which a regeneration of it hid. Those, any others the stored chat
@@ -702,6 +731,7 @@ Future<void> settleHeldOpenWebUiCompletion(
 }) async {
   final answerIds = assistantMessageIds.toList(growable: false);
   final earlierHolds = earlierHoldIds.toSet();
+  (ref.read(heldCompletionsProvider) as HeldCompletions)._record(answerIds);
   DebugLogger.log(
     'queued-completion-held',
     scope: 'chat/completion',

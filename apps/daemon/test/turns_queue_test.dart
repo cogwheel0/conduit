@@ -395,6 +395,173 @@ void main() {
     },
   );
 
+  /// One answered turn in [chatId], with a window showing the chat, and what
+  /// the daemon says from then on.
+  Future<
+    ({
+      List<String> started,
+      List<TurnFinished> finished,
+      List<String> completed,
+    })
+  >
+  answeredChat(String chatId) async {
+    owui.chats.seed(chatId, userId: 'user-ada');
+    final started = <String>[];
+    final finished = <TurnFinished>[];
+    final completed = <String>[];
+    events.attach('probe', (envelope) {
+      switch (envelope.event) {
+        case ConduitEvents.turnStarted:
+          started.add(TurnStarted.fromJson(envelope.payload).messageId);
+        case ConduitEvents.turnFinished:
+          finished.add(TurnFinished.fromJson(envelope.payload));
+        case ConduitEvents.turnCompleted:
+          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+      }
+    });
+    await clock.during(
+      turns.send(
+        SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is the kettle on?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    await until(() => completed.isNotEmpty);
+    return (started: started, finished: finished, completed: completed);
+  }
+
+  /// Once a held send's empty answer is deleted on the server, and while the
+  /// reply to that delete is late: the answer [elsewhere] runs ends, the
+  /// server answers the held question in place, and a pull stores that
+  /// answer. Then the reply comes.
+  Future<void> answeredWhileDeleting(
+    String chatId,
+    Completer<void> elsewhere,
+    Completer<void> deletes,
+  ) async {
+    final chats = owui.chats..answerHeldInPlace = true;
+    await clock.during(chats.messageDeleteAsked.future);
+    elsewhere.complete();
+    await clock.during(elsewhere.future);
+    await clock.during(
+      runtime.container.read(syncEngineProvider.notifier).pullChatNow(chatId),
+    );
+    chats.holdMessageDeletes = null;
+    deletes.complete();
+  }
+
+  /// [chatId] once the server has answered its held question [answerId]:
+  /// nothing streams in its scope, and the chat the windows read shows the
+  /// question with that answer.
+  Future<void> expectAnsweredInPlace(String chatId, String answerId) async {
+    expect(turns.isRunning(chatId), isFalse);
+    expect(
+      turns
+          .openMessages(chatId)!
+          .where((m) => m.isStreaming || m.id == answerId),
+      isEmpty,
+    );
+    final chatsService = ChatsService(runtime.container, events: events);
+    final answered = (await chatsService.get(chatId))!.messages;
+    expect(answered.where((m) => m.held), isEmpty);
+    expect(answered.map((m) => m.id), isNot(contains(answerId)));
+    expect(
+      [for (final m in answered.skip(answered.length - 2)) m.content],
+      ['And the pantry?', owui.chats.answer],
+    );
+  }
+
+  test('a held message the server answers while its empty answer\'s delete '
+      'is out ends its turn held', () async {
+    const chatId = 'chat-wine-rack';
+    final said = await answeredChat(chatId);
+    final chats = owui.chats;
+    final elsewhere = chats.runElsewhere(chatId);
+    // A drain already running (another chat's send, its save held here)
+    // takes the request once it is free: the send returns first, and its
+    // turn starts before the server holds it.
+    const otherId = 'chat-larder';
+    chats
+      ..seed(otherId, userId: 'user-ada')
+      ..holdChatSavesOf = otherId
+      ..chatSaveAsked = Completer<void>();
+    final saves = chats.holdChatSaves = Completer<void>();
+    final other = clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: otherId,
+          model: 'kettle-model',
+          text: 'Is the oven on?',
+        ),
+      ),
+    );
+    await clock.during(chats.chatSaveAsked.future);
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'And the pantry?',
+        ),
+      ),
+    );
+    final main = sent.assistantMessageId;
+    await until(() => said.started.contains(main));
+
+    final deletes = chats.holdMessageDeletes = Completer<void>();
+    chats.holdChatSaves = null;
+    saves.complete();
+    await answeredWhileDeleting(chatId, elsewhere, deletes);
+    // That drain ends once the held send has settled.
+    await clock.during(other);
+
+    expect(chats.heldCompletions, hasLength(1));
+    expect(
+      [
+        for (final f in said.finished)
+          if (f.messageId == main) (f.ok, f.held),
+      ],
+      [(true, true)],
+    );
+    expect(said.completed, isNot(contains(main)));
+    await expectAnsweredInPlace(chatId, main);
+  });
+
+  test('a held message the server answers while its empty answer\'s delete '
+      'is out, before its turn has started, is sent and ends held', () async {
+    const chatId = 'chat-spice-rack';
+    final said = await answeredChat(chatId);
+    final chats = owui.chats;
+    final elsewhere = chats.runElsewhere(chatId);
+    final deletes = chats.holdMessageDeletes = Completer<void>();
+    final sending = clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'And the pantry?',
+        ),
+      ),
+    );
+    await answeredWhileDeleting(chatId, elsewhere, deletes);
+    final sent = await sending;
+
+    final main = sent.assistantMessageId;
+    expect(chats.heldCompletions, hasLength(1));
+    expect(said.started, isNot(contains(main)));
+    expect(
+      [
+        for (final f in said.finished)
+          if (f.messageId == main) (f.ok, f.held),
+      ],
+      [(true, true)],
+    );
+    await expectAnsweredInPlace(chatId, main);
+  });
+
   test('a comparison the server holds ends each of its other columns held, '
       'before its own', () async {
     const chatId = 'chat-scullery';

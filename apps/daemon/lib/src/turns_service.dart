@@ -266,7 +266,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   static Duration lingerAfterTurn = const Duration(seconds: 30);
 
   /// How long a chat's scope waits for the answer to a question the server
-  /// holds ([_heldQuestion]) when no window shows the chat. The answer comes
+  /// holds ([_requestHeld]) when no window shows the chat. The answer comes
   /// on the scope's socket; once the scope has closed, the next pull of the
   /// chat brings it instead. Measured with [_now] and waited with [_pause].
   static const Duration heldOpenLimit = Duration(minutes: 10);
@@ -2431,7 +2431,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
     final answer = _find(session, messages, turn.messageId);
     if (answer == null) {
-      if (_heldQuestion(messages, turn.userMessageId)) _endHeld(session, turn);
+      if (_requestHeld(turn.messageId)) _endHeld(session, turn);
       return;
     }
     if (answer.isStreaming) {
@@ -2562,7 +2562,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final answer = _pendingAnswer(session, pending, messages);
     if (answer == null) {
       final answerId = pending.assistantMessageId;
-      if (answerId != null && _heldQuestion(messages, pending.userMessageId)) {
+      if (answerId != null && _requestHeld(answerId)) {
         _endQueuedBeforeStart(session, pending, answerId);
         _emitHeld(session, session.chatId, answerId);
         return;
@@ -2747,18 +2747,20 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _announce(chatId);
   }
 
-  /// Whether [questionId] is a question the server holds until another reply
-  /// in the chat ends (Open WebUI 0.13.4): the core has taken its empty answer
-  /// away, and the server's own answer comes later, under new ids.
-  static bool _heldQuestion(List<ChatMessage> messages, String? questionId) =>
-      questionId != null &&
-      messages.any((m) => m.id == questionId && m.isHeldByServer);
+  /// Whether the server held the request for answer [answerId] until another
+  /// reply in its chat ends (Open WebUI 0.13.4), as the core recorded it: the
+  /// core takes that empty answer away, and the server's own answer comes
+  /// under other ids. Not the question's mark, which the core leaves off once
+  /// a pull has stored an answer to it, and which a pull can replace.
+  bool _requestHeld(String answerId) =>
+      _container.read(heldCompletionsProvider).contains(answerId);
 
-  /// [turn]'s question is held by the server ([_heldQuestion]): the turn
-  /// ends here, with neither an answer nor a failure, as a queued one does
-  /// ([_handOffQueued]). The windows fetch the chat, where the question shows
-  /// waiting, and the answer comes with a later fetch of it. A comparison's
-  /// other answers end held first, the same way.
+  /// [turn]'s request was held by the server ([_requestHeld]): the turn ends
+  /// here, with neither an answer nor a failure, as a queued one does
+  /// ([_handOffQueued]), even once the server has answered the question. The
+  /// windows fetch the chat, where the question shows waiting, or with the
+  /// answer a pull stored meanwhile; a later answer comes with a later fetch.
+  /// A comparison's other answers end held first, the same way.
   void _endHeld(_ChatSession session, _Turn turn) {
     final companions = <TurnFinished>[];
     for (final entry in turn.companions.entries) {
