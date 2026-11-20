@@ -190,6 +190,66 @@ void main() {
     },
   );
 
+  test('device read-aloud renders three chunks ahead and queues them in '
+      'order', () async {
+    final pending = {
+      for (final text in ['B strip.', 'C strip.', 'D strip.', 'E strip.'])
+        text: Completer<NativeTtsAudio>(),
+    };
+    device.pendingChunks.addAll(pending);
+    await manager.updateConfig(
+      const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+    );
+    await manager.speak(
+      'A strip.\n\nB strip.\n\nC strip.\n\nD strip.\n\nE strip.',
+      seekable: true,
+    );
+    await pumpEventQueue();
+    expect(device.rendered, ['A strip.', 'B strip.', 'C strip.', 'D strip.']);
+
+    // A later chunk rendered first waits for the one before it.
+    pending['C strip.']!.complete(await _syntheticAudio());
+    await pumpEventQueue();
+    expect(player.clips.map((clip) => clip.tag), [0]);
+
+    pending['B strip.']!.complete(await _syntheticAudio());
+    await pumpEventQueue();
+    expect(player.clips.map((clip) => clip.tag), [0, 1, 2]);
+    expect(device.rendered.last, 'E strip.');
+
+    pending['E strip.']!.complete(await _syntheticAudio());
+    pending['D strip.']!.complete(await _syntheticAudio());
+    await pumpEventQueue();
+    expect(player.clips.map((clip) => clip.tag), [0, 1, 2, 3, 4]);
+    expect(manager.playbackDuration, const Duration(seconds: 100));
+  });
+
+  test(
+    'a failed render ends the reading while later ones are under way',
+    () async {
+      final pending = {
+        for (final text in ['B strip.', 'C strip.'])
+          text: Completer<NativeTtsAudio>(),
+      };
+      device.pendingChunks.addAll(pending);
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      final events = <TtsEvent>[];
+      final sub = manager.events.listen(events.add);
+      addTearDown(sub.cancel);
+      await manager.speak('A strip.\n\nB strip.\n\nC strip.', seekable: true);
+      final late = await _syntheticAudio();
+      pending['C strip.']!.complete(late);
+      pending['B strip.']!.completeError(StateError('Synthetic stall'));
+      await pumpEventQueue();
+      expect(events.whereType<TtsError>(), hasLength(1));
+      expect(manager.isPlaying, isFalse);
+      expect(player.clips.map((clip) => clip.tag), [0]);
+      expect(File(late.path).existsSync(), isFalse);
+    },
+  );
+
   test('late device prefetch cannot append to a replacement session', () async {
     final second = Completer<NativeTtsAudio>();
     device.pendingChunks['Second strip.'] = second;

@@ -495,6 +495,36 @@ class SettingsService {
         : PreferencesStore.put(key, value);
   }
 
+  /// Halves a speed saved for the device voice, once; Android runs it at
+  /// startup.
+  ///
+  /// Android's bridge handed its engine rates on Apple's scale, where 0.5
+  /// is the voice's own pace and Android's is 1.0, so every speed played at
+  /// half the voice's pace. The bridge now converts the scale; halving what
+  /// was saved keeps each reading as fast as it was, and the speed shown is
+  /// the one heard. A server voice's speed was always its own, and stays.
+  static Future<void> migrateAndroidDeviceSpeed() async {
+    if (!PreferencesStore.isReady ||
+        PreferencesStore.getBool(PreferenceKeys.ttsAndroidPaceMigrated) ==
+            true) {
+      return;
+    }
+    final engine = _parseTtsEngine(
+      PreferencesStore.get<String>(PreferenceKeys.ttsEngine),
+    );
+    final speed = PreferencesStore.get<num>(PreferenceKeys.ttsSpeed);
+    // Before speeds, Android's engine was given this rate as it was.
+    final rate = PreferencesStore.get<num>(PreferenceKeys.ttsSpeechRate);
+    final kept = engine != TtsEngine.device
+        ? null
+        : speed != null
+        ? speed / 2
+        : rate?.toDouble();
+    // Marked first: a second halving would be worse than none.
+    await PreferencesStore.put(PreferenceKeys.ttsAndroidPaceMigrated, true);
+    if (kept != null) await PreferencesStore.put(PreferenceKeys.ttsSpeed, kept);
+  }
+
   static TtsEngine _parseTtsEngine(String? raw) {
     switch ((raw ?? '').toLowerCase()) {
       case 'server':
@@ -954,11 +984,20 @@ const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
 
 /// Data class for app settings
 /// The speech speeds offered, as multiples of the voice's own pace.
-const List<double> ttsSpeedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
+const List<double> ttsSpeedPresets = [
+  0.25,
+  0.5,
+  0.75,
+  1.0,
+  1.25,
+  1.5,
+  1.75,
+  2.0,
+];
 
-/// The offered speed nearest [speed].
+/// The offered speed nearest [speed], the faster one when two are as near.
 double nearestTtsSpeed(double speed) => ttsSpeedPresets.reduce(
-  (best, next) => (next - speed).abs() < (best - speed).abs() ? next : best,
+  (best, next) => (next - speed).abs() <= (best - speed).abs() ? next : best,
 );
 
 /// The speed for the device engine [rate] an older install saved, where 0.5

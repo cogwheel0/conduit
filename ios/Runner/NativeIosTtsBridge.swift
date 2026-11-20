@@ -83,7 +83,9 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
     private let synthesizer = AVSpeechSynthesizer()
     private let pendingStarts = NativeIosTtsPendingStarts()
     private var methodChannel: FlutterMethodChannel?
-    private var fileSynthesis: NativeIosTtsAudioFile?
+    /// Renders asked for and not yet answered, in the order asked; the first
+    /// is being written, and each starts when the one before it ends.
+    private var fileSyntheses: [(id: UUID, task: NativeIosTtsAudioFile)] = []
     private var eventSink: FlutterEventSink?
 
     private override init() {
@@ -121,8 +123,9 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
         return nil
     }
 
-    /// File synthesis requires nonempty text and replaces any pending task.
-    /// Returns a local path and durationMs, or a FlutterError on failure.
+    /// File synthesis requires nonempty text and waits for the renders asked
+    /// for before it. Returns a local path and durationMs, or a FlutterError
+    /// on failure.
     private func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
         switch call.method {
         case "isAvailable":
@@ -135,7 +138,6 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
                 result(FlutterError(code: "INVALID_TEXT", message: "Speech text is empty", details: nil))
                 return
             }
-            fileSynthesis?.cancel()
             let utterance = AVSpeechUtterance(string: text)
             if let identifier = arguments["voiceIdentifier"] as? String {
                 utterance.voice = resolveVoice(identifier)
@@ -143,14 +145,17 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
             utterance.rate = Self.speechRate(from: arguments["rate"])
             utterance.pitchMultiplier = Self.floatValue(arguments["pitch"], fallback: 1, min: 0.5, max: 2)
             utterance.volume = Self.floatValue(arguments["volume"], fallback: 1, min: 0, max: 1)
+            let id = UUID()
             let task = NativeIosTtsAudioFile(utterance: utterance) { [weak self] value in
-                self?.fileSynthesis = nil
                 result(value)
+                self?.endFileSynthesis(id)
             }
-            fileSynthesis = task
-            task.start()
+            fileSyntheses.append((id, task))
+            if fileSyntheses.count == 1 { task.start() }
         case "cancelSynthesis":
-            fileSynthesis?.cancel()
+            let cancelled = fileSyntheses
+            fileSyntheses = []
+            cancelled.forEach { $0.task.cancel() }
             result(true)
         case "speak":
             guard let arguments = call.arguments as? [String: Any],
@@ -345,6 +350,12 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
         @unknown default:
             return "Unknown"
         }
+    }
+
+    private func endFileSynthesis(_ id: UUID) {
+        let wasWriting = fileSyntheses.first?.id == id
+        fileSyntheses.removeAll { $0.id == id }
+        if wasWriting { fileSyntheses.first?.task.start() }
     }
 
     private static func speechRate(from raw: Any?) -> Float {

@@ -163,6 +163,10 @@ class TtsConfig {
 /// a stream that consumers can listen to.
 class TtsManager {
   static const int _serverPrefetchParallelism = 3;
+
+  /// Device renders asked for ahead of the chunk playing, as server fetches
+  /// are: the engine starts the next one as soon as it finishes one.
+  static const int _devicePrefetchDepth = 3;
   static const Duration _serverInitialLookaheadTimeout = Duration(
     milliseconds: 220,
   );
@@ -170,8 +174,8 @@ class TtsManager {
   static const String splitOnParagraphs = speechSplitOnParagraphs;
   static const String splitOnNone = speechSplitOnNone;
 
-  /// The device engines' own pace: iOS's default utterance rate, and the
-  /// rate Android has always been given.
+  /// A voice's own pace on the rate scale every device bridge takes: Apple's,
+  /// where it is the default utterance rate (Android's bridge doubles it).
   static const double _deviceBaseRate = 0.5;
 
   TtsManager._();
@@ -906,11 +910,24 @@ class TtsManager {
   }
 
   Future<void> _prefetchDeviceAudio(TtsPlaybackSession session) async {
+    final renders = <Future<AudioClip?>>[];
+    var next = 1;
+    void renderAhead() {
+      while (next < session.chunks.length &&
+          renders.length < _devicePrefetchDepth) {
+        // Awaited in order below: one failing before its turn is reported
+        // then, not as an unhandled error.
+        renders.add(_synthesizeDeviceAudioChunk(session, next++)..ignore());
+      }
+    }
+
     try {
-      for (var index = 1; index < session.chunks.length; index++) {
+      renderAhead();
+      for (var index = 1; renders.isNotEmpty; index++) {
         if (_activeSession?.id != session.id) return;
-        final source = await _synthesizeDeviceAudioChunk(session, index);
+        final source = await renders.removeAt(0);
         if (source == null) return;
+        renderAhead();
         // Queued behind any replacement's start: dropped if this reading is
         // over by its turn, so it never lands in another reading's list.
         await _onPlaylist(() => _owns(session), () => _player.addClip(source));

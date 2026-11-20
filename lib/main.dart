@@ -64,6 +64,8 @@ import 'package:conduit_core/persistence/persistence_migrator.dart';
 
 import 'package:conduit_core/persistence/persistence_providers.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/settings_service.dart'
+    show SettingsService;
 
 import 'core/router/app_router.dart';
 import 'core/services/native_sheet_bridge.dart';
@@ -320,6 +322,9 @@ void main() {
       // Copy Hive-resident preferences into shared_preferences (PR-1 of the
       // Hive removal). Runs once; gated + crash-safe.
       await HivePrefsMigrator(hiveBoxes: hiveBoxes).migrateIfNeeded();
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        await SettingsService.migrateAndroidDeviceSpeed();
+      }
       await captureReleaseNotesInstallProvenance();
       _startupTimeline?.instant('migration_complete');
 
