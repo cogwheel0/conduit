@@ -13,6 +13,8 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show DirectChatInputException;
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -44,6 +46,9 @@ final class _WaitingAdapter implements DirectProviderAdapter {
   final requests = <DirectCompletionRequest>[];
   var runs = 0;
 
+  /// Completes when the first reply is asked for.
+  final asked = Completer<void>();
+
   @override
   String get key => kOllamaAdapterKey;
 
@@ -63,6 +68,7 @@ final class _WaitingAdapter implements DirectProviderAdapter {
   ) {
     runs++;
     requests.add(request);
+    if (!asked.isCompleted) asked.complete();
     return DirectCompletionRun(
       id: 'run-$runs',
       profileId: profile.id,
@@ -167,9 +173,7 @@ void main() {
       onAssistantPlaceholderCreated: (_) => steps.add('placeholder'),
       onTurnStarted: () => steps.add('started'),
     ).whenComplete(() => sent = true);
-    for (var turn = 0; turn < 200 && adapter.runs == 0; turn++) {
-      await pumpEventQueue();
-    }
+    await adapter.asked.future;
 
     check(adapter.runs).equals(1);
     check(steps).deepEquals(['placeholder', 'started']);
@@ -204,17 +208,14 @@ void main() {
     );
 
     final send = durableSend(container, '', [image]);
-    for (var turn = 0; turn < 200 && adapter.runs == 0; turn++) {
-      await pumpEventQueue();
-    }
+    await adapter.asked.future;
 
     check(adapter.runs).equals(1);
     final asked = adapter.requests.single.messages.last;
     check(asked.parts.single).isA<DirectImagePart>();
     check(container.read(chatMessagesProvider).first.content).equals('');
-    check(
-      container.read(activeConversationProvider)?.title,
-    ).equals('chart.png');
+    check(container.read(activeConversationProvider)?.title)
+        .equals('chart.png');
 
     adapter.events
       ..add(const DirectContentDelta('A bar chart.'))
@@ -229,5 +230,32 @@ void main() {
     check(userMessage.files).isNotNull().deepEquals([
       {'type': 'image', 'url': image, 'name': 'chart.png'},
     ]);
+  });
+
+  // An image kept on the server is fetched only after the turn is saved,
+  // and the chat is named as it is saved, from the name the tray shows.
+  test('a Direct send of a server image alone is titled by it', () async {
+    final adapter = _WaitingAdapter();
+    final container = _directContainer(
+      adapter,
+      tray: [
+        FileUploadState(
+          file: File('/synthetic/tray/scan.png'),
+          fileName: 'scan.png',
+          fileSize: 3,
+          progress: 1,
+          status: FileUploadStatus.completed,
+          fileId: 'file-scan',
+          isImage: true,
+        ),
+      ],
+    );
+
+    // No server here to fetch it from: the send stops once the turn is
+    // saved.
+    await check(durableSend(container, '', ['file-scan']))
+        .throws<DirectChatInputException>();
+
+    check(container.read(activeConversationProvider)?.title).equals('scan.png');
   });
 }

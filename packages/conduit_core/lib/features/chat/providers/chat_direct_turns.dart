@@ -16,6 +16,7 @@ Future<_DirectConversationOwner?> _persistDirectTurnStart(
   required Object? openWebUiAuthSessionEpoch,
   required SyncEngine? openWebUiSyncEngine,
   String? pendingFolderId,
+  List<String> attachmentNames = const [],
 }) async {
   final active = expectedConversation;
   final storedActive = active != null && chatStorageKindOf(active) != null;
@@ -23,9 +24,16 @@ Future<_DirectConversationOwner?> _persistDirectTurnStart(
       ref.read(temporaryChatEnabledProvider) ||
       (active != null && isTemporaryChat(active.id) && !storedActive);
   final now = ref.read(syncClockProvider).nowEpochSeconds();
+  // A turn without words is named by its files. A server image joins the
+  // message's files only once it is fetched, after this, so the names the
+  // tray showed are read instead.
   final title = active?.title.trim().isNotEmpty == true
       ? active!.title
-      : _titleFromText(_titleSourceOf(userMessage));
+      : _titleFromText(
+          userMessage.content.trim().isEmpty && attachmentNames.isNotEmpty
+              ? attachmentNames.join(', ')
+              : _titleSourceOf(userMessage),
+        );
 
   if (isTemporary) {
     final id = active?.id ?? 'local:${const Uuid().v4()}';
