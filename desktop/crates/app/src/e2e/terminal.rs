@@ -628,7 +628,7 @@ async fn in_a_chat(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             .update(cx, |c, cx| c.select_model(&model, cx))
     });
     // The composer's Terminal section: the Build box for this chat's tool.
-    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(SERVER.into(), cx));
+    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(SERVER.into(), None, cx));
     let selected = wait_until(cx, Duration::from_secs(10), |cx| {
         cx.global::<AppState>()
             .stores
@@ -707,7 +707,7 @@ async fn in_a_chat(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
     }
     // Leave the account as it was: no terminal for chats, the chat gone.
-    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(SERVER.into(), cx));
+    cx.update(|cx| crate::views::terminal::chat::toggle_terminal(SERVER.into(), None, cx));
     if let Some(chat_id) = chat_id {
         let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
         let _ = rpc
