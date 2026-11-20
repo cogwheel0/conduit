@@ -1068,7 +1068,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     final text = _controller.text.trim();
-    if (text.isEmpty || !widget.enabled) return;
+    if (!draftHasSendableContent(text, ref.read(attachedFilesProvider)) ||
+        !widget.enabled) {
+      return;
+    }
     if (_queuesInsteadOfSending) {
       _queueDraft();
       return;
@@ -1626,7 +1629,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     final wireText = _outgoingText();
-    if (wireText.isEmpty || !widget.enabled) return;
+    if (!draftHasSendableContent(wireText, ref.read(attachedFilesProvider)) ||
+        !widget.enabled) {
+      return;
+    }
     // Edits made after this point belong to a newer draft.
     final draftGeneration = _editGeneration;
     // The draft is the user's until the turn is durably admitted: a refusal
@@ -3743,6 +3749,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             files.every((f) => f.status == FileUploadStatus.completed),
       ),
     );
+    // Files alone make a message: Send stands in for the voice call.
+    final hasDraft =
+        _hasText ||
+        ref.watch(attachedFilesProvider.select((files) => files.isNotEmpty));
 
     final webSearchEnabled = ref.watch(webSearchEnabledProvider);
     final webSearchAvailable = ref.watch(webSearchAvailableProvider);
@@ -4300,7 +4310,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               ],
               if (!showInlineMicAction) const SizedBox(width: Spacing.xs),
               _buildPrimaryButton(
-                _hasText,
+                hasDraft,
                 isGenerating,
                 stopGeneration,
                 voiceAvailable,
@@ -4401,7 +4411,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ],
                 if (!compactControls.showMic) const SizedBox(width: Spacing.xs),
                 _buildPrimaryButton(
-                  _hasText,
+                  hasDraft,
                   isGenerating,
                   stopGeneration,
                   voiceAvailable,
@@ -5213,7 +5223,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   }
 
   Widget _buildPrimaryButton(
-    bool hasText,
+    bool hasDraft,
     bool isGenerating,
     void Function() stopGeneration,
     bool voiceAvailable,
@@ -5240,7 +5250,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     // Don't allow sending until all uploads are complete.
     final enabled =
-        !isGenerating && hasText && widget.enabled && allUploadsComplete;
+        !isGenerating && hasDraft && widget.enabled && allUploadsComplete;
 
     // Generating -> STOP variant, for a reply this account may stop. Another
     // person's reply leaves the draft to Queue, and Send waits for it.
@@ -5277,7 +5287,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return SizedBox.square(dimension: buttonSize);
     }
 
-    if (hasText) {
+    if (hasDraft) {
       final onPressed = enabled ? _sendMessage : null;
       final glyphLit = enabled;
       final sendChild = hasUploadsInProgress

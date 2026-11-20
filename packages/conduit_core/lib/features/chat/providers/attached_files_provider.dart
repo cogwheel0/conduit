@@ -180,6 +180,16 @@ final attachedFilesProvider =
       AttachedFilesNotifier.new,
     );
 
+/// Whether a draft of [text] and [files] has something to send: words, or a
+/// file that finished uploading. A turn of files alone is answered on every
+/// backend.
+bool draftHasSendableContent(String text, Iterable<FileUploadState> files) =>
+    text.trim().isNotEmpty ||
+    files.any(
+      (file) =>
+          file.status == FileUploadStatus.completed && file.fileId != null,
+    );
+
 /// A file held by a draft queued behind a running response.
 ///
 /// [id] names the capture and stays the same as the upload reports progress,

@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:conduit/features/chat/widgets/model_suggestion_overlay.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 import 'package:conduit_core/features/librechat/models/librechat_prompts.dart'
@@ -50,6 +53,15 @@ final class _Active extends ActiveConversationNotifier {
 final class _Models extends Models {
   @override
   Future<List<Model>> build() async => [_libreChatModel, _otherModel];
+}
+
+final class _Tray extends AttachedFilesNotifier {
+  _Tray(this.files);
+
+  final List<FileUploadState> files;
+
+  @override
+  List<FileUploadState> build() => files;
 }
 
 final _overlay = find.byType(ModelSuggestionOverlay);
@@ -195,6 +207,34 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
     await tester.pump();
     expect(_sent, ['Ask @${_otherModel.name}']);
+  });
+
+  // A message can be files alone, as on every backend's own client.
+  testWidgets('finished files are sent without words', (tester) async {
+    _sent.clear();
+    await _pumpComposer(
+      tester,
+      _otherModel,
+      overrides: [
+        attachedFilesProvider.overrideWith(
+          () => _Tray([
+            FileUploadState(
+              file: File('/synthetic/tray/receipt.png'),
+              fileName: 'receipt.png',
+              fileSize: 3,
+              progress: 1,
+              status: FileUploadStatus.completed,
+              fileId: 'file-1',
+              isImage: true,
+            ),
+          ]),
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await tester.pump();
+    expect(_sent, ['']);
   });
 }
 

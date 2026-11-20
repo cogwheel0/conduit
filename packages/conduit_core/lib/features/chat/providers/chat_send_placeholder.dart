@@ -1057,6 +1057,18 @@ String _titleFromText(String text) {
   return trimmed.length <= 50 ? trimmed : trimmed.substring(0, 50);
 }
 
+/// What names a chat begun with [turn]: its words, or its files' names when
+/// it was sent without any.
+String _titleSourceOf(ChatMessage? turn) {
+  if (turn == null) return '';
+  if (turn.content.trim().isNotEmpty) return turn.content;
+  return [
+    for (final file in turn.files ?? const <Map<String, dynamic>>[])
+      if (file['name'] case final String name when name.trim().isNotEmpty)
+        name.trim(),
+  ].join(', ');
+}
+
 // Send message function for widgets
 Future<void> sendMessage(
   dynamic ref,
@@ -1088,8 +1100,16 @@ Future<void> sendMessageWithContainer(
 /// Bridges the chat send pipeline to the direct Hermes runs transport, wiring
 /// the chat notifier callbacks and resolving multi-turn / memory continuity.
 /// Derives a short session title from the first user message.
-String _deriveHermesSessionTitle(String input) {
-  final trimmed = input.trim().replaceAll(RegExp(r'\s+'), ' ');
+///
+/// A turn sent without words is named by its files, read from the last user
+/// message of [messages].
+String _deriveHermesSessionTitle(String input, Iterable<ChatMessage> messages) {
+  final source = input.trim().isNotEmpty
+      ? input
+      : _titleSourceOf(
+          messages.where((message) => message.role == 'user').lastOrNull,
+        );
+  final trimmed = source.trim().replaceAll(RegExp(r'\s+'), ' ');
   if (trimmed.isEmpty) return 'New Hermes chat';
   return trimmed.length <= 60 ? trimmed : '${trimmed.substring(0, 60)}…';
 }

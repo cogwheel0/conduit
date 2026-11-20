@@ -25,7 +25,7 @@ Future<_DirectConversationOwner?> _persistDirectTurnStart(
   final now = ref.read(syncClockProvider).nowEpochSeconds();
   final title = active?.title.trim().isNotEmpty == true
       ? active!.title
-      : _titleFromText(userMessage.content);
+      : _titleFromText(_titleSourceOf(userMessage));
 
   if (isTemporary) {
     final id = active?.id ?? 'local:${const Uuid().v4()}';

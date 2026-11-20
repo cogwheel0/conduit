@@ -169,6 +169,7 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
         'type': 'image',
         'source': 'hermes_inline',
         'url': image,
+        'name': ?stateById[image]?.fileName,
       },
     for (final document in documents.documents)
       _hermesLocalDocumentDescriptor(document),

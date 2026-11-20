@@ -235,10 +235,19 @@ Future<void> _sendMessageInternal(
   final serverFileIds = <String>[];
 
   if (attachments != null && preparedHermesTurn == null) {
+    final trayNames = <String, String>{
+      for (final file
+          in ref.read(attachedFilesProvider) as List<FileUploadState>)
+        ?file.fileId: file.fileName,
+    };
     for (final attachment in attachments) {
       if (attachment.startsWith('data:image/')) {
         // Legacy base64 format - keep for backwards compatibility
-        legacyBase64Images.add({'type': 'image', 'url': attachment});
+        legacyBase64Images.add({
+          'type': 'image',
+          'url': attachment,
+          'name': ?trayNames[attachment],
+        });
       } else if (!(preparedDirectDocuments?.attachmentIds.contains(
             attachment,
           ) ??
