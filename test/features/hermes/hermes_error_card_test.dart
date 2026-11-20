@@ -181,6 +181,30 @@ void main() {
     expect(retried, 1);
   });
 
+  // Conduit's own sign-in to the gateway, which only native sign-in can
+  // renew from here: a legacy token is changed in Settings.
+  testWidgets('an ended gateway sign-in offers Sign In Again on a native '
+      'connection only', (tester) async {
+    final surface = hermesApiErrorSurface(HermesGatewaySignInRequired())!;
+    final native = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://desktop.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+      ),
+    );
+    addTearDown(native.close);
+
+    await _pumpCard(tester, surface, service: native, onRetry: () {});
+    expect(find.text(_l10n.hermesErrorGatewaySignIn), findsOneWidget);
+    expect(find.text(_l10n.hermesErrorBlocking), findsOneWidget);
+    expect(find.text(_l10n.hermesGatewaySignInAgain), findsOneWidget);
+
+    await _pumpCard(tester, surface, service: _desktop(), onRetry: () {});
+    expect(find.text(_l10n.hermesGatewaySignInAgain), findsNothing);
+  });
+
   testWidgets('a cut-off reply can go on with Continue', (tester) async {
     var continued = 0;
     await _pumpCard(

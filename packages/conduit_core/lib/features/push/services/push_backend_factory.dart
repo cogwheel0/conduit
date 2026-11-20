@@ -20,6 +20,7 @@ import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Opens a [PushBackend] for one target. Each backend is short-lived: the
 /// coordinator closes it after one pass.
@@ -212,16 +213,33 @@ final class AppPushBackendFactory implements PushBackendFactory {
     return config;
   }
 
-  HermesDesktopApiService _desktopService(HermesConfig config) =>
-      HermesDesktopApiService(
-        config: config,
-        dashboardBridgeFactory: _ref.read(
-          hostHermesDashboardBridgeFactoryProvider,
-        ),
-        onCredentialsChanged: _ref
-            .read(hermesConfigProvider.notifier)
-            .credentialsWriterFor(config),
-      );
+  HermesDesktopApiService _desktopService(HermesConfig config) {
+    final (write: writeCredentials, :read, :guard) = _ref
+        .read(hermesConfigProvider.notifier)
+        .tokenAccessFor(config);
+    return HermesDesktopApiService(
+      config: config,
+      dashboardBridgeFactory: _ref.read(
+        hostHermesDashboardBridgeFactoryProvider,
+      ),
+      readStoredTokens: read,
+      guardTokens: guard,
+      // Another client storing its rotation first, as the live one does
+      // renewing the same tokens on resume, is no sign-out: the stored tokens
+      // stay theirs, and the ones this client holds still serve its one pass.
+      // A sign-out, or a write that failed, ends the pass.
+      onCredentialsChanged: (credentials) async {
+        try {
+          await writeCredentials(credentials);
+        } on HermesTokenRotationSuperseded {
+          DebugLogger.warning(
+            'hermes-token-rotation-superseded',
+            scope: 'push/backend',
+          );
+        }
+      },
+    );
+  }
 
   @override
   Future<HermesBackendService> openHermesService(String connectionId) async {
@@ -277,12 +295,44 @@ final class AppPushBackendFactory implements PushBackendFactory {
       return current;
     }
     final kept = _retainedHermes[connectionId]?[target.serverIdentity];
-    if (kept != null) return kept;
+    // Only settings read paired with their principal lend their tokens.
+    if (kept != null) return _withGatewayTokens(kept, current);
     if (unusable != null) throw unusable;
     throw const PushBackendException(
       PushFailure(
         PushFailureReason.serverRejected,
         detail: 'connection_changed',
+      ),
+    );
+  }
+
+  /// [kept] with [saved]'s gateway tokens when both sign in natively to the
+  /// same gateway. The tokens belong to the gateway, not a profile, and the
+  /// live client rotates them: the refresh token [kept] was retained with
+  /// may be spent, and a provider that detects reuse ends the session. They
+  /// go with [saved]'s certificate policy, the one the user trusts that
+  /// gateway with now.
+  static HermesConfig _withGatewayTokens(
+    HermesConfig kept,
+    HermesConfig? saved,
+  ) {
+    final tokens = saved?.desktopCredentials?.nativeTokens;
+    if (saved == null ||
+        tokens == null ||
+        kept.mode != HermesBackendMode.desktopGateway ||
+        saved.mode != HermesBackendMode.desktopGateway ||
+        kept.desktopAuthKind != HermesDesktopAuthKind.nativePkce ||
+        saved.desktopAuthKind != HermesDesktopAuthKind.nativePkce ||
+        HermesConfig.connectionEndpoint(kept.baseUrl) !=
+            HermesConfig.connectionEndpoint(saved.baseUrl)) {
+      return kept;
+    }
+    return kept.copyWith(
+      allowSelfSignedCertificates: saved.allowSelfSignedCertificates,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: kept.desktopCredentials?.legacyToken,
+        nativeTokens: tokens,
+        accessHeaders: kept.accessHeaders,
       ),
     );
   }

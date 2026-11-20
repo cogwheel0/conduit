@@ -8,6 +8,8 @@ import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show startNewChat, startNewHermesChat;
+import 'package:conduit_core/features/hermes/models/hermes_config.dart'
+    show HermesDesktopAuthKind;
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -89,6 +91,9 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
           chatHermesBotPresentation(conversation) == null,
     HermesErrorAction.useCredits =>
       widget.onRetry != null && service is HermesDesktopApiService,
+    HermesErrorAction.signInToGateway =>
+      service is HermesDesktopApiService &&
+          service.config.desktopAuthKind == HermesDesktopAuthKind.nativePkce,
     HermesErrorAction.openProviderSettings ||
     HermesErrorAction.openBilling ||
     HermesErrorAction.newChat => true,
@@ -107,6 +112,7 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
         HermesErrorAction.openBilling => l10n.hermesErrorOpenBilling,
         HermesErrorAction.useCredits => l10n.hermesErrorUseCredits,
         HermesErrorAction.newChat => l10n.newChat,
+        HermesErrorAction.signInToGateway => l10n.hermesGatewaySignInAgain,
       };
 
   Future<void> _perform(HermesErrorAction action) async {
@@ -169,6 +175,14 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
           startNewChat(ref, modelForNewConversation: model);
         } else {
           await startNewHermesChat(ref);
+        }
+        return true;
+      case HermesErrorAction.signInToGateway:
+        final service = ref.read(hermesApiServiceProvider);
+        if (service is! HermesDesktopApiService) return false;
+        // The turn never reached Hermes, so running it again sends it once.
+        if (await service.signInNative() != null && mounted) {
+          widget.onRetry?.call();
         }
         return true;
     }
@@ -329,6 +343,7 @@ String _title(AppLocalizations l10n, HermesErrorKind kind) => switch (kind) {
   HermesErrorKind.session => l10n.hermesErrorSession,
   HermesErrorKind.busy => l10n.hermesErrorBusy,
   HermesErrorKind.gateway => l10n.hermesErrorGateway,
+  HermesErrorKind.gatewaySignIn => l10n.hermesErrorGatewaySignIn,
   HermesErrorKind.disk => l10n.hermesErrorDisk,
   HermesErrorKind.unknown => l10n.hermesErrorUnknown,
 };
@@ -336,7 +351,7 @@ String _title(AppLocalizations l10n, HermesErrorKind kind) => switch (kind) {
 IconData _icon(HermesErrorKind kind) => switch (kind) {
   HermesErrorKind.provider || HermesErrorKind.endpoint => Icons.cloud_off,
   HermesErrorKind.connection => Icons.wifi_off,
-  HermesErrorKind.auth => Icons.key,
+  HermesErrorKind.auth || HermesErrorKind.gatewaySignIn => Icons.key,
   HermesErrorKind.billing => Icons.credit_card,
   HermesErrorKind.usageLimit => Icons.hourglass_bottom,
   HermesErrorKind.freeTier => Icons.card_giftcard,

@@ -4,6 +4,10 @@ import 'package:conduit_core/utils/sensitive_value_utils.dart';
 /// Message metadata key holding a failed Hermes turn's [HermesErrorSurface].
 const String kHermesErrorSurfaceMeta = 'hermesErrorSurface';
 
+/// Conduit's code for a turn the gateway refused because Conduit's own
+/// sign-in to it has ended.
+const String kHermesGatewaySignInRequiredCode = 'gateway_sign_in_required';
+
 /// The longest server sentence a card shows.
 const int _kMaxHermesErrorSentence = 600;
 
@@ -48,6 +52,9 @@ enum HermesErrorKind {
   session,
   busy,
   gateway,
+
+  /// The gateway no longer accepts Conduit's own sign-in.
+  gatewaySignIn,
   disk,
   unknown,
 }
@@ -62,6 +69,9 @@ enum HermesErrorAction {
   openBilling,
   useCredits,
   newChat,
+
+  /// Signs in to the Hermes gateway again.
+  signInToGateway,
 }
 
 /// Whether the chat can go on (a retry, a continue) or is stuck until the
@@ -88,6 +98,9 @@ enum _Fix {
   switchToModel,
   useCredits,
   openBilling,
+
+  /// Conduit's own: sign in to the gateway again.
+  signInToGateway,
 }
 
 typedef _Fixes = (_Fix?, _Fix?);
@@ -388,6 +401,8 @@ final class HermesErrorSurface {
         return HermesErrorKind.busy;
       case 'disk_full':
         return HermesErrorKind.disk;
+      case kHermesGatewaySignInRequiredCode:
+        return HermesErrorKind.gatewaySignIn;
     }
     if (code.startsWith('free_tier_')) return HermesErrorKind.freeTier;
     return switch (layer) {
@@ -452,6 +467,7 @@ final class HermesErrorSurface {
     _Fix.openProviderSettings when providerSettingsUrl != null =>
       HermesErrorAction.openProviderSettings,
     _Fix.startNewSession => HermesErrorAction.newChat,
+    _Fix.signInToGateway => HermesErrorAction.signInToGateway,
     _ => null,
   };
 
@@ -543,6 +559,7 @@ const Map<String, _Fixes> _kCodeFixes = {
   // Conduit's own codes for API server refusals.
   'session_not_found': (_Fix.startNewSession, null),
   'gateway_draining': (_Fix.retry, null),
+  kHermesGatewaySignInRequiredCode: (_Fix.signInToGateway, null),
 };
 
 HermesErrorLayer? _layer(Object? value) {

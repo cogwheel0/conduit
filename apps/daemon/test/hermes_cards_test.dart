@@ -451,6 +451,12 @@ void main() {
       expect(overflow.kind, 'contextOverflow');
       expect(overflow.blocking, isTrue);
       expect(overflow.actions, <String>['compact', 'newChat']);
+
+      final signedOut = hermesErrorDto(
+        hermesApiErrorSurface(HermesGatewaySignInRequired())!,
+      );
+      expect(signedOut.kind, 'gatewaySignIn');
+      expect(signedOut.actions, isEmpty);
     });
 
     test("an answer's edits come as changed files", () {

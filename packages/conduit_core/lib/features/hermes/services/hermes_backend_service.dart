@@ -260,3 +260,15 @@ final class HermesDesktopGatewayStartingException implements Exception {
   @override
   String toString() => message;
 }
+
+/// The gateway no longer accepts this connection's native sign-in: it has no
+/// tokens, or Hermes refused to renew them. Only signing in again helps.
+///
+/// A [StateError], as a missing sign-in always was, so callers that treat
+/// one as "sign in needed" keep doing so.
+final class HermesGatewaySignInRequired extends StateError {
+  HermesGatewaySignInRequired() : super(_text);
+
+  static const String _text =
+      'Hermes signed Conduit out of this gateway. Sign in again to continue.';
+}

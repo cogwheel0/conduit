@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:clock/clock.dart';
 import 'package:conduit_core/utils/loopback_host.dart';
 
 /// Sentinel for [HermesConfig.copyWith] to distinguish "omitted" from an
@@ -58,8 +59,11 @@ final class HermesDesktopTokenSet {
   final String refreshToken;
   final DateTime expiresAt;
 
-  bool get needsRefresh =>
-      !expiresAt.isAfter(DateTime.now().add(const Duration(seconds: 60)));
+  bool get needsRefresh => expiresWithin(const Duration(seconds: 60));
+
+  /// Whether the access token has expired, or will within [margin].
+  bool expiresWithin(Duration margin) =>
+      !expiresAt.isAfter(clock.now().add(margin));
 
   Map<String, dynamic> toJson() => {
     'access_token': accessToken,

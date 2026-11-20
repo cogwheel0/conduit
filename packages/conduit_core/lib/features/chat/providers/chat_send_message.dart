@@ -1762,6 +1762,7 @@ String chatErrorContentForException(Object e) {
   }
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
+  if (e is HermesGatewaySignInRequired) return e.message;
   if (e is HermesChatInputException) return e.message;
   if (e is HermesLocalDocumentException) return e.message;
   if (e is DirectChatInputException) return e.message;

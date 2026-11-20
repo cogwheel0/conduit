@@ -1355,17 +1355,74 @@ void main() {
       // Two temporary clients built from the same stored tokens.
       final beta = await controller.savedConnectionConfig(_b);
       final first = controller.credentialsWriterFor(beta);
-      final second = controller.credentialsWriterFor(beta);
+      final second = controller.tokenAccessFor(beta);
 
       await first(_nativeCredentials('refresh-1'));
       // The second client's refresh token is spent; its sign-out after the
       // resulting 401 must not erase the rotated tokens.
-      await check(second(HermesDesktopCredentials())).throws<StateError>();
+      await check(
+        second.write(HermesDesktopCredentials()),
+      ).throws<StateError>();
+      // Its own rotation is refused too, as one another client superseded:
+      // nobody signed out.
+      await check(
+        second.write(_nativeCredentials('refresh-x')),
+      ).throws<HermesTokenRotationSuperseded>();
       check(await storedRefreshToken()).equals('refresh-1');
 
       // The client that rotated keeps persisting its own rotations.
       await first(_nativeCredentials('refresh-2'));
       check(await storedRefreshToken()).equals('refresh-2');
+
+      // Reading before it renews hands the second client the stored tokens,
+      // so its renewal of those lands, and the first client's is superseded.
+      check((await second.read())?.refreshToken).equals('refresh-2');
+      await second.write(_nativeCredentials('refresh-3'));
+      check(await storedRefreshToken()).equals('refresh-3');
+      await check(
+        first(_nativeCredentials('refresh-x')),
+      ).throws<HermesTokenRotationSuperseded>();
+    });
+
+    test('clients of one connection take turns with its tokens', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example').copyWith(
+          mode: HermesBackendMode.desktopGateway,
+          desktopAuthKind: HermesDesktopAuthKind.nativePkce,
+        ),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_desktop_credentials_v1:$_b': jsonEncode(
+            _nativeCredentials('refresh-0').toJson(),
+          ),
+        }),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final beta = await controller.savedConnectionConfig(_b);
+      final alpha = await controller.savedConnectionConfig(_a);
+
+      final renewing = Completer<void>();
+      final firstRunning = Completer<void>();
+      final first = controller.tokenAccessFor(beta).guard(() {
+        firstRunning.complete();
+        return renewing.future;
+      });
+      await firstRunning.future;
+      var secondRan = false;
+      final second = controller.tokenAccessFor(beta).guard(
+        () async => secondRan = true,
+      );
+      // Another connection's guard runs while Beta's is held.
+      await controller.tokenAccessFor(alpha).guard(() async {});
+
+      check(secondRan).isFalse();
+      renewing.complete();
+      await Future.wait([first, second]);
+      check(secondRan).isTrue();
     });
 
     // A client of the active connection refreshes its tokens; the server
@@ -1374,6 +1431,14 @@ void main() {
         in <(String, Future<void> Function(HermesConfigController))>[
       ('a switch away', (controller) => controller.setActiveConnection(_b)),
       ('turning Hermes off', (controller) => controller.setEnabled(false)),
+      // The tokens are the gateway's, kept across a profile change.
+      (
+        'a profile change',
+        (controller) => controller.saveConnection(
+          baseUrl: 'https://alpha.example',
+          desktopProfile: 'work',
+        ),
+      ),
     ]) {
       test('a token rotation landing after $change is kept', () async {
         _seedConnections([

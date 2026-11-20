@@ -625,6 +625,21 @@ void main() {
       check(surface.actionAt(_now)).equals(HermesErrorAction.newChat);
     });
 
+    // Not the model provider's login: Conduit's own sign-in to the gateway,
+    // which only signing in again brings back. Stored on the message, as
+    // the card is shown again after the chat reloads.
+    test('for an ended gateway sign-in offers to sign in again', () {
+      final surface = HermesErrorSurface.fromJson(
+        hermesApiErrorSurface(HermesGatewaySignInRequired())!.toJson(),
+      )!;
+
+      check(surface.kind).equals(HermesErrorKind.gatewaySignIn);
+      check(surface.actionsAt(_now)).deepEquals([
+        HermesErrorAction.signInToGateway,
+      ]);
+      check(surface.severityAt(_now)).equals(HermesErrorSeverity.blocking);
+    });
+
     test('for a conflicting request retries', () {
       final surface = hermesApiErrorSurface(
         refusal(409, code: HermesApiErrorCode.admissionConflict),

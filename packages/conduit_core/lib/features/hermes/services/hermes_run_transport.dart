@@ -2431,6 +2431,13 @@ HermesErrorSurface? hermesErrorSurfaceOf(ChatMessage message) {
 /// The card for an API server refusal Conduit can classify, or null when
 /// the plain explanation is all there is to say.
 HermesErrorSurface? hermesApiErrorSurface(Object error) {
+  if (error is HermesGatewaySignInRequired) {
+    return const HermesErrorSurface(
+      layer: HermesErrorLayer.gateway,
+      code: kHermesGatewaySignInRequiredCode,
+      retryable: false,
+    );
+  }
   if (error is! HermesApiException) return null;
   switch (error.code) {
     case HermesApiErrorCode.notFound:
@@ -2470,6 +2477,7 @@ String _friendlyError(Object e) {
   if (e is HermesModelSwitchHeld) return e.message;
   if (e is HermesModelSwitchDeclined) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
+  if (e is HermesGatewaySignInRequired) return e.message;
   if (e is FormatException) return 'Hermes returned an invalid response.';
   if (e is HermesApiException) {
     final refusal = hermesApiRefusalMessage(e);

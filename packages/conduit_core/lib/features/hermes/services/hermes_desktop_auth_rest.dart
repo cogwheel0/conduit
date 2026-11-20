@@ -125,7 +125,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     });
   }
 
-  Future<HermesDesktopTokenSet> _authSignInNative({String? provider}) async {
+  Future<HermesDesktopTokenSet?> _authSignInNative({String? provider}) async {
     await statusProbe(refresh: true);
     if (!nativePkceAdvertised) {
       throw StateError('This Hermes gateway does not advertise native PKCE.');
@@ -153,31 +153,17 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     );
 
     try {
-      final launched = await _openExternalUrl.open(authorize);
-      if (!launched) throw StateError('Could not open Hermes sign-in.');
-      final request = await (() async {
-        await for (final candidate in server) {
-          final matches =
-              candidate.uri.path == '/callback' &&
-              candidate.uri.queryParameters['state'] == state;
-          if (matches) return candidate;
-          candidate.response.statusCode = 404;
-          await candidate.response.close();
-        }
-        throw StateError('Hermes sign-in callback closed.');
-      })().timeout(const Duration(minutes: 5));
-      final code = request.uri.queryParameters['code'];
-      final returnedState = request.uri.queryParameters['state'];
-      request.response
-        ..statusCode = code != null && returnedState == state ? 200 : 400
-        ..headers.contentType = ContentType.html
-        ..write(
-          '<!doctype html><title>Hermes</title>'
-          '<p>${code != null && returnedState == state ? 'Sign-in complete. You can close this window.' : 'Sign-in could not be verified.'}</p>',
+      final String code;
+      if (_browserAuth.isSupported) {
+        final received = await _nativeCodeInBrowserSheet(
+          server,
+          authorize,
+          state,
         );
-      await request.response.close();
-      if (code == null || code.isEmpty || returnedState != state) {
-        throw StateError('Hermes sign-in state did not match.');
+        if (received == null) return null;
+        code = received;
+      } else {
+        code = await _nativeCodeInExternalBrowser(server, authorize, state);
       }
       final data = await _requestJson(
         'POST',
@@ -186,10 +172,138 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         body: {'code': code, 'code_verifier': verifier},
       );
       final tokens = _parseTokenSet(data);
-      await _saveTokens(tokens);
+      // A sign-in replaces what is stored, even tokens another client wrote
+      // since this one last read them: reading first makes the save expect
+      // those, where a renewal's save would be refused.
+      await _guardingTokens(() async {
+        await _readStoredTokens?.call();
+        await _saveTokens(tokens);
+      });
       return tokens;
     } finally {
       await server.close(force: true);
+    }
+  }
+
+  /// The code Hermes' loopback redirect brings, from a sign-in in the system
+  /// browser's sheet; null when the user closed it.
+  ///
+  /// Hermes redirects only to a loopback address, which no browser returns
+  /// to the app from. The sheet keeps the app in front, so the listener is
+  /// still there when Hermes redirects to it, and it answers with the app's
+  /// own redirect, which ends the sheet. That redirect carries only the
+  /// state, which the browser bridge tells sign-ins apart by: the code goes
+  /// from the listener to the token exchange and nowhere else.
+  Future<String?> _nativeCodeInBrowserSheet(
+    HttpServer server,
+    Uri authorize,
+    String state,
+  ) async {
+    final appRedirect = Uri.parse(browserAuthDefaultRedirect);
+    final ending = appRedirect.replace(queryParameters: {'state': state});
+    final callback = Completer<String>();
+    callback.future.ignore();
+    final listening = server.listen((request) async {
+      final response = request.response;
+      // Anything on the loopback port can call it: only this sign-in's state
+      // ends the sheet, and nothing else learns that state.
+      if (callback.isCompleted ||
+          request.uri.path != '/callback' ||
+          request.uri.queryParameters['state'] != state) {
+        response.statusCode = HttpStatus.notFound;
+      } else {
+        final code = request.uri.queryParameters['code'];
+        if (code != null && code.isNotEmpty) {
+          callback.complete(code);
+        } else {
+          callback.completeError(
+            StateError('Hermes sign-in returned no code.'),
+          );
+        }
+        response
+          ..statusCode = HttpStatus.found
+          ..headers.set(HttpHeaders.locationHeader, ending.toString());
+      }
+      try {
+        await response.close();
+      } catch (_) {
+        // The browser went away; the sign-in ends with its own result.
+      }
+    });
+    try {
+      final result = await _browserAuth.authorize(
+        authorize,
+        redirectUri: appRedirect,
+      );
+      if (result.outcome == BrowserAuthOutcome.cancelled) return null;
+      // A sheet can end on the app's redirect only after the listener sent
+      // it there, which settled the callback first.
+      if (result.outcome != BrowserAuthOutcome.success ||
+          !callback.isCompleted) {
+        throw StateError('Hermes sign-in did not finish ($result).');
+      }
+      return await callback.future;
+    } finally {
+      await listening.cancel();
+    }
+  }
+
+  /// The code from a sign-in in the default browser, on a host with no
+  /// browser sheet. The browser stays on the listener's page; the user comes
+  /// back to the app by hand.
+  Future<String> _nativeCodeInExternalBrowser(
+    HttpServer server,
+    Uri authorize,
+    String state,
+  ) async {
+    final launched = await _openExternalUrl.open(authorize);
+    if (!launched) throw StateError('Could not open Hermes sign-in.');
+    final request = await (() async {
+      await for (final candidate in server) {
+        final matches =
+            candidate.uri.path == '/callback' &&
+            candidate.uri.queryParameters['state'] == state;
+        if (matches) return candidate;
+        candidate.response.statusCode = 404;
+        await candidate.response.close();
+      }
+      throw StateError('Hermes sign-in callback closed.');
+    })().timeout(const Duration(minutes: 5));
+    // This sign-in's own callback: it signs in only with a code.
+    final code = request.uri.queryParameters['code'] ?? '';
+    request.response
+      ..statusCode = code.isNotEmpty ? 200 : 400
+      ..headers.contentType = ContentType.html
+      ..write(
+        '<!doctype html><title>Hermes</title>'
+        '<p>${code.isNotEmpty ? 'Sign-in complete. You can close this window.' : 'Sign-in could not be verified.'}</p>',
+      );
+    await request.response.close();
+    if (code.isEmpty) throw StateError('Hermes sign-in returned no code.');
+    return code;
+  }
+
+  /// Renews the gateway tokens as the app comes back to the foreground when
+  /// they expire within [margin], so a session idle in the background keeps
+  /// renewing instead of waiting for the next request to find it lapsed.
+  Future<void> _authRefreshOnResume({
+    Duration margin = const Duration(minutes: 5),
+  }) async {
+    final tokens = _nativeTokens;
+    if (_closed ||
+        config.desktopAuthKind != HermesDesktopAuthKind.nativePkce ||
+        tokens == null ||
+        !tokens.expiresWithin(margin)) {
+      return;
+    }
+    try {
+      await _validNativeTokens(margin: margin);
+    } catch (error) {
+      DebugLogger.warning(
+        'resume-token-refresh-failed',
+        scope: 'hermes/desktop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
     }
   }
 
@@ -234,16 +348,53 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     await onCredentialsChanged?.call(credentials);
   }
 
+  /// Tokens to send: the held ones, renewed first when they expire within
+  /// [margin], or when [forceRefresh] because the gateway refused them.
   Future<HermesDesktopTokenSet?> _validNativeTokens({
     bool forceRefresh = false,
+    Duration margin = const Duration(seconds: 60),
   }) async {
-    final current = _nativeTokens;
-    if (current == null || (!forceRefresh && !current.needsRefresh)) {
-      return current;
-    }
-    return _refreshing ??= _refreshNative(current).whenComplete(() {
+    final held = _nativeTokens;
+    if (held == null) return null;
+    bool stale(HermesDesktopTokenSet tokens) =>
+        (forceRefresh && identical(tokens, held)) ||
+        tokens.expiresWithin(margin);
+    if (!stale(held)) return held;
+    return _refreshing ??= _renewNative(held, stale).whenComplete(() {
       _refreshing = null;
     });
+  }
+
+  Future<HermesDesktopTokenSet?> _renewNative(
+    HermesDesktopTokenSet held,
+    bool Function(HermesDesktopTokenSet tokens) stale,
+  ) async {
+    final read = _readStoredTokens;
+    if (read == null) return _refreshNative(held);
+    return _guardingTokens(() async {
+      final stored = await read();
+      if (!identical(_nativeTokens, held)) return _nativeTokens;
+      final storedToken = stored?.refreshToken;
+      // Storage moves on only by a save, and a spent token never comes
+      // back: the one storage still holds is the only one worth remembering.
+      _spentRefreshTokens.retainWhere((token) => token == storedToken);
+      if (storedToken == held.refreshToken ||
+          _spentRefreshTokens.contains(storedToken)) {
+        return _refreshNative(held);
+      }
+      // Another client rotated the tokens, or signed out: the held refresh
+      // token is spent, and sending it back would end the session.
+      _nativeTokens = stored;
+      if (stored == null || !stale(stored)) return stored;
+      return _refreshNative(stored);
+    });
+  }
+
+  /// [action], under [_guardTokens] when this client shares its gateway
+  /// tokens with others.
+  Future<T> _guardingTokens<T>(Future<T> Function() action) {
+    final guard = _guardTokens;
+    return guard == null ? action() : guard(action);
   }
 
   Future<HermesDesktopTokenSet?> _refreshNative(
@@ -256,17 +407,27 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         authenticated: false,
         body: {'refresh_token': current.refreshToken},
       );
+      _spend(current.refreshToken);
       final next = _parseTokenSet(data);
+      // A sign-in that finished meanwhile is newer than this renewal.
+      if (!identical(_nativeTokens, current)) return _nativeTokens;
       await _saveTokens(next);
       return next;
     } on DioException catch (error) {
-      if (error.response?.statusCode == 503) return current;
+      // Not ready: the held tokens still serve, a sign-in's if one finished.
+      if (error.response?.statusCode == 503) return _nativeTokens;
       if (error.response?.statusCode == 401) {
+        _spend(current.refreshToken);
+        if (!identical(_nativeTokens, current)) return _nativeTokens;
         await _saveTokens(null);
         return null;
       }
       rethrow;
     }
+  }
+
+  void _spend(String refreshToken) {
+    if (_readStoredTokens != null) _spentRefreshTokens.add(refreshToken);
   }
 
   Future<Map<String, String>> _headers({required bool authenticated}) async {
@@ -284,7 +445,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     switch (config.desktopAuthKind) {
       case HermesDesktopAuthKind.nativePkce:
         final tokens = await _validNativeTokens();
-        if (tokens == null) throw StateError('Hermes sign-in is required.');
+        if (tokens == null) throw HermesGatewaySignInRequired();
         headers['Authorization'] = 'Bearer ${tokens.accessToken}';
       case HermesDesktopAuthKind.dashboardCookie:
         throw StateError('Dashboard requests require the WebView bridge.');
@@ -384,8 +545,11 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
               readErrorDetail: readErrorDetail,
             );
           }
-          if (nativeRetry == 0 && identical(previous, refreshed)) rethrow;
+          // Hermes did not refuse the refresh token: it could not renew
+          // for now, and what it left is held or already expired.
+          if (nativeRetry == 0 && refreshed != null) rethrow;
           await _saveTokens(null);
+          throw HermesGatewaySignInRequired();
         }
       }
       if (readErrorDetail && status != null && status != 401) {

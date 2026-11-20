@@ -1888,8 +1888,13 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
 
   void failPreflight(Object error) {
     if (!registry.complete(currentRunKey(), cancelToken: cancelToken)) return;
-    ChatMessage updater(ChatMessage message) =>
-        message.copyWith(error: chatMessageErrorFor(error));
+    ChatMessage updater(ChatMessage message) => hermesFailedMessage(
+      message,
+      chatErrorContentForException(error),
+      surface: error is HermesGatewaySignInRequired
+          ? hermesApiErrorSurface(error)
+          : null,
+    );
     projectionStore.update(projection, updater);
     if (owner.isActive(ref)) {
       notifier.updateMessageById(assistantMessageId, updater);

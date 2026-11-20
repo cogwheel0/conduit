@@ -413,6 +413,17 @@ void main() {
     );
 
     check(hermesNativeRefreshAllowsRetry(expired, expired)).isFalse();
+    // Nor with expired ones another client stored.
+    check(
+      hermesNativeRefreshAllowsRetry(
+        expired,
+        HermesDesktopTokenSet(
+          accessToken: 'adopted',
+          refreshToken: 'adopted-refresh',
+          expiresAt: DateTime.utc(2020),
+        ),
+      ),
+    ).isFalse();
   });
 
   test('skill routing error falls back to command.dispatch', () {

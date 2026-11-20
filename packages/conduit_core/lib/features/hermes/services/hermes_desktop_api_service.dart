@@ -64,6 +64,25 @@ typedef HermesDesktopCredentialsWriter = Future<void> Function(
   HermesDesktopCredentials credentials,
 );
 
+/// The gateway tokens stored for a client's connection, read as it is about
+/// to renew. Another client may have rotated them since it read its own.
+typedef HermesDesktopTokensReader = Future<HermesDesktopTokenSet?> Function();
+
+/// Runs [action] while no other client of the same gateway connection runs
+/// one: a renewal reads the stored tokens, spends their refresh token and
+/// saves the new ones, and a sign-in reads and replaces them, each as one
+/// step.
+typedef HermesDesktopTokenGuard =
+    Future<T> Function<T>(Future<T> Function() action);
+
+/// A [HermesDesktopCredentialsWriter] refused a token rotation because
+/// another client of the same gateway tokens stored its own first. The
+/// stored tokens are the newer ones; nobody signed out.
+final class HermesTokenRotationSuperseded extends StateError {
+  HermesTokenRotationSuperseded()
+    : super('Another client stored a newer Hermes token rotation.');
+}
+
 ({String? model, String? provider}) hermesDesktopSessionModelSelection(
   String? model,
   String? provider,
@@ -197,11 +216,17 @@ List<Map<String, dynamic>> preferLastUsableHermesTranscript(
   List<Map<String, dynamic>> candidate,
 ) => candidate.length < previous.length ? previous : candidate;
 
+/// Whether a request refused with [previous] may go again with [refreshed]:
+/// other tokens, not expired. A renewal Hermes could not answer leaves the
+/// held ones, or expired ones taken up from another client.
 @visibleForTesting
 bool hermesNativeRefreshAllowsRetry(
   HermesDesktopTokenSet? previous,
   HermesDesktopTokenSet? refreshed,
-) => refreshed != null && !identical(previous, refreshed);
+) =>
+    refreshed != null &&
+    !identical(previous, refreshed) &&
+    !refreshed.expiresWithin(Duration.zero);
 
 @visibleForTesting
 bool hermesSlashNeedsCommandDispatch(HermesDesktopRpcException error) =>
@@ -239,8 +264,11 @@ final class HermesDesktopApiService
     Dio? dio,
     HermesDesktopRpcClient? rpc,
     OpenExternalUrlPort? openExternalUrl,
+    BrowserAuthPort? browserAuth,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    HermesDesktopTokensReader? readStoredTokens,
+    HermesDesktopTokenGuard? guardTokens,
     HermesModelSwitchPrompt? confirmModelSwitch,
     @visibleForTesting
     this.gatewayStartRetryDelays = const [
@@ -256,6 +284,9 @@ final class HermesDesktopApiService
     @visibleForTesting
     this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
+       _browserAuth = browserAuth ?? const NullBrowserAuthPort(),
+       _readStoredTokens = readStoredTokens,
+       _guardTokens = guardTokens,
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -286,6 +317,20 @@ final class HermesDesktopApiService
   /// sidecar has no browser and refuses, and the flow reports that it could
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
+
+  /// Runs native sign-in in the system browser's sheet, which returns to
+  /// the app by itself; without one, [_openExternalUrl] opens the page.
+  final BrowserAuthPort _browserAuth;
+
+  /// Read before a renewal: other clients of the same gateway tokens (push,
+  /// a settings probe) rotate them too, and a refresh token one of them
+  /// spent ends the whole session at a provider that detects its reuse.
+  final HermesDesktopTokensReader? _readStoredTokens;
+
+  /// Shared by the clients of the same gateway connection: without it, two
+  /// renewing at once (the live client and push, as the app resumes) would
+  /// both send the refresh token storage holds.
+  final HermesDesktopTokenGuard? _guardTokens;
 
   /// How long to wait before each new attempt to reach a gateway that said
   /// it is not ready (starting, restarting or draining).
@@ -392,7 +437,17 @@ final class HermesDesktopApiService
   Map<String, dynamic>? _status;
   Future<void>? _connecting;
   Future<HermesDesktopTokenSet?>? _refreshing;
+
+  /// Refresh tokens this client sent in a renewal Hermes answered, since
+  /// storage last moved on. They are spent: storage still holds one when
+  /// saving the rotation that replaced it failed, and sending it again would
+  /// end the session.
+  final Set<String> _spentRefreshTokens = {};
   Future<void>? _foregroundReconciliation;
+
+  /// The token renewal the last return to the foreground started.
+  @visibleForTesting
+  Future<void>? resumeRenewal;
   StreamSubscription<HermesDesktopEvent>? _stateSubscription;
   bool _authoritativeRunning = true;
   bool _supportsMcpRpcLifecycle = true;
@@ -539,7 +594,10 @@ final class HermesDesktopApiService
   Future<Map<String, dynamic>> statusProbe({bool refresh = false}) =>
       _authStatusProbe(refresh: refresh);
   Future<List<String>> listProfiles() => _authListProfiles();
-  Future<HermesDesktopTokenSet> signInNative({String? provider}) =>
+
+  /// Signs in to the gateway in the browser and saves the tokens. Null when
+  /// the user closed the browser.
+  Future<HermesDesktopTokenSet?> signInNative({String? provider}) =>
       _authSignInNative(provider: provider);
 
   @override

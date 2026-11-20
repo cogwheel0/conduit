@@ -428,8 +428,9 @@ List<ChatTaskDto> chatTaskDtos(Map<String, dynamic>? metadata) => <ChatTaskDto>[
 ];
 
 /// A Hermes failure's card, as [now] sees it: the fixes the desktop can
-/// perform, best first (Use Credits is left to a phone or the web, so the
-/// next fix shows instead, as mobile does where it cannot perform one).
+/// perform, best first (Use Credits is left to a phone or the web, and
+/// signing in to a gateway again to Settings, so the next fix shows
+/// instead, as mobile does where it cannot perform one).
 HermesErrorDto hermesErrorDto(HermesErrorSurface surface, {DateTime? now}) {
   final at = now ?? DateTime.now();
   final suggestion = surface.suggestions.firstOrNull;
@@ -443,7 +444,9 @@ HermesErrorDto hermesErrorDto(HermesErrorSurface surface, {DateTime? now}) {
     partial: surface.partial,
     actions: <String>[
       for (final action in surface.actionsAt(at))
-        if (action != HermesErrorAction.useCredits) action.name,
+        if (action != HermesErrorAction.useCredits &&
+            action != HermesErrorAction.signInToGateway)
+          action.name,
     ],
     switchTo: suggestion == null
         ? null
