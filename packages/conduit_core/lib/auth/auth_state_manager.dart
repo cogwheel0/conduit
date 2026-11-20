@@ -382,8 +382,13 @@ class AuthStateManager extends _$AuthStateManager {
   ({String accountId, BrowserSignInGrant grant, DateTime at})?
   _retryableBrowserGrant;
 
-  /// The grants browser sign-ins are exchanging or committing now.
-  final Set<BrowserSignInGrant> _browserGrantsInHand = Set.identity();
+  /// Browser sign-ins begun and not yet ended ([loginWithBrowser],
+  /// [retryBrowserExchange]).
+  int _browserSignInsUnderWay = 0;
+
+  /// Grants nothing keeps, revoked once no browser sign-in is under way
+  /// ([_revokeAbandonedBrowserGrants]).
+  final List<BrowserSignInGrant> _abandonedBrowserGrants = [];
 
   /// Whether this process has looked for browser sign-in sessions left
   /// behind by an operation interrupted part-way.
@@ -445,8 +450,7 @@ class AuthStateManager extends _$AuthStateManager {
   ///
   /// One whose provider user is unknown is left alone: it may be of the
   /// grant of a session still stored ([BrowserSignInSession.sharesGrantWith]),
-  /// which revoking it could end. So is one that may share its grant with
-  /// another a sign-in still holds, which is stored nowhere yet.
+  /// which revoking it could end.
   void _releaseBrowserGrant(BrowserSignInGrant? grant) {
     if (grant == null ||
         grant.subject == null ||
@@ -455,6 +459,51 @@ class AuthStateManager extends _$AuthStateManager {
         !ref.mounted) {
       return;
     }
+    _abandonedBrowserGrants.add(grant);
+    _revokeAbandonedBrowserGrants();
+  }
+
+  /// Revokes the grants nothing keeps once no browser sign-in is under way:
+  /// one may be getting a grant of the same user, not stored yet, which
+  /// revoking an older one can end at providers that revoke a whole grant.
+  /// Asked again once what is stored was read, right before they go. One
+  /// that may share its grant with one a retry or second step holds is
+  /// left alone.
+  void _revokeAbandonedBrowserGrants() {
+    if (_browserSignInsUnderWay > 0 ||
+        _abandonedBrowserGrants.isEmpty ||
+        !ref.mounted) {
+      return;
+    }
+    final grants = [
+      for (final grant in _abandonedBrowserGrants)
+        if (!_mayShareHeldBrowserGrant(grant)) grant,
+    ];
+    _abandonedBrowserGrants.clear();
+    final route = ref.read(apiServiceProvider)?.serverConfig;
+    final sessions = <BrowserSessionRevocation>[
+      for (final grant in grants)
+        // Open WebUI never signed it in as anyone.
+        if (grant.session(owuiUserId: '') case final session?)
+          (session: session, route: route),
+    ];
+    unawaited(
+      _revokeBrowserSessions(
+        sessions,
+        stillWanted: () =>
+            _browserSignInsUnderWay == 0 &&
+            !grants.any(_mayShareHeldBrowserGrant),
+      ).then((revoked) {
+        // A sign-in began meanwhile: they wait for it to end.
+        if (!revoked && ref.mounted) _abandonedBrowserGrants.addAll(grants);
+      }),
+    );
+  }
+
+  /// Whether [grant] may be of the grant of one a retry or second step
+  /// holds: the same client and issuer, for the same provider user or one
+  /// not known.
+  bool _mayShareHeldBrowserGrant(BrowserSignInGrant grant) {
     bool related(BrowserSignInGrant? other) =>
         other != null &&
         !identical(other, grant) &&
@@ -462,19 +511,8 @@ class AuthStateManager extends _$AuthStateManager {
         normalizeBrowserSignInIssuer(other.issuer) ==
             normalizeBrowserSignInIssuer(grant.issuer) &&
         (other.subject == null || other.subject == grant.subject);
-    if (_browserGrantsInHand.any(related) ||
-        related(_retryableBrowserGrant?.grant) ||
-        related(_pendingTwoStep?.browserGrant)) {
-      return;
-    }
-    // Open WebUI never signed it in as anyone.
-    final session = grant.session(owuiUserId: '');
-    if (session == null) return;
-    unawaited(
-      _revokeBrowserSessions([
-        (session: session, route: ref.read(apiServiceProvider)?.serverConfig),
-      ]),
-    );
+    return related(_retryableBrowserGrant?.grant) ||
+        related(_pendingTwoStep?.browserGrant);
   }
 
   /// True when a newer auth attempt (login / logout / token-invalidation, each
@@ -1359,6 +1397,26 @@ class AuthStateManager extends _$AuthStateManager {
   Future<bool> loginWithBrowser({
     required BrowserSignInConfig config,
     bool Function()? canCommit,
+  }) => _underWayAsBrowserSignIn(
+    () => _loginWithBrowser(config: config, canCommit: canCommit),
+  );
+
+  /// [signIn], counted as a browser sign-in under way while it runs.
+  Future<bool> _underWayAsBrowserSignIn(
+    Future<bool> Function() signIn,
+  ) async {
+    _browserSignInsUnderWay++;
+    try {
+      return await signIn();
+    } finally {
+      _browserSignInsUnderWay--;
+      _revokeAbandonedBrowserGrants();
+    }
+  }
+
+  Future<bool> _loginWithBrowser({
+    required BrowserSignInConfig config,
+    bool Function()? canCommit,
   }) async {
     final attemptRevision = _beginAuthAttempt();
     _browserSignInAttempt = attemptRevision;
@@ -1395,7 +1453,6 @@ class AuthStateManager extends _$AuthStateManager {
           );
       if (grant == null) return false;
       var committed = false;
-      _browserGrantsInHand.add(grant);
       try {
         committed =
             !stopped() &&
@@ -1408,7 +1465,6 @@ class AuthStateManager extends _$AuthStateManager {
             );
         return committed;
       } finally {
-        _browserGrantsInHand.remove(grant);
         if (!committed) _releaseBrowserGrant(grant);
       }
     } catch (error, stackTrace) {
@@ -1441,7 +1497,12 @@ class AuthStateManager extends _$AuthStateManager {
   /// refusal was not the active account's last sign-in, or its access token
   /// is too old by now. A sign-in through the browser again does it then.
   /// Otherwise as [loginWithBrowser].
-  Future<bool> retryBrowserExchange({bool Function()? canCommit}) async {
+  Future<bool> retryBrowserExchange({bool Function()? canCommit}) =>
+      _underWayAsBrowserSignIn(
+        () => _retryBrowserExchange(canCommit: canCommit),
+      );
+
+  Future<bool> _retryBrowserExchange({bool Function()? canCommit}) async {
     final retry = _retryableBrowserGrant;
     _retryableBrowserGrant = null;
     if (retry == null) return false;
@@ -1457,7 +1518,6 @@ class AuthStateManager extends _$AuthStateManager {
     bool stopped() => _authAttemptSuperseded(attemptRevision) || !mayCommit();
     try {
       var committed = false;
-      _browserGrantsInHand.add(retry.grant);
       try {
         return committed = await _commitBrowserGrant(
           accountId: retry.accountId,
@@ -1467,7 +1527,6 @@ class AuthStateManager extends _$AuthStateManager {
           canCommit: mayCommit,
         );
       } finally {
-        _browserGrantsInHand.remove(retry.grant);
         if (!committed) _releaseBrowserGrant(retry.grant);
       }
     } catch (error, stackTrace) {
@@ -2334,11 +2393,12 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Revokes [sessions] once nothing stored shares their grants
   /// ([BrowserSignInService.revokeEnded]): every revocation goes through
-  /// here.
-  Future<void> _revokeBrowserSessions(
-    List<BrowserSessionRevocation> sessions,
-  ) async {
-    if (sessions.isEmpty || !ref.mounted) return;
+  /// here. False when [stillWanted] called them off.
+  Future<bool> _revokeBrowserSessions(
+    List<BrowserSessionRevocation> sessions, {
+    bool Function()? stillWanted,
+  }) async {
+    if (sessions.isEmpty || !ref.mounted) return true;
     final BrowserSignInService service;
     final OptimizedStorageService storage;
     try {
@@ -2346,9 +2406,13 @@ class AuthStateManager extends _$AuthStateManager {
       storage = ref.read(optimizedStorageServiceProvider);
     } catch (error) {
       _logAuthenticationFailure('browser-session-revoke-failed', error);
-      return;
+      return true;
     }
-    await service.revokeEnded(sessions, storage: storage);
+    return service.revokeEnded(
+      sessions,
+      storage: storage,
+      stillWanted: stillWanted,
+    );
   }
 
   /// Holds renewals of [accountIds] ([BrowserSignInService.holdRenewalsOf]),
