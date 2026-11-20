@@ -92,17 +92,20 @@ class ScheduledCalendarReminder {
 
 /// Everything a scheduled reminder shows or fires on, so a change to any of it
 /// schedules the reminder again. That includes whether it fires on the minute,
-/// so allowing exact alarms later moves the pending reminders onto them.
+/// so allowing exact alarms later moves the pending reminders onto them, and
+/// its sound, which iOS fixes when a reminder is scheduled.
 String calendarReminderFingerprint(
   CalendarReminder reminder, {
   required String title,
   required String body,
   required bool exact,
+  required bool playSound,
 }) => [
   reminder.fireAt.millisecondsSinceEpoch,
   title,
   body,
   exact ? 'exact' : 'inexact',
+  playSound ? 'sound' : 'silent',
 ].join('|');
 
 /// The device's local notifications, as calendar reminders use them. The app
@@ -280,6 +283,7 @@ class CalendarReminderScheduler {
           title: text.title,
           body: text.body,
           exact: exact,
+          playSound: settings.playSound,
         ),
       );
     }

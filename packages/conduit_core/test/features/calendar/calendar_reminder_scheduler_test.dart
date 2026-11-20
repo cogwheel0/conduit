@@ -53,6 +53,7 @@ class _FakeNotifications implements CalendarReminderPort {
   final enteredSchedule = Completer<void>();
   bool exactAllowed = false;
   final exactByKey = <String, bool>{};
+  final soundByKey = <String, bool>{};
 
   @override
   Future<bool> canScheduleExactReminders() async => exactAllowed;
@@ -86,11 +87,13 @@ class _FakeNotifications implements CalendarReminderPort {
           title: title,
           body: body,
           exact: exact,
+          playSound: playSound,
         ),
       ),
     );
     scheduledAt[reminder.key] = reminder.fireAt;
     exactByKey[reminder.key] = exact;
+    soundByKey[reminder.key] = playSound;
     return true;
   }
 
@@ -146,7 +149,7 @@ class _Harness {
   void restart() {
     scheduler = CalendarReminderScheduler(
       notifications: notifications,
-      settings: () => (enabled: enabled, playSound: true),
+      settings: () => (enabled: enabled, playSound: playSound),
       account: () => account,
       access: () => access,
       fetchAgenda: (start, end) async {
@@ -168,6 +171,7 @@ class _Harness {
   DateTime now = _now;
   void Function()? onFetch;
   bool enabled = true;
+  bool playSound = true;
   CalendarReminderAccount? account = (scope: _scope, userId: _me);
   bool? access = true;
   List<CalendarAgendaItem> agenda = const [];
@@ -258,7 +262,8 @@ void main() {
       ).equals(_now.add(const Duration(minutes: 80)));
     });
 
-    test('moves reminders onto exact alarms once they are allowed', () async {
+    test('moves reminders onto exact alarms once they are allowed, and '
+        'follows the sound setting', () async {
       final h = _Harness()..agenda = [_event('a')];
       await h.sync();
       final id = h.notifications.scheduled.single.id;
@@ -269,6 +274,13 @@ void main() {
 
       check(h.notifications.cancelled).deepEquals([id]);
       check(h.notifications.exactByKey['a|']).equals(true);
+      check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
+
+      h.playSound = false;
+      await h.sync();
+
+      check(h.notifications.cancelled).length.equals(2);
+      check(h.notifications.soundByKey['a|']).equals(false);
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 

@@ -418,6 +418,7 @@ class LocalNotificationService implements CalendarReminderPort {
             title: title,
             body: body,
             exact: exact,
+            playSound: playSound,
           ),
         ),
       );
