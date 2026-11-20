@@ -14,7 +14,8 @@ import 'package:conduit_core/sync/deletion_reconcile.dart'
         ReconcileResult,
         kReconcileMinIntervalSeconds,
         kReconcileMaxPurgeFraction,
-        kReconcileMinCandidatesForValve;
+        kReconcileMinCandidatesForValve,
+        reconcileValveSample;
 import 'package:conduit_core/sync/sync_api_client.dart';
 
 /// §7.5 deletion reconcile for NOTES — the flat-document analogue of
@@ -119,19 +120,15 @@ class NoteDeletionReconcile {
     }
 
     // 3. Safety valve: an implausibly-LARGE candidate set (above an absolute
-    //    floor AND a large fraction) aborts without purging. The floor keeps a
-    //    legitimate small-library note deletion from being mistaken for a
-    //    token-expiry mass-delete and blocked forever.
+    //    floor AND a large fraction) purges only after a sample of it is
+    //    confirmed gone. The floor keeps a small-library note deletion off
+    //    this path.
     if (candidates.length >
-        math.max(
-          kReconcileMinCandidatesForValve,
-          localServerIds.length * kReconcileMaxPurgeFraction,
-        )) {
-      DebugLogger.warning(
-        'note-reconcile-aborted-safety-valve',
-        scope: 'sync/reconcile',
-        data: {'candidates': candidates.length, 'local': localServerIds.length},
-      );
+            math.max(
+              kReconcileMinCandidatesForValve,
+              localServerIds.length * kReconcileMaxPurgeFraction,
+            ) &&
+        !await _sampleConfirmsGone(candidates, localServerIds.length)) {
       return ReconcileResult(
         ran: true,
         candidates: candidates.length,
@@ -232,6 +229,35 @@ class NoteDeletionReconcile {
       purged: purged,
       skipped: skipped,
     );
+  }
+
+  /// Whether every probe in [reconcileValveSample] of [candidates] answers
+  /// 404. A note that still exists or any probe failure, a 401 or 403
+  /// included, means no.
+  Future<bool> _sampleConfirmsGone(List<String> candidates, int local) async {
+    for (final id in reconcileValveSample(candidates)) {
+      Object probe;
+      try {
+        if (await _client.getNoteRaw(id) == null) continue;
+        probe = 'exists';
+      } on SyncTerminalException catch (error) {
+        probe = error.statusCode ?? 'terminal';
+      } catch (error) {
+        probe = error.runtimeType.toString();
+      }
+      DebugLogger.warning(
+        'note-reconcile-aborted-safety-valve',
+        scope: 'sync/reconcile',
+        data: {
+          'candidates': candidates.length,
+          'local': local,
+          'noteId': id,
+          'probe': probe,
+        },
+      );
+      return false;
+    }
+    return true;
   }
 
   /// Retires [reader]'s cached read evidence for note [id] after the server

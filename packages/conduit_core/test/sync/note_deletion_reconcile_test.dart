@@ -79,6 +79,39 @@ class _HeldRefusalClient extends FakeSyncApiClient {
   }
 }
 
+/// A client whose note list leaves out [hiddenIds] although the server still
+/// holds those notes, as a truncated or racing list would.
+class _NoteListGapClient extends FakeSyncApiClient {
+  _NoteListGapClient(super.server, this.hiddenIds);
+
+  final Set<String> hiddenIds;
+
+  @override
+  Future<(List<Map<String, dynamic>>, bool)> getNoteListRaw({int? page}) async {
+    final (items, enabled) = await super.getNoteListRaw(page: page);
+    return (
+      [
+        for (final item in items)
+          if (!hiddenIds.contains(item['id'])) item,
+      ],
+      enabled,
+    );
+  }
+}
+
+/// A client whose note probes all fail with [statusCode].
+class _RefusingNoteProbeClient extends FakeSyncApiClient {
+  _RefusingNoteProbeClient(super.server, this.statusCode);
+
+  final int statusCode;
+
+  @override
+  Future<Map<String, dynamic>?> getNoteRaw(String id) async {
+    noteFetchStarts.add(id);
+    throw SyncTerminalException(statusCode: statusCode, message: 'refused');
+  }
+}
+
 class _FeatureDisabledExpiredSessionClient extends FakeSyncApiClient {
   _FeatureDisabledExpiredSessionClient(super.server);
 
@@ -212,21 +245,94 @@ void main() {
     check(await db.notesDao.getNote('flaky')).isNotNull();
   });
 
-  test('safety valve aborts when candidates exceed the floor AND half the set', () async {
-    final client = FakeSyncApiClient(server);
-    // 8 local notes, all absent from the server → above the absolute floor (5)
-    // and 50% → abort without purging.
+  group('a bulk delete above the safety valve', () {
+    // 8 cached notes, all missing from the list: above both the absolute
+    // floor (5) and half the cache.
     final ids = List.generate(8, (i) => 'n$i');
-    for (final id in ids) {
-      await seedLocalOnly(id);
-    }
-    client.nullNoteIds.addAll(ids);
 
-    final result = await reconcileWith(client)
-        .run(ReconcileReason.manualRefresh);
-    check(result.aborted).isTrue();
-    check(result.purged).equals(0);
-    check(await db.notesDao.getNote('n0')).isNotNull();
+    test('is purged once every sampled probe answers 404', () async {
+      final client = FakeSyncApiClient(server);
+      for (final id in ids) {
+        await seedLocalOnly(id);
+      }
+      client.nullNoteIds.addAll(ids);
+
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isFalse();
+      check(result.candidates).equals(8);
+      check(result.purged).equals(8);
+      for (final id in ids) {
+        check(await db.notesDao.getNote(id)).isNull();
+      }
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt())
+          .equals(clock.now);
+    });
+
+    test('is not purged when a sampled note is still on the server', () async {
+      // Half are gone and half are still on the server, so any sample of
+      // five out of eight meets at least one that still exists.
+      final present = ids.sublist(0, 4).toSet();
+      final client = _NoteListGapClient(server, present);
+      for (final id in ids) {
+        if (present.contains(id)) {
+          await seedSyncedNote(id);
+        } else {
+          await seedLocalOnly(id);
+          client.nullNoteIds.add(id);
+        }
+      }
+
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(result.candidates).equals(8);
+      check(result.purged).equals(0);
+      for (final id in ids) {
+        check(await db.notesDao.getNote(id)).isNotNull();
+      }
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+    });
+
+    for (final status in [401, 403]) {
+      test('is not purged when a sampled probe answers $status', () async {
+        final client = _RefusingNoteProbeClient(server, status);
+        for (final id in ids) {
+          await seedLocalOnly(id);
+        }
+
+        final result = await reconcileWith(
+          client,
+          reader: () => 'reader-1',
+        ).run(ReconcileReason.manualRefresh);
+
+        check(result.aborted).isTrue();
+        check(result.purged).equals(0);
+        check(client.noteFetchStarts).length.equals(1);
+        for (final id in ids) {
+          check(await db.notesDao.getNote(id)).isNotNull();
+        }
+        check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+      });
+    }
+
+    test('is not purged when a sampled probe fails', () async {
+      final client = FakeSyncApiClient(server);
+      for (final id in ids) {
+        await seedLocalOnly(id);
+      }
+      client.failNoteIds.addAll(ids);
+
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(result.purged).equals(0);
+      check(await db.notesDao.getNote('n0')).isNotNull();
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+    });
   });
 
   test('a SMALL library is NOT blocked: a single deleted note is purged '
