@@ -394,6 +394,10 @@ class AuthStateManager extends _$AuthStateManager {
   /// service's revocation time limit ([_revokeBrowserSessions]).
   final Set<Future<void>> _browserRevocations = {};
 
+  /// Revocations asked for while a browser sign-in was under way, sent once
+  /// none is ([_sendDeferredBrowserRevocations]).
+  final List<BrowserSessionRevocation> _deferredBrowserRevocations = [];
+
   /// Whether this process has looked for browser sign-in sessions left
   /// behind by an operation interrupted part-way.
   bool _browserSessionSweepStarted = false;
@@ -1436,6 +1440,7 @@ class AuthStateManager extends _$AuthStateManager {
     } finally {
       _browserSignInsUnderWay--;
       _revokeAbandonedBrowserGrants();
+      _sendDeferredBrowserRevocations();
     }
   }
 
@@ -2420,12 +2425,19 @@ class AuthStateManager extends _$AuthStateManager {
 
   /// Revokes [sessions] once nothing stored shares their grants
   /// ([BrowserSignInService.revokeEnded]): every revocation goes through
-  /// here. False when [stillWanted] called them off.
+  /// here. Ones asked for while a browser sign-in is under way wait until
+  /// none is, as [_revokeAbandonedBrowserGrants] explains. False when
+  /// [stillWanted] called them off; [stillWanted]'s caller waits on its own.
   Future<bool> _revokeBrowserSessions(
     List<BrowserSessionRevocation> sessions, {
     bool Function()? stillWanted,
   }) async {
     if (sessions.isEmpty || !ref.mounted) return true;
+    if (_browserSignInsUnderWay > 0) {
+      if (stillWanted != null) return false;
+      _deferredBrowserRevocations.addAll(sessions);
+      return true;
+    }
     final BrowserSignInService service;
     final OptimizedStorageService storage;
     try {
@@ -2438,14 +2450,34 @@ class AuthStateManager extends _$AuthStateManager {
     final revoking = service.revokeEnded(
       sessions,
       storage: storage,
-      stillWanted: stillWanted,
+      stillWanted: () =>
+          _browserSignInsUnderWay == 0 && (stillWanted?.call() ?? true),
     );
     _browserRevocations.add(revoking);
+    final bool revoked;
     try {
-      return await revoking;
+      revoked = await revoking;
     } finally {
       _browserRevocations.remove(revoking);
     }
+    if (revoked || stillWanted != null) return revoked;
+    // A browser sign-in began while what is stored was read.
+    _deferredBrowserRevocations.addAll(sessions);
+    _sendDeferredBrowserRevocations();
+    return true;
+  }
+
+  /// Sends the revocations [_revokeBrowserSessions] held back, once no
+  /// browser sign-in is under way.
+  void _sendDeferredBrowserRevocations() {
+    if (_browserSignInsUnderWay > 0 ||
+        _deferredBrowserRevocations.isEmpty ||
+        !ref.mounted) {
+      return;
+    }
+    final sessions = [..._deferredBrowserRevocations];
+    _deferredBrowserRevocations.clear();
+    unawaited(_revokeBrowserSessions(sessions));
   }
 
   /// Holds renewals of [accountIds] ([BrowserSignInService.holdRenewalsOf]),
@@ -4604,7 +4636,9 @@ class AuthStateManager extends _$AuthStateManager {
       }
 
       bool claimCommit() {
-        if (!canCommit()) return false;
+        // A browser sign-in under way owns what comes next. Coming back
+        // from its browser resumes the app, which renews.
+        if (_browserSignInsUnderWay > 0 || !canCommit()) return false;
         claimRevision = _beginAuthAttempt();
         return true;
       }
