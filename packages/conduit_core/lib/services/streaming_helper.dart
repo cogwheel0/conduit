@@ -493,7 +493,7 @@ typedef _ServerMessageSnapshot = ({
   String? errorContent,
 
   /// The failed relay to one of the user's devices the saved error records,
-  /// if it records one.
+  /// or else its code or words name.
   TetherRelayFailure? errorRelay,
 });
 
@@ -1696,7 +1696,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
           : text;
       applyAssistantServerPatch(
         targetId: targetId,
-        buildPatch: (_) => _AssistantServerPatch(error: answerError(message)),
+        buildPatch: (_) =>
+            _AssistantServerPatch(error: answerError(message, raw: error)),
       );
     } else if (eventType == 'response.incomplete') {
       // Upstream contract (middleware.handle_responses_streaming_event): a
@@ -2164,9 +2165,17 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final followUps = _parseFollowUpsField(followUpsRaw);
       final errorContent = extractServerErrorContent(serverMsg['error']);
       final rawError = serverMsg['error'];
-      final errorRelay = rawError is Map
-          ? tetherRelayFailureFromJson(rawError[kTetherRelayErrorKey])
-          : null;
+      // Read here, from the whole of the saved error: what reaches the
+      // answer is its words.
+      final errorRelay = errorContent == null
+          ? null
+          : answerError(
+              errorContent,
+              recorded: rawError is Map
+                  ? tetherRelayFailureFromJson(rawError[kTetherRelayErrorKey])
+                  : null,
+              raw: rawError,
+            ).relay;
 
       // Check completion status
       final isDone =
@@ -4143,7 +4152,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             return message.copyWith(
               error: answerError(
                 errorContent.isNotEmpty ? errorContent : null,
-                raw: err,
+                raw: err ?? payload,
               ),
               statusHistory: filtered,
               metadata: {

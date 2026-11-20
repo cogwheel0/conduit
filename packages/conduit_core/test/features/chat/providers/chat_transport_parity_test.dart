@@ -757,6 +757,81 @@ void main() {
           .equals(TetherRelayFailure.interrupted);
     });
 
+    test("a Responses failure keeps the relay its code names", () async {
+      final log = _CallbackLog();
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          byteStream: Stream<List<int>>.fromIterable([
+            _sseFrame({
+              'type': 'response.failed',
+              'response': {
+                'error': {
+                  'code': 'tether_interrupted',
+                  'message': 'Connection lost',
+                },
+              },
+            }),
+            _sseDone(),
+          ]),
+          abort: () async {},
+        ),
+        log: log,
+      );
+
+      await pumpEventQueue();
+
+      check(log.messages.single.error).isNotNull()
+        ..has((it) => it.content, 'content').equals('Connection lost')
+        ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.interrupted);
+    });
+
+    test("an answer read back after its stream ends keeps the relay its "
+        "saved error's code names", () async {
+      final log = _CallbackLog();
+      _attach(
+        session: ChatCompletionSession.httpStream(
+          messageId: 'msg-1',
+          conversationId: 'conv-1',
+          byteStream: const Stream<List<int>>.empty(),
+          abort: () async {},
+        ),
+        log: log,
+        api: _buildFakeApi(
+          pollResponse: {
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'messages': {
+                  'msg-1': {
+                    'id': 'msg-1',
+                    'role': 'assistant',
+                    'content': '',
+                    'done': true,
+                    // As Open WebUI 0.13.4 saves a relay's own failure.
+                    'error': {
+                      'content': {
+                        'error': 'Connection lost',
+                        'code': 'tether_interrupted',
+                        'outcome': 'unknown',
+                        'retryable': false,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ),
+      );
+
+      await pumpEventQueue();
+
+      check(log.messages.single.error?.relay)
+          .equals(TetherRelayFailure.interrupted);
+    });
+
     test('a device\'s failure keeps its relay when a snapshot read before '
         'it arrived brings the saved copy of the same error', () async {
       const generic = 'Open WebUI: Server Connection Error';
