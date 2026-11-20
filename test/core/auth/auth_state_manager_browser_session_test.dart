@@ -1130,6 +1130,31 @@ void main() {
       ).deepEquals(['idp-refresh']);
     });
 
+    test('before a newer sign-in opens its browser', () async {
+      final rig = await _Rig.start();
+      rig.service
+        ..grant = _grant(subject: 'idp-user')
+        ..exchangeError = const BrowserSignInException(
+          BrowserSignInFailure.exchangeDisabled,
+        );
+      final sent = Completer<void>();
+      rig.service.revoking = sent;
+      await check(
+        rig.auth.loginWithBrowser(config: _config),
+      ).throws<BrowserSignInException>();
+      await pumpEventQueue();
+      check(rig.service.revoked).length.equals(1);
+
+      rig.service.exchangeError = null;
+      final signIn = rig.auth.loginWithBrowser(config: _config);
+      await pumpEventQueue();
+      check(rig.service.browserOpened).equals(1);
+
+      sent.complete();
+      check(await signIn).isTrue();
+      check(rig.service.browserOpened).equals(2);
+    });
+
     test('but not once a newer sign-in stores a session of its grant',
         () async {
       final rig = await _Rig.start();
@@ -1809,7 +1834,11 @@ final class _Service extends BrowserSignInService {
     ServerConfig? route,
   }) async {
     revoked.add(session);
+    await revoking?.future;
   }
+
+  /// Holds each revocation, once sent, until completed.
+  Completer<void>? revoking;
 }
 
 /// A 401 page from a proxy in front of the server.
