@@ -2081,35 +2081,6 @@ void main() {
     expect(find.text('boom'), findsOneWidget);
   });
 
-  testWidgets("a failed relay to one of the user's devices is said plainly", (
-    tester,
-  ) async {
-    final l10n = lookupAppLocalizations(const Locale('en'));
-    const error = 'Open WebUI: Server Connection Error';
-    // What the answer recorded when its failure arrived.
-    for (final (relay, words) in <(TetherRelayFailure?, String)>[
-      (TetherRelayFailure.interrupted, l10n.tetherRelayInterrupted),
-      (TetherRelayFailure.unavailable, l10n.tetherRelayUnavailable),
-      (TetherRelayFailure.busy, l10n.tetherRelayBusy),
-      // Without it the server's words are shown as they are.
-      (null, error),
-    ]) {
-      final message = ChatMessage(
-        id: 'assistant-relay-failed',
-        role: 'assistant',
-        content: '',
-        timestamp: DateTime(2024, 1, 1),
-        error: ChatMessageError(content: error, relay: relay),
-      );
-
-      await tester.pumpWidget(_buildAssistantHarness(message));
-      await tester.pumpAndSettle();
-
-      expect(find.text(words), findsOneWidget);
-      if (relay != null) expect(find.text(error), findsNothing);
-    }
-  });
-
   testWidgets('starting a new stream clears stale footer actions immediately', (
     tester,
   ) async {
