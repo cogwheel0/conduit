@@ -204,12 +204,20 @@ final attachedFilesProvider =
       AttachedFilesNotifier.new,
     );
 
-/// Empties the composer's tray at a chat boundary. The app replaces it with
-/// its upload controller's clear, which also stops the files' uploads and
-/// removes their staged copies.
-final composerTrayClearerProvider = Provider<void Function()>(
-  (ref) =>
-      () => ref.read(attachedFilesProvider.notifier).clearAll(),
+/// Takes the files now in the composer's tray, to retire at a chat boundary:
+/// the function it returns removes exactly those, and leaves any attached
+/// since. The app replaces it with its upload controller's, whose retirement
+/// also stops the files' uploads and removes their staged copies.
+final composerTrayCaptureProvider = Provider<void Function() Function()>(
+  (ref) => () {
+    final captured = {
+      for (final file in ref.read(attachedFilesProvider)) file.file.path,
+    };
+    return () {
+      final notifier = ref.read(attachedFilesProvider.notifier);
+      captured.forEach(notifier.removeFile);
+    };
+  },
 );
 
 /// Whether a draft of [text] and [files] has something to send: words, or a

@@ -2547,11 +2547,14 @@ final class MediaUploadCancelledException implements Exception {
   const MediaUploadCancelledException();
 }
 
-/// The app's `composerTrayClearerProvider`: empties the composer's tray, then
-/// stops its files' uploads and removes their staged copies.
-void clearComposerTray(Ref ref) {
-  unawaited(
-    ref.read(mediaUploadControllerProvider).clearAttachments().catchError((
+/// The app's `composerTrayCaptureProvider`: retiring what it captured takes
+/// those files from the composer's tray, then stops their uploads and
+/// removes their staged copies.
+void Function() captureComposerTray(Ref ref) {
+  final controller = ref.read(mediaUploadControllerProvider);
+  final captured = controller.captureAttachmentOwnership();
+  return () => unawaited(
+    controller.retireAttachmentOwnership(captured).catchError((
       Object error,
       StackTrace stackTrace,
     ) {

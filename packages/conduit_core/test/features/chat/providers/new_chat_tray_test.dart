@@ -10,10 +10,12 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 const _serverModel = Model(id: 'server-model', name: 'Server model');
+const _otherServerModel = Model(id: 'other-model', name: 'Other model');
 
 final class _FixedHermesConfig extends HermesConfigController {
   @override
@@ -47,6 +49,19 @@ final class _Tray extends AttachedFilesNotifier {
       isImage: true,
     ),
   ];
+
+  /// Attaches [name] as the composer does once its file is ready.
+  void attach(String name) => state = [
+    ...state,
+    FileUploadState(
+      file: File('/synthetic/share/$name'),
+      fileName: name,
+      fileSize: 3,
+      progress: 0,
+      status: FileUploadStatus.pending,
+      isImage: true,
+    ),
+  ];
 }
 
 /// The composer's tray outlives a chat. Files picked in a Hermes chat stayed
@@ -55,13 +70,25 @@ void main() {
   setUp(() => PreferencesStore.debugOverride(InMemoryKeyValueStore()));
   tearDown(PreferencesStore.debugReset);
 
-  ProviderContainer containerWith(Model selected) {
+  /// A container whose default model restore picks [defaultModel].
+  ProviderContainer containerWith(Model selected, {Model? defaultModel}) {
     final container = ProviderContainer(
       overrides: [
         apiServiceProvider.overrideWithValue(null),
         hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
         selectedModelProvider.overrideWith(() => _Selected(selected)),
         attachedFilesProvider.overrideWith(_Tray.new),
+        // A named default keeps the restore off device storage.
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(defaultModel: 'default-model'),
+        ),
+        defaultModelProvider.overrideWith((ref) async {
+          await Future<void>.value();
+          if (defaultModel != null) {
+            ref.read(selectedModelProvider.notifier).set(defaultModel);
+          }
+          return defaultModel;
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -91,5 +118,39 @@ void main() {
     startNewChat(container, modelForNewConversation: _serverModel);
 
     check(container.read(attachedFilesProvider)).length.equals(1);
+  });
+
+  // New Chat names no model: the default restore picks one later, and a file
+  // attached meanwhile, such as a share, belongs to the new chat.
+  test('a new chat whose default is Hermes starts without the last chat\'s '
+      'files, and keeps one attached while the default was chosen', () async {
+    final container = containerWith(
+      _serverModel,
+      defaultModel: hermesSyntheticModel(),
+    );
+
+    startNewChat(container);
+    (container.read(attachedFilesProvider.notifier) as _Tray).attach(
+      'receipt.png',
+    );
+    await pumpEventQueue();
+
+    check(isHermesModel(container.read(selectedModelProvider)!)).isTrue();
+    check(container.read(attachedFilesProvider).map((file) => file.fileName))
+        .deepEquals(['receipt.png']);
+  });
+
+  test('a new chat whose default is another backend keeps the tray', () async {
+    final container = containerWith(
+      _serverModel,
+      defaultModel: _otherServerModel,
+    );
+
+    startNewChat(container);
+    await pumpEventQueue();
+
+    check(container.read(selectedModelProvider)).equals(_otherServerModel);
+    check(container.read(attachedFilesProvider).map((file) => file.fileName))
+        .deepEquals(['sketch.png']);
   });
 }
