@@ -129,11 +129,18 @@ void main() {
   // A gateway's tokens outlive a profile change, and the live client keeps
   // rotating them: the refresh token the old settings were kept with is
   // spent, and a provider that detects reuse ends the session on seeing it.
-  test('an old target on the same gateway uses its current tokens', () async {
-    HermesConfig desktop(String profile, String refreshToken) => HermesConfig(
+  // They go only where the gateway's current settings trust.
+  test('an old target on the same gateway uses its current tokens, over the '
+      'connection it trusts now', () async {
+    HermesConfig desktop(
+      String profile,
+      String refreshToken, {
+      required bool selfSigned,
+    }) => HermesConfig(
       enabled: true,
       connectionId: 'conn-1',
       baseUrl: _home.baseUrl,
+      allowSelfSignedCertificates: selfSigned,
       mode: HermesBackendMode.desktopGateway,
       desktopAuthKind: HermesDesktopAuthKind.nativePkce,
       desktopProfile: profile,
@@ -145,7 +152,7 @@ void main() {
         ),
       ),
     );
-    configs.saved = desktop('default', 'spent-refresh');
+    configs.saved = desktop('default', 'spent-refresh', selfSigned: true);
     const old = HermesPushTarget(
       connectionId: 'conn-1',
       label: 'Home',
@@ -154,7 +161,7 @@ void main() {
       credentialsRevision: 'p-1',
     );
     await factory().retain(old);
-    configs.saved = desktop('work', 'rotated-refresh');
+    configs.saved = desktop('work', 'rotated-refresh', selfSigned: false);
     profiles = [_profile(_home.baseUrl, 'p-2')];
     container.invalidate(hermesConnectionsProvider);
 
@@ -163,6 +170,7 @@ void main() {
     check(
       config.desktopCredentials?.nativeTokens?.refreshToken,
     ).equals('rotated-refresh');
+    check(config.allowSelfSignedCertificates).isFalse();
   });
 
   // The live client renews the same tokens as the app resumes, and stores

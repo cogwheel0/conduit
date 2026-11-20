@@ -308,7 +308,9 @@ final class AppPushBackendFactory implements PushBackendFactory {
   /// [kept] with [saved]'s gateway tokens when both sign in natively to the
   /// same gateway. The tokens belong to the gateway, not a profile, and the
   /// live client rotates them: the refresh token [kept] was retained with
-  /// may be spent, and a provider that detects reuse ends the session.
+  /// may be spent, and a provider that detects reuse ends the session. They
+  /// go with [saved]'s certificate policy, the one the user trusts that
+  /// gateway with now.
   static HermesConfig _withGatewayTokens(
     HermesConfig kept,
     HermesConfig? saved,
@@ -325,6 +327,7 @@ final class AppPushBackendFactory implements PushBackendFactory {
       return kept;
     }
     return kept.copyWith(
+      allowSelfSignedCertificates: saved.allowSelfSignedCertificates,
       desktopCredentials: HermesDesktopCredentials(
         legacyToken: kept.desktopCredentials?.legacyToken,
         nativeTokens: tokens,
