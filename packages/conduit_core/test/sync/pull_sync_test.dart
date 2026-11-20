@@ -656,6 +656,103 @@ void main() {
     });
   });
 
+  test('an answer stored while a pull reads the chat stays', () async {
+    final blob = blobFor('chat-1');
+    server.seedChat(id: 'chat-1', blob: blob, createdAt: 100, updatedAt: 150);
+    await pull.pullChat('chat-1');
+
+    final late = _LateReadClient(server);
+    final gate = Completer<void>();
+    late.readGate = gate.future;
+    pull = PullSync(client: late, db: db, locks: locks);
+    final pulling = pull.pullChat('chat-1');
+    await late.readTaken.future;
+    // The answer failed meanwhile. The server saved its error and then told
+    // this device, which stored the answer with it.
+    final messages = (blob['history'] as Map)['messages'] as Map;
+    final failed = <String, dynamic>{
+      ...messages['chat-1-m2'] as Map<String, dynamic>,
+      'error': {'content': 'Connection lost'},
+    };
+    server.seedChat(
+      id: 'chat-1',
+      blob: {
+        ...blob,
+        'history': {
+          'messages': {...messages, 'chat-1-m2': failed},
+          'currentId': 'chat-1-m2',
+        },
+      },
+      createdAt: 100,
+      updatedAt: 151,
+    );
+    await db.messagesDao.upsertLocalEchoTurn(
+      chatId: 'chat-1',
+      user: null,
+      assistant: MessageRowData(
+        id: 'chat-1-m2',
+        chatId: 'chat-1',
+        parentId: 'chat-1-m1',
+        role: 'assistant',
+        content: failed['content'] as String,
+        model: 'llama3',
+        createdAt: 1002,
+        orderIndex: -1,
+        payload: failed,
+      ),
+    );
+    gate.complete();
+    await pulling;
+
+    final answer = (await db.messagesDao.getForChat('chat-1'))
+        .singleWhere((row) => row.id == 'chat-1-m2');
+    check((jsonDecode(answer.payload) as Map)['error'])
+        .isA<Map<String, dynamic>>()['content']
+        .equals('Connection lost');
+  });
+
+  // A turn stored here doesn't stamp the server's copy as a push does, so
+  // a newer chat can't be allowed to carry the watermark past this one.
+  test('a chat every read of which predates a turn stored here holds the '
+      'watermark until a later cycle stores it', () async {
+    server.seedChat(
+      id: 'chat-a',
+      blob: blobFor('chat-a'),
+      createdAt: 100,
+      updatedAt: 100,
+    );
+    await pull.pullChat('chat-a');
+    await db.syncMetaDao.setPullWatermark(100);
+    server.seedChat(
+      id: 'chat-a',
+      blob: blobFor('chat-a'),
+      createdAt: 100,
+      updatedAt: 101,
+    );
+    server.seedChat(
+      id: 'chat-b',
+      blob: blobFor('chat-b'),
+      createdAt: 100,
+      updatedAt: 120,
+    );
+    final hooked = _ChatHookClient(server)
+      ..whileChatLoads = (id) async {
+        if (id == 'chat-a') db.chatsDao.noteLocalTurn('chat-a');
+      };
+    pull = PullSync(client: hooked, db: db, locks: locks);
+
+    final first = await pull.run();
+
+    check(first.watermarkAdvanced).isFalse();
+    check(await db.syncMetaDao.getPullWatermark()).equals(100);
+
+    hooked.whileChatLoads = null;
+    await pull.run();
+
+    check((await db.chatsDao.getChat('chat-a'))!.updatedAt).equals(101);
+    check(await db.syncMetaDao.getPullWatermark()).equals(120);
+  });
+
   group('a model picked while a pull reads the chat', () {
     Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
     void seed(List<String> models) => server.seedChat(

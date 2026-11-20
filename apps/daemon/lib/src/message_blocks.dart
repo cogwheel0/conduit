@@ -17,6 +17,7 @@ import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/source_reference_helper.dart';
 import 'package:conduit_markdown/conduit_markdown.dart' as md;
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 
 import 'apple_models_service.dart' show appleErrorType;
@@ -151,7 +152,12 @@ final class MessageBlocks {
           // A polling-only server's reply Conduit stopped waiting for: the
           // core keeps its words in English; the window says it its way.
           ? 'heldReplyStillRunning'
-          : appleErrorType(block.text),
+          : switch (block.relayFailure) {
+              TetherRelayFailure.interrupted => 'tetherInterrupted',
+              TetherRelayFailure.unavailable => 'tetherUnavailable',
+              TetherRelayFailure.busy => 'tetherBusy',
+              null => appleErrorType(block.text),
+            },
       hermesError: switch (block.hermes) {
         final surface? => hermesErrorDto(surface),
         null => null,

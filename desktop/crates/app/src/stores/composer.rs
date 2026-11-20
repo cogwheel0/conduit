@@ -2942,11 +2942,17 @@ pub fn agent_place(model: &ModelSummary) -> Option<String> {
     )
 }
 
+/// Where a picker row's model runs: a coding agent's terminal, or the device
+/// that offers it through Tether (`Studio Mac · Lab`).
+pub fn model_place(model: &ModelSummary) -> Option<String> {
+    agent_place(model).or_else(|| model.device.clone())
+}
+
 /// What VoiceOver calls a picker row: its name on screen, and for a coding
-/// agent where it runs, so two agents of one model on different terminals
-/// are told apart.
+/// agent or a device's model where it runs, so two of one model in
+/// different places are told apart.
 pub fn picker_row_name(model: &ModelSummary) -> String {
-    match agent_place(model) {
+    match model_place(model) {
         Some(place) => format!("{} \u{b7} {place}", model_label(model)),
         None => model_label(model),
     }
@@ -3201,6 +3207,7 @@ mod tests {
             connection: None,
             logo: None,
             agent: None,
+            device: None,
         }
     }
 
@@ -3427,6 +3434,7 @@ mod tests {
             connection: None,
             logo: None,
             agent: None,
+            device: None,
         }
     }
 
@@ -3482,6 +3490,17 @@ mod tests {
         assert_eq!(picker_row_name(&agent), "gpt-5 \u{b7} Greenhouse");
         agent.agent.as_mut().unwrap().terminal_name = None;
         assert_eq!(picker_row_name(&agent), "gpt-5 \u{b7} codex/gpt-5");
+        // So is a model one of the user's devices offers: its device.
+        let mut device = model("qwen3:8b", "qwen3:8b");
+        device.device = Some("Studio Mac \u{b7} Garage lab".into());
+        assert_eq!(
+            model_place(&device).as_deref(),
+            Some("Studio Mac \u{b7} Garage lab")
+        );
+        assert_eq!(
+            picker_row_name(&device),
+            "qwen3:8b \u{b7} Studio Mac \u{b7} Garage lab"
+        );
 
         let prompts = vec![
             prompt("/translate", "Summarize in French"),
@@ -5010,6 +5029,7 @@ mod tests {
                 id: "calc".into(),
                 name: "Calculator".into(),
                 description: None,
+                device: false,
             }],
             ..Default::default()
         });
@@ -5178,6 +5198,7 @@ mod tests {
             id: id.into(),
             name: id.to_uppercase(),
             description: None,
+            device: false,
         }
     }
 

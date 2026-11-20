@@ -320,7 +320,7 @@ Future<Never> _rejectUnsupportedCodeInterpreter(
       await owner.database?.messagesDao.markAssistantCompletionRefused(
         chatId: owner.chatId,
         messageId: assistantMessageId,
-        error: chatErrorContentForException(error),
+        error: chatMessageErrorFor(error),
       );
     });
   } catch (cause, stackTrace) {

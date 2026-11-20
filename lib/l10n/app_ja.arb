@@ -6709,6 +6709,34 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "保存済みのキーは新しいアドレスには送信されないため、削除されます。このアドレス用のキーを入力してください。",
+  "personalConnectionsMovedToTether": "このサーバーは、個人用のツールとターミナルを Tether 経由でお使いのデバイスから取得するようになりました。",
+  "@personalConnectionsMovedToTether": {
+    "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."
+  },
+  "personalConnectionsSavedListUnused": "ここに保存された接続は、サーバーで使用されなくなりました。参照用に残してあります。",
+  "@personalConnectionsSavedListUnused": {
+    "description": "Shown above the personal tool servers and terminals saved on a server that moved them to Tether: the server ignores them, and they are listed to read only."
+  },
+  "openWebUiDirectConnectionsMovedToTether": "このサーバーは直接接続を Tether に移行しました。お使いのデバイスのモデルは、サーバーのほかのモデルと一緒に表示されます。",
+  "@openWebUiDirectConnectionsMovedToTether": {
+    "description": "Shown in the Open WebUI section of Direct Connections settings when the server is 0.13.4 or later, which replaced the direct connections users kept on it with Tether, Open WebUI's companion app. Keep 'Tether' untranslated."
+  },
+  "composerYourDevices": "自分のデバイス",
+  "@composerYourDevices": {
+    "description": "Heading in the message box's tools menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later)."
+  },
+  "tetherRelayInterrupted": "デバイスとの接続が中断されました。処理は完了している可能性があるため、もう一度実行する前に確認してください。",
+  "@tetherRelayInterrupted": {
+    "description": "Shown for a reply or request Open WebUI relayed to one of the user's own devices through Tether when the relay broke: the operation may still have completed, so the user should check its result rather than repeat it."
+  },
+  "tetherRelayUnavailable": "現在、Tether 経由でデバイスに接続できません。デバイスで Tether が実行されていることを確認してください。",
+  "@tetherRelayUnavailable": {
+    "description": "Shown when Open WebUI could not reach the user's own device through Tether: the device is offline or no longer offers the connection. Keep 'Tether' untranslated."
+  },
+  "tetherRelayBusy": "デバイスは Tether 経由でほかのリクエストを処理中です。完了してからもう一度お試しください。",
+  "@tetherRelayBusy": {
+    "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
   "knowledgeBaseEntire": "ナレッジベース全体",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."

@@ -10,6 +10,7 @@ import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/services/tools_service.dart';
+import 'package:conduit_core/utils/list_loads.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 part 'tools_providers.g.dart';
@@ -18,6 +19,10 @@ part 'tools_providers.g.dart';
 class ToolsList extends _$ToolsList {
   @override
   Future<List<Tool>> build() async {
+    // This build's own Ref: [ref] reads the provider's current one, so after
+    // an await only this one tells whether Riverpod retired the build.
+    final buildRef = ref;
+    bool current() => buildRef.mounted;
     final isAuthenticated = ref.watch(isAuthenticatedProvider2);
     if (!isAuthenticated) {
       return const <Tool>[];
@@ -35,10 +40,19 @@ class ToolsList extends _$ToolsList {
     if (toolsService != null && cacheOwnership == null) {
       return const <Tool>[];
     }
+    final cacheRead = _loads.sinceNow(current: current);
     final cached = await storage.getLocalTools();
+    // A retired build runs on, but reads, publishes and saves nothing more:
+    // the build that replaced it does.
+    if (!current()) return const <Tool>[];
     if (cacheOwnership != null &&
         !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
       return const <Tool>[];
+    }
+    // A read of the server that started while the cache was read is newer
+    // than what the cache holds.
+    if (cached.isNotEmpty && !cacheRead.isNewest) {
+      return _publishedByNewerLoad();
     }
 
     if (cached.isNotEmpty) {
@@ -50,10 +64,31 @@ class ToolsList extends _$ToolsList {
       return const [];
     }
 
-    return (await _fetchAndPersist(toolsService))?.tools ?? const <Tool>[];
+    final load = _loads.start(current: current);
+    final result = await AsyncValue.guard(
+      () => _fetchAndPersist(toolsService, load),
+    );
+    load.finish();
+    if (!load.isNewest) return _publishedByNewerLoad();
+    return result.requireValue?.tools ?? const <Tool>[];
   }
 
+  final ListLoads _loads = ListLoads();
+
+  /// Reads the list again. A read already under way, which may have asked
+  /// before the server's list changed, is superseded rather than joined.
+  /// Completes once the newest read has finished.
   Future<void> refresh() async {
+    final load = _loads.start();
+    try {
+      await _refresh(load);
+    } finally {
+      load.finish();
+    }
+    await _loads.settled();
+  }
+
+  Future<void> _refresh(ListLoad load) async {
     if (!ref.read(isAuthenticatedProvider2)) {
       state = const AsyncData<List<Tool>>(<Tool>[]);
       return;
@@ -63,11 +98,24 @@ class ToolsList extends _$ToolsList {
     if (toolsService == null) {
       return;
     }
-    final result = await AsyncValue.guard(() => _fetchAndPersist(toolsService));
-    if (!ref.mounted) return;
+    final result = await AsyncValue.guard(
+      () => _fetchAndPersist(toolsService, load),
+    );
+    if (!ref.mounted || !load.isNewest) return;
     final owned = result.value;
     if (result.hasValue && owned == null) return;
     state = result.whenData((value) => value!.tools);
+  }
+
+  /// What [build] returns once a newer read superseded its own: the list
+  /// that read published.
+  Future<List<Tool>> _publishedByNewerLoad() async {
+    await _loads.settled();
+    final published = state;
+    if (!published.isLoading && published.hasError) {
+      Error.throwWithStackTrace(published.error!, published.stackTrace!);
+    }
+    return published.value ?? const <Tool>[];
   }
 
   void _scheduleWarmRefresh(ToolsService? service) {
@@ -80,13 +128,20 @@ class ToolsList extends _$ToolsList {
     });
   }
 
-  Future<_OwnedTools?> _fetchAndPersist(ToolsService service) async {
+  Future<_OwnedTools?> _fetchAndPersist(
+    ToolsService service,
+    ListLoad load,
+  ) async {
     final ownership = _captureOwnership(service);
     if (ownership == null) return null;
     final tools = await service.getTools();
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
+    if (!load.isNewest) return null;
     final storage = ref.read(optimizedStorageServiceProvider);
-    await storage.saveLocalTools(tools);
+    await load.write(() async {
+      if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return;
+      await storage.saveLocalTools(tools);
+    });
     if (!openWebUiCacheOwnershipIsCurrent(ref, ownership)) return null;
     return (tools: tools, ownership: ownership);
   }

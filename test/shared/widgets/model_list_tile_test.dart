@@ -20,6 +20,7 @@ const _reasoningModel = Model(
 Future<ConduitThemeExtension> _pumpTile(
   WidgetTester tester, {
   required bool isSelected,
+  Model model = _reasoningModel,
 }) async {
   late ConduitThemeExtension theme;
   await tester.pumpWidget(
@@ -33,7 +34,7 @@ Future<ConduitThemeExtension> _pumpTile(
             theme = context.conduitTheme;
             return ConduitCard(
               child: ModelListTile(
-                model: _reasoningModel,
+                model: model,
                 isSelected: isSelected,
                 onTap: () {},
               ),
@@ -103,5 +104,30 @@ void main() {
       find.descendant(of: tile, matching: find.byIcon(Icons.check)),
       findsOneWidget,
     );
+  });
+
+  testWidgets("a model one of the user's devices offers names the device", (
+    tester,
+  ) async {
+    // As Open WebUI 0.13.4 lists it: `connection_type: local`, as the
+    // server's own connections can be, says nothing about where it runs.
+    final model = Model.fromJson(const <String, dynamic>{
+      'id': 'qwen3:8b',
+      'name': 'qwen3:8b',
+      'owned_by': 'openai',
+      'connection_type': 'local',
+      'tags': <dynamic>[
+        <String, dynamic>{'name': 'Studio Mac · Garage lab'},
+      ],
+      'owner_id': 'user-1',
+      'base_url': 'tether://3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d',
+      'service': 'garage_lab',
+    });
+
+    await _pumpTile(tester, isSelected: false, model: model);
+
+    // Once, where it comes from, rather than again as a tag.
+    check(find.text('Studio Mac · Garage lab').evaluate()).length.equals(1);
+    check(find.text('STUDIO MAC · GARAGE LAB').evaluate()).isEmpty();
   });
 }

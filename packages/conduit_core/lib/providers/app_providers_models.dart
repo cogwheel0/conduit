@@ -76,11 +76,17 @@ Future<Model?> modelForUnpickedSend(
 @Riverpod(keepAlive: true)
 class Models extends _$Models {
   bool _terminalDirectDiscoveryNeedsReconciliation = false;
-  Future<void>? _refreshInFlight;
+  final ListLoads _loads = ListLoads();
   OpenWebUiCacheOwnershipSnapshot? _warmRefreshOwnership;
 
   @override
   Future<List<Model>> build() async {
+    // This build's own Ref: [ref] reads the provider's current one, so after
+    // an await only this one tells whether Riverpod retired the build. A
+    // retired build runs on, but reads, publishes and saves nothing more:
+    // the build that replaced it does.
+    final buildRef = ref;
+    bool current() => buildRef.mounted;
     // Reviewer mode returns mock models
     if (ref.watch(reviewerModeProvider)) {
       return _demoModels();
@@ -120,6 +126,7 @@ class Models extends _$Models {
           stackTrace: stackTrace,
         );
       }
+      if (!current()) return const <Model>[];
     }
     final directModels = ref.watch(
       directModelDiscoveryProvider.select((value) {
@@ -193,7 +200,10 @@ class Models extends _$Models {
         );
       }
       DebugLogger.log('skip-unauthed', scope: 'models');
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(
+        const <Model>[],
+        load: _loads.sinceNow(current: current),
+      );
       return _returnWithSelectionReconciliation(
         const <Model>[],
         deferDirectSelection: deferDirectSelectionReconciliation,
@@ -226,13 +236,23 @@ class Models extends _$Models {
       );
     }
     final storage = ref.watch(optimizedStorageServiceProvider);
+    final cacheAsRead = _loads.cacheAsRead(current: current);
+    final cacheRead = _loads.sinceNow(current: current);
     try {
       final cached = await storage.getLocalModels();
+      if (!current()) return const <Model>[];
       if (cacheOwnership != null &&
           !openWebUiCacheOwnershipIsCurrent(ref, cacheOwnership)) {
         return _returnWithSelectionReconciliation(
           _withLocalModels(const <Model>[], directModels: directModels),
           deferDirectSelection: deferDirectSelectionReconciliation,
+        );
+      }
+      // A read of the server that started while the cache was read is newer
+      // than what the cache holds.
+      if (cached.isNotEmpty && !cacheRead.isNewest) {
+        return await _publishedByNewerLoad(
+          _withLocalModels(const <Model>[], directModels: directModels),
         );
       }
       if (cached.isNotEmpty) {
@@ -248,7 +268,11 @@ class Models extends _$Models {
           },
         );
         if (visibleCached.length != cached.length && cacheOwnership != null) {
-          _persistModelsAsync(visibleCached, ownership: cacheOwnership);
+          _persistModelsAsync(
+            visibleCached,
+            ownership: cacheOwnership,
+            load: cacheAsRead,
+          );
         }
         if (cacheOwnership != null &&
             !_sameModelCacheOwnership(_warmRefreshOwnership, cacheOwnership)) {
@@ -280,30 +304,29 @@ class Models extends _$Models {
         stackTrace: stackTrace,
       );
     }
+    if (!current()) return const <Model>[];
 
     if (api == null) {
       DebugLogger.warning('api-missing', scope: 'models');
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(
+        const <Model>[],
+        load: _loads.sinceNow(current: current),
+      );
       return _returnWithSelectionReconciliation(
         _withLocalModels(const <Model>[], directModels: directModels),
         deferDirectSelection: deferDirectSelectionReconciliation,
       );
     }
 
-    try {
-      final loaded = await _load(api);
-      if (loaded == null ||
-          !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership)) {
-        return _returnWithSelectionReconciliation(
-          _withLocalModels(const <Model>[], directModels: directModels),
-          deferDirectSelection: deferDirectSelectionReconciliation,
-        );
-      }
-      return _returnWithSelectionReconciliation(
-        _withLocalModels(loaded.models, directModels: directModels),
-        deferDirectSelection: deferDirectSelectionReconciliation,
+    final load = _loads.start(current: current);
+    final result = await AsyncValue.guard(() => _load(api, load));
+    load.finish();
+    if (!load.isNewest) {
+      return _publishedByNewerLoad(
+        _withLocalModels(const <Model>[], directModels: directModels),
       );
-    } catch (_) {
+    }
+    if (result.hasError) {
       final localModels = _withLocalModels(
         const <Model>[],
         directModels: directModels,
@@ -318,8 +341,31 @@ class Models extends _$Models {
         localModels,
         deferDirectSelection: deferDirectSelectionReconciliation,
       );
-      rethrow;
+      Error.throwWithStackTrace(result.error!, result.stackTrace!);
     }
+    final loaded = result.requireValue;
+    if (loaded == null ||
+        !openWebUiCacheOwnershipIsCurrent(ref, loaded.ownership)) {
+      return _returnWithSelectionReconciliation(
+        _withLocalModels(const <Model>[], directModels: directModels),
+        deferDirectSelection: deferDirectSelectionReconciliation,
+      );
+    }
+    return _returnWithSelectionReconciliation(
+      _withLocalModels(loaded.models, directModels: directModels),
+      deferDirectSelection: deferDirectSelectionReconciliation,
+    );
+  }
+
+  /// What [build] returns once a newer read superseded its own: the list
+  /// that read published, or [fallback] when it published none.
+  Future<List<Model>> _publishedByNewerLoad(List<Model> fallback) async {
+    await _loads.settled();
+    final published = state;
+    if (!published.isLoading && published.hasError) {
+      Error.throwWithStackTrace(published.error!, published.stackTrace!);
+    }
+    return published.value ?? fallback;
   }
 
   List<Model> _returnWithSelectionReconciliation(
@@ -534,27 +580,26 @@ class Models extends _$Models {
     DebugLogger.warning('hermes-selection-unavailable', scope: 'models');
   }
 
-  Future<void> refresh() {
-    final inFlight = _refreshInFlight;
-    if (inFlight != null) return inFlight;
-
-    late final Future<void> operation;
-    operation = _refresh().whenComplete(() {
-      if (identical(_refreshInFlight, operation)) {
-        _refreshInFlight = null;
-      }
-    });
-    _refreshInFlight = operation;
-    return operation;
+  /// Reads the list again. A read already under way, which may have asked
+  /// before the server's list changed, is superseded rather than joined.
+  /// Completes once the newest read has finished.
+  Future<void> refresh() async {
+    final load = _loads.start();
+    try {
+      await _refresh(load);
+    } finally {
+      load.finish();
+    }
+    await _loads.settled();
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh(ListLoad load) async {
     if (ref.read(reviewerModeProvider)) {
       state = AsyncData<List<Model>>(_reconcileLocalSelection(_demoModels()));
       return;
     }
     await ref.read(directModelDiscoveryProvider.notifier).refresh();
-    if (!ref.mounted) return;
+    if (!ref.mounted || !load.isNewest) return;
     final hermesConfig = ref.read(hermesConfigProvider);
     if (hermesConfig.isUsable &&
         hermesConfig.mode == HermesBackendMode.desktopGateway) {
@@ -569,7 +614,7 @@ class Models extends _$Models {
           stackTrace: stackTrace,
         );
       }
-      if (!ref.mounted) return;
+      if (!ref.mounted || !load.isNewest) return;
     }
     // LibreChat's catalog is fetched again too: models, agents or specs
     // added on the server since show up without restarting.
@@ -588,6 +633,7 @@ class Models extends _$Models {
       // Switching the primary account while the catalog loaded rebuilt the
       // list for the new account already; this refresh's list is stale.
       if (!ref.mounted ||
+          !load.isNewest ||
           ref.read(primaryAccountKindProvider) !=
               PrimaryAccountKind.libreChat) {
         return;
@@ -610,7 +656,7 @@ class Models extends _$Models {
       final models = _withLocalModels(const <Model>[]);
       state = AsyncData<List<Model>>(_reconcileLocalSelection(models));
       // Keep locally minted transport models runtime-only.
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(const <Model>[], load: load);
       return;
     }
     final api = ref.read(apiServiceProvider);
@@ -618,11 +664,11 @@ class Models extends _$Models {
       state = AsyncData<List<Model>>(
         _reconcileLocalSelection(_withLocalModels(const <Model>[])),
       );
-      _persistModelsAsync(const <Model>[]);
+      _persistModelsAsync(const <Model>[], load: load);
       return;
     }
-    final result = await AsyncValue.guard(() => _load(api));
-    if (!ref.mounted) return;
+    final result = await AsyncValue.guard(() => _load(api, load));
+    if (!ref.mounted || !load.isNewest) return;
     final loaded = result.value;
     if (result.hasValue &&
         (loaded == null ||
@@ -705,7 +751,7 @@ class Models extends _$Models {
     }
   }
 
-  Future<_OwnedModels?> _load(ApiService api) async {
+  Future<_OwnedModels?> _load(ApiService api, ListLoad load) async {
     final ownership = captureOpenWebUiCacheOwnership(
       ref,
       api: api,
@@ -728,7 +774,7 @@ class Models extends _$Models {
         },
       );
       _warmRefreshOwnership = ownership;
-      _persistModelsAsync(visibleModels, ownership: ownership);
+      _persistModelsAsync(visibleModels, ownership: ownership, load: load);
       return (models: visibleModels, ownership: ownership);
     } catch (e, stackTrace) {
       DebugLogger.error(
@@ -755,17 +801,21 @@ class Models extends _$Models {
     return models.where((model) => !model.isHidden).toList();
   }
 
+  /// Writes [models] to the cache for [load] ([ListLoad.write]).
   void _persistModelsAsync(
     List<Model> models, {
     OpenWebUiCacheOwnershipSnapshot? ownership,
+    required ListLoad load,
   }) {
-    if (ownership != null &&
-        !openWebUiCacheOwnershipIsCurrent(ref, ownership)) {
-      return;
-    }
+    bool owned() =>
+        ownership == null || openWebUiCacheOwnershipIsCurrent(ref, ownership);
+    if (!owned()) return;
     final storage = ref.read(optimizedStorageServiceProvider);
+    final write = load.write(() async {
+      if (owned()) await storage.saveLocalModels(models);
+    });
     unawaited(
-      storage.saveLocalModels(models).onError((error, stack) {
+      write.onError((error, stack) {
         DebugLogger.error(
           'Failed to persist models to cache',
           scope: 'models/cache',

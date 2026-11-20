@@ -15,6 +15,8 @@ import 'package:conduit_core/features/integrations/personal_connection_edits.dar
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 
 import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart'
+    show tetherRelayFailureOf;
 import 'package:conduit_core/services/moa_completion.dart';
 import 'package:conduit_core/services/openwebui_stream_parser.dart';
 

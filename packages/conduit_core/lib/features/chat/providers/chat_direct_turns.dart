@@ -1866,9 +1866,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
       error: accumulator.error != null
           ? ChatMessageError(content: accumulator.error!.message)
           : terminalFailure != null && !accumulator.hasGeneratedImages
-          ? ChatMessageError(
-              content: chatErrorContentForException(terminalFailure),
-            )
+          ? chatMessageErrorFor(terminalFailure)
           : base.error,
       isStreaming: false,
     );

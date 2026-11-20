@@ -1660,6 +1660,7 @@ mod tests {
             name: id.into(),
             kind: "system".into(),
             requires_saved_chat,
+            device: false,
         };
         let both = [terminal("box", false), terminal("per-chat", true)];
         let only_chats = [terminal("per-chat", true)];

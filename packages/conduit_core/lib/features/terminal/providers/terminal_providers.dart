@@ -10,6 +10,7 @@ import 'package:conduit_core/network/conduit_user_agent.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/utils/list_loads.dart';
 
 import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
@@ -31,7 +32,27 @@ final terminalServiceProvider = Provider<TerminalService?>((ref) {
 final terminalAvailableServersProvider =
     FutureProvider<List<TerminalServerInfo>>(_terminalAvailableServers);
 
+/// Moves on when the server's terminals may have changed while nothing a
+/// terminal list watches did, as when one of the user's Tether devices
+/// connects or leaves. Every [terminalAvailableServersProvider] watches it,
+/// a chat session scope's included, so each is read again.
+final terminalsChangedProvider = NotifierProvider<TerminalsChanged, int>(
+  TerminalsChanged.new,
+);
+
+class TerminalsChanged extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void changed() => state++;
+}
+
+/// The reads of [terminalAvailableServersProvider], one per build. Each chat
+/// session scope has its own ([chatSessionScopedTerminalOverrides]).
+final _terminalListLoadsProvider = Provider<ListLoads>((ref) => ListLoads());
+
 Future<List<TerminalServerInfo>> _terminalAvailableServers(Ref ref) {
+  ref.watch(terminalsChangedProvider);
   final service = ref.watch(terminalServiceProvider);
   final sessionScopeId = ref.watch(terminalSessionScopeIdProvider);
   if (service == null) {
@@ -46,13 +67,21 @@ Future<List<TerminalServerInfo>> _terminalAvailableServers(Ref ref) {
     return Completer<List<TerminalServerInfo>>().future;
   }
 
-  return _probeTerminalServers(ref, service, sessionScopeId);
+  // Only the newest build publishes: Riverpod drops an earlier one's result.
+  final load = ref.read(_terminalListLoadsProvider).start();
+  return _probeTerminalServers(
+    ref,
+    service,
+    sessionScopeId,
+    load,
+  ).whenComplete(load.finish);
 }
 
 Future<List<TerminalServerInfo>> _probeTerminalServers(
   Ref ref,
   TerminalService service,
   String sessionScopeId,
+  ListLoad load,
 ) async {
   final servers = (await service.getAvailableServers())
       .where((server) => server.isAvailableForChatScope(sessionScopeId))
@@ -60,18 +89,20 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   // A real probe succeeded for the current API/session: persist whether
   // terminal is enabled so the offline/error fallback reflects the true
   // last-known state. Deferred — can't mutate a provider during build.
-  Future.microtask(() {
-    if (!ref.mounted ||
-        !identical(ref.read(terminalServiceProvider), service) ||
-        ref.read(terminalSessionScopeIdProvider) != sessionScopeId) {
-      return;
-    }
-    final enabled = servers.isNotEmpty;
-    ref.read(terminalFeatureEnabledProvider.notifier).setEnabled(enabled);
-    ref
-        .read(_terminalScopedAvailabilityProvider.notifier)
-        .setEnabled(service, sessionScopeId, enabled);
-  });
+  unawaited(
+    load.write(() async {
+      if (!ref.mounted ||
+          !identical(ref.read(terminalServiceProvider), service) ||
+          ref.read(terminalSessionScopeIdProvider) != sessionScopeId) {
+        return;
+      }
+      final enabled = servers.isNotEmpty;
+      ref.read(terminalFeatureEnabledProvider.notifier).setEnabled(enabled);
+      ref
+          .read(_terminalScopedAvailabilityProvider.notifier)
+          .setEnabled(service, sessionScopeId, enabled);
+    }),
+  );
   return servers;
 }
 
@@ -169,6 +200,7 @@ final terminalSessionScopeIdProvider = Provider<String>(
 /// selected terminal names.
 List<Override> chatSessionScopedTerminalOverrides() => <Override>[
   terminalSessionScopeIdProvider.overrideWith(_terminalSessionScopeId),
+  _terminalListLoadsProvider.overrideWith((ref) => ListLoads()),
   terminalAvailableServersProvider.overrideWith(_terminalAvailableServers),
   terminalSelectedServerProvider.overrideWith(_terminalSelectedServer),
   // A file a chat's terminal tool asked to show belongs to that chat.

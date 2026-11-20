@@ -5095,6 +5095,34 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "La clave guardada no se enviará a la nueva dirección, así que se quitará. Escribe una clave para esta dirección.",
+  "personalConnectionsMovedToTether": "Este servidor ahora obtiene las herramientas y los terminales personales de tus dispositivos a través de Tether.",
+  "@personalConnectionsMovedToTether": {
+    "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."
+  },
+  "personalConnectionsSavedListUnused": "El servidor ya no usa las conexiones guardadas aquí. Se conservan como referencia.",
+  "@personalConnectionsSavedListUnused": {
+    "description": "Shown above the personal tool servers and terminals saved on a server that moved them to Tether: the server ignores them, and they are listed to read only."
+  },
+  "openWebUiDirectConnectionsMovedToTether": "Este servidor trasladó las conexiones directas a Tether. Los modelos de tus dispositivos aparecen junto a sus otros modelos.",
+  "@openWebUiDirectConnectionsMovedToTether": {
+    "description": "Shown in the Open WebUI section of Direct Connections settings when the server is 0.13.4 or later, which replaced the direct connections users kept on it with Tether, Open WebUI's companion app. Keep 'Tether' untranslated."
+  },
+  "composerYourDevices": "Tus dispositivos",
+  "@composerYourDevices": {
+    "description": "Heading in the message box's tools menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later)."
+  },
+  "tetherRelayInterrupted": "Se interrumpió la conexión con tu dispositivo. Puede que la operación haya terminado igualmente, así que compruébalo antes de volver a intentarlo.",
+  "@tetherRelayInterrupted": {
+    "description": "Shown for a reply or request Open WebUI relayed to one of the user's own devices through Tether when the relay broke: the operation may still have completed, so the user should check its result rather than repeat it."
+  },
+  "tetherRelayUnavailable": "Tu dispositivo no está disponible a través de Tether en este momento. Comprueba que Tether se esté ejecutando en él.",
+  "@tetherRelayUnavailable": {
+    "description": "Shown when Open WebUI could not reach the user's own device through Tether: the device is offline or no longer offers the connection. Keep 'Tether' untranslated."
+  },
+  "tetherRelayBusy": "Tu dispositivo está ocupado con otras solicitudes a través de Tether. Vuelve a intentarlo cuando terminen.",
+  "@tetherRelayBusy": {
+    "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
   "knowledgeBaseEntire": "Toda la base de conocimientos",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."

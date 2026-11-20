@@ -5133,6 +5133,34 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "Сохранённый ключ не будет отправлен на новый адрес, поэтому он будет удалён. Введите ключ для этого адреса.",
+  "personalConnectionsMovedToTether": "Теперь этот сервер получает личные инструменты и терминалы с ваших устройств через Tether.",
+  "@personalConnectionsMovedToTether": {
+    "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."
+  },
+  "personalConnectionsSavedListUnused": "Сервер больше не использует сохранённые здесь подключения. Они оставлены для справки.",
+  "@personalConnectionsSavedListUnused": {
+    "description": "Shown above the personal tool servers and terminals saved on a server that moved them to Tether: the server ignores them, and they are listed to read only."
+  },
+  "openWebUiDirectConnectionsMovedToTether": "Этот сервер перенёс прямые подключения в Tether. Модели с ваших устройств отображаются вместе с другими его моделями.",
+  "@openWebUiDirectConnectionsMovedToTether": {
+    "description": "Shown in the Open WebUI section of Direct Connections settings when the server is 0.13.4 or later, which replaced the direct connections users kept on it with Tether, Open WebUI's companion app. Keep 'Tether' untranslated."
+  },
+  "composerYourDevices": "Ваши устройства",
+  "@composerYourDevices": {
+    "description": "Heading in the message box's tools menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later)."
+  },
+  "tetherRelayInterrupted": "Соединение с вашим устройством прервалось. Операция могла всё же завершиться, поэтому проверьте это, прежде чем повторять.",
+  "@tetherRelayInterrupted": {
+    "description": "Shown for a reply or request Open WebUI relayed to one of the user's own devices through Tether when the relay broke: the operation may still have completed, so the user should check its result rather than repeat it."
+  },
+  "tetherRelayUnavailable": "Ваше устройство сейчас недоступно через Tether. Убедитесь, что на нём запущен Tether.",
+  "@tetherRelayUnavailable": {
+    "description": "Shown when Open WebUI could not reach the user's own device through Tether: the device is offline or no longer offers the connection. Keep 'Tether' untranslated."
+  },
+  "tetherRelayBusy": "Ваше устройство обрабатывает через Tether другие запросы. Повторите попытку, когда они завершатся.",
+  "@tetherRelayBusy": {
+    "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
   "knowledgeBaseEntire": "Вся база знаний",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."

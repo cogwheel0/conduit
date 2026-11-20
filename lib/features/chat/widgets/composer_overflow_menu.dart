@@ -13,6 +13,7 @@ import '../../../shared/widgets/model_avatar.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../../terminal/providers/terminal_providers.dart';
@@ -362,6 +363,23 @@ class _ComposerAttachmentKeyboardState
     final availableTerminalServersAsync = restrictedMode
         ? null
         : ref.watch(terminalAvailableServersProvider);
+    Widget terminalTile(TerminalServerInfo server) => _buildToggleTile(
+      icon: Platform.isIOS
+          ? CupertinoIcons.chevron_left_slash_chevron_right
+          : Icons.terminal_rounded,
+      title: server.displayName,
+      subtitle: server.subtitle,
+      value: selectedTerminalId == server.selectionId,
+      onChanged: (_) async {
+        await ref.read(terminalSelectionControllerProvider).toggle(server);
+      },
+    );
+    final deviceTerminals = <TerminalServerInfo>[
+      for (final server
+          in availableTerminalServersAsync?.asData?.value ??
+              const <TerminalServerInfo>[])
+        if (server.isTetherDevice) server,
+    ];
     final toolsAsync = widget.localAttachmentsOnly
         ? null
         : directMode
@@ -373,146 +391,174 @@ class _ComposerAttachmentKeyboardState
               .watch(libreChatComposerOptionsProvider)
               .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
+    Widget toolTile(ComposerOverflowItem item) => _buildOverflowItemTile(
+      item: item,
+      onChanged: (selected) {
+        setComposerOverflowSelection(
+          ref,
+          actionId: item.id,
+          selected: selected,
+        );
+      },
+    );
+    // A device's terminals come from the terminal list, so they stay offered
+    // whatever becomes of the tool list.
+    List<Widget> withDevices(
+      List<Widget> above, [
+      List<Widget> tools = const [],
+    ]) {
+      final deviceTiles = [
+        ...tools,
+        for (final server in deviceTerminals) terminalTile(server),
+      ];
+      if (deviceTiles.isEmpty) return above;
+      return [
+        ...above,
+        if (above.isNotEmpty) const SizedBox(height: Spacing.sm),
+        _buildSectionLabel(l10n.composerYourDevices),
+        ...withVerticalSpacing(deviceTiles, Spacing.xxs),
+      ];
+    }
+
     final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
-        : toolsAsync!.when(
-            data: (tools) {
-              final toolItems = buildComposerOverflowToolItems(
-                availableTools: tools,
-                selectedToolIds: selectedToolIds,
-              );
-              if (toolItems.isEmpty) {
-                return _buildInfoCard(l10n.noToolsAvailable);
-              }
-              final tiles = toolItems.map((item) {
-                return _buildOverflowItemTile(
-                  item: item,
-                  onChanged: (selected) {
-                    setComposerOverflowSelection(
-                      ref,
-                      actionId: item.id,
-                      selected: selected,
-                    );
-                  },
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: toolsAsync!.when(
+              data: (tools) {
+                final toolItems = buildComposerOverflowToolItems(
+                  availableTools: tools,
+                  selectedToolIds: selectedToolIds,
                 );
-              }).toList();
-              return Column(children: withVerticalSpacing(tiles, Spacing.xxs));
-            },
-            loading: () => directMode
-                ? const SizedBox.shrink()
-                : const Center(
+                if (toolItems.isEmpty && deviceTerminals.isEmpty) {
+                  return [_buildInfoCard(l10n.noToolsAvailable)];
+                }
+                return withDevices(
+                  withVerticalSpacing([
+                    for (final item in toolItems)
+                      if (item.section == ComposerOverflowSection.tools)
+                        toolTile(item),
+                  ], Spacing.xxs),
+                  [
+                    for (final item in toolItems)
+                      if (item.section == ComposerOverflowSection.devices)
+                        toolTile(item),
+                  ],
+                );
+              },
+              loading: () => withDevices([
+                if (!directMode)
+                  const Center(
                     child: ConduitLoadingIndicator(
                       size: IconSize.lg,
                       isCompact: true,
                     ),
                   ),
-            error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
+              ]),
+              error: (_, _) =>
+                  withDevices([_buildInfoCard(l10n.failedToLoadTools)]),
+            ),
           );
     final integrationsSection = restrictedMode
         ? const SizedBox.shrink()
         : FutureBuilder<Map<String, dynamic>?>(
             future: userSettingsFuture,
-            builder: (context, snapshot) {
-              final settings = snapshot.data;
-              final directToolServers = effectivePersonalServerList(
-                settings,
-                PersonalConnectionKind.toolServer.settingsKey,
-              );
-              final directToolTiles = <Widget>[];
-              for (var index = 0; index < directToolServers.length; index++) {
-                final server = directToolServers[index];
-                if (!_isServerEnabled(server)) {
-                  continue;
-                }
-
-                final selectionId = personalToolServerSelectionId(
-                  directToolServers,
-                  index,
+            builder: (context, snapshot) => Consumer(
+              builder: (context, ref, _) {
+                final saved = effectivePersonalServerList(
+                  snapshot.data,
+                  PersonalConnectionKind.toolServer.settingsKey,
                 );
-                final isSelected = selectedToolIds.contains(selectionId);
-                directToolTiles.add(
-                  _buildToggleTile(
-                    icon: Platform.isIOS
-                        ? CupertinoIcons.square_stack_3d_down_right
-                        : Icons.hub_outlined,
-                    title: _serverTitle(
-                      server,
-                      fallbackPrefix: l10n.toolServer,
-                    ),
-                    subtitle: _serverSubtitle(server),
-                    value: isSelected,
-                    onChanged: (_) {
-                      final current = List<String>.from(
-                        ref.read(selectedToolIdsProvider),
-                      );
-                      if (isSelected) {
-                        current.remove(selectionId);
-                      } else {
-                        current.add(selectionId);
-                      }
-                      ref.read(selectedToolIdsProvider.notifier).set(current);
-                    },
-                  ),
-                );
-              }
+                // Asked only with something to list, as the answer reads the
+                // server's config.
+                final directToolServers =
+                    saved.isNotEmpty &&
+                        ref.watch(personalConnectionsOfferedProvider)
+                    ? saved
+                    : const <dynamic>[];
+                final directToolTiles = <Widget>[];
+                for (var index = 0; index < directToolServers.length; index++) {
+                  final server = directToolServers[index];
+                  if (!_isServerEnabled(server)) {
+                    continue;
+                  }
 
-              final terminalTiles = availableTerminalServersAsync!.maybeWhen(
-                data: (servers) {
-                  return servers
-                      .map((server) {
-                        final isSelected =
-                            selectedTerminalId == server.selectionId;
-                        return _buildToggleTile(
-                          icon: Platform.isIOS
-                              ? CupertinoIcons.chevron_left_slash_chevron_right
-                              : Icons.terminal_rounded,
-                          title: server.displayName,
-                          subtitle: server.subtitle,
-                          value: isSelected,
-                          onChanged: (_) async {
-                            await ref
-                                .read(terminalSelectionControllerProvider)
-                                .toggle(server);
-                          },
-                        );
-                      })
-                      .toList(growable: false);
-                },
-                orElse: () => const <Widget>[],
-              );
-
-              if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
-                return const SizedBox.shrink();
-              }
-
-              final children = <Widget>[];
-              if (directToolTiles.isNotEmpty) {
-                children
-                  ..add(_buildSectionLabel(l10n.toolServers))
-                  ..add(
-                    Column(
-                      children: withVerticalSpacing(
-                        directToolTiles,
-                        Spacing.xxs,
+                  final selectionId = personalToolServerSelectionId(
+                    directToolServers,
+                    index,
+                  );
+                  final isSelected = selectedToolIds.contains(selectionId);
+                  directToolTiles.add(
+                    _buildToggleTile(
+                      icon: Platform.isIOS
+                          ? CupertinoIcons.square_stack_3d_down_right
+                          : Icons.hub_outlined,
+                      title: _serverTitle(
+                        server,
+                        fallbackPrefix: l10n.toolServer,
                       ),
+                      subtitle: _serverSubtitle(server),
+                      value: isSelected,
+                      onChanged: (_) {
+                        final current = List<String>.from(
+                          ref.read(selectedToolIdsProvider),
+                        );
+                        if (isSelected) {
+                          current.remove(selectionId);
+                        } else {
+                          current.add(selectionId);
+                        }
+                        ref.read(selectedToolIdsProvider.notifier).set(current);
+                      },
                     ),
                   );
-              }
-              if (terminalTiles.isNotEmpty) {
-                if (children.isNotEmpty) {
-                  children.add(const SizedBox(height: Spacing.sm));
                 }
-                children
-                  ..add(_buildSectionLabel(l10n.terminal))
-                  ..add(
-                    Column(
-                      children: withVerticalSpacing(terminalTiles, Spacing.xxs),
-                    ),
-                  );
-              }
 
-              return Column(children: children);
-            },
+                // A device's terminals are listed with its tools, above.
+                final terminalTiles = availableTerminalServersAsync!.maybeWhen(
+                  data: (servers) => [
+                    for (final server in servers)
+                      if (!server.isTetherDevice) terminalTile(server),
+                  ],
+                  orElse: () => const <Widget>[],
+                );
+
+                if (directToolTiles.isEmpty && terminalTiles.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                final children = <Widget>[];
+                if (directToolTiles.isNotEmpty) {
+                  children
+                    ..add(_buildSectionLabel(l10n.toolServers))
+                    ..add(
+                      Column(
+                        children: withVerticalSpacing(
+                          directToolTiles,
+                          Spacing.xxs,
+                        ),
+                      ),
+                    );
+                }
+                if (terminalTiles.isNotEmpty) {
+                  if (children.isNotEmpty) {
+                    children.add(const SizedBox(height: Spacing.sm));
+                  }
+                  children
+                    ..add(_buildSectionLabel(l10n.terminal))
+                    ..add(
+                      Column(
+                        children: withVerticalSpacing(
+                          terminalTiles,
+                          Spacing.xxs,
+                        ),
+                      ),
+                    );
+                }
+
+                return Column(children: children);
+              },
+            ),
           );
 
     final listItems = <Widget>[

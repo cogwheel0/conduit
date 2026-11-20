@@ -13,6 +13,13 @@
       "capabilities": [],
       "connection": "Home Ollama",
       "logo": "meta"
+    },
+    {
+      "id": "qwen3:8b",
+      "name": "qwen3:8b",
+      "pinned": false,
+      "capabilities": [],
+      "device": "Studio Mac · Garage lab"
     }
   ],
   "selectedId": "gpt-4o",

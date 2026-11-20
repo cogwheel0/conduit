@@ -1803,6 +1803,87 @@ void main() {
         check(error['content']).equals('Something went wrong');
       });
 
+      test("error keeps the failed relay to a user's device this app "
+          'saved with it', () {
+        Map<String, dynamic> parsedError(Object? relay) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'messages': [
+                {
+                  'id': 'msg-1',
+                  'role': 'assistant',
+                  'content': '',
+                  'timestamp': 1700000000,
+                  'error': {
+                    'content': 'Open WebUI: Server Connection Error',
+                    'tetherRelay': relay,
+                  },
+                },
+              ],
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.first['error'] as Map<String, dynamic>;
+        }
+
+        check(parsedError('busy')).deepEquals({
+          'content': 'Open WebUI: Server Connection Error',
+          'tetherRelay': 'busy',
+        });
+        // One this version does not know is no relay at all.
+        check(parsedError('rerouted')).deepEquals({
+          'content': 'Open WebUI: Server Connection Error',
+        });
+      });
+
+      test('error reads the failed relay its saved code names, for an answer '
+          'and for the one beside it', () {
+        // As Open WebUI 0.13.4 saves a relay's own failure: its result
+        // object as the error's content.
+        Map<String, dynamic> relayFailure() => {
+          'content': {
+            'error': 'Connection lost',
+            'code': 'tether_interrupted',
+            'outcome': 'unknown',
+            'retryable': false,
+          },
+        };
+        final result = parseFullConversation({
+          'id': 'conv-1',
+          'chat': {
+            'history': {
+              'currentId': 'answer-a',
+              'messages': {
+                'question': {
+                  'id': 'question',
+                  'role': 'user',
+                  'content': 'Compare',
+                  'childrenIds': ['answer-a', 'answer-b'],
+                  'timestamp': 1700000000,
+                },
+                for (final id in ['answer-a', 'answer-b'])
+                  id: {
+                    'id': id,
+                    'parentId': 'question',
+                    'role': 'assistant',
+                    'content': '',
+                    'timestamp': 1700000000,
+                    'error': relayFailure(),
+                  },
+              },
+            },
+          },
+        });
+
+        final messages = result['messages'] as List<Map<String, dynamic>>;
+        final answer = messages.last;
+        check((answer['error'] as Map)['tetherRelay']).equals('interrupted');
+        final beside = (answer['versions'] as List).single as Map;
+        check(beside['id']).equals('answer-b');
+        check((beside['error'] as Map)['tetherRelay']).equals('interrupted');
+      });
+
       test('error as bool true', () {
         final result = parseFullConversation({
           'id': 'conv-1',

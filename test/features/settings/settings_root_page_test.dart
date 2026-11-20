@@ -70,6 +70,7 @@ Future<_RecordingController> _pumpRoot(
   bool scheduledTasks = false,
   bool personalConnections = false,
   bool chatDataControls = false,
+  PersonalConnectionsAccess? personalAccess,
 }) async {
   final controller = _RecordingController();
   await tester.pumpWidget(
@@ -82,11 +83,16 @@ Future<_RecordingController> _pumpRoot(
         currentUserProvider.overrideWith((ref) async => _user),
         apiServiceProvider.overrideWithValue(_ApiService()),
         workspaceCapabilitiesProvider.overrideWith((ref) async => capabilities),
-        appSettingsProvider.overrideWithValue(const AppSettings()),
-        calendarAvailableProvider.overrideWithValue(calendar),
-        personalConnectionsEntryVisibleProvider.overrideWithValue(
-          personalConnections,
+        appSettingsProvider.overrideWithValue(
+          AppSettings(advancedFeaturesEnabled: personalAccess != null),
         ),
+        calendarAvailableProvider.overrideWithValue(calendar),
+        if (personalAccess != null)
+          personalConnectionsAccessProvider.overrideWithValue(personalAccess)
+        else
+          personalConnectionsEntryVisibleProvider.overrideWithValue(
+            personalConnections,
+          ),
         scheduledTasksEntryVisibleProvider.overrideWithValue(scheduledTasks),
         chatDataControlsEntryVisibleProvider.overrideWithValue(
           chatDataControls,
@@ -199,5 +205,39 @@ void main() {
       chatDataControls: true,
     );
     check(await shown()).deepEquals(gated);
+  });
+
+  testWidgets('the root keeps Personal Connections for a server that moved '
+      'them to Tether, and leaves them out for one that turned them off', (
+    tester,
+  ) async {
+    final row = _row(NativeSheetRoutes.personalConnections);
+    Future<bool> shown() async {
+      await tester
+          .dragUntilVisible(
+            row,
+            find.byType(Scrollable).first,
+            const Offset(0, -300),
+            maxIteration: 8,
+          )
+          .catchError((_) {});
+      return row.evaluate().isNotEmpty;
+    }
+
+    await _pumpRoot(
+      tester,
+      personalAccess: const PersonalConnectionsAccess.blocked(
+        PersonalConnectionsBlock.movedToTether,
+      ),
+    );
+    check(await shown()).isTrue();
+
+    await _pumpRoot(
+      tester,
+      personalAccess: const PersonalConnectionsAccess.blocked(
+        PersonalConnectionsBlock.serverDisabled,
+      ),
+    );
+    check(await shown()).isFalse();
   });
 }

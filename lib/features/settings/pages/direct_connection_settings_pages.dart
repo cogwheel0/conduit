@@ -280,6 +280,7 @@ class DirectConnectionSettingsPages extends SettingsPageModule {
       directConnectionProfilesProvider,
       directMcpServersProvider,
       openWebUiDirectConnectionsAvailableProvider,
+      openWebUiDirectConnectionsMovedToTetherProvider,
       openWebUiDirectConnectionsProvider,
       directHistoryPolicyProvider,
       if (apple) ...[

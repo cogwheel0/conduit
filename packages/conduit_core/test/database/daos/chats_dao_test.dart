@@ -7,6 +7,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
@@ -201,6 +202,226 @@ void main() {
       ).equals(1);
     },
   );
+
+  group("a failed relay to one of the user's devices", () {
+    const chatId = 'relay-chat';
+    const answerId = 'relay-answer';
+    const serverWords = 'Open WebUI: Server Connection Error';
+
+    /// The chat as Open WebUI stores it, its answer failed with [error].
+    /// [metadata] is what the answer's row records beside it.
+    Future<void> serverCopy(
+      Map<String, dynamic>? error, {
+      required int updatedAt,
+      Map<String, dynamic>? metadata,
+    }) => db.chatsDao.upsertServerChat(
+      rows: ChatBlobMapper.blobToRows(
+        chatId: chatId,
+        title: 'Relay',
+        createdAt: 1,
+        updatedAt: updatedAt,
+        blob: <String, dynamic>{
+          'title': 'Relay',
+          'models': ['garage-llama'],
+          'history': <String, dynamic>{
+            'currentId': answerId,
+            'messages': <String, dynamic>{
+              'relay-question': <String, dynamic>{
+                'id': 'relay-question',
+                'parentId': null,
+                'childrenIds': [answerId],
+                'role': 'user',
+                'content': 'Ask the device',
+                'timestamp': 1,
+              },
+              answerId: <String, dynamic>{
+                'id': answerId,
+                'parentId': 'relay-question',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': '',
+                'model': 'garage-llama',
+                'timestamp': 2,
+                'done': true,
+                'error': ?error,
+                'metadata': ?metadata,
+              },
+            },
+          },
+        },
+      ),
+    );
+
+    Future<ChatMessageError?> storedError() async {
+      final conversation = assembleConversation(
+        (await db.chatsDao.getChat(chatId))!,
+        await db.messagesDao.getForChat(chatId),
+      );
+      return conversation.messages.singleWhere((m) => m.id == answerId).error;
+    }
+
+    Future<Map<String, dynamic>> storedPayload() async =>
+        jsonDecode((await db.messagesDao.getMessage(chatId, answerId))!.payload)
+            as Map<String, dynamic>;
+
+    // Conduit records on the answer's row, when its request goes out, that
+    // one of the user's devices was asked. Open WebUI's copy has neither that
+    // record nor the relay, so the store keeps the record and reads the
+    // copy's error with it.
+    for (final recorded in [true, false]) {
+      test('a pull reads the server\'s error with the answer\'s record '
+          '(${recorded ? 'asked of a device' : 'nothing recorded'})', () async {
+        await serverCopy(
+          null,
+          updatedAt: 1,
+          metadata: recorded
+              ? const <String, dynamic>{kCompletionViaTetherKey: true}
+              : null,
+        );
+
+        await serverCopy(const {'content': serverWords}, updatedAt: 2);
+
+        check(await storedError())
+            .isNotNull()
+            .has((it) => it.relay, 'relay')
+            .equals(recorded ? TetherRelayFailure.interrupted : null);
+        final metadata = check((await storedPayload())['metadata']);
+        if (recorded) {
+          metadata.isA<Map<String, dynamic>>().deepEquals({
+            kCompletionViaTetherKey: true,
+          });
+        } else {
+          metadata.isNull();
+        }
+      });
+    }
+
+    test('a local copy that lost the record does not drop it', () async {
+      await serverCopy(
+        null,
+        updatedAt: 1,
+        metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
+      );
+      final row = await db.messagesDao.getMessage(chatId, answerId);
+
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: answerId,
+          chatId: chatId,
+          parentId: row!.parentId,
+          role: 'assistant',
+          content: '',
+          createdAt: 2,
+          orderIndex: 0,
+          payload: const <String, dynamic>{
+            'id': answerId,
+            'role': 'assistant',
+            'content': '',
+            'error': {'content': serverWords},
+          },
+        ),
+      );
+
+      check(await storedError())
+          .isNotNull()
+          .has((it) => it.relay, 'relay')
+          .equals(TetherRelayFailure.interrupted);
+      check((await storedPayload())['metadata'])
+          .isA<Map<String, dynamic>>()
+          .deepEquals({kCompletionViaTetherKey: true});
+    });
+
+    test('stays recorded when the server sends its copy of the same error '
+        'again, and goes with the chat when it is saved', () async {
+      await serverCopy(const {'content': serverWords}, updatedAt: 1);
+      await db.messagesDao.recordAnswerViaTether(
+        chatId: chatId,
+        messageId: answerId,
+      );
+
+      await serverCopy(const {'content': serverWords}, updatedAt: 2);
+
+      check(
+        await storedError(),
+      ).isNotNull().has((it) => it.relay, 'relay').equals(
+        TetherRelayFailure.interrupted,
+      );
+      final saved = ChatBlobMapper.rowsToBlob(
+        chatRowsFromDb(
+          (await db.chatsDao.getChat(chatId))!,
+          await db.messagesDao.getForChat(chatId),
+        ),
+      );
+      final messages =
+          (saved['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      check(
+        (messages[answerId] as Map<String, dynamic>)['error'],
+      ).isA<Map<String, dynamic>>().deepEquals({
+        'content': serverWords,
+        'tetherRelay': 'interrupted',
+      });
+    });
+
+    test("is read from the code beside the error's words", () async {
+      await serverCopy(
+        null,
+        updatedAt: 1,
+        metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
+      );
+
+      await serverCopy(const {
+        'content': 'Connection lost',
+        'code': 'tether_interrupted',
+      }, updatedAt: 2);
+
+      check(((await storedPayload())['error'] as Map)['tetherRelay'])
+          .equals('interrupted');
+    });
+
+    test('is read from the error stored when the record is made', () async {
+      // The request went to a device, but the error the pull stored is
+      // another model's words, not a relay's.
+      await serverCopy(const {'content': 'Access denied'}, updatedAt: 1);
+      await db.messagesDao.recordAnswerViaTether(
+        chatId: chatId,
+        messageId: answerId,
+      );
+
+      check(await storedError())
+          .isNotNull()
+          .has((it) => it.relay, 'relay')
+          .isNull();
+    });
+
+    test('goes once the server reports another error', () async {
+      await serverCopy(const {'content': serverWords}, updatedAt: 1);
+      await db.messagesDao.recordAnswerViaTether(
+        chatId: chatId,
+        messageId: answerId,
+      );
+
+      await serverCopy(const {'content': 'Model not found'}, updatedAt: 2);
+
+      check(await storedError())
+          .isNotNull()
+          .has((it) => it.relay, 'relay')
+          .isNull();
+    });
+
+    test('is read from a copy that kept it', () async {
+      await serverCopy(const {
+        'content': serverWords,
+        'tetherRelay': 'busy',
+      }, updatedAt: 1);
+
+      check(
+        await storedError(),
+      ).isNotNull().has((it) => it.relay, 'relay').equals(
+        TetherRelayFailure.busy,
+      );
+    });
+  });
 
   group('watchChatList', () {
     test(

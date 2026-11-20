@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:conduit_core/features/tether/tether_relay_failure.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:html_unescape/html_unescape.dart';
@@ -500,6 +501,13 @@ typedef _ServerMessageSnapshot = ({
   List<String> followUps,
   bool isDone,
   String? errorContent,
+
+  /// The failed relay to one of the user's devices the saved error records,
+  /// or else its code or words name.
+  TetherRelayFailure? errorRelay,
+
+  /// How many errors the stream had written when the read began.
+  int errorRevision,
 });
 
 class _AssistantServerPatch {
@@ -551,6 +559,8 @@ Future<void> _handleReconnectRecovery({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   })
   applyServerContent,
   required void Function() syncImages,
@@ -583,6 +593,8 @@ Future<void> _handleReconnectRecovery({
         source: 'Reconnect recovery',
         output: result.output,
         errorContent: result.errorContent,
+        errorRelay: result.errorRelay,
+        errorRevisionAtRead: result.errorRevision,
       );
       if (applied) {
         syncImages();
@@ -699,7 +711,30 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   /// the chat and the socket session, and adopting one would write a sibling's
   /// text into this answer.
   bool allowForeignMessageBinding = true,
+
+  /// Whether the answer's model is one of the user's devices offers through
+  /// Tether, as the request recorded when it was sent.
+  bool viaTether = false,
 }) {
+  // A failure is read here, once, and the answer keeps what it was. A saved
+  // error that already records its relay keeps that. [raw] is the error as
+  // it arrived, whose code may say what its words do not.
+  ChatMessageError answerError(
+    String? content, {
+    TetherRelayFailure? recorded,
+    Object? raw,
+  }) => ChatMessageError(
+    content: content,
+    relay:
+        recorded ??
+        tetherRelayFailureOf(raw, viaTether: viaTether) ??
+        tetherRelayFailureOf(content, viaTether: viaTether),
+  );
+
+  // Counts the errors this stream wrote. A read of the server's copy notes it
+  // when it starts, and touches the error only if no newer one came since.
+  var errorRevision = 0;
+
   // Track if streaming has been finished to avoid duplicate cleanup
   bool hasFinished = false;
   bool hasCompletedStreamingUi = false;
@@ -1707,7 +1742,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       applyAssistantServerPatch(
         targetId: targetId,
         buildPatch: (_) =>
-            _AssistantServerPatch(error: ChatMessageError(content: message)),
+            _AssistantServerPatch(error: answerError(message, raw: error)),
       );
     } else if (eventType == 'response.incomplete') {
       // Upstream contract (middleware.handle_responses_streaming_event): a
@@ -1817,7 +1852,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         applyAssistantServerPatch(
           targetId: assistantMessageId,
           buildPatch: (_) => _AssistantServerPatch(
-            error: ChatMessageError(content: error['message']?.toString()),
+            error: answerError(error['message']?.toString(), raw: error),
           ),
         );
 
@@ -2111,6 +2146,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     try {
       final chatId = activeConversationId;
       if (chatId == null || chatId.isEmpty || isTemporaryChat(chatId)) {
@@ -2172,6 +2208,18 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       final followUpsRaw = serverMsg['followUps'] ?? serverMsg['follow_ups'];
       final followUps = _parseFollowUpsField(followUpsRaw);
       final errorContent = extractServerErrorContent(serverMsg['error']);
+      final rawError = serverMsg['error'];
+      // Read here, from the whole of the saved error: what reaches the
+      // answer is its words.
+      final errorRelay = errorContent == null
+          ? null
+          : answerError(
+              errorContent,
+              recorded: rawError is Map
+                  ? tetherRelayFailureFromJson(rawError[kTetherRelayErrorKey])
+                  : null,
+              raw: rawError,
+            ).relay;
 
       // Check completion status
       final isDone =
@@ -2187,6 +2235,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: followUps,
         isDone: isDone,
         errorContent: errorContent,
+        errorRelay: errorRelay,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2234,6 +2284,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     if (isObsoleteStream || hasFinished || !sessionIsCurrent()) {
       return null;
     }
+    final errorRevisionAtRead = errorRevision;
     final TemporaryChatResume? resumed;
     try {
       resumed = await api.resumeTemporaryChat(chatId, sessionId: sessionId);
@@ -2247,6 +2298,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: const <String>[],
         isDone: true,
         errorContent: TemporaryChatUnavailable.userMessage,
+        errorRelay: null,
+        errorRevision: errorRevisionAtRead,
       );
     } catch (e) {
       DebugLogger.log(
@@ -2294,6 +2347,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       followUps: const <String>[],
       isDone: lost,
       errorContent: lost ? TemporaryChatResume.connectionLostMessage : null,
+      errorRelay: null,
+      errorRevision: errorRevisionAtRead,
     );
   }
 
@@ -2358,6 +2413,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
               current.error == nextError) {
             return current;
           }
+          if (current.error != nextError) errorRevision++;
           applied = true;
           return current.copyWith(
             content: nextContent,
@@ -2386,6 +2442,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     required String source,
     List<Map<String, dynamic>>? output,
     String? errorContent,
+    TetherRelayFailure? errorRelay,
+    required int errorRevisionAtRead,
   }) {
     if (isObsoleteStream) {
       return false;
@@ -2405,7 +2463,10 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 
     var applied = false;
 
-    if (errorContent != null) {
+    // An error that arrived while the copy was read is newer than it.
+    final adoptsError =
+        errorContent != null && errorRevision == errorRevisionAtRead;
+    if (adoptsError) {
       DebugLogger.log(
         '$source: adopting server error',
         scope: 'streaming/helper',
@@ -2483,19 +2544,27 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     applied =
         applyAssistantServerPatch(
           targetId: assistantMessageId,
-          buildPatch: (_) => _AssistantServerPatch(
+          buildPatch: (current) => _AssistantServerPatch(
             content: shouldAdoptContent && !isVisibleTarget ? content : null,
             output: shouldAdoptOutput ? output : null,
             followUps: followUps.isNotEmpty ? followUps : null,
-            metadata: errorContent == null
-                ? null
-                : {'openwebuiRecoverableError': !isDone},
+            metadata: adoptsError
+                ? {'openwebuiRecoverableError': !isDone}
+                : null,
             mergeMetadata: true,
-            error: errorContent == null
-                ? null
-                : errorContent.isNotEmpty
-                ? ChatMessageError(content: errorContent)
-                : const ChatMessageError(content: null),
+            // The server saves an error's words, not its code: the same words
+            // keep the relay already recorded here.
+            error: adoptsError
+                ? answerError(
+                    errorContent.isNotEmpty ? errorContent : null,
+                    recorded:
+                        errorRelay ??
+                        (errorContent.isNotEmpty &&
+                                current.error?.content == errorContent
+                            ? current.error?.relay
+                            : null),
+                  )
+                : null,
           ),
         ) ||
         applied;
@@ -2532,6 +2601,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
       return;
     }
     refreshingSnapshot = true;
+    final errorRevisionAtRead = errorRevision;
     try {
       // The server save already happened via POST /api/chat/completed; the
       // pull persists the resulting blob locally (under the chat lock) and
@@ -2651,6 +2721,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 current.content,
                 assistant.content,
               );
+          // An error that arrived while the copy was read is newer than it.
+          final adoptsError =
+              recoverAuthoritativeState && errorRevision == errorRevisionAtRead;
           return _AssistantServerPatch(
             content: recoverAuthoritativeState && !keepLocalContent
                 ? assistant.content
@@ -2671,8 +2744,19 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             isStreaming: recoverAuthoritativeState
                 ? recoveredStreamingState
                 : null,
-            error: recoverAuthoritativeState ? assistant.error : null,
-            clearError: recoverAuthoritativeState && assistant.error == null,
+            // The saved copy carries no relay: its error is read here, and
+            // the same words keep the relay already recorded.
+            error: adoptsError && assistant.error != null
+                ? answerError(
+                    assistant.error!.content,
+                    recorded:
+                        assistant.error!.relay ??
+                        (current.error?.content == assistant.error!.content
+                            ? current.error?.relay
+                            : null),
+                  )
+                : null,
+            clearError: adoptsError && assistant.error == null,
           );
         },
       );
@@ -2781,6 +2865,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         source: source,
         output: result.output,
         errorContent: result.errorContent,
+        errorRelay: result.errorRelay,
+        errorRevisionAtRead: result.errorRevision,
       );
       if (applied) {
         syncImages();
@@ -3494,6 +3580,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                 source: 'done recovery',
                 output: result.output,
                 errorContent: result.errorContent,
+                errorRelay: result.errorRelay,
+                errorRevisionAtRead: result.errorRevision,
               );
             }
             await refreshConversationSnapshot();
@@ -4142,10 +4230,13 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             final filtered = message.statusHistory
                 .where((status) => status.action != 'knowledge_search')
                 .toList(growable: false);
+            final error = answerError(
+              errorContent.isNotEmpty ? errorContent : null,
+              raw: err ?? payload,
+            );
+            if (error != message.error) errorRevision++;
             return message.copyWith(
-              error: errorContent.isNotEmpty
-                  ? ChatMessageError(content: errorContent)
-                  : const ChatMessageError(content: null),
+              error: error,
               statusHistory: filtered,
               metadata: {
                 ...?message.metadata,
@@ -4594,6 +4685,8 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                     source: 'httpStream premature-end recovery',
                     output: result.output,
                     errorContent: result.errorContent,
+                    errorRelay: result.errorRelay,
+                    errorRevisionAtRead: result.errorRevision,
                   );
                   if (applied) {
                     syncImages();
@@ -4795,8 +4888,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
             applyAssistantServerPatch(
               targetId: assistantMessageId,
               buildPatch: (_) => _AssistantServerPatch(
-                error: ChatMessageError(
-                  content: errorMap['message']?.toString(),
+                error: answerError(
+                  errorMap['message']?.toString(),
+                  raw: errorMap,
                 ),
               ),
             );

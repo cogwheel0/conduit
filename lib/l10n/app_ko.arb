@@ -4867,6 +4867,34 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "저장된 키는 새 주소로 전송되지 않으므로 제거됩니다. 이 주소에 사용할 키를 입력하세요.",
+  "personalConnectionsMovedToTether": "이 서버는 이제 Tether를 통해 내 기기에서 개인 도구와 터미널을 가져옵니다.",
+  "@personalConnectionsMovedToTether": {
+    "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."
+  },
+  "personalConnectionsSavedListUnused": "서버는 여기에 저장된 연결을 더 이상 사용하지 않습니다. 참고용으로 남겨 둡니다.",
+  "@personalConnectionsSavedListUnused": {
+    "description": "Shown above the personal tool servers and terminals saved on a server that moved them to Tether: the server ignores them, and they are listed to read only."
+  },
+  "openWebUiDirectConnectionsMovedToTether": "이 서버는 직접 연결을 Tether로 옮겼습니다. 내 기기의 모델은 서버의 다른 모델과 함께 표시됩니다.",
+  "@openWebUiDirectConnectionsMovedToTether": {
+    "description": "Shown in the Open WebUI section of Direct Connections settings when the server is 0.13.4 or later, which replaced the direct connections users kept on it with Tether, Open WebUI's companion app. Keep 'Tether' untranslated."
+  },
+  "composerYourDevices": "내 기기",
+  "@composerYourDevices": {
+    "description": "Heading in the message box's tools menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later)."
+  },
+  "tetherRelayInterrupted": "기기와의 연결이 끊겼습니다. 작업이 이미 완료되었을 수 있으니 다시 시도하기 전에 확인하세요.",
+  "@tetherRelayInterrupted": {
+    "description": "Shown for a reply or request Open WebUI relayed to one of the user's own devices through Tether when the relay broke: the operation may still have completed, so the user should check its result rather than repeat it."
+  },
+  "tetherRelayUnavailable": "지금은 Tether를 통해 기기에 연결할 수 없습니다. 기기에서 Tether가 실행 중인지 확인하세요.",
+  "@tetherRelayUnavailable": {
+    "description": "Shown when Open WebUI could not reach the user's own device through Tether: the device is offline or no longer offers the connection. Keep 'Tether' untranslated."
+  },
+  "tetherRelayBusy": "기기가 Tether를 통해 다른 요청을 처리하고 있습니다. 완료된 후 다시 시도하세요.",
+  "@tetherRelayBusy": {
+    "description": "Shown when Open WebUI turned a request away because the user's device already runs as many Tether operations as it allows. Keep 'Tether' untranslated."
+  },
   "knowledgeBaseEntire": "지식 베이스 전체",
   "@knowledgeBaseEntire": {
     "description": "Title of the knowledge picker's row, above a knowledge base's files, that attaches the whole base rather than one of its files."

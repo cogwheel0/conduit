@@ -88,6 +88,7 @@ class SocketService {
   bool _wasBackgrounded = false;
   bool _resumeReconnectInFlight = false;
   bool _signalReconnectOnConnect = false;
+  bool _hasConnected = false;
   bool _hasNetwork = true;
   int _backgroundActivityLeases = 0;
   final Set<String> _backgroundLeaseHandlerIds = <String>{};
@@ -561,9 +562,17 @@ class SocketService {
     if (!shouldSignalReconnect) return;
 
     _signalReconnectOnConnect = false;
+    _announceReconnect();
+  }
+
+  /// Tells listeners a connection came back so they refresh what it may have
+  /// missed. That includes the user's devices: one that joined or left
+  /// meanwhile sent its `terminals:changed` to a socket that wasn't there.
+  void _announceReconnect() {
     if (!_reconnectController.isClosed) {
       _reconnectController.add(null);
     }
+    tetherDevicesChangedHandler?.call();
   }
 
   void _clearPendingResumeReconnect() {
@@ -614,6 +623,12 @@ class SocketService {
       _toolExecutionHandler = handler;
 
   SocketChatHandoffHandler? _chatHandoffHandler;
+
+  /// Told when the user's Tether devices change what they offer (Open
+  /// WebUI's `terminals:changed`, sent to the account rather than a chat).
+  /// Set by the owner that ties the service to an account, and cleared
+  /// with it.
+  void Function()? tetherDevicesChangedHandler;
 
   /// Who answers `chat:handoff` events for this service, or null for nobody;
   /// a call then gets an `unsupported` reply. Set by the owner that ties the
@@ -1383,7 +1398,18 @@ class SocketService {
     // Emit health update
     _emitHealthUpdate();
 
-    _publishPendingResumeReconciliation();
+    // Any connection after the first is a reconnect, however it came back:
+    // Socket.IO reconnecting this socket (socket_io_client 3 sends
+    // `reconnect` to the manager alone, so only `connect` arrives here), or a
+    // new socket after the network gate, a resume or a chat's lease.
+    final reconnected = _hasConnected;
+    _hasConnected = true;
+    if (reconnected) {
+      _clearPendingResumeReconnect();
+      _announceReconnect();
+    } else {
+      _publishPendingResumeReconciliation();
+    }
   }
 
   void _handleReconnectAttempt(dynamic attempt) {
@@ -1451,9 +1477,7 @@ class SocketService {
     _connectionCompleter = null;
 
     // Notify listeners that a reconnection occurred so they can refresh state
-    if (!_reconnectController.isClosed) {
-      _reconnectController.add(null);
-    }
+    _announceReconnect();
     _clearPendingResumeReconnect();
 
     // Emit health update
@@ -1650,6 +1674,11 @@ class SocketService {
     // Says an interactive request was answered or timed out on the server.
     // Conduit's prompts keep their own deadline, so there is nothing to do.
     if (type == 'request:interaction:done') return;
+
+    if (type == 'terminals:changed') {
+      tetherDevicesChangedHandler?.call();
+      return;
+    }
 
     // Open WebUI 0.13.4 sends what older servers sent as `events:app` here.
     if (type == 'channel:app') {

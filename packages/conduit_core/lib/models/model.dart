@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../features/tether/tether_offers.dart' show kTetherUrlScheme;
 import 'toggle_filter.dart';
 
 part 'model.freezed.dart';
@@ -250,6 +251,11 @@ sealed class Model with _$Model {
         'connection_type':
             baseMetadata['connection_type'] ?? json['connection_type'],
       if (json['tags'] != null) 'tags': baseMetadata['tags'] ?? json['tags'],
+      // A Tether model's address names only the user's device, never its
+      // endpoint; it marks the model as the device's.
+      if (json['base_url'] case final String url
+          when url.startsWith(kTetherUrlScheme))
+        'base_url': url,
     };
 
     if (profileImage != null && profileImage.isNotEmpty) {
