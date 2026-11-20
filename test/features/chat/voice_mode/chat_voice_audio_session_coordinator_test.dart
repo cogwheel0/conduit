@@ -414,9 +414,7 @@ void main() {
     );
 
     test('moves a call Telecom hosts through Telecom', () async {
-      const telecomChannel = MethodChannel(
-        'app.cogwheel.conduit/telecom_call',
-      );
+      const telecomChannel = MethodChannel('app.cogwheel.conduit/telecom_call');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       final telecomRequests = <Map<Object?, Object?>>[];
@@ -446,13 +444,11 @@ void main() {
 
       await coordinator.setActiveCallKitCallId('call-1');
       check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
-      check(
-        audioManager.telecomDeviceId,
-      ).equals(_FakeAndroidAudioManagerChannel.speakerId);
+      check(audioManager.telecomDeviceId)
+          .equals(_FakeAndroidAudioManagerChannel.speakerId);
       check(await coordinator.setSpeakerphoneEnabled(false)).isTrue();
-      check(
-        audioManager.telecomDeviceId,
-      ).equals(_FakeAndroidAudioManagerChannel.earpieceId);
+      check(audioManager.telecomDeviceId)
+          .equals(_FakeAndroidAudioManagerChannel.earpieceId);
       check(await coordinator.setSpeakerphoneEnabled(true)).isTrue();
       check(telecomRequests).deepEquals(<Map<Object?, Object?>>[
         {'callId': 'call-1', 'speaker': true},
@@ -463,11 +459,80 @@ void main() {
       // The app's own requests went out alongside, so the call stays on the
       // loudspeaker when Telecom lets go, and the next press moves it itself.
       audioManager.telecomDeviceId = null;
-      check(
-        audioManager.communicationDeviceId,
-      ).equals(_FakeAndroidAudioManagerChannel.speakerId);
+      check(audioManager.communicationDeviceId)
+          .equals(_FakeAndroidAudioManagerChannel.speakerId);
       check(await coordinator.setSpeakerphoneEnabled(false)).isTrue();
       check(audioManager.communicationDeviceId).isNull();
+    });
+
+    test('follows a Telecom route that lands after the bridge answered', () async {
+      const telecomChannel = MethodChannel('app.cogwheel.conduit/telecom_call');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final telecomRequests = <Map<Object?, Object?>>[];
+      // A slow phone: Telecom has not moved the call when the bridge answers.
+      var telecomMoves = false;
+      messenger.setMockMethodCallHandler(telecomChannel, (call) async {
+        if (call.method != 'routeAudio') return null;
+        final args = call.arguments as Map<Object?, Object?>;
+        telecomRequests.add(args);
+        if (telecomMoves) {
+          audioManager.telecomDeviceId = args['speaker'] == true
+              ? _FakeAndroidAudioManagerChannel.speakerId
+              : _FakeAndroidAudioManagerChannel.earpieceId;
+        }
+        return <String, Object?>{
+          'loudspeaker':
+              audioManager.telecomDeviceId ==
+              _FakeAndroidAudioManagerChannel.speakerId,
+        };
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(telecomChannel, null),
+      );
+      Future<void> landed(String callId, {required bool loudspeaker}) async {
+        await messenger.handlePlatformMessage(
+          telecomChannel.name,
+          const StandardMethodCodec().encodeMethodCall(
+            MethodCall('routeLanded', <String, Object?>{
+              'callId': callId,
+              'loudspeaker': loudspeaker,
+            }),
+          ),
+          (_) {},
+        );
+        await pumpEventQueue();
+      }
+
+      audioManager.telecomDeviceId = _FakeAndroidAudioManagerChannel.earpieceId;
+      await coordinator.setActiveCallKitCallId('call-1');
+      await coordinator.applyDefaultSpeakerphoneRoute();
+      await coordinator.configureForListening();
+      await pumpEventQueue();
+      check(telecomRequests.single)
+          .deepEquals({'callId': 'call-1', 'speaker': true});
+      check(routeChanges).deepEquals(<bool>[false]);
+
+      // The bridge keeps asking after its answer, and the call reaches the
+      // loudspeaker. Nothing else tells the coordinator (#1064).
+      audioManager.telecomDeviceId = _FakeAndroidAudioManagerChannel.speakerId;
+      await landed('call-1', loudspeaker: true);
+      check(routeChanges).deepEquals(<bool>[false, true]);
+
+      // The next pass keeps the call there instead of asking for the earpiece.
+      telecomMoves = true;
+      await coordinator.configureForSpeaking();
+      check(telecomRequests.last)
+          .deepEquals({'callId': 'call-1', 'speaker': true});
+      check(audioManager.telecomDeviceId)
+          .equals(_FakeAndroidAudioManagerChannel.speakerId);
+
+      // A landing for another call, or one the route has since moved away
+      // from, is not this call's route.
+      await landed('call-2', loudspeaker: false);
+      audioManager.telecomDeviceId = _FakeAndroidAudioManagerChannel.speakerId;
+      await landed('call-1', loudspeaker: false);
+      check(routeChanges.last).isTrue();
     });
   });
 

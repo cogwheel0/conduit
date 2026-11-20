@@ -72,11 +72,15 @@ class TelecomCallRouteHoldTest {
         override fun notImplemented() = throw AssertionError("not implemented")
     }
 
+    /** The landings the bridge reported after answering, as call id and route. */
+    private val landings = mutableListOf<Pair<String, Boolean>>()
+
     private fun bridge(call: FakeCall): TelecomCallBridge {
         return TelecomCallBridge(
             RuntimeEnvironment.getApplication(),
             loudspeaker = { call.playing == ROUTE_SPEAKER },
             callLookup = { call },
+            routeLanded = { callId, loudspeaker -> landings += callId to loudspeaker },
         )
     }
 
@@ -118,6 +122,8 @@ class TelecomCallRouteHoldTest {
         // The first ask is dropped by the focus switch; the re-ask lands it.
         assertEquals(listOf(ROUTE_SPEAKER, ROUTE_SPEAKER), call.requests)
         assertEquals(ROUTE_SPEAKER, call.playing)
+        // The answer already says where the call went.
+        assertEquals(emptyList<Pair<String, Boolean>>(), landings)
     }
 
     @Test
@@ -155,6 +161,26 @@ class TelecomCallRouteHoldTest {
         idle(2_000)
         assertEquals(ROUTE_SPEAKER, call.playing)
         assertEquals(true, call.requests.size > 2)
+        // The caller took the answer for the route, so the landing is news to
+        // it: the speaker button would stay off over a call on the speaker,
+        // and the next pass would ask for the earpiece again (#1064).
+        assertEquals(listOf("call-1" to true), landings)
+    }
+
+    @Test
+    fun aHoldDisposedAfterItsAnswerReportsNoLanding() {
+        val call = FakeCall()
+        call.droppedRequests = 3
+        val bridge = bridge(call)
+        route(bridge, speaker = true)
+        idle(1_000)
+
+        bridge.dispose()
+        // Telecom applies a request already on its way after all.
+        call.playing = ROUTE_SPEAKER
+        idle(2_000)
+
+        assertEquals(emptyList<Pair<String, Boolean>>(), landings)
     }
 
     @Test
@@ -173,6 +199,7 @@ class TelecomCallRouteHoldTest {
         assertEquals(afterSecondPress, call.requests.size)
         assertEquals(true, first.answered)
         assertEquals(ROUTE_WIRED_OR_EARPIECE, call.audioRoute)
+        assertEquals(emptyList<Pair<String, Boolean>>(), landings)
     }
 
     @Test

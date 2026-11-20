@@ -98,6 +98,8 @@ private class PluginCall(private val connection: CallkitConnection) : TelecomCal
  * then finds the call on the earpiece while the speaker button says otherwise.
  * So the bridge holds the request against the read-back for as long as its
  * wait lasts, re-asking while the phone disagrees (issue #716's own round).
+ * A route that lands after the request was answered is sent to Dart as
+ * `routeLanded`, since the answer said the call was still elsewhere.
  */
 internal class TelecomCallBridge(
     context: Context,
@@ -110,8 +112,14 @@ internal class TelecomCallBridge(
      * not Telecom's to route.
      */
     private val callLookup: ((String) -> TelecomCall?)? = null,
+    /**
+     * Where a late landing is reported, replacing the method channel. Tests
+     * use it to see the report without a Flutter engine.
+     */
+    private val routeLanded: ((callId: String, loudspeaker: Boolean) -> Unit)? = null,
 ) : MethodChannel.MethodCallHandler {
     private val main = Handler(Looper.getMainLooper())
+    private var channel: MethodChannel? = null
 
     // The call the last lookup settled for, found or given up on. Only the
     // first lookups for a call wait for Telecom to create its connection.
@@ -142,8 +150,8 @@ internal class TelecomCallBridge(
     private val pendingAnswers = mutableMapOf<Int, MethodChannel.Result>()
 
     fun setup(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
-            .setMethodCallHandler(this)
+        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
+            .also { it.setMethodCallHandler(this) }
     }
 
     /** Stops a route request still being held, for when the engine goes away. */
@@ -164,6 +172,18 @@ internal class TelecomCallBridge(
     private fun settle(generation: Int) {
         val pending = pendingAnswers.remove(generation) ?: return
         pending.success(mapOf("loudspeaker" to loudspeaker()))
+    }
+
+    private fun reportLanding(callId: String, loudspeaker: Boolean) {
+        val report = routeLanded
+        if (report != null) {
+            report(callId, loudspeaker)
+        } else {
+            channel?.invokeMethod(
+                "routeLanded",
+                mapOf("callId" to callId, "loudspeaker" to loudspeaker),
+            )
+        }
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -232,7 +252,7 @@ internal class TelecomCallBridge(
                 // the phone is, as a superseded hold does.
                 result.success(mapOf("loudspeaker" to loudspeaker()))
             } else {
-                routeAudio(telecomCall, speaker, generation, result)
+                routeAudio(callId, telecomCall, speaker, generation, result)
             }
         }
     }
@@ -274,6 +294,7 @@ internal class TelecomCallBridge(
      */
     @RequiresApi(Build.VERSION_CODES.O)
     private fun routeAudio(
+        callId: String,
         call: TelecomCall,
         speaker: Boolean,
         generation: Int,
@@ -297,6 +318,7 @@ internal class TelecomCallBridge(
         }
         val now = SystemClock.uptimeMillis()
         holdRoute(
+            callId,
             call,
             speaker,
             telecomAudioRouteToHold(speaker, route, supportedRoutes),
@@ -322,9 +344,10 @@ internal class TelecomCallBridge(
      * this returns and reverts the speaker button if the two disagree, so
      * answering before Telecom had its chance would undo the press. Past that
      * window the hold keeps asking in the background, so the caller is not held
-     * for the whole wait.
+     * for the whole wait, and reports the route if it lands then.
      */
     private fun holdRoute(
+        callId: String,
         call: TelecomCall,
         speaker: Boolean,
         route: Int,
@@ -342,7 +365,9 @@ internal class TelecomCallBridge(
         }
         if (loudspeaker == speaker || now >= deadline) {
             routeHoldRunning = false
+            val answered = !pendingAnswers.containsKey(generation)
             settle(generation)
+            if (answered && loudspeaker == speaker) reportLanding(callId, loudspeaker)
             return
         }
         if (now >= confirmBy) settle(generation)
@@ -354,7 +379,7 @@ internal class TelecomCallBridge(
         }
         routeHoldRunning = true
         main.postDelayed({
-            holdRoute(call, speaker, route, deadline, askAt, confirmBy, generation)
+            holdRoute(callId, call, speaker, route, deadline, askAt, confirmBy, generation)
         }, POLL_INTERVAL_MS)
     }
 
