@@ -189,19 +189,41 @@ class FakeStreamSocket implements SocketService {
 
   void emitReconnect() => _reconnects.add(null);
 
-  final List<Map<String, dynamic>> _bufferedChatEvents = [];
+  final List<({Set<String> aliases, List<Map<String, dynamic>> events})>
+  _bufferScopes = [];
 
-  /// Holds a frame that arrives before any chat handler exists. The next
-  /// handler gets it as it registers, as SocketService replays a chat's
-  /// buffered frames.
+  /// Holds a frame that arrives before any chat handler exists, in a scope
+  /// named by the frame's own chat, session and message ids, as
+  /// SocketService buffers it.
   void bufferChatEvent(
     String type,
     Object? payload, {
     String? messageId,
     String? sessionId,
-  }) => _bufferedChatEvents.add(
-    _event(type, payload, messageId, sessionId, null),
-  );
+    String? chatId,
+  }) {
+    final aliases = _aliases(chatId, sessionId, messageId);
+    final scope = _bufferScopes
+        .where((scope) => scope.aliases.any(aliases.contains))
+        .firstOrNull;
+    final event = _event(type, payload, messageId, sessionId, chatId);
+    if (scope == null) {
+      _bufferScopes.add((aliases: aliases, events: [event]));
+    } else {
+      scope.aliases.addAll(aliases);
+      scope.events.add(event);
+    }
+  }
+
+  static Set<String> _aliases(
+    String? chatId,
+    String? sessionId,
+    String? messageId,
+  ) => {
+    if (chatId != null) 'chat:$chatId',
+    if (sessionId != null) 'session:$sessionId',
+    if (messageId != null) 'message:$messageId',
+  };
 
   void emitChatEvent(
     String type,
@@ -258,10 +280,19 @@ class FakeStreamSocket implements SocketService {
   }) {
     _chatHandler = handler;
     _lastChatHandler = handler;
-    final buffered = List.of(_bufferedChatEvents);
-    _bufferedChatEvents.clear();
-    for (final event in buffered) {
-      handler(event, null);
+    // As SocketService's replay: the first scope sharing an alias with this
+    // registration, by chat, then session, then message, replayed whole.
+    final wanted = _aliases(conversationId, sessionId, messageId);
+    for (final alias in wanted) {
+      final scope = _bufferScopes
+          .where((scope) => scope.aliases.contains(alias))
+          .firstOrNull;
+      if (scope == null) continue;
+      _bufferScopes.remove(scope);
+      for (final event in scope.events) {
+        handler(event, null);
+      }
+      break;
     }
     return SocketEventSubscription(() {
       chatSubscriptionDisposeCount++;

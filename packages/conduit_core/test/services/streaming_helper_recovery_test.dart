@@ -763,6 +763,7 @@ void main() {
           socket: socket,
         );
         async.flushMicrotasks();
+        check(socket.sessionUpdates).deepEquals([('conv-1', 'sess-2')]);
         emitDeltaOnSession(socket, 'words.', 'sess-2');
         check(log.reply.content).equals('Early words.');
       });
