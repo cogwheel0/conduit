@@ -3072,8 +3072,8 @@ void main() {
       check(await storedMessage(assistantId)).isNull();
     });
 
-    test('a regeneration the server holds waits as a send does, with no '
-        'failure', () async {
+    test('a regeneration the server holds fails with the reason when its '
+        'question has an answer, and keeps that answer', () async {
       await _seedChat(db, chatId);
       final api = _GatedCompletionApi(Completer<void>())
         ..onSend = () => throw const ChatCompletionHeld();
@@ -3086,6 +3086,58 @@ void main() {
           timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
           model: 'model-1',
           metadata: const {'archivedVariant': true},
+        ),
+      ];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _NoDrainSyncEngine(db, api),
+      );
+      addTearDown(container.dispose);
+
+      await check(regenerateMessage(container, 'Say the word: heron', null))
+          .throws<ChatCompletionHeld>();
+
+      check(api.completionCalls).equals(1);
+      final placeholder = api.assistantMessageId!;
+      final shown = container.read(chatMessagesProvider);
+      check(shown.map((m) => m.id).toList())
+          .deepEquals([userId, 'earlier-answer', placeholder]);
+      check(shown.first.isHeldByServer).isFalse();
+      check(shown[1].content).equals('egret');
+      check(shown.last)
+        ..has((m) => m.isStreaming, 'isStreaming').isFalse()
+        ..has(
+          (m) => m.error?.content,
+          'error',
+        ).equals('A reply is still running. Stop it, then try again.')
+        ..has(
+          (m) => m.versions.map((v) => v.id).toList(),
+          'versions',
+        ).deepEquals(['earlier-answer']);
+      check(api.deletedMessages).isEmpty();
+    });
+
+    test('a regeneration the server holds waits as a send does when its '
+        'question has only an earlier hold\'s empty answer', () async {
+      await _seedChat(db, chatId);
+      final api = _GatedCompletionApi(Completer<void>())
+        ..onSend = () => throw const ChatCompletionHeld();
+      final messages = <ChatMessage>[
+        _user(userId, 'Say the word: heron'),
+        ChatMessage(
+          id: 'earlier-hold',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+          metadata: const {
+            'archivedVariant': true,
+            'completionSubmitted': true,
+            'completionHeld': true,
+          },
         ),
       ];
       final container = _container(

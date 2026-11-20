@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart'
+    show kReplyStillRunningMessage;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
@@ -1606,6 +1608,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('gpt-realtime · gesprochen'), findsOneWidget);
     expect(find.text('gpt-realtime · spoken'), findsNothing);
+  });
+
+  testWidgets('a regeneration refused while a reply runs says so in the app '
+      'language', (tester) async {
+    final message = ChatMessage(
+      id: 'refused-regeneration',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      model: 'Model A',
+      error: const ChatMessageError(content: kReplyStillRunningMessage),
+    );
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, locale: const Locale('de')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Eine Antwort läuft noch. Stoppe sie und versuche es dann erneut.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(kReplyStillRunningMessage), findsNothing);
   });
 
   testWidgets('assistant header follows the active version model', (

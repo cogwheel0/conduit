@@ -192,6 +192,17 @@ final class ChatCompletionHeld implements Exception {
       'running reply ends';
 }
 
+/// Stored as the error of a regeneration the server held
+/// ([ChatCompletionHeld]) whose question already has an answer: Open WebUI
+/// 0.13.4 answers a held message only while nothing answers it, so it never
+/// would. The app shows it in the user's language.
+const String kReplyStillRunningMessage =
+    'A reply is still running. Stop it, then try again.';
+
+/// Whether a stored reply error is [kReplyStillRunningMessage].
+bool isReplyStillRunningError(String? message) =>
+    message?.trim() == kReplyStillRunningMessage;
+
 /// Ends the byte stream of a held completion whose saved reply was still not
 /// finished when Conduit stopped waiting for it: the server may still be
 /// writing it. The turn shows [kHeldReplyUnresolvedMessage] instead of closing

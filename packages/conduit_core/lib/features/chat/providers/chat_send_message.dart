@@ -1768,6 +1768,9 @@ String chatErrorContentForException(Object e) {
     final words = _serverRefusalWords(e.detail);
     if (words != null) return words;
   }
+  // Only a regeneration whose question has an answer gets here: anything
+  // else the server holds waits for its answer.
+  if (e is ChatCompletionHeld) return kReplyStillRunningMessage;
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is HermesChatInputException) return e.message;

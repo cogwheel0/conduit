@@ -1531,12 +1531,23 @@ Future<void> regenerateMessage(
         );
       } on ChatCompletionHeld {
         // Regenerated under a reply still running (on another device): the
-        // server holds the question and answers it once that reply ends.
+        // server holds the question, and answers it once that reply ends
+        // only while nothing answers it. One with an answer of its own fails
+        // as any regeneration does, and keeps that answer.
+        final questionId = parentMsgMap?['id']?.toString() ?? lastUserMessageId;
+        if (await _heldQuestionHasAnswer(
+          ref,
+          regenerationOwner,
+          questionId: questionId,
+          placeholderId: assistantMessageId,
+        )) {
+          rethrow;
+        }
         await settleHeldOpenWebUiCompletion(
           ref,
           api: api,
           owner: regenerationOwner,
-          questionId: parentMsgMap?['id']?.toString() ?? lastUserMessageId,
+          questionId: questionId,
           assistantMessageIds: [assistantMessageId],
         );
         return;
@@ -1700,6 +1711,44 @@ Future<void> regenerateMessage(
     );
     Error.throwWithStackTrace(error, stackTrace);
   }
+}
+
+/// Whether question [questionId] has an answer besides [placeholderId] and
+/// the empty ones a hold of it left ([kCompletionHeldMetadataKey]), in the
+/// transcript or the stored chat.
+Future<bool> _heldQuestionHasAnswer(
+  dynamic ref,
+  OpenWebUiCompletionOwner owner, {
+  required String? questionId,
+  required String placeholderId,
+}) async {
+  if (questionId == null) return false;
+  bool answers(String id, Object? metadata) =>
+      id != placeholderId &&
+      !(metadata is Map && metadata[kCompletionHeldMetadataKey] == true);
+  final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  final at = shown.indexWhere((m) => m.id == questionId);
+  if (at >= 0) {
+    for (final later in shown.skip(at + 1)) {
+      if (later.role == 'user') break;
+      if (later.role == 'assistant' && answers(later.id, later.metadata)) {
+        return true;
+      }
+    }
+  }
+  final rows =
+      await owner.database?.messagesDao.getForChat(owner.chatId) ??
+      const <MessageRow>[];
+  for (final row in rows) {
+    if (row.parentId != questionId || row.role != 'assistant') continue;
+    Object? metadata;
+    try {
+      final payload = jsonDecode(row.payload);
+      if (payload is Map) metadata = payload['metadata'];
+    } catch (_) {}
+    if (answers(row.id, metadata)) return true;
+  }
+  return false;
 }
 
 const String _openWebUiRegenerationAttemptMetadataKey =
