@@ -290,6 +290,15 @@ class BrowserSignInService {
   /// on the account ends ([holdRenewals]).
   final Map<String, Future<void>> _holds = {};
 
+  /// Rotations the identity provider made that could not be saved, by
+  /// account: the stored session's refresh token is spent, and only [next]
+  /// renews it now.
+  final Map<
+    String,
+    ({BrowserSignInSession spent, BrowserSignInSession next})
+  >
+  _unsavedRotations = {};
+
   bool get isSupported => _port.isSupported;
 
   /// Ends the browser sign-in in progress, if any, as cancelled: the
@@ -515,6 +524,49 @@ class BrowserSignInService {
     });
   }
 
+  /// [stored], or the rotation of it an earlier renewal could not save,
+  /// saved now: once rotated, [stored]'s refresh token is spent.
+  Future<BrowserSignInSession> _takeUpUnsavedRotation(
+    String accountId,
+    BrowserSignInSession stored, {
+    required ApiService api,
+    required OptimizedStorageService storage,
+  }) async {
+    final unsaved = _unsavedRotations[accountId];
+    if (unsaved == null) return stored;
+    if (unsaved.spent != stored) {
+      // Replaced since, by a sign-in say: that session renews.
+      _dropUnsavedRotation(accountId, api: api, storage: storage);
+      return stored;
+    }
+    if (!await storage.replaceBrowserSignInSessionIfCurrent(
+      accountId,
+      expected: stored,
+      next: unsaved.next,
+    )) {
+      _dropUnsavedRotation(accountId, api: api, storage: storage);
+      throw const BrowserSignInException(BrowserSignInFailure.accountChanged);
+    }
+    _unsavedRotations.remove(accountId);
+    return unsaved.next;
+  }
+
+  /// Forgets [accountId]'s unsaved rotation, whose session ended or was
+  /// replaced, and revokes its refresh token, which nothing stores.
+  void _dropUnsavedRotation(
+    String accountId, {
+    required ApiService api,
+    required OptimizedStorageService storage,
+  }) {
+    final unsaved = _unsavedRotations.remove(accountId);
+    if (unsaved == null) return;
+    unawaited(
+      revokeEnded([
+        (session: unsaved.next, route: api.serverConfig),
+      ], storage: storage),
+    );
+  }
+
   Future<BrowserSignInRenewal> _renew({
     required String accountId,
     required ApiService api,
@@ -529,10 +581,17 @@ class BrowserSignInService {
         throw const BrowserSignInException(BrowserSignInFailure.accountChanged);
       }
     }
-    final session = await storage.browserSignInSessionFor(accountId);
-    if (session == null) {
+    final stored = await storage.browserSignInSessionFor(accountId);
+    if (stored == null) {
+      _dropUnsavedRotation(accountId, api: api, storage: storage);
       throw const BrowserSignInException(BrowserSignInFailure.refreshExpired);
     }
+    final session = await _takeUpUnsavedRotation(
+      accountId,
+      stored,
+      api: api,
+      storage: storage,
+    );
     final registry = await storage.getOpenWebUiRegistryStrict();
     final account = registry.account(accountId);
     final config = account == null
@@ -570,11 +629,20 @@ class BrowserSignInService {
       scope: tokens.scope,
     );
     if (rotated != session) {
-      if (!await storage.replaceBrowserSignInSessionIfCurrent(
-        accountId,
-        expected: session,
-        next: rotated,
-      )) {
+      final bool replaced;
+      try {
+        replaced = await storage.replaceBrowserSignInSessionIfCurrent(
+          accountId,
+          expected: session,
+          next: rotated,
+        );
+      } catch (_) {
+        // The stored refresh token is spent all the same: the next renewal
+        // saves this one first, and refreshes with it.
+        _unsavedRotations[accountId] = (spent: session, next: rotated);
+        rethrow;
+      }
+      if (!replaced) {
         // Something replaced or ended the session meanwhile. The rotated
         // refresh token is in this renewal's hands only: revoke it, unless a
         // session still stored would go with it.

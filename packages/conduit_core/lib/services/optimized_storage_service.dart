@@ -3778,9 +3778,12 @@ class OptimizedStorageService {
       if (await _readBrowserSessionUnlocked(accountId) != expected) {
         return false;
       }
-      await _secureCredentialStorage.saveBrowserSignInSession(
-        accountId,
-        next.encode(),
+      await _retrySecureStorageWrite(
+        () => _secureCredentialStorage.saveBrowserSignInSession(
+          accountId,
+          next.encode(),
+        ),
+        scope: 'storage/optimized/browser-sign-in',
       );
       return true;
     });

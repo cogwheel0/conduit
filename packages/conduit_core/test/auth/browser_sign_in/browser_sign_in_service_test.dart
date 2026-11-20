@@ -677,6 +677,32 @@ void main() {
       );
     });
 
+    test('a rotated refresh token that cannot be saved is saved before the '
+        'next refresh, which sends it rather than the spent one', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => throw StateError('keychain locked'));
+      await check(renew()).throws<StateError>();
+
+      saves(() async => true);
+      final renewal = await renew();
+
+      check(renewal.session.refreshToken).equals('rotated-refresh');
+      check(
+        idp.tokenRequests.map((request) => request.bodyFields['refresh_token']),
+      ).deepEquals(['saved-refresh', 'rotated-refresh']);
+      final saved = verify(
+        () => storage.replaceBrowserSignInSessionIfCurrent(
+          'account-a',
+          expected: captureAny(named: 'expected'),
+          next: captureAny(named: 'next'),
+        ),
+      ).captured;
+      check(saved.sublist(saved.length - 2)).deepEquals([
+        _session(),
+        _session(refreshToken: 'rotated-refresh'),
+      ]);
+    });
+
     test('two callers at once share one refresh', () async {
       final release = Completer<void>();
       idp.onRefresh = () => release.future;
