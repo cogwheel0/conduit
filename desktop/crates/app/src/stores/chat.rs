@@ -144,6 +144,9 @@ pub struct LiveTurn {
     /// away) never is, and gives way to the stored row that shows it
     /// queued ([`ChatStore::settle`]).
     pub heard: bool,
+    /// The store's newest `chats.get` when the overlay opened or its turn
+    /// started: a copy asked for by then knows nothing of this turn.
+    since: u64,
 }
 
 impl LiveTurn {
@@ -159,6 +162,7 @@ impl LiveTurn {
             awaiting_id: false,
             behind: 0,
             heard: false,
+            since: 0,
         }
     }
 
@@ -1037,10 +1041,12 @@ impl ChatStore {
         }
         // A held finish missed while away: the stored copy ends with the
         // held question, and the answer the overlay waits for is gone from it
-        // for good. A send still on its way keeps its overlay.
+        // for good. A send still on its way keeps its overlay, and so does a
+        // turn that started after this copy was asked for.
         if self.pending.is_none()
             && let Some(live) = &self.live
             && !live.awaiting_id
+            && self.generation > live.since
             && messages.last().is_some_and(|m| m.role == "user" && m.held)
             && !messages.iter().any(|m| m.id == live.message_id)
         {
@@ -1094,7 +1100,9 @@ impl ChatStore {
         }
         match event {
             Event::TurnStarted(e) if e.chat_id == self.chat_id => {
+                let generation = self.generation;
                 let live = self.live_for(&e.message_id);
+                live.since = generation;
                 live.heard = true;
                 live.model = Some(e.model.clone());
                 live.phase = LivePhase::Streaming;
@@ -1313,6 +1321,7 @@ impl ChatStore {
                 live.text = stored.content.clone();
                 live.blocks = known_blocks(&stored.blocks);
             }
+            live.since = self.generation;
             self.live = Some(live);
         }
         self.live.as_mut().expect("just set")
@@ -4179,5 +4188,37 @@ mod tests {
             assert!(!s.is_streaming());
         });
         assert_eq!(keys(&store, cx), vec!["u1", "a1", "u9"]);
+    }
+
+    #[gpui_kit::test]
+    fn a_copy_asked_for_before_a_turn_started_leaves_its_overlay(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsGet>(held_question());
+        let (store, _) = open(&daemon, "c1", cx);
+        // A copy asked for now, while the question is still held.
+        let reply = daemon.hold::<methods::ChatsGet>();
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        // The held question is answered, and the next turn starts before
+        // that copy comes back.
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(TurnStarted {
+                    chat_id: "c1".into(),
+                    message_id: "a10".into(),
+                    model: "m".into(),
+                    companion_ids: vec!["a10".into(), "b10".into()],
+                }),
+                cx,
+            );
+        });
+        reply.release();
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert!(s.is_streaming());
+            assert_eq!(s.live.as_ref().map(|l| l.message_id.as_str()), Some("a10"));
+            assert_eq!(s.companions.len(), 1);
+            assert!(!s.held_answers.contains("a10"));
+        });
     }
 }
