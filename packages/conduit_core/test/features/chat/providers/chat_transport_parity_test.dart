@@ -832,9 +832,10 @@ void main() {
           .equals(TetherRelayFailure.interrupted);
     });
 
-    test('a device\'s failure keeps its relay when a snapshot read before '
-        'it arrived brings the saved copy of the same error', () async {
-      const generic = 'Open WebUI: Server Connection Error';
+    test('a failure keeps the relay its code named when a snapshot read '
+        'before it arrived brings the saved copy of the same words without '
+        'the code', () async {
+      const words = 'Connection lost';
       final api = _HeldSnapshotApi(
         Conversation(
           id: 'conv-1',
@@ -848,7 +849,7 @@ void main() {
               content: '',
               timestamp: DateTime.utc(2026, 11, 20),
               metadata: const {'responseDone': true},
-              error: const ChatMessageError(content: generic),
+              error: const ChatMessageError(content: words),
             ),
           ],
         ),
@@ -865,7 +866,6 @@ void main() {
         log: log,
         api: api,
         socketService: _MockSocketService(registrar),
-        viaTether: true,
       );
 
       registrar.replayGap();
@@ -873,7 +873,7 @@ void main() {
       registrar.emitChatEvent(
         'chat:message:error',
         const {
-          'error': {'content': generic},
+          'error': {'content': words, 'code': 'tether_interrupted'},
           'done': true,
         },
         conversationId: 'conv-1',
@@ -884,7 +884,7 @@ void main() {
       await pumpEventQueue();
 
       check(log.messages.single.error).isNotNull()
-        ..has((it) => it.content, 'content').equals(generic)
+        ..has((it) => it.content, 'content').equals(words)
         ..has((it) => it.relay, 'relay').equals(TetherRelayFailure.interrupted);
     });
 
