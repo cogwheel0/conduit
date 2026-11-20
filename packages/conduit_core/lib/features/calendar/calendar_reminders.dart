@@ -95,8 +95,9 @@ List<CalendarReminder> planCalendarReminders({
     if (item.startAtNs < nowNs) continue;
     final minutes = calendarAlertMinutes(item);
     if (minutes == null) continue;
-    final alertAt = instantFromNanoseconds(item.startAtNs)
-        .subtract(Duration(minutes: minutes));
+    final alertAt = instantFromNanoseconds(
+      item.startAtNs,
+    ).subtract(Duration(minutes: minutes));
     reminders[item.key] = CalendarReminder(
       key: item.key,
       eventId: item.id,

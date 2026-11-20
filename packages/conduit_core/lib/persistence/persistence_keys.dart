@@ -97,7 +97,6 @@ final class PreferenceKeys {
       'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
-
   /// The device engine's rate saved before [ttsSpeed] replaced it; read once
   /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
@@ -125,15 +124,12 @@ final class PreferenceKeys {
   static const String notificationChatEnabled = 'notification_chat_enabled';
   static const String notificationChannelEnabled =
       'notification_channel_enabled';
-
   /// Device-wide, not per account: scheduled tasks come from Hermes.
   static const String notificationScheduledEnabled =
       'notification_scheduled_enabled';
-
   /// Device-wide: reminders of the Open WebUI calendar events.
   static const String notificationCalendarEnabled =
       'notification_calendar_enabled';
-
   /// Device-wide: the calendar reminders handed to the OS, per account, so
   /// one that already fired is not posted again.
   static const String calendarRemindersDelivered =

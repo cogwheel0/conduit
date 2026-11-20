@@ -33,7 +33,12 @@ CalendarEventModel _event(
 List<CalendarReminder> _plan(
   List<CalendarAgendaItem> items, {
   int limit = calendarReminderLimit,
-}) => planCalendarReminders(items: items, userId: _me, now: _now, limit: limit);
+}) => planCalendarReminders(
+  items: items,
+  userId: _me,
+  now: _now,
+  limit: limit,
+);
 
 void main() {
   group('calendarAlertMinutes', () {
@@ -46,8 +51,9 @@ void main() {
     });
 
     test('falls back to the server default when missing or not a number', () {
-      check(calendarAlertMinutes(_event('a', startInMinutes: 60)))
-          .equals(calendarDefaultAlertMinutes);
+      check(
+        calendarAlertMinutes(_event('a', startInMinutes: 60)),
+      ).equals(calendarDefaultAlertMinutes);
       check(
         calendarAlertMinutes(
           _event('a', startInMinutes: 60, meta: {'alert_minutes': '15'}),
@@ -93,9 +99,9 @@ void main() {
     test('uses the default lead time when the event has none', () {
       final plan = _plan([_event('a', startInMinutes: 60)]);
 
-      check(plan.single.fireAt).equals(
-        _now.add(const Duration(minutes: 60 - calendarDefaultAlertMinutes)),
-      );
+      check(
+        plan.single.fireAt,
+      ).equals(_now.add(const Duration(minutes: 60 - calendarDefaultAlertMinutes)));
     });
 
     test('an alert time that already passed is due now', () {
@@ -103,8 +109,9 @@ void main() {
         _event('a', startInMinutes: 5, meta: {'alert_minutes': 30}),
       ]);
 
-      check(plan.single.fireAt)
-          .equals(_now.subtract(const Duration(minutes: 25)));
+      check(
+        plan.single.fireAt,
+      ).equals(_now.subtract(const Duration(minutes: 25)));
     });
 
     test('skips events that started, were cancelled or have no alert', () {
@@ -125,17 +132,14 @@ void main() {
       check(plan.single.fireAt).equals(_now);
     });
 
-    test(
-      'only the account\'s own events, as the server alerts the organizer',
-      () {
-        final plan = _plan([
-          _event('mine', startInMinutes: 60),
-          _event('invited', startInMinutes: 60, userId: 'someone-else'),
-        ]);
+    test('only the account\'s own events, as the server alerts the organizer', () {
+      final plan = _plan([
+        _event('mine', startInMinutes: 60),
+        _event('invited', startInMinutes: 60, userId: 'someone-else'),
+      ]);
 
-        check(plan.map((r) => r.eventId)).deepEquals(['mine']);
-      },
-    );
+      check(plan.map((r) => r.eventId)).deepEquals(['mine']);
+    });
 
     test('scheduled-task entries are not events and get no reminder', () {
       final plan = _plan([
@@ -155,8 +159,10 @@ void main() {
         _event('series', startInMinutes: 60 * 25, instanceId: 'series_2'),
       ]);
 
-      check(plan.map((r) => r.key))
-          .deepEquals(['series|series_1', 'series|series_2']);
+      check(plan.map((r) => r.key)).deepEquals([
+        'series|series_1',
+        'series|series_2',
+      ]);
     });
 
     test('a duplicate agenda entry is planned once', () {

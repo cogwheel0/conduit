@@ -179,11 +179,10 @@ void main() {
       await h.sync();
 
       check(h.notifications.keysIn(_scope)).deepEquals({'a|', 'b|'});
-      check(h.notifications.scheduledAt['a|'])
-          .equals(_now.add(const Duration(minutes: 45)));
-      check(h.lastRange)
-          .isNotNull()
-          .has((r) => r.$2.difference(r.$1), 'span')
+      check(
+        h.notifications.scheduledAt['a|'],
+      ).equals(_now.add(const Duration(minutes: 45)));
+      check(h.lastRange).isNotNull().has((r) => r.$2.difference(r.$1), 'span')
           .equals(calendarReminderHorizon);
     });
 
@@ -240,8 +239,9 @@ void main() {
 
       check(h.notifications.cancelled).deepEquals([id]);
       check(h.notifications.scheduled.single.id).not((it) => it.equals(id));
-      check(h.notifications.scheduledAt['a|'])
-          .equals(_now.add(const Duration(minutes: 80)));
+      check(
+        h.notifications.scheduledAt['a|'],
+      ).equals(_now.add(const Duration(minutes: 80)));
     });
 
     test('moves reminders onto exact alarms once they are allowed', () async {
@@ -258,20 +258,17 @@ void main() {
       check(h.notifications.keysIn(_scope)).deepEquals({'a|'});
     });
 
-    test(
-      'drops reminders of deleted events and of alerts turned off',
-      () async {
-        final h = _Harness()..agenda = [_event('a'), _event('b')];
-        await h.sync();
+    test('drops reminders of deleted events and of alerts turned off', () async {
+      final h = _Harness()..agenda = [_event('a'), _event('b')];
+      await h.sync();
 
-        h.agenda = [
-          _event('b', meta: {'alert_minutes': -1}),
-        ];
-        await h.sync();
+      h.agenda = [
+        _event('b', meta: {'alert_minutes': -1}),
+      ];
+      await h.sync();
 
-        check(h.notifications.keysIn(_scope)).isEmpty();
-      },
-    );
+      check(h.notifications.keysIn(_scope)).isEmpty();
+    });
 
     test('leaves the reminders of other accounts alone', () async {
       final h = _Harness()..agenda = [_event('a')];
@@ -332,27 +329,24 @@ void main() {
       check(h.notifications.scheduled).isEmpty();
     });
 
-    test(
-      'an agenda read for an account that switched away is dropped',
-      () async {
-        final h = _Harness();
-        h.agenda = [_event('a')];
-        final scheduler = CalendarReminderScheduler(
-          notifications: h.notifications,
-          settings: () => (enabled: true, playSound: true),
-          account: () => h.account,
-          fetchAgenda: (start, end) async {
-            h.account = (scope: _otherScope, userId: 'someone-else');
-            return h.agenda;
-          },
-          text: (reminder) => (title: reminder.title, body: 'body'),
-        );
+    test('an agenda read for an account that switched away is dropped', () async {
+      final h = _Harness();
+      h.agenda = [_event('a')];
+      final scheduler = CalendarReminderScheduler(
+        notifications: h.notifications,
+        settings: () => (enabled: true, playSound: true),
+        account: () => h.account,
+        fetchAgenda: (start, end) async {
+          h.account = (scope: _otherScope, userId: 'someone-else');
+          return h.agenda;
+        },
+        text: (reminder) => (title: reminder.title, body: 'body'),
+      );
 
-        await withClock(Clock.fixed(_now), scheduler.sync);
+      await withClock(Clock.fixed(_now), scheduler.sync);
 
-        check(h.notifications.scheduled).isEmpty();
-      },
-    );
+      check(h.notifications.scheduled).isEmpty();
+    });
 
     test('calls during a sync fold into one more run', () async {
       final h = _Harness()..agenda = [_event('a')];
