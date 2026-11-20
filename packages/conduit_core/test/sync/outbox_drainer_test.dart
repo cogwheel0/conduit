@@ -19,7 +19,13 @@ import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_entity_adapter.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show
+        ApplyInterceptor,
+        QueryExecutor,
+        QueryInterceptor,
+        TransactionExecutor,
+        Value;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -275,10 +281,12 @@ void main() {
   late PushSync push;
   late FakeSyncClock clock;
   late FakeCompletionRunner completion;
+  late _EmptyClaimWatch claims;
   var online = true;
 
   setUp(() {
-    db = AppDatabase(NativeDatabase.memory());
+    claims = _EmptyClaimWatch();
+    db = AppDatabase(NativeDatabase.memory().interceptWith(claims));
     dao = db.outboxDao;
     server = FakeOpenWebUiServer();
     client = RecordingSyncApiClient(server);
@@ -850,6 +858,46 @@ void main() {
       check(await dao.pendingForChat('c1')).isEmpty();
       check((await dao.opBySeq(delete))!.status).equals(OutboxStatus.failed);
     });
+
+    test('one re-armed once the workers ran out of work is sent by that '
+        'drain', () async {
+      final delete = await enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: 'c1',
+        payload: {
+          kDeleteMessagesIdsKey: ['a1'],
+        },
+      );
+      await dao.markParked(delete, error: 'deleteChatMessages forbidden');
+      final recovery = _GatedRecovery(dao, delete);
+      var emptyClaims = 0;
+      // Both workers' claims found nothing: the re-arm requeues the delete
+      // and ends before the claim that found nothing last returns.
+      claims.onEmptyClaim = () async {
+        if (++emptyClaims != OutboxDrainer.kPoolSize) return;
+        recovery.gate.complete();
+        await recovery.rearmed.future;
+      };
+      final drainer = buildDrainer(
+        adapters: [
+          ChatAdapter(
+            pull: PullSync(
+              client: client,
+              db: db,
+              locks: chatLocks,
+              remapper: remapper,
+            ),
+            push: push,
+          ),
+          recovery,
+        ],
+      );
+
+      await drainer.drain();
+
+      check(client.calls).deepEquals(['deleteChatMessage:c1/a1']);
+      check(await dao.opBySeq(delete)).isNull();
+    });
   });
 
   group('offline handling', () {
@@ -1027,6 +1075,77 @@ void main() {
       check(await db.chatsDao.getChat('c1')).isNull();
     });
   });
+}
+
+/// Runs [onEmptyClaim] once a drainer's claim that found nothing to run has
+/// committed, before that claim returns.
+final class _EmptyClaimWatch extends QueryInterceptor {
+  Future<void> Function()? onEmptyClaim;
+  final _empty = <TransactionExecutor>{};
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    if (rows.isEmpty &&
+        executor is TransactionExecutor &&
+        statement.contains('"next_attempt_at" <=')) {
+      _empty.add(executor);
+    }
+    return rows;
+  }
+
+  @override
+  Future<void> commitTransaction(TransactionExecutor inner) async {
+    await inner.send();
+    if (_empty.remove(inner)) await onEmptyClaim?.call();
+  }
+}
+
+/// Recovery that re-arms parked op [seq] once [gate] opens, and owns no kind.
+final class _GatedRecovery implements SyncEntityAdapter, ParkedOpRecovery {
+  _GatedRecovery(this.dao, this.seq);
+
+  final OutboxDao dao;
+  final int seq;
+  final gate = Completer<void>();
+  final rearmed = Completer<void>();
+
+  @override
+  Future<bool> rearmRecoverable({required int nowEpochSeconds}) async {
+    await gate.future;
+    await dao.requeueParked(seq, nowEpochSeconds: nowEpochSeconds);
+    rearmed.complete();
+    return false;
+  }
+
+  @override
+  bool ownsKind(OutboxKind kind) => false;
+
+  @override
+  String get watermarkKey => throw UnimplementedError();
+  @override
+  int get pullOverlap => throw UnimplementedError();
+  @override
+  Future<List<SyncListItem>> getListPage(int page) =>
+      throw UnimplementedError();
+  @override
+  int get listPageSize => throw UnimplementedError();
+  @override
+  bool get listEnvelopeIsFullRaw => throw UnimplementedError();
+  @override
+  Future<Map<String, dynamic>?> fetchRaw(String id) =>
+      throw UnimplementedError();
+  @override
+  Future<bool> mergeServer(Map<String, dynamic> raw) =>
+      throw UnimplementedError();
+  @override
+  Future<void> pushOp(OutboxOp op) => throw UnimplementedError();
+  @override
+  Future<void> preparePull() => throw UnimplementedError();
 }
 
 /// Answers only delete all, and holds the answer until the test releases it.

@@ -131,9 +131,7 @@ class OutboxDrainer {
   /// workers, and the drain lasts until it ends, so what it re-arms is sent.
   Future<void> drain() async {
     if (_draining) {
-      _rerun = true;
-      _rerunAsked?.complete();
-      _rerunAsked = null;
+      _askRerun();
       return;
     }
     _draining = true;
@@ -153,6 +151,12 @@ class OutboxDrainer {
     } finally {
       _draining = false;
     }
+  }
+
+  void _askRerun() {
+    _rerun = true;
+    _rerunAsked?.complete();
+    _rerunAsked = null;
   }
 
   /// Reclaims ops left `inFlight` by a previous process that was killed
@@ -209,6 +213,9 @@ class OutboxDrainer {
         } while (_rearmAgain);
       } finally {
         _rearm = null;
+        // The workers may have run out of work before what it re-armed was
+        // runnable, and the drain then no longer waits for it.
+        if (_draining) _askRerun();
       }
     }();
   }
