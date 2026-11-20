@@ -10,6 +10,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/model.dart';
@@ -156,6 +157,10 @@ Future<ProviderContainer> _pumpChat(
         isAuthenticatedProvider2.overrideWithValue(true),
         appSettingsProvider.overrideWith(_Settings.new),
         isChatStreamingProvider.overrideWithValue(false),
+        // No reply runs and no question waits for one. The real provider
+        // reads the transcript, whose notifier closes chat-1 here: this scope
+        // has no signed-in account database.
+        chatMainAnswerActiveProvider.overrideWithValue(false),
         webSearchAvailableProvider.overrideWithValue(false),
         imageGenerationAvailableProvider.overrideWithValue(false),
         temporaryChatEnforcedProvider.overrideWithValue(false),
