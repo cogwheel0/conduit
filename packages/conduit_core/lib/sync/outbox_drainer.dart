@@ -240,6 +240,38 @@ class OutboxDrainer {
     }
   }
 
+  /// Whether a Stop marked [op] while its attempt ran (it failed or was
+  /// deferred meanwhile): the runner settles its answer as stopped from the
+  /// mark, and the op is done. A marked op never sends again, so a settle
+  /// that fails is deferred: retried without spending a send's attempts, and
+  /// never parked behind the failure of the attempt the Stop ended.
+  Future<bool> _handledAsStopped(OutboxOp op) async {
+    final stored = await _db.outboxDao.opBySeq(op.seq);
+    final chatId = op.chatId;
+    if (stored == null || chatId == null) return false;
+    final payload = decodeOutboxPayload(stored.payload);
+    if (payload['stopped'] != true) return false;
+    try {
+      await _completion.run(chatId: chatId, payload: payload);
+    } catch (error, stack) {
+      DebugLogger.error(
+        'stopped completion not settled',
+        scope: 'outbox/drain',
+        error: error,
+        stackTrace: stack,
+        data: {'seq': op.seq},
+      );
+      await _db.outboxDao.markDeferred(
+        op.seq,
+        error: error.toString(),
+        nextAttemptAt: _clock.nowEpochSeconds() + 1,
+      );
+      return true;
+    }
+    await _db.outboxDao.markDone(op.seq);
+    return true;
+  }
+
   Future<bool> _execute(OutboxOp op, OutboxKind kind) async {
     // requestCompletion must be consumed here before the adapter loop. The
     // ChatAdapter owns the kind for FIFO partitioning, but its pushOp
@@ -286,6 +318,9 @@ class OutboxDrainer {
     Object error,
     StackTrace stack,
   ) async {
+    if (kind == OutboxKind.requestCompletion && await _handledAsStopped(op)) {
+      return;
+    }
     final message = error.toString();
     if (error is OutboxDeferralException) {
       DebugLogger.error(

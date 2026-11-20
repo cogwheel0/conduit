@@ -40,9 +40,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::native_menu::NativeMenu;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, AsyncApp, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
-    Focusable, FontWeight, Pixels, Point, Role, SharedString, Subscription, WeakEntity, Window,
-    div, px,
+    AnyElement, AnyWindowHandle, App, AsyncApp, AsyncWindowContext, Context, Entity, EventEmitter,
+    FocusHandle, Focusable, FontWeight, Pixels, Point, Role, SharedString, Subscription,
+    WeakEntity, Window, div, px,
 };
 
 use crate::actions::SettingsChoice;
@@ -76,8 +76,9 @@ pub fn open(
 ) -> Option<Entity<ServerSheet>> {
     let stores = stores.clone();
     let server_id = server_id.to_string();
+    let parent = window.window_handle();
     sheet::open(window, WIDTH, cx, move |window, cx| {
-        ServerSheet::new(stores, server_id, window, cx)
+        ServerSheet::new(stores, server_id, parent, window, cx)
     })
 }
 
@@ -138,17 +139,30 @@ pub struct ServerSheet {
     /// The server's name, saved with Done when changed.
     pub name: Entity<InputState>,
     name_saved: String,
+    /// The name was read into its field ([`Self::load`]): until then it
+    /// takes no typing, which the read would write over. A refresh of the
+    /// addresses reads no name; a failed read leaves it unread.
+    name_read: bool,
     /// The address editor in front, when one is open.
     pub editor: Option<Entity<AddressEditor>>,
     /// A rename, reorder or removal is on its way (set when it starts,
     /// cleared when it ends; a removal from its question on).
     pub busy: bool,
+    /// The window the sheet hangs on, which outlives it: what the sheet
+    /// starts and must ask about after it is gone asks there.
+    parent: AnyWindowHandle,
     focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl ServerSheet {
-    fn new(stores: Stores, server_id: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        stores: Stores,
+        server_id: String,
+        parent: AnyWindowHandle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let l10n = cx.l10n().clone();
         let name = forms::input(l10n.desktop_server_name(), false, window, cx);
         stores.connection.update(cx, |c, _| {
@@ -198,8 +212,10 @@ impl ServerSheet {
             notice: None,
             name,
             name_saved: String::new(),
+            name_read: false,
             editor: None,
             busy: false,
+            parent,
             focus,
             _subscriptions: subscriptions,
         };
@@ -223,6 +239,7 @@ impl ServerSheet {
                             s.name_saved = addresses.name.clone();
                             let name = addresses.name.clone();
                             s.name.update(cx, |i, cx| i.set_value(name, window, cx));
+                            s.name_read = true;
                             s.addresses = Some(addresses);
                         }
                         Err(e) => s.notice = Some(words::connect_error(&e, cx.l10n())),
@@ -462,7 +479,10 @@ impl ServerSheet {
     }
 
     /// Add Account on This Server: a new account on it, whose sign-in
-    /// follows in the main window.
+    /// follows in the main window. A name typed and not saved is asked
+    /// about first, as Esc asks: kept, the sheet stays and nothing is added.
+    /// The change runs from the window the sheet hangs on, so a reply
+    /// running is asked about there once the sheet is gone.
     pub fn add_account(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(first) = self.addresses.as_ref().and_then(|a| a.addresses.first()) else {
             return;
@@ -487,12 +507,31 @@ impl ServerSheet {
                 custom_headers: None,
             }),
         };
-        sheet::dismiss(cx);
-        change_account(&self.stores, change, window, cx);
-        cx.defer(|cx| {
-            crate::windows::sync(cx);
-            crate::windows::show_front(cx);
-        });
+        let stores = self.stores.clone();
+        let parent = self.parent;
+        let add = move |cx: &mut App| {
+            sheet::dismiss(cx);
+            // Once the update in progress ends: the parent may be the window
+            // being updated now.
+            cx.defer(move |cx| {
+                let _ = parent.update(cx, |_, window, cx| {
+                    change_account(&stores, change, window, cx)
+                });
+                crate::windows::sync(cx);
+                crate::windows::show_front(cx);
+            });
+        };
+        if !self.renamed(cx) {
+            add(cx);
+            return;
+        }
+        let ask = present_sheet(window, discard_name(cx.l10n()), cx);
+        cx.spawn(async move |_, cx: &mut AsyncApp| {
+            if ask.await {
+                cx.update(add);
+            }
+        })
+        .detach();
     }
 
     fn on_choice(&mut self, choice: &SettingsChoice, window: &mut Window, cx: &mut Context<Self>) {
@@ -868,6 +907,18 @@ impl Focusable for ServerSheet {
     }
 }
 
+/// The question before a name typed and not saved goes (Esc, Add Account
+/// on This Server).
+fn discard_name(l10n: &L10n) -> SheetSpec {
+    SheetSpec::new(
+        l10n.desktop_discard_changes_title(),
+        l10n.desktop_discard_changes_message(),
+        l10n.desktop_discard(),
+        l10n.cancel(),
+    )
+    .destructive()
+}
+
 impl ServerSheet {
     /// A new name typed and not saved yet (Done saves it).
     fn renamed(&self, cx: &App) -> bool {
@@ -904,15 +955,7 @@ impl SheetBody for ServerSheet {
             sheet::dismiss(cx);
             return;
         }
-        let l10n = cx.l10n().clone();
-        let spec = SheetSpec::new(
-            l10n.desktop_discard_changes_title(),
-            l10n.desktop_discard_changes_message(),
-            l10n.desktop_discard(),
-            l10n.cancel(),
-        )
-        .destructive();
-        let ask = present_sheet(window, spec, cx);
+        let ask = present_sheet(window, discard_name(cx.l10n()), cx);
         cx.spawn(async move |_, cx: &mut AsyncApp| {
             if ask.await {
                 cx.update(sheet::dismiss);
@@ -989,11 +1032,14 @@ impl Render for ServerSheet {
             )
             .child(forms::form_group(
                 vec![
-                    forms::field(
+                    // Not while Done saves it: it saves what was there when
+                    // it was pressed.
+                    forms::field_locked(
                         l10n.desktop_server_name(),
                         &self.name,
                         None,
                         None,
+                        self.busy || !self.name_read,
                         window,
                         cx,
                     )
@@ -1740,10 +1786,11 @@ mod tests {
             .is_some()
     }
 
-    /// A new name typed and not saved: Quit asks first, and "keep
-    /// editing" (the bench's answer) keeps the sheet and its name.
+    /// A new name typed and not saved: Quit asks first, and so does Add
+    /// Account on This Server. "Keep editing" (the bench's answer) keeps
+    /// the sheet and its name, and adds nothing; Discard adds the account.
     #[gpui_kit::test]
-    fn quit_asks_before_dropping_a_typed_name(cx: &mut gpui_kit::TestAppContext) {
+    fn quit_and_add_account_ask_before_dropping_a_typed_name(cx: &mut gpui_kit::TestAppContext) {
         let (daemon, stores, vcx) = bench(cx);
         daemon.returns::<methods::ServersAddressesList>(seed_lab());
         open_seed_lab(&stores, vcx);
@@ -1752,6 +1799,46 @@ mod tests {
         assert_eq!(quits.get(), 0, "Quit dropped the typed name");
         assert!(sheet_up(vcx));
         assert_eq!(beeps(vcx), 0);
+
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.add_account(w, cx));
+        vcx.run_until_parked();
+        assert!(sheet_up(vcx), "Add Account dropped the typed name");
+        assert!(daemon.calls::<methods::AccountsAdd>().is_empty());
+        vcx.update(|_, cx| cx.set_global(crate::shell::sheet::AutoAnswer(Some(true))));
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.add_account(w, cx));
+        vcx.run_until_parked();
+        assert!(!sheet_up(vcx));
+        assert_eq!(daemon.calls::<methods::AccountsAdd>().len(), 1);
+    }
+
+    /// Add Account on This Server while a reply is being written: the
+    /// sheet is gone by the time the daemon says so, and the question comes
+    /// up on the window it hung on.
+    #[gpui_kit::test]
+    fn add_account_asks_about_a_running_reply_once_the_sheet_is_gone(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use crate::stores::accounts::tests::{account, list};
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ServersAddressesList>(seed_lab());
+        daemon.returns::<methods::AccountsAdd>(conduit_protocol::AccountChangeResult {
+            outcome: conduit_protocol::AccountChangeOutcome::BlockedByActiveReply,
+            accounts: list(vec![account("a", "Avery", true, true)]),
+        });
+        open_seed_lab(&stores, vcx);
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.add_account(w, cx));
+        vcx.run_until_parked();
+        assert!(!sheet_up(vcx));
+        let asked = vcx.update(|_, cx| {
+            cx.try_global::<crate::shell::sheet::AutoAnswered>()
+                .map(|a| a.0.clone())
+                .unwrap_or_default()
+        });
+        assert_eq!(
+            asked,
+            [crate::l10n::L10n::new("en").desktop_reply_in_progress()],
+            "the running reply was never asked about"
+        );
     }
 
     /// Quit while Done's rename is out queues nothing: a beep, no quit,
@@ -1769,6 +1856,62 @@ mod tests {
         assert_eq!(beeps(vcx), 1, "Quit during the rename did not beep");
         assert_eq!(quits.get(), 0);
         assert!(sheet_up(vcx));
+        drop(held);
+        vcx.run_until_parked();
+    }
+
+    /// The name takes no typing until it is read, nor while Done saves it:
+    /// what Done saves is what the field shows, and the read never writes
+    /// over what was typed.
+    #[gpui_kit::test]
+    fn the_name_takes_no_typing_until_read_or_while_saved(cx: &mut gpui_kit::TestAppContext) {
+        let app = cx.clone();
+        let (daemon, stores, vcx) = bench(cx);
+        daemon.returns::<methods::ServersAddressesList>(seed_lab());
+        // The first read (the name's) is held; a refresh of the addresses,
+        // asked as another window changes the server, lands first.
+        let reading = daemon.hold_one::<methods::ServersAddressesList>(0);
+        let s = stores.clone();
+        vcx.update(|window, cx| open(&s, "srv", window, cx));
+        vcx.run_until_parked();
+        on_sheet::<ServerSheet>(vcx, |s, _, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        let type_into_name = |text: &str, vcx: &mut VisualTestContext| {
+            on_sheet::<ServerSheet>(vcx, |s, w, cx| s.name.update(cx, |i, cx| i.focus(w, cx)));
+            vcx.update(|_, cx| {
+                if let Some(handle) = sheet::current_window(cx) {
+                    let _ = handle.update(cx, |_, window, cx| window.draw(cx).clear(cx));
+                }
+            });
+            vcx.run_until_parked();
+            let window = vcx
+                .update(|_, cx| sheet::current_window(cx))
+                .expect("the sheet's window");
+            let mut sheet_cx = VisualTestContext::from_window(window, &app);
+            sheet_cx.simulate_input(text);
+            vcx.run_until_parked();
+        };
+        let name = |vcx: &mut VisualTestContext| {
+            vcx.update(|_, cx| {
+                let body = sheet::current::<ServerSheet>(cx).expect("the sheet is down");
+                forms::text(&body.read(cx).name, cx)
+            })
+        };
+        type_into_name("Kiln", vcx);
+        assert_eq!(name(vcx), "", "typing went in before the name was read");
+        drop(reading);
+        vcx.run_until_parked();
+        assert_eq!(name(vcx), "Seed lab");
+        rename(vcx, "Seed lab annex");
+        let held = daemon.hold::<methods::ServersUpdate>();
+        on_sheet::<ServerSheet>(vcx, |s, w, cx| s.done(w, cx));
+        vcx.run_until_parked();
+        type_into_name(" East", vcx);
+        assert_eq!(
+            name(vcx),
+            "Seed lab annex",
+            "typing went in while Done saved"
+        );
         drop(held);
         vcx.run_until_parked();
     }

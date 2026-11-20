@@ -6959,5 +6959,6 @@
   "settingsAddAction": "追加",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "保存済みのキーは新しいアドレスには送信されないため、削除されます。このアドレス用のキーを入力してください。"
 }

@@ -17,7 +17,10 @@
 #                           Mac Development profiles for the app's and the
 #                           widget's ids, embedded as bundle.sh does), then
 #                           the app with Conduit.entitlements (and that
-#                           group)
+#                           group). Both get get-task-allow, as Xcode's
+#                           Debug builds do, so lldb and Instruments can
+#                           attach; only in these dev copies, never in the
+#                           files bundle.sh signs a release with
 #
 # Without CONDUIT_SIGN_IDENTITY, run.sh signs ad hoc and never calls this.
 # The release bundle id is refused: development signatures are for test
@@ -46,7 +49,7 @@ sign_dev_bundle() {
   local ent
   ent="$(dirname "$app")/entitlements"
   mkdir -p "$ent"
-  cp "$PACKAGING_DIR/Conduit.entitlements" "$ent/Conduit.entitlements"
+  dev_entitlements "$PACKAGING_DIR/Conduit.entitlements" "$ent/Conduit.entitlements"
   sign() { codesign --force --sign "$identity" --timestamp=none --options runtime "$@"; }
 
   local appex="$app/Contents/PlugIns/ConduitWidget.appex"
@@ -55,7 +58,7 @@ sign_dev_bundle() {
       "$SIGN_TEAM".*) ;;
       *) die "the widget is embedded, but the app's group '$group' is not prefixed with team $SIGN_TEAM" ;;
     esac
-    cp "$PACKAGING_DIR/widget/ConduitWidget.entitlements" "$ent/ConduitWidget.entitlements"
+    dev_entitlements "$PACKAGING_DIR/widget/ConduitWidget.entitlements" "$ent/ConduitWidget.entitlements"
     local e
     for e in Conduit ConduitWidget; do
       set_plist "Add :com.apple.security.application-groups array" "$ent/$e.entitlements"

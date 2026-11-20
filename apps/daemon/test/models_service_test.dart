@@ -7,7 +7,10 @@ import 'dart:io';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show openWebUiChatSettingsAccessProvider;
+    show
+        ModelControlChoicesNotifier,
+        modelControlChoicesProvider,
+        openWebUiChatSettingsAccessProvider;
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
@@ -16,12 +19,18 @@ import 'package:conduit_core/features/direct_connections/services/direct_model_r
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
-    show terminalAvailableServersProvider;
+    show
+        terminalAvailableServersProvider,
+        terminalServiceProvider,
+        terminalSystemServersForChatProvider;
 import 'package:conduit_core/features/tools/providers/tools_providers.dart'
     show selectedTerminalIdProvider;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart' as core;
+import 'package:conduit_core/models/model_controls.dart'
+    show ModelControlChoices;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart'
@@ -108,6 +117,14 @@ final class _FastGated extends Models {
 
 /// A future's outcome, read on fake time once it settles: its value, or
 /// the code of the [RpcError] it was refused with.
+/// What [models] captures of a turn about to be sent from [chatId], in a
+/// fake-async test: captured at once, its New Chat check settled here.
+ModelSend _sendingIn(FakeAsync time, ModelsService models, String? chatId) {
+  final outcome = _Outcome(models.sending(chatId));
+  time.elapse(Duration.zero);
+  return outcome.value! as ModelSend;
+}
+
 final class _Outcome {
   _Outcome(Future<Object?> future) {
     future.then(
@@ -254,8 +271,39 @@ final class _AgentsApi extends ApiService {
       if (left <= 0) return const <core.Model>[];
       northAnswers = left - 1;
     }
-    return const [core.Model(id: _northAgent, name: 'Codex · gpt-test')];
+    return [_north(efforts: chatId == null ? _newChatEfforts : _chatEfforts)];
   }
+}
+
+const _chatEfforts = <String>['low', 'high'];
+const _newChatEfforts = <String>['low', 'high', 'max'];
+
+/// North's agent as it offers itself, with an effort control of [efforts].
+core.Model _north({required List<String> efforts}) => core.Model(
+  id: _northAgent,
+  name: 'Codex · gpt-test',
+  metadata: <String, dynamic>{
+    'info': <String, dynamic>{
+      'params': <String, dynamic>{
+        'model_controls': <String, dynamic>{
+          'reasoning_effort': <String, dynamic>{
+            'label': 'Effort',
+            'options': <String, dynamic>{
+              for (final effort in efforts)
+                effort: <String, dynamic>{'label': effort},
+            },
+          },
+        },
+      },
+    },
+  },
+);
+
+/// No saved control picks (none asked of a server).
+final class _NoChoices extends ModelControlChoicesNotifier {
+  @override
+  Future<ModelControlChoices> build() async =>
+      const <String, Map<String, String>>{};
 }
 
 final class _ReviewerOff extends ReviewerMode {
@@ -309,6 +357,35 @@ final _chatReads = <String>[];
 /// The terminal list cannot be read while this is set.
 var _terminalsUnreadable = false;
 
+/// The terminals the server offers now, in its list and as a fresh read of
+/// its own answers them.
+var _offered = _terminals;
+
+/// The server's own terminals as it lists them for a saved chat, when not
+/// [_offered]'s (the sidebar's list leaves out one that needs a saved chat).
+List<TerminalServerInfo>? _offeredToChats;
+
+/// A fresh read of the server's own terminals fails while this is set.
+var _systemUnreadable = false;
+
+/// A fresh read of the server's own terminals waits for this while it is
+/// set; [_systemAsked] completes as one starts.
+Completer<void>? _systemHeld;
+Completer<void> _systemAsked = Completer<void>();
+
+/// The server's own terminals, read afresh: [_offered].
+final class _SystemTerminals extends TerminalService {
+  _SystemTerminals(super.api);
+
+  @override
+  Future<List<TerminalServerInfo>> getSystemTerminalServers() async {
+    if (!_systemAsked.isCompleted) _systemAsked.complete();
+    await _systemHeld?.future;
+    if (_systemUnreadable) throw StateError('the terminals are unreadable');
+    return _offered;
+  }
+}
+
 /// The account's default model resolves once this completes, when set.
 Completer<void>? _defaultHeld;
 Completer<void>? _chatHeld;
@@ -325,6 +402,11 @@ ProviderContainer _agentContainer(
   _chatReads.clear();
   _chatHeld = null;
   _terminalsUnreadable = false;
+  _offered = _terminals;
+  _offeredToChats = null;
+  _systemUnreadable = false;
+  _systemHeld = null;
+  _systemAsked = Completer<void>();
   _defaultHeld = null;
   _chatAsked = Completer<void>();
   final container = ProviderContainer(
@@ -340,7 +422,18 @@ ProviderContainer _agentContainer(
         if (_terminalsUnreadable) {
           throw StateError('the terminal list is unreadable');
         }
-        return _terminals;
+        return _offered;
+      }),
+      terminalServiceProvider.overrideWithValue(_SystemTerminals(api)),
+      // A saved chat's terminals, as the server lists them for it.
+      terminalSystemServersForChatProvider.overrideWithValue((chatId) async {
+        if (_terminalsUnreadable) {
+          throw StateError('the terminal list is unreadable');
+        }
+        return [
+          for (final server in _offeredToChats ?? _offered)
+            if (server.isAvailableForChatScope(chatId)) server,
+        ];
       }),
       defaultModelProvider.overrideWith((ref) async {
         await _defaultHeld?.future;
@@ -392,6 +485,29 @@ void main() {
       // The chat's own pick is its saved agent now: no Switch to offer.
       expect(list.chatAgent, isNull);
       expect(container.read(selectedTerminalIdProvider), 'north');
+
+      // North runs agents only in a saved chat: the sidebar's list leaves it
+      // out, the chat's own list has it. Switch still finds it there.
+      final northSavedOnly = TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'north',
+        systemServerId: 'north',
+        name: 'North bench',
+        baseUrl: Uri.parse('http://127.0.0.1:9/north'),
+        requiresSavedChatContext: true,
+      );
+      final saved = _agentContainer(_AgentsApi());
+      _offered = [_terminals.last];
+      _offeredToChats = [northSavedOnly, _terminals.last];
+      addTearDown(() {
+        _offered = _terminals;
+        _offeredToChats = null;
+      });
+      expect(saved.read(selectedTerminalIdProvider), 'south');
+      final switched = await ModelsService(saved)
+          .select(_northAgent, chatId: 'agent-chat');
+      expect(switched.selectedId, _northAgent);
+      expect(saved.read(selectedTerminalIdProvider), 'north');
     });
 
     test('tells the window its agent though the account selected it', () async {
@@ -637,7 +753,7 @@ void main() {
         );
         api.held!.complete();
         time.elapse(Duration.zero);
-        expect(picking.refusal, isNull);
+        expect((picking.value! as ModelList).selectedId, _northAgent);
         final moved = _Outcome(
           models.list(const ModelListQuery(chatId: 'agent-chat-9')),
         );
@@ -647,30 +763,264 @@ void main() {
     });
 
     test(
-      "answers a chat's agent controls from the agent's own terminal",
+      "answers a chat's agent controls as that chat's agent offers them",
       () async {
-        final container = _agentContainer(_AgentsApi());
+        final container = _agentContainer(
+          _AgentsApi(),
+          extra: [modelControlChoicesProvider.overrideWith(_NoChoices.new)],
+        );
         final models = ModelsService(container);
+        Future<List<String>> efforts() async {
+          final list = await models.controls(
+            const ModelControlsQuery(
+              modelId: _northAgent,
+              chatId: 'agent-chat',
+            ),
+          );
+          check(list.modelId).equals(_northAgent);
+          return [
+            for (final control in list.controls)
+              for (final option in control.options) option.value,
+          ];
+        }
+
+        // No pick: asked of the agent's own terminal, not the one selected.
+        await models.select(_southAgent, chatId: 'plain-chat');
+        check(await efforts()).deepEquals(_chatEfforts);
+        // A pick a first send made by the agent's id alone: asked the same way.
+        models.sent(
+          await models.sending(null),
+          toChat: 'agent-chat',
+          model: _northAgent,
+        );
+        check(await efforts()).deepEquals(_chatEfforts);
+        // The chat's own pick, though a new chat picked the same agent since,
+        // where it offers more.
         container.read(selectedTerminalIdProvider.notifier).set('north');
         await models.select(_northAgent, chatId: 'agent-chat');
-        container.read(selectedTerminalIdProvider.notifier).set('south');
-        await models.select(_southAgent, chatId: 'plain-chat');
-        final controls = await models.controls(
-          const ModelControlsQuery(modelId: _northAgent, chatId: 'agent-chat'),
+        await models.select(_northAgent);
+        check(await efforts()).deepEquals(_chatEfforts);
+        // New Chat's pick, taken to the chat its first send made: the agent as
+        // that chat's terminal offers it, not as New Chat's did.
+        models.sent(
+          await models.sending(null),
+          toChat: 'agent-chat',
+          model: _northAgent,
         );
-        expect(controls.modelId, _northAgent);
+        check(await efforts()).deepEquals(_chatEfforts);
       },
     );
+
+    test("New Chat's coding agent goes when its terminal does; a chat's own "
+        'stays', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent, chatId: 'agent-chat');
+      await models.select(_northAgent);
+      check((await models.list()).selectedId).equals(_northAgent);
+      // Terminals turned off: New Chat runs no agent, as the account's own
+      // selection does not.
+      container.read(selectedTerminalIdProvider.notifier).set(null);
+      check((await models.list()).selectedId).equals('first-model');
+      check(await models.modelFor(null)).equals('first-model');
+      // The chat's own agent runs on its own terminal, whichever is chosen.
+      check(
+        (await models.list(const ModelListQuery(chatId: 'agent-chat')))
+            .selectedId,
+      ).equals(_northAgent);
+    });
+
+    test("New Chat's coding agent goes once the server confirms its terminal "
+        'is gone, and stays while that is unread', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      Future<void> listAgain() async {
+        container.invalidate(terminalAvailableServersProvider);
+        await container
+            .read(terminalAvailableServersProvider.future)
+            .then((_) {}, onError: (_) {});
+      }
+
+      // A list that cannot be read proves nothing.
+      _terminalsUnreadable = true;
+      await listAgain();
+      check((await models.list()).selectedId).equals(_northAgent);
+      // Read without north while the server's own list is unread (the
+      // combined list leaves them out then): nothing either.
+      _terminalsUnreadable = false;
+      _offered = [_terminals.last];
+      _systemUnreadable = true;
+      await listAgain();
+      check((await models.list()).selectedId).equals(_northAgent);
+      check(await models.modelFor(null)).equals(_northAgent);
+      // The server confirms north is gone, though it is still selected: a
+      // turn sent from New Chat runs no agent, and leaves none to its chat.
+      _systemUnreadable = false;
+      check(container.read(selectedTerminalIdProvider)).equals('north');
+      final sending = await models.sending(null);
+      final model = await models.modelFor(null);
+      check(model).equals('first-model');
+      models.sent(sending, toChat: 'new-chat-1', model: model);
+      check(
+        (await models.list(const ModelListQuery(chatId: 'new-chat-1')))
+            .selectedId,
+      ).equals('first-model');
+      check((await models.list()).selectedId).equals('first-model');
+    });
+
+    /// New Chat's agent picked on north, north gone from the list, and the
+    /// server's own read of its terminals that [read] starts held (that one
+    /// alone) until [meanwhile] has run.
+    Future<T> readWhile<T>(
+      Future<T> Function(ModelsService models) read,
+      Future<void> Function(ModelsService models, ProviderContainer container)
+      meanwhile,
+    ) async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      _offered = [_terminals.last];
+      container.invalidate(terminalAvailableServersProvider);
+      await container.read(terminalAvailableServersProvider.future);
+      final held = _systemHeld = Completer<void>();
+      final reading = read(models);
+      await _systemAsked.future;
+      _systemHeld = null;
+      await meanwhile(models, container);
+      held.complete();
+      return reading;
+    }
+
+    test("New Chat's coding agent goes when another terminal is chosen while "
+        'the server is read, though the server still offers its own', () async {
+      final model = await readWhile((models) => models.modelFor(null), (
+        _,
+        container,
+      ) async {
+        container.read(selectedTerminalIdProvider.notifier).set('south');
+        _offered = _terminals;
+      });
+      check(model).equals('first-model');
+    });
+
+    test('a turn from New Chat carries no agent found gone while another pick '
+        'took its place', () async {
+      late ModelsService service;
+      final send = await readWhile((models) {
+        service = models;
+        return models.sending(null);
+      }, (models, _) => models.select('preferred-model'));
+      service.sent(send, toChat: 'new-chat-1', model: 'preferred-model');
+      // The chat runs with the model the turn did, not north's agent.
+      check(
+        (await service.list(const ModelListQuery(chatId: 'new-chat-1')))
+            .selectedId,
+      ).equals('preferred-model');
+      check((await service.list()).selectedId).equals('preferred-model');
+    });
+
+    test("New Chat's coding agent is checked as it is read: another account's "
+        'terminal reset leaves it no terminal', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      // The next account takes over, with no terminal selected, and hands
+      // back: none is selected for New Chat's agent now.
+      _switchTo(
+        container,
+        const PrimaryAccountRef(PrimaryAccountKind.libreChat, 'lc-one'),
+      );
+      container.read(selectedTerminalIdProvider.notifier).set(null);
+      _switchTo(container, _home);
+      check((await models.list()).selectedId).equals('first-model');
+      check(await models.modelFor(null)).equals('first-model');
+    });
+
+    /// New Chat's agent picked under the home account, its terminal gone
+    /// from the list; [read] starts, and another signed-in Open WebUI
+    /// account takes over while the server's own read of its terminals,
+    /// which confirms that, waits.
+    Future<Object?> readWhileAnotherTakesOver(
+      Future<Object?> Function(ModelsService models) read,
+    ) async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      _offered = [_terminals.last];
+      container.invalidate(terminalAvailableServersProvider);
+      await container.read(terminalAvailableServersProvider.future);
+      _systemHeld = Completer<void>();
+      final reading = read(models);
+      await _systemAsked.future;
+      _session = Object();
+      _switchTo(
+        container,
+        const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'away'),
+      );
+      _systemHeld!.complete();
+      return reading;
+    }
+
+    test("New Chat's coding agent is not the model a turn runs with for an "
+        'account that takes over while its terminal is checked', () async {
+      await expectLater(
+        readWhileAnotherTakesOver((models) => models.modelFor(null)),
+        refused(ConduitErrorCodes.sessionExpired),
+      );
+    });
+
+    test("New Chat's coding agent's controls are not answered for an account "
+        'that takes over while its terminal is checked', () async {
+      await expectLater(
+        readWhileAnotherTakesOver(
+          (models) =>
+              models.controls(const ModelControlsQuery(modelId: _northAgent)),
+        ),
+        refused(ConduitErrorCodes.sessionExpired),
+      );
+    });
+
+    test("New Chat's list for an account that takes over while its terminal "
+        "is checked is that account's, without the last one's agent", () async {
+      final list = await readWhileAnotherTakesOver(
+        (models) => models.list(),
+      ) as ModelList;
+      check(list.selectedId).equals('first-model');
+    });
+
+    test("a turn from New Chat that names a model carries no agent whose "
+        'terminal went to the chat it makes', () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      // The terminal is turned off, and the first message names a model of
+      // its own: nothing reads New Chat's pick before it is sent.
+      container.read(selectedTerminalIdProvider.notifier).set(null);
+      final sending = await models.sending(null);
+      models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
+      final made = await models.list(
+        const ModelListQuery(chatId: 'new-chat-1'),
+      );
+      expect(made.selectedId, isNot(_northAgent));
+    });
 
     test("goes from New Chat to the chat its first message makes", () async {
       final container = _agentContainer(_AgentsApi());
       container.read(selectedTerminalIdProvider.notifier).set('north');
       final models = ModelsService(container);
       await models.select(_northAgent);
+      // The first message went to another model for itself alone (`@`).
       models.sent(
-        models.sending(null),
+        await models.sending(null),
         toChat: 'new-chat-1',
-        model: _northAgent,
+        model: 'preferred-model',
       );
       final made = await models.list(
         const ModelListQuery(chatId: 'new-chat-1'),
@@ -678,6 +1028,44 @@ void main() {
       expect(made.selectedId, _northAgent);
       final next = await models.list();
       expect(next.selectedId, isNot(_northAgent));
+    });
+
+    // A temporary chat's composer and a saved New Chat both have no chat
+    // yet: the temporary one's pick, its list and its first turn are its
+    // own, and never offer, take or clear New Chat's coding agent.
+    test("a temporary chat keeps out of New Chat's pick", () async {
+      final container = _agentContainer(_AgentsApi());
+      container.read(selectedTerminalIdProvider.notifier).set('north');
+      final models = ModelsService(container);
+      await models.select(_northAgent);
+      final picked = await models.select('preferred-model', temporary: true);
+      check(picked.selectedId).equals('preferred-model');
+      check(picked.agents).isEmpty();
+      await check(
+        models.select(_northAgent, temporary: true),
+      ).throws<RpcError>();
+      check((await models.list()).selectedId).equals(_northAgent);
+
+      final sending = await models.sending(null, temporary: true);
+      final model = await models.modelFor(null, temporary: true);
+      check(model).equals('preferred-model');
+      models.sent(sending, toChat: 'temporary-chat', model: model);
+      check((await models.list()).selectedId).equals(_northAgent);
+      check(
+        (await models.list(const ModelListQuery(chatId: 'temporary-chat')))
+            .selectedId,
+      ).equals('preferred-model');
+      // New Chat's own first send still takes its agent.
+      check(await models.modelFor(null)).equals(_northAgent);
+
+      // With nothing picked in New Chat, a temporary pick is no account
+      // selection New Chat would fall back on: it keeps the default.
+      final fresh = ModelsService(_agentContainer(_AgentsApi()));
+      await fresh.select('preferred-model', temporary: true);
+      check(await fresh.modelFor(null)).equals('first-model');
+      check((await fresh.list()).selectedId).equals('first-model');
+      check(await fresh.modelFor(null, temporary: true))
+          .equals('preferred-model');
     });
 
     test("a send that lands after a later pick leaves the chat that pick", () {
@@ -689,7 +1077,7 @@ void main() {
         // is picked for C.
         models.select(_northAgent, chatId: 'agent-chat');
         time.elapse(Duration.zero);
-        final sending = models.sending('agent-chat');
+        final sending = _sendingIn(time, models, 'agent-chat');
         models.select('preferred-model', chatId: 'agent-chat');
         time.elapse(Duration.zero);
         models.sent(sending, toChat: 'agent-chat', model: _northAgent);
@@ -708,7 +1096,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
         // Another chat's pick is the account's selection now.
         models.select('first-model', chatId: 'plain-chat');
@@ -728,7 +1116,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         models.select('first-model');
         time.elapse(Duration.zero);
         models.sent(sending, toChat: 'new-chat-1', model: 'preferred-model');
@@ -750,7 +1138,7 @@ void main() {
         final models = ModelsService(container);
         models.select('preferred-model');
         time.elapse(Duration.zero);
-        final sending = models.sending(null);
+        final sending = _sendingIn(time, models, null);
         // Another chat's pick is the account's selection now.
         models.select('first-model', chatId: 'plain-chat');
         time.elapse(Duration.zero);
@@ -870,7 +1258,7 @@ void main() {
           final changed = <String>[];
           bus.tap((event, _, _) => changed.add(event));
           models.sent(
-            models.sending(null),
+            _sendingIn(time, models, null),
             toChat: 'new-chat-1',
             model: 'preferred-model',
           );
@@ -963,7 +1351,16 @@ void main() {
     });
 
     test("keeps a saved agent chat's Switch offer through a pin", () async {
-      final container = _agentContainer(_AgentsApi());
+      final container = _agentContainer(
+        _AgentsApi(),
+        extra: [
+          personalizationSettingsProvider.overrideWith(_HeldPins.new),
+          canTogglePinnedModelsProvider.overrideWithValue(true),
+          effectivePinnedModelIdsProvider.overrideWithValue(const <String>[
+            'first-model',
+          ]),
+        ],
+      );
       final models = ModelsService(container);
       final pinned = await models.setPinned(
         const SetModelPinned(
@@ -994,14 +1391,30 @@ void main() {
     });
   });
 
-  test('another terminal announces another list, the model unchanged', () {
+  test('another terminal or a pick announces another list, once', () async {
     final container = _agentContainer(_AgentsApi());
     final bus = EventBus();
     final changed = <String>[];
     bus.tap((event, _, _) => changed.add(event));
-    ModelsService(container, events: bus);
+    final models = ModelsService(container, events: bus);
     container.read(selectedTerminalIdProvider.notifier).set('north');
-    expect(changed, <String>[ConduitEventSpecs.modelsChanged.name]);
+    check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
+    check(container.read(selectedModelProvider)?.id).equals('first-model');
+    // A chat's pick the account had selected already: the chat's other
+    // windows still list it again.
+    changed.clear();
+    await models.select('first-model', chatId: 'plain-chat');
+    check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
+    changed.clear();
+    await models.select('preferred-model', chatId: 'plain-chat');
+    check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
+    // A chat's own agent on another terminal: the terminal and the model
+    // both change, and the pick still announces once.
+    container.read(selectedTerminalIdProvider.notifier).set('south');
+    changed.clear();
+    await models.select(_northAgent, chatId: 'agent-chat');
+    check(container.read(selectedTerminalIdProvider)).equals('north');
+    check(changed).deepEquals([ConduitEventSpecs.modelsChanged.name]);
   });
   test('an unreachable server leaves the cached models on offer', () async {
     final container = ProviderContainer(

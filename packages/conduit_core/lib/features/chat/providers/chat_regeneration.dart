@@ -1180,6 +1180,9 @@ Future<void> regenerateMessage(
     final List<ChatMessage> messages = ref.read(chatMessagesProvider);
     final List<Map<String, dynamic>> conversationMessages =
         <Map<String, dynamic>>[];
+    final isTemporary =
+        isTemporaryChat(activeConversation.id) ||
+        ref.read(temporaryChatEnabledProvider);
     var lastUserIndex = -1;
     for (var index = messages.length - 1; index >= 0; index--) {
       if (messages[index].role == 'user') {
@@ -1203,7 +1206,9 @@ Future<void> regenerateMessage(
             ? List<String>.from(attachments)
             : (msg.attachmentIds ?? const <String>[]);
 
-        if (messageAttachments.isNotEmpty) {
+        // Only a temporary chat's request keeps its history
+        // ([_buildChatCompletionMessages]), so only there are images fetched.
+        if (messageAttachments.isNotEmpty && isTemporary) {
           final messageMap = await _buildMessagePayloadWithAttachments(
             api: api,
             role: msg.role,
@@ -1243,9 +1248,6 @@ Future<void> regenerateMessage(
       legacyChatSystem: activeConversation.systemPrompt,
       globalSystem: userSystemPrompt,
     );
-    final isTemporary =
-        isTemporaryChat(activeConversation.id) ||
-        ref.read(temporaryChatEnabledProvider);
     final requestMessages = _buildChatCompletionMessages(
       conversationMessages: conversationMessages,
       isTemporary: isTemporary,
@@ -1283,6 +1285,8 @@ Future<void> regenerateMessage(
       }
     }
 
+    // A new attempt for the same answer: a Stop of an earlier one is over.
+    api?.beginSend(assistantMessageId);
     await _preseedAssistantAndPersist(
       ref,
       existingAssistantId: assistantMessageId,

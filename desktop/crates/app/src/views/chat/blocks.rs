@@ -652,12 +652,18 @@ impl AssistantRow {
 
     /// Whether any text of this answer has a selection, being made or made
     /// (the drag ended): its chunks then stay laid out, so the selection
-    /// keeps every one of them and Copy takes all of its text.
-    fn has_selection(&self, cx: &App) -> bool {
-        self.texts.values().any(|(_, state)| {
+    /// keeps every one of them and Copy takes all of its text. Worked out
+    /// once per frame, however many long text blocks ask.
+    fn has_selection(&mut self, cx: &App) -> bool {
+        if let Some(known) = self.selection_now {
+            return known;
+        }
+        let selected = self.texts.values().any(|(_, state)| {
             let s = state.read(cx);
             s.is_selecting() || !s.selected_text().is_empty()
-        })
+        });
+        self.selection_now = Some(selected);
+        selected
     }
 
     /// Forgets the places of text states this row no longer has.

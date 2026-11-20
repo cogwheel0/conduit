@@ -1508,10 +1508,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .map((file) => file.fileId!)
           .toList();
 
-      // Get selected tools
-      final toolIds = includeComposerContext
-          ? ref.read(selectedToolIdsProvider)
-          : const <String>[];
+      // The tools belong to the chat, not the draft: a tapped follow-up
+      // takes them too.
+      final toolIds = ref.read(selectedToolIdsProvider);
       final wasOffline = !ref.read(isOnlineProvider);
       final hasDurableOutbox =
           ref.read(appDatabaseProvider) != null &&

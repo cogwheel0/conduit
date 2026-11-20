@@ -1654,10 +1654,19 @@ impl SettingsView {
                 div()
                     .id(SharedString::from(format!("server-row-{i}")))
                     .role(Role::Button)
-                    .aria_label(SharedString::from(format!(
-                        "{name}, {}",
-                        l10n.desktop_server_settings_ellipsis()
-                    )))
+                    // With the host the row shows: two servers of one
+                    // name are told apart.
+                    .aria_label(SharedString::from(
+                        [
+                            name.clone(),
+                            host.clone(),
+                            l10n.desktop_server_settings_ellipsis(),
+                        ]
+                        .into_iter()
+                        .filter(|part| !part.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    ))
                     .w_full()
                     .px(px(12.))
                     .py(px(9.))

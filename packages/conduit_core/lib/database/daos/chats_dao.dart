@@ -1945,12 +1945,34 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// [chatId] so a turn the user stopped is not re-driven by the next drain.
   /// It also removes the matching empty assistant placeholder before the
   /// co-enqueued `updateChat` drains, so the update reconstructs a blob without
-  /// a permanent empty assistant bubble. An `inFlight` requestCompletion (the
-  /// stream already started) is NOT touched — the stop's transport-cancel
-  /// handles it and its op markDone()s on stream finish. Caller holds the chat
-  /// lock. Returns the number of requestCompletion ops removed.
+  /// a permanent empty assistant bubble. An `inFlight` requestCompletion is
+  /// kept but marked stopped ([RequestCompletionPayload.stopped]): its attempt
+  /// may still be preparing, may fail and come back, or may be resumed after a
+  /// restart, and every attempt reads the mark and never sends. Caller holds
+  /// the chat lock. Returns the number of requestCompletion ops removed.
   Future<int> cancelPendingCompletion(String chatId) {
     return transaction(() async {
+      final inFlight =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name) &
+                    t.status.equals(OutboxStatus.inFlight),
+              ))
+              .get();
+      for (final op in inFlight) {
+        final payload = jsonDecode(op.payload);
+        if (payload is! Map<String, dynamic> || payload['stopped'] == true) {
+          continue;
+        }
+        await (update(_outboxDao.outboxOps)
+              ..where((t) => t.seq.equals(op.seq)))
+            .write(
+              OutboxOpsCompanion(
+                payload: Value(jsonEncode({...payload, 'stopped': true})),
+              ),
+            );
+      }
       final pending =
           await (select(_outboxDao.outboxOps)..where(
                 (t) =>

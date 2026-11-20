@@ -533,6 +533,9 @@ pub struct AssistantRow {
     /// Find in Chat is revealing a match in this answer until then: every
     /// chunk is laid out, so the one with the match can scroll to it.
     pub(super) revealing_until: Option<Instant>,
+    /// Whether the answer has a selection, worked out once for the frame
+    /// being drawn (its long text blocks all ask).
+    pub(super) selection_now: Option<bool>,
 }
 
 /// One column of a Compare Models answer.
@@ -593,6 +596,7 @@ impl AssistantRow {
             embeds: HashMap::new(),
             places: HashMap::new(),
             revealing_until: None,
+            selection_now: None,
         }
     }
 
@@ -1202,6 +1206,7 @@ impl AssistantRow {
 
         let mut parts: Vec<(bool, AnyElement)> = vec![];
         let mut ordinals: HashMap<MessageBlockKind, usize> = HashMap::new();
+        self.selection_now = None;
         for (i, block) in item.blocks.iter().enumerate() {
             let ordinal = ordinals.entry(block.kind).or_default();
             let n = *ordinal;

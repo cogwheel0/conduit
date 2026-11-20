@@ -934,8 +934,13 @@ final class NotesService {
   /// [dispose], and waits until no recorder writes any more: what a
   /// recording's upload was writing is written, and nothing comes after.
   /// Recorders are admitted no more first, so none starts after the
-  /// snapshot below.
-  Future<void> close() async {
+  /// snapshot below. Every call waits for that one drain: a later caller
+  /// finds no recorders left to wait for, yet theirs may still be writing.
+  Future<void> close() => _closed ??= _drain();
+
+  Future<void>? _closed;
+
+  Future<void> _drain() async {
     _closing = true;
     final controllers = [
       for (final recorder in _recorders.values) recorder.controller,

@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.72.0",
+  "protocolVersion": "1.73.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.72.0",
+  "protocolVersion": "1.73.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -815,7 +815,8 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'selectModel': r'''
 {
-  "id": "gpt-4o"
+  "id": "gpt-4o",
+  "temporary": false
 }''',
 
   'sendTurn': r'''
@@ -9586,7 +9587,14 @@ const Map<String, String> protocolGoldens = <String, String>{
   'selectModelInChat': r'''
 {
   "id": "agent:buildbox:codex:gpt-5.1",
-  "chatId": "chat-1"
+  "chatId": "chat-1",
+  "temporary": false
+}''',
+
+  'selectModelTemporary': r'''
+{
+  "id": "gpt-4o",
+  "temporary": true
 }''',
 
   'modelControlOption': r'''

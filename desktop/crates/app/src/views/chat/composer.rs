@@ -951,6 +951,13 @@ impl ChatComposer {
         self.follow_ups && self.composer.read(cx).options.steer
     }
 
+    /// Whether the Send button takes a click: Send can send, or, behind an
+    /// answer that waits in the outbox, Queue would queue as Enter does,
+    /// which needs no model list.
+    fn send_offered(&self, cx: &App) -> bool {
+        self.can_send(cx) || (self.queue_offer && self.busy_action(cx).is_some())
+    }
+
     /// What Enter does while an answer is written: queue (Open WebUI), hand
     /// to Hermes (a Desktop Gateway), or nothing.
     fn busy_action(&self, cx: &App) -> Option<bool> {
@@ -1041,6 +1048,9 @@ impl ChatComposer {
             return;
         }
         if !self.can_send(cx) {
+            // No list for the chat (it failed, or a new daemon session has
+            // not answered): Send asks for it again.
+            self.composer.update(cx, |c, cx| c.ask_list_again(cx));
             return;
         }
         let (text, mentions) = self.take_text(window, cx);
@@ -1365,7 +1375,7 @@ impl ChatComposer {
                 "up" | "down" => {
                     picker.highlighted = menu_step(key, picker.highlighted, len);
                     if let Some(m) = models.get(picker.highlighted) {
-                        let label = crate::stores::composer::model_label(m);
+                        let label = crate::stores::composer::picker_row_name(m);
                         crate::views::a11y::announce_row(&label, picker.highlighted, len, cx);
                     }
                 }
@@ -1873,7 +1883,7 @@ impl ChatComposer {
     /// one checked, then Custom… when the model takes another value.
     fn show_effort_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui_kit::component::native_menu::NativeMenu;
-        let Some(options) = self.composer.read(cx).model_options.clone() else {
+        let Some(options) = self.composer.read(cx).answered_model_options().cloned() else {
             return;
         };
         let l10n = cx.l10n().clone();
@@ -1914,8 +1924,7 @@ impl ChatComposer {
         let Some(control) = self
             .composer
             .read(cx)
-            .model_controls
-            .as_ref()
+            .answered_controls()
             .and_then(|l| l.controls.iter().find(|c| c.key == key).cloned())
         else {
             return;
@@ -1972,8 +1981,7 @@ impl ChatComposer {
         let current = self
             .composer
             .read(cx)
-            .model_options
-            .as_ref()
+            .answered_model_options()
             .map(|o| o.reasoning.current.clone())
             .filter(|c| c != "automatic")
             .unwrap_or_default();
@@ -2147,7 +2155,7 @@ impl ChatComposer {
         let l10n = cx.l10n().clone();
         let has_text = !self.text(cx).trim().is_empty();
         let store = self.composer.read(cx);
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web, image, code) = (
             store.web_search,
             store.image_generation,
@@ -2695,6 +2703,36 @@ impl ChatComposer {
     /// Puts `text` at the caret (Ask Conduit) and focuses the field.
     pub fn insert_at_caret(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         let at = self.input.read(cx).cursor();
+        // Dictation rebuilds the field from its base and the words heard so
+        // far: what goes in goes into the base too, or the next words (or
+        // a cancel) would drop it. With the caret among the words heard, it
+        // goes after the base, ahead of them: they are heard again whole.
+        if let Some(base) = self.dictation_base.clone() {
+            let kept = base.trim_end().len();
+            if at <= kept && base.is_char_boundary(at) {
+                let mut next = base;
+                next.insert_str(at, text);
+                self.dictation_base = Some(next);
+            } else {
+                let field = self.text(cx);
+                let heard = field
+                    .get(kept..)
+                    .unwrap_or_default()
+                    .trim_start()
+                    .to_string();
+                let next = join_dictated(&base, text);
+                self.set_text(&join_dictated(&next, &heard), window, cx);
+                // As every insertion: the field has the focus, the caret
+                // right after what went in.
+                let caret = next.trim_end().len();
+                self.input.update(cx, |s, cx| {
+                    s.set_selected_range(caret..caret, cx);
+                    s.focus(window, cx);
+                });
+                self.dictation_base = Some(next);
+                return;
+            }
+        }
         self.insert_at(at, text, window, cx);
         self.text_changed(cx);
     }
@@ -3493,15 +3531,13 @@ impl ChatComposer {
             .models
             .as_ref()
             .is_some_and(crate::stores::composer::has_more_models);
-        let options = store.model_options.clone();
+        let options = store.answered_model_options().cloned();
         // A model with an effort control of its own (a coding agent's)
         // takes it from that control, below; the app's would contradict it.
         // Unknown until the options for the chat and model on screen answer.
         let own_effort = !store.options_answered() || store.options.own_effort_control;
         let controls = store
-            .model_controls
-            .as_ref()
-            .filter(|c| c.model_id == selected)
+            .answered_controls()
             .map(|c| c.controls.clone())
             .unwrap_or_default();
         let total = rows
@@ -3757,15 +3793,12 @@ impl ChatComposer {
         // A coding agent says where it runs: its terminal, as on the phone.
         let provider = if apple {
             l10n.desktop_apple_on_this_mac()
-        } else if let Some(agent) = &model.agent {
-            agent
-                .terminal_name
-                .clone()
-                .unwrap_or_else(|| format!("{}/{}", agent.agent, agent.model))
+        } else if let Some(place) = crate::stores::composer::agent_place(model) {
+            place
         } else {
             model.connection.clone().unwrap_or_default()
         };
-        let label = model_label(model);
+        let spoken = crate::stores::composer::picker_row_name(model);
         let group = SharedString::from(format!("model-row-{}", model.id));
         let pinned = model.pinned;
         let pin_label = if pinned {
@@ -3782,7 +3815,7 @@ impl ChatComposer {
             .id(ElementId::Name(format!("model-{}", model.id).into()))
             .group(group.clone())
             .role(Role::ListBoxOption)
-            .aria_label(SharedString::from(label))
+            .aria_label(SharedString::from(spoken))
             .aria_selected(hot)
             .aria_toggled(if on {
                 gpui_kit::Toggled::True
@@ -4022,7 +4055,6 @@ impl Render for ChatComposer {
         let r = t.roles;
         let m = t.metrics;
         let focused = self.input.read(cx).focus_handle(cx).is_focused(window);
-        let can_send = self.can_send(cx);
         let composer = self.composer.clone();
         let store = composer.read(cx);
         let attachments: Vec<AnyElement> = store
@@ -4037,7 +4069,7 @@ impl Render for ChatComposer {
             .iter()
             .map(|c| context_chip(c, &composer, &t, cx))
             .collect();
-        let options = store.options.clone();
+        let options = store.answered_options().cloned().unwrap_or_default();
         let (web_search, image_generation) = (store.web_search, store.image_generation);
         let code_interpreter = store.code_interpreter;
         let tool_ids = store.tool_ids.clone();
@@ -4153,13 +4185,15 @@ impl Render for ChatComposer {
             // Waiting on the connection: dimmed, its tooltip saying why
             // (the state itself shows once, in the window's pill).
             let waits = self.offline_reason.clone().filter(|_| self.offline);
-            // Behind an answer that waits in the outbox, Send queues.
+            // Behind an answer that waits in the outbox, Send queues, which
+            // needs no model list (as Enter does).
             let label = if self.queue_offer {
                 l10n.desktop_queue_message()
             } else {
                 l10n.send()
             };
-            IconButton::new("send", IconName::ArrowUp, label)
+            let can_send = self.send_offered(cx);
+            let send = IconButton::new("send", IconName::ArrowUp, label)
                 .size(32., 17.)
                 .when_some(waits.clone(), |b, why| b.tooltip(why))
                 .shortcut(if waits.is_some() {
@@ -4187,6 +4221,21 @@ impl Render for ChatComposer {
                         let _ = weak.update(cx, |c, cx| c.submit(window, cx));
                     }
                 }))
+                .into_any_element();
+            // Dimmed with no list for the chat, Send takes no click; a press
+            // on it asks for the list again, as Send by keyboard does, and
+            // still sends nothing.
+            div()
+                .debug_selector(|| "composer-send".into())
+                .on_mouse_down(
+                    gpui_kit::MouseButton::Left,
+                    cx.listener(|c, _, _, cx| {
+                        if !c.send_offered(cx) {
+                            c.composer.update(cx, |s, cx| s.ask_list_again(cx));
+                        }
+                    }),
+                )
+                .child(send)
                 .into_any_element()
         };
 
@@ -4930,9 +4979,31 @@ mod tests {
             cx,
         );
         assert_eq!(value(&view, cx), "Draft: plant the beans");
+        // Text given while words are heard (a prefill, Insert) goes in
+        // ahead of them, and the next words keep it.
+        cx.update(|window, cx| {
+            window.blur(cx);
+            view.update(cx, |c, cx| c.insert_at_caret("Note:", window, cx))
+        });
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans");
+        // As every insertion: the field has the focus, and the caret is
+        // right after what went in.
+        cx.update(|window, cx| {
+            let input = view.read(cx).input.clone();
+            assert!(input.read(cx).focus_handle(cx).is_focused(window));
+            assert_eq!(input.read(cx).cursor(), "Draft: Note:".len());
+        });
+        emit(
+            DictationEvent::Text {
+                text: "plant the beans deep".into(),
+                done: true,
+            },
+            cx,
+        );
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
         emit(DictationEvent::Ended { restore: false }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
-        // Cancel: back to what was typed before.
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep");
+        // Cancel: back to what was typed before, and given meanwhile.
         cx.update(|_, cx| view.update(cx, |c, cx| c.dictation_base = Some(c.text(cx))));
         emit(
             DictationEvent::Text {
@@ -4941,8 +5012,9 @@ mod tests {
             },
             cx,
         );
+        cx.update(|window, cx| view.update(cx, |c, cx| c.insert_at_caret("Later:", window, cx)));
         emit(DictationEvent::Ended { restore: true }, cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans");
+        assert_eq!(value(&view, cx), "Draft: Note: plant the beans deep Later:");
         // A saved recording's words, asked for in this composition (as
         // transcribe_recording records it), are added at the end.
         cx.update(|_, cx| {
@@ -4951,7 +5023,10 @@ mod tests {
             })
         });
         emit(DictationEvent::Transcribed("Then rest.".into()), cx);
-        assert_eq!(value(&view, cx), "Draft: plant the beans Then rest.");
+        assert_eq!(
+            value(&view, cx),
+            "Draft: Note: plant the beans deep Later: Then rest."
+        );
     }
 
     /// The call button takes Send's place only with nothing to send: a
@@ -5766,6 +5841,22 @@ mod tests {
         let stop = cx.debug_bounds("composer-stop").expect("Stop is offered");
         cx.simulate_click(stop.center(), gpui_kit::Modifiers::none());
         assert_eq!(*seen.borrow(), vec![ChatComposerEvent::Stop]);
+        seen.borrow_mut().clear();
+        // Behind an answer waiting in the outbox (nothing streams), the
+        // Queue button queues as Enter does: the failed list dims nothing.
+        view.update(cx, |c, _| c.streaming = false);
+        cx.simulate_input("And the south side?");
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let queue = cx.debug_bounds("composer-send").expect("Queue is offered");
+        cx.simulate_click(queue.center(), gpui_kit::Modifiers::none());
+        assert_eq!(
+            *seen.borrow(),
+            vec![ChatComposerEvent::Queue {
+                text: "And the south side?".into(),
+                mentions: vec![],
+            }],
+            "the Queue button did not queue"
+        );
     }
 
     #[gpui_kit::test]

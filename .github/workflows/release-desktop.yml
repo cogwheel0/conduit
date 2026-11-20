@@ -11,8 +11,13 @@ name: Release Desktop
 #   DMG, the dSYMs, the signed appcast.xml and SHA256SUMS.txt. Nothing
 #   reaches installed copies yet.
 # - Publish the draft (a person, after checking it). The `feed` job then
-#   puts its appcast.xml on the fixed `desktop-appcast` release, the URL
-#   every installed copy reads (SUFeedURL), and they offer the update.
+#   checks its appcast.xml, its signature included, and puts it on the fixed
+#   `desktop-appcast` release, the URL every installed copy reads
+#   (SUFeedURL), and they offer the update.
+# - A key rotation's bridge release (docs/RELEASING-DESKTOP.md, "Rotating the
+#   Sparkle key") is a tag that the variables SPARKLE_KEY_ROTATION_TAG and
+#   SPARKLE_NEXT_PUBLIC_ED_KEY name together: signed with the current key,
+#   its app carries the next one.
 # - Run the workflow by hand (workflow_dispatch) for a dry run: the same
 #   build as a rehearsal on a test bundle id, signed ad hoc, with a
 #   throwaway Sparkle key; no secret is read and nothing is published.
@@ -82,7 +87,9 @@ jobs:
           echo "Conduit Desktop $version, build $(build_number "$version") ($flags)"
 
       # Fails in a minute instead of after the build: every secret is
-      # present, and the Sparkle key pair matches.
+      # present, and the Sparkle key pair matches. It also picks the key the
+      # app carries: SPARKLE_PUBLIC_ED_KEY, or the next key for the one tag
+      # a key rotation names (lib.sh release_app_key).
       - name: Check the release configuration
         if: env.DRY_RUN != 'true'
         shell: bash
@@ -92,6 +99,8 @@ jobs:
           HAS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID != '' && secrets.MACOS_NOTARY_APP_PASSWORD != '' }}
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
           SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_NEXT_PUBLIC_ED_KEY: ${{ vars.SPARKLE_NEXT_PUBLIC_ED_KEY }}
+          SPARKLE_KEY_ROTATION_TAG: ${{ vars.SPARKLE_KEY_ROTATION_TAG }}
         run: |
           . desktop/packaging/macos/lib.sh
           missing=""
@@ -113,6 +122,15 @@ jobs:
           if [ "$GITHUB_REPOSITORY" != "$RELEASE_REPO" ]; then
             echo "::error::this repository is $GITHUB_REPOSITORY; release.env publishes to $RELEASE_REPO"
             exit 1
+          fi
+          app_key="$(release_app_key "$GITHUB_REF_NAME" "$SPARKLE_PUBLIC_ED_KEY" \
+            "$SPARKLE_NEXT_PUBLIC_ED_KEY" "$SPARKLE_KEY_ROTATION_TAG")" || {
+            echo "::error::the key rotation variables do not make $GITHUB_REF_NAME a bridge release (the log says why; docs/RELEASING-DESKTOP.md, \"Rotating the Sparkle key\")"
+            exit 1
+          }
+          echo "APP_SPARKLE_PUBLIC_ED_KEY=$app_key" >> "$GITHUB_ENV"
+          if [ "$app_key" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            echo "::warning::key rotation: $GITHUB_REF_NAME is the bridge release. Its DMG and feed are signed with SPARKLE_ED_PRIVATE_KEY; its app carries SPARKLE_NEXT_PUBLIC_ED_KEY"
           fi
 
       - name: Pick Xcode 26 or later
@@ -185,12 +203,18 @@ jobs:
           openssl="$(ed25519_openssl)"
           umask 077
           "$openssl" genpkey -algorithm ed25519 -outform DER -out "$RUNNER_TEMP/sparkle.der"
-          echo "SPARKLE_PUBLIC_ED_KEY=$("$openssl" pkey -inform DER -in "$RUNNER_TEMP/sparkle.der" -pubout -outform DER | tail -c 32 | base64)" >> "$GITHUB_ENV"
-          echo "DRY_RUN_SPARKLE_KEY=$RUNNER_TEMP/sparkle.der" >> "$GITHUB_ENV"
+          public="$("$openssl" pkey -inform DER -in "$RUNNER_TEMP/sparkle.der" -pubout -outform DER | tail -c 32 | base64)"
+          {
+            echo "SPARKLE_PUBLIC_ED_KEY=$public"
+            echo "APP_SPARKLE_PUBLIC_ED_KEY=$public"
+            echo "DRY_RUN_SPARKLE_KEY=$RUNNER_TEMP/sparkle.der"
+          } >> "$GITHUB_ENV"
 
+      # SUPublicEDKey: the key the configuration check picked (a bridge
+      # release's is the next key), or the dry run's throwaway one.
       - name: Build Conduit.app (stripped; dSYMs kept)
         env:
-          SPARKLE_PUBLIC_ED_KEY: ${{ env.SPARKLE_PUBLIC_ED_KEY || vars.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PUBLIC_ED_KEY: ${{ env.APP_SPARKLE_PUBLIC_ED_KEY }}
         run: desktop/packaging/macos/bundle.sh build $BUNDLE_FLAGS --version "$VERSION"
 
       - name: Import the Developer ID certificate into a temporary keychain
@@ -296,7 +320,9 @@ jobs:
       # the key pair, the item (version, macOS 14, arm64, URL), both
       # signatures, and that no earlier item is dropped. A new feed only
       # when none was ever published: a lookup that fails, or a published
-      # feed that cannot be read, stops the release.
+      # feed that cannot be read, stops the release. A bridge release is
+      # still signed with SPARKLE_ED_PRIVATE_KEY, and appcast.sh checks that
+      # its app carries exactly the next key.
       - name: Sign the appcast
         if: env.DRY_RUN != 'true'
         shell: bash
@@ -307,10 +333,13 @@ jobs:
         run: |
           . desktop/packaging/macos/lib.sh
           state="$(feed_exists)"
-          allow=()
-          if [ "$state" = no ]; then allow=(--allow-new); fi
+          flags=()
+          if [ "$state" = no ]; then flags=(--allow-new); fi
+          if [ "$APP_SPARKLE_PUBLIC_ED_KEY" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
+            flags+=(--next-public-key "$APP_SPARKLE_PUBLIC_ED_KEY")
+          fi
           desktop/packaging/macos/appcast.sh --dmg "$OUT/Conduit-$VERSION.dmg" \
-            --version "$VERSION" ${allow[@]+"${allow[@]}"}
+            --version "$VERSION" ${flags[@]+"${flags[@]}"}
       - name: Sign the appcast (dry run, throwaway key)
         if: env.DRY_RUN == 'true'
         shell: bash
@@ -400,8 +429,9 @@ jobs:
   # Publishing a desktop draft makes its appcast live. Checked first: the
   # feed is this release's (its newest item is this version, at this
   # release's DMG, which now downloads), its checksum is the one the build
-  # recorded, and it keeps every item the live feed has (a release
-  # published since this draft was built would otherwise drop out).
+  # recorded, it keeps every item the live feed has (a release published
+  # since this draft was built would otherwise drop out), and it is signed
+  # with the key installed copies have.
   feed:
     name: Publish the update feed
     if: >-
@@ -492,5 +522,9 @@ jobs:
           EOF
           command -v xmllint >/dev/null || sudo apt-get install -y libxml2-utils
           echo "APPCAST=$dir/appcast.xml" >> "$GITHUB_ENV"
+      # publish-appcast.sh checks the feed's own signature with
+      # SPARKLE_PUBLIC_ED_KEY, the key installed copies have, before it
+      # uploads anything: a feed swapped on the draft together with
+      # SHA256SUMS.txt, or signed with another key, never goes live.
       - name: Publish the appcast
         run: desktop/packaging/macos/publish-appcast.sh "$APPCAST" --push

@@ -67,6 +67,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart'
+    show kLibreChatTransport;
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
     show libreChatSessionHandleProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -281,21 +283,89 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (session.turn case final turn? when !turn.finished) turn.chatId,
   ];
 
-  /// Whether an Open WebUI answer is being written: one that arrives
-  /// through the active account's address, unlike a direct or Hermes one,
-  /// which this process talks to the provider for itself.
+  /// Whether an Open WebUI answer is being written, or sent for: one that
+  /// arrives through the active account's address, unlike a direct or
+  /// Hermes one, which this process talks to the provider for itself, or a
+  /// LibreChat one, which its own server writes.
   @override
-  bool get addressAnswering => _sessions.any(
-    (session) => switch (session.turn) {
-      final turn? => !turn.finished && !turn.clientOwned,
-      null => false,
-    },
-  );
+  bool get addressAnswering => _sessions.any(_answersThroughAddress);
 
-  /// Stops the answers [addressAnswering] counts.
+  /// Stops the answers [addressAnswering] counts, as they are when asked:
+  /// the running ones, and at once each send of one not yet started, dropped
+  /// as Stop drops one ([_dropSend]) rather than waited out (with no socket,
+  /// Open WebUI answers such a request only once its whole reply is
+  /// written). An answer another window starts meanwhile is not one of them.
   @override
-  Future<void> stopAddressAnswers() =>
-      _stopRunning(where: (turn) => !turn.clientOwned);
+  Future<void> stopAddressAnswers() async {
+    bool counted(_Turn turn) => answersThroughAddress(
+      running: true,
+      sending: false,
+      transport: turn.transport,
+    );
+    await Future.wait(<Future<void>>[
+      _stopRunning(where: counted),
+      for (final session in List<_ChatSession>.of(_sessions))
+        if (session.pending case final pending?
+            when !pending.started.isCompleted &&
+                _answersThroughAddress(session))
+          _dropSend(session, pending, where: counted),
+    ]);
+  }
+
+  /// Drops [pending], a send not yet started, as the phone's Stop does: it
+  /// is marked dropped, so a send still waiting to go (a voice turn waiting
+  /// for quiet) never goes, and the core's stop in its chat keeps the
+  /// request from going out. Once the send has settled, the answer it
+  /// started meanwhile, if [where] picks it, is stopped too: that one only,
+  /// never a turn that took the chat after it.
+  Future<void> _dropSend(
+    _ChatSession session,
+    _PendingTurn pending, {
+    bool Function(_Turn turn)? where,
+  }) async {
+    pending.dropped = true;
+    if (!session.scope.isDisposed) {
+      try {
+        await session.scope.container.read(stopGenerationSettledProvider)();
+      } on Object catch (error, stackTrace) {
+        DebugLogger.error(
+          'turn-send-stop-failed',
+          scope: 'daemon/turns',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    await pending.started.future.then<void>((_) {}, onError: (_) {});
+    final started = session.turn;
+    if (started != null &&
+        !started.finished &&
+        identical(started.pending, pending) &&
+        (where?.call(started) ?? true) &&
+        !session.scope.isDisposed) {
+      await _stopTurn(session, started);
+    }
+  }
+
+  bool _answersThroughAddress(_ChatSession session) {
+    final turn = session.turn;
+    if (turn != null && !turn.finished) {
+      return answersThroughAddress(
+        running: true,
+        sending: false,
+        transport: turn.transport,
+      );
+    }
+    final pending = session.pending;
+    final answer = pending == null
+        ? null
+        : _pendingAnswer(session, pending, session.scope.messages);
+    return answersThroughAddress(
+      running: false,
+      sending: pending != null && !pending.started.isCompleted,
+      transport: answer?.metadata?['transport'],
+    );
+  }
 
   /// Stops the answers running now (those [where] picks), each as Stop
   /// does: the ones taken here, never a turn that took a chat's place
@@ -1455,6 +1525,17 @@ final class TurnsService implements ChatTurns, AddressReplies {
     final session = _sessionOf(chatId);
     final turn = session?.turn;
     if (session == null || turn == null || turn.finished) {
+      // A send whose answer comes through the address, not yet started:
+      // dropped now, not once the server answers (with no socket, only
+      // when the whole reply is written).
+      final pending = session?.pending;
+      if (session != null &&
+          pending != null &&
+          !pending.started.isCompleted &&
+          _answersThroughAddress(session)) {
+        await _dropSend(session, pending);
+        return;
+      }
       await _stopStranded(chatId, session, account);
       return;
     }
@@ -2012,6 +2093,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
           // admitted already, so a window's request waits for it, not it
           // for the request.
           await _untilQuiet(session, ownPending: true);
+          if (session.pending?.dropped ?? false) {
+            throw const RpcError(
+              code: ConduitErrorCodes.conflict,
+              args: <String, String>{'reason': 'stopped'},
+              debugMessage: 'the words were stopped before they went out',
+            );
+          }
           // The call's first turn makes its chat: temporary or not, and in
           // the folder, as the window chose, whatever the call's start reset.
           if (choice != null && !session.scope.isDisposed) {
@@ -2443,26 +2531,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _PendingTurn pending,
     List<ChatMessage> messages,
   ) {
-    ChatMessage? answer;
-    final expected = pending.assistantMessageId;
-    if (expected != null) {
-      answer = _find(session, messages, expected);
-    } else {
-      // The answer now streaming at the end of the transcript. A regenerate
-      // may stream into the answer it replaces, keeping its id and moving
-      // the old text into its versions, as the core does for a direct chat.
-      final tail = messages.where((m) => m.role == 'assistant').lastOrNull;
-      if (tail != null &&
-          tail.isStreaming &&
-          !(pending.baseline[tail.id]?.isStreaming ?? false)) {
-        answer = tail;
-      } else if (tail != null &&
-          pending.sendSettled &&
-          _changed(pending.baseline[tail.id], tail)) {
-        // Over before it was seen streaming: a quick provider.
-        answer = tail;
-      }
-    }
+    final answer = _pendingAnswer(session, pending, messages);
     if (answer == null) {
       if (pending.sendSettled && pending.sendError == null) {
         pending.started.completeError(
@@ -2498,7 +2567,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         (asked == null ? null : _currentId(session, asked)) ??
         messages
             .take(index < 0 ? 0 : index)
-            .lastWhere((m) => m.role == 'user', orElse: () => answer!)
+            .lastWhere((m) => m.role == 'user', orElse: () => answer)
             .id;
     final turn =
         _Turn(
@@ -2507,6 +2576,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
             model: answer.model ?? pending.model,
             userMessageId: question == answer.id ? null : question,
             clientOwned: clientOwned,
+            transport: transport,
           )
           ..text = answer.content
           ..pending = pending;
@@ -4272,6 +4342,23 @@ final class TurnsService implements ChatTurns, AddressReplies {
     return messages.where((m) => m.id == current).lastOrNull;
   }
 
+  /// The answer [pending] is writing in [messages], as its turn takes it:
+  /// the one it named, else the one [sentAnswerAtTail] finds.
+  static ChatMessage? _pendingAnswer(
+    _ChatSession session,
+    _PendingTurn pending,
+    List<ChatMessage> messages,
+  ) {
+    final expected = pending.assistantMessageId;
+    return expected != null
+        ? _find(session, messages, expected)
+        : sentAnswerAtTail(
+            messages,
+            before: pending.baseline,
+            settled: pending.sendSettled,
+          );
+  }
+
   static String _currentId(_ChatSession session, String id) =>
       session.scope.isDisposed
       ? id
@@ -4413,6 +4500,44 @@ final class _NotQuietYet implements Exception {
   const _NotQuietYet();
 }
 
+/// Whether a chat's answer arrives through the active account's address,
+/// so an address change has to wait for it, or stop it: an Open WebUI one,
+/// running ([running]) or sent and not yet started ([sending]), unlike a
+/// direct or Hermes one, which this process talks to the provider for
+/// itself, or a LibreChat one, which its own server writes. [transport] is
+/// the answer's; a send whose answer is not there yet has none, and counts,
+/// so a change waits the moment it takes to show.
+/// The answer a send that named none is writing, as its turn takes it: the
+/// one streaming at the end of [messages] that was not streaming before the
+/// send ([before]), or, once the send has returned ([settled]), the last
+/// answer it changed (a quick provider's, over before it was seen
+/// streaming). A regenerate may stream into the answer it replaces, keeping
+/// its id and moving the old text into its versions, as the core does for a
+/// direct chat.
+ChatMessage? sentAnswerAtTail(
+  List<ChatMessage> messages, {
+  required Map<String, ChatMessage> before,
+  required bool settled,
+}) {
+  final tail = messages.where((m) => m.role == 'assistant').lastOrNull;
+  if (tail == null) return null;
+  if (tail.isStreaming && !(before[tail.id]?.isStreaming ?? false)) {
+    return tail;
+  }
+  if (settled && TurnsService._changed(before[tail.id], tail)) return tail;
+  return null;
+}
+
+bool answersThroughAddress({
+  required bool running,
+  required bool sending,
+  required Object? transport,
+}) =>
+    (running || sending) &&
+    transport != kDirectTransport &&
+    transport != kHermesTransport &&
+    transport != kLibreChatTransport;
+
 final class _PendingTurn {
   _PendingTurn({
     required this.model,
@@ -4435,6 +4560,10 @@ final class _PendingTurn {
   bool sendSettled = false;
   Object? sendError;
   final Completer<_Turn> started = Completer<_Turn>();
+
+  /// Dropped by a Stop or an address change before it started
+  /// ([TurnsService._dropSend]): a send still waiting to go does not.
+  bool dropped = false;
 
   /// A batch of queued messages the core has committed: the outbox owns
   /// its turn, which starts now rather than once the request has gone out.
@@ -4472,6 +4601,7 @@ final class _Turn {
     required this.model,
     required this.userMessageId,
     required this.clientOwned,
+    this.transport,
   });
 
   /// Not final: a chat's `local:` id can be replaced by the server's while
@@ -4484,6 +4614,10 @@ final class _Turn {
   /// Whether this process talks to the provider itself (direct, Hermes), so
   /// the send that started the turn lasts as long as the answer.
   final bool clientOwned;
+
+  /// Its answer's transport, which says which backend writes it; null for
+  /// an Open WebUI answer followed from the queued-answer outbox.
+  final Object? transport;
 
   /// The send that started this turn; null for one followed from the
   /// queued-answer outbox. [session.pending] may already be the next send.

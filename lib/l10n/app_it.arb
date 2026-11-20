@@ -5137,5 +5137,6 @@
   "settingsAddAction": "Aggiungi",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "La chiave salvata non verrà inviata al nuovo indirizzo, quindi verrà rimossa. Inserisci una chiave per questo indirizzo."
 }

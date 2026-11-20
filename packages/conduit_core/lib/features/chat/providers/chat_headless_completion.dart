@@ -32,6 +32,7 @@ Future<void> runQueuedCompletion(
   if (api == null) {
     throw StateError('runQueuedCompletion requires an API service');
   }
+  api.beginSend(assistantMessageId, adopt: true);
   final selectedModel = ref.read(selectedModelProvider);
   // Empty model => fall back to the selected default model (mirrors the
   // migrator's empty-model contract). A still-empty model is a hard error.
@@ -129,6 +130,16 @@ Future<void> runQueuedCompletion(
   );
   requireActiveOwner();
 
+  if (api.sendStopped(assistantMessageId)) {
+    await settleStoppedOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      assistantMessageIds: [assistantMessageId],
+    );
+    return;
+  }
+
   // Ensure the (already-existing) assistant placeholder is loaded + streaming.
   await _preseedAssistantAndPersist(
     ref,
@@ -224,6 +235,15 @@ Future<void> runQueuedCompletion(
       messageId: assistantMessageId,
       admitted: admittedToolServers,
     );
+    if (api.sendStopped(assistantMessageId)) {
+      await settleStoppedOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        assistantMessageIds: [assistantMessageId],
+      );
+      return;
+    }
     final ChatCompletionSession session;
     try {
       session = await api.sendMessageSession(
@@ -251,6 +271,14 @@ Future<void> runQueuedCompletion(
         variables: promptVars2,
         files: _extractTopLevelRequestFiles(parentMsgMap),
       );
+    } on ChatCompletionStopped {
+      await settleStoppedOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        assistantMessageIds: [assistantMessageId],
+      );
+      return;
     } on ChatCompletionHttpException catch (refusal) {
       if (refusal.mayPassLater) rethrow;
       await _settleRefusedOpenWebUiCompletion(
@@ -385,6 +413,7 @@ Future<void> runHeadlessCompletion(
   if (api == null) {
     throw StateError('runHeadlessCompletion requires an API service');
   }
+  api.beginSend(assistantMessageId, adopt: true);
   final owner =
       completionOwner ??
       captureOpenWebUiCompletionOwner(ref, chatId: chatId, api: api);
@@ -539,6 +568,15 @@ Future<void> runHeadlessCompletion(
     messageId: assistantMessageId,
     admitted: admittedToolServers,
   );
+  if (api.sendStopped(assistantMessageId)) {
+    await settleStoppedOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      assistantMessageIds: [assistantMessageId],
+    );
+    return;
+  }
   final ChatCompletionSession session;
   try {
     session = await api.sendMessageSession(
@@ -566,6 +604,14 @@ Future<void> runHeadlessCompletion(
       variables: promptVars,
       files: _extractTopLevelRequestFiles(parentMsgMap),
     );
+  } on ChatCompletionStopped {
+    await settleStoppedOpenWebUiCompletion(
+      ref,
+      api: api,
+      owner: owner,
+      assistantMessageIds: [assistantMessageId],
+    );
+    return;
   } on ChatCompletionHttpException catch (refusal) {
     if (refusal.mayPassLater) rethrow;
     await _settleRefusedOpenWebUiCompletion(
@@ -597,6 +643,42 @@ Future<void> runHeadlessCompletion(
 /// screen: the answer shows the server's words, its stored row is marked
 /// refused, and [SyncTerminalException] parks the op.
 ///
+/// Ends the answers whose request a Stop kept from going out: stored as
+/// done, as the Stop left them on screen. The Stop is let go only once that
+/// is written: a write that fails throws, the operation is not counted done,
+/// and its retry still finds the Stop and still does not send.
+Future<void> settleStoppedOpenWebUiCompletion(
+  dynamic ref, {
+  required Object? api,
+  required OpenWebUiCompletionOwner owner,
+  required Iterable<String> assistantMessageIds,
+}) async {
+  DebugLogger.log(
+    'queued-completion-stopped',
+    scope: 'chat/completion',
+    data: {
+      'chatId': owner.chatId,
+      'assistantMessageIds': assistantMessageIds.toList(),
+    },
+  );
+  final locks = ref.read(chatLocksProvider) as ChatLocks;
+  await locks.runExclusive(owner.chatId, () async {
+    for (final id in assistantMessageIds) {
+      // False only when the answer's row is gone: nothing is left that
+      // could show it streaming.
+      await owner.database?.messagesDao.markAssistantStopped(
+        chatId: owner.chatId,
+        messageId: id,
+      );
+    }
+  });
+  if (api is ApiService) {
+    for (final id in assistantMessageIds) {
+      api.endSend(id);
+    }
+  }
+}
+
 /// Without this a refusal went back to the outbox as a transient failure:
 /// the answer streamed on with nothing behind it while the drainer sent the
 /// same refused request four more times, then parked it with the answer

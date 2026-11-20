@@ -581,6 +581,14 @@ void main() {
     );
     expect(listed.recordings, hasLength(1));
     expect(changed, contains(id));
+
+    // Shut down twice (another caller closing too): the second returns only
+    // once the recorders the first waits for have stopped writing.
+    var firstDone = false;
+    final first = notes.close().then((_) => firstDone = true);
+    await notes.close();
+    expect(firstDone, isTrue, reason: 'the second close did not wait');
+    await first;
   });
   test('a recording kept while another account took charge is not this '
       'request\'s to list', () async {

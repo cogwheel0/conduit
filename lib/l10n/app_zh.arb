@@ -5137,5 +5137,6 @@
   "settingsAddAction": "添加",
   "@settingsAddAction": {
     "description": "Read aloud for the plus button in a Settings page's bar that adds an item, such as a calendar event."
-  }
+  },
+  "personalConnectionsKeyRemovedForNewAddress": "已保存的密钥不会发送到新地址，因此将被移除。请为此地址输入密钥。"
 }

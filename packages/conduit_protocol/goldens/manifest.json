@@ -617,6 +617,7 @@
   "savedCredentialsResult": "SavedCredentialsResult",
   "selectModel": "SelectModel",
   "selectModelInChat": "SelectModel",
+  "selectModelTemporary": "SelectModel",
   "sendTurn": "SendTurn",
   "sendTurnAccepted": "SendTurnAccepted",
   "sendTurnCompare": "SendTurn",
