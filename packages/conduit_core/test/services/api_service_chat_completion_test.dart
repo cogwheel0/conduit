@@ -1809,6 +1809,42 @@ void main() {
           (body.containsKey('model_item'), body.containsKey('tool_servers')),
       ]).deepEquals(const [(true, true), (false, false), (false, false)]);
     });
+
+    test('two sends refused before the version is known both ask again '
+        'without them', () async {
+      final refused = {
+        'error': {
+          'message': 'model_item: Extra inputs are not permitted',
+          'type': 'invalid_request_error',
+        },
+      };
+      final server = _VersionedServer(
+        version: null,
+        completions: [
+          _FakeAdapter.json(refused, statusCode: 400),
+          _FakeAdapter.json(refused, statusCode: 400),
+          accepted(),
+          accepted(),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+
+      final sessions = await Future.wait([send(api), send(api)]);
+
+      check([for (final s in sessions) s.taskId]).deepEquals(const [
+        'task-1',
+        'task-1',
+      ]);
+      check([
+        for (final body in server.completionBodies)
+          (body.containsKey('model_item'), body.containsKey('tool_servers')),
+      ]).deepEquals(const [
+        (true, true),
+        (true, true),
+        (false, false),
+        (false, false),
+      ]);
+    });
   });
 
   group('TLS handshake detection', () {

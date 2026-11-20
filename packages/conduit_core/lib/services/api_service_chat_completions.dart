@@ -217,6 +217,8 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     }
 
     var includeClientModelFields = _sendsClientModelFields ?? true;
+    // Another send can learn the version while this one waits on its refusal.
+    final versionUnknown = _sendsClientModelFields == null;
 
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
@@ -334,7 +336,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       final shouldRetryWithoutClientModelFields =
           !shouldRetryWithLegacy &&
           includeClientModelFields &&
-          _sendsClientModelFields == null &&
+          versionUnknown &&
           _refusesRequestField(error, const ['model_item', 'tool_servers']);
 
       if (!shouldRetryWithLegacy && !shouldRetryWithoutClientModelFields) {
