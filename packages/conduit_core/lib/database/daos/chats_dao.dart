@@ -2106,17 +2106,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
               .getSingleOrNull();
       if (question == null) return;
       final formerAnswers = <String>{...answerIds, ...earlierHoldIds};
-      final answeredMeanwhile =
-          await (selectOnly(messages)
-                ..addColumns([messages.id])
-                ..where(
-                  messages.chatId.equals(chatId) &
-                      messages.parentId.equals(questionId) &
-                      messages.id.isNotIn(formerAnswers),
-                )
-                ..limit(1))
-              .getSingleOrNull() !=
-          null;
+      // The newest answer the server wrote meanwhile, if a pull stored one.
+      final answerMeanwhile =
+          (await (selectOnly(messages)
+                    ..addColumns([messages.id])
+                    ..where(
+                      messages.chatId.equals(chatId) &
+                          messages.parentId.equals(questionId) &
+                          messages.id.isNotIn(formerAnswers),
+                    )
+                    ..orderBy([OrderingTerm.desc(messages.createdAt)])
+                    ..limit(1))
+                  .getSingleOrNull())
+              ?.read(messages.id);
+      final answeredMeanwhile = answerMeanwhile != null;
       final payload = _decodeJsonObject(question.payload);
       final children = payload['childrenIds'];
       if (children is List) {
@@ -2136,11 +2139,15 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       await (update(messages)
             ..where((t) => t.chatId.equals(chatId) & t.id.equals(questionId)))
           .write(MessagesCompanion(payload: Value(jsonEncode(payload))));
-      if (answeredMeanwhile) return;
+      // A removed answer can't stay the chat's tip: it moves to the answer
+      // the server wrote meanwhile, or else to the question, which waits.
+      // Any other tip, a branch picked here, stays.
       final chat = await getChat(chatId);
       if (chat != null && formerAnswers.contains(chat.currentMessageId)) {
         await (update(chats)..where((t) => t.id.equals(chatId))).write(
-          ChatsCompanion(currentMessageId: Value<String?>(questionId)),
+          ChatsCompanion(
+            currentMessageId: Value<String?>(answerMeanwhile ?? questionId),
+          ),
         );
       }
     });
