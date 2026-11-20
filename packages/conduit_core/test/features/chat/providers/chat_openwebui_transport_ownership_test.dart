@@ -3291,6 +3291,45 @@ void main() {
       check(await heldDeletes()).isEmpty();
     });
 
+    // Another device regenerated the question meanwhile: its answer is the
+    // empty answer's sibling, which the copy keeps among its versions.
+    test('a copy read straight from the server keeps a question another '
+        'device answered unheld', () async {
+      await seedTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.deleteMessages,
+        chatId: chatId,
+        payload: {
+          kDeleteMessagesIdsKey: [assistantId],
+        },
+      );
+      final api = _ServerCopyApi([
+        _user(userId, 'Say the word: heron'),
+        _streamingAssistant(assistantId, '').copyWith(
+          versions: [
+            ChatMessageVersion(
+              id: 'answer-elsewhere',
+              content: 'heron',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+            ),
+          ],
+        ),
+      ]);
+      final messages = <ChatMessage>[_user(userId, 'Say the word: heron')];
+      final container = _container(
+        db: db,
+        active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+        messages: messages,
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api, landResponse: false),
+      );
+      addTearDown(container.dispose);
+
+      final refreshed = await pullChatOrFetch(container, chatId);
+
+      check(refreshed!.messages.single.isHeldByServer).isFalse();
+    });
+
     // A delete that lands while the read is out leaves no op behind, but the
     // copy that read returns may still hold the empty answer.
     for (final (label, landsDuringRead) in [
