@@ -385,9 +385,9 @@ class FakeSocketInjector {
   final _registrations = <_ChatHandlerRegistration>[];
 
   /// Fires the socket's reconnect signal; [sessionId] is the session it is
-  /// connected as.
+  /// connected as, at first the one the stream was sent with.
   final reconnects = StreamController<void>.broadcast();
-  String sessionId = 'test-session';
+  String sessionId = 'sess-1';
 
   bool get hasChatHandler => _registrations.isNotEmpty;
 
