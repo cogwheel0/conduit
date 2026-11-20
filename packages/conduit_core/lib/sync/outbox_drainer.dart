@@ -157,8 +157,8 @@ class OutboxDrainer {
   }
 
   /// Asks each adapter that can ([ParkedOpRecovery]) to re-arm its parked ops
-  /// that can go again. Runs once per drainer, which is once per session, and
-  /// whenever the connection returns. One that fails leaves them parked.
+  /// that can go again. Runs before a drainer's first claim, and whenever the
+  /// connection returns. One that fails leaves them parked.
   Future<void> _rearmRecoverableParked() async {
     for (final adapter in _adapters) {
       if (adapter is! ParkedOpRecovery) continue;
