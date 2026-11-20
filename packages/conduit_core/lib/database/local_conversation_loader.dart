@@ -365,12 +365,16 @@ Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
   }
   // Only a held turn's settle leaves such a delete waiting, so a question
   // whose only answer here was one of those waits again: the copy read it as
-  // answered by that empty answer.
+  // answered by that empty answer. One with another answer among the left-out
+  // answer's versions is answered, and doesn't wait.
   final kept = <ChatMessage>[];
   final waiting = <int>{};
   for (final message in conversation.messages) {
     if (ids.contains(message.id)) {
-      if (kept.isNotEmpty && kept.last.role == 'user') {
+      final answeredElsewhere = message.versions.any(
+        (version) => !ids.contains(version.id),
+      );
+      if (!answeredElsewhere && kept.isNotEmpty && kept.last.role == 'user') {
         waiting.add(kept.length - 1);
       }
       continue;

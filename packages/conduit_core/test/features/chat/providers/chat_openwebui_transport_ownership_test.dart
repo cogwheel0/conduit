@@ -3777,6 +3777,8 @@ void main() {
       final refreshed = await pullChatOrFetch(container, chatId);
 
       check(refreshed!.messages.map((m) => m.id).toList()).deepEquals([userId]);
+      // Its sibling answers it, so it doesn't wait.
+      check(refreshed.messages.single.isHeldByServer).isFalse();
     });
 
     test('a copy read straight from the server is read only as the account '
