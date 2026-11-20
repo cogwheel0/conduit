@@ -296,27 +296,103 @@ void main() {
       check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
     });
 
-    for (final status in [401, 403]) {
-      test('is not purged when a sampled probe answers $status', () async {
-        final client = _RefusingNoteProbeClient(server, status);
+    test('is not purged when a sampled probe answers 401', () async {
+      final client = _RefusingNoteProbeClient(server, 401);
+      for (final id in ids) {
+        await seedLocalOnly(id);
+      }
+
+      final result = await reconcileWith(
+        client,
+        reader: () => 'reader-1',
+      ).run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(result.purged).equals(0);
+      check(client.noteFetchStarts).length.equals(1);
+      for (final id in ids) {
+        check(await db.notesDao.getNote(id)).isNotNull();
+      }
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+    });
+
+    test('is purged when some sampled notes answer 403: the user lost '
+        'access to those, which says nothing about the rest', () async {
+      // n0 and n3 are among the notes sampled first.
+      final refused = {'n0', 'n3'};
+      final client = FakeSyncApiClient(server);
+      for (final id in ids) {
+        await seedLocalOnly(id);
+        if (refused.contains(id)) {
+          client.forbiddenNoteReadIds.add(id);
+        } else {
+          client.nullNoteIds.add(id);
+        }
+      }
+
+      final result = await reconcileWith(
+        client,
+        reader: () => 'reader-1',
+      ).run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isFalse();
+      check(result.purged).equals(6);
+      check(result.skipped).equals(2);
+      for (final id in ids) {
+        final row = await db.notesDao.getNote(id);
+        refused.contains(id) ? check(row).isNotNull() : check(row).isNull();
+      }
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt())
+          .equals(clock.now);
+    });
+
+    test(
+      'runs to the end without purging when every note answers 403',
+      () async {
+        final client = FakeSyncApiClient(server);
         for (final id in ids) {
           await seedLocalOnly(id);
         }
+        client.forbiddenNoteReadIds.addAll(ids);
 
         final result = await reconcileWith(
           client,
           reader: () => 'reader-1',
         ).run(ReconcileReason.manualRefresh);
 
-        check(result.aborted).isTrue();
+        check(result.aborted).isFalse();
         check(result.purged).equals(0);
-        check(client.noteFetchStarts).length.equals(1);
         for (final id in ids) {
           check(await db.notesDao.getNote(id)).isNotNull();
         }
-        check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
-      });
-    }
+        check(await db.syncMetaDao.getNotesLastFullReconcileAt())
+            .equals(clock.now);
+      },
+    );
+
+    test('is not purged when, past the 403s, a note is still on the '
+        'server', () async {
+      // Four gone can never make five confirmations, so the sample meets a
+      // note that still exists whatever the order.
+      final present = {'n1', 'n2', 'n3'};
+      final client = _NoteListGapClient(server, present);
+      for (final id in ids) {
+        if (present.contains(id)) {
+          await seedSyncedNote(id);
+        } else {
+          await seedLocalOnly(id);
+          client.nullNoteIds.add(id);
+        }
+      }
+      client.forbiddenNoteReadIds.add('n0');
+
+      final result = await reconcileWith(client)
+          .run(ReconcileReason.manualRefresh);
+
+      check(result.aborted).isTrue();
+      check(result.purged).equals(0);
+      check(await db.syncMetaDao.getNotesLastFullReconcileAt()).equals(0);
+    });
 
     test('is not purged when a sampled probe fails', () async {
       final client = FakeSyncApiClient(server);

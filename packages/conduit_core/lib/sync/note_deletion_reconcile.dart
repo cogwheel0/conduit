@@ -232,15 +232,32 @@ class NoteDeletionReconcile {
   }
 
   /// Whether every probe in [reconcileValveSample] of [candidates] answers
-  /// 404. A note that still exists or any probe failure, a 401 or 403
-  /// included, means no.
+  /// 404. A note that still exists or any probe failure, a 401 included,
+  /// means no.
+  ///
+  /// A 403 is the server refusing this account a note it still holds, which
+  /// says nothing about the others, so the next unsampled candidate is probed
+  /// in its place. If the candidates run out first, every one of them was
+  /// probed and none still exists or failed, so the run goes on: the loop
+  /// purges only the notes it confirms gone again.
   Future<bool> _sampleConfirmsGone(List<String> candidates, int local) async {
-    for (final id in reconcileValveSample(candidates)) {
+    final sample = reconcileValveSample(candidates);
+    final sampled = sample.toSet();
+    var confirmed = 0;
+    for (final id in [
+      ...sample,
+      ...candidates.where((id) => !sampled.contains(id)),
+    ]) {
+      if (confirmed == sample.length) break;
       Object probe;
       try {
-        if (await _client.getNoteRaw(id) == null) continue;
+        if (await _client.getNoteRaw(id) == null) {
+          confirmed++;
+          continue;
+        }
         probe = 'exists';
       } on SyncTerminalException catch (error) {
+        if (error.statusCode == 403) continue;
         probe = error.statusCode ?? 'terminal';
       } catch (error) {
         probe = error.runtimeType.toString();
