@@ -54,16 +54,33 @@ TetherRelayFailure? tetherRelayFailureOf(
   if (viaTether && trimmed == _serverConnectionError) {
     return TetherRelayFailure.interrupted;
   }
-  final text = trimmed.toLowerCase();
-  if (text.contains('tether connection interrupted')) {
+  return _relayFailureInWords(trimmed);
+}
+
+/// The status Starlette puts before an `HTTPException`'s detail when the
+/// exception is written as text ("503: Tether is offline.").
+final RegExp _statusPrefix = RegExp(r'^\d{3}: ');
+
+/// The relay failure [words] are, in Open WebUI 0.13.4's own words for it
+/// (`utils/tether.py`), or null. Those are the whole message: as the server
+/// sends them, after the status a written `HTTPException` starts with, or
+/// after a terminal proxy's "Terminal proxy error: " (`routers/terminals.py`).
+/// Words that only quote them, such as another model's error, are not one.
+TetherRelayFailure? _relayFailureInWords(String words) {
+  var text = words.toLowerCase();
+  const proxied = 'terminal proxy error: ';
+  if (text.startsWith(proxied)) text = text.substring(proxied.length);
+  text = text.replaceFirst(_statusPrefix, '');
+  // RelayInterrupted: "Tether connection interrupted: <reason>. The
+  // operation may have completed. ..."
+  if (text.startsWith('tether connection interrupted:')) {
     return TetherRelayFailure.interrupted;
   }
-  if (text.contains('tether has too many active operations')) {
-    return TetherRelayFailure.busy;
-  }
-  if (text.contains('tether service is unavailable') ||
-      text.contains('tether is offline')) {
-    return TetherRelayFailure.unavailable;
-  }
-  return null;
+  if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+  return switch (text) {
+    'tether has too many active operations' => TetherRelayFailure.busy,
+    'tether service is unavailable' ||
+    'tether is offline' => TetherRelayFailure.unavailable,
+    _ => null,
+  };
 }

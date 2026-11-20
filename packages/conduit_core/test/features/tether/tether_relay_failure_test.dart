@@ -45,5 +45,16 @@ void main() {
     check(tetherRelayFailureOf(<String, dynamic>{'error': 'Rate limited'}))
         .isNull();
     check(tetherRelayFailureOf(null)).isNull();
+    // Another failure that only quotes Tether's words.
+    check(
+      tetherRelayFailureOf(
+        "Model 'Tether is offline' is temporarily unavailable",
+      ),
+    ).isNull();
+    check(
+      tetherRelayFailureOf(
+        'Upstream: Tether connection interrupted: Connection lost.',
+      ),
+    ).isNull();
   });
 }
