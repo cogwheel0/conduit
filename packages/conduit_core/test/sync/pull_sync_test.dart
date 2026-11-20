@@ -656,6 +656,61 @@ void main() {
     });
   });
 
+  test('an answer stored while a pull reads the chat stays', () async {
+    final blob = blobFor('chat-1');
+    server.seedChat(id: 'chat-1', blob: blob, createdAt: 100, updatedAt: 150);
+    await pull.pullChat('chat-1');
+
+    final late = _LateReadClient(server);
+    final gate = Completer<void>();
+    late.readGate = gate.future;
+    pull = PullSync(client: late, db: db, locks: locks);
+    final pulling = pull.pullChat('chat-1');
+    await late.readTaken.future;
+    // The answer failed meanwhile. The server saved its error and then told
+    // this device, which stored the answer with it.
+    final messages = (blob['history'] as Map)['messages'] as Map;
+    final failed = <String, dynamic>{
+      ...messages['chat-1-m2'] as Map<String, dynamic>,
+      'error': {'content': 'Connection lost'},
+    };
+    server.seedChat(
+      id: 'chat-1',
+      blob: {
+        ...blob,
+        'history': {
+          'messages': {...messages, 'chat-1-m2': failed},
+          'currentId': 'chat-1-m2',
+        },
+      },
+      createdAt: 100,
+      updatedAt: 151,
+    );
+    await db.messagesDao.upsertLocalEchoTurn(
+      chatId: 'chat-1',
+      user: null,
+      assistant: MessageRowData(
+        id: 'chat-1-m2',
+        chatId: 'chat-1',
+        parentId: 'chat-1-m1',
+        role: 'assistant',
+        content: failed['content'] as String,
+        model: 'llama3',
+        createdAt: 1002,
+        orderIndex: -1,
+        payload: failed,
+      ),
+    );
+    gate.complete();
+    await pulling;
+
+    final answer = (await db.messagesDao.getForChat('chat-1'))
+        .singleWhere((row) => row.id == 'chat-1-m2');
+    check((jsonDecode(answer.payload) as Map)['error'])
+        .isA<Map<String, dynamic>>()['content']
+        .equals('Connection lost');
+  });
+
   group('a model picked while a pull reads the chat', () {
     Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
     void seed(List<String> models) => server.seedChat(

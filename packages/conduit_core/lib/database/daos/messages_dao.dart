@@ -358,6 +358,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(currentMessageId: Value(assistant.id)),
       );
+      attachedDatabase.chatsDao.noteLocalTurn(chatId);
       return true;
     });
   }

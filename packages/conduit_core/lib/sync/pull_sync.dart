@@ -293,6 +293,10 @@ class PullSync {
   /// merge can tell a copy read before a push of the chat landed.
   final _pushVersionsAtFetch = Expando<int>();
 
+  /// [ChatsDao.localTurnVersion] when each raw response was requested, so
+  /// the merge can tell a copy read before this device stored a turn.
+  final _localTurnVersionsAtFetch = Expando<int>();
+
   /// How many times a pull reads a chat whose copy comes back older than a
   /// push of it, which stores none of it (`ChatMergeWriteResult.staleRead`).
   /// Past that the chat waits for the next cycle, which lists it again: the
@@ -603,12 +607,14 @@ class PullSync {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
     final modelListVersion = _db.chatsDao.modelListVersion(id);
     final pushVersion = _db.chatsDao.pushVersion(id);
+    final localTurnVersion = _db.chatsDao.localTurnVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
       _modelListVersionsAtFetch[response] = modelListVersion;
       _pushVersionsAtFetch[response] = pushVersion;
+      _localTurnVersionsAtFetch[response] = localTurnVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -844,6 +850,7 @@ class PullSync {
     // (REQ §10.1); the dirty read + decision + write are atomic under the chat
     // lock we already hold.
     final pushedAtFetch = _pushVersionsAtFetch[resp];
+    final turnsAtFetch = _localTurnVersionsAtFetch[resp];
     final write = await _db.chatsDao.mergeServerChat(
       server: rows,
       shareId: resp['share_id'] is String ? resp['share_id'] as String : null,
@@ -852,9 +859,11 @@ class PullSync {
       listLastReadAt: listLastReadAt,
       readStateSince: readStateSince,
       refreshWhenClean: refreshWhenClean,
-      readBeforePush:
-          pushedAtFetch != null &&
-          pushedAtFetch != _db.chatsDao.pushVersion(id),
+      readBeforeLocalWrite:
+          (pushedAtFetch != null &&
+              pushedAtFetch != _db.chatsDao.pushVersion(id)) ||
+          (turnsAtFetch != null &&
+              turnsAtFetch != _db.chatsDao.localTurnVersion(id)),
     );
 
     // A stored copy stored the checklist events kept for the chat, or a

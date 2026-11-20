@@ -226,6 +226,19 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _pushVersions[chatId] = pushVersion(chatId) + 1;
   }
 
+  final _localTurnVersions = <String, int>{};
+
+  /// Counts the turns of chat [chatId] this device stored from its own copy
+  /// ([MessagesDao.upsertLocalEchoTurn]). A fetch takes it before it reads
+  /// the chat, so a copy read before an answer was stored here, with an
+  /// error that reached this device first, does not put it back.
+  int localTurnVersion(String chatId) => _localTurnVersions[chatId] ?? 0;
+
+  /// This device stored a turn of chat [chatId] from its own copy.
+  void noteLocalTurn(String chatId) {
+    _localTurnVersions[chatId] = localTurnVersion(chatId) + 1;
+  }
+
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {
     final row = await getChat(chatId);
@@ -442,8 +455,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///  * existing dirty tombstone (deleted && dirty) → SKIP entirely (the
   ///    pending `deleteChat` wins; the drainer purges on confirm) so the
   ///    fast-forward never resurrects a locally-deleted chat;
-  ///  * a copy older than the base (or read before a push, [readBeforePush])
-  ///    → SKIP entirely, reported as [ChatMergeWriteResult.staleRead];
+  ///  * a copy older than the base (or read before a push or a turn stored
+  ///    here, [readBeforeLocalWrite]) → SKIP entirely, reported as
+  ///    [ChatMergeWriteResult.staleRead];
   ///  * otherwise → pure [mergeChat] then write per [MergeOutcome]:
   ///    - noRemoteChange: rows untouched (only `mustPush` is reported);
   ///    - fastForward: delete+reinsert messages `dirty=false`,
@@ -481,9 +495,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     bool refreshWhenClean = false,
 
     /// The copy was read before a push of this chat landed
-    /// ([pushVersion]): older than the base the push left, whatever its
-    /// `updated_at` says.
-    bool readBeforePush = false,
+    /// ([pushVersion]), or before this device stored a turn of its own
+    /// ([localTurnVersion]): older than either, whatever its `updated_at`
+    /// says.
+    bool readBeforeLocalWrite = false,
   }) {
     final serverChat = server.chat;
     return transaction(() async {
@@ -594,11 +609,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // placeholder, gone until the next pull, and a queued answer's request
       // dropped for want of its placeholder. A copy read before a push that
       // landed in the same second carries the base itself, so the push is
-      // counted too ([readBeforePush]). Nothing beside the rows is taken
+      // counted too ([readBeforeLocalWrite]), as is an answer this device
+      // stored since the copy was read. Nothing beside the rows is taken
       // either: the copy's model list is the one the push replaced, and its
       // tags and share link are no safer. The caller reads the chat again
       // for them ([ChatMergeWriteResult.staleRead]).
-      if (serverChat.updatedAt < base || readBeforePush) {
+      if (serverChat.updatedAt < base || readBeforeLocalWrite) {
         return _mergeResultWithUpdateOpIfMissing(
           serverChat.id,
           ChatMergeWriteResult(
