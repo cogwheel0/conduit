@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:conduit_core/models/model.dart';
@@ -511,6 +512,68 @@ void main() {
     expect(find.text('Studio Mac'), findsOneWidget);
     expect(find.text('Saved tide tools'), findsNothing);
   });
+
+  for (final (state, tools) in <(String, ToolsList Function())>[
+    ('fails', _FailingTools.new),
+    ('is still loading', _LoadingTools.new),
+  ]) {
+    testWidgets("a device's terminal stays offered, still selected, while the "
+        'tool list $state', (tester) async {
+      const device = '3f1c9a52-7d4e-4b8a-9c21-5e6f7a8b9c0d';
+      final api = _CountingUserSettingsApi();
+      addTearDown(api.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            directModelRegistryProvider.overrideWithValue(
+              DirectModelRegistry(),
+            ),
+            selectedModelProvider.overrideWithValue(
+              const Model(id: 'server-model', name: 'Server model'),
+            ),
+            apiServiceProvider.overrideWithValue(api),
+            personalConnectionsAccessProvider.overrideWithValue(
+              const PersonalConnectionsAccess.blocked(
+                PersonalConnectionsBlock.movedToTether,
+              ),
+            ),
+            toolsListProvider.overrideWith(tools),
+            terminalAvailableServersProvider.overrideWith(
+              (ref) async => [
+                TerminalServerInfo(
+                  kind: TerminalServerKind.system,
+                  selectionId: 'tether:$device',
+                  systemServerId: 'tether:$device',
+                  baseUrl: Uri.parse('https://owui.example/api/v1/terminals/d'),
+                  name: 'Studio Mac',
+                ),
+              ],
+            ),
+            selectedTerminalIdProvider.overrideWithValue('tether:$device'),
+            webSearchAvailableProvider.overrideWithValue(false),
+            imageGenerationAvailableProvider.overrideWithValue(false),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: ComposerAttachmentKeyboard()),
+          ),
+        ),
+      );
+      // The loading indicator never settles.
+      await tester.pump();
+      await tester.pump();
+
+      final l10n = AppLocalizationsEn();
+      expect(find.text(l10n.composerYourDevices), findsOneWidget);
+      check(
+        tester
+            .widget<ToggleTile>(find.widgetWithText(ToggleTile, 'Studio Mac'))
+            .selected,
+      ).isTrue();
+    });
+  }
 
   testWidgets('Apple direct overflow loads local MCP tools', (tester) async {
     final registry = DirectModelRegistry();
@@ -2331,4 +2394,14 @@ final class _DeviceTools extends ToolsList {
       name: 'Studio Mac · Garage tools',
     ),
   ];
+}
+
+final class _FailingTools extends ToolsList {
+  @override
+  Future<List<Tool>> build() async => throw StateError('tools unreachable');
+}
+
+final class _LoadingTools extends ToolsList {
+  @override
+  Future<List<Tool>> build() => Completer<List<Tool>>().future;
 }

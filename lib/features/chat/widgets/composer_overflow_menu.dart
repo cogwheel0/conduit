@@ -391,58 +391,73 @@ class _ComposerAttachmentKeyboardState
               .watch(libreChatComposerOptionsProvider)
               .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
+    Widget toolTile(ComposerOverflowItem item) => _buildOverflowItemTile(
+      item: item,
+      onChanged: (selected) {
+        setComposerOverflowSelection(
+          ref,
+          actionId: item.id,
+          selected: selected,
+        );
+      },
+    );
+    // A device's terminals come from the terminal list, so they stay offered
+    // whatever becomes of the tool list.
+    List<Widget> withDevices(
+      List<Widget> above, [
+      List<Widget> tools = const [],
+    ]) {
+      final deviceTiles = [
+        ...tools,
+        for (final server in deviceTerminals) terminalTile(server),
+      ];
+      if (deviceTiles.isEmpty) return above;
+      return [
+        ...above,
+        if (above.isNotEmpty) const SizedBox(height: Spacing.sm),
+        _buildSectionLabel(l10n.composerYourDevices),
+        ...withVerticalSpacing(deviceTiles, Spacing.xxs),
+      ];
+    }
+
     final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
-        : toolsAsync!.when(
-            data: (tools) {
-              final toolItems = buildComposerOverflowToolItems(
-                availableTools: tools,
-                selectedToolIds: selectedToolIds,
-              );
-              if (toolItems.isEmpty && deviceTerminals.isEmpty) {
-                return _buildInfoCard(l10n.noToolsAvailable);
-              }
-              Widget tile(ComposerOverflowItem item) => _buildOverflowItemTile(
-                item: item,
-                onChanged: (selected) {
-                  setComposerOverflowSelection(
-                    ref,
-                    actionId: item.id,
-                    selected: selected,
-                  );
-                },
-              );
-              final tiles = [
-                for (final item in toolItems)
-                  if (item.section == ComposerOverflowSection.tools) tile(item),
-              ];
-              final deviceTiles = [
-                for (final item in toolItems)
-                  if (item.section == ComposerOverflowSection.devices)
-                    tile(item),
-                for (final server in deviceTerminals) terminalTile(server),
-              ];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ...withVerticalSpacing(tiles, Spacing.xxs),
-                  if (deviceTiles.isNotEmpty) ...[
-                    if (tiles.isNotEmpty) const SizedBox(height: Spacing.sm),
-                    _buildSectionLabel(l10n.composerYourDevices),
-                    ...withVerticalSpacing(deviceTiles, Spacing.xxs),
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: toolsAsync!.when(
+              data: (tools) {
+                final toolItems = buildComposerOverflowToolItems(
+                  availableTools: tools,
+                  selectedToolIds: selectedToolIds,
+                );
+                if (toolItems.isEmpty && deviceTerminals.isEmpty) {
+                  return [_buildInfoCard(l10n.noToolsAvailable)];
+                }
+                return withDevices(
+                  withVerticalSpacing([
+                    for (final item in toolItems)
+                      if (item.section == ComposerOverflowSection.tools)
+                        toolTile(item),
+                  ], Spacing.xxs),
+                  [
+                    for (final item in toolItems)
+                      if (item.section == ComposerOverflowSection.devices)
+                        toolTile(item),
                   ],
-                ],
-              );
-            },
-            loading: () => directMode
-                ? const SizedBox.shrink()
-                : const Center(
+                );
+              },
+              loading: () => withDevices([
+                if (!directMode)
+                  const Center(
                     child: ConduitLoadingIndicator(
                       size: IconSize.lg,
                       isCompact: true,
                     ),
                   ),
-            error: (_, _) => _buildInfoCard(l10n.failedToLoadTools),
+              ]),
+              error: (_, _) =>
+                  withDevices([_buildInfoCard(l10n.failedToLoadTools)]),
+            ),
           );
     final integrationsSection = restrictedMode
         ? const SizedBox.shrink()
