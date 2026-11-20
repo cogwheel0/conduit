@@ -10,10 +10,12 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/services/app_package_info.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/features/chat/services/file_attachment_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/models/account_metadata.dart';
 import 'package:conduit_core/models/server_about_info.dart';
@@ -24,6 +26,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart' show MaterialApp, Scaffold;
 import 'package:mocktail/mocktail.dart';
@@ -124,6 +127,15 @@ final class _Profile extends AccountProfile {
   }
 }
 
+/// A picker that hands back [photo].
+final class _PickedPhoto {
+  _PickedPhoto(this.photo);
+
+  final LocalAttachment photo;
+
+  Future<LocalAttachment?> pickImage() async => photo;
+}
+
 /// The app root as far as Settings needs it: it attaches the controller.
 final class _App extends ConsumerStatefulWidget {
   const _App(this.child);
@@ -184,6 +196,7 @@ Future<_Rig> _pump(
   AccountMetadata? cached,
   AccountMetadata? fresh,
   Future<ServerAboutInfo?> Function()? serverAbout,
+  List<Override> overrides = const [],
 }) async {
   final signedIn = NotifierProvider<_SignedIn, User?>(
     () => _SignedIn(user ?? _user('a')),
@@ -209,6 +222,7 @@ Future<_Rig> _pump(
           buildNumber: '7',
         ),
       ),
+      ...overrides,
     ],
   );
   addTearDown(container.dispose);
@@ -894,6 +908,52 @@ void main() {
 
       check(rig.rows(NativeSheetRoutes.profile).map((row) => row.id))
           .not((ids) => ids.contains('profile-name'));
+    });
+
+    // The picker hands back a photo it compressed into a JPEG of its own;
+    // the editor read it into the avatar and left it on disk.
+    testWidgets('a photo picked for the avatar leaves no copy behind', (
+      tester,
+    ) async {
+      final picked = Directory.systemTemp.createTempSync('conduit_img_');
+      addTearDown(() {
+        if (picked.existsSync()) picked.deleteSync(recursive: true);
+      });
+      final photo = File('${picked.path}/converted.jpg')
+        ..writeAsBytesSync([1, 2, 3]);
+      final rig = await _pump(
+        tester,
+        cached: _profile('Old'),
+        overrides: [
+          fileAttachmentServiceProvider.overrideWithValue(
+            _PickedPhoto(LocalAttachment(file: photo, displayName: 'me.jpg')),
+          ),
+        ],
+        home: Scaffold(
+          body: Consumer(
+            builder: (context, ref, _) => GestureDetector(
+              onTap: () =>
+                  editSettingsProfileField(context, ref, 'profile-photo'),
+              child: const Text('Photo'),
+            ),
+          ),
+        ),
+      );
+      await rig.container.read(accountProfileProvider.future);
+
+      await tester.tap(find.text('Photo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(_l10n.uploadFromDevice));
+      // The editor reads the photo from disk.
+      for (var turn = 0; turn < 500 && rig.profile.savedNames.isEmpty; turn++) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        await tester.pump();
+      }
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+
+      check(rig.profile.savedNames).deepEquals(['Ada']);
+      check(picked.existsSync()).isFalse();
     });
 
     testWidgets('save nothing once another account took over', (tester) async {
