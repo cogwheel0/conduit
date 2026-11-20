@@ -129,6 +129,10 @@ abstract class _ApiServiceBase {
   // Whether the server holds messages sent under a running reply, and reads
   // `regeneration_message_id`: null until its version says.
   bool? _holdsMessages;
+  // Whether `/api/config` has answered with the server's version, readable
+  // or not, and the read of it a request is waiting on.
+  bool _serverVersionRead = false;
+  Future<void>? _serverVersionReading;
   // Public getter for dio instance
   Dio get dio => _dio;
   // Public getter for base URL
@@ -1256,7 +1260,34 @@ abstract class _ApiServiceBase {
         normalized.contains('validation');
   }
 
+  /// Reads the server's version from `/api/config` for a request whose shape
+  /// depends on it, unless a read has already answered. Requests waiting at
+  /// once share one read, and wait at most 5 seconds: one that fails or takes
+  /// longer leaves the version unknown, and a later request reads it again.
+  Future<void> _readServerVersionIfUnknown() async {
+    if (_serverVersionRead) return;
+    final reading = _serverVersionReading ??= () async {
+      try {
+        final response = await _dio.get('/api/config');
+        final data = response.data is String && response.data != ''
+            ? json.decode(response.data as String)
+            : response.data;
+        if (data is Map) {
+          _setChatRequestMetadataFormatFromVersion(data['version']);
+        }
+      } finally {
+        _serverVersionReading = null;
+      }
+    }();
+    try {
+      await reading.timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Unknown: the request goes as to a server older than 0.13.4.
+    }
+  }
+
   void _setChatRequestMetadataFormatFromVersion(dynamic rawVersion) {
+    _serverVersionRead = true;
     final inferred = _inferChatRequestMetadataFormatFromVersion(rawVersion);
     // Open WebUI 0.9 moved outlet filters into completion itself. Keep this
     // separate from request-shape negotiation, which also updates the format.

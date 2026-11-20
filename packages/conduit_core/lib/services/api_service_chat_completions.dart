@@ -226,6 +226,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       }
     }
 
+    // Whether the server reads [regenerationMessageId] or passes it on to
+    // the provider is its version's to say.
+    if (regenerationMessageId != null) await _readServerVersionIfUnknown();
     var includeClientModelFields = _sendsClientModelFields ?? true;
     // Another send can learn the version while this one waits on its refusal.
     final versionUnknown = _sendsClientModelFields == null;

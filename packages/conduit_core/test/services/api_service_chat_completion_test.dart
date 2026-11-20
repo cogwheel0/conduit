@@ -1814,12 +1814,16 @@ void main() {
 
   // Open WebUI 0.13.4 holds a regeneration under a reply still running unless
   // it names the answer it regenerates. An older server passes the field on
-  // to the provider, which may refuse it.
+  // to the provider, which may refuse it. A version not read yet is read
+  // before the request.
   test('a regeneration names its answer to 0.13.4 and later only', () async {
-    for (final (version, named) in const [
-      ('0.13.3', false),
-      ('0.13.4', true),
-      (null, false),
+    for (final (version, read, named) in const [
+      ('0.13.3', true, false),
+      ('0.13.4', true, true),
+      (null, true, false),
+      ('0.13.4', false, true),
+      ('0.13.3', false, false),
+      (null, false, false),
     ]) {
       final server = _VersionedServer(
         version: version,
@@ -1828,7 +1832,7 @@ void main() {
         ],
       );
       final api = _buildApiServiceForTest(server);
-      await api.getBackendConfig();
+      if (read) await api.getBackendConfig();
 
       await api.sendMessageSession(
         messages: _minimalMessages,
@@ -1840,7 +1844,7 @@ void main() {
 
       check(
         server.completionBodies.single['regeneration_message_id'],
-        because: version,
+        because: '$version, read before: $read',
       ).equals(named ? 'assistant-2' : null);
     }
   });
