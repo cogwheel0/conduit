@@ -1298,12 +1298,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return true;
   }
 
-  List<ChatMessage> _preserveFreshLocalMessageState(
-    List<ChatMessage> serverMessages,
-  ) {
-    if (state.isEmpty || serverMessages.isEmpty) {
-      return serverMessages;
+  /// [serverMessages] with what this device recorded on its own copies of
+  /// the answers (see [withTetherRecordOf]): Open WebUI's copies keep
+  /// neither that one of the user's devices was asked nor the relay that
+  /// failed.
+  List<ChatMessage> _withLocalTetherRecords(List<ChatMessage> serverMessages) {
+    final recorded = <String, ChatMessage>{
+      for (final message in state)
+        if (message.role == 'assistant' &&
+            (answerViaTether(message) || message.error?.relay != null))
+          message.id: message,
+    };
+    if (recorded.isEmpty) return serverMessages;
+    var changed = false;
+    final kept = <ChatMessage>[];
+    for (final message in serverMessages) {
+      // A resumed tail may be bound to the server's id for it.
+      final local =
+          recorded[message.id] ??
+          (message.id == _boundRemoteMessageId
+              ? recorded[state.last.id]
+              : null);
+      final next = local == null ? message : withTetherRecordOf(message, local);
+      changed = changed || !identical(next, message);
+      kept.add(next);
     }
+    return changed ? List<ChatMessage>.unmodifiable(kept) : serverMessages;
+  }
+
+  List<ChatMessage> _preserveFreshLocalMessageState(
+    List<ChatMessage> incomingMessages,
+  ) {
+    if (state.isEmpty || incomingMessages.isEmpty) {
+      return incomingMessages;
+    }
+    final serverMessages = _withLocalTetherRecords(incomingMessages);
 
     final localTrailingUserId = state
         .where((message) => message.role == 'user')
@@ -3633,19 +3662,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       chatId: conversation.id,
       api: api,
     );
-    // Whether the answer's model is one of the user's devices: its failure
-    // is read with it. The model list may still be loading when a chat opens.
-    final viaTether = isTetherModel(
-      await _listedOpenWebUiRequestModel(
-        ref,
-        resolvedModelId,
-        selected: selectedModel,
-      ),
-    );
-    if (_shouldProtectLocalStreamingState ||
-        !_stillOwnsReopenedTail(resumeOwner, last.id)) {
-      return;
-    }
 
     try {
       await dispatchChatTransport(
@@ -3671,7 +3687,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         ownsPendingPlaceholder: () =>
             _hasStreamingAssistant &&
             _stillOwnsReopenedTail(resumeOwner, last.id),
-        viaTether: viaTether,
+        viaTether: answerViaTether(last),
       );
     } catch (error) {
       DebugLogger.log(

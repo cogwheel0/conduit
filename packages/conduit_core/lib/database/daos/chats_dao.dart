@@ -6,8 +6,8 @@ import 'package:drift/drift.dart';
 import 'package:meta/meta.dart';
 
 import 'package:conduit_core/models/chat_comparison.dart';
-import 'package:conduit_core/models/chat_message.dart'
-    show kTetherRelayErrorKey;
+import 'package:conduit_core/features/tether/tether_relay_failure.dart'
+    show withStoredTetherRecord;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -896,10 +896,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     for (final row in incoming) {
       incomingIds.add(row.id);
       final existing = existingById[row.id];
+      // Open WebUI's copy records neither that one of the user's devices was
+      // asked nor the relay that failed; the stored row may.
       final payload = jsonEncode(
-        existing == null
-            ? row.payload
-            : _keepRecordedTetherRelay(existing.payload, row.payload),
+        withStoredTetherRecord(row.payload, existing?.payload),
       );
       final dirty = dirtyIds.contains(row.id);
       if (existing == null) {
@@ -944,38 +944,6 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
     });
-  }
-
-  /// [incoming] with the failed relay to one of the user's devices that the
-  /// stored copy recorded for the same error. Open WebUI saves an answer's
-  /// error itself, without it.
-  Map<String, dynamic> _keepRecordedTetherRelay(
-    String storedPayload,
-    Map<String, dynamic> incoming,
-  ) {
-    final incomingError = incoming['error'];
-    if (incomingError is! Map || incomingError[kTetherRelayErrorKey] != null) {
-      return incoming;
-    }
-    final Object? stored;
-    try {
-      stored = jsonDecode(storedPayload);
-    } on FormatException {
-      return incoming;
-    }
-    final storedError = stored is Map ? stored['error'] : null;
-    if (storedError is! Map) return incoming;
-    final relay = storedError[kTetherRelayErrorKey];
-    if (relay == null || storedError['content'] != incomingError['content']) {
-      return incoming;
-    }
-    return <String, dynamic>{
-      ...incoming,
-      'error': <String, dynamic>{
-        ...incomingError.cast<String, dynamic>(),
-        kTetherRelayErrorKey: relay,
-      },
-    };
   }
 
   MessagesCompanion _messageCompanion(
@@ -1916,7 +1884,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             createdAt: message.createdAt,
             orderIndex: orderIndex,
             payload: jsonEncode(
-              withStoredMessageMeta(message.payload, existing?.payload),
+              withStoredTetherRecord(
+                withStoredMessageMeta(message.payload, existing?.payload),
+                existing?.payload,
+              ),
             ),
             dirty: Value(enqueueUpdate),
           ),

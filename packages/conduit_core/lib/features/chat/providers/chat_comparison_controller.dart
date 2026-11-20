@@ -383,6 +383,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
           kMessageModelIdxMetadataKey: index,
           if (models[index].name.trim().isNotEmpty)
             'modelName': models[index].name.trim(),
+          ...tetherAnswerRecord(models[index]),
         },
       ),
   ];
@@ -474,7 +475,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
         text: message,
         files: durableFiles,
         slots: slots,
-        modelNames: [for (final model in models) model.name],
+        models: models,
         now: now,
         chatParams: draftChatParams,
       );
@@ -562,7 +563,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
             payload: _durableComparisonAssistantPayload(
               slot: slots[index],
               parentId: userMessageId,
-              modelName: models[index].name,
+              model: models[index],
               timestamp: now,
             ),
           ),
@@ -626,15 +627,16 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
 Map<String, dynamic> _durableComparisonAssistantPayload({
   required ComparisonSlotSnapshot slot,
   required String parentId,
-  required String modelName,
+  required Model model,
   required int timestamp,
 }) => <String, dynamic>{
   ..._durableAssistantPayload(
     id: slot.assistantMessageId,
     parentId: parentId,
     modelId: slot.model,
-    modelName: modelName,
+    modelName: model.name,
     timestamp: timestamp,
+    viaTether: isTetherModel(model),
   ),
   // The column is what keeps two runs of one model apart, here and upstream.
   kMessageModelIdxMetadataKey: slot.modelIdx,
@@ -646,7 +648,7 @@ Map<String, dynamic> _buildDurableComparisonChatBlob({
   required String text,
   required List<Map<String, dynamic>> files,
   required List<ComparisonSlotSnapshot> slots,
-  required List<String> modelNames,
+  required List<Model> models,
   required int now,
   Map<String, dynamic> chatParams = const <String, dynamic>{},
 }) {
@@ -673,7 +675,7 @@ Map<String, dynamic> _buildDurableComparisonChatBlob({
           slots[index].assistantMessageId: _durableComparisonAssistantPayload(
             slot: slots[index],
             parentId: userMsgId,
-            modelName: modelNames[index],
+            model: models[index],
             timestamp: now,
           ),
       },
@@ -830,12 +832,11 @@ Future<void> runComparisonCompletion(
         : <String, dynamic>{'id': id, 'name': id};
   }
 
-  // The answers asked of a model one of the user's devices offers, recorded
-  // once for the request: however each answer ends (its stream, a pull, or a
-  // later run that collects it), its failure is read with its own model.
+  // The answers that recorded, when the turn was admitted, that one of the
+  // user's devices offers their model. A collected answer's row keeps it.
   final viaTether = <String>{
-    for (final slot in slots)
-      if (isTetherModel(modelFor(slot.model))) slot.assistantMessageId,
+    for (final message in messages)
+      if (slotIds.contains(message.id) && answerViaTether(message)) message.id,
   };
 
   final socketService = _readOpenWebUiSocketForApi(ref, api);
@@ -1000,7 +1001,6 @@ Future<void> runComparisonCompletion(
       api: api,
       owner: owner,
       slotIds: slotIds,
-      viaTether: viaTether,
     );
     owner.chatId = await resolveOpenWebUiCompletionChatId(
       ref,
@@ -1051,7 +1051,6 @@ Future<void> runComparisonCompletion(
         session: session,
         owner: owner,
         slotIds: [primary.assistantMessageId],
-        viaTether: viaTether,
         recoveryAttempts: recoveryAttempts,
         recoveryDelay: recoveryDelay,
       );
@@ -1067,7 +1066,6 @@ Future<void> runComparisonCompletion(
         session: session,
         owner: owner,
         slotIds: [for (final slot in bound) slot.assistantMessageId],
-        viaTether: viaTether,
         recoveryAttempts: recoveryAttempts,
         recoveryDelay: recoveryDelay,
       );
@@ -1122,7 +1120,6 @@ Future<void> runComparisonCompletion(
         session: session,
         owner: owner,
         slotIds: detached,
-        viaTether: viaTether,
         recoveryAttempts: recoveryAttempts,
         recoveryDelay: recoveryDelay,
       );
@@ -1153,7 +1150,6 @@ Future<Set<String>> _markComparisonAcceptedOrAbort(
   required ApiService api,
   required OpenWebUiCompletionOwner owner,
   required List<String> slotIds,
-  required Set<String> viaTether,
 }) async {
   final completed = <String>{};
   try {
@@ -1166,7 +1162,6 @@ Future<Set<String>> _markComparisonAcceptedOrAbort(
         ref,
         owner: owner,
         assistantMessageId: id,
-        viaTether: viaTether.contains(id),
       );
     }
   } catch (_) {
@@ -1302,14 +1297,12 @@ Future<Never> _rejectUnsupportedComparisonInterpreter(
 
 /// Drains an accepted session and pulls the chat until every one of [slotIds]
 /// has landed; an answer that never does is settled with an explicit error
-/// rather than left as a silent empty bubble. [viaTether] holds the answers
-/// asked of a model one of the user's devices offers.
+/// rather than left as a silent empty bubble.
 Future<void> _finishComparisonSlotsHeadlessly(
   dynamic ref, {
   required ChatCompletionSession session,
   required OpenWebUiCompletionOwner owner,
   required List<String> slotIds,
-  required Set<String> viaTether,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
 }) async {
@@ -1327,7 +1320,6 @@ Future<void> _finishComparisonSlotsHeadlessly(
     ref,
     owner: owner,
     assistantMessageIds: slotIds,
-    viaTether: viaTether,
     recoveryAttempts: recoveryAttempts,
     recoveryDelay: recoveryDelay,
   );
@@ -1336,15 +1328,10 @@ Future<void> _finishComparisonSlotsHeadlessly(
 /// Pull-only recovery for an accepted comparison, found by an outbox retry or
 /// left over when the foreground lost the chat. Waits for EVERY expected answer,
 /// not just the first to land, and settles each one that never arrives.
-///
-/// [viaTether] holds the answers asked of a model one of the user's devices
-/// offers, as recorded when the request was sent: each answer's saved error
-/// is read with its own.
 Future<void> recoverSubmittedOpenWebUiComparison(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required List<String> assistantMessageIds,
-  required Set<String> viaTether,
   int recoveryAttempts = 6,
   Duration recoveryDelay = const Duration(seconds: 2),
 }) async {
@@ -1352,7 +1339,6 @@ Future<void> recoverSubmittedOpenWebUiComparison(
     ref,
     owner: owner,
     assistantMessageIds: assistantMessageIds,
-    viaTether: viaTether,
     attempts: recoveryAttempts,
     delay: recoveryDelay,
   );
@@ -1400,7 +1386,6 @@ Future<List<String>?> _pullSubmittedOpenWebUiComparison(
   dynamic ref, {
   required OpenWebUiCompletionOwner owner,
   required List<String> assistantMessageIds,
-  required Set<String> viaTether,
   required int attempts,
   required Duration delay,
 }) async {
@@ -1430,28 +1415,16 @@ Future<List<String>?> _pullSubmittedOpenWebUiComparison(
     if (conversation == null) continue;
     // Every answer of the turn, whichever one is the chat's current branch:
     // the pulled messages hold the current one, its siblings sit in versions.
-    final landed = <String, ChatMessageError?>{};
-    for (final message in conversation.messages) {
-      if (_headlessAssistantLanded(message)) landed[message.id] = message.error;
-      for (final version in message.versions) {
-        if (_comparisonVersionLanded(version)) {
-          landed[version.id] = version.error;
-        }
-      }
-    }
-    for (final id in waiting) {
-      if (!landed.containsKey(id)) continue;
-      await _keepLandedRelayFailure(
-        ref,
-        owner: owner,
-        answerId: id,
-        error: landed[id],
-        viaTether: viaTether.contains(id),
-      );
-    }
+    final landed = <String>{
+      for (final message in conversation.messages) ...[
+        if (_headlessAssistantLanded(message)) message.id,
+        for (final version in message.versions)
+          if (_comparisonVersionLanded(version)) version.id,
+      ],
+    };
     waiting = [
       for (final id in waiting)
-        if (!landed.containsKey(id)) id,
+        if (!landed.contains(id)) id,
     ];
   }
   return waiting;

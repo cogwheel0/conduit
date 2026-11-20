@@ -8,7 +8,7 @@ library;
 
 import 'dart:convert';
 
-import 'package:conduit_core/models/chat_message.dart' show TetherRelayFailure;
+import 'package:conduit_core/models/chat_message.dart';
 
 export 'package:conduit_core/models/chat_message.dart' show TetherRelayFailure;
 
@@ -55,6 +55,130 @@ TetherRelayFailure? tetherRelayFailureOf(
     return TetherRelayFailure.interrupted;
   }
   return _relayFailureInWords(trimmed);
+}
+
+/// Whether [answer]'s request went to a model one of the user's devices
+/// offers, as the answer recorded when the request was made
+/// ([kCompletionViaTetherKey]). An answer that records nothing, as one from
+/// before Conduit recorded it, reads as any other.
+bool answerViaTether(ChatMessage answer) =>
+    answer.metadata?[kCompletionViaTetherKey] == true;
+
+/// [answer] recording that its request went to a model one of the user's
+/// devices offers ([kCompletionViaTetherKey]), its error read with that when
+/// it records no relay.
+ChatMessage withTetherRecord(ChatMessage answer) {
+  final error = answer.error;
+  final relay =
+      error?.relay ??
+      (error == null
+          ? null
+          : tetherRelayFailureOf(error.content, viaTether: true));
+  if (answerViaTether(answer) && relay == error?.relay) return answer;
+  return answer.copyWith(
+    metadata: <String, dynamic>{
+      ...?answer.metadata,
+      kCompletionViaTetherKey: true,
+    },
+    error: error?.copyWith(relay: relay),
+  );
+}
+
+/// [incoming], a copy of an answer the server saved, with what this device
+/// recorded on its own copy [local]: that the request went to one of the
+/// user's devices, and the relay failure the same error was read as. Open
+/// WebUI saves neither.
+ChatMessage withTetherRecordOf(ChatMessage incoming, ChatMessage local) {
+  final error = incoming.error;
+  final earlier = local.error;
+  final kept =
+      error != null &&
+          error.relay == null &&
+          earlier?.relay != null &&
+          earlier!.content == error.content
+      ? incoming.copyWith(error: error.copyWith(relay: earlier.relay))
+      : incoming;
+  return answerViaTether(local) || answerViaTether(incoming)
+      ? withTetherRecord(kept)
+      : kept;
+}
+
+/// [payload], a stored answer, as [withTetherRecord] makes it.
+Map<String, dynamic> payloadWithTetherRecord(Map<String, dynamic> payload) {
+  final error = payload['error'];
+  final relay = error is Map && error[kTetherRelayErrorKey] == null
+      ? tetherRelayFailureOf(error['content'], viaTether: true)
+      : null;
+  if (_payloadViaTether(payload) && relay == null) return payload;
+  final metadata = payload['metadata'];
+  return <String, dynamic>{
+    ...payload,
+    'metadata': <String, dynamic>{
+      if (metadata is Map)
+        for (final entry in metadata.entries) entry.key.toString(): entry.value,
+      kCompletionViaTetherKey: true,
+    },
+    if (relay != null)
+      'error': <String, dynamic>{
+        for (final entry in (error as Map).entries)
+          entry.key.toString(): entry.value,
+        kTetherRelayErrorKey: relay.name,
+      },
+  };
+}
+
+/// [incoming], the next stored copy of a message, with what the store
+/// recorded on the copy it replaces ([stored], that copy's JSON), as
+/// [withTetherRecordOf] keeps it on screen. The next copy may be the
+/// server's, from a pull, or one rebuilt from the screen; either may have
+/// lost it.
+Map<String, dynamic> withStoredTetherRecord(
+  Map<String, dynamic> incoming,
+  String? stored,
+) {
+  Map<String, dynamic> recorded(Map<String, dynamic> payload, bool viaTether) =>
+      viaTether || _payloadViaTether(payload)
+      ? payloadWithTetherRecord(payload)
+      : payload;
+
+  final error = incoming['error'];
+  final unread = error is Map && error[kTetherRelayErrorKey] == null;
+  // Most rows record neither; those are not decoded.
+  if (stored == null ||
+      !(stored.contains('"$kCompletionViaTetherKey"') ||
+          (unread && stored.contains('"$kTetherRelayErrorKey"')))) {
+    return recorded(incoming, false);
+  }
+  final Object? earlier;
+  try {
+    earlier = jsonDecode(stored);
+  } on FormatException {
+    return recorded(incoming, false);
+  }
+  if (earlier is! Map) return recorded(incoming, false);
+  final earlierError = earlier['error'];
+  final earlierRelay = earlierError is Map
+      ? tetherRelayFailureFromJson(earlierError[kTetherRelayErrorKey])
+      : null;
+  final kept =
+      unread &&
+          earlierRelay != null &&
+          earlierError['content'] == error['content']
+      ? <String, dynamic>{
+          ...incoming,
+          'error': <String, dynamic>{
+            for (final entry in error.entries)
+              entry.key.toString(): entry.value,
+            kTetherRelayErrorKey: earlierRelay.name,
+          },
+        }
+      : incoming;
+  return recorded(kept, _payloadViaTether(earlier));
+}
+
+bool _payloadViaTether(Map<dynamic, dynamic> payload) {
+  final metadata = payload['metadata'];
+  return metadata is Map && metadata[kCompletionViaTetherKey] == true;
 }
 
 /// The status Starlette puts before an `HTTPException`'s detail when the

@@ -1293,9 +1293,14 @@ Future<void> regenerateMessage(
         _openWebUiRegenerationAttemptMetadataKey: regenerationAttemptId,
         if (comparisonTarget != null)
           kMessageModelIdxMetadataKey: comparisonTarget.slot,
+        ...tetherAnswerRecord(selectedModel),
       },
     );
     regenerationPlaceholderWasEstablished = true;
+    final viaTether = _answerRecordsViaTether(
+      ref.read(chatMessagesProvider) as List<ChatMessage>,
+      assistantMessageId,
+    );
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -1523,7 +1528,7 @@ Future<void> regenerateMessage(
                   modelIdx: comparisonTarget.slot,
                 ),
               ],
-        viaTether: isTetherModel(selectedModel),
+        viaTether: viaTether,
       );
       submittedSession = session;
 
@@ -1572,7 +1577,7 @@ Future<void> regenerateMessage(
             assistantMessageId: assistantMessageId,
             // Regeneration is an inline request, not a replayable outbox op.
             requireDurableSubmittedMarker: false,
-            viaTether: isTetherModel(selectedModel),
+            viaTether: viaTether,
           );
         }
         return;
@@ -1622,7 +1627,7 @@ Future<void> regenerateMessage(
         ownsActiveConversation: () =>
             activeOpenWebUiChatIdForMutation(ref, regenerationOwner) != null,
         ownsPendingPlaceholder: ownsLiveRegenerationPlaceholder,
-        viaTether: isTetherModel(selectedModel),
+        viaTether: viaTether,
       );
       if (!attached) {
         final ownerIsStillActive =
@@ -1643,7 +1648,7 @@ Future<void> regenerateMessage(
             owner: regenerationOwner,
             assistantMessageId: assistantMessageId,
             requireDurableSubmittedMarker: false,
-            viaTether: isTetherModel(selectedModel),
+            viaTether: viaTether,
           );
         }
       } else {

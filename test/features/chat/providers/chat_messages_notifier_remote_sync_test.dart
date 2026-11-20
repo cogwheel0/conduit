@@ -1555,60 +1555,97 @@ void main() {
       },
     );
 
-    test('a resumed answer from a device reads its failure as a relay, '
-        'though the model list loads after the chat opens', () async {
-      final timestamp = DateTime.now();
-      final opened = [
-        _userMessage('user-1', 'Hi', timestamp),
-        _assistantMessage(
+    // The answer says itself that one of the user's devices was asked: the
+    // model list, which may load after the chat opens, or never, is not.
+    for (final (label, socketConnected, listedLater)
+        in <(String, bool, List<Model>?)>[
+          (
+            'its failure arrives while the model list loads',
+            true,
+            [_deviceModel],
+          ),
+          (
+            'only the poll sees it, and the model list never loads',
+            false,
+            null,
+          ),
+        ]) {
+      test('a resumed answer from a device keeps its relay warning: '
+          '$label', () async {
+        final timestamp = DateTime.now();
+        final serverCopy = _assistantMessage(
           'assistant-1',
           'A',
           timestamp,
-        ).copyWith(model: _deviceModel.id),
-      ];
-      final socket = _FakeSocketService()..connected = true;
-      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
-        ..taskIds = ['task-1'];
-      final listed = Completer<List<Model>>();
-      final container = ProviderContainer(
-        overrides: [
-          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
-          ...openWebUiStorageOpenOverrides(),
-          activeConversationProvider.overrideWith(
-            () => _TestActiveConversationNotifier(),
+        ).copyWith(model: _deviceModel.id);
+        final opened = [
+          _userMessage('user-1', 'Hi', timestamp),
+          serverCopy.copyWith(
+            metadata: const <String, dynamic>{kCompletionViaTetherKey: true},
           ),
-          socketServiceProvider.overrideWithValue(socket),
-          apiServiceProvider.overrideWithValue(api),
-          modelsProvider.overrideWith(() => _HeldModels(listed.future)),
-        ],
-      );
-      addTearDown(container.dispose);
+        ];
+        final socket = socketConnected
+            ? (_FakeSocketService()..connected = true)
+            : null;
+        final api = _FakeApiService(
+          _conversation('chat-1', [opened.first, serverCopy], timestamp),
+        )..taskIds = ['task-1'];
+        final listed = Completer<List<Model>>();
+        final container = ProviderContainer(
+          overrides: [
+            secureStorageProvider.overrideWithValue(
+              FlutterSecureKeyValueStore(),
+            ),
+            ...openWebUiStorageOpenOverrides(),
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            socketServiceProvider.overrideWithValue(socket),
+            apiServiceProvider.overrideWithValue(api),
+            modelsProvider.overrideWith(() => _HeldModels(listed.future)),
+          ],
+        );
+        addTearDown(container.dispose);
 
-      check(container.read(chatMessagesProvider)).isEmpty();
-      final notifier = container.read(chatMessagesProvider.notifier);
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_conversation('chat-1', opened, timestamp));
-      await pumpEventQueue();
-      listed.complete([_deviceModel]);
-      await pumpEventQueue();
-      await _drainRemoteTaskStatusCheck(notifier);
-      check(notifier.debugShouldProtectLocalStreamingState).isTrue();
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_conversation('chat-1', opened, timestamp));
+        await pumpEventQueue();
 
-      socket.emitChatEvent(
-        type: 'chat:message:error',
-        payload: {
-          'chat_id': 'chat-1',
-          'error': {'content': 'Open WebUI: Server Connection Error'},
-          'done': true,
-        },
-        messageId: 'assistant-1',
-      );
-      await pumpEventQueue();
+        // The relay broke after part of the answer was written. Open WebUI
+        // reports it in its generic words and saves them with that part.
+        const generic = 'Open WebUI: Server Connection Error';
+        socket?.emitChatEvent(
+          type: 'chat:message:error',
+          payload: {
+            'chat_id': 'chat-1',
+            'error': {'content': generic},
+            'done': true,
+          },
+          messageId: 'assistant-1',
+        );
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _conversation('chat-1', [
+            opened.first,
+            serverCopy.copyWith(
+              content: 'A partial answer',
+              error: const ChatMessageError(content: generic),
+            ),
+          ], timestamp);
+        notifier.debugCancelRemoteTaskMonitorTimer();
+        check(notifier.debugTaskStatusCheckInFlight).isFalse();
+        await notifier.debugSyncRemoteTaskStatus();
+        if (listedLater != null) listed.complete(listedLater);
+        await pumpEventQueue();
 
-      check(container.read(chatMessagesProvider).last.error?.relay)
-          .equals(TetherRelayFailure.interrupted);
-    });
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.isStreaming).isFalse();
+        check(answer.error?.relay).equals(TetherRelayFailure.interrupted);
+      });
+    }
 
     test('resume monitor is armed while a dropped socket reconnects', () async {
       final timestamp = DateTime.now();

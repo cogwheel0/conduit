@@ -2,12 +2,10 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
+import '../../features/tether/tether_relay_failure.dart'
+    show payloadWithTetherRecord, withStoredTetherRecord;
 import '../../models/chat_message.dart'
-    show
-        ChatMessageError,
-        TetherRelayFailure,
-        kCompletionViaTetherKey,
-        kTetherRelayErrorKey;
+    show ChatMessageError, kCompletionViaTetherKey;
 
 import '../app_database.dart';
 import '../mappers/chat_blob_mapper.dart';
@@ -184,22 +182,16 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// claim that the server accepted the request or that a response landed. A
   /// recreated outbox runner recovers by pull only, preventing a duplicate POST
   /// across crashes in the ambiguous marker-to-response window.
-  ///
-  /// [viaTether] is kept with it ([kCompletionViaTetherKey]): whether the
-  /// request went to a model one of the user's devices offers, which that
-  /// recovery reads the server's saved error with.
   Future<bool> markAssistantCompletionSubmitted({
     required String chatId,
     required String messageId,
-    required bool viaTether,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
       mutate: (payload) {
         final metadata = _asJsonMap(payload['metadata'])
-          ..remove('responseDone')
-          ..remove(kCompletionViaTetherKey);
+          ..remove('responseDone');
         payload
           ..remove('error')
           ..remove('done')
@@ -207,7 +199,6 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
           ..['metadata'] = <String, dynamic>{
             ...metadata,
             'completionSubmitted': true,
-            if (viaTether) kCompletionViaTetherKey: true,
           };
       },
     );
@@ -268,26 +259,20 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
     );
   }
 
-  /// Keeps [relay] with the error of an answer read back from the server,
-  /// which saves the error without it. [errorContent] is the error's words
-  /// the relay was read from: a stored error a later pull put in their place
-  /// is left as it is.
-  Future<bool> recordAssistantRelayFailure({
+  /// Records on an answer's row that its request went to a model one of the
+  /// user's devices offers ([kCompletionViaTetherKey]), for an answer whose
+  /// row a pull wrote after the request, and reads its stored error with it.
+  Future<bool> recordAnswerViaTether({
     required String chatId,
     required String messageId,
-    required TetherRelayFailure relay,
-    required String? errorContent,
   }) {
     return _updateAssistantPayload(
       chatId: chatId,
       messageId: messageId,
       mutate: (payload) {
-        final error = payload['error'];
-        if (error is! Map || error['content'] != errorContent) return;
-        payload['error'] = <String, dynamic>{
-          ...error.cast<String, dynamic>(),
-          kTetherRelayErrorKey: relay.name,
-        };
+        final recorded = payloadWithTetherRecord(payload);
+        payload['metadata'] = recorded['metadata'];
+        if (recorded['error'] != null) payload['error'] = recorded['error'];
       },
     );
   }
@@ -637,7 +622,10 @@ LIMIT ?
         createdAt: row.createdAt,
         orderIndex: orderIndex,
         payload: jsonEncode(
-          withStoredMessageMeta(row.payload, existing?.payload),
+          withStoredTetherRecord(
+            withStoredMessageMeta(row.payload, existing?.payload),
+            existing?.payload,
+          ),
         ),
         dirty: const Value(false),
       ),

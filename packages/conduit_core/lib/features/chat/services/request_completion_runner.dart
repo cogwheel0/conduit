@@ -293,7 +293,6 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
         _ref,
         owner: owner,
         assistantMessageId: assistantMessageId,
-        viaTether: _placeholderSentViaTether(placeholder),
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
       );
@@ -479,10 +478,6 @@ extension on ChatRequestCompletionRunner {
         _ref,
         owner: owner,
         assistantMessageIds: unfinished,
-        viaTether: {
-          for (final id in unfinished)
-            if (_placeholderSentViaTether(rows[id]!)) id,
-        },
         recoveryAttempts: _recoveryAttempts,
         recoveryDelay: _recoveryDelay,
       );
@@ -582,14 +577,6 @@ bool _placeholderMarkedSubmitted(MessageRow placeholder) {
   final payload = _decodeMessagePayload(placeholder.payload);
   final metadata = _asJsonMap(payload['metadata']);
   return metadata['completionSubmitted'] == true;
-}
-
-/// Whether the request that marked [placeholder] submitted went to a model
-/// one of the user's devices offers ([kCompletionViaTetherKey]).
-bool _placeholderSentViaTether(MessageRow placeholder) {
-  final payload = _decodeMessagePayload(placeholder.payload);
-  final metadata = _asJsonMap(payload['metadata']);
-  return metadata[kCompletionViaTetherKey] == true;
 }
 
 Map<String, dynamic> _decodeMessagePayload(String raw) {

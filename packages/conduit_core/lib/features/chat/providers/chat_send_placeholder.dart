@@ -445,6 +445,7 @@ Future<void> durableSend(
       'childrenIds': const <String>[],
       if (selectedModel.name.trim().isNotEmpty)
         'modelName': selectedModel.name.trim(),
+      if (voiceReply == null) ...tetherAnswerRecord(selectedModel),
     },
   );
   final assistantPlaceholder = voiceReply == null
@@ -564,6 +565,7 @@ Future<void> durableSend(
         files: durableFiles,
         modelId: selectedModel.id,
         modelName: selectedModel.name,
+        viaTether: isTetherModel(selectedModel),
         now: now,
         chatParams: draftChatParams,
         voice: voice,
@@ -660,6 +662,7 @@ Future<void> durableSend(
           modelName: selectedModel.name,
           timestamp: now,
           voiceReply: voiceReply,
+          viaTether: isTetherModel(selectedModel),
         ),
       );
 
@@ -748,6 +751,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
   required List<Map<String, dynamic>> files,
   required String modelId,
   required String modelName,
+  required bool viaTether,
   required int now,
   Map<String, dynamic> chatParams = const <String, dynamic>{},
   ChatSendVoiceContext? voice,
@@ -777,6 +781,7 @@ Map<String, dynamic> _buildDurableNewChatBlob({
           modelName: modelName,
           timestamp: now,
           voiceReply: voice?.reply,
+          viaTether: viaTether,
         ),
       },
     },
@@ -785,7 +790,8 @@ Map<String, dynamic> _buildDurableNewChatBlob({
 
 /// A new answer's row: empty until its model fills it, or, for [voiceReply],
 /// the voice's finished reply stored under the voice model as Open WebUI's
-/// web client stores it.
+/// web client stores it. [viaTether] records that one of the user's devices
+/// offers [modelId].
 Map<String, dynamic> _durableAssistantPayload({
   required String id,
   required String parentId,
@@ -793,6 +799,7 @@ Map<String, dynamic> _durableAssistantPayload({
   required String modelName,
   required int timestamp,
   ChatVoiceReply? voiceReply,
+  bool viaTether = false,
 }) {
   final trimmedModelName = voiceReply?.model ?? modelName.trim();
   return <String, dynamic>{
@@ -808,7 +815,8 @@ Map<String, dynamic> _durableAssistantPayload({
       'done': true,
       'modelIdx': 0,
       'meta': {'voice': voiceReply.voice},
-    },
+    } else if (viaTether)
+      'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
   };
 }
 

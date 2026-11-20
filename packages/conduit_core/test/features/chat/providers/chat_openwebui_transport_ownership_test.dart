@@ -1143,6 +1143,7 @@ Future<void> _seedChat(
   String? assistantId,
   String assistantContent = '',
   Map<String, dynamic>? storedParams,
+  bool viaTether = false,
 }) async {
   await db
       .into(db.chats)
@@ -1177,6 +1178,8 @@ Future<void> _seedChat(
             'model': 'model-1',
             'timestamp': 1,
             'isStreaming': true,
+            if (viaTether)
+              'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
           }),
         ),
       );
@@ -2708,18 +2711,26 @@ void main() {
           .equals(_snapshot(onScreen));
     });
 
-    for (final (model, relay, later) in <(Model, String?, bool)>[
-      (_deviceModel, 'interrupted', false),
-      (const Model(id: 'model-1', name: 'Model 1'), null, false),
+    for (final (viaTether, relay, later) in <(bool, String?, bool)>[
+      (true, 'interrupted', false),
+      (false, null, false),
       // The run that sent it ended once the server had it (the app was
       // closed), before its answer landed; the op's next run collects it.
-      (_deviceModel, 'interrupted', true),
-      (const Model(id: 'model-1', name: 'Model 1'), null, true),
+      (true, 'interrupted', true),
+      (false, null, true),
     ]) {
       test('a turn finished without a stream reads the error the server '
-          'saved with the model it was sent to (${model.id}'
+          'saved with what its answer recorded (${viaTether ? 'asked of a '
+                    'device' : 'another model'}'
           '${later ? ', a later run' : ''})', () async {
-        await _seedChat(db, chatId, assistantId: assistantId);
+        // As the turn was admitted: the answer's row records whether one of
+        // the user's devices was asked. No model list is read.
+        await _seedChat(
+          db,
+          chatId,
+          assistantId: assistantId,
+          viaTether: viaTether,
+        );
         final api = _GatedCompletionApi(Completer<void>()..complete());
         final syncEngine = _PersistingSyncEngine(
           db,
@@ -2739,15 +2750,15 @@ void main() {
           messages: onScreen,
           api: api,
           syncEngine: syncEngine,
-          extraOverrides: [
-            modelsProvider.overrideWith(() => _ListedModels([model])),
-          ],
         );
         addTearDown(container.dispose);
-        await container.read(modelsProvider.future);
         final history = <ChatMessage>[
           _user('relay-user', 'Ask the device'),
-          _streamingAssistant(assistantId, ''),
+          _streamingAssistant(assistantId, '').copyWith(
+            metadata: <String, dynamic>{
+              if (viaTether) kCompletionViaTetherKey: true,
+            },
+          ),
         ];
 
         if (later) {
@@ -2761,7 +2772,6 @@ void main() {
               api: api,
             ),
             assistantMessageId: assistantId,
-            viaTether: relay != null,
           );
           await container
               .read(
@@ -2775,9 +2785,9 @@ void main() {
               )
               .run(
                 chatId: chatId,
-                payload: RequestCompletionPayload(
+                payload: const RequestCompletionPayload(
                   assistantMessageId: assistantId,
-                  model: model.id,
+                  model: 'model-1',
                 ).toJson(),
               );
           check(api.completionCalls).equals(0);
@@ -2792,14 +2802,13 @@ void main() {
               history,
               ChatStorageKind.openWebUi,
             ),
-            model: model.id,
+            model: 'model-1',
           );
         }
 
         final stored = await storedAnswer();
-        check(
-          (stored['error'] as Map<String, dynamic>)['tetherRelay'],
-        ).equals(relay);
+        check((stored['error'] as Map<String, dynamic>)['tetherRelay'])
+            .equals(relay);
       });
     }
 
@@ -3119,7 +3128,6 @@ void main() {
         container,
         owner: owner,
         assistantMessageId: 'absent-assistant',
-        viaTether: false,
       ),
     ).throws<SyncTerminalException>();
     check(api.completionCalls).equals(0);
@@ -3156,7 +3164,6 @@ void main() {
         container,
         owner: owner,
         assistantMessageId: assistantId,
-        viaTether: false,
       );
 
       final runnerProvider = Provider<RequestCompletionRunner>(
@@ -6811,6 +6818,7 @@ void main() {
               model: Value(_deviceModel.id),
               createdAt: 1,
               orderIndex: 1,
+              // As the turn was admitted, with the device's model picked.
               payload: jsonEncode(<String, dynamic>{
                 'id': answer,
                 'role': 'assistant',
@@ -6818,6 +6826,7 @@ void main() {
                 'model': _deviceModel.id,
                 'timestamp': 1,
                 'isStreaming': true,
+                'metadata': <String, dynamic>{kCompletionViaTetherKey: true},
               }),
             ),
           );
@@ -6840,6 +6849,44 @@ void main() {
       check(
         assistantMessageBlocks(
           container.read(chatMessagesProvider).firstWhere((m) => m.id == answer),
+        ).whereType<AssistantErrorBlock>().single.relayFailure,
+      ).equals(TetherRelayFailure.interrupted);
+    });
+
+    test("a queued answer is read as its device's though it runs before the "
+        'model list has the device again', () async {
+      final (:api, :socket, :container) = await open(
+        available: [duplicate, _deviceModel],
+        modelSelectable: true,
+      );
+      final picker = container.read(selectedModelProvider.notifier);
+      picker.set(_deviceModel);
+      String? answer;
+      await durableSend(
+        container,
+        'Ask the device',
+        null,
+        onAssistantPlaceholderCreated: (handle) =>
+            answer = handle.assistantMessageId,
+      );
+      // The op runs later, with another model picked and a model list that
+      // does not have the device yet.
+      picker.set(duplicate);
+      (container.read(modelsProvider.notifier) as _ListedModels).offer(const [
+        duplicate,
+      ]);
+
+      await replay(container);
+      socket.deliver(answer!, 'chat:message:error', {
+        'error': {'content': 'Open WebUI: Server Connection Error'},
+        'done': true,
+      });
+
+      check(
+        assistantMessageBlocks(
+          container
+              .read(chatMessagesProvider)
+              .firstWhere((m) => m.id == answer),
         ).whereType<AssistantErrorBlock>().single.relayFailure,
       ).equals(TetherRelayFailure.interrupted);
     });

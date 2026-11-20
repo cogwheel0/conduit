@@ -3,6 +3,8 @@
 /// and terminals.
 library;
 
+import 'package:conduit_core/models/chat_message.dart'
+    show kCompletionViaTetherKey;
 import 'package:conduit_core/models/model.dart';
 
 /// The device and connection a model comes from (`Studio Mac · Lab`), when
@@ -28,6 +30,13 @@ bool isTetherModel(Model? model) {
   final baseUrl = model?.metadata?['base_url'];
   return baseUrl is String && baseUrl.startsWith(kTetherUrlScheme);
 }
+
+/// What an answer records, in its `metadata`, when its request is made to
+/// [model]: that one of the user's devices offers it
+/// ([kCompletionViaTetherKey]), or nothing.
+Map<String, dynamic> tetherAnswerRecord(Model? model) => isTetherModel(model)
+    ? const <String, dynamic>{kCompletionViaTetherKey: true}
+    : const <String, dynamic>{};
 
 /// The scheme of the address Open WebUI gives a device's connection.
 const String kTetherUrlScheme = 'tether://';
