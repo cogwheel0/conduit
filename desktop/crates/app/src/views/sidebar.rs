@@ -3635,6 +3635,18 @@ impl SidebarView {
         .detach();
     }
 
+    /// Esc while a name field has focus: leaves it without saving, and the
+    /// key goes no further.
+    fn leave_name_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = self.renaming.as_ref().is_some_and(|r| {
+            gpui_kit::Focusable::focus_handle(r.input.read(cx), cx).is_focused(window)
+        });
+        if focused {
+            self.cancel_rename(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
     /// Leaves the name field without saving (a new folder is not made).
     pub fn cancel_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(rename) = self.renaming.take() {
@@ -4527,6 +4539,11 @@ impl Render for SidebarView {
             // Tab is the way in, as in a source list.
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                // A row's name field passes on the keys it has no use for
+                // (Return, ↑ and ↓, ← at its start): they are not the list's.
+                if !this.list_focus.is_focused(window) {
+                    return;
+                }
                 let k = &ev.keystroke;
                 let m = &k.modifiers;
                 if m.shift && !(m.platform || m.alt || m.control) {
@@ -4617,8 +4634,8 @@ impl Render for SidebarView {
             // then leaves it.
             .on_action(
                 cx.listener(|this, _: &gpui_kit::component::input::Escape, window, cx| {
-                    // Only the search field's (a rename field's Esc is the
-                    // capture handler's below).
+                    // Only the search field's (a name field's Esc is the
+                    // capture handlers' below).
                     if gpui_kit::Focusable::focus_handle(this.search.read(cx), cx)
                         .is_focused(window)
                     {
@@ -4626,6 +4643,19 @@ impl Render for SidebarView {
                     } else {
                         cx.propagate();
                     }
+                }),
+            )
+            // Esc in a name field leaves it without saving. The app's Esc
+            // (Stop Generating) and the field would take the key first; the
+            // capture phase reaches the sidebar before either.
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                    this.leave_name_field(window, cx)
+                },
+            ))
+            .capture_action(
+                cx.listener(|this, _: &crate::actions::StopGenerating, window, cx| {
+                    this.leave_name_field(window, cx)
                 }),
             )
             // Esc leaves a rename without saving, then selection mode.
@@ -4682,6 +4712,119 @@ mod selection_tests {
         let s = stores.clone();
         let (view, vcx) = cx.add_window_view(move |window, cx| SidebarView::new(s, window, cx));
         (stores, view, vcx)
+    }
+
+    /// Two chats and an empty folder of the account's own, as the daemon
+    /// lists them (a rename answers with the same list).
+    fn two_chats_and_a_folder() -> FakeDaemon {
+        use conduit_protocol::methods;
+        let now = Local::now().timestamp_millis();
+        let list: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
+            "chats": [
+                {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now},
+                {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1},
+            ],
+            "folders": [{"id": "recipes", "name": "Recipes"}],
+        }))
+        .unwrap();
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(list.clone());
+        daemon.returns::<methods::ChatsRename>(list);
+        daemon
+    }
+
+    /// Return in a chat's name field saves the name typed, with the list's
+    /// keyboard row on a folder (where a click on it leaves the row): not
+    /// the list's Return, which edits that folder's name instead.
+    #[gpui_kit::test]
+    fn return_in_a_name_field_saves_it_whatever_row_the_keyboard_is_on(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let daemon = two_chats_and_a_folder();
+        let (stores, view, vcx) = bench_on(daemon.clone(), cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| {
+            s.cursor = Some(KeyRow::Folder("recipes".into()));
+            s.start_rename("chat-a", window, cx);
+        });
+        vcx.simulate_input("tide charts");
+        vcx.simulate_keystrokes("enter");
+        assert_eq!(
+            daemon.calls::<methods::ChatsRename>(),
+            vec![serde_json::json!({"id": "chat-a", "title": "tide charts"})]
+        );
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.name_target(), None, "a name field is still open")
+        });
+    }
+
+    /// The arrows, Home and End in a name field are the field's: they move
+    /// its caret, never the list's keyboard row, the open chat or the
+    /// chosen chats.
+    #[gpui_kit::test]
+    fn arrows_in_a_name_field_move_its_caret_not_the_list(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench_on(two_chats_and_a_folder(), cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| {
+            s.cursor = Some(KeyRow::Chat("chat-a".into()));
+            s.start_rename("chat-a", window, cx);
+        });
+        vcx.simulate_input("neap");
+        // ↑ and ↓ have no line to go to in the field; → at its end and ←
+        // at its start nowhere either. Each is checked on its own: ↓ then
+        // ↑ would come back to the same row.
+        for key in ["down", "up", "right", "shift-down", "home", "left"] {
+            vcx.simulate_keystrokes(key);
+            view.read_with(vcx, |s, _| {
+                assert_eq!(s.cursor(), Some(&KeyRow::Chat("chat-a".into())), "{key}");
+                assert!(s.selecting.is_none(), "{key} chose chats");
+            });
+            stores.navigation.read_with(vcx, |n, _| {
+                assert_eq!(
+                    n.selected_chat(),
+                    Some("chat-a"),
+                    "{key} opened another chat"
+                )
+            });
+        }
+        vcx.simulate_input("spring ");
+        view.read_with(vcx, |s, cx| {
+            assert_eq!(
+                s.rename_input().map(|i| i.read(cx).value().to_string()),
+                Some("spring neap".to_string())
+            );
+        });
+    }
+
+    /// Esc in a name field leaves it without saving. The window's own Esc,
+    /// Stop Generating, which the chat pane takes anywhere, does not get it
+    /// first (and stop a reply).
+    #[gpui_kit::test]
+    fn esc_in_a_name_field_leaves_it_and_stops_no_reply(cx: &mut TestAppContext) {
+        use crate::actions::StopGenerating;
+        use conduit_protocol::methods;
+        let daemon = two_chats_and_a_folder();
+        let (stores, view, vcx) = bench_on(daemon.clone(), cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        // Esc as the default keymap binds it, taken on the app as the chat
+        // pane takes it.
+        let stopped = Rc::new(std::cell::Cell::new(false));
+        vcx.update(|_, cx| {
+            cx.bind_keys([gpui_kit::KeyBinding::new("escape", StopGenerating, None)]);
+            let stopped = stopped.clone();
+            cx.on_action(move |_: &StopGenerating, _| stopped.set(true));
+        });
+        view.update_in(vcx, |s, window, cx| s.start_rename("chat-a", window, cx));
+        vcx.simulate_input("neap");
+        vcx.simulate_keystrokes("escape");
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.name_target(), None, "the name field is still open")
+        });
+        assert!(!stopped.get(), "Esc in the name field stopped a reply");
+        assert!(daemon.calls::<methods::ChatsRename>().is_empty());
     }
 
     #[gpui_kit::test]
