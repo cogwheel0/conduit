@@ -113,11 +113,13 @@ enum NewestAnswer {
 struct AnswerPin {
     key: String,
     /// When the wait for the answer's actions and suggestions, and their
-    /// reveal, is over: set on the first frame after the pin arms, the one
-    /// in which the answer's row sees itself done and starts that wait.
+    /// reveal, is over: set when the pin decides it fits, never before the
+    /// frame in which the answer's row saw itself done and began that wait
+    /// (which also waits for all of its text to be out).
     until: Option<std::time::Instant>,
-    /// A layout since the pin armed has measured the answer's row, and it
-    /// fits the view. Until then the list follows as it would.
+    /// A layout since the pin armed has measured the answer's row with all
+    /// of its text out, and it fits the view. Until then the list follows
+    /// as it would.
     fits: bool,
     /// The list has been laid out from the answer's start at least once.
     applied: bool,
@@ -591,16 +593,15 @@ impl Transcript {
     /// again) or until that wait is over with everything fitting.
     ///
     /// Until a layout since the pin armed has measured the answer's row
-    /// (its text can have grown, or it may never have been drawn, before
-    /// that), the list follows as it would. Then the pin holds only an
+    /// with all of its text out (its text can have grown, it may never have
+    /// been drawn, and a done answer's text is still released at a pace),
+    /// the list follows as it would. Then the pin holds only an
     /// answer no taller than the view, in a view still following the end;
     /// any other is let go, following its end.
     fn step_pin(&mut self, now: std::time::Instant, cx: &App) {
         let Some(pin) = &mut self.answer_pin else {
             return;
         };
-        pin.until
-            .get_or_insert(now + motion::SETTLE_WAIT + specs::REVEAL.duration + motion::FRAME * 3);
         if !pin.fits {
             let measured = self
                 .newest_height
@@ -608,7 +609,10 @@ impl Transcript {
                 .as_ref()
                 .filter(|(key, _)| *key == pin.key)
                 .map(|(_, height)| *height);
-            let Some(height) = measured else {
+            // The row releases a done answer's text at a pace: its height
+            // is the answer's only once all of it is out.
+            let text_out = self.rows.get(&pin.key).is_some_and(|row| row.text_out(cx));
+            let (Some(height), true) = (measured, text_out) else {
                 return;
             };
             // The answer itself, without the suggestions under it (a row
@@ -626,6 +630,8 @@ impl Transcript {
             }
             if let Some(pin) = &mut self.answer_pin {
                 pin.fits = true;
+                pin.until =
+                    Some(now + motion::SETTLE_WAIT + specs::REVEAL.duration + motion::FRAME * 3);
             }
             // The eased follow holds the list's own following paused, and
             // the pin lays the list out only while it follows.
@@ -2400,12 +2406,8 @@ mod tests {
 
     /// Streams the answer's next snapshot: `lines` paragraphs.
     fn stream(store: &Entity<ChatStore>, lines: usize, cx: &mut VisualTestContext) {
-        let text = (1..=lines)
-            .map(|i| format!("Line {i} of the answer."))
-            .collect::<Vec<_>>()
-            .join("\n\n");
         let blocks = vec![MessageBlockDto {
-            markdown: Some(text),
+            markdown: Some(streamed_text(lines)),
             ..empty_block(MessageBlockKind::Text)
         }];
         store.update(cx, |s, cx| {
@@ -2419,6 +2421,14 @@ mod tests {
                 cx,
             )
         });
+    }
+
+    /// The text [`stream`] sends for `lines` paragraphs.
+    fn streamed_text(lines: usize) -> String {
+        (1..=lines)
+            .map(|i| format!("Line {i} of the answer."))
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 
     /// Lays the transcript out `VIEWPORT` tall, then again once the
@@ -2561,6 +2571,17 @@ mod tests {
         cx: &mut VisualTestContext,
     ) {
         let done = answer("a1", lines, &["Why?", "How?", "When?"]);
+        complete_turn_with(store, daemon, question, done, cx);
+    }
+
+    /// Ends the turn of the answer `a1` with its stored copy `done`.
+    fn complete_turn_with(
+        store: &Entity<ChatStore>,
+        daemon: &FakeDaemon,
+        question: &ChatMessageDto,
+        done: ChatMessageDto,
+        cx: &mut VisualTestContext,
+    ) {
         let text = done.content.clone();
         daemon.returns::<methods::ChatsGet>(chat_result(vec![question.clone(), done]));
         store.update(cx, |s, cx| {
@@ -2926,6 +2947,87 @@ mod tests {
         complete_turn(&store, &daemon, &question, 1, cx);
         cx.executor()
             .advance_clock(std::time::Duration::from_millis(1000));
+        quick_ask_frames(&transcript, cx);
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            end - start > QUICK_ASK_VIEWPORT,
+            "the suggestions fit after all: {}",
+            end - start
+        );
+        assert!(
+            start >= top - 0.5 && start <= top + TOP_INSET + 0.5,
+            "the answer starts at {start}, not at the view's top {top}"
+        );
+    }
+
+    /// Streams one line of the answer `a1`, then ends its turn with a stored
+    /// copy of `lines` paragraphs that carries on from it, with suggestions:
+    /// the row releases the rest of its text at a pace after the end.
+    fn finish_paced(
+        store: &Entity<ChatStore>,
+        transcript: &Entity<Transcript>,
+        daemon: &FakeDaemon,
+        question: &ChatMessageDto,
+        lines: usize,
+        cx: &mut VisualTestContext,
+    ) {
+        stream(store, 1, cx);
+        quick_ask_frames(transcript, cx);
+        let text = streamed_text(lines);
+        let done = ChatMessageDto {
+            blocks: vec![
+                MessageBlockDto {
+                    markdown: Some(text.clone()),
+                    ..empty_block(MessageBlockKind::Text)
+                },
+                MessageBlockDto {
+                    follow_ups: Some(vec!["Why?".into(), "How?".into(), "When?".into()]),
+                    ..empty_block(MessageBlockKind::FollowUps)
+                },
+            ],
+            ..message("a1", "assistant", &text)
+        };
+        complete_turn_with(store, daemon, question, done, cx);
+    }
+
+    /// An answer whose paced text, still short on the first layout after
+    /// its turn ends, grows taller than the view follows its end: whether
+    /// it fits is decided only once all of its text is out.
+    #[gpui_kit::test]
+    fn a_paced_answer_that_outgrows_the_view_follows_its_end(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        finish_paced(&store, &transcript, &daemon, &question, 14, cx);
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            end - start < QUICK_ASK_VIEWPORT,
+            "its text came out at once: {start}..{end}"
+        );
+        quick_ask_frames(&transcript, cx);
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let (_, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A short answer whose text is still paced out after its turn ends is
+    /// held at its start once all of it is out.
+    #[gpui_kit::test]
+    fn a_short_paced_answer_shows_from_its_start(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        finish_paced(&store, &transcript, &daemon, &question, 2, cx);
+        quick_ask_frames(&transcript, cx);
         quick_ask_frames(&transcript, cx);
         let (start, end) = painted(&list, 1).expect("the answer is on screen");
         assert!(

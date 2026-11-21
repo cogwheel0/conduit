@@ -672,6 +672,11 @@ impl AssistantRow {
         self.suggestions_height.get()
     }
 
+    /// All of its text is out: no paced release is left to draw.
+    pub(super) fn text_out(&self) -> bool {
+        self.paces.is_empty()
+    }
+
     /// The newest answer, just finished, whose suggestions may still come
     /// (they follow the turn by a few hundred milliseconds; the actions wait
     /// for them, [`motion::settled`]).
@@ -2474,6 +2479,14 @@ impl RowView {
                 Self::Assistant(cx.new(|_| AssistantRow::new(host, item, flags)))
             }
             MessageRole::User => Self::User(cx.new(|_| UserRow::new(host, item, flags))),
+        }
+    }
+
+    /// All of an answer's text is out, as last drawn.
+    pub fn text_out(&self, cx: &App) -> bool {
+        match self {
+            Self::Assistant(row) => row.read(cx).text_out(),
+            Self::User(_) => true,
         }
     }
 
