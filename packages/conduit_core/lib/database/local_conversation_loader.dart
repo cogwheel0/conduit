@@ -11,7 +11,6 @@ import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show
         kMessageAuthorIdMetadataKey,
-        kMessageHeldByServerMetadataKey,
         kMessageMergedMetadataKey,
         kMessageModelIdxMetadataKey,
         kMessageUnfinishedAnswerAuthorsMetadataKey,
@@ -25,7 +24,12 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 
-import 'package:conduit_core/sync/pull_sync.dart' show parseChatRowsWorker;
+import 'package:conduit_core/sync/pull_sync.dart'
+    show
+        chatResponseWithoutMessages,
+        parseChatRowsWorker,
+        questionHeldAgain,
+        withQuestionHeldAgain;
 import 'package:conduit_core/sync/sync_engine.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -381,21 +385,12 @@ Conversation _parseChatWithout(Map<String, dynamic> payload) {
   final response = payload['response'] as Map<String, dynamic>;
   final ids = {...(payload['ids'] as List).cast<String>()};
   final rows = parseChatRowsWorker(response);
-  final conversation = parseFullConversationModel({
-    ...response,
-    'chat': ChatBlobMapper.rowsToBlob(rows.withoutMessages(ids)),
-  });
-  final last = conversation.messages.lastOrNull;
-  if (last == null ||
-      last.role != 'user' ||
-      !rows.messages.any((m) => m.parentId == last.id && ids.contains(m.id))) {
-    return conversation;
-  }
-  return conversation.copyWith(
-    messages: [
-      ...conversation.messages.take(conversation.messages.length - 1),
-      _heldAgain(last),
-    ],
+  return withQuestionHeldAgain(
+    parseFullConversationModel(
+      chatResponseWithoutMessages(response, rows, ids),
+    ),
+    rows,
+    ids,
   );
 }
 
@@ -434,7 +429,7 @@ Conversation _withoutMessages(Conversation conversation, Set<String> ids) {
     if (leftOut) break;
   }
   for (final index in waiting) {
-    kept[index] = _heldAgain(kept[index]);
+    kept[index] = questionHeldAgain(kept[index]);
   }
   return conversation.copyWith(messages: kept);
 }
@@ -484,10 +479,6 @@ ChatMessage? _answerInPlaceOf(ChatMessage leftOut, Set<String> ids) {
     },
   );
 }
-
-ChatMessage _heldAgain(ChatMessage question) => question.copyWith(
-  metadata: {...?question.metadata, kMessageHeldByServerMetadataKey: true},
-);
 
 /// [message] without the versions [ids] leaves out.
 ChatMessage _withoutVersions(ChatMessage message, Set<String> ids) {
