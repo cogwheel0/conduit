@@ -4990,30 +4990,43 @@ ActiveChatStream attachUnifiedChunkedStreaming({
 }
 
 /// Normalizes incoming file payloads and merges them with existing files
-/// on the assistant message, deduplicating by URL.
+/// on the assistant message, deduplicating by URL. A file already there
+/// takes the id and name a later entry for the same URL brings.
 ///
-/// Returns the merged list if new files were added, or `null` if no
-/// update is needed (all files were duplicates or empty).
+/// Returns the merged list if anything was added, or `null` if no update is
+/// needed (all files were duplicates with nothing new, or empty).
 List<Map<String, dynamic>>? _mergeNormalizedFiles({
   required List<Map<String, dynamic>> incoming,
   required List<Map<String, dynamic>> existing,
 }) {
   if (incoming.isEmpty) return null;
 
-  final seen = <String>{
-    for (final f in existing)
-      if (f['url'] is String) f['url'] as String,
-  };
-
   final merged = <Map<String, dynamic>>[...existing];
+  var changed = false;
   for (final f in incoming) {
     final url = f['url'] as String?;
-    if (url != null && url.isNotEmpty && seen.add(url)) {
-      merged.add(_fileEntryFromUrl(url, sourceEntry: f));
+    if (url == null || url.isEmpty) continue;
+    final entry = _fileEntryFromUrl(url, sourceEntry: f);
+    final index = merged.indexWhere((file) => file['url'] == url);
+    if (index < 0) {
+      merged.add(entry);
+      changed = true;
+      continue;
+    }
+    final kept = merged[index];
+    final added = <String, dynamic>{
+      for (final key in const ['id', 'name', 'filename'])
+        if ((kept[key]?.toString() ?? '').isEmpty &&
+            (entry[key]?.toString() ?? '').isNotEmpty)
+          key: entry[key],
+    };
+    if (added.isNotEmpty) {
+      merged[index] = {...kept, ...added};
+      changed = true;
     }
   }
 
-  return merged.length != existing.length ? merged : null;
+  return changed ? merged : null;
 }
 
 /// Builds a normalized file entry from a URL, preserving any server-declared

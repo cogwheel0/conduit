@@ -259,7 +259,7 @@ void main() {
       expect(file?.id, 'file-9');
     });
 
-    test('a video keeps its name, under whichever key it was saved', () {
+    test('a file keeps its name, under whichever key it was saved', () {
       // As Conduit saved a reply's video before, and as tools name one.
       final file = chatFileDto(<String, dynamic>{
         'type': 'video',
@@ -275,6 +275,15 @@ void main() {
           contentType: 'video/mp4',
         ),
       );
+      // An empty one names nothing: the file's own record has the name.
+      final described = chatFileDto(<String, dynamic>{
+        'url': '/api/v1/files/file-9/content',
+        'filename': '',
+        'file': <String, dynamic>{
+          'meta': <String, dynamic>{'name': 'report.pdf'},
+        },
+      });
+      expect(described?.name, 'report.pdf');
     });
 
     test('a refused tool definition is flagged for the window\'s advice', () {

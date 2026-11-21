@@ -89,6 +89,20 @@ void main() {
         ..has((a) => a.terminalId, 'terminalId').equals('build:box')
         ..has((a) => a.provider, 'provider').equals('codex')
         ..has((a) => a.model, 'model').equals('openai/gpt-5.1');
+
+      // Named from the id alone, 0.13.4's slug stands for the model without
+      // its hash. A model the slug leaves as it is keeps a date at its end.
+      for (final (id, name) in [
+        ('agent:t1:codex:gpt-5.1', 'Codex · gpt-5.1'),
+        ('agent:t1:codex:gpt-5-1-e7ee8b01', 'Codex · gpt-5-1'),
+        ('agent:t1:pi:nova-lite-2-0-3dfb57dc', 'Pi · nova-lite-2-0'),
+        (
+          'agent:t1:claude-code:nova-4-20260101',
+          'Claude Code · nova-4-20260101',
+        ),
+      ]) {
+        check(because: id, terminalAgentDisplayName(id)).equals(name);
+      }
     });
 
     test('is null for ids that are not an agent\'s', () {
@@ -124,6 +138,15 @@ void main() {
       check(model.name).equals('Claude Code · sonnet');
       check(terminalAgentPickerSubtitle(model)).equals('Build box');
       check(terminalAgentTerminalId(model)).equals('t1');
+
+      // 0.13.4's id holds the model only as a slug: the server's listing
+      // names it, and the id is kept as it is.
+      final slugged = terminalAgentModelFromJson(
+        _agent0134('agent:t1:codex:gpt-5-1-e7ee8b01', 'gpt-5.1'),
+      )!;
+      check(slugged.id).equals('agent:t1:codex:gpt-5-1-e7ee8b01');
+      check(slugged.name).equals('Codex · gpt-5.1');
+      check(terminalAgentPickerSubtitle(slugged)).equals('codex/gpt-5.1');
     });
 
     test('an agent Conduit has no name for keeps its own', () {
@@ -135,37 +158,6 @@ void main() {
     test('is null for an ordinary model', () {
       check(terminalAgentModelFromJson({'id': 'gpt-5.1', 'name': 'GPT-5.1'}))
           .isNull();
-    });
-
-    test('0.13.4: the model is named as the server lists it, not by the '
-        'slug in its id', () {
-      final model = terminalAgentModelFromJson(
-        _agent0134('agent:t1:codex:gpt-5-1-e7ee8b01', 'gpt-5.1'),
-      )!;
-      check(model.id).equals('agent:t1:codex:gpt-5-1-e7ee8b01');
-      check(model.name).equals('Codex · gpt-5.1');
-      check(terminalAgentPickerSubtitle(model)).equals('codex/gpt-5.1');
-    });
-  });
-
-  group('terminalAgentDisplayName', () {
-    test('names the agent and its model', () {
-      check(terminalAgentDisplayName('agent:t1:codex:gpt-5.1'))
-          .equals('Codex · gpt-5.1');
-      check(terminalAgentDisplayName('gpt-5.1')).isNull();
-    });
-
-    test("0.13.4: with only the id, the slug's hash is left out", () {
-      check(terminalAgentDisplayName('agent:t1:codex:gpt-5-1-e7ee8b01'))
-          .equals('Codex · gpt-5-1');
-      check(terminalAgentDisplayName('agent:t1:pi:nova-lite-2-0-3dfb57dc'))
-          .equals('Pi · nova-lite-2-0');
-    });
-
-    test('a model whose own name ends in a date keeps it', () {
-      // Slugging leaves such a name as it is, so it carries no hash.
-      check(terminalAgentDisplayName('agent:t1:claude-code:nova-4-20260101'))
-          .equals('Claude Code · nova-4-20260101');
     });
   });
 

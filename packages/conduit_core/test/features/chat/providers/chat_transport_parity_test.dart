@@ -1976,7 +1976,7 @@ void main() {
     });
 
     test('a video Open WebUI 0.13.4 generated is kept as the server saved '
-        'it', () async {
+        'it, whatever came first for its address', () {
       final log = _CallbackLog(initialMessages: _fakeStreamingMessages());
       final registrar = FakeSocketInjector();
       _attach(
@@ -1988,7 +1988,7 @@ void main() {
         log: log,
         socketService: _MockSocketService(registrar),
       );
-      await pumpMicrotasks();
+      check(registrar.hasChatHandler).isTrue();
 
       // `generate_video` in `tools/builtin.py`: the file as it is saved on
       // the message, which Conduit writes back with the reply. The name is
@@ -2001,9 +2001,13 @@ void main() {
         'content_type': 'video/mp4',
       };
       registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': saved['url'], 'content_type': 'video/mp4'},
+        ],
+      }, conversationId: 'conv-1');
+      registrar.emitChatEvent('chat:message:files', {
         'files': [saved],
       }, conversationId: 'conv-1');
-      await pumpMicrotasks();
 
       check(log.messages.last.files).isNotNull().deepEquals([
         {...saved, 'filename': 'generated-video.mp4'},

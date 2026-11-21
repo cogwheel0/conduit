@@ -408,9 +408,16 @@ ChatFileDto? chatFileDto(Map<String, dynamic> file) {
       ?.toString();
   final image =
       file['type'] == 'image' || (contentType?.startsWith('image/') ?? false);
+  String? named(Object? value) {
+    final text = value?.toString();
+    return text == null || text.isEmpty ? null : text;
+  }
+
   final name =
-      (file['name'] ?? file['filename'] ?? meta['name'] ?? nested['filename'])
-          ?.toString() ??
+      named(file['name']) ??
+      named(file['filename']) ??
+      named(meta['name']) ??
+      named(nested['filename']) ??
       (image ? 'image' : 'file');
   return ChatFileDto(
     id: dataUrl == null ? id : null,

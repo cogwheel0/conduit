@@ -196,6 +196,7 @@ void main() {
           ),
           token: 'synthetic-account-token',
           chatId: 'chat-1',
+          modelId: 'nova-chat',
         ),
         injectAuth: true,
       );
@@ -203,10 +204,12 @@ void main() {
       final frames = StreamIterator(socket);
       socket.add('{"type":"auth","token":"","chat_id":"chat-1"}');
       expect(await frames.moveNext(), isTrue);
+      // A terminal made per model is that model's machine: it is named too.
       expect(jsonDecode(frames.current as String), {
         'type': 'auth',
         'token': 'synthetic-account-token',
         'chat_id': 'chat-1',
+        'model_id': 'nova-chat',
       });
       // Anything else, an auth-looking word included, goes on unchanged.
       socket.add('{"type":"key","code":"auth"}');
@@ -219,32 +222,6 @@ void main() {
     },
   );
 
-  test('a terminal made per model gets its model put into the viewer auth '
-      'messages', () async {
-    await relay.close();
-    relay = await ComputerSocketRelay.start(
-      ComputerConnection(
-        surface: ComputerSurface.desktop,
-        streamUri: Uri.parse(
-          'ws://127.0.0.1:${backend.port}/nested/desktop/stream',
-        ),
-        chatId: 'chat-1',
-        modelId: 'nova-chat',
-      ),
-    );
-    final socket = await connect(relay.streamUri);
-    final frames = StreamIterator(socket);
-    socket.add('{"type":"auth","token":"viewer-token","chat_id":"chat-1"}');
-    expect(await frames.moveNext(), isTrue);
-    expect(jsonDecode(frames.current as String), {
-      'type': 'auth',
-      'token': 'viewer-token',
-      'chat_id': 'chat-1',
-      'model_id': 'nova-chat',
-    });
-    await socket.close();
-  });
-
   test('without the host option the viewer auth goes on as written', () async {
     final socket = await connect(relay.streamUri);
     final frames = StreamIterator(socket);
@@ -252,5 +229,27 @@ void main() {
     expect(await frames.moveNext(), isTrue);
     expect(frames.current, '{"type":"auth","token":"viewer-token"}');
     await socket.close();
+
+    // Only a terminal made per model's model is put in.
+    await relay.close();
+    relay = await ComputerSocketRelay.start(
+      ComputerConnection(
+        surface: ComputerSurface.desktop,
+        streamUri: Uri.parse(
+          'ws://127.0.0.1:${backend.port}/nested/desktop/stream',
+        ),
+        modelId: 'nova-chat',
+      ),
+    );
+    final perModel = await connect(relay.streamUri);
+    final modelFrames = StreamIterator(perModel);
+    perModel.add('{"type":"auth","token":"viewer-token"}');
+    expect(await modelFrames.moveNext(), isTrue);
+    expect(jsonDecode(modelFrames.current as String), {
+      'type': 'auth',
+      'token': 'viewer-token',
+      'model_id': 'nova-chat',
+    });
+    await perModel.close();
   });
 }
