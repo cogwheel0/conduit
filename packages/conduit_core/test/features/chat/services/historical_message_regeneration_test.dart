@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:dio/dio.dart' show DioException, RequestOptions, Response;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/models/chat_message.dart';
@@ -168,6 +169,7 @@ class _RecordingCompletionApi extends ApiService {
     this.sendGate,
     this.sendFailure,
     this.returnedTaskId,
+    this.standardAccount = false,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test',
@@ -181,6 +183,18 @@ class _RecordingCompletionApi extends ApiService {
   final Completer<void>? sendGate;
   final Object? sendFailure;
   final String? returnedTaskId;
+
+  /// Whether the account is not an administrator: Open WebUI stops a single
+  /// task (`POST /api/tasks/stop/{id}`) only for one, and refuses it 401.
+  final bool standardAccount;
+
+  /// The tasks the server runs for the account in the chat: one starts as its
+  /// completion request is answered, and ends once it is stopped.
+  final Set<String> runningTasks = {};
+
+  /// Completes once the server is asked to stop a task it runs, by the task's
+  /// id or by the chat's stop, whether it takes that or not.
+  final Completer<void> runningTaskStopAsked = Completer<void>();
   final Completer<void> settingsStarted = Completer<void>();
   final Completer<void> sendStarted = Completer<void>();
   int settingsCalls = 0;
@@ -205,16 +219,45 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
+  Future<List<String>> getTaskIdsByChat(String chatId) async =>
+      runningTasks.toList();
+
+  @override
+  Future<List<String>> getChatTaskIdsRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => getTaskIdsByChat(chatId);
 
   @override
   Future<void> stopTasksByChat(String chatId) async {
     broadStopCalls += 1;
+    if (runningTasks.isNotEmpty && !runningTaskStopAsked.isCompleted) {
+      runningTaskStopAsked.complete();
+    }
+    runningTasks.clear();
   }
+
+  @override
+  Future<void> stopChatTasksRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => stopTasksByChat(chatId);
 
   @override
   Future<void> stopTask(String taskId) async {
     targetedStopCalls += 1;
+    if (runningTasks.contains(taskId) && !runningTaskStopAsked.isCompleted) {
+      runningTaskStopAsked.complete();
+    }
+    if (standardAccount) {
+      final request = RequestOptions(path: '/api/tasks/stop/$taskId');
+      throw DioException.badResponse(
+        statusCode: 401,
+        requestOptions: request,
+        response: Response<dynamic>(requestOptions: request, statusCode: 401),
+      );
+    }
+    runningTasks.remove(taskId);
   }
 
   @override
@@ -267,6 +310,7 @@ class _RecordingCompletionApi extends ApiService {
 
     final taskId = returnedTaskId;
     if (taskId != null) {
+      runningTasks.add(taskId);
       return ChatCompletionSession.taskSocket(
         messageId: responseMessageId ?? 'assistant-regen',
         conversationId: conversationId,
@@ -315,6 +359,40 @@ final class _GatedSocketService extends SocketService {
     Duration timeout = const Duration(seconds: 2),
   }) async {
     if (!started.isCompleted) started.complete();
+    await gate.future;
+    return false;
+  }
+}
+
+/// A socket that is down. The send's own reconnect is answered at once; once
+/// [holds] says so, a reconnect is answered only when [gate] completes, as the
+/// binding of an accepted answer's task to the socket waits for one.
+final class _BindingGatedSocketService extends SocketService {
+  _BindingGatedSocketService({required this.gate, required this.holds})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'https://example.com',
+        ),
+      );
+
+  final Completer<void> gate;
+  final bool Function() holds;
+  final Completer<void> bindingStarted = Completer<void>();
+
+  @override
+  bool get isConnected => false;
+
+  @override
+  String? get sessionId => null;
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (!holds()) return false;
+    if (!bindingStarted.isCompleted) bindingStarted.complete();
     await gate.future;
     return false;
   }
@@ -721,9 +799,12 @@ void main() {
       },
     );
 
-    test(
-      'Stop while completion POST is pending aborts its returned task',
-      () async {
+    for (final (label, standardAccount) in const [
+      ('an administrator', false),
+      ('a standard account', true),
+    ]) {
+      test('Stop while completion POST is pending aborts its returned task, '
+          'and stops it on the server, for $label', () async {
         final sendGate = Completer<void>();
         addTearDown(() {
           if (!sendGate.isCompleted) sendGate.complete();
@@ -731,6 +812,7 @@ void main() {
         final api = _RecordingCompletionApi(
           sendGate: sendGate,
           returnedTaskId: 'task-regeneration',
+          standardAccount: standardAccount,
         );
         final initialMessages = [
           _userMessage(id: 'u1', content: 'First prompt'),
@@ -753,11 +835,11 @@ void main() {
         container.read(stopGenerationProvider)();
         sendGate.complete();
         await regeneration.timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await api.runningTaskStopAsked.future;
 
         check(api.completionCalls).equals(1);
         check(api.abortCalls).equals(1);
-        check(api.targetedStopCalls).equals(1);
+        check(api.runningTasks).isEmpty();
         final stopped = container.read(chatMessagesProvider).last;
         check(stopped.id).equals(placeholderId);
         check(stopped.isStreaming).isFalse();
@@ -768,8 +850,52 @@ void main() {
               ) ??
               false,
         ).isFalse();
-      },
-    );
+      });
+    }
+
+    test('a Stop while the answer\'s task waits for the socket is taken, '
+        'and stops that task, for a standard account', () async {
+      final socketGate = Completer<void>();
+      addTearDown(() {
+        if (!socketGate.isCompleted) socketGate.complete();
+      });
+      final api = _RecordingCompletionApi(
+        returnedTaskId: 'task-binding',
+        standardAccount: true,
+      );
+      final socket = _BindingGatedSocketService(
+        gate: socketGate,
+        holds: () => api.runningTasks.isNotEmpty,
+      );
+      addTearDown(socket.dispose);
+      final initialMessages = [
+        _userMessage(id: 'u1', content: 'First prompt'),
+        _assistantMessage(id: 'a1', content: 'First answer'),
+      ];
+      final container = _container(
+        initialMessages: initialMessages,
+        activeConversation: _conversation(
+          id: 'conv-binding',
+          messages: initialMessages,
+        ),
+        apiService: api,
+        socketService: socket,
+      );
+      addTearDown(container.dispose);
+
+      final regeneration = regenerateHistoricalMessageById(container, 'a1');
+      await socket.bindingStarted.future;
+      final binding = container.read(chatMessagesProvider).last;
+      check(binding.metadata?['taskId']).equals('task-binding');
+
+      final taken = await container.read(stopGenerationSettledProvider)();
+      socketGate.complete();
+      await regeneration;
+
+      check(taken).isTrue();
+      check(api.runningTasks).isEmpty();
+      check(api.targetedStopCalls).equals(0);
+    });
 
     test(
       'successful POST cannot attach after a newer assistant becomes tail',
@@ -808,11 +934,11 @@ void main() {
 
         sendGate.complete();
         await regeneration.timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await api.runningTaskStopAsked.future;
 
         check(api.completionCalls).equals(1);
         check(api.abortCalls).equals(1);
-        check(api.targetedStopCalls).equals(1);
+        check(api.runningTasks).isEmpty();
         final messages = container.read(chatMessagesProvider);
         final ownedAfter = messages.firstWhere(
           (message) => message.id == ownedBefore.id,

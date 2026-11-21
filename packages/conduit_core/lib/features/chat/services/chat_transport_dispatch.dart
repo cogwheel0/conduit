@@ -52,6 +52,11 @@ void writeTransportMetadata({
     meta['transport'] = session.transport.name;
     if (session.taskId != null && session.taskId!.isNotEmpty) {
       meta['taskId'] = session.taskId;
+      // The task's chat goes with it: only an administrator may stop a task
+      // by its id, and a Stop can come before the task's socket binding.
+      if (session.conversationId != null) {
+        meta['taskConversationId'] = session.conversationId;
+      }
     }
     if (session.abort != null) {
       meta['hasActiveAbortHandle'] = true;
@@ -190,7 +195,9 @@ void configureRemoteTaskMonitoring({
 /// Inspects the message's transport metadata to choose the right
 /// cancellation path:
 /// - **httpStream / abort handle** → `cancelStreamingMessage()`
-/// - **taskSocket / task ID** → `stopTask()`
+/// - **taskSocket / task ID** → `stopTasksByChat()` for the task's chat;
+///   `stopTask()` only for a task with no chat, which only an administrator
+///   may stop, and which is otherwise refused.
 /// - Mixed (abort + task) → both paths are invoked.
 ///
 /// Both are started before this returns. The result completes once the server

@@ -1098,6 +1098,14 @@ Future<void> regenerateMessage(
   ChatSendPlaceholderHandle? regenerationPlaceholder;
   var regenerationPlaceholderWasEstablished = false;
   ChatCompletionSession? submittedSession;
+  void stopSubmittedTasks(ChatCompletionSession? session) => unawaited(
+    _stopRequestTasksQuietly(
+      api,
+      chatId: session?.conversationId,
+      taskIds: session?.taskIds ?? const [],
+      session: regenerationOwner.authSnapshot,
+    ),
+  );
   void requireRegenerationOwner() {
     final activeChatId = activeOpenWebUiChatIdForMutation(
       ref,
@@ -1578,7 +1586,7 @@ Future<void> regenerateMessage(
           ) &&
           !ownsLiveRegenerationPlaceholder()) {
         await _abortQuietly(session);
-        _stopOpenWebUiTaskQuietly(api, session.taskId);
+        stopSubmittedTasks(session);
         _clearOpenWebUiRegenerationAttemptMarker(
           ref,
           regenerationPlaceholderForAttempt,
@@ -1622,7 +1630,7 @@ Future<void> regenerateMessage(
       regenerationOwner.chatId = activeOwnerChatId;
       if (!ownsLiveRegenerationPlaceholder()) {
         await _abortQuietly(session);
-        _stopOpenWebUiTaskQuietly(api, session.taskId);
+        stopSubmittedTasks(session);
         _clearOpenWebUiRegenerationAttemptMarker(
           ref,
           regenerationPlaceholderForAttempt,
@@ -1671,7 +1679,7 @@ Future<void> regenerateMessage(
             activeOpenWebUiChatIdForMutation(ref, regenerationOwner) != null;
         if (ownerIsStillActive && !ownsLiveRegenerationPlaceholder()) {
           await _abortQuietly(session);
-          _stopOpenWebUiTaskQuietly(api, session.taskId);
+          stopSubmittedTasks(session);
           _clearOpenWebUiRegenerationAttemptMarker(
             ref,
             regenerationPlaceholderForAttempt,
@@ -1707,7 +1715,7 @@ Future<void> regenerateMessage(
     if (session != null) {
       await _abortQuietly(session);
     }
-    _stopOpenWebUiTaskQuietly(api, session?.taskId);
+    stopSubmittedTasks(session);
     final placeholder = regenerationPlaceholder;
     if (regenerationPlaceholderWasEstablished &&
         placeholder != null &&
@@ -1726,6 +1734,7 @@ Future<void> regenerateMessage(
       error: error,
       placeholder: regenerationPlaceholder,
       submittedTaskId: session?.taskId,
+      authSnapshot: regenerationOwner.authSnapshot,
     );
     Error.throwWithStackTrace(error, stackTrace);
   }
@@ -1898,6 +1907,7 @@ void _settleFailedOpenWebUiRegeneration({
   required Object error,
   required ChatSendPlaceholderHandle? placeholder,
   required String? submittedTaskId,
+  required ApiAuthSnapshot? authSnapshot,
 }) {
   if (placeholder == null) return;
   final ownedAssistant = _ownedMarkedOpenWebUiRegenerationPlaceholder(
@@ -1906,17 +1916,24 @@ void _settleFailedOpenWebUiRegeneration({
   );
   if (ownedAssistant == null) return;
 
-  // Never use the chat-wide task fallback here: a newer generation can be
-  // active in this same conversation. Cancel only handles uniquely bound to
-  // this assistant/session and leave an unaddressable remote task alone.
+  // A newer generation can be active in this same conversation. Cancel only
+  // handles uniquely bound to this assistant/session, and the chat's stop
+  // only while nothing but this task runs there.
   final metadata = ownedAssistant.metadata;
   if (metadata?['transport'] == 'httpStream' ||
       metadata?['hasActiveAbortHandle'] == true) {
     api?.cancelStreamingMessage(ownedAssistant.id);
   }
   final metadataTaskId = metadata?['taskId']?.toString();
-  if (metadataTaskId != submittedTaskId) {
-    _stopOpenWebUiTaskQuietly(api, metadataTaskId);
+  if (metadataTaskId != null && metadataTaskId != submittedTaskId) {
+    unawaited(
+      _stopRequestTasksQuietly(
+        api,
+        chatId: metadata?['taskConversationId']?.toString(),
+        taskIds: [metadataTaskId],
+        session: authSnapshot,
+      ),
+    );
   }
   (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
       .failLastStreamingAssistant(
@@ -1924,13 +1941,4 @@ void _settleFailedOpenWebUiRegeneration({
         assistantMessageId: placeholder.assistantMessageId,
       );
   _clearOpenWebUiRegenerationAttemptMarker(ref, placeholder);
-}
-
-void _stopOpenWebUiTaskQuietly(ApiService? api, String? taskId) {
-  if (api == null || taskId == null || taskId.isEmpty) return;
-  unawaited(() async {
-    try {
-      await api.stopTask(taskId);
-    } catch (_) {}
-  }());
 }

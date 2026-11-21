@@ -137,8 +137,42 @@ Future<bool> _askStopAgain(
   String chatId,
   ({Set<String> ids, bool known}) own,
   String? userId,
-) async {
+) {
   final session = api.captureAuthSnapshot();
+  return _stopOwnOpenWebUiTasks(
+    api,
+    chatId,
+    own,
+    session: session,
+    whenNoneRun: (stopChat) async {
+      // Open WebUI stores no temporary chat, and answers a read of one 401 as
+      // it does a refused session; its stop there finishes no stored answer.
+      if (!isTemporaryChat(chatId)) {
+        final chat = await api.getChatRaw(chatId, authSnapshot: session);
+        if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+      }
+      return stopChat();
+    },
+  );
+}
+
+/// Ends [own], tasks of [session]'s account in [chatId], through the chat's
+/// stop: only an administrator may stop a single task. That stop ends every
+/// task the account runs in the chat, so it is asked only while nothing but
+/// [own] runs there. Whether none of [own] runs any more: false while a task
+/// that cannot be told to be one of them runs beside them, or [own] cannot be
+/// told apart ([own].known).
+///
+/// With nothing running, none of [own] does, unless [whenNoneRun] (given the
+/// chat's stop) says otherwise. Every request goes as [session]; once another
+/// has replaced it, none is sent and the answer is false.
+Future<bool> _stopOwnOpenWebUiTasks(
+  ApiService api,
+  String chatId,
+  ({Set<String> ids, bool known}) own, {
+  required ApiAuthSnapshot session,
+  Future<bool> Function(Future<bool> Function() stopChat)? whenNoneRun,
+}) async {
   Future<bool> stopChat() async {
     if (!api.authSnapshotIsCurrent(session)) return false;
     await api.stopChatTasksRaw(chatId, authSnapshot: session);
@@ -147,18 +181,37 @@ Future<bool> _askStopAgain(
 
   final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
   if (!api.authSnapshotIsCurrent(session)) return false;
-  if (running.isEmpty) {
-    // Open WebUI stores no temporary chat, and answers a read of one 401 as
-    // it does a refused session; its stop there finishes no stored answer.
-    if (!isTemporaryChat(chatId)) {
-      final chat = await api.getChatRaw(chatId, authSnapshot: session);
-      if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
-    }
-    return stopChat();
-  }
+  if (running.isEmpty) return whenNoneRun?.call(stopChat) ?? true;
   if (!own.known) return false;
   if (running.every(own.ids.contains)) return stopChat();
   return !running.any(own.ids.contains);
+}
+
+/// Stops the tasks one Open WebUI request started, [taskIds] in [chatId], as
+/// [session], when nothing else of the account runs in the chat
+/// ([_stopOwnOpenWebUiTasks]), and leaves them to run otherwise. For a
+/// request that ended badly here: it never fails, and reports nothing.
+Future<void> _stopRequestTasksQuietly(
+  ApiService? api, {
+  required String? chatId,
+  required Iterable<String> taskIds,
+  required ApiAuthSnapshot? session,
+}) async {
+  final ids = taskIds.where((id) => id.isNotEmpty).toSet();
+  if (api == null || chatId == null || chatId.isEmpty || ids.isEmpty) return;
+  try {
+    final ended = await _stopOwnOpenWebUiTasks(api, chatId, (
+      ids: ids,
+      known: true,
+    ), session: session ?? api.captureAuthSnapshot());
+    if (!ended) {
+      DebugLogger.log(
+        'request-tasks-left-running',
+        scope: 'chat/stop',
+        data: {'chatId': chatId, 'tasks': ids.length},
+      );
+    }
+  } catch (_) {}
 }
 
 // Stop generation provider
