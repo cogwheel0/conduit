@@ -140,6 +140,10 @@ struct AnswerPin {
     /// The window is over with the view resting at the pin's place: the
     /// pin stays only until a layout since has measured the answer.
     settled: bool,
+    /// At its end, measured since the window: the list is laid out from
+    /// there again whenever the answer's height changes (a diagram drawn,
+    /// a refetch), until something else moves the view.
+    resting: bool,
 }
 
 pub struct Transcript {
@@ -612,6 +616,7 @@ impl Transcript {
             applied: false,
             offset: px(0.),
             settled: false,
+            resting: false,
         });
     }
 
@@ -681,7 +686,12 @@ impl Transcript {
         let Some(pin) = &self.answer_pin else {
             return;
         };
-        let (until, applied, settled) = (pin.until.unwrap_or(now), pin.applied, pin.settled);
+        let (until, applied, settled, resting) = (
+            pin.until.unwrap_or(now),
+            pin.applied,
+            pin.settled,
+            pin.resting,
+        );
         let (mut at, held) = (pin.at, pin.offset);
         let key = pin.key.clone();
         let Some(ix) = self.keys.iter().position(|k| *k == key) else {
@@ -719,14 +729,19 @@ impl Transcript {
                 at = PinAt::End;
             }
             Some(answer) if settled => {
-                // At its end: where the answer ends now, or on to the
-                // list's end if its suggestions fit after all.
+                // At its end: it rests where the answer ends now, or goes
+                // on to the list's end if its suggestions fit after all.
                 if at == PinAt::End {
                     match self.end_offset(answer, viewport, cx) {
-                        Some(offset) if (offset - held).abs() > px(0.5) => {
-                            self.lay_out_from(ix, offset)
+                        Some(offset) => {
+                            if (offset - held).abs() > px(0.5) {
+                                self.lay_out_from(ix, offset);
+                            }
+                            if let Some(pin) = &mut self.answer_pin {
+                                pin.resting = true;
+                            }
+                            return;
                         }
-                        Some(_) => {}
                         None => self.follow_on(),
                     }
                 }
@@ -734,7 +749,9 @@ impl Transcript {
                 return;
             }
             None if settled => {
-                window.request_animation_frame();
+                if !resting {
+                    window.request_animation_frame();
+                }
                 return;
             }
             _ => {}
@@ -1799,6 +1816,7 @@ impl Render for Transcript {
         let row_popover = self.row_popover_card(window, cx);
         let bounds = self.bounds.clone();
         let (list_state, newest_height) = (self.list.clone(), self.newest_height.clone());
+        let pinned = self.answer_pin.is_some();
         let newest = self
             .keys
             .last()
@@ -1883,12 +1901,23 @@ impl Render for Transcript {
                 // After the list's layout (an earlier child): the newest
                 // row's height as laid out this frame.
                 canvas(
-                    move |b, _, _| {
+                    move |b, window, _| {
                         bounds.set(b);
                         if let Some((ix, key)) = newest
                             && let Some(row) = list_state.bounds_for_item(ix)
                         {
-                            *newest_height.borrow_mut() = Some((key, row.size.height));
+                            let mut noted = newest_height.borrow_mut();
+                            // A pinned answer that changed height is laid
+                            // out from the pin's place again in the next
+                            // frame, which nothing else may draw.
+                            if pinned
+                                && noted.as_ref().is_some_and(|(k, h)| {
+                                    *k == key && (*h - row.size.height).abs() > px(0.5)
+                                })
+                            {
+                                window.request_animation_frame();
+                            }
+                            *noted = Some((key, row.size.height));
                         }
                     },
                     |_, _, _, _| {},
@@ -2857,6 +2886,33 @@ mod tests {
         let (store, transcript, cx, daemon) =
             open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
         stop_at_a_tall_answers_end(&store, &transcript, &daemon, &question, cx);
+    }
+
+    /// A tall answer at rest at its end that changes height after (here a
+    /// refetch with two paragraphs fewer; a diagram drawn in place of its
+    /// code does the same) keeps its end at the view's bottom.
+    #[gpui_kit::test]
+    fn a_tall_answer_at_rest_at_its_end_keeps_it_there_as_it_changes(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        stop_at_a_tall_answers_end(&store, &transcript, &daemon, &question, cx);
+
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            question,
+            answer("a1", 10, &["Why?", "How?", "When?"]),
+        ]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let end = answer_end(&transcript, &list, 1, cx);
+        assert!(
+            (end - bottom).abs() < 0.5,
+            "the answer ends at {end}, not at the view's bottom {bottom}"
+        );
     }
 
     /// Under Reduce Motion, which follows the end at once, a tall answer
