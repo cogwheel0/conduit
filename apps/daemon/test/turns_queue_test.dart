@@ -846,6 +846,126 @@ void main() {
     expect(answer['done'], isTrue);
   });
 
+  /// Reports the network [online] or not, as the window does, and completes
+  /// once the core reads it so.
+  Future<void> reportNetwork({required bool online}) {
+    final read = Completer<void>();
+    final watch = runtime.container.listen<bool>(isOnlineProvider, (_, next) {
+      if (next == online && !read.isCompleted) read.complete();
+    });
+    runtime.reportNetwork(online: online);
+    return read.future.whenComplete(watch.close);
+  }
+
+  /// Sends into [chatId], streams the answer's first word, stops the server
+  /// in the middle of it, and presses Stop while it is away: the sent turn.
+  Future<SendTurnAccepted> stopWhileAway(String chatId) async {
+    final first = Completer<void>();
+    final chats = owui.chats
+      ..seed(chatId, userId: 'user-ada')
+      ..holdFirstWord = first
+      ..holdStream = Completer<void>();
+    var streamed = false;
+    events.attach('probe', (envelope) {
+      if (envelope.event == ConduitEvents.turnDelta &&
+          envelope.payload['text'] == 'The') {
+        streamed = true;
+      }
+    });
+    final sent = await clock.during(
+      turns.send(
+        SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Will the squall pass?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    first.complete();
+    await until(() => streamed);
+
+    chats.stopServer();
+    await reportNetwork(online: false);
+    await clock.during(turns.stop(chatId));
+    return sent;
+  }
+
+  Map<String, dynamic> serverAnswer(String chatId, String id) =>
+      ((owui.chats.stored[chatId]!['chat'] as Map)['history']
+              as Map)['messages'][id]
+          as Map<String, dynamic>;
+
+  test('a Stop while the server is away reaches it once it is back: the '
+      'queued update stops the chat and sends what streamed', () async {
+    const chatId = 'chat-squall';
+    final sent = await stopWhileAway(chatId);
+
+    // Kept here, and owed to the server in the store.
+    final db = runtime.container.read(appDatabaseProvider)!;
+    final stored = await db.messagesDao.getMessage(
+      chatId,
+      sent.assistantMessageId,
+    );
+    expect(stored?.content, 'The');
+    expect(
+      (await db.outboxDao.activeForChat(chatId)).map((op) => op.kind),
+      contains('updateChat'),
+    );
+
+    // Started again with no task running, its copy not done and empty.
+    final chats = owui.chats..startServer();
+    final saved = chats.chatSaved = Completer<String>();
+    runtime.reportNetwork(online: true);
+    expect(await clock.during(saved.future), chatId);
+
+    final answer = serverAnswer(chatId, sent.assistantMessageId);
+    expect(answer['content'], 'The');
+    expect(answer['done'], isTrue);
+  });
+
+  test('a Stop owed from an outage asks no stop while another device '
+      'answers in the chat, and leaves that answer as it is', () async {
+    const chatId = 'chat-hail';
+    final sent = await stopWhileAway(chatId);
+
+    final chats = owui.chats..startServer();
+    final elsewhere = chats.runElsewhere(chatId);
+    final saved = chats.chatSaved = Completer<String>();
+    runtime.reportNetwork(online: true);
+    expect(await clock.during(saved.future), chatId);
+
+    expect(chats.stopped, isEmpty);
+    final theirsId =
+        (((chats.stored[chatId]!['chat'] as Map)['history'] as Map)['messages']
+                as Map)
+            .keys
+            .cast<String>()
+            .singleWhere((id) => id.startsWith('elsewhere-answer-'));
+    final theirs = serverAnswer(chatId, theirsId);
+    expect(theirs['content'], 'Eggs,');
+    expect(theirs['done'], isFalse);
+    final ours = serverAnswer(chatId, sent.assistantMessageId);
+    expect(ours['content'], '');
+    expect(ours['done'], isFalse);
+
+    // Their answer ends; the next drain asks the stop, and sends ours.
+    final db = runtime.container.read(appDatabaseProvider)!;
+    await clock.during(
+      (db.select(db.outboxOps)..where((op) => op.chatId.equals(chatId)))
+          .watch()
+          .firstWhere((ops) => ops.any((op) => op.lastError != null)),
+    );
+    elsewhere.complete();
+    final again = chats.chatSaved = Completer<String>();
+    await clock.during(
+      runtime.container.read(syncEngineProvider.notifier).drainNow(),
+    );
+    expect(await clock.during(again.future), chatId);
+    expect(serverAnswer(chatId, sent.assistantMessageId)['content'], 'The');
+    expect(serverAnswer(chatId, sent.assistantMessageId)['done'], isTrue);
+  });
+
   test('a message sent while the server is away shows queued, and goes out '
       'once when it is back', () async {
     const chatId = 'chat-tern';

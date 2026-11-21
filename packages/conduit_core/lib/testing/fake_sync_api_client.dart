@@ -267,6 +267,24 @@ class FakeSyncApiClient implements SyncApiClient {
     return server.updateChat(id, fullBlob);
   }
 
+  /// Chat ids whose stop fails, as when the connection drops.
+  final Set<String> failChatStopIds = <String>{};
+
+  @override
+  Future<List<String>> getChatTaskIds(String chatId) async {
+    await Future<void>.delayed(Duration.zero);
+    return server.getTaskIdsByChat(chatId);
+  }
+
+  @override
+  Future<void> stopChatTasks(String chatId) async {
+    await Future<void>.delayed(Duration.zero);
+    if (failChatStopIds.contains(chatId)) {
+      throw StateError('injected chat stop failure ($chatId)');
+    }
+    server.stopTasksByChat(chatId);
+  }
+
   @override
   Future<bool> deleteChat(String id) async {
     deleteChatCalls++;

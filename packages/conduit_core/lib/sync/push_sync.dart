@@ -9,6 +9,8 @@ import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show kCompletionHeldMetadataKey, kStoppedHereMetadataKey;
+import 'package:conduit_core/services/answer_copies.dart'
+    show storedAnswerHoldsMoreThan;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -232,14 +234,18 @@ class PushSync {
         for (final m in messages)
           if (_isHeldAnswer(m)) m.id,
       };
-      final rows = await _withStoppedAnswersAsServerHas(
+      final stop = _ChatStop(client, chatId);
+      var rows = await _withStoppedAnswersAsServerHas(
         client,
         chatId,
         chatRowsFromDb(chat, messages).withoutMessages(heldAnswers),
+        stop,
       );
-      final blob = ChatBlobMapper.rowsToBlob(rows);
 
-      final resp = await client.updateChat(chatId, blob);
+      var resp = await client.updateChat(
+        chatId,
+        ChatBlobMapper.rowsToBlob(rows),
+      );
       if (resp == null) {
         // 404: chat gone server-side. Phase 2 treats this as terminal (log +
         // let the drainer markDone); Phase 3 reconciles.
@@ -254,6 +260,54 @@ class PushSync {
       // below: a copy read before this is older than them, even should a
       // pin or a move fail and leave the push to run again.
       _db.chatsDao.notePushLanded(chatId);
+
+      // Open WebUI keeps its own copy of an answer it holds as not done,
+      // whatever an update sends: one its server stopped in the middle of
+      // stays so, often empty, until the chat's stop finishes it. That stop
+      // is chat-wide, so it is asked only while the account runs no task
+      // there (another device's answer would stop too); until then the push
+      // stays owed.
+      var kept = _answersKeptUnfinished(rows, resp);
+      if (kept.isNotEmpty) {
+        final stoppedBefore = stop.asked;
+        final outcome = await stop.ask(_serverMessages(chatId, resp['chat']));
+        if (outcome == _StopOutcome.taskRuns) {
+          throw _AnswersOwed(chatId, 'a task runs in the chat');
+        }
+        // A stop taken before the update finished every answer of the
+        // account's already: those kept are another person's.
+        if (outcome == _StopOutcome.taken && !stoppedBefore) {
+          rows = await _withFullerCopies(chatId, rows, resp, kept);
+          final again = await client.updateChat(
+            chatId,
+            ChatBlobMapper.rowsToBlob(rows),
+          );
+          if (again == null) {
+            DebugLogger.warning(
+              'update-404',
+              scope: 'sync/push',
+              data: {'chatId': chatId},
+            );
+            return;
+          }
+          _db.chatsDao.notePushLanded(chatId);
+          resp = again;
+          kept = _answersKeptUnfinished(rows, resp);
+        }
+      }
+      if (stop.owed) {
+        throw _AnswersOwed(chatId, 'a Stop waits for the chat to run no task');
+      }
+      if (kept.isNotEmpty) {
+        // Another person's: the stop leaves those, and the server takes no
+        // update of them. Or the account's own while an answer waits for a
+        // tool's approval: a later push of the chat tries again.
+        DebugLogger.warning(
+          'update-kept-unfinished',
+          scope: 'sync/push',
+          data: {'chatId': chatId, 'count': kept.length},
+        );
+      }
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
       try {
@@ -328,7 +382,10 @@ class PushSync {
       // lock span, but defensively) stays dirty.
       await _clearDirty(
         chatId: chatId,
-        messageIds: capturedMessageIds,
+        messageIds: [
+          for (final id in capturedMessageIds)
+            if (!stop.unsent.contains(id)) id,
+        ],
         serverUpdatedAt: serverUpdatedAt,
       );
     });
@@ -417,28 +474,28 @@ class PushSync {
   /// Stop's text the server never took. One the server has finished or written
   /// into is taken here too, so nothing marks it any more; one it does not
   /// have stays out.
+  ///
+  /// One the server still holds as not done is the Stop still owed: it is
+  /// asked again ([stop]) once the account runs no task in the chat. Taken,
+  /// the answer goes as this device finished it, or with the server's text
+  /// where that holds more, and is stored so, no longer marked. While a task
+  /// runs, one the server has written nothing into leaves the push owed;
+  /// while an answer waits for a tool's approval, it waits for a later push.
   Future<ChatRows> _withStoppedAnswersAsServerHas(
     SyncApiClient client,
     String chatId,
     ChatRows rows,
+    _ChatStop stop,
   ) async {
     final stopped = {
       for (final message in rows.messages)
         if (_isStoppedHere(message)) message.id,
     };
     if (stopped.isEmpty) return rows;
-    final blob = (await client.getChatRaw(chatId))?['chat'];
-    final serverById = <String, MessageRowData>{
-      if (blob is Map)
-        for (final message in ChatBlobMapper.blobToRows(
-          chatId: chatId,
-          blob: Map<String, dynamic>.from(blob),
-          title: '',
-          createdAt: 0,
-          updatedAt: 0,
-        ).messages)
-          message.id: message,
-    };
+    final serverById = _serverMessages(
+      chatId,
+      (await client.getChatRaw(chatId))?['chat'],
+    );
     final absent = <String>{};
     final messages = <MessageRowData>[];
     for (final message in rows.messages) {
@@ -449,8 +506,25 @@ class PushSync {
       final server = serverById[message.id];
       if (server == null) {
         absent.add(message.id);
+        stop.unsent.add(message.id);
         messages.add(message);
         continue;
+      }
+      if (server.payload['done'] == false) {
+        switch (await stop.ask(serverById)) {
+          case _StopOutcome.taken:
+            final finished = withDerivedChildren(
+              _finishedOver(message, server),
+              rows.messages,
+            );
+            await _storeFinished(finished);
+            messages.add(finished);
+            continue;
+          case _StopOutcome.taskRuns:
+            if (server.content.isEmpty) stop.owed = true;
+          case _StopOutcome.promptWaits:
+            break;
+        }
       }
       // A follow-up's echo points it at this answer without listing it among
       // the answer's children, so they come from the rows being sent.
@@ -460,27 +534,165 @@ class PushSync {
       );
       if (server.payload['done'] == true || server.content.isNotEmpty) {
         await _db.messagesDao.upsertLocalEcho(taken);
+      } else {
+        stop.unsent.add(message.id);
       }
       messages.add(taken);
     }
-    return ChatRows(
-      chat: rows.chat,
-      messages: messages,
-      unmappableMessages: rows.unmappableMessages,
-      unmappableMessageOrder: rows.unmappableMessageOrder,
-      blobHadTitle: rows.blobHadTitle,
-      blobTitleValue: rows.blobTitleValue,
-      blobHadHistory: rows.blobHadHistory,
-      historyHadMessages: rows.historyHadMessages,
-      historyHadCurrentId: rows.historyHadCurrentId,
-      historyExtra: rows.historyExtra,
-    ).withoutMessages(absent);
+    return _withRows(rows, messages).withoutMessages(absent);
   }
+
+  /// [rows] with [messages] in place of its own.
+  static ChatRows _withRows(ChatRows rows, List<MessageRowData> messages) =>
+      ChatRows(
+        chat: rows.chat,
+        messages: messages,
+        unmappableMessages: rows.unmappableMessages,
+        unmappableMessageOrder: rows.unmappableMessageOrder,
+        blobHadTitle: rows.blobHadTitle,
+        blobTitleValue: rows.blobTitleValue,
+        blobHadHistory: rows.blobHadHistory,
+        historyHadMessages: rows.historyHadMessages,
+        historyHadCurrentId: rows.historyHadCurrentId,
+        historyExtra: rows.historyExtra,
+      );
 
   static bool _isStoppedHere(MessageRowData message) {
     final metadata = message.payload['metadata'];
     return metadata is Map && metadata[kStoppedHereMetadataKey] == true;
   }
+
+  /// The answers [rows] sent finished that [response], the chat as the
+  /// server stored it, still holds as not done.
+  static Set<String> _answersKeptUnfinished(
+    ChatRows rows,
+    Map<String, dynamic> response,
+  ) {
+    final chat = response['chat'];
+    final history = chat is Map ? chat['history'] : null;
+    final stored = history is Map ? history['messages'] : null;
+    if (stored is! Map) return const <String>{};
+    return {
+      for (final message in rows.messages)
+        if (message.role == 'assistant' &&
+            message.payload['done'] == true &&
+            stored[message.id] is Map &&
+            (stored[message.id] as Map)['done'] == false)
+          message.id,
+    };
+  }
+
+  /// [rows] with each of the answers [kept] finished over the server's
+  /// unfinished copy in [response] ([_finishedOver]), stored so where that
+  /// copy held more.
+  Future<ChatRows> _withFullerCopies(
+    String chatId,
+    ChatRows rows,
+    Map<String, dynamic> response,
+    Set<String> kept,
+  ) async {
+    final serverById = _serverMessages(chatId, response['chat']);
+    final messages = <MessageRowData>[];
+    for (final message in rows.messages) {
+      final server = serverById[message.id];
+      if (!kept.contains(message.id) || server == null) {
+        messages.add(message);
+        continue;
+      }
+      final finished = _finishedOver(message, server);
+      if (finished.content != message.content) await _storeFinished(finished);
+      messages.add(finished);
+    }
+    return _withRows(rows, messages);
+  }
+
+  /// The messages of [chat], a chat's blob as the server sent it, by id.
+  static Map<String, MessageRowData> _serverMessages(
+    String chatId,
+    Object? chat,
+  ) => <String, MessageRowData>{
+    if (chat is Map)
+      for (final message in ChatBlobMapper.blobToRows(
+        chatId: chatId,
+        blob: Map<String, dynamic>.from(chat),
+        title: '',
+        createdAt: 0,
+        updatedAt: 0,
+      ).messages)
+        message.id: message,
+  };
+
+  /// [local], an answer this device has finished, to go over [server], the
+  /// server's copy of it, which is not done: finished, no longer marked
+  /// stopped here, with the server's text and output where they hold more
+  /// (as a cut-off answer is settled), and with its own error and the rest.
+  static MessageRowData _finishedOver(
+    MessageRowData local,
+    MessageRowData server,
+  ) {
+    final payload = <String, dynamic>{...local.payload, 'done': true};
+    final metadata = payload['metadata'];
+    if (metadata is Map && metadata.containsKey(kStoppedHereMetadataKey)) {
+      final rest = <String, dynamic>{
+        for (final entry in metadata.entries)
+          if (entry.key != kStoppedHereMetadataKey) '${entry.key}': entry.value,
+      };
+      if (rest.isEmpty) {
+        payload.remove('metadata');
+      } else {
+        payload['metadata'] = rest;
+      }
+    }
+    var content = local.content;
+    if (storedAnswerHoldsMoreThan(
+      server.content,
+      _outputOf(server),
+      local.content,
+      _outputOf(local),
+    )) {
+      content = server.content;
+      payload['content'] = server.content;
+      final output = server.payload['output'];
+      if (output is List) {
+        payload['output'] = output;
+      } else {
+        payload.remove('output');
+      }
+    }
+    return MessageRowData(
+      id: local.id,
+      chatId: local.chatId,
+      parentId: local.parentId,
+      role: local.role,
+      content: content,
+      model: local.model,
+      createdAt: local.createdAt,
+      orderIndex: local.orderIndex,
+      payload: payload,
+    );
+  }
+
+  static List<Map<String, dynamic>>? _outputOf(MessageRowData message) {
+    final output = message.payload['output'];
+    return output is List
+        ? <Map<String, dynamic>>[
+            for (final item in output)
+              if (item is Map) Map<String, dynamic>.from(item),
+          ]
+        : null;
+  }
+
+  /// Stores [answer] as an edit still to push: a pull keeps it over the
+  /// server's copy, which the stop finished with the text it had, until the
+  /// push lands.
+  Future<void> _storeFinished(MessageRowData answer) =>
+      _db.transaction(() async {
+        await _db.messagesDao.upsertLocalEcho(answer, keepDirty: true);
+        await (_db.update(_db.messages)..where(
+              (t) => t.chatId.equals(answer.chatId) & t.id.equals(answer.id),
+            ))
+            .write(const MessagesCompanion(dirty: Value(true)));
+      });
 
   static bool _isHeldAnswer(MessageRow message) {
     if (message.role != 'assistant') return false;
@@ -787,6 +999,88 @@ class PushSync {
     if (value is num) return value.toInt();
     return null;
   }
+}
+
+enum _StopOutcome {
+  /// The server took the chat's stop.
+  taken,
+
+  /// The account runs a task in the chat, so it was not asked.
+  taskRuns,
+
+  /// An answer in the chat waits for a tool's approval, which the stop
+  /// would refuse, so it was not asked.
+  promptWaits,
+}
+
+/// The chat's stop for one push, asked at most once. It is chat-wide, so it
+/// is asked only while the account runs no task in the chat (another
+/// device's answer would stop with it) and no answer there waits for a
+/// tool's approval (Open WebUI's stop rejects the call).
+final class _ChatStop {
+  _ChatStop(this._client, this._chatId);
+
+  final SyncApiClient _client;
+  final String _chatId;
+  Future<_StopOutcome>? _outcome;
+
+  /// Set when an answer stopped here still waits for this stop as the push
+  /// ends.
+  bool owed = false;
+
+  /// The answers stopped here that the push carries as the server has them:
+  /// not sent, so their rows stay as dirty as they were.
+  final Set<String> unsent = <String>{};
+
+  bool get asked => _outcome != null;
+
+  /// Asks the stop of the chat whose messages the server holds as [server],
+  /// unless something above says not to. A failed request throws, and the
+  /// push is tried again.
+  Future<_StopOutcome> ask(Map<String, MessageRowData> server) =>
+      _outcome ??= () async {
+        if (server.values.any(_waitsForApproval)) {
+          return _StopOutcome.promptWaits;
+        }
+        if ((await _client.getChatTaskIds(_chatId)).isNotEmpty) {
+          return _StopOutcome.taskRuns;
+        }
+        await _client.stopChatTasks(_chatId);
+        return _StopOutcome.taken;
+      }();
+
+  /// An unfinished answer with a tool call Open WebUI's stop would reject
+  /// (`main.py`, `stop_tasks_by_chat_id_endpoint`).
+  static bool _waitsForApproval(MessageRowData message) {
+    final output = message.payload['output'];
+    return message.role == 'assistant' &&
+        message.payload['done'] == false &&
+        output is List &&
+        output.any(
+          (item) =>
+              item is Map &&
+              item['type'] == 'function_call' &&
+              const {
+                'pending',
+                'queued',
+                'requires_approval',
+              }.contains(item['status']),
+        );
+  }
+}
+
+/// A push that reached the server, with answers it holds unfinished while a
+/// task of the account's runs in the chat: not a failure, so it spends no
+/// attempt and goes again at the next drain from a second on, such as the
+/// one a change of the chat prompts when that task ends.
+class _AnswersOwed implements OutboxDeferralException {
+  const _AnswersOwed(this.chatId, this.reason);
+
+  final String chatId;
+  final String reason;
+
+  @override
+  String toString() => 'unfinished answers owed to chat $chatId: $reason';
 }
 
 class _OutboxDeferred implements OutboxDeferralException {

@@ -12207,6 +12207,9 @@ void main() {
       // As when conduitd has cut its client at shutdown, or the server cannot
       // be reached: the stop never reaches the server, which runs on.
       api.stopFailure = StateError('client closed');
+      final server = client.server
+        ..runTask(serverId, 'task-0')
+        ..runTask(serverId, 'task-1');
 
       check(await container.read(stopGenerationSettledProvider)()).isFalse();
 
@@ -12226,19 +12229,28 @@ void main() {
       }
 
       await expectStoppedHere();
-      check(
-        await db.outboxDao.hasUnconfirmedUpdate(serverId),
-        because: 'nothing may carry the stopped answers over the server\'s',
-      ).isFalse();
+      // Its chat's update asks the stop again only once the chat runs no
+      // task: until then it carries the server's own copies.
+      final engine = container.read(syncEngineProvider.notifier);
+      await engine.drainNow();
+      Map<String, dynamic> serverAnswer(String id) =>
+          ((server.getChatById(serverId)!['chat'] as Map)['history']
+                  as Map)['messages'][id]
+              as Map<String, dynamic>;
+      check(server.chatStops).isEmpty();
+      for (final id in [a, b]) {
+        check(
+          serverAnswer(id)['content'],
+          because: 'nothing may carry the stopped answers over the server\'s',
+        ).equals('');
+      }
 
       // The server's copy is still the one saved as the answers' tasks
       // started, unfinished and empty: the stopped answers stay.
-      final engine = container.read(syncEngineProvider.notifier);
       await engine.pullChatNow(serverId);
       await expectStoppedHere();
 
       // The server finishes the answers it was never told to stop.
-      final server = client.server;
       final chat =
           server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
       final messages =
@@ -12252,8 +12264,10 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       await engine.pullChatNow(serverId);
 
       for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
@@ -12344,11 +12358,11 @@ void main() {
       holdPushes(client);
       check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
 
-      check(
-        await db.outboxDao.hasUnconfirmedUpdate(serverId),
-        because: 'the finished answers are the server\'s, not this stop\'s',
-      ).isFalse();
       for (final id in [a, b]) {
+        check(
+          await dirty(serverId, id),
+          because: 'the finished answers are the server\'s, not this stop\'s',
+        ).isFalse();
         check((await storedAnswer(serverId, id))['usage'])
             .isA<Map<String, dynamic>>()
             .deepEquals({'output_tokens': 3});
