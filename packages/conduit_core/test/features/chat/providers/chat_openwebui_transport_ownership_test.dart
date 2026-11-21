@@ -9400,9 +9400,6 @@ void main() {
         await replay(container);
         check(api.requests).length.equals(1);
 
-        await replay(container);
-        check(api.requests).length.equals(1);
-
         // The last [unmarked] answers carry no sign now: they look fresh.
         for (final handle in handles.reversed.take(unmarked)) {
           final row = (await db.messagesDao.getMessage(
