@@ -147,13 +147,23 @@ final class TerminalsService {
     String scope,
   ) => withTerminalModel(servers, _modelFor, scope, log: _log);
 
+  /// Every server the account's chats may use, for the window's page and
+  /// composer. One made per model goes with New Chat's model; while New Chat
+  /// has none ([TerminalServerInfo.needsModel]) it is left to saved chats,
+  /// each with its own.
+  Future<List<TerminalServerInfo>> _windowServers() async {
+    final servers = await _chatServers();
+    if (!servers.any((s) => s.requiresModelContext)) return servers;
+    final modelId = await terminalModelIn(_modelFor, _pageScope, log: _log);
+    return [for (final server in servers) server.forModel(modelId)];
+  }
+
   /// The servers [scopeId]'s chat may use. With none, every one the
   /// account's chats may use: the window offers one that needs a saved chat
   /// only to a saved chat, and never on the page, which opens outside any.
-  /// One made per model is among them while New Chat has a model.
   Future<TerminalServers> servers(String scopeId) async {
     final servers = scopeId.trim().isEmpty
-        ? await _forModel(await _chatServers(), _pageScope)
+        ? await _windowServers()
         : await _available(scopeId);
     final selected = resolveSelectedTerminalServerForTest(
       servers,
@@ -166,7 +176,8 @@ final class TerminalsService {
             id: server.selectionId,
             name: server.displayName,
             kind: server.kind.name,
-            requiresSavedChat: server.requiresSavedChatContext,
+            requiresSavedChat:
+                server.requiresSavedChatContext || server.needsModel,
             device: server.isTetherDevice,
           ),
       ],

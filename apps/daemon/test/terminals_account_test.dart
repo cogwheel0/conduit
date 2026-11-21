@@ -298,10 +298,10 @@ void main() {
       check(
         (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
       ).not((it) => it.contains('per-model'));
-      // The list the window offers outside any chat leaves it out too, and
-      // still lists the one that needs a saved chat, for the chats.
-      check((await terminals.servers('')).servers.map((s) => s.id))
-          .deepEquals(['box', 'per-chat']);
+      // The window's own list: the page and a new chat leave it out.
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
       await check(
         terminals.attach(
           const TerminalAttach(
@@ -324,17 +324,46 @@ void main() {
       );
       addTearDown(terminals.dispose);
 
-      for (final scope in ['chat-lighthouse', '']) {
-        check(
-          because: scope,
-          (await terminals.servers(scope)).servers.map((s) => s.id),
-        ).deepEquals(['box', 'per-chat']);
-      }
+      check(
+        (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
+      ).deepEquals(['box', 'per-chat']);
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
       final attached = await terminals.attach(
         const TerminalAttach(serverId: 'box', scopeId: 'chat-lighthouse'),
       );
       check(attached.handle).isNotEmpty();
       check(server.modelIds).isEmpty();
+    });
+
+    test("a saved chat keeps one New Chat can't use", () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async => chatId == 'chat-lighthouse'
+            ? 'nova-chat'
+            : throw const RpcError(
+                code: ConduitErrorCodes.unsupported,
+                debugMessage: 'no model this chat can run with',
+              ),
+      );
+      addTearDown(terminals.dispose);
+
+      // The composer of a saved chat offers it from the window's own list,
+      // for that chat's own model; the page and a new chat don't.
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
+      final selected = await terminals.select(
+        'per-model',
+        scopeId: 'chat-lighthouse',
+      );
+      check(selected.selectedId).equals('per-model');
+      await terminals.attach(
+        const TerminalAttach(serverId: 'per-model', scopeId: 'chat-lighthouse'),
+      );
+      check(server.modelIds).deepEquals(['nova-chat', 'nova-chat']);
     });
   });
 
@@ -424,6 +453,14 @@ void main() {
     });
   });
 }
+
+/// The list the window keeps for the page and the composer
+/// (`terminal.servers` with no chat): each terminal, and whether only a
+/// saved chat may use it.
+Future<List<(String, bool)>> _windowList(TerminalsService terminals) async => [
+  for (final server in (await terminals.servers('')).servers)
+    (server.id, server.requiresSavedChat),
+];
 
 /// Open WebUI 0.13.4's template that makes a machine per model.
 const _perModel = <String, dynamic>{
