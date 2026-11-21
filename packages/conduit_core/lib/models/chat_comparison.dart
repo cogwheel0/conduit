@@ -55,6 +55,11 @@ const String kMessageHeldByServerMetadataKey = 'heldByServer';
 /// reads its op instead ([RequestCompletionPayload.held]).
 const String kCompletionHeldMetadataKey = 'completionHeld';
 
+/// Where an answer's metadata says it was stopped on this device by a Stop
+/// the server has not accepted: its text stays on this device, and a push of
+/// the chat carries the answer as the server holds it, unfinished and empty.
+const String kStoppedHereMetadataKey = 'stoppedHere';
+
 extension ChatMessageComparisonFields on ChatMessage {
   /// Whether the server holds this question until a running reply ends.
   bool get isHeldByServer => metadata?[kMessageHeldByServerMetadataKey] == true;

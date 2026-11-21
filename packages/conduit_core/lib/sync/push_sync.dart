@@ -8,7 +8,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart'
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kCompletionHeldMetadataKey;
+    show kCompletionHeldMetadataKey, kStoppedHereMetadataKey;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -230,7 +230,9 @@ class PushSync {
         for (final m in messages)
           if (_isHeldAnswer(m)) m.id,
       };
-      final rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
+      final rows = _withStoppedAnswersAsServerHas(
+        chatRowsFromDb(chat, messages).withoutMessages(heldAnswers),
+      );
       final blob = ChatBlobMapper.rowsToBlob(rows);
 
       final resp = await client.updateChat(chatId, blob);
@@ -391,6 +393,56 @@ class PushSync {
       throw _OutboxDeferred('no session owns the account of chat $chatId');
     }
     return client;
+  }
+
+  /// [rows] with each answer kept on this device for a Stop the server has
+  /// not accepted ([kStoppedHereMetadataKey]) as the server holds it,
+  /// unfinished and empty. The push replaces the chat's whole history, so
+  /// leaving the answer out would remove it there.
+  static ChatRows _withStoppedAnswersAsServerHas(ChatRows rows) {
+    var changed = false;
+    final messages = <MessageRowData>[];
+    for (final message in rows.messages) {
+      final metadata = message.payload['metadata'];
+      if (metadata is! Map || metadata[kStoppedHereMetadataKey] != true) {
+        messages.add(message);
+        continue;
+      }
+      changed = true;
+      messages.add(
+        MessageRowData(
+          id: message.id,
+          chatId: message.chatId,
+          parentId: message.parentId,
+          role: message.role,
+          content: '',
+          model: message.model,
+          createdAt: message.createdAt,
+          orderIndex: message.orderIndex,
+          payload: <String, dynamic>{
+            for (final entry in message.payload.entries)
+              if (entry.key != 'output') entry.key: entry.value,
+            'content': '',
+            'done': false,
+            'metadata': Map<String, dynamic>.from(metadata)
+              ..remove(kStoppedHereMetadataKey),
+          },
+        ),
+      );
+    }
+    if (!changed) return rows;
+    return ChatRows(
+      chat: rows.chat,
+      messages: messages,
+      unmappableMessages: rows.unmappableMessages,
+      unmappableMessageOrder: rows.unmappableMessageOrder,
+      blobHadTitle: rows.blobHadTitle,
+      blobTitleValue: rows.blobTitleValue,
+      blobHadHistory: rows.blobHadHistory,
+      historyHadMessages: rows.historyHadMessages,
+      historyHadCurrentId: rows.historyHadCurrentId,
+      historyExtra: rows.historyExtra,
+    );
   }
 
   static bool _isHeldAnswer(MessageRow message) {
