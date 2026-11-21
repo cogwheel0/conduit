@@ -803,9 +803,9 @@ fn shell(
         let (w, h) = crate::shell::placement::QUICK_ASK_SIZE;
         let opened = cx.update(|cx| {
             let bounds = Bounds::centered(None, size(px(w as f32), px(h as f32)), cx);
-            let stores = stores.clone();
+            let (stores, settings) = (stores.clone(), settings.clone());
             cw::open_window_clear_root(cw::quick_ask_options(bounds, true), cx, |window, cx| {
-                cx.new(|cx| QuickAskView::new(stores, window, cx))
+                cx.new(|cx| QuickAskView::new(stores, settings, window, cx))
             })
         });
         let Ok((quick, _)) = opened else {

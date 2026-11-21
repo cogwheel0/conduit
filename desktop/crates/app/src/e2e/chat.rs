@@ -1025,7 +1025,114 @@ async fn direct_chat(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool 
             false,
         );
     }
+    #[cfg(target_os = "macos")]
+    {
+        pass &= menu_greying(cx).await;
+    }
     pass
+}
+
+/// View's zoom items and the Chat menu's items that grey out, as AppKit
+/// shows them (its validation asks GPUI, which never sees an item's
+/// `disabled`): each as its menu value says, and off where it would do
+/// nothing. Read outside any update: AppKit's validation calls back into
+/// GPUI.
+#[cfg(target_os = "macos")]
+async fn menu_greying(cx: &mut AsyncApp) -> bool {
+    use crate::prefs::TEXT_SIZE_MAX;
+    let size = |size: Option<f32>, cx: &mut AsyncApp| {
+        cx.update(|cx| {
+            let settings = cx.global::<AppState>().settings.clone();
+            settings.update(cx, |s, cx| s.set_appearance(|a| a.text_size = size, cx));
+        })
+    };
+    let titles = cx.update(|cx| {
+        let l = crate::l10n::ActiveL10n::l10n(cx).clone();
+        (
+            l.desktop_menu_view(),
+            l.desktop_menu_zoom_in(),
+            l.desktop_menu_chat(),
+            l.desktop_read_aloud(),
+        )
+    });
+    let (view, zoom_in, chat, read_aloud) = titles;
+
+    // A chat open with answers, nothing read, the text at its actual size.
+    size(None, cx);
+    let open = menus_out_of_step(cx).await;
+    let s = cx.update(|cx| crate::menus::menu_state(cx));
+    let mut pass = ok(
+        &format!("with a chat open, the items that grey out are as their menu says ({open:?})"),
+        open.is_empty(),
+    );
+    pass &= ok(
+        "… Read Aloud and Ask Conduit on, Actual Size and Stop Speaking off",
+        s.read_aloud && s.ask_conduit && !s.zoom.can_reset && !s.speaking,
+    );
+    // The largest text size: Zoom In would do nothing.
+    size(Some(TEXT_SIZE_MAX), cx);
+    let largest = menus_out_of_step(cx).await;
+    let on = crate::shell::macos::menu_item_enabled(&view, &zoom_in);
+    pass &= ok(
+        &format!("at the largest text size, View › Zoom In is off ({on:?}; {largest:?})"),
+        on == Some(false) && largest.is_empty(),
+    );
+    size(None, cx);
+    // A new chat: nothing to read or ask about.
+    in_main(cx, |mw, _, cx| {
+        mw.stores
+            .navigation
+            .update(cx, |n, cx| n.new_chat(false, cx))
+    });
+    settle(cx, 400).await;
+    let new = menus_out_of_step(cx).await;
+    let on = crate::shell::macos::menu_item_enabled(&chat, &read_aloud);
+    pass &= ok(
+        &format!("in a new chat, Chat › Read Aloud is off ({on:?}; {new:?})"),
+        on == Some(false) && new.is_empty(),
+    );
+    pass
+}
+
+/// The items that grey out whose AppKit state differs from their menu
+/// value (`menus::menu_state`), with the main window in front.
+#[cfg(target_os = "macos")]
+async fn menus_out_of_step(cx: &mut AsyncApp) -> Vec<String> {
+    in_main(cx, |_, window, _| window.activate_window());
+    cx.update(crate::menus::refresh_menus);
+    settle(cx, 300).await;
+    let items = cx.update(|cx| {
+        let l = crate::l10n::ActiveL10n::l10n(cx).clone();
+        let s = crate::menus::menu_state(cx);
+        let (view, chat) = (l.desktop_menu_view(), l.desktop_menu_chat());
+        let call = if s.in_call {
+            l.desktop_end_voice_call()
+        } else {
+            l.desktop_start_voice_call()
+        };
+        vec![
+            (view.clone(), l.desktop_menu_actual_size(), s.zoom.can_reset),
+            (view.clone(), l.desktop_menu_zoom_in(), s.zoom.can_zoom_in),
+            (view, l.desktop_menu_zoom_out(), s.zoom.can_zoom_out),
+            (chat.clone(), l.ask_conduit_action(), s.ask_conduit),
+            (chat.clone(), l.desktop_read_aloud(), s.read_aloud),
+            (chat.clone(), l.desktop_stop_speaking(), s.speaking),
+            (chat.clone(), call, s.in_call || s.call_ready),
+            (
+                chat.clone(),
+                l.desktop_chat_settings_menu(),
+                s.chat_settings,
+            ),
+            (chat, l.desktop_tool_settings_menu(), s.tool_settings),
+        ]
+    });
+    items
+        .into_iter()
+        .filter_map(|(menu, item, want)| {
+            let on = crate::shell::macos::menu_item_enabled(&menu, &item);
+            (on != Some(want)).then(|| format!("{item}: AppKit {on:?}, menu {want}"))
+        })
+        .collect()
 }
 
 async fn chat_ids(cx: &mut AsyncApp) -> Option<BTreeSet<String>> {

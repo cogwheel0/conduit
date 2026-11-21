@@ -37,6 +37,7 @@ use crate::stores::composer::{ComposerEvent, ComposerPrefs, ComposerStore};
 use crate::stores::connection::ConnectionEvent;
 use crate::stores::router::RouterEvent;
 use crate::stores::session::Route;
+use crate::stores::settings::SettingsStore;
 use crate::views::chat::composer::{ChatComposer, ChatComposerEvent};
 use crate::views::chat::rows::{RowHost, RowSink};
 use crate::views::chat::transcript::Transcript;
@@ -75,6 +76,8 @@ impl gpui_kit::EventEmitter<QuickAskEvent> for QuickAskView {}
 
 pub struct QuickAskView {
     stores: Stores,
+    /// The text size View › Zoom In and the rest step.
+    settings: Entity<SettingsStore>,
     pub composer_store: Entity<ComposerStore>,
     pub composer: Entity<ChatComposer>,
     pub chat: Option<QuickChat>,
@@ -102,7 +105,12 @@ const PANEL_RADIUS: f32 = 16.;
 const SCROLLED_TOP_FADE: f32 = 28.;
 
 impl QuickAskView {
-    pub fn new(stores: Stores, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        stores: Stores,
+        settings: Entity<SettingsStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let rpc = stores.connection.read(cx).rpc();
         let composer_store = cx.new(|_| ComposerStore::new(rpc, Some(daemon_uploader())));
         // Settings › Chat's choices (Send with Enter, quick pills, Save as
@@ -216,6 +224,7 @@ impl QuickAskView {
         let scope = scope_of(&stores, cx);
         let mut this = Self {
             stores,
+            settings,
             composer_store,
             composer,
             chat: None,
@@ -795,6 +804,7 @@ impl Render for QuickAskView {
                     cx.emit(QuickAskEvent::Hide)
                 }),
             )
+            .map(|d| crate::menus::app_commands(d, &self.settings, &self.stores.speech, cx))
             .size_full()
             .flex()
             .flex_col()
@@ -939,13 +949,69 @@ mod tests {
         stores.accounts.update(cx, |a, cx| {
             a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
         });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
         let s = stores.clone();
-        let (view, vcx) = cx.add_window_view(move |window, cx| QuickAskView::new(s, window, cx));
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| QuickAskView::new(s, settings, window, cx));
         (daemon, stores, view, vcx)
     }
 
     fn uploaded(name: &str) -> Attachment {
         Attachment::uploaded_for_test(0, name, &format!("file-{name}"))
+    }
+
+    /// The panel's text follows the text size and its answers are read
+    /// aloud: ⌘+ and ⌘. reach it while they would act (no handler on the
+    /// app answers them).
+    #[gpui_kit::test]
+    fn the_zoom_keys_and_stop_speaking_reach_quick_ask_while_they_act(cx: &mut TestAppContext) {
+        use conduit_protocol::{SpeechProgress, SpeechState, SpeechStatus};
+
+        use crate::actions::{StopSpeaking, ZoomIn};
+        use crate::menus::appkit_enables;
+        use crate::prefs::TEXT_SIZE_MAX;
+        let (daemon, stores, view, vcx) = bench(cx);
+        vcx.cx.update(crate::register_actions);
+        // Shown: the caret in the composer.
+        view.update_in(vcx, |v, window, cx| v.focus_composer(window, cx));
+        let settings = view.read_with(vcx, |v, _| v.settings.clone());
+        settings.update(vcx, |s, cx| {
+            s.set_appearance(|a| a.text_size = Some(TEXT_SIZE_MAX - 1.), cx)
+        });
+        vcx.run_until_parked();
+        assert!(appkit_enables(vcx, &ZoomIn), "⌘+ is off in Quick Ask");
+        vcx.dispatch_action(ZoomIn);
+        vcx.run_until_parked();
+        assert_eq!(
+            settings.read_with(vcx, |s, _| s.prefs.appearance.text_size),
+            Some(TEXT_SIZE_MAX),
+            "⌘+ did not step the text size"
+        );
+        assert!(
+            !appkit_enables(vcx, &ZoomIn),
+            "⌘+ is on at the largest size"
+        );
+
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "⌘. is on with nothing read"
+        );
+        daemon.returns::<methods::SpeechGet>(SpeechState {
+            progress: SpeechProgress {
+                status: SpeechStatus::Speaking,
+                reading: 1,
+                message_id: Some("answer-1".into()),
+                ..Default::default()
+            },
+            sentences: vec![],
+        });
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &StopSpeaking),
+            "⌘. is off while reading"
+        );
     }
 
     #[gpui_kit::test]

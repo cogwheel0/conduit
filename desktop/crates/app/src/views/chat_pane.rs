@@ -1714,6 +1714,17 @@ impl ChatPane {
                 .is_some()
     }
 
+    /// Chat › Ask Conduit has a composer to give the selection to: a chat
+    /// the window shows that takes messages (a temporary or Hermes chat
+    /// too), not a read-only one, whose composer is a notice.
+    pub fn can_ask_conduit(&self, cx: &App) -> bool {
+        self.can_read_aloud(cx)
+            && self.chat.as_ref().is_some_and(|c| {
+                let s = c.store.read(cx);
+                !s.read_only() && !s.hermes_read_only()
+            })
+    }
+
     /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
     /// read (Resume while paused), as its own Read Aloud does.
     pub fn read_aloud_last(&mut self, cx: &mut Context<Self>) {
@@ -2881,16 +2892,16 @@ fn with_pane_now(cx: &mut App, f: impl FnOnce(&mut ChatPane, &mut Window, &mut C
     });
 }
 
-/// The chat shortcuts, on the app so they work wherever focus is.
+/// The chat shortcuts, on the app so they work wherever focus is. Not the
+/// Chat menu's items that grey out (Ask Conduit, Read Aloud, Stop Speaking,
+/// Start Voice Call, Chat Settings… and Tool Settings…): a handler here
+/// would keep them enabled, so the windows take them while they act
+/// ([`crate::views::main_window`], [`crate::menus::app_commands`]).
 pub fn register_actions(cx: &mut App) {
     cx.on_action(|_: &FocusComposer, cx| with_pane(cx, |p, w, cx| p.focus_composer(w, cx)));
     cx.on_action(|_: &FocusModelPicker, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
     cx.on_action(|_: &ChooseModel, cx| with_pane(cx, |p, w, cx| p.open_model_picker(w, cx)));
     cx.on_action(|_: &StopGenerating, cx| with_pane(cx, |p, _, cx| p.stop(cx)));
-    cx.on_action(|_: &crate::actions::ReadAloud, cx| {
-        with_pane(cx, |p, _, cx| p.read_aloud_last(cx))
-    });
-    cx.on_action(|_: &crate::actions::VoiceCall, cx| with_pane(cx, |p, _, cx| p.toggle_call(cx)));
     cx.on_action(|_: &crate::actions::ShowCall, cx| {
         crate::open_main_window(cx);
         cx.defer(|cx| with_pane_now(cx, |p, _, cx| p.show_call(cx)));
@@ -2900,27 +2911,10 @@ pub fn register_actions(cx: &mut App) {
             call.update(cx, |c, cx| c.end(cx));
         }
     });
-    // ⌘. ends the reading from anywhere (Settings' preview too).
-    cx.on_action(|_: &crate::actions::StopSpeaking, cx| {
-        if let Some(speech) = cx.try_global::<AppState>().map(|s| s.stores.speech.clone()) {
-            speech.update(cx, |s, cx| s.stop(cx));
-        }
-    });
     cx.on_action(|_: &CopyLastResponse, cx| with_pane(cx, |p, _, cx| p.copy_last_response(cx)));
     cx.on_action(|_: &CopyLastCodeBlock, cx| with_pane(cx, |p, _, cx| p.copy_last_code_block(cx)));
-    cx.on_action(|_: &crate::actions::AskConduit, cx| {
-        with_pane(cx, |p, w, cx| p.ask_conduit(w, cx))
-    });
     cx.on_action(|_: &crate::actions::CopySelection, cx| {
         with_pane(cx, |p, _, cx| p.copy_selection(cx))
-    });
-    // ⌘I is Get Info: the chat's settings (the sidebar's list takes it
-    // first for a folder its keyboard is on).
-    cx.on_action(|_: &crate::actions::ChatSettings, cx| {
-        with_pane(cx, |p, w, cx| p.open_chat_settings(w, cx))
-    });
-    cx.on_action(|_: &crate::actions::ToolSettings, cx| {
-        with_pane(cx, |p, w, cx| p.open_tool_settings(w, cx))
     });
     cx.on_action(|_: &crate::actions::Dictate, cx| {
         with_pane(cx, |p, w, cx| {

@@ -1805,12 +1805,13 @@ fn quick_ask_window(cx: &mut App) -> Option<(AnyWindowHandle, Entity<QuickAskVie
     {
         return Some((handle, view));
     }
-    let stores = cx.try_global::<AppState>()?.stores.clone();
+    let state = cx.try_global::<AppState>()?;
+    let (stores, settings) = (state.stores.clone(), state.settings.clone());
     let (w, h) = crate::shell::placement::QUICK_ASK_SIZE;
     let bounds = Bounds::centered(None, size(px(w as f32), px(h as f32)), cx);
     let options = cw::quick_ask_options(bounds, true);
     let (handle, view) = match cw::open_window_clear_root(options, cx, |window, cx| {
-        cx.new(|cx| QuickAskView::new(stores, window, cx))
+        cx.new(|cx| QuickAskView::new(stores, settings, window, cx))
     }) {
         Ok(v) => v,
         Err(e) => {

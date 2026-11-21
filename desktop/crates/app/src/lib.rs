@@ -707,11 +707,6 @@ fn register_actions(cx: &mut App) {
         open_main_window(cx);
         with_main_view(cx, |view, window, cx| view.new_chat(true, window, cx));
     });
-    // View › Actual Size, Zoom In and Zoom Out: the message text size, from
-    // any window (Settings shows it change).
-    cx.on_action(|_: &ActualSize, cx| zoom_text(menus::ZoomStep::Actual, cx));
-    cx.on_action(|_: &ZoomIn, cx| zoom_text(menus::ZoomStep::In, cx));
-    cx.on_action(|_: &ZoomOut, cx| zoom_text(menus::ZoomStep::Out, cx));
     // The sidebar's menu commands, when nothing in the main window has
     // focus (the path from the root then misses its handlers).
     cx.on_action(|a: &views::sidebar::ChatMenu, cx| {
@@ -806,21 +801,6 @@ fn register_actions(cx: &mut App) {
             let locale = action.locale.clone();
             settings.update(cx, |s, cx| s.set_locale(locale, cx));
         }
-    });
-}
-
-/// Steps Settings › Appearance › Text Size (View › Zoom In and the rest).
-fn zoom_text(step: menus::ZoomStep, cx: &mut App) {
-    let Some(settings) = cx.try_global::<AppState>().map(|s| s.settings.clone()) else {
-        return;
-    };
-    settings.update(cx, |s, cx| {
-        s.set_appearance(
-            |a| {
-                menus::zoom(a, step);
-            },
-            cx,
-        )
     });
 }
 
