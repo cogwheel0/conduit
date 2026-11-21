@@ -705,6 +705,14 @@ impl ChatPane {
         .detach();
     }
 
+    /// The open chat's branches can be shown (its detail has loaded, with
+    /// the branch rule): Chat › Show Branches… applies.
+    pub fn branches(&self, cx: &App) -> bool {
+        self.chat
+            .as_ref()
+            .is_some_and(|c| c.store.read(cx).abilities().branch)
+    }
+
     /// A temporary chat with messages is open: Save Chat applies.
     pub fn can_save_temporary(&self, cx: &App) -> bool {
         self.chat.as_ref().is_some_and(|c| {

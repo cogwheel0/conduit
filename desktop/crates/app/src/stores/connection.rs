@@ -314,6 +314,14 @@ impl ConnectionStore {
         self.rpc_handle = rpc;
     }
 
+    /// A view test's connection, read as a daemon still starting rather
+    /// than one that failed for want of a master key: a routed window
+    /// shows its main frame.
+    #[cfg(test)]
+    pub fn set_starting_for_test(&mut self) {
+        self.startup_error = None;
+    }
+
     /// The handle stores call the daemon through.
     pub fn rpc(&self) -> Rpc {
         self.rpc_handle.clone()

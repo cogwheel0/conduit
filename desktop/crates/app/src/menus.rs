@@ -12,7 +12,9 @@
 //! Mail keeps its Message menu and context menu in step.
 //!
 //! Items whose action has no handler where focus is show disabled: GPUI's
-//! macOS menus validate each item against the actions available. Each item
+//! macOS menus validate each item against the actions available, and an
+//! item's own `disabled` never reaches AppKit (only a submenu's is applied,
+//! in [`install`]). Each item
 //! shows the first chord bound to its action, so New Chat reads ⌘N while
 //! ⇧⌘O keeps working.
 
@@ -506,15 +508,10 @@ pub fn menu_state(cx: &App) -> MenuState {
     let sidebar_visible = state.layout.read(cx).state.sidebar_visible;
     let zoom = ZoomState::of(&state.settings.read(cx).prefs.appearance);
     let chat_list = state.stores.chat_list.read(cx);
-    // The open chat's branch rule, once its detail has loaded.
-    let branches = state.main_view.as_ref().is_some_and(|v| {
-        v.read(cx)
-            .chat_pane
-            .read(cx)
-            .chat
-            .as_ref()
-            .is_some_and(|c| c.store.read(cx).abilities().branch)
-    });
+    let branches = state
+        .main_view
+        .as_ref()
+        .is_some_and(|v| v.read(cx).chat_pane.read(cx).branches(cx));
     let chat = state
         .stores
         .navigation

@@ -643,7 +643,34 @@ impl Render for MainWindow {
         if window.focused(cx).is_none() {
             window.focus(&self.focus, cx);
         }
-        let chat_menu = shows_main && self.menu_chat(cx).is_some();
+        // A menu item is greyed only when no handler answers its action:
+        // AppKit asks GPUI whether the action is available, and an item's
+        // `disabled` never reaches it. So a command that would do nothing
+        // gets no handler, by the rules the menus are built with.
+        let open_chat = self.menu_chat(cx).filter(|_| shows_main).and_then(|id| {
+            let list = self.stores.chat_list.read(cx);
+            list.find(&id).map(|c| (c.archived, c.menu.clone()))
+        });
+        let chat_menu = open_chat.is_some();
+        let (archived, offered) = open_chat.unwrap_or_default();
+        // With chats chosen, a command for one chat is left undone.
+        let choosing = self.sidebar.read(cx).has_selection();
+        let acts = |command: ChatCommand| {
+            chat_menu && (!choosing || crate::views::sidebar::bulk_action(&command).is_some())
+        };
+        let archive = if archived {
+            ChatCommand::Unarchive
+        } else {
+            ChatCommand::Archive
+        };
+        let (can_go_back, can_go_forward) = {
+            let usable = self.usable_step(cx);
+            let navigation = self.stores.navigation.read(cx);
+            (
+                shows_main && navigation.can_go_back(&usable),
+                shows_main && navigation.can_go_forward(&usable),
+            )
+        };
         // Find in Chat: over any open chat, read-only ones too.
         let findable = shows_main && self.shows_chat(cx) && self.chat_pane.read(cx).chat.is_some();
         let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
@@ -778,8 +805,14 @@ impl Render for MainWindow {
                 this.sidebar
                     .update(cx, |s, cx| s.run_folder(&id, command, window, cx));
             }))
-            .when(shows_main, |d| {
+            .when(can_go_back, |d| {
                 d.on_action(cx.listener(|this, _: &GoBack, _, cx| this.go(true, cx)))
+            })
+            .when(can_go_forward, |d| {
+                d.on_action(cx.listener(|this, _: &GoForward, _, cx| this.go(false, cx)))
+            })
+            .when(shows_main, |d| {
+                d
                     // Go › Move Focus to Next and Previous Area: the window's
                     // next or previous stop, as Tab and Shift-Tab, out of a
                     // view that keeps Tab (the terminal's console) too.
@@ -793,7 +826,6 @@ impl Render for MainWindow {
                             window.focus_prev(cx);
                         },
                     ))
-                    .on_action(cx.listener(|this, _: &GoForward, _, cx| this.go(false, cx)))
                     .on_action(cx.listener(|this, a: &GoToSection, window, cx| {
                         this.go_to_section(a.index, window, cx)
                     }))
@@ -844,12 +876,14 @@ impl Render for MainWindow {
                 }))
             })
             // The Chat menu: available only with a chat open that takes
-            // changes (GPUI greys out an item no handler answers).
-            .when(chat_menu, |d| {
+            // changes, and what that chat offers.
+            .when(acts(ChatCommand::Rename), |d| {
                 d.on_action(cx.listener(|this, _: &RenameChat, window, cx| {
                     this.chat_command(|_| ChatCommand::Rename, window, cx)
                 }))
-                .on_action(cx.listener(|this, _: &TogglePinChat, window, cx| {
+            })
+            .when(acts(ChatCommand::Pin), |d| {
+                d.on_action(cx.listener(|this, _: &TogglePinChat, window, cx| {
                     this.chat_command(
                         |c| {
                             if c.pinned {
@@ -862,7 +896,9 @@ impl Render for MainWindow {
                         cx,
                     )
                 }))
-                .on_action(cx.listener(|this, _: &ArchiveChat, window, cx| {
+            })
+            .when(acts(archive), |d| {
+                d.on_action(cx.listener(|this, _: &ArchiveChat, window, cx| {
                     this.chat_command(
                         |c| {
                             if c.archived {
@@ -875,13 +911,19 @@ impl Render for MainWindow {
                         cx,
                     )
                 }))
-                .on_action(cx.listener(|this, _: &DeleteChat, window, cx| {
+            })
+            .when(acts(ChatCommand::Delete), |d| {
+                d.on_action(cx.listener(|this, _: &DeleteChat, window, cx| {
                     this.chat_command(|_| ChatCommand::Delete, window, cx)
                 }))
-                .on_action(cx.listener(|this, _: &ShareChat, window, cx| {
+            })
+            .when(offered.share && acts(ChatCommand::Share), |d| {
+                d.on_action(cx.listener(|this, _: &ShareChat, window, cx| {
                     this.chat_command(|_| ChatCommand::Share, window, cx)
                 }))
-                .on_action(cx.listener(|this, _: &MarkChatUnread, window, cx| {
+            })
+            .when(offered.mark_unread && acts(ChatCommand::MarkUnread), |d| {
+                d.on_action(cx.listener(|this, _: &MarkChatUnread, window, cx| {
                     this.chat_command(
                         |c| {
                             if c.unread {
@@ -894,22 +936,41 @@ impl Render for MainWindow {
                         cx,
                     )
                 }))
-                .on_action(cx.listener(|this, _: &GenerateChatTitle, window, cx| {
-                    this.chat_command(|_| ChatCommand::GenerateTitle, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &DuplicateChat, window, cx| {
+            })
+            .when(
+                offered.generate_title && acts(ChatCommand::GenerateTitle),
+                |d| {
+                    d.on_action(cx.listener(|this, _: &GenerateChatTitle, window, cx| {
+                        this.chat_command(|_| ChatCommand::GenerateTitle, window, cx)
+                    }))
+                },
+            )
+            .when(acts(ChatCommand::Duplicate), |d| {
+                d.on_action(cx.listener(|this, _: &DuplicateChat, window, cx| {
                     this.chat_command(|_| ChatCommand::Duplicate, window, cx)
                 }))
-                .on_action(cx.listener(|this, a: &ExportChatAs, window, cx| {
-                    let format = a.format;
-                    this.chat_command(move |_| ChatCommand::Export(format), window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &ShowBranches, window, cx| {
+            })
+            .when(
+                offered.export
+                    && acts(ChatCommand::Export(
+                        conduit_protocol::ChatExportFormat::Json,
+                    )),
+                |d| {
+                    d.on_action(cx.listener(|this, a: &ExportChatAs, window, cx| {
+                        let format = a.format;
+                        this.chat_command(move |_| ChatCommand::Export(format), window, cx)
+                    }))
+                },
+            )
+            .when(chat_menu && self.chat_pane.read(cx).branches(cx), |d| {
+                d.on_action(cx.listener(|this, _: &ShowBranches, window, cx| {
                     this.chat_pane.update(cx, |p, cx| {
                         p.show_branches(window, cx);
                     });
                 }))
-                .on_action(cx.listener(|this, a: &MoveChatTo, window, cx| {
+            })
+            .when(chat_menu, |d| {
+                d.on_action(cx.listener(|this, a: &MoveChatTo, window, cx| {
                     let folder = a.folder_id.clone();
                     this.chat_command(
                         move |_| match folder {
@@ -997,5 +1058,235 @@ mod approvals_tests {
             "a note's pane answered the chat"
         );
         assert!(!super::answers_chat_prompt(false, false));
+    }
+}
+
+/// The menu bar greys an action item only when no handler on the focus path
+/// answers its action (AppKit's validation asks GPUI, which ignores the
+/// item's `disabled`), so these check the window itself.
+#[cfg(test)]
+mod chat_menu_tests {
+    use chrono::Local;
+    use gpui_kit::{Action, Entity, TestAppContext, VisualTestContext};
+
+    use super::*;
+    use crate::stores::accounts::tests::{account, list};
+    use crate::stores::rpc::fake::FakeDaemon;
+    use crate::views::sidebar_keys::Pick;
+
+    /// Two chats whose menus offer everything, one whose menu offers
+    /// nothing, an archived one, and a folder. Only A has branches.
+    fn chats() -> FakeDaemon {
+        use conduit_protocol::methods;
+        let now = Local::now().timestamp_millis();
+        let all = serde_json::json!({
+            "share": true, "duplicate": true, "move": true,
+            "markUnread": true, "generateTitle": true, "export": true,
+        });
+        let chats = serde_json::json!([
+            {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now, "menu": all},
+            {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1, "menu": all},
+            {"id": "chat-c", "title": "Kiln notes", "updatedAtMs": now - 2},
+            {"id": "chat-d", "title": "Old maps", "updatedAtMs": now - 3, "archived": true, "menu": all},
+        ]);
+        let list: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
+            "chats": chats,
+            "folders": [{"id": "recipes", "name": "Recipes", "canWrite": true}],
+        }))
+        .unwrap();
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(list);
+        daemon.on::<methods::ChatsGet>(move |params| {
+            let summary = chats
+                .as_array()
+                .and_then(|c| c.iter().find(|c| c["id"] == params["id"]))
+                .cloned();
+            Ok(
+                serde_json::json!({"chat": summary.map(|summary| serde_json::json!({
+                    "abilities": {"branch": summary["id"] == "chat-a"},
+                    "summary": summary,
+                }))}),
+            )
+        });
+        daemon
+    }
+
+    fn bench<'a>(
+        daemon: &FakeDaemon,
+        cx: &'a mut TestAppContext,
+    ) -> (Stores, Entity<MainWindow>, &'a mut VisualTestContext) {
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-main-window-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        stores
+            .connection
+            .update(cx, |c, _| c.set_starting_for_test());
+        stores.accounts.update(cx, |a, cx| {
+            a.adopt(list(vec![account("a", "Avery", true, true)]), cx)
+        });
+        stores.session.update(cx, |s, cx| {
+            s.preview_route(Some(crate::stores::session::Route::Main), cx)
+        });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let layout = cx.new(|_| LayoutStore::load(scratch.join("window-state.json")));
+        let s = stores.clone();
+        let (view, vcx) =
+            cx.add_window_view(move |window, cx| MainWindow::new(s, settings, layout, window, cx));
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        (stores, view, vcx)
+    }
+
+    fn available(vcx: &mut VisualTestContext, action: &dyn Action) -> bool {
+        vcx.update(|window, cx| window.is_action_available(action, cx))
+    }
+
+    fn json_export() -> ExportChatAs {
+        ExportChatAs {
+            format: conduit_protocol::ChatExportFormat::Json,
+        }
+    }
+
+    /// With chats chosen, Rename… and the other commands for one chat
+    /// have no handler (a selection never falls through to the open chat),
+    /// while Archive, Move to, Remove from Folder and Delete… act on all of
+    /// the chosen chats.
+    #[gpui_kit::test]
+    fn chosen_chats_leave_the_commands_for_one_chat_unavailable(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, main, vcx) = bench(&daemon, cx);
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        let one_chat: [(&str, Box<dyn Action>); 7] = [
+            ("Rename…", Box::new(RenameChat)),
+            ("Pin", Box::new(TogglePinChat)),
+            ("Mark as Unread", Box::new(MarkChatUnread)),
+            ("Generate Title", Box::new(GenerateChatTitle)),
+            ("Duplicate Chat", Box::new(DuplicateChat)),
+            ("Share Chat…", Box::new(ShareChat)),
+            ("Export Chat", Box::new(json_export())),
+        ];
+        let on_all: [(&str, Box<dyn Action>); 4] = [
+            ("Archive", Box::new(ArchiveChat)),
+            ("Delete…", Box::new(DeleteChat)),
+            (
+                "Move to",
+                Box::new(MoveChatTo {
+                    folder_id: Some("recipes".into()),
+                }),
+            ),
+            (
+                "Remove from Folder",
+                Box::new(MoveChatTo { folder_id: None }),
+            ),
+        ];
+        for (name, action) in one_chat.iter().chain(&on_all) {
+            assert!(
+                available(vcx, action.as_ref()),
+                "{name} is off, nothing chosen"
+            );
+        }
+
+        // ⌘-click on B, A open: both chosen.
+        let sidebar = main.read_with(vcx, |m, _| m.sidebar.clone());
+        sidebar.update(vcx, |s, cx| s.pick_chat("chat-b", Pick::Toggle, cx));
+        vcx.run_until_parked();
+        assert!(sidebar.read_with(vcx, |s, _| s.has_selection()));
+        for (name, action) in &one_chat {
+            assert!(
+                !available(vcx, action.as_ref()),
+                "{name} is on with chats chosen"
+            );
+        }
+        for (name, action) in &on_all {
+            assert!(
+                available(vcx, action.as_ref()),
+                "{name} is off with chats chosen"
+            );
+        }
+
+        // The selection ends: the open chat's commands come back.
+        sidebar.update(vcx, |s, cx| s.end_selection(cx));
+        vcx.run_until_parked();
+        for (name, action) in &one_chat {
+            assert!(available(vcx, action.as_ref()), "{name} is still off");
+        }
+    }
+
+    /// An archived chat open with chats chosen (Select Chats… on another):
+    /// its Unarchive is for that chat alone.
+    #[gpui_kit::test]
+    fn chosen_chats_leave_an_archived_chats_unarchive_unavailable(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, main, vcx) = bench(&daemon, cx);
+        stores.navigation.update(vcx, |n, cx| n.open("chat-d", cx));
+        vcx.run_until_parked();
+        assert!(available(vcx, &ArchiveChat), "Unarchive is off");
+        let sidebar = main.read_with(vcx, |m, _| m.sidebar.clone());
+        sidebar.update_in(vcx, |s, window, cx| {
+            s.run("chat-b", ChatCommand::Select, window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(sidebar.read_with(vcx, |s, _| s.has_selection()));
+        assert!(!available(vcx, &ArchiveChat), "Unarchive is on");
+    }
+
+    /// Share, Mark as Unread, Generate Title and Export Chat only where
+    /// the open chat's menu offers them, Show Branches… only where its
+    /// detail allows branches.
+    #[gpui_kit::test]
+    fn commands_the_open_chat_does_not_offer_are_unavailable(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, _, vcx) = bench(&daemon, cx);
+        let offered: [(&str, Box<dyn Action>); 4] = [
+            ("Share Chat…", Box::new(ShareChat)),
+            ("Mark as Unread", Box::new(MarkChatUnread)),
+            ("Generate Title", Box::new(GenerateChatTitle)),
+            ("Export Chat", Box::new(json_export())),
+        ];
+        stores.navigation.update(vcx, |n, cx| n.open("chat-c", cx));
+        vcx.run_until_parked();
+        assert!(available(vcx, &RenameChat), "no chat menu at all");
+        for (name, action) in &offered {
+            assert!(
+                !available(vcx, action.as_ref()),
+                "{name} is on, not offered"
+            );
+        }
+        assert!(!available(vcx, &ShowBranches), "Show Branches… is on");
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        for (name, action) in &offered {
+            assert!(available(vcx, action.as_ref()), "{name} is off, offered");
+        }
+        assert!(available(vcx, &ShowBranches), "Show Branches… is off");
+    }
+
+    /// Go › Back and Forward only with a step to go to.
+    #[gpui_kit::test]
+    fn back_and_forward_are_available_only_with_a_step_to_go_to(cx: &mut TestAppContext) {
+        let daemon = chats();
+        let (stores, _, vcx) = bench(&daemon, cx);
+        assert!(!available(vcx, &GoBack), "Back with no step before");
+        assert!(!available(vcx, &GoForward), "Forward with no step after");
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        assert!(available(vcx, &GoBack), "Back is off after a step");
+        assert!(!available(vcx, &GoForward), "Forward at the newest step");
+        vcx.dispatch_action(GoBack);
+        vcx.run_until_parked();
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+            None,
+            "Back did not go back"
+        );
+        assert!(!available(vcx, &GoBack), "Back at the first step");
+        assert!(available(vcx, &GoForward), "Forward is off after Back");
     }
 }
