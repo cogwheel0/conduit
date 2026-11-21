@@ -1,6 +1,6 @@
 //! Which window fronts the app: the setup window or the main window.
 //!
-//! * **The setup window** ([`SetupWindow`], 640×560 pt, fixed size) holds
+//! * **The setup window** ([`SetupWindow`], 640×640 pt, fixed size) holds
 //!   everything before a session: the first-run chooser and its three
 //!   paths, and sign-in, whether it follows the server form on first run,
 //!   an account added from Settings, or a session that expired. It is
@@ -26,8 +26,9 @@ use crate::l10n::ActiveL10n as _;
 use crate::stores::session::Route;
 use crate::views::setup_window::SetupWindow;
 
-/// The setup window's size (Setup Assistant's proportions).
-pub const SETUP_SIZE: (f32, f32) = (640., 560.);
+/// The setup window's size: the chooser and Try the Demo under it fit
+/// without scrolling (it has no scroll indicator).
+pub const SETUP_SIZE: (f32, f32) = (640., 640.);
 
 /// The window the app fronts with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

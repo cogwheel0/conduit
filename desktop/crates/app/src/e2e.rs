@@ -961,7 +961,7 @@ async fn owui(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             .ok()
     });
     pass &= ok(
-        &format!("the setup window is 640×560 ({size:?})"),
+        &format!("the setup window is 640×640 ({size:?})"),
         size == Some(crate::windows::SETUP_SIZE),
     );
     pass &= ok(
