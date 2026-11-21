@@ -324,7 +324,8 @@ void main() {
           Uri.parse('https://chat.example.test/a.mp3'),
         ),
       ).throws<DioException>();
-      check(adapter.requests).length.equals(1);
+      // The fake adapter follows nothing itself; Dio's adapter would.
+      check(adapter.requests.single.followRedirects).isFalse();
     });
 
     test('refuses a reply that is not audio or video', () async {

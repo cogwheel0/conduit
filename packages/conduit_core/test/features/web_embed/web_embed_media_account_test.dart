@@ -121,6 +121,7 @@ void main() {
         serverConfig: server,
         workerManager: WorkerManager(),
       );
+      addTearDown(api.dispose);
       final container = ProviderContainer(
         overrides: [
           apiServiceProvider.overrideWithValue(api),

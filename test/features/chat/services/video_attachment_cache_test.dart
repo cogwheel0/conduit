@@ -397,7 +397,10 @@ void main() {
           token: CancelToken(),
           isCurrent: () => true,
         ),
-      ).throws<DioException>();
+      ).throws<DioException>(
+        (it) => it.has((e) => e.error, 'error').isA<WebEmbedMediaRefused>(),
+      );
+      check(replies.requests).deepEquals([clip]);
       check(dir.listSync()).isEmpty();
     });
   });

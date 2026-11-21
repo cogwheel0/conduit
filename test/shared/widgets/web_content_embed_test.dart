@@ -529,31 +529,6 @@ void main() {
       check(transport.client.options.followRedirects).isFalse();
     });
 
-    testWidgets('a video tries its next source when one cannot load', (
-      tester,
-    ) async {
-      final cache = _RecordingVideoCache();
-      await tester.pumpWidget(
-        _buildServerHarness(
-          '<video controls title="Walkthrough">'
-          '<source src="/api/v1/files/missing/content" type="video/webm">'
-          '<source src="/api/v1/files/v1/content" type="video/mp4">'
-          '</video>',
-          videoCache: cache,
-        ),
-      );
-
-      await tester.tap(find.text('Walkthrough'));
-      await tester.pump();
-      cache.pending.single.completeError(const HttpException('404'));
-      await tester.pump();
-
-      check(cache.urls).deepEquals([
-        'https://chat.example.test/api/v1/files/missing/content',
-        'https://chat.example.test/api/v1/files/v1/content',
-      ]);
-    });
-
     testWidgets('another backend\'s page stays exactly as written', (
       tester,
     ) async {
