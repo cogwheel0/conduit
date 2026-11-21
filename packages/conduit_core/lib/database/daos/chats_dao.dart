@@ -612,7 +612,17 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           );
         }
         await _writeChatRows(
-          rows: serverRows,
+          rows: existing == null
+              ? serverRows
+              : withAnswersFinishedHere(
+                  serverRows,
+                  chatRowsFromDb(
+                    existing,
+                    await (select(
+                      messages,
+                    )..where((t) => t.chatId.equals(serverChat.id))).get(),
+                  ).messages,
+                ),
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,
@@ -689,7 +699,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           !existing.dirty &&
           dirtyMessageIds.isEmpty) {
         await _writeChatRows(
-          rows: serverRows,
+          rows: withAnswersFinishedHere(serverRows, local.messages),
           shareId: shareId,
           userId: userId,
           meta: resolvedMeta,

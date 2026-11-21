@@ -151,7 +151,7 @@ ChatMergeResult mergeChat({
   // local rows wholesale with the server blob.
   if (!dirty) {
     return ChatMergeResult(
-      merged: server,
+      merged: withAnswersFinishedHere(server, local.messages),
       mustPush: false,
       outcome: MergeOutcome.fastForward,
       newServerUpdatedAt: serverUpdatedAt,
@@ -203,9 +203,13 @@ ChatMergeResult _threeWay({
       // Dirty local always wins (both-sides or local-only-new).
       survivors.add(localMsg);
       survivingDirtyIds.add(id);
-    } else if (serverById.containsKey(id)) {
+    } else if (serverById[id] case final serverMsg?) {
       // Clean and present on server: server wins.
-      survivors.add(serverById[id]!);
+      survivors.add(
+        _keepsAnswerFinishedHere(localMsg, serverMsg)
+            ? _keptAt(localMsg, serverMsg)
+            : serverMsg,
+      );
     }
     // else: clean, local-only → remotely deleted → drop.
   }
@@ -333,6 +337,74 @@ ChatMergeResult _threeWay({
     dirtyMessageIds: survivingDirtyIds,
   );
 }
+
+/// [server] with each answer in [local] that [_keepsAnswerFinishedHere] keeps
+/// over the server's copy of it; [server] itself when there is none, so a
+/// clean chat still takes the server's rows wholesale.
+ChatRows withAnswersFinishedHere(
+  ChatRows server,
+  Iterable<MessageRowData> local,
+) {
+  final localById = {for (final m in local) m.id: m};
+  var kept = false;
+  final messages = <MessageRowData>[];
+  for (final message in server.messages) {
+    final mine = localById[message.id];
+    if (mine != null && _keepsAnswerFinishedHere(mine, message)) {
+      messages.add(_keptAt(mine, message));
+      kept = true;
+    } else {
+      messages.add(message);
+    }
+  }
+  if (!kept) return server;
+  return ChatRows(
+    chat: server.chat,
+    messages: messages,
+    unmappableMessages: server.unmappableMessages,
+    unmappableMessageOrder: server.unmappableMessageOrder,
+    blobHadTitle: server.blobHadTitle,
+    blobTitleValue: server.blobTitleValue,
+    blobHadHistory: server.blobHadHistory,
+    historyHadMessages: server.historyHadMessages,
+    historyHadCurrentId: server.historyHadCurrentId,
+    historyExtra: server.historyExtra,
+  );
+}
+
+/// Whether [local], an answer this device has finished with text, is kept
+/// over [server], the server's copy of it, which is unfinished and empty.
+///
+/// Open WebUI saves an answer that way as its task starts, and saves it again
+/// only once the task ends. A Stop the server never took (conduitd's client cut
+/// at quit, the server out of reach) keeps its answers here alone, and a task
+/// that then died leaves that copy for good: taking it would lose the text.
+/// Any other copy still replaces the answer, a running one with text (another
+/// device continuing it, say) as much as a finished one.
+bool _keepsAnswerFinishedHere(MessageRowData local, MessageRowData server) =>
+    local.role == 'assistant' &&
+    local.payload['done'] == true &&
+    local.content.isNotEmpty &&
+    server.payload['done'] != true &&
+    server.content.isEmpty;
+
+/// [local]'s answer where [server] has it in the graph.
+MessageRowData _keptAt(MessageRowData local, MessageRowData server) =>
+    MessageRowData(
+      id: server.id,
+      chatId: server.chatId,
+      parentId: server.parentId,
+      role: local.role,
+      content: local.content,
+      model: local.model ?? server.model,
+      createdAt: server.createdAt,
+      orderIndex: server.orderIndex,
+      payload: <String, dynamic>{
+        ...local.payload,
+        for (final key in const ['parentId', 'childrenIds', 'timestamp'])
+          if (server.payload.containsKey(key)) key: server.payload[key],
+      },
+    );
 
 /// Walks up [parentOf] from [parentId] to the nearest id in [survivors],
 /// returning null when the chain reaches the root or a dropped ancestor with
