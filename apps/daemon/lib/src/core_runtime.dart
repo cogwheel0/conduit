@@ -18,6 +18,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
         hermesModelSwitchPromptProvider,
         hostHermesDashboardBridgeFactoryProvider,
         hostHermesDashboardSignOutProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatHttpClientProvider;
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart'
     show libreChatSyncEngineProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
@@ -469,20 +471,30 @@ final class CoreRuntime {
     );
   }
 
-  Future<void> dispose() async {
-    // Sync work still out (a list refresh, an outbox drain nobody waits on)
-    // writes the account database until it ends. Both engines are closed and
-    // the Open WebUI client cut before the container goes, which
-    // force-closes the LibreChat client: a request still out fails at once
-    // rather than holding shutdown on the server, and what the work writes
-    // after that lands before this returns.
-    final syncIdle = Future.wait<void>([
+  /// Shutdown's first step, before any service is disposed: both sync
+  /// engines start no new work, and the Open WebUI and LibreChat clients are
+  /// cut, so a request still out, or one a service makes as it goes, fails at
+  /// once instead of holding shutdown on the server. [dispose] waits for what
+  /// the engines were running.
+  void beginShutdown() {
+    if (_syncIdle != null) return;
+    _syncIdle = Future.wait<void>([
       _closeOpenWebUiSync(),
       _closeLibreChatSync(),
     ]);
     _cutOpenWebUiRequests();
+    _cutLibreChatRequests();
+  }
+
+  Future<void>? _syncIdle;
+
+  Future<void> dispose() async {
+    // Sync work still out (a list refresh, an outbox drain nobody waits on)
+    // writes the account database until it ends. Once the clients are cut,
+    // what it writes needs no server, and it lands before this returns.
+    beginShutdown();
     container.dispose();
-    await syncIdle;
+    await _syncIdle;
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
@@ -517,6 +529,21 @@ final class CoreRuntime {
     } on Object catch (error) {
       DebugLogger.error(
         'openwebui-client-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+    }
+  }
+
+  /// Fails the LibreChat requests still out at once, as the container's own
+  /// dispose would, but before the services go.
+  void _cutLibreChatRequests() {
+    if (!container.read(libreChatHttpClientProvider.exists)) return;
+    try {
+      container.read(libreChatHttpClientProvider)?.close();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'librechat-client-close-failed',
         scope: 'daemon/runtime',
         error: error,
       );
