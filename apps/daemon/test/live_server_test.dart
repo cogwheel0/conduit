@@ -3090,7 +3090,13 @@ void main() {
             return;
           }
           final service = ModelsService(runtime.container, events: EventBus());
-          const codex = 'agent:buildbox:codex:gpt-5.1';
+          // Open WebUI 0.13.4 keeps an agent's model to letters, digits, `_`
+          // and `-` in its id, adding a hash of the name when that changed it
+          // (`utils/agents/session.py`); older releases use the name as is.
+          const codexIds = {
+            'agent:buildbox:codex:gpt-5.1',
+            'agent:buildbox:codex:gpt-5-1-e7ee8b01',
+          };
           final before = (await service.list()).selectedId;
           final previous = listed.selectedId;
           addTearDown(() async {
@@ -3099,7 +3105,10 @@ void main() {
           });
           await terminals.select('buildbox');
           final offered = await service.list();
-          expect(offered.agents.map((a) => a.id), contains(codex));
+          final codex = offered.agents
+              .map((a) => a.id)
+              .firstWhere(codexIds.contains, orElse: () => '');
+          expect(codex, isIn(codexIds));
           final agent = offered.agents.firstWhere((a) => a.id == codex);
           expect(agent.name, 'Codex · gpt-5.1');
           expect(agent.agent?.terminalName, 'Build box');
