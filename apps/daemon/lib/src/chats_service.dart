@@ -1365,7 +1365,9 @@ final class ChatsService {
         );
       }
     } else {
-      markConversationRead(_container, request.chatId);
+      // Stored before the answer: an app that quits waits for the answer,
+      // and then stops the daemon.
+      await markConversationRead(_container, request.chatId);
     }
     _events?.emit(
       ConduitEventSpecs.chatsChanged,

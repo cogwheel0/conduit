@@ -922,6 +922,9 @@ fn schedule_widget_retry(cx: &mut App) {
 /// (first run, signed out) the setup window shows instead.
 pub fn show_main(cx: &mut App) {
     crate::open_main_window(cx);
+    if let Some(pane) = main_chat_pane(cx) {
+        cx.defer(move |cx| pane.update(cx, |p, cx| p.window_shown(cx)));
+    }
     // Deferred: called from inside the window's own update (an action, the
     // close hook), the window can't be updated again until it returns.
     #[cfg(target_os = "macos")]
@@ -986,6 +989,38 @@ pub fn hide_main(cx: &mut App) {
     let _ = cx;
 }
 
+fn main_chat_pane(cx: &App) -> Option<Entity<crate::views::chat_pane::ChatPane>> {
+    let view = cx.try_global::<AppState>()?.main_view.clone()?;
+    Some(view.read(cx).chat_pane.clone())
+}
+
+/// How long a quit waits for the daemon to store the reads below.
+const QUIT_READ_LIMIT: Duration = Duration::from_secs(2);
+
+/// As the app quits, the chats on screen (the main window's, Quick Ask's)
+/// are left, and read up to now. The daemon stops right after, so the
+/// reads are waited for.
+pub fn read_shown_chats_on_quit(cx: &mut App) {
+    let mut reads = Vec::new();
+    if let Some(pane) = main_chat_pane(cx) {
+        reads.extend(pane.update(cx, |p, cx| p.leave_on_quit(cx)));
+    }
+    if let Some((_, view)) = cx.try_global::<Desktop>().and_then(|d| d.quick_ask.clone()) {
+        reads.extend(view.update(cx, |v, cx| v.leave_on_quit(cx)));
+    }
+    if reads.is_empty() {
+        return;
+    }
+    let reads = futures::future::join_all(reads);
+    if cx
+        .foreground_executor()
+        .block_with_timeout(QUIT_READ_LIMIT, reads)
+        .is_err()
+    {
+        log::warn!("quit: the chats on screen were not read in time");
+    }
+}
+
 /// The main window's should-close hook: with "Close to menu bar" on, the
 /// window hides and stays (the app keeps running in the menu bar).
 pub fn main_should_close(cx: &mut App) -> bool {
@@ -995,6 +1030,9 @@ pub fn main_should_close(cx: &mut App) -> bool {
         && speech.read(cx).is_speaking()
     {
         speech.update(cx, |s, cx| s.pause(cx));
+    }
+    if let Some(pane) = main_chat_pane(cx) {
+        cx.defer(move |cx| pane.update(cx, |p, cx| p.window_closing(cx)));
     }
     if closes_to_menu_bar(cx) {
         log::info!("close button: hiding the main window");
@@ -1877,7 +1915,10 @@ pub fn show_quick_ask(cx: &mut App) {
         }
     }
     let _ = handle.update(cx, |_, window, cx| {
-        view.update(cx, |v, cx| v.focus_composer(window, cx))
+        view.update(cx, |v, cx| {
+            v.set_shown(true, cx);
+            v.focus_composer(window, cx);
+        })
     });
     if let Some(shell) = shell(cx) {
         shell.update(cx, |s, cx| s.set_quick_ask_visible(true, cx));
@@ -1900,6 +1941,9 @@ pub fn hide_quick_ask(cx: &mut App) {
     });
     if let Some(shell) = shell(cx) {
         shell.update(cx, |s, cx| s.set_quick_ask_visible(false, cx));
+    }
+    if let Some((_, view)) = cx.try_global::<Desktop>().and_then(|d| d.quick_ask.clone()) {
+        cx.defer(move |cx| view.update(cx, |v, cx| v.set_shown(false, cx)));
     }
 }
 

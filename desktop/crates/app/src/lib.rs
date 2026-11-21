@@ -521,6 +521,7 @@ pub fn run() {
         })
         .detach();
         cx.on_app_quit(|cx| {
+            desktop::read_shown_chats_on_quit(cx);
             if let Some(state) = cx.try_global::<AppState>() {
                 let (connection, settings, layout) = (
                     state.connection.clone(),

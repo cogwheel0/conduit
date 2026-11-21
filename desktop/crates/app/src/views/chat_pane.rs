@@ -1057,6 +1057,38 @@ impl ChatPane {
             .update(cx, |c, cx| c.mark_left(&left, cx));
     }
 
+    /// The main window closes, or hides to the menu bar: its chat is left.
+    pub fn window_closing(&mut self, cx: &mut Context<Self>) {
+        self.leave_chat(cx);
+    }
+
+    /// The main window is back on screen, and with it the chat it shows.
+    pub fn window_shown(&mut self, cx: &mut Context<Self>) {
+        let shown = self.stores.navigation.read(cx).selection().chat_id();
+        if self
+            .chat
+            .as_ref()
+            .is_some_and(|c| shown.as_deref() == Some(c.store.read(cx).chat_id()))
+        {
+            self.chat_on_screen = true;
+        }
+    }
+
+    /// The app quits: the chat on screen is left, by a read the quit waits
+    /// for.
+    pub fn leave_on_quit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<crate::stores::chat_list::QuitRead> {
+        if !std::mem::take(&mut self.chat_on_screen) {
+            return None;
+        }
+        let left = self.chat.as_ref()?.store.read(cx).chat_id().to_string();
+        self.stores
+            .chat_list
+            .update(cx, |c, _| c.mark_left_on_quit(&left))
+    }
+
     /// Opens `id` in a fresh store and transcript. Opening reads it, and
     /// the chat left is read up to now.
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
@@ -4260,6 +4292,62 @@ mod tests {
                 daemon.calls::<methods::ChatsMarkUnread>().len(),
                 1,
                 "an answer that finished behind the note was read"
+            );
+        }
+
+        /// Closing the main window, or hiding it to the menu bar, reads the
+        /// chat it shows. Hidden, it reads nothing more: an answer that
+        /// finishes meanwhile keeps its dot until the window is back and the
+        /// chat is left again.
+        #[gpui_kit::test]
+        fn closing_the_window_reads_the_chat_it_shows(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+
+            pane.update(vcx, |p, cx| p.window_closing(cx));
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ChatsMarkUnread>(),
+                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                "closing the window did not read its chat"
+            );
+            assert!(
+                pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_none(),
+                "quitting with the window hidden read its chat"
+            );
+
+            pane.update(vcx, |p, cx| p.window_shown(cx));
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ChatsMarkUnread>().len(),
+                2,
+                "the chat shown again was not read as it was left"
+            );
+        }
+
+        /// Quitting reads the chat on screen, by a read the quit waits for
+        /// before it stops the daemon.
+        #[gpui_kit::test]
+        fn quitting_reads_the_chat_on_screen(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+
+            let read = pane
+                .update(vcx, |p, cx| p.leave_on_quit(cx))
+                .expect("quitting did not read the chat on screen");
+            assert!(vcx.foreground_executor().block_test(read).is_ok());
+            assert_eq!(
+                daemon.calls::<methods::ChatsMarkUnread>(),
+                vec![serde_json::json!({"chatId": "c1", "unread": false})]
             );
         }
 

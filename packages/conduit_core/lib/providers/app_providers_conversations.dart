@@ -497,7 +497,8 @@ class Conversations extends _$Conversations {
     );
   }
 
-  void markConversationRead(String id, DateTime readAt) {
+  /// Completes once the read is stored.
+  Future<void> markConversationRead(String id, DateTime readAt) async {
     if (id.isEmpty) return;
     final identity = ChatStorageIdentity.parse(id);
     final current = state.asData?.value;
@@ -533,20 +534,17 @@ class Conversations extends _$Conversations {
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
-    unawaited(
-      db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt)).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        DebugLogger.error(
-          'read-mark-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': rawId},
-        );
-      }),
-    );
+    try {
+      await db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'read-mark-failed',
+        scope: 'conversations',
+        error: error,
+        stackTrace: stackTrace,
+        data: {'id': rawId},
+      );
+    }
   }
 
   /// Re-reads the drawer's folder listings, which load their rows once
@@ -1049,11 +1047,12 @@ class TemporaryChatEnabled extends _$TemporaryChatEnabled {
 /// Returns true if the given conversation ID represents a temporary chat.
 bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 
-void markConversationRead(
+/// Completes once the read is stored on this device.
+Future<void> markConversationRead(
   dynamic ref,
   String? conversationId, {
   DateTime? readAt,
-}) {
+}) async {
   final scopedId = conversationId?.trim();
   if (scopedId == null || scopedId.isEmpty) {
     return;
@@ -1067,6 +1066,7 @@ void markConversationRead(
   final timestamp = readAt ?? DateTime.now();
   Conversation? targetConversation;
   var resolvedSelectionId = scopedId;
+  var stored = Future<void>.value();
   try {
     final conversations = (ref.read(
       conversationsProvider,
@@ -1078,9 +1078,11 @@ void markConversationRead(
         resolvedSelectionId = conversationScopedId(targetConversation);
       }
     }
-    ref
-        .read(conversationsProvider.notifier)
-        .markConversationRead(resolvedSelectionId, timestamp);
+    stored =
+        ref
+                .read(conversationsProvider.notifier)
+                .markConversationRead(resolvedSelectionId, timestamp)
+            as Future<void>;
   } catch (_) {}
 
   try {
@@ -1099,18 +1101,19 @@ void markConversationRead(
     }
   } catch (_) {}
 
-  if (isDirectLocalConversation(targetConversation) ||
-      isLibreChatConversation(targetConversation) ||
-      identity.storage == ChatStorageKind.directLocal ||
-      identity.storage == ChatStorageKind.libreChat ||
-      (identity.storage == null && id.startsWith('direct-local:'))) {
-    return;
+  final onServer =
+      !isDirectLocalConversation(targetConversation) &&
+      !isLibreChatConversation(targetConversation) &&
+      identity.storage != ChatStorageKind.directLocal &&
+      identity.storage != ChatStorageKind.libreChat &&
+      !(identity.storage == null && id.startsWith('direct-local:'));
+  if (onServer) {
+    try {
+      ref.read(socketServiceProvider)?.emit('events:chat', {
+        'chat_id': id,
+        'data': {'type': 'last_read_at'},
+      });
+    } catch (_) {}
   }
-
-  try {
-    ref.read(socketServiceProvider)?.emit('events:chat', {
-      'chat_id': id,
-      'data': {'type': 'last_read_at'},
-    });
-  } catch (_) {}
+  await stored;
 }

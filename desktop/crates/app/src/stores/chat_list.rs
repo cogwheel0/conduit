@@ -45,6 +45,9 @@ pub const SEARCH_DEBOUNCE: Duration = Duration::from_millis(200);
 /// How many hits sidebar search asks for.
 pub const SEARCH_LIMIT: i64 = 50;
 
+/// A chat's read as the app quits ([`ChatListStore::mark_left_on_quit`]).
+pub type QuitRead = futures::future::BoxFuture<'static, Result<(), RpcError>>;
+
 /// A change the user asked for, for the failure notice.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChatAction {
@@ -875,10 +878,28 @@ impl ChatListStore {
     /// this list shows no dot: the list may not have caught up with an
     /// answer that finished while the chat was open.
     pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.marked_unread_here.remove(id) || self.find(id).is_none() {
-            return;
+        if self.reads_on_leaving(id) {
+            self.mark_unread(id, false, cx).detach();
         }
-        self.mark_unread(id, false, cx).detach();
+    }
+
+    /// [`Self::mark_left`] as the app quits: the daemon's answer, which the
+    /// quit waits for before it stops the daemon.
+    pub fn mark_left_on_quit(&mut self, id: &str) -> Option<QuitRead> {
+        if !self.reads_on_leaving(id) {
+            return None;
+        }
+        let call = self
+            .rpc
+            .call::<methods::ChatsMarkUnread>(&conduit_protocol::MarkUnread {
+                chat_id: id.into(),
+                unread: false,
+            });
+        Some(Box::pin(async move { call.await.map(|_| ()) }))
+    }
+
+    fn reads_on_leaving(&mut self, id: &str) -> bool {
+        !self.marked_unread_here.remove(id) && self.find(id).is_some()
     }
 
     /// `chats.unshare`: deletes the chat's link.

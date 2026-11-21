@@ -6,6 +6,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show kSettledHereMetadataKey, kStoppedHereMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
@@ -228,6 +229,41 @@ class _StopHookClient extends FakeSyncApiClient {
       throw StateError('connection reset after the stop');
     }
     return super.updateChat(id, fullBlob);
+  }
+}
+
+/// Keeps the messages an update leaves out, as Open WebUI's `merge_history`
+/// does (`models/chats.py`, 0.13.4): another device's, saved since this
+/// device last read the chat.
+class _MergingHistoryClient extends FakeSyncApiClient {
+  _MergingHistoryClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    final before = server.getChatById(id)?['chat'] as Map?;
+    final response = await super.updateChat(id, fullBlob);
+    final stored = (before?['history'] as Map?)?['messages'] as Map? ?? {};
+    if (response == null) return null;
+    final blob = Map<String, dynamic>.from(response['chat'] as Map);
+    final history = Map<String, dynamic>.from(blob['history'] as Map);
+    final messages = Map<String, dynamic>.from(history['messages'] as Map);
+    for (final MapEntry(:key, :value) in stored.entries) {
+      if (messages.containsKey(key)) continue;
+      messages[key] = value;
+      final parent = messages[(value as Map)['parentId']];
+      if (parent is Map) {
+        messages[value['parentId'] as String] = {
+          ...parent,
+          'childrenIds': [...parent['childrenIds'] as List, key],
+        };
+      }
+    }
+    history['messages'] = messages;
+    blob['history'] = history;
+    return server.saveFromTask(id, blob);
   }
 }
 
@@ -810,6 +846,146 @@ void main() {
   });
 
   group('pushUpdateChat', () {
+    Map<String, dynamic> beanRows() => {
+      'title': 'Bean rows',
+      'history': {
+        'messages': {
+          'q1': {
+            'id': 'q1',
+            'parentId': null,
+            'childrenIds': ['a1'],
+            'role': 'user',
+            'content': 'How far apart do bean rows go?',
+          },
+          'a1': {
+            'id': 'a1',
+            'parentId': 'q1',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': 'About 45 cm.',
+            'done': true,
+          },
+        },
+        'currentId': 'a1',
+      },
+    };
+
+    test('a chat read here stays read when a save made here lands on the '
+        'server later', () async {
+      var now = 7000;
+      final server = FakeOpenWebUiServer(nowEpochSeconds: () => now);
+      final client = FakeSyncApiClient(server);
+      final push = PushSync(
+        client: client,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      server.seedChat(
+        id: 'srv-read',
+        blob: beanRows(),
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      await pull.pullChat('srv-read');
+      await db.chatsDao.setLastReadAt('srv-read', 7000);
+
+      // Saved here, and pushed once the server can be reached: the server
+      // dates the chat to the push.
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'srv-read',
+        title: const Value('Bean spacing'),
+        enqueue: true,
+      );
+      now = 7300;
+      await push.pushUpdateChat('srv-read');
+
+      final pulled = await pull.pullChat('srv-read');
+      check(pulled!.updatedAt.millisecondsSinceEpoch).equals(7300 * 1000);
+      check(isConversationUnread(pulled)).isFalse();
+    });
+
+    test('a save made here leaves a chat unread when the server keeps '
+        "another device's message beside it, or the chat was marked unread "
+        'here', () async {
+      var now = 7000;
+      final server = FakeOpenWebUiServer(nowEpochSeconds: () => now);
+      final client = _MergingHistoryClient(server);
+      final push = PushSync(
+        client: client,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      for (final id in ['srv-elsewhere', 'srv-marked']) {
+        server.seedChat(
+          id: id,
+          blob: beanRows(),
+          createdAt: 100,
+          updatedAt: 7000,
+        );
+        await pull.pullChat(id);
+        await db.chatsDao.setLastReadAt(id, 7000);
+      }
+      final previous = await db.chatsDao.markUnread('srv-marked');
+      await db.chatsDao.finishUnread(
+        'srv-marked',
+        refused: false,
+        previous: previous,
+      );
+
+      // Another device asks in the first chat; this one has not pulled it.
+      now = 7200;
+      final blob =
+          server.getChatById('srv-elsewhere')!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      messages['q2'] = {
+        'id': 'q2',
+        'parentId': 'a1',
+        'childrenIds': <String>[],
+        'role': 'user',
+        'content': 'And for runner beans?',
+      };
+      (messages['a1'] as Map<String, dynamic>)['childrenIds'] = ['q2'];
+      history['currentId'] = 'q2';
+      server.saveFromTask('srv-elsewhere', blob);
+
+      now = 7300;
+      for (final id in ['srv-elsewhere', 'srv-marked']) {
+        await db.chatsDao.updateEnvelopeWithOutbox(
+          id,
+          title: const Value('Bean spacing'),
+          enqueue: true,
+        );
+        await push.pushUpdateChat(id);
+      }
+
+      final elsewhere = await pull.pullChat('srv-elsewhere');
+      check([
+        for (final m in await db.messagesDao.getForChat('srv-elsewhere')) m.id,
+      ]).contains('q2');
+      check(isConversationUnread(elsewhere!)).isTrue();
+      check(isConversationUnread((await pull.pullChat('srv-marked'))!))
+          .isTrue();
+    });
+
     test('a copy read before a send was pushed, in the same second, does not '
         'take the sent message and its placeholder back out', () async {
       // Open WebUI stamps whole seconds: the stored chat, the push below

@@ -404,6 +404,14 @@ class PushSync {
         messageIds: sent,
         serverUpdatedAt: serverUpdatedAt,
       );
+      // The push moved the server's date. Open WebUI keeps the messages an
+      // update leaves out (`merge_history`), so one this push did not send
+      // came from elsewhere, and the chat has news.
+      final pushed = {for (final message in rows.messages) message.id};
+      if (resp['chat'] is Map &&
+          _serverMessages(chatId, resp['chat']).keys.every(pushed.contains)) {
+        await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
+      }
     });
   }
 
