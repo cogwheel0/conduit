@@ -18,6 +18,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
         hermesModelSwitchPromptProvider,
         hostHermesDashboardBridgeFactoryProvider,
         hostHermesDashboardSignOutProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatHttpClientProvider;
 import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart'
     show libreChatSyncEngineProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
@@ -34,6 +36,7 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/api_service.dart' show ApiService;
 import 'package:conduit_core/services/connectivity_service.dart'
     show isOnlineProvider;
 import 'package:conduit_core/services/settings_service.dart'
@@ -469,18 +472,84 @@ final class CoreRuntime {
     );
   }
 
+  /// Shutdown's first step, before any service is disposed: both sync
+  /// engines start no new work, and the Open WebUI and LibreChat clients are
+  /// cut, so a request still out, or one a service makes as it goes, fails at
+  /// once instead of holding shutdown on the server. [dispose] waits for what
+  /// the engines were running.
+  void beginShutdown() {
+    if (_syncIdle != null) return;
+    _syncIdle = Future.wait<void>([
+      _closeOpenWebUiSync(),
+      _closeLibreChatSync(),
+    ]);
+    _cutOpenWebUiRequests();
+    _cutLibreChatRequests();
+  }
+
+  Future<void>? _syncIdle;
+
   Future<void> dispose() async {
-    // A LibreChat pull still out (a list refresh nobody waits on) writes the
-    // account database until it ends. Its engine is closed before the
-    // container goes, which force-closes the LibreChat client: a request
-    // still out fails at once rather than holding shutdown on the server,
-    // and what the pull writes after that lands before this returns.
-    final libreChatSyncIdle = _closeLibreChatSync();
+    // Sync work still out (a list refresh, an outbox drain nobody waits on)
+    // writes the account database until it ends. Once the clients are cut,
+    // what it writes needs no server, and it lands before this returns.
+    beginShutdown();
     container.dispose();
-    await libreChatSyncIdle;
+    await _syncIdle;
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
+    }
+  }
+
+  /// Stops the Open WebUI engine's new work; completes once its running work
+  /// has ended.
+  Future<void> _closeOpenWebUiSync() {
+    // Reading it when it is not there would start an engine.
+    if (!container.read(syncEngineProvider.exists)) {
+      return Future<void>.value();
+    }
+    try {
+      return container.read(syncEngineProvider.notifier).close();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'openwebui-sync-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+      return Future<void>.value();
+    }
+  }
+
+  /// Fails the Open WebUI requests still out at once, on the current client
+  /// and on any a rebuild retired that a sync still holds: the container's own
+  /// dispose lets them run to completion, as a rebuild needs.
+  void _cutOpenWebUiRequests() {
+    ApiService.closeRetiredNow();
+    if (!container.read(apiServiceProvider.exists)) return;
+    try {
+      container.read(apiServiceProvider)?.closeNow();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'openwebui-client-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+    }
+  }
+
+  /// Fails the LibreChat requests still out at once, as the container's own
+  /// dispose would, but before the services go.
+  void _cutLibreChatRequests() {
+    if (!container.read(libreChatHttpClientProvider.exists)) return;
+    try {
+      container.read(libreChatHttpClientProvider)?.close();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'librechat-client-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
     }
   }
 

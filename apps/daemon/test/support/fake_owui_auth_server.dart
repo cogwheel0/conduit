@@ -405,8 +405,10 @@ final class FakeOwuiChats {
   Map<String, dynamic>? refusal;
 
   /// While set, reads of a chat it keeps (`GET /api/v1/chats/{id}`) wait for
-  /// it; [chatReadAsked] completes as one reaches it.
+  /// it, once [chatReadsToPass] more reads have gone through; [chatReadAsked]
+  /// completes as one reaches it.
   Completer<void>? holdChatReads;
+  int chatReadsToPass = 0;
   Completer<void> chatReadAsked = Completer<void>();
 
   /// While set, the first page of the chat list (`GET /api/v1/chats/`)
@@ -1005,11 +1007,15 @@ final class FakeOwuiChats {
     }
     if (chatId != null && stored.containsKey(chatId)) {
       final row = stored[chatId]!;
-      final held = !post
+      var held = !post
           ? holdChatReads
           : holdChatSavesOf == null || holdChatSavesOf == chatId
           ? holdChatSaves
           : null;
+      if (held != null && !post && chatReadsToPass > 0) {
+        chatReadsToPass--;
+        held = null;
+      }
       if (held != null) {
         final asked = post ? chatSaveAsked : chatReadAsked;
         if (!asked.isCompleted) asked.complete();

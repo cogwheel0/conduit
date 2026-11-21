@@ -8,11 +8,13 @@ import 'package:conduit_core/database/daos/outbox_dao.dart'
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kCompletionHeldMetadataKey;
+    show kCompletionHeldMetadataKey, kStoppedHereMetadataKey;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/chat_merger.dart'
+    show answerAt, withDerivedChildren;
 
 import 'package:conduit_core/sync/clock.dart';
 
@@ -230,7 +232,11 @@ class PushSync {
         for (final m in messages)
           if (_isHeldAnswer(m)) m.id,
       };
-      final rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
+      final rows = await _withStoppedAnswersAsServerHas(
+        client,
+        chatId,
+        chatRowsFromDb(chat, messages).withoutMessages(heldAnswers),
+      );
       final blob = ChatBlobMapper.rowsToBlob(rows);
 
       final resp = await client.updateChat(chatId, blob);
@@ -398,6 +404,82 @@ class PushSync {
       throw _OutboxDeferred('no session owns the account of chat $chatId');
     }
     return client;
+  }
+
+  /// [rows] with each answer kept on this device for a Stop the server has
+  /// not accepted ([kStoppedHereMetadataKey]) as the server has it now, where
+  /// this device has it in the graph ([answerAt]), read under this push's lock
+  /// with the [client] it sends with.
+  ///
+  /// The push replaces the chat's whole history, so neither a guess at the
+  /// server's copy nor this device's text may go in its place: the one could
+  /// erase an answer the server finished meanwhile, the other would upload a
+  /// Stop's text the server never took. One the server has finished or written
+  /// into is taken here too, so nothing marks it any more; one it does not
+  /// have stays out.
+  Future<ChatRows> _withStoppedAnswersAsServerHas(
+    SyncApiClient client,
+    String chatId,
+    ChatRows rows,
+  ) async {
+    final stopped = {
+      for (final message in rows.messages)
+        if (_isStoppedHere(message)) message.id,
+    };
+    if (stopped.isEmpty) return rows;
+    final blob = (await client.getChatRaw(chatId))?['chat'];
+    final serverById = <String, MessageRowData>{
+      if (blob is Map)
+        for (final message in ChatBlobMapper.blobToRows(
+          chatId: chatId,
+          blob: Map<String, dynamic>.from(blob),
+          title: '',
+          createdAt: 0,
+          updatedAt: 0,
+        ).messages)
+          message.id: message,
+    };
+    final absent = <String>{};
+    final messages = <MessageRowData>[];
+    for (final message in rows.messages) {
+      if (!stopped.contains(message.id)) {
+        messages.add(message);
+        continue;
+      }
+      final server = serverById[message.id];
+      if (server == null) {
+        absent.add(message.id);
+        messages.add(message);
+        continue;
+      }
+      // A follow-up's echo points it at this answer without listing it among
+      // the answer's children, so they come from the rows being sent.
+      final taken = withDerivedChildren(
+        answerAt(server, message),
+        rows.messages,
+      );
+      if (server.payload['done'] == true || server.content.isNotEmpty) {
+        await _db.messagesDao.upsertLocalEcho(taken);
+      }
+      messages.add(taken);
+    }
+    return ChatRows(
+      chat: rows.chat,
+      messages: messages,
+      unmappableMessages: rows.unmappableMessages,
+      unmappableMessageOrder: rows.unmappableMessageOrder,
+      blobHadTitle: rows.blobHadTitle,
+      blobTitleValue: rows.blobTitleValue,
+      blobHadHistory: rows.blobHadHistory,
+      historyHadMessages: rows.historyHadMessages,
+      historyHadCurrentId: rows.historyHadCurrentId,
+      historyExtra: rows.historyExtra,
+    ).withoutMessages(absent);
+  }
+
+  static bool _isStoppedHere(MessageRowData message) {
+    final metadata = message.payload['metadata'];
+    return metadata is Map && metadata[kStoppedHereMetadataKey] == true;
   }
 
   static bool _isHeldAnswer(MessageRow message) {

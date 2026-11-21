@@ -34,12 +34,13 @@ ChatRows rowsFor({
     final spec = entry.value;
     messageMap[entry.key] = <String, dynamic>{
       'id': entry.key,
-      'parentId': spec['parentId'],
+      if (spec['omitParentId'] != true) 'parentId': spec['parentId'],
       'childrenIds': childrenByParent[entry.key] ?? <String>[],
       'role': spec['role'] ?? 'user',
       'content': spec['content'] ?? 'content of ${entry.key}',
       'timestamp': spec['timestamp'] ?? 1000,
       if (spec['model'] != null) 'model': spec['model'],
+      if (spec.containsKey('done')) 'done': spec['done'],
     };
   }
 
@@ -168,6 +169,112 @@ void main() {
       check(result.newServerUpdatedAt).equals(300);
       check(identical(result.merged, server)).isTrue();
       check(result.dirtyMessageIds).isEmpty();
+    });
+  });
+
+  group('an answer finished here, over an empty unfinished copy', () {
+    // An answer this device stopped with its text, while the server holds the
+    // copy it saved as the answer's task started: unfinished, with no text.
+    final local = rowsFor(
+      chatId: 'c',
+      messages: {
+        'q': {'role': 'user', 'content': 'Which shelf?'},
+        'a': {
+          'parentId': 'q',
+          'role': 'assistant',
+          'content': 'The top one',
+          'done': true,
+        },
+      },
+      currentId: 'a',
+      updatedAt: 200,
+    );
+
+    ChatMergeResult pull(
+      Map<String, dynamic> serverAnswer, {
+      bool envelopeDirty = false,
+    }) => mergeChat(
+      server: rowsFor(
+        chatId: 'c',
+        title: 'Shelves',
+        messages: {
+          'q': {'role': 'user', 'content': 'Which shelf?'},
+          'a': {'parentId': 'q', 'role': 'assistant', ...serverAnswer},
+        },
+        currentId: 'a',
+        updatedAt: 300,
+      ),
+      local: local,
+      base: 200,
+      chatEnvelopeDirty: envelopeDirty,
+      dirtyMessageIds: const {},
+    );
+
+    MessageRowData answer(ChatMergeResult result) =>
+        result.merged.messages.singleWhere((m) => m.id == 'a');
+
+    test('is kept through a fast-forward, which takes the rest from the '
+        'server', () {
+      final result = pull({'content': '', 'done': false});
+
+      check(result.outcome).equals(MergeOutcome.fastForward);
+      check(result.mustPush).isFalse();
+      check(answer(result).content).equals('The top one');
+      check(answer(result).payload['done']).equals(true);
+      check(result.merged.chat.title).equals('Shelves');
+    });
+
+    test('is kept through a three-way', () {
+      final result = pull({'content': '', 'done': false}, envelopeDirty: true);
+
+      check(result.outcome).equals(MergeOutcome.threeWay);
+      check(answer(result).content).equals('The top one');
+      check(answer(result).payload['done']).equals(true);
+    });
+
+    test('an unfinished copy with text replaces it', () {
+      final result = pull({'content': 'The top one, or', 'done': false});
+
+      check(answer(result).content).equals('The top one, or');
+      check(answer(result).payload['done']).equals(false);
+    });
+
+    test('a finished copy replaces it', () {
+      final result = pull({'content': 'The middle one', 'done': true});
+
+      check(answer(result).content).equals('The middle one');
+    });
+
+    // Macroscope 4651764897.
+    test('sits where the server has it, a parent the server no longer names '
+        'included', () {
+      final result = mergeChat(
+        server: rowsFor(
+          chatId: 'c',
+          messages: {
+            'a': {
+              'role': 'assistant',
+              'content': '',
+              'done': false,
+              'omitParentId': true,
+            },
+          },
+          currentId: 'a',
+          updatedAt: 300,
+        ),
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: false,
+        dirtyMessageIds: const {},
+      );
+
+      check(answer(result).content).equals('The top one');
+      check(answer(result).parentId).isNull();
+      final messages =
+          (ChatBlobMapper.rowsToBlob(result.merged)['history']
+                  as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      check((messages['a'] as Map<String, dynamic>)['parentId']).isNull();
     });
   });
 

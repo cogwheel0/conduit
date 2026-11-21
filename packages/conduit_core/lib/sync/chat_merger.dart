@@ -151,7 +151,7 @@ ChatMergeResult mergeChat({
   // local rows wholesale with the server blob.
   if (!dirty) {
     return ChatMergeResult(
-      merged: server,
+      merged: withAnswersFinishedHere(server, local.messages),
       mustPush: false,
       outcome: MergeOutcome.fastForward,
       newServerUpdatedAt: serverUpdatedAt,
@@ -203,9 +203,13 @@ ChatMergeResult _threeWay({
       // Dirty local always wins (both-sides or local-only-new).
       survivors.add(localMsg);
       survivingDirtyIds.add(id);
-    } else if (serverById.containsKey(id)) {
+    } else if (serverById[id] case final serverMsg?) {
       // Clean and present on server: server wins.
-      survivors.add(serverById[id]!);
+      survivors.add(
+        _keepsAnswerFinishedHere(localMsg, serverMsg)
+            ? answerAt(localMsg, serverMsg)
+            : serverMsg,
+      );
     }
     // else: clean, local-only → remotely deleted → drop.
   }
@@ -249,7 +253,7 @@ ChatMergeResult _threeWay({
   // round-trips payload verbatim, so a stale childrenIds inside a surviving
   // payload would otherwise be wrong after an add/drop.
   final merged = <MessageRowData>[
-    for (final m in reindexed) _withDerivedChildren(m, reindexed),
+    for (final m in reindexed) withDerivedChildren(m, reindexed),
   ];
 
   // (c) currentMessageId — local if any local message is dirty or the user
@@ -334,6 +338,88 @@ ChatMergeResult _threeWay({
   );
 }
 
+/// [server] with each answer in [local] that [_keepsAnswerFinishedHere] keeps
+/// over the server's copy of it; [server] itself when there is none, so a
+/// clean chat still takes the server's rows wholesale.
+ChatRows withAnswersFinishedHere(
+  ChatRows server,
+  Iterable<MessageRowData> local,
+) {
+  final localById = {for (final m in local) m.id: m};
+  var kept = false;
+  final messages = <MessageRowData>[];
+  for (final message in server.messages) {
+    final mine = localById[message.id];
+    if (mine != null && _keepsAnswerFinishedHere(mine, message)) {
+      messages.add(answerAt(mine, message));
+      kept = true;
+    } else {
+      messages.add(message);
+    }
+  }
+  if (!kept) return server;
+  return ChatRows(
+    chat: server.chat,
+    messages: messages,
+    unmappableMessages: server.unmappableMessages,
+    unmappableMessageOrder: server.unmappableMessageOrder,
+    blobHadTitle: server.blobHadTitle,
+    blobTitleValue: server.blobTitleValue,
+    blobHadHistory: server.blobHadHistory,
+    historyHadMessages: server.historyHadMessages,
+    historyHadCurrentId: server.historyHadCurrentId,
+    historyExtra: server.historyExtra,
+  );
+}
+
+/// Whether [local], an answer this device has finished with text, is kept
+/// over [server], the server's copy of it, which is unfinished and empty.
+///
+/// Open WebUI saves an answer that way as its task starts, and saves it again
+/// only once the task ends. A Stop the server never took (conduitd's client cut
+/// at quit, the server out of reach) keeps its answers here alone, and a task
+/// that then died leaves that copy for good: taking it would lose the text.
+/// Any other copy still replaces the answer, a running one with text (another
+/// device continuing it, say) as much as a finished one.
+bool _keepsAnswerFinishedHere(MessageRowData local, MessageRowData server) =>
+    local.role == 'assistant' &&
+    local.payload['done'] == true &&
+    local.content.isNotEmpty &&
+    server.payload['done'] != true &&
+    server.content.isEmpty;
+
+/// The payload keys that place a message in the graph.
+const _graphKeys = {'parentId', 'childrenIds', 'timestamp'};
+
+/// [copy]'s answer, its text and state, where [place] has it in the graph:
+/// [place]'s parent, children and order, a graph key [place] leaves out
+/// included.
+///
+/// When one copy of an answer is taken over another, the tree being written
+/// decides where it sits. A pull writes the server's tree, so an answer kept
+/// from this device goes where the server has it; a push writes this device's
+/// tree, so the server's answer goes where this device has it, with a
+/// follow-up sent here since under it. The other side's children are never
+/// added: they are not in the tree being written, so naming them would leave
+/// an id that points nowhere.
+MessageRowData answerAt(MessageRowData copy, MessageRowData place) =>
+    MessageRowData(
+      id: place.id,
+      chatId: place.chatId,
+      parentId: place.parentId,
+      role: copy.role,
+      content: copy.content,
+      model: copy.model ?? place.model,
+      createdAt: place.createdAt,
+      orderIndex: place.orderIndex,
+      payload: <String, dynamic>{
+        for (final entry in copy.payload.entries)
+          if (!_graphKeys.contains(entry.key)) entry.key: entry.value,
+        for (final key in _graphKeys)
+          if (place.payload.containsKey(key)) key: place.payload[key],
+      },
+    );
+
 /// Walks up [parentOf] from [parentId] to the nearest id in [survivors],
 /// returning null when the chain reaches the root or a dropped ancestor with
 /// no surviving forebear. Cycle-guarded.
@@ -388,7 +474,7 @@ MessageRowData _withOrderIndex(MessageRowData message, int orderIndex) {
 /// Returns [message] with `payload['childrenIds']` rewritten to the derived
 /// child id list among [all] (§7.4). The payload map is copied so the input
 /// rows are never mutated (purity).
-MessageRowData _withDerivedChildren(
+MessageRowData withDerivedChildren(
   MessageRowData message,
   List<MessageRowData> all,
 ) {

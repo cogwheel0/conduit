@@ -377,6 +377,21 @@ class ApiService extends _ApiServiceBase
   /// How long, after such a request ran out of time, the saved reply is
   /// waited for before the turn ends with what the server has saved so far.
   static const Duration heldReplyWaitLimit = Duration(minutes: 20);
+
+  /// Clients a rebuild retired ([dispose]) that something may still hold: a
+  /// sync keeps the client it was built with, and its request runs on.
+  static final Set<WeakReference<ApiService>> _retiredClients =
+      <WeakReference<ApiService>>{};
+
+  /// Closes now ([closeNow]) each client a rebuild retired, so a request still
+  /// out on one fails at once: for a host shutting down, which must not wait
+  /// on the server.
+  static void closeRetiredNow() {
+    for (final client in List.of(_retiredClients)) {
+      client.target?.closeNow();
+    }
+    _retiredClients.clear();
+  }
 }
 
 List<Map<String, dynamic>> _normalizeMapListWorker(

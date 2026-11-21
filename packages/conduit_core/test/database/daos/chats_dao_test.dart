@@ -130,6 +130,94 @@ void main() {
     });
   });
 
+  test('a first pull onto an envelope stub keeps an answer finished here '
+      'over the empty, unfinished copy the server saved as its task '
+      'started', () async {
+    const chatId = 'c1c1c1c1-0000-4000-8000-000000000001';
+    await db.chatsDao.upsertEnvelopeStub(
+      id: chatId,
+      title: 'Shelves',
+      createdAt: 100,
+      updatedAt: 150,
+    );
+    Map<String, dynamic> message(
+      String id, {
+      String? parentId,
+      List<String> childrenIds = const <String>[],
+      required String role,
+      required String content,
+      bool? done,
+    }) => <String, dynamic>{
+      'id': id,
+      'parentId': parentId,
+      'childrenIds': childrenIds,
+      'role': role,
+      'content': content,
+      'timestamp': 100,
+      'done': ?done,
+    };
+    MessageRowData row(Map<String, dynamic> payload, int orderIndex) =>
+        MessageRowData(
+          id: payload['id'] as String,
+          chatId: chatId,
+          parentId: payload['parentId'] as String?,
+          role: payload['role'] as String,
+          content: payload['content'] as String,
+          createdAt: 100,
+          orderIndex: orderIndex,
+          payload: payload,
+        );
+    final question = message(
+      'q',
+      childrenIds: const ['a'],
+      role: 'user',
+      content: 'Which shelf?',
+    );
+    await db.messagesDao.upsertLocalEcho(row(question, 0));
+    await db.messagesDao.upsertLocalEcho(
+      row(
+        message(
+          'a',
+          parentId: 'q',
+          role: 'assistant',
+          content: 'The top one',
+          done: true,
+        ),
+        1,
+      ),
+    );
+
+    await db.chatsDao.mergeServerChat(
+      server: ChatBlobMapper.blobToRows(
+        chatId: chatId,
+        blob: <String, dynamic>{
+          'title': 'Shelves',
+          'history': <String, dynamic>{
+            'messages': <String, dynamic>{
+              'q': question,
+              'a': message(
+                'a',
+                parentId: 'q',
+                role: 'assistant',
+                content: '',
+                done: false,
+              ),
+            },
+            'currentId': 'a',
+          },
+        },
+        title: 'Shelves',
+        createdAt: 100,
+        updatedAt: 200,
+      ),
+    );
+
+    final answer = (await db.messagesDao.getMessage(chatId, 'a'))!;
+    check(answer.content).equals('The top one');
+    check((jsonDecode(answer.payload) as Map<String, dynamic>)['done'])
+        .equals(true);
+  });
+
   group('DB round-trip (RFC §6.1) for every golden fixture', () {
     for (final fixture in loadChatBlobFixtures()) {
       test(fixture.name, () async {

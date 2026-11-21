@@ -1234,6 +1234,9 @@ class DaemonServer {
     _log.info('stopping');
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(null);
+    // Before any service goes: one that waits for a request it made (the
+    // turns service, for its post-turn pulls) must not wait on the server.
+    _core?.beginShutdown();
     for (final session in _sessions.values.toList()) {
       await session.close();
     }

@@ -233,6 +233,18 @@ final class HeldReplyUnresolved implements Exception {
   String toString() => kHeldReplyUnresolvedMessage;
 }
 
+/// Ends the byte stream of a held completion whose wait for its saved reply
+/// was cut off because its client was closed (the host shutting down). The
+/// reply may still finish on the server; the turn stays queued for a later
+/// read of it, not settled as failed.
+final class HeldReplyAbandoned implements Exception {
+  const HeldReplyAbandoned();
+
+  @override
+  String toString() =>
+      'The wait for a held reply ended because its client was closed.';
+}
+
 /// Stored as the reply's error for [HeldReplyUnresolved]; the app shows it in
 /// the user's language.
 const String kHeldReplyUnresolvedMessage =

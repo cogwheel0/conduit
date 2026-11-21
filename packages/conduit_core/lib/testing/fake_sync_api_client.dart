@@ -244,13 +244,25 @@ class FakeSyncApiClient implements SyncApiClient {
     return server.createChat(chatBlob, folderId: folderId);
   }
 
+  /// Called with each [updateChat]'s blob as the push starts.
+  void Function(String id, Map<String, dynamic> blob)? onUpdateChat;
+
+  /// When set, every [updateChat] awaits this future before the server takes
+  /// it — lets a test hold an updateChat op `inFlight`.
+  Future<void>? updateChatGate;
+
   @override
   Future<Map<String, dynamic>?> updateChat(
     String id,
     Map<String, dynamic> fullBlob,
   ) async {
     updateChatCalls++;
+    onUpdateChat?.call(id, fullBlob);
     await Future<void>.delayed(Duration.zero);
+    final gate = updateChatGate;
+    if (gate != null) {
+      await gate;
+    }
     _maybeThrow(id);
     return server.updateChat(id, fullBlob);
   }

@@ -274,6 +274,20 @@ mixin _HealthApi on _ApiServiceBase {
     // abort an active SSE chat stream that survived such rebuilds before this
     // client owned its pool.
     _dio.close();
+    ApiService._retiredClients
+      ..removeWhere((client) => client.target == null)
+      ..add(WeakReference(this as ApiService));
+  }
+
+  /// [dispose], but a request still out fails at once instead of running to
+  /// completion: for a host shutting down, which must not wait on the server.
+  void closeNow() {
+    _disposed = true;
+    _closedNow = true;
+    _dio.close(force: true);
+    for (final abandon in List.of(_heldReplyWaits)) {
+      abandon();
+    }
   }
 
   /// Verifies this is actually an OpenWebUI server by checking the /api/config

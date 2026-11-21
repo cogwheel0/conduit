@@ -160,6 +160,12 @@ class OutboxDrainer {
         await Future.any([rearm, asked.future]);
         _rerunAsked = null;
       }
+    } catch (_) {
+      // A worker failed. A re-arm still running writes parked ops, and the
+      // drain is not over until it has.
+      final rearm = _rearm;
+      if (rearm != null) await rearm.catchError((Object _) {});
+      rethrow;
     } finally {
       _draining = false;
     }

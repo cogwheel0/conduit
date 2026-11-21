@@ -907,6 +907,38 @@ void main() {
     });
   });
 
+  // CodeRabbit 4651804341.
+  test('a drain whose worker fails ends only once the re-arm it started '
+      'has', () async {
+    final delete = await enqueue(
+      kind: OutboxKind.deleteMessages,
+      chatId: 'c1',
+      payload: {
+        kDeleteMessagesIdsKey: ['a1'],
+      },
+    );
+    await dao.markParked(delete, error: 'deleteChatMessages forbidden');
+    final recovery = _GatedRecovery(dao, delete);
+    final ended = <String>[];
+    unawaited(recovery.rearmed.future.then((_) => ended.add('re-arm')));
+    var emptyClaims = 0;
+    claims.onEmptyClaim = () async {
+      // Each worker's claim fails. The re-arm goes on once the work of that
+      // turn is done, by when a drain that does not wait for it has ended.
+      if (++emptyClaims == OutboxDrainer.kPoolSize) {
+        Timer.run(recovery.gate.complete);
+      }
+      throw StateError('claim failed');
+    };
+    final drainer = buildDrainer(adapters: [recovery]);
+
+    await check(drainer.drain()).throws();
+    ended.add('drain');
+    await recovery.rearmed.future;
+
+    check(ended).deepEquals(['re-arm', 'drain']);
+  });
+
   group('parked ops whose check could not tell', () {
     test('are checked again by a drain asked for once that is due, while one '
         'that began before then runs', () async {

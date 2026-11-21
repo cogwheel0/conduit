@@ -57,6 +57,7 @@ import 'package:conduit_core/database/account_storage_isolation.dart';
 // moving it to the core without this turns every one of those into an error.
 export 'package:conduit_core/database/account_storage_isolation.dart'
     show conversationUsesOpenWebUiStorage;
+import 'package:collection/collection.dart' show DeepCollectionEquality;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/database_manager.dart';
