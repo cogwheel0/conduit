@@ -5,7 +5,9 @@
 //! has its `read_buoy` call run on this Mac (the fake server logs the call)
 //! and the answer quotes the reading; it is renamed, switched off and
 //! deleted. A terminal that can't be reached fails its test. Pane and
-//! sheets are shot in light and dark.
+//! sheets are shot in light and dark. On a server that moved Personal
+//! Connections into Tether (Open WebUI 0.13.4) it stops once the pane
+//! opens, with a skip line.
 
 use std::path::Path;
 use std::time::Duration;
@@ -139,13 +141,27 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     };
     let loaded = wait_until(cx, Duration::from_secs(20), |cx| {
         pane(cx).is_some_and(|p| {
-            p.read(cx)
-                .list
-                .as_ref()
-                .is_some_and(|l| l.access == PersonalAccess::Allowed && !l.failed)
+            p.read(cx).list.as_ref().is_some_and(|l| {
+                matches!(
+                    l.access,
+                    PersonalAccess::Allowed | PersonalAccess::MovedToTether
+                ) && !l.failed
+            })
         })
     })
     .await;
+    let moved = cx.update(|cx| {
+        pane(cx).is_some_and(|p| {
+            p.read(cx)
+                .list
+                .as_ref()
+                .is_some_and(|l| l.access == PersonalAccess::MovedToTether)
+        })
+    });
+    if moved {
+        println!("SMOKE e2e skip Settings › Personal Connections: {MOVED_TO_TETHER}");
+        return pass;
+    }
     pass &= ok("the account's connections load (none yet)", loaded);
     settings_shot(dir, "connections-empty", cx).await;
     let controls = ax(h, "connections-empty", dir, cx).await;

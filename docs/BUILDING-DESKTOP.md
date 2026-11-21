@@ -226,6 +226,11 @@ CONDUIT_USER_DATA=/tmp/p-1 CONDUIT_LOGS=/tmp/l-1 \
   passes change the seed, and `rendering` restarts the server.
 - Run one GUI pass at a time: another Conduit window takes the activation
   and greys the screenshots' chrome.
+- On Open WebUI 0.13.4, which moved Personal Connections and direct
+  connections into Tether, `integrations` stops once its pane opens, and
+  `direct-advanced` (the connection kept in the account) and
+  `apps-leftovers` (the personal terminal's preview) skip those steps.
+  Each prints a `SMOKE e2e skip` line.
 - A scripted run never asks macOS for a permission (microphone, speech,
   notifications, location): it uses stand-ins (a WAV for the microphone, a
   fixed position for `{{USER_LOCATION}}`) or skips what needs the real

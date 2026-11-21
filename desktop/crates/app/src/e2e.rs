@@ -215,6 +215,10 @@ pub(crate) fn is_local_url(url: &str) -> bool {
 /// What a pass says when the env file is missing or incomplete.
 const NO_SERVER: &str = "the local Open WebUI's env file is there (tool/local_owui/owui.sh up)";
 
+/// Why a pass skips connections kept in the Open WebUI account when the
+/// server says they moved (0.13.4, which `tool/local_owui` runs).
+const MOVED_TO_TETHER: &str = "Open WebUI 0.13.4 moved Personal Connections and direct connections into Tether; back with the Tether device follow-up";
+
 impl E2eInputs {
     pub fn from_args(args: &[String]) -> Option<Self> {
         let arg = |k: &str| {

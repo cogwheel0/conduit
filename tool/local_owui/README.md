@@ -43,15 +43,14 @@ that.
 ## What it holds
 
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,
-offline, with direct connections and channels on, retrieval bypassed, and
-one OpenAI connection, `fake_model.py`, which also does its speech-to-text,
-text-to-speech and embeddings (saving a memory needs one), and is the voice
-behind the server's realtime calls (a scripted exchange over its
-`/v1/realtime` WebSocket). The fake model also serves a personal tool
-server (OpenAPI, `/personal/openapi.json`, one operation `read_buoy`) for
-the app to add and run client-side (direct integrations are on), and
-takes webhook deliveries on any `/webhook/...` path (user webhooks are
-on), logging both. `seed.py` then
+offline, with channels on, retrieval bypassed, and one OpenAI connection,
+`fake_model.py`, which also does its speech-to-text, text-to-speech and
+embeddings (saving a memory needs one), and is the voice behind the
+server's realtime calls (a scripted exchange over its `/v1/realtime`
+WebSocket). The fake model also serves a personal tool server (OpenAPI,
+`/personal/openapi.json`, one operation `read_buoy`) for Personal
+Connections (see below), and takes webhook deliveries on any
+`/webhook/...` path (user webhooks are on), logging both. `seed.py` then
 makes:
 
 - an admin, Avery Tester (`avery@example.test`), and a second user, Riley
@@ -63,6 +62,14 @@ makes:
   with the admin;
 - prompts `/orbit` and `/brief` (with a select variable) and an uploaded
   text file.
+
+Open WebUI 0.13.4 moved direct connections and Personal Connections (the
+tool servers and terminals kept in the account) into Tether, its companion
+app, and dropped the settings that turned them on. Against it, the tests
+of a connection kept in the account are skipped, and the desktop passes
+skip those steps with a line saying so, until Conduit can act as a Tether
+device. The daemon's terminal test still writes a terminal into the
+account's settings itself and reaches it directly.
 
 ## The env file
 

@@ -13,7 +13,8 @@
 //!   `/responses` with it;
 //! * the history location: a chat stays on this Mac, or reaches the server;
 //! * a connection kept in the Open WebUI account (`ui.directConnections`),
-//!   listed, and chatted through;
+//!   listed, and chatted through; skipped, with a line saying so, on a
+//!   server that moved them into Tether (Open WebUI 0.13.4);
 //! * Ollama on "this Mac": its models, Load and Unload, keep-alive, and a
 //!   context limit Ollama then loads the model with (`num_ctx`);
 //! * images per request and the web search engine, region and safe search.
@@ -383,15 +384,20 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         "the pane lists connections, MCP servers and web search",
         loaded,
     );
-    let owui = cx.update(|cx| {
-        direct_pane(cx).is_some_and(|p| {
-            p.read(cx)
-                .list
-                .as_ref()
-                .is_some_and(|l| l.open_web_ui_available)
-        })
+    let (owui, moved) = cx.update(|cx| {
+        direct_pane(cx)
+            .and_then(|p| {
+                let p = p.read(cx);
+                let l = p.list.as_ref()?;
+                Some((l.open_web_ui_available, l.open_web_ui_moved_to_tether))
+            })
+            .unwrap_or_default()
     });
-    pass &= ok("the server keeps direct connections for its users", owui);
+    if moved {
+        println!("SMOKE e2e skip a connection kept in the Open WebUI account: {MOVED_TO_TETHER}");
+    } else {
+        pass &= ok("the server keeps direct connections for its users", owui);
+    }
     shoot_tall(dir, "direct-pane-empty", cx).await;
 
     pass &= gateway(&openai, &log, dir, cx).await;
@@ -400,7 +406,9 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     pass &= openai_default(cx).await;
     pass &= responses(&log, cx).await;
     pass &= history((&url, &email, &password), cx).await;
-    pass &= open_web_ui_connection(&openai, &log, cx).await;
+    if !moved {
+        pass &= open_web_ui_connection(&openai, &log, cx).await;
+    }
     pass &= ollama(&origin, &log, dir, cx).await;
     pass &= options(dir, cx).await;
     pass
