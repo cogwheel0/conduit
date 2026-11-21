@@ -27,17 +27,18 @@ import 'package:conduit_core/sync/sync_api_client.dart';
 /// bring together are not read for again until either changes
 /// ([PullFetchMemo.archivedCountsUnsettled]).
 ///
-/// [since] is [ChatsDao.localEnvelopeClock] and [generation] is
-/// [ConversationLocks.generation], both taken before any list was requested:
-/// a pin or archive made here after, or an account-wide change that ended
-/// after, keeps what it did. Best effort: a failure leaves rows as they are.
+/// The rows are read before any list is requested, and a list is applied
+/// only to a row it contradicted then. A pin or archive made here while the
+/// lists load is therefore kept: it leaves its row agreeing with the list,
+/// which then writes nothing. [generation] is [ConversationLocks.generation]
+/// when the cycle began: after an account-wide change that ended since,
+/// nothing is written. Best effort: a failure leaves rows as they are.
 /// Returns how many chats changed.
 Future<int> syncServerPinsAndArchives({
   required SyncApiClient client,
   required AppDatabase db,
   required ConversationLocks locks,
   required String accountId,
-  required int since,
   required int generation,
   PullFetchMemo? memo,
 }) async {
@@ -97,7 +98,6 @@ Future<int> syncServerPinsAndArchives({
           pinned: pinned,
           archived: archived,
           folderId: folderId,
-          since: since,
         );
       });
       if (!stored) return;

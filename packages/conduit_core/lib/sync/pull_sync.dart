@@ -411,10 +411,8 @@ class PullSync {
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
-    // Before any list page is requested; see applyServerReadStates and
-    // syncServerPinsAndArchives.
+    // Before any list page is requested; see applyServerReadStates.
     final readStateSince = _db.chatsDao.localReadStateClock;
-    final envelopeSince = _db.chatsDao.localEnvelopeClock;
 
     // Keyed by chat id; first occurrence wins (list order is newest-first).
     final changed = <String, _ChangedItem>{};
@@ -553,7 +551,6 @@ class PullSync {
         db: _db,
         locks: _locks,
         accountId: accountId,
-        since: envelopeSince,
         generation: cycleGeneration,
         memo: _fetchMemo,
       );
