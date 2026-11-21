@@ -980,8 +980,11 @@ class MediaUploadController {
           attachment.file.path,
     };
     _ref.read(attachedFilesProvider.notifier).clearAll();
-    if (localPaths.isEmpty) return Future<void>.value();
-    return Future.wait<void>(localPaths.map(cancelUploadsForFile))
+    final held = localPaths.where(_sentHolds).toSet();
+    _removedWhileSent.addAll(held);
+    final released = localPaths.difference(held);
+    if (released.isEmpty) return Future<void>.value();
+    return Future.wait<void>(released.map(cancelUploadsForFile))
         .then<void>((_) {});
   }
 

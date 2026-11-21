@@ -1982,6 +1982,7 @@ void main() {
     ('removed; sent', false, [true]),
     ('removed; not sent', false, [false]),
     ('removed; two sends hold it', false, [true, false]),
+    ('cleared with the tray', true, [false]),
   ].indexed) {
     test('a staged file a send holds keeps its bytes until the last send '
         'holding it is done ($label)', () async {
