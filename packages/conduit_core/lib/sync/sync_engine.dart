@@ -603,6 +603,11 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     final remapper = _ensureRemapper();
     if (remapper == null) return null;
     final workerManager = ref.read(workerManagerProvider);
+    // As for notes: the pinned and archived lists answer the account the
+    // pull was built for, and say nothing of the one signed in after.
+    final boundSessionEpoch = _sessionEpoch;
+    final readerId = ref.read(currentUserProvider2)?.id;
+    final authSession = ref.read(openWebUiAuthSessionEpochProvider);
     return PullSync(
       client: client,
       db: db,
@@ -620,6 +625,15 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
       ),
       onProgress: onProgress,
       fetchMemo: _pullFetchMemo,
+      readerAccountId: () =>
+          ref.mounted &&
+              boundSessionEpoch == _sessionEpoch &&
+              identical(
+                ref.read(openWebUiAuthSessionEpochProvider),
+                authSession,
+              )
+          ? readerId
+          : null,
     );
   }
 

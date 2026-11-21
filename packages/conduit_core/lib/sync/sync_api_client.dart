@@ -92,6 +92,14 @@ abstract interface class SyncApiClient {
   /// metadata only"; the main list ALWAYS excludes archived server-side.)
   Future<List<Map<String, dynamic>>> getArchivedChatListPage(int page);
 
+  /// GET `/api/v1/chats/pinned` — the ids of every chat the account has
+  /// pinned and not archived, all in one answer.
+  Future<Set<String>> getPinnedChatIds();
+
+  /// GET `/api/v1/chats/archived/count` — how many chats the account has
+  /// archived, or null when the server does not say.
+  Future<int?> getArchivedChatCount();
+
   /// GET `/api/v1/chats/{id}` — raw `ChatResponse` map; null on 404.
   Future<Map<String, dynamic>?> getChatRaw(String id);
 
@@ -308,6 +316,15 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   Future<List<Map<String, dynamic>>> getArchivedChatListPage(int page) {
     return api.getArchivedChatListPageRaw(page: page);
   }
+
+  @override
+  Future<Set<String>> getPinnedChatIds() async => {
+    for (final item in await api.getPinnedChatListRaw())
+      if (item['id'] case final String id when id.isNotEmpty) id,
+  };
+
+  @override
+  Future<int?> getArchivedChatCount() => api.getArchivedChatCountRaw();
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) {

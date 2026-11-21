@@ -16,6 +16,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 
 import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/pin_archive_sync.dart';
 import 'package:conduit_core/sync/read_state_sync.dart';
 import 'package:meta/meta.dart';
 
@@ -226,6 +227,21 @@ class PullFetchMemo {
       _entries.remove(_entries.keys.first);
     }
   }
+
+  ({int server, int local})? _unsettledArchivedCounts;
+
+  /// Whether a full read of the archived list last left the server's
+  /// archived count at [server] and this device's at [local]: reading it
+  /// again would find the same, such as a chat deleted while archived, which
+  /// only the deletion reconcile removes here.
+  bool archivedCountsUnsettled(int server, int local) =>
+      _unsettledArchivedCounts == (server: server, local: local);
+
+  /// Records the counts a full read of the archived list left apart, or
+  /// clears them with null.
+  void noteArchivedCountsUnsettled(({int server, int local})? counts) {
+    _unsettledArchivedCounts = counts;
+  }
 }
 
 /// Thrown instead of storing a server read that began before an account-wide
@@ -294,6 +310,10 @@ class PullSync {
   /// (see [assembleConversationGuarded]). When null, assembly runs synchronously
   /// on the calling isolate — safe for tests, jank-risk for production pulls
   /// with large message counts.
+  ///
+  /// [readerAccountId] names the signed-in account, or null once the pull no
+  /// longer reads for it. Without one a cycle leaves pins and archives to the
+  /// chats it reads ([syncServerPinsAndArchives]).
   PullSync({
     required SyncApiClient client,
     required AppDatabase db,
@@ -303,6 +323,7 @@ class PullSync {
     ChatRowsParseOffload? rowsParseOffload,
     SyncItemProgressCallback? onProgress,
     PullFetchMemo? fetchMemo,
+    String? Function()? readerAccountId,
   }) : _client = client,
        _db = db,
        _locks = locks,
@@ -310,7 +331,8 @@ class PullSync {
        _parseOffload = parseOffload,
        _rowsParseOffload = rowsParseOffload,
        _onProgress = onProgress,
-       _fetchMemo = fetchMemo;
+       _fetchMemo = fetchMemo,
+       _readerAccountId = readerAccountId;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -320,6 +342,7 @@ class PullSync {
   final ChatRowsParseOffload? _rowsParseOffload;
   final SyncItemProgressCallback? _onProgress;
   final PullFetchMemo? _fetchMemo;
+  final String? Function()? _readerAccountId;
   final _taskVersionsAtFetch = Expando<int>();
 
   /// [ChatsDao.modelListVersion] when each raw response was requested.
@@ -388,8 +411,10 @@ class PullSync {
     final watermark = await _db.syncMetaDao.getPullWatermark();
     final threshold = watermark - kPullOverlapSeconds;
     var maxSeen = watermark;
-    // Before any list page is requested; see applyServerReadStates.
+    // Before any list page is requested; see applyServerReadStates and
+    // syncServerPinsAndArchives.
     final readStateSince = _db.chatsDao.localReadStateClock;
+    final envelopeSince = _db.chatsDao.localEnvelopeClock;
 
     // Keyed by chat id; first occurrence wins (list order is newest-first).
     final changed = <String, _ChangedItem>{};
@@ -516,6 +541,22 @@ class PullSync {
           data: {'chatId': item.id},
         );
       }
+    }
+
+    // 3b. Pins and archives, which Open WebUI 0.13.4 makes without moving a
+    // chat's updated_at, so the lists above never show them. Before the
+    // fetches, whose copies are newer. Never holds the watermark.
+    final accountId = _readerAccountId?.call();
+    if (accountId != null && accountId.isNotEmpty) {
+      await syncServerPinsAndArchives(
+        client: _client,
+        db: _db,
+        locks: _locks,
+        accountId: accountId,
+        since: envelopeSince,
+        generation: cycleGeneration,
+        memo: _fetchMemo,
+      );
     }
 
     // 4. Folders (RFC §7.6, fast-forward LWW). Folder failure NEVER blocks

@@ -422,6 +422,17 @@ class FakeOpenWebUiServer {
     return true;
   }
 
+  /// Mirrors `GET /api/v1/chats/pinned` (`get_pinned_chats_by_user_id`): the
+  /// ids of pinned chats that are not archived.
+  List<String> getPinnedChatIds() => [
+    for (final record in _chats.values)
+      if (record.pinned && !record.archived) record.id,
+  ];
+
+  /// Mirrors `GET /api/v1/chats/archived/count`
+  /// (`count_archived_chats_by_user_id`).
+  int getArchivedChatCount() => _chats.values.where((c) => c.archived).length;
+
   /// Mirrors `GET /api/v1/chats/{id}/pinned`
   /// (`get_pinned_status_by_id`): the chat's `pinned` flag; throws 401 when
   /// the chat is missing/unowned (the route raises

@@ -305,6 +305,76 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     _readStateTouchedAt[chatId] = ++_readStateClock;
   }
 
+  int _envelopeClock = 0;
+  final _envelopeTouchedAt = <String, int>{};
+
+  /// Advances on every envelope change made on this device ([updateEnvelope],
+  /// [updateEnvelopeWithOutbox]). Capture it before requesting the server's
+  /// pinned or archived lists and pass it to [applyServerPinAndArchive]: a
+  /// list read before a pin or archive made here then never undoes it.
+  int get localEnvelopeClock => _envelopeClock;
+
+  void _touchEnvelope(String chatId) {
+    _envelopeTouchedAt[chatId] = ++_envelopeClock;
+  }
+
+  /// Pin, archive and owner of every non-tombstoned chat with a server id.
+  Future<Map<String, ({bool pinned, bool archived, String? userId})>>
+  serverChatPinsAndArchives() async {
+    final query = selectOnly(chats)
+      ..addColumns([chats.id, chats.pinned, chats.archived, chats.userId])
+      ..where(chats.deleted.equals(false) & chats.id.like('local:%').not());
+    final rows = await query.get();
+    return {
+      for (final row in rows)
+        row.read(chats.id)!: (
+          pinned: row.read(chats.pinned)!,
+          archived: row.read(chats.archived)!,
+          userId: row.read(chats.userId),
+        ),
+    };
+  }
+
+  /// Takes the pin, the archive and, for a chat with no edits of its own
+  /// waiting, the folder Open WebUI reports for chat [chatId], from a list
+  /// requested at [since] ([localEnvelopeClock]). A chat changed here since,
+  /// or one this device does not hold, is left alone. Returns whether the row
+  /// changed.
+  ///
+  /// Pins and archives are taken whatever the row's `dirty`: an Open WebUI
+  /// chat is pinned and archived on the server first and never queued, so a
+  /// pin or archive kept here would only be an older copy -- one a push of
+  /// the chat would otherwise put back on the server, as it sets the server's
+  /// pin and archive to the row's.
+  Future<bool> applyServerPinAndArchive(
+    String chatId, {
+    bool? pinned,
+    bool? archived,
+    Value<String?> folderId = const Value.absent(),
+    required int since,
+  }) {
+    return transaction(() async {
+      if ((_envelopeTouchedAt[chatId] ?? 0) > since) return false;
+      final existing = await getChat(chatId);
+      if (existing == null || existing.deleted) return false;
+      final pin = pinned != null && pinned != existing.pinned;
+      final archive = archived != null && archived != existing.archived;
+      final folder =
+          folderId.present &&
+          !existing.dirty &&
+          folderId.value != existing.folderId;
+      if (!pin && !archive && !folder) return false;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          pinned: pin ? Value(pinned) : const Value.absent(),
+          archived: archive ? Value(archived) : const Value.absent(),
+          folderId: folder ? folderId : const Value.absent(),
+        ),
+      );
+      return true;
+    });
+  }
+
   /// NARROW projection (REQ §10.2): selectOnly() with exactly the
   /// [ChatListEntry] columns — payload/rawExtra/blobMeta/meta MUST NOT appear
   /// in the SQL. WHERE deleted = false; ORDER BY updatedAt DESC, id ASC.
@@ -1158,6 +1228,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     Value<bool> archived = const Value.absent(),
     Value<int> updatedAt = const Value.absent(),
   }) {
+    _touchEnvelope(chatId);
     return (update(chats)..where((t) => t.id.equals(chatId))).write(
       ChatsCompanion(
         title: title,
@@ -1347,6 +1418,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     Value<int> updatedAt = const Value.absent(),
     required bool enqueue,
   }) {
+    _touchEnvelope(chatId);
     return transaction(() async {
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
