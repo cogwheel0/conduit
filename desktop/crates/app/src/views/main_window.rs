@@ -32,7 +32,8 @@ use conduit_components::views::shell::MainWindowFrame;
 use conduit_protocol::BulkChatAction;
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, Global, Subscription, Window, div, px,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, Global, Role, SharedString,
+    Subscription, Window, div, px,
 };
 
 use crate::actions::{
@@ -639,8 +640,12 @@ impl Render for MainWindow {
         let makes_channels = shows_main && self.stores.areas.read(cx).channels_can_create;
         let makes_rooms = shows_main && self.stores.hermes_rooms.read(cx).can_create();
 
+        // A click on no control focuses the window itself (closing the model
+        // picker, Stop): named, so VoiceOver says where focus went.
         div()
             .id("main-window")
+            .role(Role::Group)
+            .aria_label(SharedString::from(cx.l10n().app_title()))
             .key_context("ConduitMainWindow")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &AllowRequest, _, cx| {

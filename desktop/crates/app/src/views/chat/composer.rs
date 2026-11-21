@@ -4586,8 +4586,12 @@ impl Render for ChatComposer {
                 }
             }));
 
+        // The group is the whole area, which a click on no control in it
+        // focuses (Stop, once it goes): VoiceOver says where focus went.
         div()
             .id("composer-area")
+            .role(Role::Group)
+            .aria_label(SharedString::from(l10n.desktop_composer_label()))
             .track_focus(&self.focus)
             .relative()
             .w_full()
@@ -4608,8 +4612,6 @@ impl Render for ChatComposer {
             .child(
                 div()
                     .id("composer")
-                    .role(Role::Group)
-                    .aria_label(SharedString::from(l10n.desktop_composer_label()))
                     .relative()
                     .w_full()
                     .flex()

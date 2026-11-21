@@ -339,8 +339,12 @@ impl Render for SetupWindow {
                 .child(self.approvals.clone())
         });
         let toasts = toast_overlay(&self.stores.toasts, window, cx);
+        // A click on no control focuses the window itself: named, so
+        // VoiceOver says where focus went rather than the whole window.
         div()
             .id("setup-window")
+            .role(Role::Group)
+            .aria_label(label)
             .key_context("ConduitSetupWindow")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &AllowRequest, _, cx| {

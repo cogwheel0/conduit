@@ -2430,8 +2430,12 @@ impl Render for SettingsView {
             frame = frame.section(div().w_full().opacity(fade).child(s));
         }
         let stores = self.stores.clone();
+        // A click on no control focuses the window itself: named, so
+        // VoiceOver says where focus went rather than the whole window.
         div()
             .id("settings-root")
+            .role(Role::Group)
+            .aria_label(SharedString::from(l10n.desktop_settings_title()))
             .key_context("ConduitSettings")
             .track_focus(&self.focus)
             .on_action(move |a: &RemoveAccount, window, cx| {
