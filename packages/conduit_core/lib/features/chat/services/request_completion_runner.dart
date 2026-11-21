@@ -272,7 +272,8 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       );
       return;
     }
-    final completionWasSubmitted = _placeholderMarkedSubmitted(placeholder);
+    final completionWasSubmitted =
+        decoded.submitted || _placeholderMarkedSubmitted(placeholder);
     // Once the POST crossed the server boundary this op is pull-only recovery;
     // another live stream must not prevent collecting the accepted response.
     if (!completionWasSubmitted) {
@@ -466,10 +467,13 @@ extension on ChatRequestCompletionRunner {
       );
       return;
     }
-    final accepted = rows.values.any(
-      (row) =>
-          _placeholderMarkedSubmitted(row) || _placeholderMarkedComplete(row),
-    );
+    final accepted =
+        decoded.submitted ||
+        rows.values.any(
+          (row) =>
+              _placeholderMarkedSubmitted(row) ||
+              _placeholderMarkedComplete(row),
+        );
     // Once the POST crossed the server boundary this op is pull-only recovery;
     // another live stream must not prevent collecting the accepted answers.
     if (!accepted) deferIfTargetIsBusy(ownedAssistantIds: ownIds);

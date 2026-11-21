@@ -3153,6 +3153,111 @@ void main() {
     });
   });
 
+  group('a turn the server took, run again after a pull', () {
+    // The server took the request, and a pull while its answer ran replaced
+    // the stored answer with the server's copy, which carries none of this
+    // device's marks. A later run of the op (the app was closed meanwhile)
+    // must collect the answer, not send the question a second time.
+    const chatId = 'submitted-chat';
+    const userId = 'submitted-user';
+    const assistantId = 'submitted-assistant';
+
+    ChatRows serverCopy({required int updatedAt, required String answer}) =>
+        ChatBlobMapper.blobToRows(
+          chatId: chatId,
+          title: 'A',
+          createdAt: 1,
+          updatedAt: updatedAt,
+          blob: <String, dynamic>{
+            'title': 'A',
+            'history': <String, dynamic>{
+              'currentId': assistantId,
+              'messages': <String, dynamic>{
+                userId: <String, dynamic>{
+                  'id': userId,
+                  'parentId': null,
+                  'childrenIds': <String>[assistantId],
+                  'role': 'user',
+                  'content': 'Name a heron',
+                  'timestamp': 1,
+                },
+                assistantId: <String, dynamic>{
+                  'id': assistantId,
+                  'parentId': userId,
+                  'childrenIds': <String>[],
+                  'role': 'assistant',
+                  'content': answer,
+                  'model': 'model-1',
+                  'timestamp': 1,
+                  'done': false,
+                },
+              },
+            },
+          },
+        );
+
+    test('is collected by pull and never sent again', () async {
+      await db.chatsDao.upsertServerChat(
+        rows: serverCopy(updatedAt: 1, answer: ''),
+      );
+      final api = _GatedCompletionApi(Completer<void>()..complete())
+        ..assistantMessageId = assistantId;
+      final engine = _PersistingSyncEngine(db, api);
+      final container = _container(
+        db: db,
+        active: null,
+        messages: const <ChatMessage>[],
+        api: api,
+        syncEngine: engine,
+      );
+      addTearDown(container.dispose);
+      final seq = await db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: chatId,
+        payload: const RequestCompletionPayload(
+          assistantMessageId: assistantId,
+          model: 'model-1',
+        ).toJson(),
+      );
+
+      await beginOpenWebUiCompletionSubmission(
+        container,
+        owner: captureOpenWebUiCompletionOwner(
+          container,
+          chatId: chatId,
+          api: api,
+        ),
+        assistantMessageId: assistantId,
+      );
+      await container
+          .read(chatLocksProvider)
+          .runExclusive(
+            chatId,
+            () => db.chatsDao.mergeServerChat(
+              server: serverCopy(updatedAt: 2, answer: 'The grey'),
+            ),
+          );
+      final runner = container.read(
+        Provider<RequestCompletionRunner>(
+          (ref) => ChatRequestCompletionRunner(
+            ref,
+            recoveryAttempts: 1,
+            recoveryDelay: Duration.zero,
+          ),
+        ),
+      );
+      await runner.run(
+        chatId: chatId,
+        payload: jsonDecode(
+          (await db.outboxDao.opBySeq(seq))!.payload,
+        ) as Map<String, dynamic>,
+      );
+
+      check(api.completionCalls).equals(0);
+      check(engine.pulls).equals(1);
+    });
+  });
+
   group('a queued completion the server holds behind a running reply', () {
     // Open WebUI 0.13.4 keeps a message sent while a reply in its chat is
     // still running ({queued: true}, no task), and answers it under new ids
@@ -9347,6 +9452,45 @@ void main() {
           payload: payload,
         ),
       );
+      await replay(container);
+      check(api.requests).length.equals(1);
+    });
+
+    test('a replay after acceptance never sends the group again once a pull '
+        'replaced every answer', () async {
+      final (:api, :socket, :container) = await open();
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, duplicate],
+      );
+      await replay(container);
+      check(api.requests).length.equals(1);
+
+      // The server's copies of the running answers carry none of this
+      // device's marks.
+      for (final handle in handles) {
+        final row = (await db.messagesDao.getMessage(
+          chatId,
+          handle.assistantMessageId,
+        ))!;
+        final payload = jsonDecode(row.payload) as Map<String, dynamic>
+          ..remove('metadata');
+        await db.messagesDao.upsertLocalEcho(
+          MessageRowData(
+            id: row.id,
+            chatId: chatId,
+            parentId: row.parentId,
+            role: 'assistant',
+            content: '',
+            model: row.model,
+            createdAt: row.createdAt,
+            orderIndex: row.orderIndex,
+            payload: payload,
+          ),
+        );
+      }
       await replay(container);
       check(api.requests).length.equals(1);
     });
