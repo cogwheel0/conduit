@@ -871,12 +871,14 @@ impl ChatListStore {
     }
 
     /// Leaving a chat reads it (what arrived while it was open), unless it
-    /// was marked unread while it was open.
+    /// was marked unread while it was open. The daemon is asked even when
+    /// this list shows no dot: the list may not have caught up with an
+    /// answer that finished while the chat was open.
     pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.marked_unread_here.remove(id) {
+        if self.marked_unread_here.remove(id) || self.find(id).is_none() {
             return;
         }
-        self.mark_read(id, cx);
+        self.mark_unread(id, false, cx).detach();
     }
 
     /// `chats.unshare`: deletes the chat's link.
@@ -1343,6 +1345,39 @@ mod tests {
                 action: BulkChatAction::Archive,
                 failed: vec!["b".into()],
             }]
+        );
+    }
+
+    /// Leaving a chat reads it even while this list shows it without a
+    /// dot: the list may not yet have the answer that finished while the
+    /// chat was open. A chat marked unread while it was open keeps its dot.
+    #[gpui_kit::test]
+    fn leaving_a_chat_reads_it_unless_it_was_marked_unread_there(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let listed = list(vec![chat("a", None), chat("b", None)], vec![]);
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+
+        store.update(cx, |s, cx| s.mark_left("a", cx));
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsMarkUnread>(),
+            vec![json!({"chatId": "a", "unread": false})],
+            "leaving the chat did not read it"
+        );
+
+        store.update(cx, |s, cx| {
+            s.marked_unread_here.insert("b".into());
+            s.mark_left("b", cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsMarkUnread>().len(),
+            1,
+            "a chat marked unread while it was open was read on leaving"
         );
     }
 
