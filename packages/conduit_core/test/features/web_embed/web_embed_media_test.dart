@@ -408,6 +408,34 @@ void main() {
       check(await _collect(body.stream)).deepEquals([10, 11, 12, 13]);
     });
 
+    test('refuses a range the server describes impossibly', () async {
+      for (final range in [
+        'bytes 10-8/100',
+        'bytes 10-13/13',
+        'bytes 99999999999999999999-99999999999999999999/*',
+      ]) {
+        adapter.reply = (_) => _media(
+          206,
+          'audio/wav',
+          4,
+          first: 10,
+          extra: {
+            'content-range': [range],
+          },
+        );
+
+        await check(
+          because: range,
+          openWebEmbedServerMedia(
+            client,
+            Uri.parse('https://chat.example.test/a.wav'),
+            start: 10,
+            end: 14,
+          ),
+        ).throws<WebEmbedMediaRefused>();
+      }
+    });
+
     test('skips to the start when the server sends the whole file', () async {
       adapter.reply = (_) => _media(200, 'audio/mpeg', 8);
 

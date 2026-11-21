@@ -602,16 +602,22 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
     final range = _contentRange.firstMatch(
       response.headers.value('content-range') ?? '',
     );
-    if (range == null) {
+    final first = int.tryParse(range?[1] ?? '');
+    final last = int.tryParse(range?[2] ?? '');
+    final size = range?[3];
+    final total = size == '*' ? null : int.tryParse(size ?? '');
+    if (first == null ||
+        last == null ||
+        last < first ||
+        (size != '*' && (total == null || last >= total))) {
       await body.stream.listen(null).cancel();
       throw WebEmbedMediaRefused(type);
     }
-    final first = int.parse(range[1]!);
     return (
       stream: body.stream,
       offset: first,
-      contentLength: int.parse(range[2]!) - first + 1,
-      sourceLength: int.tryParse(range[3]!),
+      contentLength: last - first + 1,
+      sourceLength: total,
       contentType: type,
     );
   }
