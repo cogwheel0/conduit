@@ -222,9 +222,24 @@ find_python() {
   exit 1
 }
 
+# The open-webui version installed in the venv, or nothing.
+venv_version() {
+  "$VENV/bin/python" -I -c 'import importlib.metadata as m; print(m.version("open-webui"))' 2>/dev/null || true
+}
+
+# The version the server on URL says it runs (/api/config), or nothing when
+# it does not answer.
+running_version() {
+  curl -s --noproxy '*' --max-time 5 "$URL/api/config" 2>/dev/null |
+    "$VENV/bin/python" -I -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("version") or "")
+except ValueError:
+    pass' 2>/dev/null || true
+}
+
 setup() {
-  if [ -x "$VENV/bin/open-webui" ] &&
-    [ "$("$VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("open-webui"))' 2>/dev/null)" = "$OWUI_VERSION" ]; then
+  if [ -x "$VENV/bin/open-webui" ] && [ "$(venv_version)" = "$OWUI_VERSION" ]; then
     echo "open-webui $OWUI_VERSION is ready in $VENV"
     return
   fi
@@ -254,6 +269,15 @@ persistent_config() {
 start() {
   need_venv
   if alive server; then
+    # A server started from an older venv (before a `setup` that installed
+    # another version) keeps running; seeding it would test the wrong version.
+    local running installed
+    running=$(running_version)
+    installed=$(venv_version)
+    if [ -n "$running" ] && [ -n "$installed" ] && [ "$running" != "$installed" ]; then
+      echo "the server at $(cat "$STATE/url") runs Open WebUI $running, but $VENV has $installed: run '$0 stop' (the data stays), then '$0 up'" >&2
+      exit 1
+    fi
     echo "already running at $(cat "$STATE/url")"
     return
   fi

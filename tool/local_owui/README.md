@@ -38,7 +38,10 @@ A start refuses a port something else already listens on, and a running
 instance keeps the ports it was started on: any command but `stop`,
 `status`, `reset` and `env` given another port is refused, so `seed` and
 `chat` never reach another listener. `tool/local_owui/ports_test.sh` checks
-that.
+that. `start` and `up` also refuse a running server that says it runs
+another Open WebUI version than the venv has, as one started before a
+`setup` of a newer version does: `stop` it first (the data stays).
+`tool/local_owui/version_test.sh` checks that.
 
 ## What it holds
 
