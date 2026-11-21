@@ -4702,8 +4702,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   /// Keeps answer [answerId], stopped here, finished once the server has
-  /// stopped it ([serverStopped]), when the server ran no task for it as
-  /// Stop was pressed ([taskRan]).
+  /// answered the stop ([serverStopped]), when the server ran no task for it
+  /// as Stop was pressed ([taskRan]).
   ///
   /// Open WebUI saves an answer stopped while its task runs itself, and that
   /// save, which can land after the stop is answered, is the answer. With no
@@ -4711,9 +4711,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// the answer with the text it had stored, often none, or leaves it not
   /// done, and only this device may still have what streamed. Whichever copy
   /// holds more, its text and output together, is then stored finished, as a
-  /// stopped comparison's answers are ([settleStoppedSlotMessages]), with an
-  /// update op that carries it to the server. A copy that cannot be read
-  /// keeps what streamed here, when anything did.
+  /// stopped comparison's answers are ([settleStoppedSlotMessages]): as edits
+  /// that go to the server once it has accepted the stop, and on this device
+  /// alone until then. A copy that cannot be read keeps what streamed here,
+  /// when anything did.
   ///
   /// The answer and its store are captured now, before anything awaits. The
   /// result is false only when storing it failed.
@@ -4721,7 +4722,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     String answerId, {
     required ApiService api,
     required Future<bool?> taskRan,
-    required Future<Object?> serverStopped,
+    required Future<List<bool>> serverStopped,
   }) async {
     final answer = state.where((message) => message.id == answerId).lastOrNull;
     // A comparison's answers are stored with their turn.
@@ -4734,9 +4735,33 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final target = _endedAnswersTarget([answer]);
     if (target == null) return true;
     if (await taskRan == true) return true;
+    var stopAccepted = false;
     try {
-      await serverStopped;
+      stopAccepted = (await serverStopped).every((accepted) => accepted);
     } catch (_) {}
+    Future<bool> store(ChatMessage kept) {
+      final owed = _OwedStoppedAnswers(
+        owner: target.owner,
+        db: target.db,
+        locks: target.locks,
+        chatId: target.chatId,
+        answers: [kept],
+        updatedAt: target.updatedAt,
+        stopAccepted: stopAccepted,
+      );
+      if (stopAccepted) return _storeEndedAnswers(owed);
+      // Sent as edits once a later ask for this stop is accepted.
+      owed.cancellation = _owedCancellations
+          .where(
+            (entry) =>
+                entry.chatId == owed.chatId &&
+                _sameOwner(entry.owner, owed.owner),
+          )
+          .lastOrNull;
+      _stoppedAnswersAwaitingStop.add(owed);
+      return _storeStoppedAnswersHere(owed);
+    }
+
     ChatMessage? copy;
     try {
       copy = (await api.getConversation(target.chatId)).messages
@@ -4746,7 +4771,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (!_holdsMoreThan(answer.content, answer.output, '', null)) {
         return true;
       }
-      return _storeEndedAnswers(target);
+      return store(answer);
     }
     if (copy == null ||
         _holdsMoreThan(
@@ -4755,22 +4780,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           copy.content,
           copy.output,
         )) {
-      return _storeEndedAnswers(target);
+      return store(answer);
     }
     // The server's copy holds as much: left to it once it is finished, and
     // stored finished otherwise.
     if (!_serverReportsRunning(copy)) return true;
-    return _storeEndedAnswers(
-      _OwedStoppedAnswers(
-        owner: target.owner,
-        db: target.db,
-        locks: target.locks,
-        chatId: target.chatId,
-        answers: [answer.copyWith(content: copy.content, output: copy.output)],
-        updatedAt: target.updatedAt,
-        stopAccepted: target.stopAccepted,
-      ),
-    );
+    return store(answer.copyWith(content: copy.content, output: copy.output));
   }
 
   /// Ends the answers [messageIds] whose tasks the server was told to stop, and

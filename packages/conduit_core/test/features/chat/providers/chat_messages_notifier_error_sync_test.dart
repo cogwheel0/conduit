@@ -8,8 +8,9 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart' show OutboxKind;
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kMessageServerUnfinishedMetadataKey;
+    show kMessageServerUnfinishedMetadataKey, kStoppedHereMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -118,11 +119,18 @@ class _FakeApiService extends ApiService {
     return taskIds;
   }
 
-  @override
-  Future<void> stopTasksByChat(String chatId) async {}
+  /// While set, the server answers every stop with an error.
+  bool stopsRefused = false;
 
   @override
-  Future<void> stopTask(String taskId) async {}
+  Future<void> stopTasksByChat(String chatId) async {
+    if (stopsRefused) throw StateError('the stop was refused');
+  }
+
+  @override
+  Future<void> stopTask(String taskId) async {
+    if (stopsRefused) throw StateError('the stop was refused');
+  }
 }
 
 /// The model list, answered when a test says.
@@ -996,6 +1004,61 @@ void main() {
         });
       });
     }
+
+    test('a Stop with no task that the server does not take keeps what '
+        'streamed on this device until a later ask is taken, then sends '
+        'it', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        api
+          ..taskIds = const <String>[]
+          ..stopsRefused = true
+          ..conversation = _chat([
+            question,
+            _message(answerId, 'assistant', ''),
+          ]);
+        bool sentToServer() {
+          var sent = false;
+          unawaited(
+            db.outboxDao
+                .activeForChat('chat-1')
+                .then(
+                  (ops) => sent = ops.any(
+                    (op) => op.kind == OutboxKind.updateChat.name,
+                  ),
+                ),
+          );
+          async.flushMicrotasks();
+          return sent;
+        }
+
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+        check(storedAnswer(async, db))
+          ..has((it) => it['content'], 'content').equals('Gales veer')
+          ..has(
+            (it) => (it['metadata'] as Map?)?[kStoppedHereMetadataKey],
+            'stopped here',
+          ).equals(true);
+        check(sentToServer()).isFalse();
+
+        api.stopsRefused = false;
+        unawaited(container.read(stopOpenWebUiMainResponseProvider)());
+        async.flushMicrotasks();
+        check(storedAnswer(async, db))
+          ..has((it) => it['content'], 'content').equals('Gales veer')
+          ..has(
+            (it) => (it['metadata'] as Map?)?[kStoppedHereMetadataKey],
+            'stopped here',
+          ).isNull();
+        check(sentToServer()).isTrue();
+      });
+    });
 
     test('a Stop while the server runs the answer\'s task leaves the answer '
         'to the server\'s own save', () {
