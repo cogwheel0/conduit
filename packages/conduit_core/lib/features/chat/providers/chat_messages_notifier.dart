@@ -2870,6 +2870,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   static bool _isThisAccounts(String? author, String? userId) =>
       author == null || userId == null || author == userId;
 
+  /// Whether [answer] is this account's, an answer that names no author
+  /// being the chat owner's, as in [_answersThisAccountRuns]: only then does
+  /// no task of this account's mean the server stopped in the middle of it.
+  bool _isThisAccountsAnswer(ChatMessage answer) => _isThisAccounts(
+    _answerAuthor(
+      answer,
+      answer.id,
+      ref.read(activeConversationProvider)?.userId,
+    ),
+    ref.read(currentUserProvider2)?.id,
+  );
+
   /// Finishes answers of an earlier turn that the server still reports as
   /// not done once the chat runs no task of this account's: a chat whose
   /// last message is not an answer, say a prompt sent after a comparison a
@@ -3270,7 +3282,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // cut off. One waiting on a saved prompt is not.
       final cutOffAsOpened =
           !openedAsStreaming &&
-          openedTail.isWrittenBy(ref.read(currentUserProvider2)?.id) &&
+          _isThisAccountsAnswer(openedTail) &&
           openedTail.metadata?[kMessageServerUnfinishedMetadataKey] == true &&
           findPendingOpenWebUiToolPrompt([openedTail]) == null;
       final settlesThroughFetch = openedAsStreaming || cutOffAsOpened;
@@ -3324,7 +3336,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         });
         _recheckEarlierAnswers();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
-          _hasStreamingAssistant) {
+          (_hasStreamingAssistant || cutOffAsOpened)) {
+        // Its copy could not be read: it is read again on the task checks'
+        // schedule, as an answer restored running is, rather than settled
+        // with this device's copy, which may hold less than the server's.
+        if (!_hasStreamingAssistant) {
+          state = [
+            ...state.sublist(0, state.length - 1),
+            state.last.copyWith(isStreaming: true),
+          ];
+        }
         _engageReopenedTailMonitor(openedMessageId);
       }
       return;
@@ -3566,8 +3587,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // had stored, often none.
     // An answer waiting for a saved tool approval or an `ask_user` answer is
     // also kept not done with no task, and is not cut off.
+    // Another person's answer runs under a task this account's list never
+    // shows.
     final cutOff =
         streaming == false &&
+        _isThisAccountsAnswer(authoritativeServerTail) &&
         _serverReportsRunning(authoritativeServerTail) &&
         findPendingOpenWebUiToolPrompt([authoritativeServerTail]) == null &&
         findPendingOpenWebUiToolPrompt([localTail]) == null;
@@ -4739,7 +4763,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     try {
       stopAccepted = (await serverStopped).every((accepted) => accepted);
     } catch (_) {}
+    // This Stop's ask, still owed when the server refused it: a later ask
+    // accepted while the server's copy is read is seen when the answer is
+    // stored, as no answer waits on it yet.
+    final cancellation = stopAccepted
+        ? null
+        : _owedCancellations
+              .where(
+                (entry) =>
+                    entry.chatId == target.chatId &&
+                    _sameOwner(entry.owner, target.owner),
+              )
+              .lastOrNull;
     Future<bool> store(ChatMessage kept) {
+      final accepted = stopAccepted || (cancellation?.accepted ?? false);
       final owed = _OwedStoppedAnswers(
         owner: target.owner,
         db: target.db,
@@ -4747,17 +4784,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         chatId: target.chatId,
         answers: [kept],
         updatedAt: target.updatedAt,
-        stopAccepted: stopAccepted,
+        stopAccepted: accepted,
       );
-      if (stopAccepted) return _storeEndedAnswers(owed);
+      if (accepted) return _storeEndedAnswers(owed);
       // Sent as edits once a later ask for this stop is accepted.
-      owed.cancellation = _owedCancellations
-          .where(
-            (entry) =>
-                entry.chatId == owed.chatId &&
-                _sameOwner(entry.owner, owed.owner),
-          )
-          .lastOrNull;
+      owed.cancellation = cancellation;
       _stoppedAnswersAwaitingStop.add(owed);
       return _storeStoppedAnswersHere(owed);
     }
@@ -6692,12 +6723,14 @@ int _detailsTextLength(String content) =>
 /// snapshots, which the output lacks until the next one.
 ///
 /// The output is kept, with every structured item, when its reasoning and
-/// tool blocks hold as much as those shown and its text is the text shown, or
-/// where it begins: text past it continues its last message, or follows as a
-/// message of its own after a tool call or reasoning item. Otherwise (blocks
-/// behind, or text that differs) it is dropped, and the answer is stored as
-/// shown, its blocks rendered into its text: their items cannot be rebuilt
-/// from that rendering.
+/// tool blocks hold as much as those shown and the text it renders (a
+/// message's text, an image it made as its markdown) is the text shown, or
+/// where it begins: the text past it continues its last message, or follows
+/// as a message of its own after another item. Otherwise (blocks behind, or
+/// text that differs, runs past what was shown, or cannot be lined up with
+/// it) it is dropped, and the
+/// answer is stored as shown, its blocks rendered into its text: their items
+/// cannot be rebuilt from that rendering.
 ChatMessage _withOutputAsShown(ChatMessage answer) {
   final output = answer.output;
   if (output == null ||
@@ -6710,41 +6743,35 @@ ChatMessage _withOutputAsShown(ChatMessage answer) {
     return answer.copyWith(output: null);
   }
   final shown = comparableAssistantBody(answer.content);
-  final stored = outputItemsMessageText(output).trim();
-  // Compared with whitespace evened out: the text between blocks keeps the
-  // blank lines that set them apart.
-  final shownWords = shown.replaceAll(_whitespace, ' ');
-  final storedWords = stored.replaceAll(_whitespace, ' ');
-  if (storedWords.startsWith(shownWords)) return answer;
-  if (!shownWords.startsWith(storedWords) || !shown.startsWith(stored)) {
+  final stored = comparableAssistantBody(rendered);
+  if (_words(stored) == _words(shown)) return answer;
+  if (!_words(shown).startsWith(_words(stored)) || !shown.startsWith(stored)) {
     return answer.copyWith(output: null);
   }
-  final rest = shown.substring(stored.length);
+  final extended = _outputContinuedWith(output, shown.substring(stored.length));
+  return extended != null &&
+          _words(comparableAssistantBody(_storedShows('', extended))) ==
+              _words(shown)
+      ? answer.copyWith(output: extended)
+      : answer.copyWith(output: null);
+}
+
+/// [text] with whitespace evened out: the text between blocks keeps the
+/// blank lines that set them apart.
+String _words(String text) => text.replaceAll(_whitespace, ' ');
+
+/// [output] followed by [rest], the text shown past what it renders: on its
+/// last message, after that message's own text, or as a message of its own
+/// after another item. Null when [rest] does not line up with the last
+/// message's text, which may end in whitespace the rendered text drops.
+List<Map<String, dynamic>>? _outputContinuedWith(
+  List<Map<String, dynamic>> output,
+  String rest,
+) {
   final last = output.last;
   final parts = last['content'];
-  final List<Map<String, dynamic>> extended;
-  if (last['type'] == 'message' && parts is List && parts.isNotEmpty) {
-    final lastPart = parts.last;
-    extended = [
-      ...output.take(output.length - 1),
-      <String, dynamic>{
-        ...last,
-        'content': [
-          ...parts.take(parts.length - 1),
-          if (lastPart is Map && lastPart['text'] is String)
-            <String, dynamic>{
-              ...Map<String, dynamic>.from(lastPart),
-              'text': '${lastPart['text']}$rest',
-            }
-          else ...[
-            lastPart,
-            <String, dynamic>{'type': 'output_text', 'text': rest},
-          ],
-        ],
-      },
-    ];
-  } else {
-    extended = [
+  if (last['type'] != 'message' || parts is! List || parts.isEmpty) {
+    return [
       ...output,
       <String, dynamic>{
         'type': 'message',
@@ -6755,9 +6782,35 @@ ChatMessage _withOutputAsShown(ChatMessage answer) {
       },
     ];
   }
-  return outputItemsMessageText(extended).trim().length >= shown.length
-      ? answer.copyWith(output: extended)
-      : answer.copyWith(output: null);
+  final lastPart = parts.last;
+  final text = lastPart is Map ? lastPart['text'] : null;
+  if (text is! String) {
+    return [
+      ...output.take(output.length - 1),
+      <String, dynamic>{
+        ...last,
+        'content': [
+          ...parts,
+          <String, dynamic>{'type': 'output_text', 'text': rest},
+        ],
+      },
+    ];
+  }
+  final trailing = text.substring(text.trimRight().length);
+  if (!rest.startsWith(trailing)) return null;
+  return [
+    ...output.take(output.length - 1),
+    <String, dynamic>{
+      ...last,
+      'content': [
+        ...parts.take(parts.length - 1),
+        <String, dynamic>{
+          ...Map<String, dynamic>.from(lastPart as Map),
+          'text': '$text${rest.substring(trailing.length)}',
+        },
+      ],
+    },
+  ];
 }
 
 /// What a stored answer with [content] and [output] shows when it is read
@@ -6966,6 +7019,9 @@ final class _OwedCancellation {
   /// The chat's id, following a local-to-server remap.
   String chatId;
   final List<_CancellationStep> steps;
+
+  /// Whether the server has accepted every step for the chat's current id.
+  bool get accepted => steps.every((step) => step.acceptedFor(chatId));
 
   /// True once the server has accepted every step for the chat's current id;
   /// asks again for each that it has not.

@@ -7,6 +7,8 @@ import 'package:conduit_core/auth/api_auth_interceptor.dart'
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider;
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart' show OutboxKind;
 import 'package:conduit_core/models/chat_comparison.dart'
@@ -17,6 +19,7 @@ import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart'
     show findPendingOpenWebUiToolPrompt;
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -111,7 +114,21 @@ class _FakeApiService extends ApiService {
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => conversation;
+  }) async {
+    if (readFailures > 0) {
+      readFailures--;
+      throw StateError('the chat could not be read');
+    }
+    final held = holdRead;
+    if (held != null) await held.future;
+    return conversation;
+  }
+
+  /// Reads of the chat that fail before one answers.
+  int readFailures = 0;
+
+  /// While set, a read of the chat waits for it.
+  Completer<void>? holdRead;
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
@@ -160,9 +177,11 @@ ProviderContainer _openChatContainer({
   required _FakeApiService api,
   _FakeSocketService? socket,
   Future<List<Model>>? listed,
+  User? user,
 }) {
   final container = ProviderContainer(
     overrides: [
+      if (user != null) currentUserProvider2.overrideWithValue(user),
       secureStorageProvider.overrideWithValue(InMemorySecureKeyValueStore()),
       ...openWebUiStorageOpenOverrides(),
       activeConversationProvider.overrideWith(
@@ -414,7 +433,11 @@ void main() {
         await db.messagesDao.upsertLocalEchoTurn(
           chatId: 'chat-1',
           user: localEchoRowForMessage('chat-1', question),
-          assistant: localEchoRowForMessage('chat-1', placeholder),
+          // Its output snapshots come later in the stream.
+          assistant: localEchoRowForMessage(
+            'chat-1',
+            placeholder.copyWith(output: null),
+          ),
         );
       }());
       async.flushMicrotasks();
@@ -624,9 +647,19 @@ void main() {
           'Gales veer as the warm front passes',
         ),
         ('differs from its last output snapshot', 'Gales back', 'Gales veer'),
+        (
+          'streamed past a last output snapshot that ends in a space',
+          'Gales veer ',
+          'Gales veer as the front',
+        ),
+        (
+          'a last output snapshot runs past',
+          'Gales veer as the front',
+          'Gales veer',
+        ),
       ]) {
-        test('an answer $ended after text that $label opens again with all '
-            'of that text', () {
+        test('an answer $ended after text that $label opens again with that '
+            'text', () {
           fakeAsync((async) {
             final api = _FakeApiService(_chat([question]));
             final (:notifier, :db, :container) = streamHere(
@@ -673,6 +706,54 @@ void main() {
           });
         });
       }
+    }
+
+    // An image the model made is an output item that renders as markdown:
+    // text past it is the only text the output lacks.
+    for (final ended in ['cut off', 'stopped']) {
+      test('an answer $ended after text that streamed past a generated image '
+          'opens again with the image once and all of the text', () {
+        fakeAsync((async) {
+          final snapshot = [
+            <String, dynamic>{
+              'type': 'image_generation_call',
+              'result': 'data:image/png;base64,iVBORw0KGgo=',
+              'revised_prompt': 'A weather vane',
+            },
+          ];
+          final api = _FakeApiService(_chat([question]));
+          final (:notifier, :db, :container) = streamHere(
+            async,
+            api,
+            '${renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(snapshot))}'
+            'The vane turns with the gale.',
+            output: snapshot,
+          );
+          api.taskIds = const <String>[];
+          if (ended == 'cut off') {
+            api.conversation = _chat([
+              question,
+              _message(
+                answerId,
+                'assistant',
+                '',
+              ).copyWith(metadata: unfinished),
+            ]);
+            pollTasks(async, notifier);
+          } else {
+            api.conversation = _chat([
+              question,
+              _message(answerId, 'assistant', ''),
+            ]);
+            unawaited(container.read(stopGenerationSettledProvider)());
+            async.flushMicrotasks();
+          }
+
+          final opened = reopened(async, db).content;
+          check('![A weather vane]'.allMatches(opened).length).equals(1);
+          check(opened).contains('The vane turns with the gale.');
+        });
+      });
     }
 
     // Reasoning deltas reach the shown reasoning too, and not the output's
@@ -853,68 +934,144 @@ void main() {
       });
     });
 
-    test('a chat opened again on an answer the server stopped in the middle '
+    // A read of the server's copy that fails is tried again on the task
+    // checks' schedule, as for an answer restored running.
+    for (final readFailsOnce in [false, true]) {
+      test(
+        'a chat opened again on an answer the server stopped in the middle '
         'of, not shown running, settles with the fuller copy and the '
-        'connection lost', () {
-      fakeAsync((async) {
-        // This device stored an earlier copy of the answer; the server's,
-        // not done, has more, and no task runs for it.
-        final stale = _message(
-          answerId,
-          'assistant',
-          'Gales veer',
-        ).copyWith(metadata: unfinished);
-        final api = _FakeApiService(
-          _chat([
-            question,
-            _message(
+        'connection lost${readFailsOnce ? ', its first read failing' : ''}',
+        () {
+          fakeAsync((async) {
+            // This device stored an earlier copy of the answer; the server's,
+            // not done, has more, and no task runs for it.
+            final stale = _message(
               answerId,
               'assistant',
-              'Gales veer as the front',
-            ).copyWith(metadata: unfinished),
-          ]),
-        );
-        final container = _openChatContainer(api: api);
-        final db = container.read(appDatabaseProvider)!;
-        unawaited(() async {
-          await db.chatsDao.upsertEnvelopeStub(
-            id: 'chat-1',
-            title: 'Test Chat',
-            createdAt: 1,
-            updatedAt: 1,
-          );
-          await db.messagesDao.upsertLocalEchoTurn(
-            chatId: 'chat-1',
-            user: localEchoRowForMessage('chat-1', question),
-            assistant: localEchoRowForMessage(
-              'chat-1',
-              stale.copyWith(isStreaming: true),
-            ),
-          );
-        }());
-        async.flushMicrotasks();
-        container.read(chatMessagesProvider);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_chat([question, stale]));
-        async.flushMicrotasks();
+              'Gales veer',
+            ).copyWith(metadata: unfinished);
+            final api = _FakeApiService(
+              _chat([
+                question,
+                _message(
+                  answerId,
+                  'assistant',
+                  'Gales veer as the front',
+                ).copyWith(metadata: unfinished),
+              ]),
+            )..readFailures = readFailsOnce ? 1 : 0;
+            final container = _openChatContainer(api: api);
+            final db = container.read(appDatabaseProvider)!;
+            unawaited(() async {
+              await db.chatsDao.upsertEnvelopeStub(
+                id: 'chat-1',
+                title: 'Test Chat',
+                createdAt: 1,
+                updatedAt: 1,
+              );
+              await db.messagesDao.upsertLocalEchoTurn(
+                chatId: 'chat-1',
+                user: localEchoRowForMessage('chat-1', question),
+                assistant: localEchoRowForMessage(
+                  'chat-1',
+                  stale.copyWith(isStreaming: true),
+                ),
+              );
+            }());
+            async.flushMicrotasks();
+            container.read(chatMessagesProvider);
+            container
+                .read(activeConversationProvider.notifier)
+                .set(_chat([question, stale]));
+            async.flushMicrotasks();
+            if (readFailsOnce) {
+              final notifier = container.read(chatMessagesProvider.notifier)
+                ..debugCancelRemoteTaskMonitorTimer();
+              pollTasks(async, notifier);
+            }
 
-        final answer = container.read(chatMessagesProvider).last;
-        check(answer.content).equals('Gales veer as the front');
-        check(answer.error?.content)
-            .equals(TemporaryChatResume.connectionLostMessage);
-        check(storedAnswer(async, db))
-          ..has(
-            (it) => it['content'],
-            'content',
-          ).equals('Gales veer as the front')
-          ..has((it) => it['done'], 'done').equals(true)
-          ..has(
-            (it) => (it['error'] as Map?)?['content'],
-            'error',
-          ).equals(TemporaryChatResume.connectionLostMessage);
-      });
-    });
+            final answer = container.read(chatMessagesProvider).last;
+            check(answer.content).equals('Gales veer as the front');
+            check(answer.error?.content)
+                .equals(TemporaryChatResume.connectionLostMessage);
+            check(storedAnswer(async, db))
+              ..has(
+                (it) => it['content'],
+                'content',
+              ).equals('Gales veer as the front')
+              ..has((it) => it['done'], 'done').equals(true)
+              ..has(
+                (it) => (it['error'] as Map?)?['content'],
+                'error',
+              ).equals(TemporaryChatResume.connectionLostMessage);
+          });
+        },
+      );
+    }
+
+    // In a chat another person owns, an answer that names no author is
+    // theirs, and runs under a task this account's list never shows.
+    for (final openedRunning in [false, true]) {
+      test(
+        'a chat of another person\'s opened again on an answer of theirs the '
+        'server keeps not done${openedRunning ? ', restored running,' : ''} '
+        'is not settled as cut off when this account runs no task',
+        () {
+          fakeAsync((async) {
+            final opened = _message(
+              answerId,
+              'assistant',
+              'Gales veer',
+            ).copyWith(metadata: unfinished, isStreaming: openedRunning);
+            final api = _FakeApiService(
+              _chat([
+                question,
+                _message(
+                  answerId,
+                  'assistant',
+                  'Gales veer as the front',
+                ).copyWith(metadata: unfinished),
+              ]),
+            );
+            final container = _openChatContainer(
+              api: api,
+              user: const User(
+                id: 'user-a',
+                username: 'avery',
+                email: 'avery@example.test',
+                role: 'user',
+              ),
+            );
+            final db = container.read(appDatabaseProvider)!;
+            unawaited(() async {
+              await db.chatsDao.upsertEnvelopeStub(
+                id: 'chat-1',
+                title: 'Test Chat',
+                createdAt: 1,
+                updatedAt: 1,
+              );
+              await db.messagesDao.upsertLocalEchoTurn(
+                chatId: 'chat-1',
+                user: localEchoRowForMessage('chat-1', question),
+                assistant: localEchoRowForMessage('chat-1', opened),
+              );
+            }());
+            async.flushMicrotasks();
+            container.read(chatMessagesProvider);
+            container
+                .read(activeConversationProvider.notifier)
+                .set(_chat([question, opened]).copyWith(userId: 'user-b'));
+            async.flushMicrotasks();
+            check(api.taskLookups).equals(1);
+
+            check(container.read(chatMessagesProvider).last.error).isNull();
+            check(storedAnswer(async, db))
+                .has((it) => it['error'], 'error')
+                .isNull();
+          });
+        },
+      );
+    }
 
     test('an answer waiting for a saved tool approval, with no task, keeps '
         'its prompt and is not failed', () {
@@ -1057,6 +1214,56 @@ void main() {
             'stopped here',
           ).isNull();
         check(sentToServer()).isTrue();
+      });
+    });
+
+    test('a Stop with no task that the server does not take, then takes on a '
+        'later ask while its copy is read, sends what streamed', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        final read = Completer<void>();
+        api
+          ..taskIds = const <String>[]
+          ..stopsRefused = true
+          ..holdRead = read
+          ..conversation = _chat([
+            question,
+            _message(answerId, 'assistant', ''),
+          ]);
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+
+        // The next ask is accepted while the server's copy is still read.
+        api.stopsRefused = false;
+        unawaited(container.read(stopOpenWebUiMainResponseProvider)());
+        async.flushMicrotasks();
+        api.holdRead = null;
+        read.complete();
+        async.flushMicrotasks();
+
+        var sent = false;
+        unawaited(
+          db.outboxDao
+              .activeForChat('chat-1')
+              .then(
+                (ops) => sent = ops.any(
+                  (op) => op.kind == OutboxKind.updateChat.name,
+                ),
+              ),
+        );
+        async.flushMicrotasks();
+        check(sent).isTrue();
+        check(storedAnswer(async, db))
+          ..has((it) => it['content'], 'content').equals('Gales veer')
+          ..has(
+            (it) => (it['metadata'] as Map?)?[kStoppedHereMetadataKey],
+            'stopped here',
+          ).isNull();
       });
     });
 
