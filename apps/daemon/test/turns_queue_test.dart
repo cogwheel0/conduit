@@ -30,8 +30,9 @@ typedef HeldSend = ({
   int Function() changed,
 });
 
-/// The queue of an Open WebUI chat, against a fake Open WebUI that takes
-/// sends: an answer held running where the live test asks for a slow one.
+/// The queue of an Open WebUI chat, and its Stop, against a fake Open WebUI
+/// that takes sends: an answer held running where the live test asks for a
+/// slow one.
 void main() {
   late CoreRuntime runtime;
   late FakeOwuiAuthServer owui;
@@ -781,6 +782,61 @@ void main() {
       for (final id in others) (ConduitEvents.turnFinished, id, true),
       (ConduitEvents.turnFinished, main, true),
     ]);
+  });
+
+  test('a Stop on an answer the server stopped in the middle of keeps what '
+      'streamed, in the server\'s copy too', () async {
+    const chatId = 'chat-gale';
+    final first = Completer<void>();
+    final chats = owui.chats
+      ..seed(chatId, userId: 'user-ada')
+      ..holdFirstWord = first
+      ..holdStream = Completer<void>();
+    var streamed = false;
+    events.attach('probe', (envelope) {
+      if (envelope.event == ConduitEvents.turnDelta &&
+          envelope.payload['text'] == 'The') {
+        streamed = true;
+      }
+    });
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Will the gale veer?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    first.complete();
+    await until(() => streamed);
+
+    // The server stops in the middle of the answer and is started again,
+    // with no task running.
+    chats
+      ..stopServer()
+      ..startServer();
+    final saved = chats.chatSaved = Completer<String>();
+    await clock.during(turns.stop(chatId));
+
+    // Open WebUI's stop finished its copy with the text it had stored: none.
+    // What streamed here is stored, and goes to the server.
+    final db = runtime.container.read(appDatabaseProvider)!;
+    final stored = await db.messagesDao.getMessage(
+      chatId,
+      sent.assistantMessageId,
+    );
+    expect(stored?.content, 'The');
+    expect(await clock.during(saved.future), chatId);
+    final history =
+        (chats.stored[chatId]!['chat'] as Map<String, dynamic>)['history']
+            as Map<String, dynamic>;
+    final answer =
+        (history['messages'] as Map<String, dynamic>)[sent.assistantMessageId]
+            as Map<String, dynamic>;
+    expect(answer['content'], 'The');
+    expect(answer['done'], isTrue);
   });
 
   test('dispose waits for the pull a finished turn started', () async {

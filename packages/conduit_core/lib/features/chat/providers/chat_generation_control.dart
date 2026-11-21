@@ -184,6 +184,10 @@ Future<bool> _stopGeneration(Ref ref) {
   var stoppedClientOwnedRun = false;
   var stoppedOpenWebUiRun = false;
   var hadStreamingAssistant = false;
+  // This account's Open WebUI answer that was stopped, and the asks that stop
+  // it on the server: its text is kept once they are answered.
+  String? stoppedAnswerId;
+  final serverStops = <Future<bool>>[];
   // The server-side effects of this stop, kept so that a refusal can be asked
   // again after the visible answers have settled (see [_oweCancellation]).
   final cancellation = <_CancellationStep>[];
@@ -330,7 +334,12 @@ Future<bool> _stopGeneration(Ref ref) {
         // choose the right cancellation path (abort handle, task stop, or
         // both).
         stoppedOpenWebUiRun = true;
-        settled.add(cancelOnServer((_) => stopActiveTransport(last, api)));
+        stoppedAnswerId = last.id;
+        final transportStop = cancelOnServer(
+          (_) => stopActiveTransport(last, api),
+        );
+        serverStops.add(transportStop);
+        settled.add(transportStop);
         final regenerationAttemptId =
             last.metadata?[_openWebUiRegenerationAttemptMetadataKey];
         if (regenerationAttemptId is String &&
@@ -383,12 +392,24 @@ Future<bool> _stopGeneration(Ref ref) {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
-      settled.add(
-        cancelOnServer((chatId) async {
-          await api.stopTasksByChat(chatId);
-          return true;
-        }, chatScoped: true),
-      );
+      final chatStop = cancelOnServer((chatId) async {
+        await api.stopTasksByChat(chatId);
+        return true;
+      }, chatScoped: true);
+      serverStops.add(chatStop);
+      settled.add(chatStop);
+      final stopped = stoppedAnswerId;
+      if (stopped != null) {
+        settled.add(
+          ref
+              .read(chatMessagesProvider.notifier)
+              ._keepStoppedAnswerText(
+                stopped,
+                api: api,
+                serverStopped: Future.wait(serverStops),
+              ),
+        );
+      }
       // The stop is owed to the chat, store, sign-in and server it was asked
       // under until the server has accepted all of it. Everything above ran in
       // this one synchronous turn, so nothing can read the settled answers

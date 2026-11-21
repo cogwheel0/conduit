@@ -148,6 +148,12 @@ final class FakeOwuiAuthServer {
     }
 
     final path = request.uri.path;
+    if (chats._stopped) {
+      // The server process is gone: the connection drops unanswered.
+      final socket = await response.detachSocket(writeHeaders: false);
+      socket.destroy();
+      return;
+    }
     requests.add('${request.method} $path');
     final seen = <String, String>{};
     request.headers.forEach((name, values) => seen[name] = values.join(','));
@@ -402,6 +408,11 @@ final class FakeOwuiChats {
 
   Completer<void>? holdStream;
 
+  /// While set, taken by the next answer to start, whose first word waits
+  /// for it: a model that is slow to start, so the client is listening by
+  /// then.
+  Completer<void>? holdFirstWord;
+
   Map<String, dynamic>? refusal;
 
   /// While set, reads of a chat it keeps (`GET /api/v1/chats/{id}`) wait for
@@ -423,6 +434,10 @@ final class FakeOwuiChats {
 
   /// While set, [holdChatSaves] holds only this chat's saves.
   String? holdChatSavesOf;
+
+  /// Completed with the chat's id, and cleared, once a save of a chat it
+  /// keeps is applied.
+  Completer<String>? chatSaved;
 
   /// While set, a message delete (`DELETE /api/v1/chats/{id}/messages/{id}`)
   /// is done, and its answer waits for it; [messageDeleteAsked] completes as
@@ -526,6 +541,35 @@ final class FakeOwuiChats {
     _push('1');
   }
 
+  var _stopped = false;
+
+  /// The server process stops, as `kill` on it does: the socket closes, each
+  /// request after it loses its connection unanswered, and a running answer
+  /// stops where it is, with no `done`. Its stored copy stays not done and
+  /// empty, as Open WebUI saves a reply's text only once the reply ends.
+  void stopServer() {
+    _stopped = true;
+    for (final MapEntry(key: task, value: chatId)
+        in _running.entries.toList()) {
+      _running.remove(task);
+      final open = _holds.remove(task);
+      if (open != null && !open.isCompleted) open.complete();
+      final messages =
+          ((stored[chatId]?['chat'] as Map?)?['history'] as Map?)?['messages']
+              as Map?;
+      for (final message in messages?.values ?? const <Object?>[]) {
+        if (message is Map && message['done'] == false) message['content'] = '';
+      }
+    }
+    final socket = _webSocket;
+    _webSocket = null;
+    unawaited(socket?.close());
+    _push('1');
+  }
+
+  /// The server is started again after [stopServer], with no task running.
+  void startServer() => _stopped = false;
+
   void _close() {
     _closed = true;
     _push('1');
@@ -533,6 +577,7 @@ final class FakeOwuiChats {
     for (final hold in <Completer<void>?>[
       holdAdmission,
       holdStream,
+      holdFirstWord,
       holdChatReads,
       holdChatSaves,
       holdMessageDeletes,
@@ -1035,6 +1080,9 @@ final class FakeOwuiChats {
           };
           if (chat['title'] case final String title) row['title'] = title;
           row['updated_at'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          final saved = chatSaved;
+          chatSaved = null;
+          saved?.complete(chatId);
         }
       } else {
         await request.drain<void>();
@@ -1103,15 +1151,17 @@ final class FakeOwuiChats {
         .firstMatch(path)?[1];
     if (post && stopChat != null) {
       await request.drain<void>();
-      for (final task in <String>[
+      final tasks = <String>[
         for (final MapEntry(:key, :value) in _running.entries)
           if (value == stopChat) key,
-      ]) {
+      ];
+      for (final task in tasks) {
         stopped.add(task);
         _running.remove(task);
         final open = _holds.remove(task);
         if (open != null && !open.isCompleted) open.complete();
       }
+      if (tasks.isEmpty) _finishUnfinished(stopChat, userId);
       return json(<String, dynamic>{'status': true});
     }
     if (path.startsWith('/api/tasks/chat/')) {
@@ -1130,6 +1180,35 @@ final class FakeOwuiChats {
     return false;
   }
 
+  /// A chat's stop with no task of [userId]'s running there, as Open WebUI
+  /// 0.13 answers it: each of the user's answers in [chatId] still not done is
+  /// marked done, with the text it has stored and without moving the chat's
+  /// `updated_at`, and the user's sockets hear that it ended.
+  void _finishUnfinished(String chatId, String userId) {
+    final row = stored[chatId];
+    final messages =
+        ((row?['chat'] as Map?)?['history'] as Map?)?['messages'] as Map?;
+    for (final message in messages?.values ?? const <Object?>[]) {
+      if (message is! Map ||
+          message['role'] != 'assistant' ||
+          message['done'] != false ||
+          (message['user_id'] ?? row!['user_id']) != userId) {
+        continue;
+      }
+      message['done'] = true;
+      final id = message['id'] as String;
+      _event(chatId, id, <String, dynamic>{
+        'type': 'chat:completion',
+        'data': <String, dynamic>{'done': true, 'output': null},
+      });
+      _event(chatId, id, <String, dynamic>{'type': 'chat:tasks:cancel'});
+      _event(chatId, id, <String, dynamic>{
+        'type': 'chat:active',
+        'data': <String, dynamic>{'active': false},
+      });
+    }
+  }
+
   /// Streams [task]'s answer [messageId] in [chatId], word by word, into
   /// [message] (its stored copy) and onto the socket; a stopped task ends
   /// where it was.
@@ -1143,6 +1222,12 @@ final class FakeOwuiChats {
     final open = holdStream;
     holdStream = null;
     if (open != null) _holds[task] = open;
+    final first = holdFirstWord;
+    holdFirstWord = null;
+    if (first != null) {
+      await first.future;
+      if (!_running.containsKey(task)) return;
+    }
     for (var i = 0; i < words.length; i++) {
       final content = words.take(i + 1).join(' ');
       message?['content'] = content;

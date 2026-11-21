@@ -4,6 +4,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kMessageServerUnfinishedMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -90,6 +92,7 @@ class _FakeApiService extends ApiService {
 
   Conversation conversation;
   List<String> taskIds = const <String>[];
+  int taskLookups = 0;
 
   @override
   Future<Conversation> getConversation(
@@ -98,7 +101,10 @@ class _FakeApiService extends ApiService {
   }) async => conversation;
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async => taskIds;
+  Future<List<String>> getTaskIdsByChat(String chatId) async {
+    taskLookups++;
+    return taskIds;
+  }
 }
 
 /// The model list, answered when a test says.
@@ -322,6 +328,62 @@ void main() {
         final settled = container.read(chatMessagesProvider).last;
         check(settled.isStreaming).isFalse();
         check(settled.error?.content).equals(failure.content);
+      });
+    });
+  });
+
+  group('an answer the server stopped in the middle of', () {
+    final question = _message('user-1', 'user', 'Why do gales veer?');
+
+    test('settles with what streamed here, and the connection lost, once '
+        'the server runs no task for it', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]))..taskIds = ['task-1'];
+        final container = _openChatContainer(api: api);
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_chat([question]));
+        async.flushMicrotasks();
+
+        // The answer streams here over the socket, and its task is seen.
+        notifier
+          ..addMessage(
+            _message(
+              'assistant-1',
+              'assistant',
+              '',
+            ).copyWith(isStreaming: true),
+          )
+          ..setSocketSubscriptions('assistant-1', [() {}])
+          ..appendToLastMessage('Gales veer as the front');
+        async.elapse(Duration.zero);
+        check(api.taskLookups).equals(1);
+        notifier.debugCancelRemoteTaskMonitorTimer();
+
+        // The server stopped and is back: it runs no task for the chat, and
+        // keeps the answer not done and empty, as it was when it stopped.
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([
+            question,
+            _message('assistant-1', 'assistant', '').copyWith(
+              metadata: const <String, dynamic>{
+                kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ]);
+        // The socket's own end is waited for first.
+        for (var poll = 0; poll < 3; poll++) {
+          unawaited(notifier.debugSyncRemoteTaskStatus());
+          async.flushMicrotasks();
+        }
+
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.isStreaming).isFalse();
+        check(answer.content).equals('Gales veer as the front');
+        check(answer.error?.content)
+            .equals(TemporaryChatResume.connectionLostMessage);
       });
     });
   });
