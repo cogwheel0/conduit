@@ -258,6 +258,181 @@ void main() {
     });
   });
 
+  group('a terminal made per model (Open WebUI 0.13.4)', () {
+    test('opens for the chat with its model, which every call names', () async {
+      server.moreTerminals.add(_perModel);
+      final asked = <String?>[];
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async {
+          asked.add(chatId);
+          return chatId == 'chat-lighthouse' ? 'nova-chat' : 'nova-new';
+        },
+      );
+      addTearDown(terminals.dispose);
+
+      // Attaching reads its features and its working folder.
+      await terminals.attach(
+        const TerminalAttach(serverId: 'per-model', scopeId: 'chat-lighthouse'),
+      );
+      check(server.modelIds).deepEquals(['nova-chat', 'nova-chat']);
+      check(asked).contains('chat-lighthouse');
+
+      // The page opens it outside any chat, with New Chat's model.
+      server.modelIds.clear();
+      await terminals.attach(const TerminalAttach(serverId: 'per-model'));
+      check(server.modelIds).deepEquals(['nova-new', 'nova-new']);
+    });
+
+    test('is not offered where no model can run', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async => throw const RpcError(
+          code: ConduitErrorCodes.unsupported,
+          debugMessage: 'no model this chat can run with',
+        ),
+      );
+      addTearDown(terminals.dispose);
+
+      check(
+        (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
+      ).not((it) => it.contains('per-model'));
+      // The window's own list: the page and a new chat leave it out.
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
+      await check(
+        terminals.attach(
+          const TerminalAttach(
+            serverId: 'per-model',
+            scopeId: 'chat-lighthouse',
+          ),
+        ),
+      ).throws<RpcError>(
+        (e) => e.has((e) => e.code, 'code').equals(ConduitErrorCodes.notFound),
+      );
+      check(server.modelIds).isEmpty();
+    });
+
+    test('a model list that cannot be read leaves out only it', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async =>
+            throw const SocketException('No route to host'),
+      );
+      addTearDown(terminals.dispose);
+
+      check(
+        (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
+      ).deepEquals(['box', 'per-chat']);
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
+      final attached = await terminals.attach(
+        const TerminalAttach(serverId: 'box', scopeId: 'chat-lighthouse'),
+      );
+      check(attached.handle).isNotEmpty();
+      check(server.modelIds).isEmpty();
+    });
+
+    test('a lookup the session ended surfaces as that', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        // As `ModelsService.modelFor` ends once the account changed.
+        modelFor: (chatId) async => throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          args: <String, String>{'reason': 'account'},
+          debugMessage: 'the account changed before the model in use is read',
+        ),
+      );
+      addTearDown(terminals.dispose);
+
+      for (final scope in ['', 'chat-lighthouse']) {
+        await check(because: scope, terminals.servers(scope)).throws<RpcError>(
+          (e) => e
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.sessionExpired),
+        );
+      }
+    });
+
+    test('an account change mid-lookup acts for no account', () async {
+      server.moreTerminals.add(_perModel);
+      final acts = <String, Future<Object?> Function(TerminalsService)>{
+        'select': (t) => t.select('per-model', scopeId: 'chat-lighthouse'),
+        'attach': (t) => t.attach(
+          const TerminalAttach(
+            serverId: 'per-model',
+            scopeId: 'chat-lighthouse',
+          ),
+        ),
+      };
+      for (final MapEntry(key: name, value: act) in acts.entries) {
+        final (next, away) = await awayAccount();
+        away.moreTerminals.add(_perModel);
+        final asked = Completer<void>();
+        final answer = Completer<String>();
+        final terminals = TerminalsService(
+          container,
+          modelFor: (chatId) {
+            asked.complete();
+            return answer.future;
+          },
+        );
+        addTearDown(terminals.dispose);
+
+        final acting = act(terminals);
+        await asked.future;
+        switchAccount(next);
+        answer.complete('nova-chat');
+
+        await check(because: name, acting).throws<RpcError>(
+          (e) => e
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.sessionExpired),
+        );
+        check(
+          because: name,
+          container.read(selectedTerminalIdProvider),
+        ).equals('box');
+        check(because: name, away.writes).isEmpty();
+        check(because: name, away.modelIds).isEmpty();
+      }
+    });
+
+    test("a saved chat keeps one New Chat can't use", () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async => chatId == 'chat-lighthouse'
+            ? 'nova-chat'
+            : throw const RpcError(
+                code: ConduitErrorCodes.unsupported,
+                debugMessage: 'no model this chat can run with',
+              ),
+      );
+      addTearDown(terminals.dispose);
+
+      // The composer of a saved chat offers it from the window's own list,
+      // for that chat's own model; the page and a new chat don't.
+      check(
+        await _windowList(terminals),
+      ).deepEquals([('box', false), ('per-chat', true), ('per-model', true)]);
+      final selected = await terminals.select(
+        'per-model',
+        scopeId: 'chat-lighthouse',
+      );
+      check(selected.selectedId).equals('per-model');
+      await terminals.attach(
+        const TerminalAttach(serverId: 'per-model', scopeId: 'chat-lighthouse'),
+      );
+      check(server.modelIds).deepEquals(['nova-chat', 'nova-chat']);
+    });
+  });
+
   group('Computer views belong to the account they opened under', () {
     const chat = 'chat-lighthouse';
 
@@ -345,6 +520,22 @@ void main() {
   });
 }
 
+/// The list the window keeps for the page and the composer
+/// (`terminal.servers` with no chat): each terminal, and whether only a
+/// saved chat may use it.
+Future<List<(String, bool)>> _windowList(TerminalsService terminals) async => [
+  for (final server in (await terminals.servers('')).servers)
+    (server.id, server.requiresSavedChat),
+];
+
+/// Open WebUI 0.13.4's template that makes a machine per model.
+const _perModel = <String, dynamic>{
+  'id': 'per-model',
+  'name': 'Model bench',
+  'template_id': 'bench-model',
+  'scope': 'model',
+};
+
 final class _Box extends SelectedTerminalId {
   @override
   String? build() => 'box';
@@ -377,6 +568,10 @@ final class _GatedServer {
 
   /// Terminals listed after the server's own ("box").
   final List<Map<String, dynamic>> moreTerminals = <Map<String, dynamic>>[];
+
+  /// The model each call to the per-model terminal named
+  /// (`X-Terminal-Model-Id`), in order.
+  final List<String?> modelIds = <String?>[];
 
   String get url => 'http://127.0.0.1:${_server.port}';
 
@@ -427,6 +622,22 @@ final class _GatedServer {
     if (socket && path.startsWith('/api/v1/terminals/box/api/terminals/')) {
       final ws = await WebSocketTransformer.upgrade(request);
       ws.listen((_) {});
+      return;
+    }
+    const perModel = '/api/v1/terminals/per-model/';
+    if (path.startsWith(perModel)) {
+      modelIds.add(request.headers.value('x-terminal-model-id'));
+      response.headers.contentType = ContentType.json;
+      response.write(
+        jsonEncode(switch (path.substring(perModel.length)) {
+          'api/config' => <String, dynamic>{
+            'features': <String, dynamic>{'terminal': true},
+          },
+          'files/cwd' => <String, dynamic>{'cwd': '/home/bench'},
+          _ => <String, dynamic>{},
+        }),
+      );
+      await response.close();
       return;
     }
     if (request.method != 'GET' &&

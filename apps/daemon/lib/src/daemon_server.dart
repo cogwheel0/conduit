@@ -319,8 +319,18 @@ class DaemonServer {
     );
     _channels = ChannelsService(core.container, events: events);
     _workspace = WorkspaceService(core.container, events: events);
-    _terminals = TerminalsService(core.container, log: _log, events: events);
-    _computer = ComputerRpcService(core.container, log: _log);
+    final models = _models!;
+    _terminals = TerminalsService(
+      core.container,
+      log: _log,
+      events: events,
+      modelFor: models.modelFor,
+    );
+    _computer = ComputerRpcService(
+      core.container,
+      log: _log,
+      modelFor: models.modelFor,
+    );
     _voice = VoiceService(
       core.container,
       events: events,

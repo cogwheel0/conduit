@@ -78,7 +78,9 @@ final class TerminalContextController with TerminalChangeNotifier {
     }
 
     final sessionScopeId = _gateway.sessionScopeId;
-    final nextSyncKey = '${selectedServer.selectionId}::$sessionScopeId';
+    final nextSyncKey =
+        '${selectedServer.selectionId}::${selectedServer.modelId}::'
+        '$sessionScopeId';
     if (!force && _syncKey == nextSyncKey) return;
     _syncKey = nextSyncKey;
     final syncGeneration = ++_syncGeneration;

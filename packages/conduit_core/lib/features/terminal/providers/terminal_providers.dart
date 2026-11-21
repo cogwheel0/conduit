@@ -83,8 +83,19 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   String sessionScopeId,
   ListLoad load,
 ) async {
-  final servers = (await service.getAvailableServers())
-      .where((server) => server.isAvailableForChatScope(sessionScopeId))
+  final listed = await service.getAvailableServers();
+  // A terminal made per model is offered while the chat has a model. Which
+  // model is the selected terminal's to follow ([_terminalSelectedServer]):
+  // a change of model reads nothing here, so no other terminal reconnects.
+  final hasModel =
+      listed.any((server) => server.requiresModelContext) &&
+      ref.watch(selectedModelProvider.select((model) => model != null));
+  final servers = listed
+      .where(
+        (server) =>
+            server.isAvailableForChatScope(sessionScopeId) &&
+            (!server.requiresModelContext || hasModel),
+      )
       .toList(growable: false);
   // A real probe succeeded for the current API/session: persist whether
   // terminal is enabled so the offline/error fallback reflects the true
@@ -186,7 +197,16 @@ final terminalSelectedServerProvider = FutureProvider<TerminalServerInfo?>(
 Future<TerminalServerInfo?> _terminalSelectedServer(Ref ref) async {
   final servers = await ref.watch(terminalAvailableServersProvider.future);
   final selectedTerminalId = ref.watch(selectedTerminalIdProvider);
-  return resolveSelectedTerminalServerForTest(servers, selectedTerminalId);
+  final server = resolveSelectedTerminalServerForTest(
+    servers,
+    selectedTerminalId,
+  );
+  if (server == null || !server.requiresModelContext) return server;
+  // The chat's model's own machine: only this terminal follows a change of
+  // model.
+  return server.forModel(
+    ref.watch(selectedModelProvider.select((model) => model?.id)),
+  );
 }
 
 final terminalSessionScopeIdProvider = Provider<String>(

@@ -23,6 +23,8 @@ class TerminalServerInfo {
     this.selectedEnabled = false,
     this.chatContextAvailable = true,
     this.requiresSavedChatContext = false,
+    this.requiresModelContext = false,
+    this.modelId,
   });
 
   final TerminalServerKind kind;
@@ -36,12 +38,44 @@ class TerminalServerInfo {
   final bool chatContextAvailable;
   final bool requiresSavedChatContext;
 
+  /// An Open WebUI 0.13.4 template that makes a machine per model (`scope:
+  /// 'model'`): usable only for a model, which every call to it names.
+  final bool requiresModelContext;
+
+  /// The model a [requiresModelContext] terminal is used for ([forModel]).
+  final String? modelId;
+
   bool get isDirect => kind == TerminalServerKind.direct;
 
   bool get isSystem => kind == TerminalServerKind.system;
 
   /// One of the user's own devices, which the server reaches through Tether.
   bool get isTetherDevice => isSystem && isTetherTerminalId(systemServerId);
+
+  /// This terminal used for [model], the chat's model: only one made per
+  /// model keeps it.
+  TerminalServerInfo forModel(String? model) {
+    if (!requiresModelContext) return this;
+    final id = model?.trim();
+    return TerminalServerInfo(
+      kind: kind,
+      selectionId: selectionId,
+      baseUrl: baseUrl,
+      systemServerId: systemServerId,
+      apiKey: apiKey,
+      name: name,
+      raw: raw,
+      selectedEnabled: selectedEnabled,
+      chatContextAvailable: chatContextAvailable,
+      requiresSavedChatContext: requiresSavedChatContext,
+      requiresModelContext: true,
+      modelId: id == null || id.isEmpty ? null : id,
+    );
+  }
+
+  /// A terminal made per model with no model to use: Open WebUI refuses it
+  /// (409 "This terminal requires a model").
+  bool get needsModel => requiresModelContext && modelId == null;
 
   bool isAvailableForChatScope(String sessionScopeId) {
     if (!chatContextAvailable) return false;

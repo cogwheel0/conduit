@@ -57,6 +57,15 @@ class _Adapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// The same agent as Open WebUI 0.13.4 lists it: the model part of the id
+/// is a slug, with the first 8 hex digits of the model's SHA-256 when the
+/// slug changed it (`utils/agents/session.py`), and the model itself is
+/// under `agent`.
+Map<String, dynamic> _agent0134(String id, String model) {
+  final ref = parseTerminalAgentModelId(id)!;
+  return {..._agent(ref.terminalId, ref.provider, model), 'id': id};
+}
+
 ApiService _api(_Adapter adapter) {
   final service = ApiService(
     serverConfig: const ServerConfig(
@@ -80,6 +89,20 @@ void main() {
         ..has((a) => a.terminalId, 'terminalId').equals('build:box')
         ..has((a) => a.provider, 'provider').equals('codex')
         ..has((a) => a.model, 'model').equals('openai/gpt-5.1');
+
+      // Named from the id alone, 0.13.4's slug stands for the model without
+      // its hash. A model the slug leaves as it is keeps a date at its end.
+      for (final (id, name) in [
+        ('agent:t1:codex:gpt-5.1', 'Codex · gpt-5.1'),
+        ('agent:t1:codex:gpt-5-1-e7ee8b01', 'Codex · gpt-5-1'),
+        ('agent:t1:pi:nova-lite-2-0-3dfb57dc', 'Pi · nova-lite-2-0'),
+        (
+          'agent:t1:claude-code:nova-4-20260101',
+          'Claude Code · nova-4-20260101',
+        ),
+      ]) {
+        check(because: id, terminalAgentDisplayName(id)).equals(name);
+      }
     });
 
     test('is null for ids that are not an agent\'s', () {
@@ -115,6 +138,15 @@ void main() {
       check(model.name).equals('Claude Code · sonnet');
       check(terminalAgentPickerSubtitle(model)).equals('Build box');
       check(terminalAgentTerminalId(model)).equals('t1');
+
+      // 0.13.4's id holds the model only as a slug: the server's listing
+      // names it, and the id is kept as it is.
+      final slugged = terminalAgentModelFromJson(
+        _agent0134('agent:t1:codex:gpt-5-1-e7ee8b01', 'gpt-5.1'),
+      )!;
+      check(slugged.id).equals('agent:t1:codex:gpt-5-1-e7ee8b01');
+      check(slugged.name).equals('Codex · gpt-5.1');
+      check(terminalAgentPickerSubtitle(slugged)).equals('codex/gpt-5.1');
     });
 
     test('an agent Conduit has no name for keeps its own', () {

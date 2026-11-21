@@ -82,6 +82,7 @@ class ComputerService {
         transport: transport as String,
         token: terminal.authTokenForServer(server) ?? '',
         chatId: chatId,
+        modelId: server.modelId,
         audioAvailable: info['audio'] == true,
         proxyCookies: terminal.proxyCookiesForServer(server),
         proxyHeaders: terminal.computerProxyHeadersForServer(server),
@@ -186,6 +187,7 @@ class ComputerService {
       proxyHeaders: terminal.computerProxyHeadersForServer(server),
       createHttpClient: _createHttpClient,
       chatId: chatId,
+      modelId: server.modelId,
     );
   }
 

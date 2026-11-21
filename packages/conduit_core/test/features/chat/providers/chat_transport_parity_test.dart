@@ -1975,6 +1975,45 @@ void main() {
       check(lastMsg.metadata!['taskId']).equals('task-abc');
     });
 
+    test('a video Open WebUI 0.13.4 generated is kept as the server saved '
+        'it, whatever came first for its address', () {
+      final log = _CallbackLog(initialMessages: _fakeStreamingMessages());
+      final registrar = FakeSocketInjector();
+      _attach(
+        session: ChatCompletionSession.taskSocket(
+          messageId: 'msg-1',
+          sessionId: 'sess-1',
+          taskId: 'task-video',
+        ),
+        log: log,
+        socketService: _MockSocketService(registrar),
+      );
+      check(registrar.hasChatHandler).isTrue();
+
+      // `generate_video` in `tools/builtin.py`: the file as it is saved on
+      // the message, which Conduit writes back with the reply. The name is
+      // copied to `filename` too, which players and exports read.
+      const saved = <String, dynamic>{
+        'type': 'video',
+        'id': 'file-otter',
+        'url': '/api/v1/files/file-otter/content',
+        'name': 'generated-video.mp4',
+        'content_type': 'video/mp4',
+      };
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [
+          {'url': saved['url'], 'content_type': 'video/mp4'},
+        ],
+      }, conversationId: 'conv-1');
+      registrar.emitChatEvent('chat:message:files', {
+        'files': [saved],
+      }, conversationId: 'conv-1');
+
+      check(log.messages.last.files).isNotNull().deepEquals([
+        {...saved, 'filename': 'generated-video.mp4'},
+      ]);
+    });
+
     // -------------------------------------------------------------------
     // 11. Status patch preserves transport metadata
     // -------------------------------------------------------------------

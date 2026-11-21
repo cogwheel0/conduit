@@ -16,6 +16,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'log.dart';
+import 'terminal_model_scope.dart';
 
 /// One open view: a relay the viewer page streams through, opened under
 /// [account] (the account session it holds the credential of).
@@ -47,7 +48,14 @@ final class _View {
 /// changes or signs out every view closes, an open the change overtakes
 /// makes none, and a request for a view of another session is refused.
 final class ComputerRpcService {
-  ComputerRpcService(this._container, {DaemonLog? log}) : _log = log {
+  /// [modelFor] is the model a turn in a chat runs with, which a terminal
+  /// made per model is used for.
+  ComputerRpcService(
+    this._container, {
+    DaemonLog? log,
+    Future<String> Function(String? chatId)? modelFor,
+  }) : _log = log,
+       _modelFor = modelFor {
     _accountWatch = _container.listen<Object?>(
       openWebUiAuthSessionEpochProvider,
       (previous, next) => unawaited(_closeViews()),
@@ -56,6 +64,7 @@ final class ComputerRpcService {
 
   final ProviderContainer _container;
   final DaemonLog? _log;
+  final Future<String> Function(String? chatId)? _modelFor;
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _View> _views = <String, _View>{};
   final Random _random = Random.secure();
@@ -95,9 +104,12 @@ final class ComputerRpcService {
     if (selected == null) return null;
     final terminal = _container.read(terminalServiceProvider);
     if (terminal == null) return null;
-    final servers = (await terminal.getAvailableServers())
-        .where((s) => s.isAvailableForChatScope(scope))
-        .toList(growable: false);
+    final servers = (await withTerminalModel(
+      await terminal.getAvailableServers(),
+      _modelFor,
+      scope,
+      log: _log,
+    )).where((s) => s.isAvailableForChatScope(scope)).toList(growable: false);
     final server = resolveSelectedTerminalServerForTest(servers, selected);
     if (server == null) return null;
     return ComputerService(terminal, server, scope);

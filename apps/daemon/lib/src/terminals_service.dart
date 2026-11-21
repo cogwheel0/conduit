@@ -22,6 +22,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'event_bus.dart';
 import 'log.dart';
+import 'terminal_model_scope.dart';
 
 /// The chat scope the terminal page uses when no chat is open, as mobile's
 /// sidebar terminal does.
@@ -77,9 +78,16 @@ final class _Handle {
 /// shell's socket -- whose first frame is the credential -- and port
 /// previews.
 final class TerminalsService {
-  TerminalsService(this._container, {DaemonLog? log, EventBus? events})
-    : _log = log,
-      _events = events {
+  /// [modelFor] is the model a turn in a chat (null: a new chat) runs with,
+  /// which a terminal made per model is used for.
+  TerminalsService(
+    this._container, {
+    DaemonLog? log,
+    EventBus? events,
+    Future<String> Function(String? chatId)? modelFor,
+  }) : _log = log,
+       _events = events,
+       _modelFor = modelFor {
     // A handle, and every preview and watch it opened, belongs to the
     // account it was attached under: a system terminal's base and its token
     // are that account's. When the account changes they go, so an old handle
@@ -94,6 +102,7 @@ final class TerminalsService {
   final ProviderContainer _container;
   final DaemonLog? _log;
   final EventBus? _events;
+  final Future<String> Function(String? chatId)? _modelFor;
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _Handle> _handles = <String, _Handle>{};
   final Random _random = Random.secure();
@@ -123,18 +132,38 @@ final class TerminalsService {
     return servers.where((s) => s.chatContextAvailable).toList(growable: false);
   });
 
-  /// The servers usable in [scopeId]: a chat, or the page with none.
-  Future<List<TerminalServerInfo>> _available(String scopeId) async => [
-    for (final server in await _chatServers())
-      if (server.isAvailableForChatScope(_scope(scopeId))) server,
-  ];
+  /// The servers usable in [scopeId]: a chat, or the page with none. One
+  /// made per model is used for the chat's model (the page's: New Chat's).
+  Future<List<TerminalServerInfo>> _available(String scopeId) async {
+    final scope = _scope(scopeId);
+    return [
+      for (final server in await _forModel(await _chatServers(), scope))
+        if (server.isAvailableForChatScope(scope)) server,
+    ];
+  }
+
+  Future<List<TerminalServerInfo>> _forModel(
+    List<TerminalServerInfo> servers,
+    String scope,
+  ) => withTerminalModel(servers, _modelFor, scope, log: _log);
+
+  /// Every server the account's chats may use, for the window's page and
+  /// composer. One made per model goes with New Chat's model; while New Chat
+  /// has none ([TerminalServerInfo.needsModel]) it is left to saved chats,
+  /// each with its own.
+  Future<List<TerminalServerInfo>> _windowServers() async {
+    final servers = await _chatServers();
+    if (!servers.any((s) => s.requiresModelContext)) return servers;
+    final modelId = await terminalModelIn(_modelFor, _pageScope, log: _log);
+    return [for (final server in servers) server.forModel(modelId)];
+  }
 
   /// The servers [scopeId]'s chat may use. With none, every one the
   /// account's chats may use: the window offers one that needs a saved chat
   /// only to a saved chat, and never on the page, which opens outside any.
   Future<TerminalServers> servers(String scopeId) async {
     final servers = scopeId.trim().isEmpty
-        ? await _chatServers()
+        ? await _windowServers()
         : await _available(scopeId);
     final selected = resolveSelectedTerminalServerForTest(
       servers,
@@ -147,7 +176,8 @@ final class TerminalsService {
             id: server.selectionId,
             name: server.displayName,
             kind: server.kind.name,
-            requiresSavedChat: server.requiresSavedChatContext,
+            requiresSavedChat:
+                server.requiresSavedChatContext || server.needsModel,
             device: server.isTetherDevice,
           ),
       ],
@@ -163,7 +193,11 @@ final class TerminalsService {
     String? serverId, {
     String scopeId = '',
   }) async {
+    final session = _session();
     final servers = await _available(scopeId);
+    // The list, and the pick from it, are the account's the request began
+    // under; another one's selection is never written with them.
+    _requireSession(session);
     final server = serverId == null
         ? null
         : servers.where((s) => s.selectionId == serverId).firstOrNull ??
@@ -176,6 +210,7 @@ final class TerminalsService {
         server != null && server.isDirect ? server.selectionId : null,
       ),
     );
+    _requireSession(session);
     final selection = _container.read(selectedTerminalIdProvider.notifier);
     if (server == null) {
       selection.clear();
@@ -195,6 +230,7 @@ final class TerminalsService {
     final server = (await _available(request.scopeId))
         .where((s) => s.selectionId == request.serverId)
         .firstOrNull;
+    _requireSession(session);
     if (server == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,

@@ -12,8 +12,12 @@ import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:conduit/features/terminal/widgets/terminal_console_surface.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart'
-    show systemTerminalLiveFeaturesProvider;
+    show
+        SelectedModel,
+        selectedModelProvider,
+        systemTerminalLiveFeaturesProvider;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';
@@ -905,6 +909,116 @@ void main() {
       );
     });
 
+    testWidgets("ignores ports read for the chat's previous model", (
+      tester,
+    ) async {
+      final stalePorts = Completer<List<TerminalListeningPort>>();
+      final service = _FakeTerminalService(
+        servers: <TerminalServerInfo>[_perModel],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+        portsByModel: const <String, List<TerminalListeningPort>>{
+          'nova-b': <TerminalListeningPort>[TerminalListeningPort(port: 8080)],
+        },
+        portCompletersByModel: <String, Completer<List<TerminalListeningPort>>>{
+          'nova-a': stalePorts,
+        },
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+          selectedModelProvider.overrideWith(() => _Picked(_novaA)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pump();
+      await tester.pump();
+      (container.read(selectedModelProvider.notifier) as _Picked).choose(
+        _novaB,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        container.read(terminalListeningPortsProvider).map((p) => p.port),
+        [8080],
+      );
+
+      // The previous model's machine answers late, with its own ports.
+      stalePorts.complete(const <TerminalListeningPort>[
+        TerminalListeningPort(port: 3000),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(terminalListeningPortsProvider).map((p) => p.port),
+        [8080],
+      );
+    });
+
+    testWidgets("a change of the chat's model leaves a regular terminal's "
+        'shell as it is', (tester) async {
+      final channel = _TestWebSocketConnection();
+      addTearDown(channel.dispose);
+      final service = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+          _perModel,
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+      );
+      final container = ProviderContainer(
+        overrides: [
+          terminalServiceProvider.overrideWithValue(service),
+          terminalAutoConnectProvider.overrideWithValue(false),
+          terminalChannelConnectorProvider.overrideWithValue(
+            (_, {required kind}) => channel.channel,
+          ),
+          selectedModelProvider.overrideWith(() => _Picked(_novaA)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessWithContainer(container));
+      await tester.pumpAndSettle();
+      container
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pump();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(TerminalTab)),
+      )!;
+      await tester.tap(find.bySemanticsLabel(l10n.terminalConnectAction));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        container.read(terminalConnectionStateProvider).isConnected,
+        isTrue,
+      );
+      final listed = service.availableServersRequestCount;
+      final synced = service.terminalEnabledRequestCount;
+
+      (container.read(selectedModelProvider.notifier) as _Picked).choose(
+        _novaB,
+      );
+      await tester.pumpAndSettle();
+
+      expect(channel.closeCallCount, 0);
+      expect(
+        container.read(terminalConnectionStateProvider).isConnected,
+        isTrue,
+      );
+      expect(service.availableServersRequestCount, listed);
+      expect(service.terminalEnabledRequestCount, synced);
+    });
+
     testWidgets('server picker updates the selected terminal id', (
       tester,
     ) async {
@@ -1065,6 +1179,31 @@ Widget _buildHarnessWithContainer(
 
 class _MockApiService extends Mock implements ApiService {}
 
+/// Open WebUI 0.13.4's terminal template that makes a machine per model.
+final _perModel = TerminalServerInfo(
+  kind: TerminalServerKind.system,
+  selectionId: 'orchestra:per-model',
+  systemServerId: 'orchestra:per-model',
+  baseUrl: Uri.parse('https://owui.example/api/v1/terminals/orchestra'),
+  name: 'Model bench',
+  requiresModelContext: true,
+);
+
+const _novaA = Model(id: 'nova-a', name: 'Nova A');
+const _novaB = Model(id: 'nova-b', name: 'Nova B');
+
+/// The chat's model, which a test changes.
+class _Picked extends SelectedModel {
+  _Picked(this._initial);
+
+  final Model _initial;
+
+  @override
+  Model? build() => _initial;
+
+  void choose(Model model) => state = model;
+}
+
 class _FakeTerminalService extends TerminalService {
   _FakeTerminalService({
     this.discovery,
@@ -1074,6 +1213,9 @@ class _FakeTerminalService extends TerminalService {
     this.entriesByServer = const <String, List<TerminalFileEntry>>{},
     this.listFileCompleters =
         const <String, Completer<List<TerminalFileEntry>>>{},
+    this.portsByModel = const <String, List<TerminalListeningPort>>{},
+    this.portCompletersByModel =
+        const <String, Completer<List<TerminalListeningPort>>>{},
     Map<int, Completer<bool>> terminalEnabledCompletersByRequest =
         const <int, Completer<bool>>{},
     this.features = const TerminalServerFeatures(),
@@ -1089,6 +1231,9 @@ class _FakeTerminalService extends TerminalService {
   final List<TerminalListeningPort> ports;
   final Map<String, List<TerminalFileEntry>> entriesByServer;
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
+  final Map<String, List<TerminalListeningPort>> portsByModel;
+  final Map<String, Completer<List<TerminalListeningPort>>>
+  portCompletersByModel;
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final TerminalServerFeatures features;
   final String token;
@@ -1101,9 +1246,11 @@ class _FakeTerminalService extends TerminalService {
   int listeningPortsRequestCount = 0;
   int terminalEnabledRequestCount = 0;
   int createSessionRequestCount = 0;
+  int availableServersRequestCount = 0;
 
   @override
   Future<List<TerminalServerInfo>> getAvailableServers() async {
+    availableServersRequestCount++;
     await discovery;
     return servers;
   }
@@ -1183,7 +1330,9 @@ class _FakeTerminalService extends TerminalService {
     required String sessionScopeId,
   }) async {
     listeningPortsRequestCount++;
-    return ports;
+    final completer = portCompletersByModel[server.modelId];
+    if (completer != null) return completer.future;
+    return portsByModel[server.modelId] ?? ports;
   }
 
   @override
