@@ -659,7 +659,10 @@ impl Transcript {
             }
             // Over with the view resting at the answer's start. Drawing may
             // have paused through the window, the answer's last text laid
-            // out only now: a layout from here measures it once more.
+            // out only now: a layout from here measures it once more. It
+            // rests there whatever that shows, so what comes next is
+            // followed (drawing may have paused before a layout parked it).
+            self.parked = true;
             *self.newest_height.borrow_mut() = None;
             if let Some(pin) = &mut self.answer_pin {
                 pin.settled = true;
@@ -3231,6 +3234,65 @@ mod tests {
         quick_ask_frames(&transcript, cx);
         let (start, end) = painted(&list, 1).expect("the answer is on screen");
         assert!(end - start > QUICK_ASK_VIEWPORT, "it fits: {start}..{end}");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A short answer held at its start, drawing paused right after the
+    /// hold began and resumed past its window: the view rests at the
+    /// answer's start, and a turn that comes next (from another device) is
+    /// still followed.
+    #[gpui_kit::test]
+    fn a_turn_after_a_hold_paused_past_its_window_is_followed(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let done = answer("a1", 1, &["Why?", "How?", "When?"]);
+        complete_turn_with(&store, &daemon, &question, done.clone(), cx);
+        // Drawn until the frame the hold begins in (its text is paced out
+        // first), and no further.
+        let mut held = false;
+        for _ in 0..60 {
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.run_until_parked();
+            held =
+                transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied));
+            if held {
+                break;
+            }
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+        }
+        assert!(held && !list.is_following_tail(), "not held at its start");
+
+        // Drawing pauses past the pin's window, then resumes.
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(2));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        let (start, _) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            start >= top - 0.5 && start <= top + TOP_INSET + 0.5,
+            "start {start}, top {top}"
+        );
+
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            question.clone(),
+            done,
+            message("u2", "user", "And how far is the sun?"),
+            answer("a2", 8, &[]),
+        ]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        quick_ask_frames(&transcript, cx);
+        let (_, end) = painted(&list, 3).expect("the new answer is on screen");
         assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
         assert!(transcript.read_with(cx, |t, _| t.follows_end()));
     }
