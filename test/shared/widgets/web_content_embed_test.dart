@@ -14,10 +14,12 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:checks/checks.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html_unescape/html_unescape.dart';
+import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:mocktail/mocktail.dart';
 
 abstract interface class _ExternalLinkLauncher {
@@ -594,6 +596,11 @@ void main() {
     });
 
     group('audio', () {
+      const sources = [
+        'https://chat.example.test/api/v1/files/a1/content',
+        'https://chat.example.test/api/v1/files/a2/content',
+      ];
+
       testWidgets('downloads into the cache before it plays', (tester) async {
         final cache = _RecordingVideoCache();
         await tester.pumpWidget(_buildServerHarness(page, videoCache: cache));
@@ -624,18 +631,9 @@ void main() {
         'a source that cannot be fetched gives way to the next, and Retry '
         'starts again from the first',
         (tester) async {
-          const sources = [
-            'https://chat.example.test/api/v1/files/a1/content',
-            'https://chat.example.test/api/v1/files/a2/content',
-          ];
           final cache = _RecordingVideoCache();
           await tester.pumpWidget(
-            _buildServerHarness(
-              '<audio controls title="Morning note">'
-              '${sources.map((it) => '<source src="$it">').join()}'
-              '</audio>',
-              videoCache: cache,
-            ),
+            _buildServerHarness(_audioElement(sources), videoCache: cache),
           );
 
           await tester.tap(find.byTooltip('Play Audio'));
@@ -653,9 +651,162 @@ void main() {
           check(cache.urls).deepEquals([...sources, sources.first]);
         },
       );
+
+      group('in the player', () {
+        late JustAudioPlatform devicePlayers;
+        late _FakeAudioPlatform audio;
+
+        setUp(() {
+          devicePlayers = JustAudioPlatform.instance;
+          audio = _FakeAudioPlatform();
+          JustAudioPlatform.instance = audio;
+        });
+        tearDown(() => JustAudioPlatform.instance = devicePlayers);
+
+        /// Does [action], and returns once [until] has completed and the row
+        /// has rebuilt.
+        ///
+        /// just_audio waits on rxdart streams whose `first` completes only
+        /// when the real event loop turns, since the cancel it waits for is
+        /// chained off the root zone. A widget test's clock never turns that
+        /// loop, so the steps that reach the player run in
+        /// [WidgetTester.runAsync], and Play is pressed there, so that the row
+        /// loads in that zone. A step ends on something the fakes see the row
+        /// do, never after a time. Where the row meets a failure, that is it
+        /// letting go of the failed file, which it does whether it moves on
+        /// or shows the failure, so a wrong turn fails a check.
+        Future<void> step(
+          WidgetTester tester,
+          FutureOr<void> Function() action, {
+          required Future<void> Function() until,
+        }) async {
+          await tester.runAsync(() async {
+            await action();
+            await until();
+          });
+          await tester.pump();
+        }
+
+        /// Presses Play on an element of [sources] and finishes the first
+        /// one's download, which a player is asked to open.
+        Future<_RecordingVideoCache> play(WidgetTester tester) async {
+          final cache = _RecordingVideoCache();
+          await tester.pumpWidget(
+            _buildServerHarness(_audioElement(sources), videoCache: cache),
+          );
+          await step(
+            tester,
+            () => tester.tap(find.byTooltip('Play Audio')),
+            until: () => cache.fetched(1),
+          );
+          await step(
+            tester,
+            () => cache.pending[0].complete(_downloaded('a1')),
+            until: () => audio.opened(0),
+          );
+          return cache;
+        }
+
+        testWidgets(
+          'a file it cannot open gives way to the next source, and the last '
+          'one shows the failure',
+          (tester) async {
+            final cache = await play(tester);
+
+            await step(
+              tester,
+              audio.players[0].failLoadCall,
+              until: () => cache.freed(_downloaded('a1')),
+            );
+            check(cache.urls).deepEquals(sources);
+
+            await step(
+              tester,
+              () => cache.pending[1].complete(_downloaded('a2')),
+              until: () => audio.opened(1),
+            );
+            await step(
+              tester,
+              audio.players[1].failLoadCall,
+              until: () => cache.freed(_downloaded('a2')),
+            );
+            check(find.text('Failed to load audio').evaluate()).length
+                .equals(1);
+            check(find.byTooltip('Retry').evaluate()).length.equals(1);
+            check(cache.urls).deepEquals(sources);
+          },
+        );
+
+        testWidgets('a failure it reports twice moves on once', (tester) async {
+          final cache = await play(tester);
+
+          // A device player reports a file it cannot open both ways: an
+          // error event, then the load call failing.
+          await step(
+            tester,
+            audio.players[0].reportError,
+            until: () => cache.freed(_downloaded('a1')),
+          );
+          await step(
+            tester,
+            () {
+              audio.players[0].failLoadCall();
+              cache.pending[1].complete(_downloaded('a2'));
+            },
+            // Moving on again would let the second download go unplayed.
+            until: () =>
+                Future.any([audio.opened(1), cache.freed(_downloaded('a2'))]),
+          );
+          check(cache.urls).deepEquals(sources);
+          check(audio.players).length.equals(2);
+          check(audio.players[1].file).equals(_downloaded('a2').path);
+
+          // The row lets its last player go where that work can finish.
+          await step(
+            tester,
+            () => tester.pumpWidget(const SizedBox()),
+            until: () => cache.freed(_downloaded('a2')),
+          );
+        });
+
+        testWidgets(
+          'a failure once it plays shows the failure instead of the next '
+          'source',
+          (tester) async {
+            final cache = await play(tester);
+            await step(
+              tester,
+              audio.players[0].ready,
+              until: () => audio.played(0),
+            );
+            check(find.byTooltip('Pause').evaluate()).length.equals(1);
+
+            // A read error mid-file arrives only as an error event.
+            await step(
+              tester,
+              audio.players[0].reportError,
+              until: () => cache.freed(_downloaded('a1')),
+            );
+            check(find.text('Failed to load audio').evaluate()).length
+                .equals(1);
+            check(find.byTooltip('Retry').evaluate()).length.equals(1);
+            check(find.byTooltip('Pause').evaluate()).isEmpty();
+            check(cache.urls).deepEquals([sources.first]);
+          },
+        );
+      });
     });
   });
 }
+
+/// An audio element that names [sources] in turn.
+String _audioElement(List<String> sources) =>
+    '<audio controls title="Morning note">'
+    '${sources.map((it) => '<source src="$it">').join()}'
+    '</audio>';
+
+/// The media cache's copy of the file with [id].
+File _downloaded(String id) => File('/synthetic-media-cache/$id.mp3');
 
 const _sessionToken = 'synthetic-session-token';
 const _proxySecret = 'synthetic-proxy-secret';
@@ -741,9 +892,22 @@ class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String Function(String? mediaType)?> replyExtensions = [];
   final List<VideoDownloadClaim> claims = [];
   final List<VideoDownloadClaim> released = [];
+  final _milestones = _Milestones();
+
+  /// Completes once the row has asked for [count] fetches.
+  Future<void> fetched(int count) => _milestones.wait(('fetch', count));
+
+  /// Completes once the row has let go of the cached [file].
+  Future<void> freed(File file) => _milestones.wait(('free', file.path));
 
   @override
   void releaseDownload(VideoDownloadClaim claim) => released.add(claim);
+
+  @override
+  void releaseCachePath(String? path) {
+    super.releaseCachePath(path);
+    _milestones.reach(('free', path));
+  }
 
   @override
   Future<File> fetchForPlayback({
@@ -762,6 +926,162 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     replyExtensions.add(extensionForReply);
     final fetch = Completer<File>();
     pending.add(fetch);
+    _milestones.reach(('fetch', urls.length));
     return fetch.future;
   }
+}
+
+/// Futures for what the row has yet to do, each completed once it does.
+final class _Milestones {
+  final Set<Object?> _reached = {};
+  final Map<Object?, Completer<void>> _waiting = {};
+
+  void reach(Object? milestone) {
+    _reached.add(milestone);
+    _waiting.remove(milestone)?.complete();
+  }
+
+  Future<void> wait(Object? milestone) => _reached.contains(milestone)
+      ? Future<void>.value()
+      : (_waiting[milestone] ??= Completer<void>()).future;
+}
+
+/// The device's audio players, faked as just_audio's own tests fake them.
+/// [players] holds each one the row makes, in order.
+final class _FakeAudioPlatform extends JustAudioPlatform {
+  final List<_FakeAudioPlayer> players = [];
+  final _milestones = _Milestones();
+
+  /// Completes once player [index] has been asked to open a file.
+  Future<void> opened(int index) => _milestones.wait(('open', index));
+
+  /// Completes once player [index] has been asked to play.
+  Future<void> played(int index) => _milestones.wait(('play', index));
+
+  @override
+  Future<AudioPlayerPlatform> init(InitRequest request) async {
+    final index = players.length;
+    final player = _FakeAudioPlayer(
+      request.id,
+      onOpen: () => _milestones.reach(('open', index)),
+      onPlay: () => _milestones.reach(('play', index)),
+    );
+    players.add(player);
+    return player;
+  }
+
+  @override
+  Future<DisposePlayerResponse> disposePlayer(
+    DisposePlayerRequest request,
+  ) async => DisposePlayerResponse();
+
+  @override
+  Future<DisposeAllPlayersResponse> disposeAllPlayers(
+    DisposeAllPlayersRequest request,
+  ) async => DisposeAllPlayersResponse();
+}
+
+/// One device player. Its load ends only when the test ends it.
+final class _FakeAudioPlayer extends AudioPlayerPlatform {
+  _FakeAudioPlayer(super.id, {required this.onOpen, required this.onPlay});
+
+  static const _length = Duration(seconds: 42);
+
+  final void Function() onOpen;
+  final void Function() onPlay;
+  final _events = StreamController<PlaybackEventMessage>.broadcast();
+  final _loaded = Completer<LoadResponse>();
+
+  /// The file the player was asked to open.
+  String? file;
+
+  /// The file opens and can play.
+  void ready() {
+    _send(ProcessingStateMessage.ready);
+    _loaded.complete(LoadResponse(duration: _length));
+  }
+
+  /// The load call fails, as it does for a file the player cannot open.
+  void failLoadCall() => _loaded.completeError(
+    PlatformException(code: '1', message: 'synthetic: cannot open'),
+  );
+
+  /// An error event, which the device's players send for a file they cannot
+  /// open and for a failure once one plays, such as a read error mid-file.
+  void reportError() => _send(
+    ProcessingStateMessage.idle,
+    errorCode: 1,
+    errorMessage: 'synthetic: cannot read',
+  );
+
+  void _send(
+    ProcessingStateMessage state, {
+    int? errorCode,
+    String? errorMessage,
+  }) => _events.add(
+    PlaybackEventMessage(
+      processingState: state,
+      updateTime: DateTime.now(),
+      updatePosition: Duration.zero,
+      bufferedPosition: Duration.zero,
+      duration: _length,
+      icyMetadata: null,
+      currentIndex: 0,
+      androidAudioSessionId: null,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+    ),
+  );
+
+  @override
+  Stream<PlaybackEventMessage> get playbackEventMessageStream => _events.stream;
+
+  @override
+  Future<LoadResponse> load(LoadRequest request) {
+    final playlist =
+        request.audioSourceMessage as ConcatenatingAudioSourceMessage;
+    final source = playlist.children.single as UriAudioSourceMessage;
+    file = Uri.parse(source.uri).toFilePath();
+    onOpen();
+    return _loaded.future;
+  }
+
+  @override
+  Future<PlayResponse> play(PlayRequest request) async {
+    onPlay();
+    return PlayResponse();
+  }
+
+  @override
+  Future<PauseResponse> pause(PauseRequest request) async => PauseResponse();
+
+  @override
+  Future<DisposeResponse> dispose(DisposeRequest request) async =>
+      DisposeResponse();
+
+  @override
+  Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async =>
+      SetVolumeResponse();
+
+  @override
+  Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) async =>
+      SetSpeedResponse();
+
+  @override
+  Future<SetPitchResponse> setPitch(SetPitchRequest request) async =>
+      SetPitchResponse();
+
+  @override
+  Future<SetSkipSilenceResponse> setSkipSilence(
+    SetSkipSilenceRequest request,
+  ) async => SetSkipSilenceResponse();
+
+  @override
+  Future<SetLoopModeResponse> setLoopMode(SetLoopModeRequest request) async =>
+      SetLoopModeResponse();
+
+  @override
+  Future<SetShuffleModeResponse> setShuffleMode(
+    SetShuffleModeRequest request,
+  ) async => SetShuffleModeResponse();
 }
