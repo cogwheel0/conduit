@@ -535,7 +535,9 @@ String? _mediaType(Headers headers) {
 /// [mediaType] names it, or else the address does. A player may read a
 /// file's format from its name, and a server's file address often has none.
 String webEmbedAudioExtension(Uri source, {String? mediaType}) {
-  final fromType = audioExtensionForMimeType(mediaType ?? '');
+  final type = (mediaType ?? '').split(';').first.trim().toLowerCase();
+  final fromType =
+      _audioTypeExtensions[type] ?? audioExtensionForMimeType(type);
   if (fromType != 'audio') return fromType;
   final name = source.pathSegments.isEmpty
       ? ''
@@ -544,6 +546,14 @@ String webEmbedAudioExtension(Uri source, {String? mediaType}) {
   final fromName = dot < 0 ? '' : name.substring(dot + 1);
   return _audioExtensions.contains(fromName) ? fromName : 'audio';
 }
+
+/// Formats the speech helper ([audioExtensionForMimeType]) does not name.
+const Map<String, String> _audioTypeExtensions = {
+  'audio/flac': 'flac',
+  'audio/x-flac': 'flac',
+  'audio/webm': 'webm',
+  'audio/opus': 'opus',
+};
 
 const Set<String> _audioExtensions = {
   'aac',

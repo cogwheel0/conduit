@@ -289,6 +289,10 @@ void main() {
         (note, 'audio/mpeg', 'mp3'),
         (note, 'audio/wav; codecs=1', 'wav'),
         (note, 'audio/mp4', 'm4a'),
+        (note, 'audio/flac', 'flac'),
+        (note, 'audio/x-flac', 'flac'),
+        (note, 'audio/webm; codecs=opus', 'webm'),
+        (note, 'audio/opus', 'opus'),
         (
           Uri.parse('https://chat.example.test/clip.ogg'),
           'application/octet-stream',
