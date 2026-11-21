@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
+import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -18,6 +19,8 @@ import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -261,7 +264,7 @@ void main() {
       addTearDown(api.dispose);
       api.dio.httpClientAdapter = adapter;
       final push = PushSync(
-        client: ApiSyncApiClient(api),
+        client: ApiSyncApiClient(api, ownsDatabase: (_) => true),
         db: db,
         chatLocks: ConversationLocks(),
         folderLocks: FolderLocks(),
@@ -612,6 +615,122 @@ void main() {
     });
   });
 
+  group('a chat push drained later', () {
+    // The outbox drains an account's chats as the session that owns the
+    // account's database when the push starts. Another account signing in
+    // on the same server while the push reads its rows must not get them.
+    late AppDatabase db;
+    late _ReadTap reads;
+    late IdRemapper remapper;
+    late _RecordingAdapter server;
+    late ApiService api;
+
+    setUp(() async {
+      reads = _ReadTap();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+      remapper = IdRemapper(db);
+      server = _RecordingAdapter();
+      api = ApiService(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://server.example',
+        ),
+        workerManager: WorkerManager(),
+        authToken: 'session-a',
+      );
+      api.dio.httpClientAdapter = server;
+    });
+
+    tearDown(() async {
+      api.dispose();
+      await remapper.dispose();
+      await db.close();
+    });
+
+    PushSync push() => PushSync(
+      client: ApiSyncApiClient(api, ownsDatabase: (_) => true),
+      db: db,
+      chatLocks: ConversationLocks(),
+      folderLocks: FolderLocks(),
+      clock: _FixedClock(),
+      remapper: remapper,
+    );
+
+    List<Object?> bearers() => [
+      for (final request in server.requests) request.headers['Authorization'],
+    ];
+
+    Future<void> seedChat(String id) => db.chatsDao.upsertServerChat(
+      rows: ChatBlobMapper.blobToRows(
+        chatId: id,
+        title: 'Bird notes',
+        createdAt: 1,
+        updatedAt: 1,
+        blob: <String, dynamic>{
+          'title': 'Bird notes',
+          'history': <String, dynamic>{
+            'currentId': 'm1',
+            'messages': <String, dynamic>{
+              'm1': <String, dynamic>{
+                'id': 'm1',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'Which herons winter here?',
+                'timestamp': 1,
+              },
+            },
+          },
+        },
+      ),
+    );
+
+    test('an update goes only as the session it started as', () async {
+      await seedChat('c1');
+      reads.onMessagesRead = () => api.updateAuthToken('session-b');
+
+      final refusal = await push()
+          .pushUpdateChat('c1')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+
+      check(bearers()).isEmpty();
+      check(refusal).isA<DioException>();
+    });
+
+    test('a new chat is created only as the session it started as', () async {
+      await seedChat('local:new');
+      reads.onMessagesRead = () => api.updateAuthToken('session-b');
+
+      final refusal = await push()
+          .pushCreateChat('local:new')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+
+      check(bearers()).isEmpty();
+      check(refusal).isA<DioException>();
+    });
+
+    test('stays queued, unsent, while no session owns the account', () async {
+      await seedChat('c1');
+      final seq = await db.outboxDao.enqueue(
+        kind: OutboxKind.updateChat,
+        chatId: 'c1',
+      );
+      final drainer = _chatDrainer(
+        db,
+        ApiSyncApiClient(api, ownsDatabase: (_) => false),
+        remapper,
+      );
+
+      await drainer.drain();
+
+      check(server.requests).isEmpty();
+      final op = (await db.outboxDao.opBySeq(seq))!;
+      check(op.status).equals(OutboxStatus.pending);
+      check(op.attempts).equals(0);
+    });
+  });
+
   group('getFolderById', () {
     test('reads as the account that captured the snapshot', () async {
       final adapter = _RecordingAdapter();
@@ -643,6 +762,26 @@ void main() {
       check(adapter.requests).length.equals(1);
     });
   });
+}
+
+/// Runs [onMessagesRead] once, as a read of a chat's messages returns.
+class _ReadTap extends QueryInterceptor {
+  void Function()? onMessagesRead;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    final read = onMessagesRead;
+    if (read != null && statement.contains('FROM "messages"')) {
+      onMessagesRead = null;
+      read();
+    }
+    return rows;
+  }
 }
 
 class _FixedClock implements SyncClock {
@@ -792,7 +931,7 @@ SyncApiClient _buildClient(HttpClientAdapter adapter) {
   );
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();
-  return ApiSyncApiClient(service);
+  return ApiSyncApiClient(service, ownsDatabase: (_) => true);
 }
 
 const _deleteA1 = 'DELETE /api/v1/chats/c1/messages/a1';

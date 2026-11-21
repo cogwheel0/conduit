@@ -165,11 +165,13 @@ mixin _ChatsRawApi on _ApiServiceBase {
   Future<Map<String, dynamic>> createChatRaw(
     Map<String, dynamic> chatBlob, {
     String? folderId,
+    ApiAuthSnapshot? authSnapshot,
   }) async {
     try {
       final response = await _dio.post(
         '/api/v1/chats/new',
         data: {'chat': chatBlob, 'folder_id': ?folderId},
+        options: _withAuthSnapshot(Options(), authSnapshot),
       );
       return _requireResponseMap(response.data, 'createChatRaw');
     } on DioException catch (e) {
@@ -191,12 +193,14 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// [SyncTerminalException], not null; the 404->null branch is defensive only.
   Future<Map<String, dynamic>?> updateChatRaw(
     String id,
-    Map<String, dynamic> chat,
-  ) async {
+    Map<String, dynamic> chat, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
       final response = await _dio.post(
         '/api/v1/chats/$id',
         data: {'chat': chat},
+        options: _withAuthSnapshot(Options(), authSnapshot),
       );
       return _requireResponseMap(response.data, 'updateChatRaw $id');
     } on DioException catch (e) {
@@ -215,9 +219,12 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// DELETE `/api/v1/chats/{id}`. `true` on success; 404 -> `false` (already
   /// gone, no throw); 401/403 -> [SyncTerminalException].
   @override
-  Future<bool> deleteChatRaw(String id) async {
+  Future<bool> deleteChatRaw(String id, {ApiAuthSnapshot? authSnapshot}) async {
     try {
-      await _dio.delete('/api/v1/chats/$id');
+      await _dio.delete(
+        '/api/v1/chats/$id',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return true;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
@@ -233,9 +240,15 @@ mixin _ChatsRawApi on _ApiServiceBase {
   }
 
   /// GET `/api/v1/chats/{id}/pinned` -> bool (false on a null/absent body).
-  Future<bool> getChatPinnedRaw(String id) async {
+  Future<bool> getChatPinnedRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      final response = await _dio.get('/api/v1/chats/$id/pinned');
+      final response = await _dio.get(
+        '/api/v1/chats/$id/pinned',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return response.data == true;
     } on DioException catch (e) {
       final code = e.response?.statusCode;
@@ -257,9 +270,15 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// because retrying this primitive alone can double-flip.
   ///
   /// Returns the parsed `ChatResponse`; null on 404.
-  Future<Map<String, dynamic>?> togglePinRaw(String id) async {
+  Future<Map<String, dynamic>?> togglePinRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      final response = await _dio.post('/api/v1/chats/$id/pin');
+      final response = await _dio.post(
+        '/api/v1/chats/$id/pin',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return _requireResponseMap(response.data, 'togglePinRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
@@ -281,9 +300,15 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// because retrying this primitive alone can double-flip.
   ///
   /// Returns the parsed `ChatResponse`; null on 404.
-  Future<Map<String, dynamic>?> toggleArchiveRaw(String id) async {
+  Future<Map<String, dynamic>?> toggleArchiveRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
-      final response = await _dio.post('/api/v1/chats/$id/archive');
+      final response = await _dio.post(
+        '/api/v1/chats/$id/archive',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
       return _requireResponseMap(response.data, 'toggleArchiveRaw $id');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
@@ -302,12 +327,14 @@ mixin _ChatsRawApi on _ApiServiceBase {
   /// the parsed `ChatResponse`; null on 404.
   Future<Map<String, dynamic>?> moveChatToFolderRaw(
     String id,
-    String? folderId,
-  ) async {
+    String? folderId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     try {
       final response = await _dio.post(
         '/api/v1/chats/$id/folder',
         data: {'folder_id': folderId},
+        options: _withAuthSnapshot(Options(), authSnapshot),
       );
       return _requireResponseMap(response.data, 'moveChatToFolderRaw $id');
     } on DioException catch (e) {

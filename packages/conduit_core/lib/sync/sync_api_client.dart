@@ -5,6 +5,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -113,6 +114,12 @@ abstract interface class SyncApiClient {
   /// Throws when either list cannot be fetched so the caller never replaces
   /// the folders table from a partial result.
   Future<(List<Map<String, dynamic>>, bool)> getFoldersRaw();
+
+  /// This client bound to the session that owns [db]'s account as it is
+  /// asked: every chat request it makes goes as that session, and one made
+  /// once another session has replaced it is refused unsent. Null while no
+  /// session owns [db].
+  SyncApiClient? ownedBy(AppDatabase db);
 
   // ---- Phase 2 write extensions (CDT-RFC-001 §7.2/§7.4, B1) ----
 
@@ -267,9 +274,26 @@ abstract interface class SyncApiClient {
 
 /// Production implementation over [ApiService].
 class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
-  ApiSyncApiClient(this.api);
+  /// [ownsDatabase] tells whether the session [api] sends as now owns the
+  /// account of a database ([ownedBy]).
+  ApiSyncApiClient(
+    this.api, {
+    required bool Function(AppDatabase db) ownsDatabase,
+  }) : _ownsDatabase = ownsDatabase,
+       _session = null;
+
+  ApiSyncApiClient._owned(this.api, this._ownsDatabase, this._session);
 
   final ApiService api;
+  final bool Function(AppDatabase db) _ownsDatabase;
+
+  /// The session this client's chat requests go as, once [ownedBy] bound it.
+  final ApiAuthSnapshot? _session;
+
+  @override
+  SyncApiClient? ownedBy(AppDatabase db) => _ownsDatabase(db)
+      ? ApiSyncApiClient._owned(api, _ownsDatabase, api.captureAuthSnapshot())
+      : null;
 
   @override
   Future<List<Map<String, dynamic>>> getChatListPage(int page) {
@@ -287,7 +311,7 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) {
-    return api.getChatRaw(id);
+    return api.getChatRaw(id, authSnapshot: _session);
   }
 
   @override
@@ -366,23 +390,24 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   Future<Map<String, dynamic>> createChat(
     Map<String, dynamic> chatBlob, {
     String? folderId,
-  }) => api.createChatRaw(chatBlob, folderId: folderId);
+  }) => api.createChatRaw(chatBlob, folderId: folderId, authSnapshot: _session);
 
   @override
   Future<Map<String, dynamic>?> updateChat(
     String id,
     Map<String, dynamic> fullBlob,
-  ) => api.updateChatRaw(id, fullBlob);
+  ) => api.updateChatRaw(id, fullBlob, authSnapshot: _session);
 
   @override
-  Future<bool> deleteChat(String id) => api.deleteChatRaw(id);
+  Future<bool> deleteChat(String id) =>
+      api.deleteChatRaw(id, authSnapshot: _session);
 
   @override
   Future<void> deleteChatMessages(
     String chatId,
     List<String> messageIds,
   ) async {
-    final authSnapshot = api.captureAuthSnapshot();
+    final authSnapshot = _session ?? api.captureAuthSnapshot();
     for (final messageId in messageIds) {
       try {
         await api.deleteConversationMessage(
@@ -414,7 +439,7 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
 
   @override
   Future<ChatOwnership> chatOwnership(String chatId) =>
-      _chatOwnership(chatId, api.captureAuthSnapshot());
+      _chatOwnership(chatId, _session ?? api.captureAuthSnapshot());
 
   Future<ChatOwnership> _chatOwnership(
     String chatId,
@@ -445,18 +470,20 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   }
 
   @override
-  Future<bool> getChatPinned(String id) => api.getChatPinnedRaw(id);
+  Future<bool> getChatPinned(String id) =>
+      api.getChatPinnedRaw(id, authSnapshot: _session);
 
   @override
-  Future<Map<String, dynamic>?> togglePin(String id) => api.togglePinRaw(id);
+  Future<Map<String, dynamic>?> togglePin(String id) =>
+      api.togglePinRaw(id, authSnapshot: _session);
 
   @override
   Future<Map<String, dynamic>?> toggleArchive(String id) =>
-      api.toggleArchiveRaw(id);
+      api.toggleArchiveRaw(id, authSnapshot: _session);
 
   @override
   Future<Map<String, dynamic>?> moveChatToFolder(String id, String? folderId) =>
-      api.moveChatToFolderRaw(id, folderId);
+      api.moveChatToFolderRaw(id, folderId, authSnapshot: _session);
 
   @override
   Future<Map<String, dynamic>> createFolder({
@@ -601,5 +628,14 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
 @Riverpod(keepAlive: true)
 SyncApiClient? syncApiClient(Ref ref) {
   final api = ref.watch(apiServiceProvider);
-  return api == null ? null : ApiSyncApiClient(api);
+  return api == null
+      ? null
+      : ApiSyncApiClient(
+          api,
+          // The session owns the database it is certified for, while this
+          // API is still the account's.
+          ownsDatabase: (db) =>
+              captureOpenWebUiConversationRead(ref, database: db, api: api) !=
+              null,
+        );
 }

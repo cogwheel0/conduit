@@ -46,6 +46,9 @@ class RecordingSyncApiClient implements SyncApiClient {
   RecordingSyncApiClient(this.server);
   final FakeOpenWebUiServer server;
 
+  @override
+  SyncApiClient? ownedBy(AppDatabase db) => this;
+
   final List<String> calls = <String>[];
   final List<String> events = <String>[];
 

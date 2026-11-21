@@ -142,5 +142,5 @@ SyncApiClient _buildClient(HttpClientAdapter adapter) {
   );
   service.dio.httpClientAdapter = adapter;
   service.dio.interceptors.clear();
-  return ApiSyncApiClient(service);
+  return ApiSyncApiClient(service, ownsDatabase: (_) => true);
 }

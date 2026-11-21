@@ -95,7 +95,10 @@ void main() {
         ),
       );
 
-      final exists = await ApiSyncApiClient(api).probeChatExists('ghost');
+      final exists = await ApiSyncApiClient(
+        api,
+        ownsDatabase: (_) => true,
+      ).probeChatExists('ghost');
 
       check(exists).isFalse();
     });
@@ -108,8 +111,12 @@ void main() {
         ),
       );
 
-      await check(ApiSyncApiClient(api).probeChatExists('auth-failed'))
-          .throws<DioException>();
+      await check(
+        ApiSyncApiClient(
+          api,
+          ownsDatabase: (_) => true,
+        ).probeChatExists('auth-failed'),
+      ).throws<DioException>();
     });
 
     test('getNoteRaw maps 404 to null', () async {

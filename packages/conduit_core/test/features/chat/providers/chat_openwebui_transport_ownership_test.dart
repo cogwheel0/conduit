@@ -3153,6 +3153,24 @@ void main() {
     });
   });
 
+  test('the outbox pushes chats only for the database the session owns', () {
+    final api = _WireCompletionApi();
+    final container = _container(
+      db: db,
+      active: null,
+      messages: const <ChatMessage>[],
+      api: api,
+      syncEngine: _PersistingSyncEngine(db, api),
+    );
+    addTearDown(container.dispose);
+    final another = AppDatabase(NativeDatabase.memory());
+    addTearDown(another.close);
+    final client = container.read(syncApiClientProvider)!;
+
+    check(client.ownedBy(db)).isNotNull();
+    check(client.ownedBy(another)).isNull();
+  });
+
   group('a turn the server took, run again after a pull', () {
     // The server took the request, and a pull while its answer ran replaced
     // the stored answer with the server's copy, which carries none of this
