@@ -346,14 +346,17 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
   /// happens through the legacy API path, so no dirty rows may exist
   /// (RFC §7.4 line 2 — `upsertServerChat` fast-forward-replaces on that
   /// assumption). The outbox/dirty discipline arrives in Phase 2.
-  Future<bool> upsertLocalEcho(MessageRowData row) {
+  ///
+  /// With [keepDirty], an existing row keeps its `dirty` flag: an edit still
+  /// to be pushed keeps it from a pull.
+  Future<bool> upsertLocalEcho(MessageRowData row, {bool keepDirty = false}) {
     return transaction(() async {
       final chatExists = await (select(
         chats,
       )..where((t) => t.id.equals(row.chatId))).getSingleOrNull();
       if (chatExists == null) return false;
 
-      await _upsertLocalEchoRow(row);
+      await _upsertLocalEchoRow(row, keepDirty: keepDirty);
       return true;
     });
   }
@@ -629,7 +632,10 @@ LIMIT ?
     return tip;
   }
 
-  Future<void> _upsertLocalEchoRow(MessageRowData row) async {
+  Future<void> _upsertLocalEchoRow(
+    MessageRowData row, {
+    bool keepDirty = false,
+  }) async {
     final existing = await _messageById(row.chatId, row.id);
 
     final int orderIndex;
@@ -660,7 +666,7 @@ LIMIT ?
             existing?.payload,
           ),
         ),
-        dirty: const Value(false),
+        dirty: keepDirty ? const Value.absent() : const Value(false),
       ),
     );
   }

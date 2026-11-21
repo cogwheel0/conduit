@@ -46,6 +46,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// that stopped them.
   final List<_OwedStoppedAnswers> _owedStoppedAnswers = [];
 
+  /// Stopped answers stored on this device only, until the server accepts the
+  /// stop that ended them.
+  final List<_OwedStoppedAnswers> _stoppedAnswersAwaitingStop = [];
+
   /// Stops of an Open WebUI response whose server-side cancellation has not
   /// been accepted yet, with the owner that asked for them.
   final List<_OwedCancellation> _owedCancellations = [];
@@ -4601,7 +4605,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   /// Settles this account's answers still streaming in the turn that ends
   /// the list: the explicit stop of a whole multi-model turn. Completes once
-  /// their settled state is stored (see [settleStoppedSlotMessages]).
+  /// their settled state is stored (see [settleStoppedSlotMessages]). The
+  /// server is told to stop as this runs, so they go to it only once it has
+  /// accepted.
   ///
   /// In a chat shared with Allow replies the turn can hold another person's
   /// answer, even as the one shown. Only they can stop it, so it runs on and
@@ -4620,7 +4626,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       versions.addAll(_answersThisAccountRuns(inMessage: message.id));
     }
-    final settled = settleStoppedSlotMessages(ids);
+    final settled = settleStoppedSlotMessages(ids, stopAccepted: false);
     // Only once the answers shown are settled: those are stored only while
     // they still show running.
     if (versions.isNotEmpty) _finishAnswersWithoutTask(versions);
@@ -4639,6 +4645,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// The echo of a whole turn would also move the chat's active branch to the
   /// answer it names, and the answer that was shown must stay shown.
   ///
+  /// Without [stopAccepted] (the server has not answered the stop yet), they
+  /// are stored once it has: as edits if it accepted, and otherwise on this
+  /// device only, not as edits, since a server never told to stop finishes the
+  /// answers and a push would replace those with these. A pull then takes the
+  /// server's copy once it has moved on. They still go as edits if a later ask
+  /// is accepted.
+  ///
   /// The chat, store, lock and owner are captured before anything awaits, so a
   /// sign-in or chat change while the write waits for the lock cannot redirect
   /// it.
@@ -4647,7 +4660,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// store, or an answer with no stored row, has nothing to store and is not a
   /// failure. A write that failed stays owed, with the answers as they were
   /// stopped, until [settlePendingStoppedAnswers] stores it for that owner.
-  Future<bool> settleStoppedSlotMessages(Iterable<String> messageIds) {
+  Future<bool> settleStoppedSlotMessages(
+    Iterable<String> messageIds, {
+    bool stopAccepted = true,
+  }) {
     final active = ref.read(activeConversationProvider);
     final chatId = active?.id;
     final db = _maybeDatabase();
@@ -4690,9 +4706,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       chatId: chatId,
       answers: answers,
       updatedAt: updatedAt,
+      stopAccepted: stopAccepted,
     );
-    _owedStoppedAnswers.add(owed);
-    return _storeOwedStoppedAnswers(owed);
+    if (stopAccepted) {
+      _owedStoppedAnswers.add(owed);
+      return _storeOwedStoppedAnswers(owed);
+    }
+    // Stored once the server answers the stop ([_oweCancellation]), in one
+    // write either way; at once when this stop asks the server nothing.
+    _stoppedAnswersAwaitingStop.add(owed);
+    scheduleMicrotask(() {
+      if (!owed.waitsForServer) unawaited(_storeStoppedAnswersHere(owed));
+    });
+    return owed.firstStored.future;
   }
 
   /// Stores the stopped answers still owed to [chatId] under the store, account
@@ -4733,7 +4759,27 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (steps.isEmpty) return;
     final owed = _OwedCancellation(owner: owner, chatId: chatId, steps: steps);
     _owedCancellations.add(owed);
+    for (final entry in _stoppedAnswersAwaitingStop) {
+      if (_stoppedUnder(entry, owed)) entry.waitsForServer = true;
+    }
     unawaited(_settleCancellation(owed));
+  }
+
+  /// Whether [entry]'s answers were stopped by [cancellation]'s stop: its chat,
+  /// under the same store, account session and server.
+  bool _stoppedUnder(
+    _OwedStoppedAnswers entry,
+    _OwedCancellation cancellation,
+  ) {
+    final owner = cancellation.owner;
+    return !entry.stopAccepted &&
+        entry.chatId == cancellation.chatId &&
+        identical(entry.owner.openWebUiDatabase, owner.openWebUiDatabase) &&
+        identical(entry.owner.openWebUiApi, owner.openWebUiApi) &&
+        identical(
+          entry.owner.openWebUiAuthSessionEpoch,
+          owner.openWebUiAuthSessionEpoch,
+        );
   }
 
   /// A local chat became its server chat. The cancellations owed to it under the
@@ -4748,6 +4794,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) {
     for (final entry in _owedCancellations) {
       if (entry.chatId == fromId &&
+          identical(entry.owner.openWebUiDatabase, database) &&
+          identical(entry.owner.openWebUiApi, api) &&
+          identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch)) {
+        entry.chatId = toId;
+      }
+    }
+    // The answers such a stop settled go to the server's chat once it is
+    // accepted.
+    for (final entry in [
+      ..._owedStoppedAnswers,
+      ..._stoppedAnswersAwaitingStop,
+    ]) {
+      if (!entry.stopAccepted &&
+          entry.chatId == fromId &&
           identical(entry.owner.openWebUiDatabase, database) &&
           identical(entry.owner.openWebUiApi, api) &&
           identical(entry.owner.openWebUiAuthSessionEpoch, authSessionEpoch)) {
@@ -4782,8 +4842,51 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   Future<bool> _settleCancellation(_OwedCancellation owed) async {
     final accepted = await owed.settle();
-    if (accepted) _owedCancellations.remove(owed);
+    if (accepted) {
+      // Still owed until the answers are stored as edits, so a caller that
+      // waits for the stop (a next turn's admission) waits for those too.
+      await _storeStoppedAnswersAsEdits(owed);
+      _owedCancellations.remove(owed);
+    } else {
+      await Future.wait([
+        for (final entry in List.of(_stoppedAnswersAwaitingStop))
+          if (_stoppedUnder(entry, owed) && entry.storedHere.isEmpty)
+            _storeStoppedAnswersHere(entry),
+      ]);
+    }
     return accepted;
+  }
+
+  /// Stores [entry]'s answers on this device only, their stop not accepted.
+  Future<bool> _storeStoppedAnswersHere(_OwedStoppedAnswers entry) {
+    if (!_stoppedAnswersAwaitingStop.remove(entry)) {
+      return entry.writing ?? Future<bool>.value(true);
+    }
+    _owedStoppedAnswers.add(entry);
+    return _storeOwedStoppedAnswers(entry);
+  }
+
+  /// The server has accepted [cancellation]: the answers its stop settled on
+  /// this device alone are stored as edits, to go to the server.
+  Future<void> _storeStoppedAnswersAsEdits(
+    _OwedCancellation cancellation,
+  ) async {
+    final storing = <Future<bool>>[];
+    for (final entry in [
+      ..._owedStoppedAnswers,
+      ..._stoppedAnswersAwaitingStop,
+    ]) {
+      if (!_stoppedUnder(entry, cancellation)) continue;
+      entry.stopAccepted = true;
+      if (_stoppedAnswersAwaitingStop.remove(entry)) {
+        _owedStoppedAnswers.add(entry);
+        storing.add(_storeOwedStoppedAnswers(entry));
+      } else if (entry.writing case final writing?) {
+        // Stored again, as edits, once this write lands.
+        storing.add(writing);
+      }
+    }
+    await Future.wait(storing);
   }
 
   Future<bool> _settleOwedStoppedAnswers(List<_OwedStoppedAnswers> owed) async {
@@ -4797,16 +4900,26 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   Future<bool> _storeOwedStoppedAnswers(_OwedStoppedAnswers owed) {
-    final writing = _writeStoppedAnswers(owed).then((stored) {
+    final asEdits = owed.stopAccepted;
+    final writing = () async {
+      final stored = await _writeStoppedAnswers(owed, asEdits: asEdits);
       owed.writing = null;
-      if (stored) _owedStoppedAnswers.remove(owed);
-      return stored;
-    });
+      if (!owed.firstStored.isCompleted) owed.firstStored.complete(stored);
+      if (!stored) return false;
+      // Accepted while this write ran: stored again, as edits.
+      if (!asEdits && owed.stopAccepted) return _storeOwedStoppedAnswers(owed);
+      _owedStoppedAnswers.remove(owed);
+      if (!asEdits) _stoppedAnswersAwaitingStop.add(owed);
+      return true;
+    }();
     owed.writing = writing;
     return writing;
   }
 
-  Future<bool> _writeStoppedAnswers(_OwedStoppedAnswers owed) async {
+  Future<bool> _writeStoppedAnswers(
+    _OwedStoppedAnswers owed, {
+    required bool asEdits,
+  }) async {
     final db = owed.db;
     final chatId = owed.chatId;
     var updatedAt = owed.updatedAt;
@@ -4825,8 +4938,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           final current = decoded is Map
               ? Map<String, dynamic>.from(decoded)
               : <String, dynamic>{};
-          // A result the store already has as finished is newer than this stop.
-          if (current['done'] == true) continue;
+          // A result the store already has as finished is newer than this
+          // stop, unless it is what this stop stored here before the server
+          // accepted it.
+          final storedByThisStop =
+              owed.storedHere.contains(answer.id) &&
+              stored.content == persistedMessageContent(answer);
+          if (current['done'] == true && !storedByThisStop) continue;
           final settled = localEchoRowForMessage(chatId, answer).payload;
           final metadata = <String, dynamic>{
             if (current['metadata'] is Map)
@@ -4861,6 +4979,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           );
         }
         if (rows.isEmpty) return;
+        if (!asEdits) {
+          for (final row in rows) {
+            await db.messagesDao.upsertLocalEcho(row, keepDirty: true);
+          }
+          owed.storedHere.addAll(rows.map((row) => row.id));
+          return;
+        }
         // No current message is given, so the chat's active branch stays put.
         await db.chatsDao.appendMessagesWithUpdateOp(
           chatId: chatId,
@@ -6371,14 +6496,32 @@ final class _OwedStoppedAnswers {
     required this.chatId,
     required this.answers,
     required this.updatedAt,
+    required this.stopAccepted,
   });
 
   final ChatMutationOwnerToken owner;
   final AppDatabase db;
   final ChatLocks locks;
-  final String chatId;
+
+  /// The chat's id, following a local-to-server remap while the stop is not
+  /// accepted.
+  String chatId;
   final List<ChatMessage> answers;
   final int updatedAt;
+
+  /// Whether the server has accepted the stop; until then the answers are
+  /// stored on this device only.
+  bool stopAccepted;
+
+  /// Whether a stop the server is asked for decides how the answers are first
+  /// stored.
+  bool waitsForServer = false;
+
+  /// The first store's result.
+  final Completer<bool> firstStored = Completer<bool>();
+
+  /// The answers stored on this device only, before the stop was accepted.
+  final Set<String> storedHere = <String>{};
 
   /// The write in flight, if any.
   Future<bool>? writing;
