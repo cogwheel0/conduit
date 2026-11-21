@@ -29,7 +29,7 @@
 //!   them.
 //! * **Edges.** The list fades out under the search field and into the
 //!   footer's rule instead of cutting rows off: on the translucent sidebar
-//!   by a Core Animation mask on the window's content ([`ListEdges`]),
+//!   by a Core Animation mask on the window's content (`ListEdges`),
 //!   which shows the real material through; on a solid one, by painting its
 //!   colour.
 //! * The open chat is highlighted, and its folders open and the list
@@ -52,6 +52,7 @@
 //! [`NavigationStore::open`]: crate::stores::navigation::NavigationStore::open
 //! [`sidebar_model`]: super::sidebar_model
 
+#[cfg(target_os = "macos")]
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -106,15 +107,9 @@ use crate::stores::hermes_rooms::HermesRoomsStore;
 use crate::stores::navigation::{Area, AreaItem, NavigationEvent, Selection, WorkspaceSection};
 use crate::stores::session;
 use crate::views::accounts::account_row;
-use conduit_components::views::focus::ControlExt as _;
-
-/// The fades at the list's ends, elsewhere than macOS: nothing (the CI
-/// `cargo check` platforms).
-#[cfg(not(target_os = "macos"))]
-#[derive(Default)]
-pub struct ListEdges;
 use crate::views::forms::host_of;
 use crate::views::privacy;
+use conduit_components::views::focus::ControlExt as _;
 
 /// A chat-row command, from the context menu or a hover button.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -621,6 +616,7 @@ pub struct SidebarView {
     work: std::cell::Cell<Duration>,
     /// The list's faded ends on the translucent sidebar (a mask on the
     /// window's content), made once the window is known.
+    #[cfg(target_os = "macos")]
     edges: Rc<RefCell<Option<ListEdges>>>,
     _ticker: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -727,6 +723,7 @@ impl SidebarView {
             drop_target: None,
             spring: None,
             work: Default::default(),
+            #[cfg(target_os = "macos")]
             edges: Rc::default(),
             _ticker: ticker,
             _subscriptions: subscriptions,
@@ -3896,7 +3893,7 @@ impl SidebarView {
     /// [`Self::LIST_FADE`]), so the list at rest is whole.
     ///
     /// On the translucent sidebar, a mask on the window's content
-    /// ([`ListEdges`]), synced from where the list was painted (a canvas
+    /// (`ListEdges`), synced from where the list was painted (a canvas
     /// filling it), with any tooltip or drag image kept whole; on a solid
     /// sidebar, its colour painted over the ends.
     fn edges(&self, window: &Window, t: &ConduitTheme, cx: &App) -> AnyElement {
@@ -3971,7 +3968,7 @@ impl SidebarView {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (fade_top, fade_bottom);
+            let _ = (fade_top, fade_bottom, cx);
             div().into_any_element()
         }
     }

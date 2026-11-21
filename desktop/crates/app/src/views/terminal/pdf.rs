@@ -6,6 +6,7 @@
 //! name, "Page 3 of 12", Save…). Scrolling, zoom and text selection are
 //! PDFKit's own.
 
+#[cfg(target_os = "macos")]
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,15 +14,15 @@ use std::sync::Arc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::IconButton;
-use conduit_components::window::{
-    TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region, open_window_clear_root,
-};
+#[cfg(target_os = "macos")]
+use conduit_components::window::open_window_clear_root;
+use conduit_components::window::{TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_WIDTH, drag_region};
+#[cfg(target_os = "macos")]
 use futures::StreamExt as _;
 use gpui_kit::prelude::*;
-use gpui_kit::{
-    App, Bounds, Context, FocusHandle, FontWeight, Pixels, Role, SharedString, Task, Window,
-    WindowBounds, div, px, size,
-};
+use gpui_kit::{App, Context, FocusHandle, FontWeight, Role, SharedString, Task, Window, div, px};
+#[cfg(target_os = "macos")]
+use gpui_kit::{Bounds, Pixels, WindowBounds, size};
 
 use crate::actions::CloseWindow;
 use crate::l10n::ActiveL10n as _;

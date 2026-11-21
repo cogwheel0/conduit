@@ -646,7 +646,10 @@ impl QuickAskView {
                 .size_full()
             };
             #[cfg(not(target_os = "macos"))]
-            let edges = div();
+            let edges = {
+                let _ = scrolled;
+                div()
+            };
             return div()
                 .relative()
                 .flex_1()

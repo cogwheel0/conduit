@@ -357,13 +357,13 @@ impl ApprovalsView {
     }
 
     /// A form question's own-words field (for a test to type in).
-    #[cfg(feature = "harness")]
+    #[cfg(all(target_os = "macos", feature = "harness"))]
     pub(crate) fn clarify_input(&self, question: &str) -> Option<Entity<InputState>> {
         self.clarify_inputs.get(question).cloned()
     }
 
     /// The masked field a password or secret is typed in.
-    #[cfg(feature = "harness")]
+    #[cfg(all(target_os = "macos", feature = "harness"))]
     pub(crate) fn secret_input(&self) -> Entity<InputState> {
         self.secret.clone()
     }
@@ -1484,7 +1484,8 @@ mod answer_tests {
     }
 }
 
-#[cfg(test)]
+// Built on the Mac harness's fixture stores (`crate::fixture`).
+#[cfg(all(test, target_os = "macos"))]
 mod replay_tests {
     use std::collections::BTreeMap;
 

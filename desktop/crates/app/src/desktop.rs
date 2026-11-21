@@ -63,7 +63,9 @@ use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsEvent;
-use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess, ShellStore};
+use crate::stores::shell::ShellStore;
+#[cfg(target_os = "macos")]
+use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess};
 use crate::views::chat_pane::NewChatContent;
 use crate::views::quick_ask::{QuickAskEvent, QuickAskView};
 use crate::views::settings::Tab;
@@ -980,6 +982,8 @@ pub fn hide_main(cx: &mut App) {
                 .detach();
         }
     });
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// The main window's should-close hook: with "Close to menu bar" on, the
@@ -1063,6 +1067,8 @@ pub fn refresh_statuses(cx: &mut App) {
         }
         refresh_notification_access(cx);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// Open at login on or off: `SMAppService.mainApp`, then what the system
@@ -1663,6 +1669,7 @@ fn post(n: notify::Notification, raised_for: RaisedFor, cx: &mut App) {
 }
 
 /// A notification was clicked: the main window on that chat.
+#[cfg(target_os = "macos")]
 fn on_notification_click(identifier: String, cx: &mut App) {
     // A channel's: the main window on that channel.
     if let Some(channel_id) = notify::channel_for(&identifier) {
@@ -1904,38 +1911,40 @@ fn schedule_quick_ask_blur(cx: &mut App) {
             .timer(Duration::from_millis(150))
             .await;
         cx.update(|cx| {
-            if !quick_ask_visible(cx) || quick_ask_key(cx) {
-                return;
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let key = crate::shell::macos::key_window();
-                let main = main_ns_window(cx);
-                let settings = cx
-                    .try_global::<AppState>()
-                    .and_then(|s| s.settings_window.clone())
-                    .and_then(|(h, _)| {
-                        h.update(cx, |_, window, _| crate::shell::macos::ns_window(window))
-                            .ok()
-                            .flatten()
-                    });
-                let same =
-                    |a: &Option<objc2::rc::Retained<objc2_app_kit::NSWindow>>| match (&key, a) {
-                        (Some(k), Some(w)) => {
-                            objc2::rc::Retained::as_ptr(k) == objc2::rc::Retained::as_ptr(w)
-                        }
-                        _ => false,
-                    };
-                // Another app took focus (no key window of ours), or the
-                // main window or Settings did: hide. One of our own panels
-                // (a file picker, an alert): keep.
-                if key.is_none() || same(&main) || same(&settings) {
-                    hide_quick_ask(cx);
-                }
+            if quick_ask_visible(cx) && !quick_ask_key(cx) && focus_left_quick_ask(cx) {
+                hide_quick_ask(cx);
             }
         });
     })
     .detach();
+}
+
+/// Whether focus left the panel for another app (no key window of ours),
+/// or for the main window or Settings; not for one of our own panels (a
+/// file picker, an alert), which keep it up.
+#[cfg(target_os = "macos")]
+fn focus_left_quick_ask(cx: &mut App) -> bool {
+    let key = crate::shell::macos::key_window();
+    let main = main_ns_window(cx);
+    let settings = cx
+        .try_global::<AppState>()
+        .and_then(|s| s.settings_window.clone())
+        .and_then(|(h, _)| {
+            h.update(cx, |_, window, _| crate::shell::macos::ns_window(window))
+                .ok()
+                .flatten()
+        });
+    let same = |a: &Option<objc2::rc::Retained<objc2_app_kit::NSWindow>>| match (&key, a) {
+        (Some(k), Some(w)) => objc2::rc::Retained::as_ptr(k) == objc2::rc::Retained::as_ptr(w),
+        _ => false,
+    };
+    key.is_none() || same(&main) || same(&settings)
+}
+
+/// Off the Mac the panel stays up (its focus handling is a later phase's).
+#[cfg(not(target_os = "macos"))]
+fn focus_left_quick_ask(_: &mut App) -> bool {
+    false
 }
 
 /// Quick Ask drafts on their way to the main window, by id: the text and
@@ -2140,6 +2149,7 @@ pub fn install_continuity_camera(
 /// A photo or scan from Continuity Camera, staged where the composer reads
 /// files from: its file, its name and the ticket of the + menu session it
 /// was asked in.
+#[cfg(target_os = "macos")]
 pub(crate) struct StagedImport {
     pub path: std::path::PathBuf,
     pub name: String,
@@ -2150,6 +2160,7 @@ pub(crate) struct StagedImport {
 /// executor: a scan can be large), one folder each, named by the time it
 /// came (nanoseconds), so a second photo never replaces the first before
 /// the composer read it. `None` when it could not be saved.
+#[cfg(target_os = "macos")]
 pub(crate) fn stage_import(
     imported: crate::shell::continuity_camera::Imported,
 ) -> Option<StagedImport> {
@@ -2865,6 +2876,7 @@ mod tests {
 
     /// A photo is staged (off the main thread) with its own ticket, to be
     /// checked when it is attached.
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_continuity_photo_is_staged_with_its_ticket() {
         use crate::shell::continuity_camera::{ImportTarget, Imported};
