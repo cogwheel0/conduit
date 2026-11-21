@@ -355,6 +355,24 @@ void main() {
       check(registry.servers).length.equals(1);
     });
 
+    test("at a saved server's address keeps that server's name", () async {
+      await storage.saveServerConfigs([
+        account('a').copyWith(name: 'Harbor Lab'),
+      ]);
+      await signIn('a');
+
+      // Named after its host, as a new server is when no name is typed.
+      await storage.selectUnauthenticatedServerConfig(
+        account('new').copyWith(name: 'chat.example.com'),
+        publish: () {},
+      );
+
+      final registry = await storage.getOpenWebUiRegistryStrict();
+      check(registry.servers.single.name).equals('Harbor Lab');
+      check((await storage.getServerConfigs()).map((config) => config.name))
+          .deepEquals(['Harbor Lab', 'Harbor Lab']);
+    });
+
     test('on a saved server, joins it only while the server still has the '
         'address it was made from', () async {
       await storage.saveServerConfigs([account('a')]);
