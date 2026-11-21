@@ -1074,10 +1074,9 @@ final class FakeOwuiChats {
       if (post) {
         final chat = (await body())['chat'];
         if (chat is Map<String, dynamic>) {
-          row['chat'] = <String, dynamic>{
-            ...row['chat'] as Map<String, dynamic>,
-            ...chat,
-          };
+          final before = row['chat'] as Map<String, dynamic>;
+          row['chat'] = <String, dynamic>{...before, ...chat};
+          _keepUnfinishedAnswers(before, row['chat'] as Map<String, dynamic>);
           if (chat['title'] case final String title) row['title'] = title;
           row['updated_at'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
           final saved = chatSaved;
@@ -1178,6 +1177,38 @@ final class FakeOwuiChats {
       return json(await body());
     }
     return false;
+  }
+
+  /// `update_chat_by_id`'s guard (Open WebUI 0.13.2 and 0.13.4,
+  /// `models/chats.py`): an assistant message stored as not done, or sent
+  /// as not done, keeps its stored copy, whatever a save sends; the stored
+  /// copy is kept as it is, so a task still writing it goes on doing so.
+  static void _keepUnfinishedAnswers(
+    Map<String, dynamic> before,
+    Map<String, dynamic> saved,
+  ) {
+    final stored = (before['history'] as Map?)?['messages'] as Map?;
+    final history = saved['history'];
+    if (stored == null ||
+        history is! Map ||
+        identical(history, before['history'])) {
+      return;
+    }
+    final messages = <String, dynamic>{
+      ...?(history['messages'] as Map?)?.cast<String, dynamic>(),
+    };
+    for (final MapEntry(:key, :value) in stored.entries) {
+      final sent = messages[key];
+      if (value is Map &&
+          value['role'] == 'assistant' &&
+          (value['done'] == false || (sent is Map && sent['done'] == false))) {
+        messages[key as String] = value;
+      }
+    }
+    saved['history'] = <String, dynamic>{
+      ...history.cast<String, dynamic>(),
+      'messages': messages,
+    };
   }
 
   /// A chat's stop with no task of [userId]'s running there, as Open WebUI

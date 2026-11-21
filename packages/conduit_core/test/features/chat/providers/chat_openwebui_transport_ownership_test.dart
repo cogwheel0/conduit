@@ -14424,7 +14424,7 @@ void main() {
           ..['content'] = 'partial ${handle.messageId}'
           ..['done'] = false;
       }
-      client.server.updateChat(serverId, blob);
+      client.server.saveFromTask(serverId, blob);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       await until(
         () => container
@@ -14492,7 +14492,7 @@ void main() {
       Map<String, dynamic> serverAnswer(String id) =>
           messages[id] as Map<String, dynamic>;
       Future<void> pull() async {
-        client.server.updateChat(serverId, blob);
+        client.server.saveFromTask(serverId, blob);
         await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       }
 
@@ -14618,7 +14618,7 @@ void main() {
       (messages[b] as Map<String, dynamic>)
         ..['content'] = 'partial $b'
         ..['done'] = false;
-      client.server.updateChat(serverId, blob);
+      client.server.saveFromTask(serverId, blob);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       await until(
         () => container

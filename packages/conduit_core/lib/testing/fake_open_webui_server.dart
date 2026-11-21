@@ -31,7 +31,8 @@
 ///   re-derivation; `utils/middleware.py` `serialize_output`). Finally
 ///   `updated_at` is restamped and the title re-derived from the merged
 ///   blob. There is no concurrency control: stale writes are never
-///   rejected.
+///   rejected. An assistant message stored, or sent, as not done keeps its
+///   stored copy, as `update_chat_by_id`'s guard keeps it.
 /// * `deleteChat` mirrors `DELETE /api/v1/chats/{id}`: missing ids fail
 ///   (the route raises 404), existing ids are removed.
 ///
@@ -338,11 +339,108 @@ class FakeOpenWebUiServer {
 
     final incoming = _cleanNullBytes(_deepCopy(blob)) as Map<String, dynamic>;
     final merged = <String, dynamic>{...record.chat, ...incoming};
+    if (incoming.containsKey('history')) {
+      _keepUnfinishedAnswers(existing: record.chat, merged: merged);
+    }
+    return _store(record, merged);
+  }
+
+  /// [blob] saved into chat [id] by the server itself, as a running answer's
+  /// task saves its text: [updateChat] without its guard for unfinished
+  /// answers, which only a client's update meets.
+  Map<String, dynamic>? saveFromTask(String id, Map<String, dynamic> blob) {
+    final record = _chats[id];
+    if (record == null) return null;
+    final incoming = _cleanNullBytes(_deepCopy(blob)) as Map<String, dynamic>;
+    return _store(record, <String, dynamic>{...record.chat, ...incoming});
+  }
+
+  Map<String, dynamic> _store(_ChatRecord record, Map<String, dynamic> merged) {
     _rederiveContentFromOutput(existing: record.chat, merged: merged);
     record.chat = merged;
     record.title = _titleFromBlob(merged);
     record.updatedAt = _now();
     return _toChatResponse(record);
+  }
+
+  /// `update_chat_by_id`'s guard (`models/chats.py`, Open WebUI 0.13.2 and
+  /// 0.13.4): each assistant message it stores as not done (`done: false`),
+  /// or that the update sends as not done, keeps its stored copy whatever
+  /// the update sends. A running answer's own saves are left to its task.
+  static void _keepUnfinishedAnswers({
+    required Map<String, dynamic> existing,
+    required Map<String, dynamic> merged,
+  }) {
+    final storedHistory = existing['history'];
+    final storedMessages = storedHistory is Map
+        ? storedHistory['messages']
+        : null;
+    final mergedHistory = merged['history'];
+    if (storedMessages is! Map || mergedHistory is! Map) return;
+    final sentMessages = mergedHistory['messages'];
+    final messages = <String, dynamic>{
+      if (sentMessages is Map)
+        for (final entry in sentMessages.entries) '${entry.key}': entry.value,
+    };
+    for (final entry in storedMessages.entries) {
+      final stored = entry.value;
+      final sent = messages['${entry.key}'];
+      if (stored is Map &&
+          stored['role'] == 'assistant' &&
+          (stored['done'] == false || (sent is Map && sent['done'] == false))) {
+        messages['${entry.key}'] = _deepCopy(Map<String, dynamic>.from(stored));
+      }
+    }
+    merged['history'] = <String, dynamic>{
+      for (final entry in mergedHistory.entries) '${entry.key}': entry.value,
+      'messages': messages,
+    };
+  }
+
+  /// The tasks running in each chat, by chat id.
+  final Map<String, List<String>> _tasks = <String, List<String>>{};
+
+  /// The chats whose stop (`POST /api/tasks/chat/{id}/stop`) was asked, in
+  /// order.
+  final List<String> chatStops = <String>[];
+
+  /// Task [taskId] runs in chat [chatId], as an answer another device
+  /// started there does, until [endTask].
+  void runTask(String chatId, String taskId) =>
+      (_tasks[chatId] ??= <String>[]).add(taskId);
+
+  void endTask(String chatId, String taskId) {
+    final running = _tasks[chatId];
+    running?.remove(taskId);
+    if (running != null && running.isEmpty) _tasks.remove(chatId);
+  }
+
+  /// Mirrors `GET /api/tasks/chat/{id}`: the tasks running in [chatId].
+  List<String> getTaskIdsByChat(String chatId) =>
+      List<String>.of(_tasks[chatId] ?? const <String>[]);
+
+  /// Mirrors `POST /api/tasks/chat/{id}/stop` (`main.py`,
+  /// `stop_tasks_by_chat_id_endpoint`): each task running in [chatId] is
+  /// stopped. With none running, each of the user's assistant messages
+  /// stored as not done is marked done, keeping the text it has stored, and
+  /// without moving the chat's `updated_at`.
+  void stopTasksByChat(String chatId) {
+    chatStops.add(chatId);
+    final running = _tasks.remove(chatId);
+    if (running != null && running.isNotEmpty) return;
+    final record = _chats[chatId];
+    final history = record?.chat['history'];
+    final messages = history is Map ? history['messages'] : null;
+    if (record == null || messages is! Map) return;
+    for (final message in messages.values) {
+      if (message is! Map ||
+          message['role'] != 'assistant' ||
+          message['done'] != false ||
+          (message['user_id'] ?? record.ownerId ?? userId) != userId) {
+        continue;
+      }
+      message['done'] = true;
+    }
   }
 
   /// The `update_chat_by_id` route's output-to-content pass
