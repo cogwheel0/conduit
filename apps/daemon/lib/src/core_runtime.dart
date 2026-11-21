@@ -470,28 +470,37 @@ final class CoreRuntime {
   }
 
   Future<void> dispose() async {
-    await _closeLibreChatSync();
+    // A LibreChat pull still out (a list refresh nobody waits on) writes the
+    // account database until it ends. Its engine is closed before the
+    // container goes, which force-closes the LibreChat client: a request
+    // still out fails at once rather than holding shutdown on the server,
+    // and what the pull writes after that lands before this returns.
+    final libreChatSyncIdle = _closeLibreChatSync();
     container.dispose();
+    await libreChatSyncIdle;
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
     }
   }
 
-  /// Waits for the LibreChat pulls and pushes still out, which write the
-  /// account database until they end: a list refresh runs with nobody
-  /// waiting on it, and once the container is gone nothing could.
-  Future<void> _closeLibreChatSync() async {
+  /// Stops the LibreChat engine's new work; completes once its running work
+  /// has ended.
+  Future<void> _closeLibreChatSync() {
     // Reading it when it is not there would start an engine.
-    if (!container.read(libreChatSyncEngineProvider.exists)) return;
+    if (!container.read(libreChatSyncEngineProvider.exists)) {
+      return Future<void>.value();
+    }
     try {
-      await container.read(libreChatSyncEngineProvider)?.close();
+      return container.read(libreChatSyncEngineProvider)?.close() ??
+          Future<void>.value();
     } on Object catch (error) {
       DebugLogger.error(
         'librechat-sync-close-failed',
         scope: 'daemon/runtime',
         error: error,
       );
+      return Future<void>.value();
     }
   }
 

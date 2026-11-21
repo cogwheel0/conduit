@@ -137,7 +137,8 @@ final class LibreChatSyncEngine {
   static const String deferredKey = 'librechat_deferred_ids';
 
   /// Stops new pulls and drains, and completes once none of this engine's
-  /// work is running: nothing it began writes [db] after that.
+  /// work is running: nothing it began writes [db] after that. A request
+  /// still out is not cut off here; closing [api]'s client does that.
   Future<void> close() async {
     _closed = true;
     // A fetch asked of a closed engine still runs ([pullChat]).
