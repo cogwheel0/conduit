@@ -12100,22 +12100,32 @@ void main() {
 
       check(await container.read(stopGenerationSettledProvider)()).isFalse();
 
-      for (final (id, content, slot) in [
-        (a, 'A so far', 0),
-        (b, 'B so far', 1),
-      ]) {
-        await expectStoppedAnswer(
-          serverId,
-          id: id,
-          content: content,
-          slot: slot,
-          taskId: 'task-$slot',
-        );
+      Future<void> expectStoppedHere() async {
+        for (final (id, content, slot) in [
+          (a, 'A so far', 0),
+          (b, 'B so far', 1),
+        ]) {
+          await expectStoppedAnswer(
+            serverId,
+            id: id,
+            content: content,
+            slot: slot,
+            taskId: 'task-$slot',
+          );
+        }
       }
+
+      await expectStoppedHere();
       check(
         await db.outboxDao.hasUnconfirmedUpdate(serverId),
         because: 'nothing may carry the stopped answers over the server\'s',
       ).isFalse();
+
+      // The server's copy is still the one saved as the answers' tasks
+      // started, unfinished and empty: the stopped answers stay.
+      final engine = container.read(syncEngineProvider.notifier);
+      await engine.pullChatNow(serverId);
+      await expectStoppedHere();
 
       // The server finishes the answers it was never told to stop.
       final server = client.server;
@@ -12134,7 +12144,7 @@ void main() {
       server
         ..tick()
         ..updateChat(serverId, chat);
-      await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
+      await engine.pullChatNow(serverId);
 
       for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
         final stored = await storedAnswer(serverId, id);
