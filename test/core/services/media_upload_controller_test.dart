@@ -1055,6 +1055,72 @@ void main() {
     expect(await database.attachmentQueueDao.getAll(), isEmpty);
   });
 
+  // The upload's last step reads the photo for the cache, then keeps the
+  // photo only while the tray shows it. A send that took it, and is not done
+  // with it, holds it too.
+  for (final (label, sent) in const [('sent', true), ('not sent', false)]) {
+    test('a picked photo removed while a send holds it outlasts its '
+        'upload until the send is done ($label)', () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final picked = await Directory.systemTemp.createTemp('conduit_img_');
+      addTearDown(() async {
+        if (await picked.exists()) await picked.delete(recursive: true);
+      });
+      final photo = File('${picked.path}/converted.jpg');
+      await photo.writeAsBytes(List<int>.filled(600 * 1024, 7));
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async =>
+            'server-$fileName',
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+      final cacheReading = Completer<void>();
+      final cacheRead = Completer<Uint8List?>();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+          imageUploadConverterProvider.overrideWithValue((_) async => null),
+          uploadImagePrecacheReaderProvider.overrideWithValue((path, maxBytes) {
+            cacheReading.complete();
+            return cacheRead.future;
+          }),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([
+              _pendingImage(photo, reportedBytes: 600 * 1024),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(mediaUploadControllerProvider);
+
+      final uploading = controller.upload(
+        filePath: photo.path,
+        fileName: 'photo.jpg',
+        fileSize: 600 * 1024,
+        mimeType: 'image/jpeg',
+      );
+      await cacheReading.future;
+      final taken = controller.captureSentAttachments();
+      await controller.removeAttachment(photo.path);
+      cacheRead.complete(null);
+      await uploading;
+
+      expect(taken.attachments, hasLength(1));
+      expect(await photo.exists(), isTrue);
+
+      if (sent) await controller.retireAttachmentOwnership(taken);
+      await controller.releaseSentAttachments(taken);
+
+      expect(await photo.exists(), isFalse);
+      expect(await database.attachmentQueueDao.getAll(), isEmpty);
+    });
+  }
+
   test(
     'durable queue ownership survives synchronous publication failure',
     () async {

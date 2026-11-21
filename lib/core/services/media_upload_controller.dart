@@ -1660,11 +1660,12 @@ class MediaUploadController {
         }
 
         // A photo compressed as it was picked is the tray's own copy, which
-        // its preview reads until the attachment is sent or removed; those
-        // delete it. The row stays to clean it up after a restart.
+        // its preview, and a send that took it, read until the attachment is
+        // sent or removed and that send is done; those delete it. The row
+        // stays to clean it up after a restart.
         if (pickedConversion &&
             entry?.status == QueuedAttachmentStatus.completed &&
-            _currentAttachment(filePath) != null) {
+            (_currentAttachment(filePath) != null || _sentHolds(filePath))) {
           _trayHeldRows[filePath] = (queue: uploader, id: id);
           return;
         }
