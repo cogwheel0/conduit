@@ -1000,6 +1000,44 @@ void main() {
         });
       });
 
+      // Greptile 4651926090, Pullfrog 4651927642.
+      test('ends at once when its client was closed before anything '
+          'listened', () {
+        fakeAsync((async) {
+          final adapter = _QueuedFakeAdapter([
+            _TimeoutResponse(),
+            for (var i = 0; i < 5; i++)
+              _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+          ]);
+          final api = _buildApiServiceForTest(adapter);
+          ChatCompletionSession? session;
+          unawaited(
+            api
+                .sendMessageSession(
+                  messages: _minimalMessages,
+                  model: _model,
+                  conversationId: 'chat-1',
+                  responseMessageId: 'reply-1',
+                )
+                .then((value) => session = value),
+          );
+          async.elapse(Duration.zero);
+          api.closeNow();
+
+          Object? ended;
+          unawaited(
+            session!.byteStream!.drain<void>().then(
+              (_) => ended = 'a clean end',
+              onError: (Object error) => ended = error,
+            ),
+          );
+          async.elapse(Duration.zero);
+
+          check(ended).isA<HeldReplyAbandoned>();
+          check(adapter.requests).length.equals(1);
+        });
+      });
+
       test('stops waiting when the session is aborted while its stream is '
           'still drained', () async {
         // A headless caller that gives up aborts the session, but its drain

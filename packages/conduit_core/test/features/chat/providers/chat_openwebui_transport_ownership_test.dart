@@ -5420,6 +5420,69 @@ void main() {
     check(payload['done']).not((it) => it.equals(true));
   });
 
+  // Greptile 4651926090, Pullfrog 4651927642.
+  test('a held reply whose client closed before its wait was listened to '
+      'leaves the turn queued', () async {
+    const chatId = 'closed-first-chat';
+    const assistantId = 'closed-first-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final release = Completer<void>()..complete();
+    final api = _GatedCompletionApi(release);
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final messages = <ChatMessage>[
+      _user('user', 'hello'),
+      _streamingAssistant(assistantId, ''),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+    // A request the server holds past its wait: its saved reply is waited for.
+    final held = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'held',
+        name: 'Held',
+        url: 'https://example.com',
+      ),
+      workerManager: WorkerManager(),
+    );
+    held.dio
+      ..httpClientAdapter = _ReplyHeldPastItsWait()
+      ..interceptors.clear();
+    final session = await held.sendMessageSession(
+      messages: const [
+        {'role': 'user', 'content': 'hello'},
+      ],
+      model: 'model-1',
+      conversationId: chatId,
+      responseMessageId: assistantId,
+    );
+    // Shutdown cuts the client before the wait is listened to.
+    held.closeNow();
+
+    await check(
+      finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
+        container,
+        session: session,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        recoveryAttempts: 2,
+        recoveryDelay: Duration.zero,
+      ),
+    ).throws<OutboxDeferralException>();
+
+    check(syncEngine.pulls).equals(0);
+    final payload = jsonDecode(
+      (await db.messagesDao.getMessage(chatId, assistantId))!.payload,
+    ) as Map<String, dynamic>;
+    check(payload['error']).isNull();
+    check(payload['done']).not((it) => it.equals(true));
+  });
+
   test(
     'socket bind loss returns unattached and cannot mutate the new chat',
     () async {
@@ -12390,6 +12453,61 @@ void main() {
       }
     });
 
+    // Greptile 4651926087, Pullfrog 4651927631.
+    test('a rename after a Stop the server never took keeps the answers the '
+        'server finished since', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      // The server finishes the answers it was never told to stop, and no
+      // pull has read them yet.
+      final server = client.server;
+      final chat =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final serverMessages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
+        serverMessages[id] = <String, dynamic>{
+          ...serverMessages[id] as Map<String, dynamic>,
+          'content': content,
+          'done': true,
+        };
+      }
+      server
+        ..tick()
+        ..updateChat(serverId, chat);
+      final pushed = Completer<Map<String, dynamic>>();
+      client.onUpdateChat = (id, blob) {
+        if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
+      };
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        serverId,
+        title: const Value('Shelves'),
+        enqueue: true,
+      );
+      unawaited(container.read(syncEngineProvider.notifier).drainOutbox());
+      final blob = await pushed.future;
+
+      final messages =
+          (blob['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
+        final message = messages[id] as Map<String, dynamic>;
+        check(message['content']).equals(content);
+        check(message['done']).equals(true);
+        // Taken here too, where nothing marks it as stopped any more.
+        final stored = await storedAnswer(serverId, id);
+        check(stored['content']).equals(content);
+        check((stored['metadata'] as Map<String, dynamic>?)?['stoppedHere'])
+            .isNull();
+      }
+    });
+
     test('an administrator stopping one answer has it stored as finished at '
         'once, and it stays so when its sibling and the next turn complete',
         () async {
@@ -15135,4 +15253,21 @@ final class _Streamed {
   late final ProviderSubscription<List<ChatMessage>> _subscription;
 
   void close() => _subscription.close();
+}
+
+/// Times out every request while waiting for its answer, as Dio does when a
+/// server holds a completion past the time the request may wait.
+final class _ReplyHeldPastItsWait implements HttpClientAdapter {
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelOnError,
+  ) async => throw DioException.receiveTimeout(
+    timeout: options.receiveTimeout ?? Duration.zero,
+    requestOptions: options,
+  );
+
+  @override
+  void close({bool force = false}) {}
 }
