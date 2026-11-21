@@ -652,11 +652,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
     setState(() => _isSendingComposerMessage = true);
     final container = ProviderScope.containerOf(context, listen: false);
+    final owner = chat.captureChatSendOwner(container);
     chat.ChatSendPlaceholderHandle? pendingSend;
 
     try {
       final hasModel = await _ensureSelectedModel(container);
-      if (!hasModel) {
+      if (!hasModel || !chat.chatSendOwnerIsCurrent(container, owner)) {
         return null;
       }
 

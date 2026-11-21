@@ -101,6 +101,8 @@ void main() {
     WidgetTester tester, {
     AppDatabase? db,
     bool ordinarySend = false,
+    bool modelPicked = true,
+    Future<List<Model>>? modelList,
     bool holdDrain = false,
     bool newChat = false,
     bool reviewer = false,
@@ -158,7 +160,9 @@ void main() {
         syncEngineProvider.overrideWith(() => _NoDrainEngine(hold: holdDrain)),
         isAuthenticatedProvider2.overrideWithValue(true),
         reviewerModeProvider.overrideWithValue(reviewer),
-        selectedModelProvider.overrideWith(() => _Selected(model)),
+        selectedModelProvider.overrideWith(
+          () => _Selected(modelPicked ? model : null, picked: modelPicked),
+        ),
         activeConversationProvider.overrideWith(
           () => _Active(newChat ? null : chat),
         ),
@@ -167,7 +171,7 @@ void main() {
         isChatStreamingProvider.overrideWith((ref) => false),
         isOnlineProvider.overrideWithValue(true),
         conversationsProvider.overrideWith(_Conversations.new),
-        modelsProvider.overrideWith(_Models.new),
+        modelsProvider.overrideWith(() => _Models(modelList)),
         foldersProvider.overrideWith(_Folders.new),
         toolsListProvider.overrideWith(_Tools.new),
         comparisonCommandAvailableProvider.overrideWithValue(true),
@@ -361,6 +365,53 @@ void main() {
     expect(container.read(attachedFilesProvider), [same(later)]);
   });
 
+  // With no model picked, the send waits for the model list. Another account
+  // signing in meanwhile gets neither the message nor its files.
+  testPage('a send waiting for a model sends nothing once another account '
+      'signs in', (tester) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(
+      () => db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'stored-chat',
+              title: 'A chat',
+              createdAt: 1,
+              updatedAt: 1,
+              bodySynced: const Value(true),
+            ),
+          ),
+    );
+    final listed = Completer<List<Model>>();
+    final checked = _upload(
+      'checked.txt',
+      status: FileUploadStatus.completed,
+      fileId: 'file-checked',
+    );
+    final container = await compareOnPage(
+      tester,
+      db: db,
+      ordinarySend: true,
+      modelPicked: false,
+      modelList: listed.future,
+      overrides: [
+        attachedFilesProvider.overrideWith(() => _Tray([checked])),
+        openWebUiAuthSessionEpochProvider.overrideWith(
+          (ref) => ref.watch(_signIn),
+        ),
+      ],
+    );
+
+    container.read(_signIn.notifier).another();
+    listed.complete(const [Model(id: 'alpha', name: 'Alpha')]);
+    await settle(tester);
+
+    expect(container.read(chatMessagesProvider), isEmpty);
+    expect(await tester.runAsync(() => db.select(db.outboxOps).get()), isEmpty);
+    expect(container.read(attachedFilesProvider), [same(checked)]);
+  });
+
   testPage('a tapped follow-up is sent with the tools picked for the chat', (
     tester,
   ) async {
@@ -510,10 +561,14 @@ class _Conversations extends Conversations {
 }
 
 class _Models extends Models {
+  _Models([this.list]);
+
+  /// The list as the server gives it, once it does; Alpha alone when unset.
+  final Future<List<Model>>? list;
+
   @override
-  Future<List<Model>> build() async => const [
-    Model(id: 'alpha', name: 'Alpha'),
-  ];
+  Future<List<Model>> build() async =>
+      list ?? const [Model(id: 'alpha', name: 'Alpha')];
 }
 
 class _Folders extends Folders {
@@ -527,12 +582,26 @@ class _Tools extends ToolsList {
 }
 
 class _Selected extends SelectedModel {
-  _Selected(this.model);
+  _Selected(this.model, {this.picked = true});
 
   final Model? model;
 
+  /// False for a chat with no model picked yet.
+  final bool picked;
+
   @override
-  Model? build() => model ?? const Model(id: 'alpha', name: 'Alpha');
+  Model? build() =>
+      picked ? model ?? const Model(id: 'alpha', name: 'Alpha') : null;
+}
+
+/// The sign-in session, which a test replaces as another account signs in.
+final _signIn = NotifierProvider<_SignIn, Object>(_SignIn.new);
+
+class _SignIn extends Notifier<Object> {
+  @override
+  Object build() => Object();
+
+  void another() => state = Object();
 }
 
 class _DesktopHermesConfig extends HermesConfigController {

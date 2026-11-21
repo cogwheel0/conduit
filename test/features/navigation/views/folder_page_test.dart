@@ -827,6 +827,51 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
+  // With no model picked, the send waits for the default model. Another
+  // account signing in meanwhile must not get the new chat.
+  testWidgets('a composer send waiting for a model starts nothing once '
+      'another account signs in', (tester) async {
+    final originalErrorWidgetBuilder = ErrorWidget.builder;
+    final originalFlutterErrorOnError = FlutterError.onError;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    });
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final defaultModel = Completer<Model?>();
+    final container = _createContainer(
+      folders: const [Folder(id: 'work', name: 'Work')],
+      isAuthenticated: true,
+      database: db,
+      modelPicked: false,
+      extraOverrides: [
+        defaultModelProvider.overrideWith((ref) => defaultModel.future),
+        openWebUiAuthSessionEpochProvider.overrideWith(
+          (ref) => ref.watch(_epochProvider),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(_buildHarnessFromContainer(container));
+    await tester.pump();
+
+    final composer = tester.widget<ModernChatInput>(
+      find.byType(ModernChatInput),
+    );
+    final sending = composer.onSendMessage('Folder draft') as Future<Object?>;
+    container.read(_epochProvider.notifier).rotate();
+    defaultModel.complete(null);
+    await tester.runAsync(() => sending);
+    await tester.pumpAndSettle();
+
+    final chats = await tester.runAsync(
+      () => db.chatsDao.watchChatList().first,
+    );
+    expect(chats!.where((chat) => chat.id.startsWith('local:')), isEmpty);
+  });
+
   testWidgets('folder conversation rows reuse the shared chat context menu', (
     tester,
   ) async {
@@ -2619,6 +2664,8 @@ ProviderContainer _createContainer({
   bool isAuthenticated = false,
   bool reviewerMode = false,
   Model? selectedModel,
+  // False for a draft with no model picked yet.
+  bool modelPicked = true,
   List<Model>? availableModels,
   Conversation? activeConversation,
   List<ChatMessage> initialMessages = const <ChatMessage>[],
@@ -2640,7 +2687,9 @@ ProviderContainer _createContainer({
       if (isAuthenticated) authTokenProvider3.overrideWithValue('test-token'),
       reviewerModeProvider.overrideWithValue(reviewerMode),
       selectedModelProvider.overrideWith(
-        () => _SeededSelectedModelNotifier(resolvedSelectedModel),
+        () => _SeededSelectedModelNotifier(
+          modelPicked ? resolvedSelectedModel : null,
+        ),
       ),
       activeConversationProvider.overrideWith(
         () => _SeededActiveConversationNotifier(activeConversation),

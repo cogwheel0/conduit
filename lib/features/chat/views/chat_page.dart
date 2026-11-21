@@ -1431,6 +1431,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     void Function(ChatSendPlaceholderHandle)? onSendPrepared,
     void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
+    // Named as the send is asked for, with its files: after any wait below,
+    // the message goes only to this account and chat.
+    final owner = captureChatSendOwner(ref);
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
       isSavingTemporary: _isSavingTemporary,
@@ -1445,6 +1448,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     try {
       dispatched = await _sendMessageAfterAdmission(
         text,
+        owner: owner,
         sentFiles: sentFiles,
         sendOwner: sendOwner,
         compareModels: compareModels,
@@ -1460,6 +1464,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Future<bool> _sendMessageAfterAdmission(
     String text, {
+    required ChatSendOwner owner,
     required MediaAttachmentOwnershipSnapshot? sentFiles,
     required Object sendOwner,
     List<Model>? compareModels,
@@ -1481,7 +1486,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       } catch (_) {
         failed = true;
       }
-      if (!mounted) return false;
+      if (!mounted || !chatSendOwnerIsCurrent(ref, owner)) return false;
       // A model picked while that waited is the user's choice; the fallback
       // only stands in for none.
       selectedModel = ref.read(selectedModelProvider) ?? fallback;

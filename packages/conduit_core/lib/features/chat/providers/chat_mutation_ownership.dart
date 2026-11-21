@@ -86,6 +86,30 @@ ChatMutationOwnerToken captureChatMutationOwner(
   );
 }
 
+/// The account, its sign-in session and the chat a send was asked for in,
+/// named before the send waits on anything ([chatSendOwnerIsCurrent]).
+typedef ChatSendOwner = ({
+  Object? api,
+  Object? authSessionEpoch,
+  ChatMutationOwnerToken chat,
+});
+
+ChatSendOwner captureChatSendOwner(dynamic ref) => (
+  api: _readApiServiceOrNull(ref),
+  authSessionEpoch: _readOpenWebUiAuthSessionEpoch(ref),
+  chat: captureChatMutationOwner(
+    ref,
+    ref.read(activeConversationProvider) as Conversation?,
+  ),
+);
+
+/// Whether the account, session and chat [owner] named still hold. Once
+/// another has taken over, the send goes nowhere and takes none of its files.
+bool chatSendOwnerIsCurrent(dynamic ref, ChatSendOwner owner) =>
+    identical(_readApiServiceOrNull(ref), owner.api) &&
+    identical(_readOpenWebUiAuthSessionEpoch(ref), owner.authSessionEpoch) &&
+    chatMutationTokenStillActive(ref, owner.chat);
+
 void _requireChatMutationOpenWebUiAuthSession(
   dynamic ref,
   ChatMutationOwnerToken token,
