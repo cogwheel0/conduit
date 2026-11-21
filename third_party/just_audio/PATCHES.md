@@ -9,7 +9,8 @@ pub.dev archive (sha256
 
 ## The change
 
-`darwin/just_audio/Sources/just_audio/AudioPlayer.m`, in `onFailToComplete:`:
+`darwin/just_audio/Sources/just_audio/AudioPlayer.m`, in `onFailToComplete:` and a
+new `failToComplete:error:`:
 
 ```diff
  - (void)onFailToComplete:(NSNotification *)notification {
@@ -21,11 +22,19 @@ pub.dev archive (sha256
 +    // must be sent from the main thread.
 +    __weak __typeof__(self) weakSelf = self;
 +    dispatch_async(dispatch_get_main_queue(), ^{
-+        __typeof__(self) strongSelf = weakSelf;
-+        if (!strongSelf || playerItem != strongSelf.player.currentItem) return;
-+        [strongSelf sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
-+        [strongSelf.player removeAllItems];
++        [weakSelf failToComplete:playerItem error:error];
 +    });
++}
++
++- (void)failToComplete:(IndexedPlayerItem *)playerItem error:(NSError *)error {
++    if (playerItem != _player.currentItem) return;
++    [self sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
++    [_player removeAllItems];
++    // Once idle, dispose no longer ends a pending play request.
++    if (_playResult) {
++        _playResult(@{});
++        _playResult = nil;
++    }
  }
 ```
 
@@ -48,6 +57,15 @@ that registered for it, and `BetterEventChannel` calls its Flutter sink
 directly, so the handler moves to the main queue first. It holds the player
 weakly, and once there it does nothing if the player is gone, disposed (its
 `player` is then nil), or has moved on to another item.
+
+It also ends a pending `play()` request, as pausing and completing do. Without
+that, `play()` would never return: the player is idle after the failure, and
+`dispose` only ends the request when the player is not idle.
+
+Emptying the queue matches the existing failed-status path
+(`sendErrorForItem:`), so a playlist behaves as it does when an item fails to
+load. With `maxSkipsOnError`, neither path can then skip to the next item,
+because `seek:` refuses while idle. Conduit never sets `maxSkipsOnError`.
 
 Android is not patched; ExoPlayer already reports such failures.
 

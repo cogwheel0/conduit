@@ -756,11 +756,19 @@
     // must be sent from the main thread.
     __weak __typeof__(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
-        __typeof__(self) strongSelf = weakSelf;
-        if (!strongSelf || playerItem != strongSelf.player.currentItem) return;
-        [strongSelf sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
-        [strongSelf.player removeAllItems];
+        [weakSelf failToComplete:playerItem error:error];
     });
+}
+
+- (void)failToComplete:(IndexedPlayerItem *)playerItem error:(NSError *)error {
+    if (playerItem != _player.currentItem) return;
+    [self sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
+    [_player removeAllItems];
+    // Once idle, dispose no longer ends a pending play request.
+    if (_playResult) {
+        _playResult(@{});
+        _playResult = nil;
+    }
 }
 
 - (void)onComplete:(NSNotification *)notification {
