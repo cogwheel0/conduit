@@ -1055,6 +1055,81 @@ void main() {
     expect(await database.attachmentQueueDao.getAll(), isEmpty);
   });
 
+  // A queued draft can take a file from the tray while a send that took it is
+  // still going; when the draft lets it go, the send still reads it.
+  test('a file a queued draft lets go while a send holds it is cleaned up by '
+      'that send', () async {
+    final stagingDirectory = Directory(
+      '${Directory.systemTemp.path}/conduit-native-paste',
+    );
+    await stagingDirectory.create();
+    final document = File(
+      '${stagingDirectory.path}/'
+      '123e4567-e89b-12d3-a456-426614174130-notes.txt',
+    );
+    await document.writeAsString('heron notes');
+    addTearDown(() async {
+      if (await document.exists()) await document.delete();
+    });
+    final uploaded = FileUploadState(
+      file: document,
+      fileName: 'notes.txt',
+      fileSize: 11,
+      progress: 1,
+      status: FileUploadStatus.completed,
+      fileId: 'file-notes',
+    );
+    final cleanupAsked = Completer<void>();
+    final allowCleanup = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([uploaded]),
+        ),
+        terminalAttachmentCleanupProvider.overrideWithValue((
+          filePath, {
+          required beforeDeleteAdmission,
+          required canDelete,
+        }) async {
+          if (!cleanupAsked.isCompleted) cleanupAsked.complete();
+          await allowCleanup.future;
+          return cleanupTerminalAttachmentFile(
+            filePath,
+            beforeDeleteAdmission: (_) => beforeDeleteAdmission(),
+            canDelete: (_) => canDelete(),
+          );
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+    final taken = controller.captureSentAttachments();
+    final drafts = container.read(queuedDraftAttachmentsProvider.notifier);
+    drafts.adopt([
+      QueuedDraftAttachment(
+        id: 'draft-file',
+        queueId: 'queue',
+        upload: uploaded,
+      ),
+    ]);
+    container.read(attachedFilesProvider.notifier).releaseIdentical([uploaded]);
+    drafts.release('queue', ['draft-file']);
+
+    var sendDone = false;
+    final releasing = controller
+        .releaseSentAttachments(taken)
+        .then((_) => sendDone = true);
+    await cleanupAsked.future;
+
+    // The cleanup is the send's: the send is not done until it is.
+    expect(sendDone, isFalse);
+    allowCleanup.complete();
+    await releasing;
+    expect(await document.exists(), isFalse);
+  });
+
   // The upload's last step reads the photo for the cache, then keeps the
   // photo only while the tray shows it. A send that took it, and is not done
   // with it, holds it too.

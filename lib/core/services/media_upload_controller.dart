@@ -1080,6 +1080,10 @@ class MediaUploadController {
           _currentAttachment(path) != null) {
         continue;
       }
+      if (_sentHolds(path)) {
+        _removedWhileSent.add(path);
+        continue;
+      }
       unawaited(
         cancelUploadsForFile(path).catchError((
           Object error,
