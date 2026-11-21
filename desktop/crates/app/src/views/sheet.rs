@@ -32,6 +32,7 @@ pub const PADDING: f32 = 20.;
 /// What a sheet opens at, before its first frame measures the body.
 const FIRST_HEIGHT: f32 = 360.;
 /// The least room left under the sheet in the main window.
+#[cfg(target_os = "macos")]
 const PARENT_MARGIN: f64 = 40.;
 
 /// What a sheet shows.

@@ -6,6 +6,7 @@
 //!
 //! Needs a logged-in macOS session (it opens windows). Set
 //! `CONDUIT_SKIP_UI_TESTS=1` to skip on a headless machine.
+#![cfg(target_os = "macos")]
 
 use std::process::Command;
 

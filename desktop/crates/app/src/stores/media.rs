@@ -1101,6 +1101,7 @@ mod tests {
     }
 
     /// A synthetic one-page PDF, 200 × 100 points, black on its top half.
+    #[cfg(target_os = "macos")]
     pub fn tiny_pdf() -> Vec<u8> {
         let content = "0 0 0 rg 0 50 200 50 re f";
         let objects = [

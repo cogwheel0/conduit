@@ -20,11 +20,23 @@ bytes = "1"
 base64 = "0.22"
 rand = "0.9"
 percent-encoding = "2"
-libc = "0.2"
 log = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
+
+# The master key's store off the Mac: Credential Manager and the Secret
+# Service, through the crates (and features) GPUI already uses for its own
+# credentials API.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
+futures-lite = "2"
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "test-util"] }

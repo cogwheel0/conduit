@@ -27,6 +27,7 @@
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::motion::{self, Reduced, specs};
+#[cfg(target_os = "macos")]
 use conduit_components::theme::SidebarStyle;
 use conduit_components::views::shell::MainWindowFrame;
 use conduit_protocol::BulkChatAction;
@@ -99,6 +100,7 @@ pub struct MainWindow {
     #[cfg(target_os = "macos")]
     material: crate::shell::macos::SidebarMaterial,
     /// Frames drawn without the sidebar while its material is still up.
+    #[cfg(target_os = "macos")]
     material_hold: MaterialHold,
     _subscriptions: Vec<Subscription>,
 }
@@ -201,6 +203,7 @@ impl MainWindow {
             page: None,
             #[cfg(target_os = "macos")]
             material: Default::default(),
+            #[cfg(target_os = "macos")]
             material_hold: MaterialHold::default(),
             _subscriptions: subscriptions,
         }

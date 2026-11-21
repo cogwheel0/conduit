@@ -9,12 +9,17 @@
 //! started from a foreground task between GPUI borrows, never inside
 //! `cx.update` or a window update, where AppKit's call back into the
 //! borrowed window fails (as a `setFrame` from inside an update does).
+//!
+//! With no AppKit window to attach a sheet to (Windows and Linux), the
+//! question goes through GPUI's own prompt instead ([`ask_in_window`]):
+//! Windows' task dialog, or one GPUI draws in the window on Linux.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
+use futures::FutureExt as _;
 use futures::channel::oneshot;
-use gpui_kit::{AnyWindowHandle, App, Global, Task, Window};
+use gpui_kit::{AnyWindowHandle, App, Global, PromptButton, PromptLevel, Task, Window};
 
 /// The questions [`present_sheet`] has up, by window: each lives while its
 /// token does (the task waiting for its answer), so a question dropped
@@ -73,6 +78,7 @@ pub struct Beeps(pub u32);
 impl Global for Beeps {}
 
 /// The system beep, as a Mac app gives a key press it can't take now.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 pub fn beep(cx: &mut App) {
     if cx.has_global::<Beeps>() {
         cx.global_mut::<Beeps>().0 += 1;
@@ -208,8 +214,14 @@ pub fn present_sheet_closable(
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
-            crate::views::sheet::question_answered(asked, false, cx);
-            return (Task::ready(false), closer);
+            let task = ask_in_window(
+                window.window_handle(),
+                spec,
+                asked,
+                Some(closer.clone()),
+                cx,
+            );
+            return (task, closer);
         };
         let state = closer.clone();
         let token = hold_question(window.window_handle(), cx);
@@ -232,9 +244,14 @@ pub fn present_sheet_closable(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (window, spec);
-        crate::views::sheet::question_answered(asked, false, cx);
-        (Task::ready(false), closer)
+        let task = ask_in_window(
+            window.window_handle(),
+            spec,
+            asked,
+            Some(closer.clone()),
+            cx,
+        );
+        (task, closer)
     }
 }
 /// Harness: the titles of the sheets [`AutoAnswer`] answered, in order, so a
@@ -265,8 +282,7 @@ pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<boo
     #[cfg(target_os = "macos")]
     {
         let Some(ns_window) = conduit_components::window::macos::ns_window(window) else {
-            crate::views::sheet::question_answered(asked, false, cx);
-            return Task::ready(false);
+            return ask_in_window(window.window_handle(), spec, asked, None, cx);
         };
         let token = hold_question(window.window_handle(), cx);
         cx.spawn(async move |cx| {
@@ -281,11 +297,71 @@ pub fn present_sheet(window: &Window, spec: SheetSpec, cx: &mut App) -> Task<boo
         })
     }
     #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (window, spec);
-        crate::views::sheet::question_answered(asked, false, cx);
-        Task::ready(false)
-    }
+    ask_in_window(window.window_handle(), spec, asked, None, cx)
+}
+
+/// Asks `spec` through GPUI's prompt on `window`, started between GPUI
+/// borrows as the AppKit sheet is; resolves with whether the first button
+/// was chosen. A `closer` settles it as Cancel, but GPUI cannot take its
+/// prompt down: it stays up until answered, and that answer is dropped.
+fn ask_in_window(
+    window: AnyWindowHandle,
+    spec: SheetSpec,
+    asked: Option<u64>,
+    closer: Option<SheetCloser>,
+    cx: &mut App,
+) -> Task<bool> {
+    let token = hold_question(window, cx);
+    cx.spawn(async move |cx| {
+        let _token = token;
+        let level = if spec.destructive {
+            PromptLevel::Warning
+        } else {
+            PromptLevel::Info
+        };
+        let mut buttons = vec![PromptButton::ok(spec.confirm.clone())];
+        if !spec.cancel.is_empty() {
+            buttons.push(PromptButton::cancel(spec.cancel.clone()));
+        }
+        let (closed_tx, closed) = oneshot::channel::<()>();
+        let open = match &closer {
+            Some(closer) if closer.is_closed() => false,
+            Some(closer) => {
+                closer.0.borrow_mut().end = Some(Box::new(move || {
+                    let _ = closed_tx.send(());
+                }));
+                true
+            }
+            None => true,
+        };
+        let shown = open
+            .then(|| {
+                window
+                    .update(cx, |_, window, cx| {
+                        window.prompt(level, &spec.title, Some(&spec.message), &buttons, cx)
+                    })
+                    .map_err(|e| log::warn!("sheet {:?} not shown: {e}", spec.title))
+                    .ok()
+            })
+            .flatten();
+        let yes = match shown {
+            Some(answer) => {
+                // Only a close settles it: a closer dropped unused does not.
+                let closed = async {
+                    if closed.await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                };
+                futures::select! {
+                    answer = answer.fuse() => answer == Ok(0),
+                    () = closed.fuse() => false,
+                }
+            }
+            None => false,
+        };
+        cx.update(|cx| crate::views::sheet::question_answered(asked, yes, cx));
+        yes
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -339,5 +415,89 @@ mod macos {
         });
         alert.beginSheetModalForWindow_completionHandler(window, Some(&handler));
         Some((rx, alert.window()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use gpui_kit::prelude::*;
+    use gpui_kit::{Context, TestAppContext, VisualTestContext, div};
+
+    use super::*;
+
+    struct Blank;
+
+    impl Render for Blank {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    fn ask(
+        vcx: &mut VisualTestContext,
+        closable: bool,
+    ) -> (Rc<Cell<Option<bool>>>, Option<SheetCloser>) {
+        let spec = SheetSpec::new(
+            "Remove the account?",
+            "Its chats leave this computer.",
+            "Remove",
+            "Cancel",
+        )
+        .destructive();
+        let (task, closer) = vcx.update(|window, cx| {
+            if closable {
+                let (task, closer) = present_sheet_closable(window, spec, cx);
+                (task, Some(closer))
+            } else {
+                (present_sheet(window, spec, cx), None)
+            }
+        });
+        let answer = Rc::new(Cell::new(None));
+        let seen = answer.clone();
+        vcx.update(|_, cx| cx.spawn(async move |_| seen.set(Some(task.await))).detach());
+        vcx.run_until_parked();
+        (answer, closer)
+    }
+
+    /// With no native sheet to attach it to (Windows and Linux, or a window
+    /// with no NSWindow), a question is still asked, through GPUI's own
+    /// prompt, and takes the button chosen: it never answers Cancel unseen.
+    #[gpui_kit::test]
+    fn a_question_without_a_native_sheet_is_still_asked(cx: &mut TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        for (closable, button, yes) in [
+            (false, "Remove", true),
+            (false, "Cancel", false),
+            (true, "Remove", true),
+            (true, "Cancel", false),
+        ] {
+            let (answer, _) = ask(vcx, closable);
+            assert_eq!(answer.get(), None, "answered before it was asked");
+            assert_eq!(
+                vcx.pending_prompt(),
+                Some((
+                    "Remove the account?".to_string(),
+                    "Its chats leave this computer.".to_string()
+                ))
+            );
+            vcx.simulate_prompt_answer(button);
+            vcx.run_until_parked();
+            assert_eq!(answer.get(), Some(yes), "{button}");
+            assert!(!vcx.has_pending_prompt());
+        }
+
+        // Settled somewhere else: Cancel. GPUI's prompt stays up until
+        // answered, and that answer changes nothing.
+        let (answer, closer) = ask(vcx, true);
+        assert!(vcx.has_pending_prompt());
+        vcx.update(|_, cx| closer.unwrap().close(cx));
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false));
+        vcx.simulate_prompt_answer("Remove");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false));
     }
 }

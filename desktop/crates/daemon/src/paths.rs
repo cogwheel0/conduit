@@ -2,10 +2,12 @@
 //!
 //! Dev builds never share state with the packaged app: they use
 //! `~/Library/Application Support/Conduit Dev`, `~/Library/Logs/Conduit Dev`
-//! and their own Keychain service. A rebuilt dev binary would otherwise hit
+//! (and the Windows and Linux equivalents, [`AppPaths::standard`]) and
+//! their own Keychain service. A rebuilt dev binary would otherwise hit
 //! Keychain prompts on the production item, and a developer's own data
 //! under `Conduit`.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -39,7 +41,7 @@ impl Flavor {
         }
     }
 
-    /// The folder name under Application Support and Logs.
+    /// The folder name on macOS and Windows.
     pub fn app_name(self) -> &'static str {
         match self {
             Self::Dev => "Conduit Dev",
@@ -47,6 +49,16 @@ impl Flavor {
         }
     }
 
+    /// The folder name in Linux's XDG folders (lower case, no spaces).
+    pub fn unix_name(self) -> &'static str {
+        match self {
+            Self::Dev => "conduit-dev",
+            Self::Production => "conduit",
+        }
+    }
+
+    /// The service the master key is stored under (the Keychain's, and
+    /// Windows' and Linux's secret stores).
     pub fn keychain_service(self) -> String {
         match self {
             Self::Dev => format!("{BUNDLE_ID}.dev"),
@@ -66,21 +78,73 @@ pub struct AppPaths {
 }
 
 impl AppPaths {
-    /// The standard macOS locations for `flavor`. `CONDUIT_USER_DATA` and
-    /// `CONDUIT_LOGS` override them (tests, smoke runs).
+    /// The standard locations for `flavor` on this OS. `CONDUIT_USER_DATA`
+    /// and `CONDUIT_LOGS` override them (tests, smoke runs).
     pub fn for_flavor(flavor: Flavor) -> Self {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/tmp"));
-        let user_data = std::env::var_os("CONDUIT_USER_DATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                home.join("Library/Application Support")
-                    .join(flavor.app_name())
-            });
-        let logs = std::env::var_os("CONDUIT_LOGS")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("Library/Logs").join(flavor.app_name()));
+        let env = |key: &str| std::env::var_os(key);
+        let mut paths = Self::standard(Os::CURRENT, flavor, &env);
+        if let Some(dir) = env("CONDUIT_USER_DATA") {
+            paths.user_data = PathBuf::from(dir);
+        }
+        if let Some(dir) = env("CONDUIT_LOGS") {
+            paths.logs = PathBuf::from(dir);
+        }
+        paths
+    }
+
+    /// `os`'s standard locations for `flavor`, reading the environment
+    /// through `vars`:
+    ///
+    /// * macOS: `~/Library/Application Support/<name>` and
+    ///   `~/Library/Logs/<name>`.
+    /// * Windows: `%LOCALAPPDATA%\<name>\User Data` and `…\<name>\Logs`
+    ///   (local, not roaming). Reset renames the data folder, and Windows
+    ///   cannot rename a folder holding the open app log, so the two are
+    ///   siblings as on the Mac.
+    /// * Linux: `$XDG_DATA_HOME/<name>` and `$XDG_STATE_HOME/<name>/logs`.
+    pub fn standard(os: Os, flavor: Flavor, vars: &dyn Fn(&str) -> Option<OsString>) -> Self {
+        let home = || {
+            vars("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+        };
+        let (user_data, logs) = match os {
+            Os::MacOs => {
+                let home = home();
+                (
+                    home.join("Library/Application Support")
+                        .join(flavor.app_name()),
+                    home.join("Library/Logs").join(flavor.app_name()),
+                )
+            }
+            Os::Windows => {
+                let local = vars("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        vars("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local"))
+                    })
+                    .unwrap_or_else(std::env::temp_dir);
+                let root = local.join(flavor.app_name());
+                (root.join("User Data"), root.join("Logs"))
+            }
+            Os::Linux => {
+                // The spec says to ignore a relative path in these. (A
+                // rooted one: Linux's absolute paths, read on any host.)
+                let xdg = |key: &str, fallback: &str| {
+                    vars(key)
+                        .map(PathBuf::from)
+                        .filter(|p| p.has_root())
+                        .unwrap_or_else(|| home().join(fallback))
+                };
+                let name = flavor.unix_name();
+                (
+                    xdg("XDG_DATA_HOME", ".local/share").join(name),
+                    xdg("XDG_STATE_HOME", ".local/state")
+                        .join(name)
+                        .join("logs"),
+                )
+            }
+        };
         Self {
             flavor,
             user_data,
@@ -97,18 +161,86 @@ impl AppPaths {
     }
 }
 
-/// `<bundle>/Contents/Resources/conduitd/bin/conduitd` for an executable at
-/// `<bundle>/Contents/MacOS/<exe>`, if it exists.
+/// The operating systems the app's paths are laid out for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Os {
+    MacOs,
+    Windows,
+    Linux,
+}
+
+impl Os {
+    pub const CURRENT: Os = if cfg!(target_os = "macos") {
+        Os::MacOs
+    } else if cfg!(windows) {
+        Os::Windows
+    } else {
+        Os::Linux
+    };
+
+    /// The name `dart build cli` gives this OS in its output folder.
+    fn dart_name(self) -> &'static str {
+        match self {
+            Self::MacOs => "macos",
+            Self::Windows => "windows",
+            Self::Linux => "linux",
+        }
+    }
+
+    /// `name` as an executable file name on this OS.
+    fn executable(self, name: &str) -> String {
+        match self {
+            Self::Windows => format!("{name}.exe"),
+            Self::MacOs | Self::Linux => name.to_string(),
+        }
+    }
+}
+
+/// The packaged daemon for an executable at `exe`, if it exists.
 pub fn packaged_daemon(exe: &Path) -> Option<PathBuf> {
-    let contents = exe.parent()?.parent()?;
-    let candidate = contents.join("Resources/conduitd/bin/conduitd");
+    packaged_daemon_for(Os::CURRENT, exe)
+}
+
+/// Where a packaged build keeps the daemon, if it is there:
+///
+/// * macOS: `<bundle>/Contents/Resources/conduitd/bin/conduitd` for an
+///   executable at `<bundle>/Contents/MacOS/<exe>`.
+/// * Windows and Linux: `conduitd/bin/conduitd[.exe]` beside the
+///   executable (the install folder; `/usr/lib/conduit`, `/app/lib/conduit`
+///   in a Flatpak).
+pub fn packaged_daemon_for(os: Os, exe: &Path) -> Option<PathBuf> {
+    let candidate = match os {
+        Os::MacOs => exe
+            .parent()?
+            .parent()?
+            .join("Resources/conduitd/bin/conduitd"),
+        Os::Windows | Os::Linux => exe
+            .parent()?
+            .join("conduitd")
+            .join("bin")
+            .join(os.executable("conduitd")),
+    };
     candidate.is_file().then_some(candidate)
 }
 
 /// The `dart build cli` output in this repo.
 pub fn dev_daemon() -> PathBuf {
+    dev_daemon_for(Os::CURRENT, std::env::consts::ARCH)
+}
+
+/// The `dart build cli` output for `os` on `arch` (a Rust arch name), in
+/// Dart's `<os>_<arch>` folder naming.
+pub fn dev_daemon_for(os: Os, arch: &str) -> PathBuf {
+    let arch = match arch {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => other,
+    };
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../apps/daemon/build/cli/macos_arm64/bundle/bin/conduitd")
+        .join("../../../apps/daemon/build/cli")
+        .join(format!("{}_{arch}", os.dart_name()))
+        .join("bundle/bin")
+        .join(os.executable("conduitd"))
 }
 
 /// The daemon binary: `CONDUITD_PATH`, else the packaged copy next to the
@@ -180,6 +312,133 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
+        let pairs: Vec<(String, OsString)> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), OsString::from(v)))
+            .collect();
+        move |key| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    }
+
+    #[test]
+    fn the_mac_layout_is_unchanged() {
+        let paths = AppPaths::standard(Os::MacOs, Flavor::Dev, &vars(&[("HOME", "/Users/avery")]));
+        assert_eq!(
+            paths.user_data,
+            Path::new("/Users/avery/Library/Application Support/Conduit Dev")
+        );
+        assert_eq!(
+            paths.logs,
+            Path::new("/Users/avery/Library/Logs/Conduit Dev")
+        );
+    }
+
+    #[test]
+    fn windows_keeps_data_and_logs_under_local_app_data_never_tmp() {
+        let local = Path::new(r"C:\Users\avery\AppData\Local");
+        let env = vars(&[("LOCALAPPDATA", local.to_str().unwrap())]);
+        let paths = AppPaths::standard(Os::Windows, Flavor::Production, &env);
+        assert_eq!(paths.user_data, local.join("Conduit").join("User Data"));
+        assert_eq!(paths.logs, local.join("Conduit").join("Logs"));
+        // Reset moves the data folder aside, so the logs (which the app
+        // keeps open) must not be inside it.
+        assert!(!paths.logs.starts_with(&paths.user_data));
+
+        // No LOCALAPPDATA (and never a HOME): the profile's own copy.
+        let profile = Path::new(r"C:\Users\avery");
+        let paths = AppPaths::standard(
+            Os::Windows,
+            Flavor::Dev,
+            &vars(&[
+                ("USERPROFILE", profile.to_str().unwrap()),
+                ("HOME", "/home/x"),
+            ]),
+        );
+        assert_eq!(
+            paths.user_data,
+            profile
+                .join("AppData")
+                .join("Local")
+                .join("Conduit Dev")
+                .join("User Data")
+        );
+        assert!(!paths.user_data.starts_with("/tmp"));
+        assert!(!paths.logs.starts_with("/tmp"));
+    }
+
+    #[test]
+    fn linux_follows_the_xdg_base_directories() {
+        let paths = AppPaths::standard(
+            Os::Linux,
+            Flavor::Production,
+            &vars(&[
+                ("HOME", "/home/avery"),
+                ("XDG_DATA_HOME", "/srv/avery/data"),
+                ("XDG_STATE_HOME", "/srv/avery/state"),
+            ]),
+        );
+        assert_eq!(paths.user_data, Path::new("/srv/avery/data/conduit"));
+        assert_eq!(paths.logs, Path::new("/srv/avery/state/conduit/logs"));
+
+        // Unset, or relative (which the spec says to ignore): under HOME.
+        let paths = AppPaths::standard(
+            Os::Linux,
+            Flavor::Dev,
+            &vars(&[("HOME", "/home/avery"), ("XDG_DATA_HOME", "relative/data")]),
+        );
+        assert_eq!(
+            paths.user_data,
+            Path::new("/home/avery/.local/share/conduit-dev")
+        );
+        assert_eq!(
+            paths.logs,
+            Path::new("/home/avery/.local/state/conduit-dev/logs")
+        );
+    }
+
+    #[test]
+    fn off_the_mac_the_packaged_daemon_sits_beside_the_executable() {
+        let root = std::env::temp_dir().join(format!("conduit-packaged-{}", std::process::id()));
+        for (os, exe, daemon) in [
+            (Os::Windows, "Conduit.exe", "conduitd/bin/conduitd.exe"),
+            (Os::Linux, "conduit", "conduitd/bin/conduitd"),
+        ] {
+            let dir = root.join(format!("{os:?}"));
+            std::fs::create_dir_all(dir.join("conduitd/bin")).unwrap();
+            let exe = dir.join(exe);
+            assert_eq!(packaged_daemon_for(os, &exe), None);
+            std::fs::write(dir.join(daemon), b"").unwrap();
+            assert_eq!(packaged_daemon_for(os, &exe), Some(dir.join(daemon)));
+        }
+    }
+
+    #[test]
+    fn the_dev_daemon_is_the_dart_build_for_this_os_and_arch() {
+        let tail = |os, arch| {
+            let path = dev_daemon_for(os, arch);
+            let parts: Vec<_> = path.components().rev().take(4).collect();
+            parts
+                .iter()
+                .rev()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/")
+        };
+        assert_eq!(
+            tail(Os::MacOs, "aarch64"),
+            "macos_arm64/bundle/bin/conduitd"
+        );
+        assert_eq!(
+            tail(Os::Windows, "x86_64"),
+            "windows_x64/bundle/bin/conduitd.exe"
+        );
+        assert_eq!(
+            tail(Os::Linux, "aarch64"),
+            "linux_arm64/bundle/bin/conduitd"
+        );
+        assert_eq!(tail(Os::Linux, "x86_64"), "linux_x64/bundle/bin/conduitd");
+    }
 
     #[test]
     fn flavours_never_share_paths_or_keychain() {

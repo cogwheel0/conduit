@@ -1695,6 +1695,7 @@ mod tests {
     }
 
     /// The action a fixed chord fires.
+    #[cfg(target_os = "macos")]
     fn fixed_action(command: crate::keymap::FixedCommand) -> Box<dyn gpui_kit::Action> {
         use crate::keymap::FixedCommand as F;
         match command {

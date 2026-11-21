@@ -40,15 +40,17 @@ image = { version = "0.25", default-features = false }
 # The terminal's emulator (Apache-2.0; parser, grid, scrollback, selection,
 # search). Its PTY and event loop go unused: the shell is a socket.
 alacritty_terminal = { version = "=0.26.0", default-features = false }
+# Web views: SSO, Preview, embeds, diagrams, the terminal's port previews,
+# the Computer viewer and the call peer (exact pins: the versions they were
+# checked against). WKWebView on the Mac; WebView2 and WebKitGTK on Windows
+# and Linux, where the app builds none yet (their phase 2).
+gpui-webview = "=0.9.0"
+wry = { package = "lb-wry", version = "=0.53.3" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-foundation = { workspace = true, features = ["NSLocale", "NSError", "NSBundle", "NSDictionary", "NSValue", "NSAppleEventDescriptor", "NSAppleEventManager", "NSSet", "NSDate", "NSDateFormatter", "NSFormatter", "NSURL", "NSRange"] }
 objc2-app-kit = { workspace = true, features = ["NSAlert", "NSButton", "NSControl", "NSTextField", "NSActionCell", "NSCell", "NSDatePicker", "NSDatePickerCell", "NSPanel", "NSEvent", "NSRunningApplication", "NSSharingService", "NSSound", "NSWorkspace", "NSPasteboard", "block2"] }
-# SSO: a WKWebView window with a non-persistent store (exact pins: the
-# versions it was checked against).
-gpui-webview = "=0.9.0"
-wry = { package = "lb-wry", version = "=0.53.3" }
 # The app's own script handler and UI delegate on wry's web views, and the
 # terminal's port previews and Computer viewer: Back/Forward state, and a
 # page loaded with the 127.0.0.1 origin mobile's viewer has (the version and
