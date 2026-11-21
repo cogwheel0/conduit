@@ -419,6 +419,10 @@ pub struct MenuState {
     pub chat: Option<ChatMenuState>,
     /// The open Hermes session, whose commands the Chat menu has instead.
     pub hermes: Option<conduit_protocol::HermesSessionDto>,
+    /// Chats are chosen in the sidebar: Archive, Move to and Delete… act
+    /// on them, and the commands for one chat are off
+    /// (`SidebarView::on_selection`).
+    pub choosing: bool,
     /// Folders a chat may be filed in: `(id, name)`, by name.
     pub folders: Vec<(String, String)>,
     /// The View menu's zoom items.
@@ -454,6 +458,7 @@ impl Default for MenuState {
             full_screen: false,
             chat: None,
             hermes: None,
+            choosing: false,
             folders: vec![],
             zoom: ZoomState::default(),
             chat_settings: false,
@@ -573,6 +578,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         let composer = v.read(cx).chat_pane.read(cx).composer.clone();
         composer.read(cx).dictating(cx)
     });
+    let choosing = state
+        .main_view
+        .as_ref()
+        .filter(|_| main)
+        .is_some_and(|v| v.read(cx).sidebar.read(cx).has_selection());
     MenuState {
         areas,
         can_go_back,
@@ -581,6 +591,7 @@ pub fn menu_state(cx: &App) -> MenuState {
         full_screen,
         chat,
         hermes,
+        choosing,
         folders,
         zoom,
         chat_settings: offer.chat_settings,
@@ -664,6 +675,16 @@ fn install(state: MenuState, cx: &mut App) {
 /// backend offers no export (the core's rule, as the menu item reads it).
 pub fn export_disabled(state: &MenuState) -> bool {
     !state.chat.as_ref().is_some_and(|c| c.offered.export)
+        || taken_by_selection(
+            state,
+            &ChatCommand::Export(conduit_protocol::ChatExportFormat::Json),
+        )
+}
+
+/// A command for one chat while chats are chosen: they take it and leave
+/// it undone, so its item is greyed.
+fn taken_by_selection(state: &MenuState, command: &ChatCommand) -> bool {
+    state.choosing && crate::views::sidebar::bulk_action(command).is_none()
 }
 
 /// Chat › Move to has nothing to act on: no chat open (or another user's),
@@ -865,6 +886,7 @@ fn go_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
 /// the answer's.
 fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     let no_chat = state.chat.is_none();
+    let swallowed = |command: ChatCommand| taken_by_selection(state, &command);
     let chat = state.chat.clone();
     let offered = chat.as_ref().map(|c| c.offered.clone()).unwrap_or_default();
     let filed = chat
@@ -930,16 +952,17 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     },
                     TogglePinChat,
                 )
-                .disabled(no_chat),
+                .disabled(no_chat || swallowed(ChatCommand::Pin)),
             ),
             ChatCommandSlot::Rename => items.push(
-                MenuItem::action(l10n.desktop_menu_rename_chat(), RenameChat).disabled(no_chat),
+                MenuItem::action(l10n.desktop_menu_rename_chat(), RenameChat)
+                    .disabled(no_chat || swallowed(ChatCommand::Rename)),
             ),
             // Only a LibreChat chat has it.
-            ChatCommandSlot::Duplicate if offered.duplicate => items.push(MenuItem::action(
-                l10n.libre_chat_duplicate_chat(),
-                DuplicateChat,
-            )),
+            ChatCommandSlot::Duplicate if offered.duplicate => items.push(
+                MenuItem::action(l10n.libre_chat_duplicate_chat(), DuplicateChat)
+                    .disabled(swallowed(ChatCommand::Duplicate)),
+            ),
             ChatCommandSlot::Duplicate => {}
             ChatCommandSlot::MarkUnread => items.push(
                 MenuItem::action(
@@ -950,11 +973,11 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                     },
                     MarkChatUnread,
                 )
-                .disabled(!offered.mark_unread),
+                .disabled(!offered.mark_unread || swallowed(ChatCommand::MarkUnread)),
             ),
             ChatCommandSlot::GenerateTitle => items.push(
                 MenuItem::action(l10n.generate_title(), GenerateChatTitle)
-                    .disabled(!offered.generate_title),
+                    .disabled(!offered.generate_title || swallowed(ChatCommand::GenerateTitle)),
             ),
             ChatCommandSlot::Export => items.push(MenuItem::submenu(
                 Menu::new(l10n.chat_export_action())
@@ -972,11 +995,11 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                             },
                         ),
                     ])
-                    .disabled(!offered.export),
+                    .disabled(export_disabled(state)),
             )),
             ChatCommandSlot::Share => items.push(
                 MenuItem::action(l10n.desktop_share_chat_sheet(), ShareChat)
-                    .disabled(!offered.share),
+                    .disabled(!offered.share || swallowed(ChatCommand::Share)),
             ),
             ChatCommandSlot::MoveTo => items.push(MenuItem::submenu(
                 Menu::new(l10n.desktop_menu_move_to())
@@ -988,17 +1011,27 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
                 MoveChatTo { folder_id: None },
             )),
             ChatCommandSlot::RemoveFromFolder => {}
-            ChatCommandSlot::Archive => items.push(
-                MenuItem::action(
-                    if chat.as_ref().is_some_and(|c| c.archived) {
-                        l10n.unarchive()
-                    } else {
-                        l10n.desktop_archive_chat()
-                    },
-                    ArchiveChat,
+            ChatCommandSlot::Archive => {
+                let archived = chat.as_ref().is_some_and(|c| c.archived);
+                items.push(
+                    MenuItem::action(
+                        if archived {
+                            l10n.unarchive()
+                        } else {
+                            l10n.desktop_archive_chat()
+                        },
+                        ArchiveChat,
+                    )
+                    .disabled(
+                        no_chat
+                            || swallowed(if archived {
+                                ChatCommand::Unarchive
+                            } else {
+                                ChatCommand::Archive
+                            }),
+                    ),
                 )
-                .disabled(no_chat),
-            ),
+            }
             // Selecting is the sidebar's own mode: its menus only. Fork and
             // Hide are a Hermes session's.
             ChatCommandSlot::Select | ChatCommandSlot::Fork | ChatCommandSlot::Hide => {}

@@ -1525,15 +1525,21 @@ async fn multiple_selection(main: AnyWindowHandle, dir: &Path, cx: &mut AsyncApp
         &format!("⇧-click takes in the range ({} chats)", range.len()),
         rows && range.contains(&a) && range.contains(&c) && range.len() >= 2,
     );
-    // The selection's context menu acts on all of them; a plain click ends
-    // it.
-    let menu_moves = in_main(cx, |mw, window, cx| {
-        mw.sidebar.update(cx, |s, cx| {
-            s.run_on_selection(&ChatCommand::Rename, window, cx)
-        })
-    })
-    .unwrap_or(true);
-    pass &= ok("Rename stays the open chat's alone", !menu_moves);
+    // Chat › Rename… is greyed while chats are chosen: they would take it
+    // and leave it undone. Read outside any update, as Move to below.
+    #[cfg(target_os = "macos")]
+    {
+        let (chat_menu, rename) = cx.update(|cx| {
+            let l = crate::l10n::ActiveL10n::l10n(cx).clone();
+            (l.desktop_menu_chat(), l.desktop_menu_rename_chat())
+        });
+        let on = crate::shell::macos::menu_item_enabled(&chat_menu, &rename);
+        pass &= ok(
+            &format!("Chat › Rename… is off while chats are chosen ({on:?})"),
+            on == Some(false),
+        );
+    }
+    // A plain click ends the selection.
     in_main(cx, pick(a.clone(), Pick::Only));
     settle(cx, 300).await;
     pass &= ok("a plain click ends the selection", selected(cx).0.is_none());

@@ -553,6 +553,19 @@ pub enum OnSelection {
     Nothing,
 }
 
+/// The action `command` takes on all of the chosen chats, and its folder:
+/// Archive, Move to, Remove from Folder and Delete…. `None` for a command
+/// for one chat, which chosen chats leave undone (and the Chat menu greys).
+pub fn bulk_action(command: &ChatCommand) -> Option<(BulkChatAction, Option<String>)> {
+    match command {
+        ChatCommand::Archive => Some((BulkChatAction::Archive, None)),
+        ChatCommand::Delete => Some((BulkChatAction::Delete, None)),
+        ChatCommand::MoveTo(f) => Some((BulkChatAction::Move, Some(f.clone()))),
+        ChatCommand::RemoveFromFolder => Some((BulkChatAction::Move, None)),
+        _ => None,
+    }
+}
+
 pub struct SidebarView {
     pub stores: Stores,
     /// The search field.
@@ -3018,6 +3031,12 @@ impl SidebarView {
         }
     }
 
+    /// Whether chats are chosen, by rows or checkboxes: the Chat menu's
+    /// commands act on them or do nothing ([`Self::on_selection`]).
+    pub fn has_selection(&self) -> bool {
+        self.selecting.is_some()
+    }
+
     /// Whether several chats are selected as rows (⌘- or ⇧-click), not by
     /// checkboxes.
     pub fn has_multiple_selection(&self) -> bool {
@@ -3311,17 +3330,14 @@ impl SidebarView {
 
     /// What a Chat menu command does while chats are chosen, by rows or
     /// checkboxes: Archive, Move to, Remove from Folder and Delete… act on
-    /// them; the other commands do nothing. `None` with nothing chosen,
-    /// when it is the open chat's. A selection never falls through to the
-    /// open chat.
+    /// them; the other commands do nothing, and the Chat menu greys them.
+    /// `None` with nothing chosen, when it is the open chat's. A selection
+    /// never falls through to the open chat.
     pub fn on_selection(&self, command: &ChatCommand) -> Option<OnSelection> {
         self.selecting.as_ref()?;
-        Some(match command {
-            ChatCommand::Archive => OnSelection::Bulk(BulkChatAction::Archive, None),
-            ChatCommand::Delete => OnSelection::Bulk(BulkChatAction::Delete, None),
-            ChatCommand::MoveTo(f) => OnSelection::Bulk(BulkChatAction::Move, Some(f.clone())),
-            ChatCommand::RemoveFromFolder => OnSelection::Bulk(BulkChatAction::Move, None),
-            _ => OnSelection::Nothing,
+        Some(match bulk_action(command) {
+            Some((action, folder)) => OnSelection::Bulk(action, folder),
+            None => OnSelection::Nothing,
         })
     }
 
@@ -4825,6 +4841,81 @@ mod selection_tests {
         });
         assert!(!stopped.get(), "Esc in the name field stopped a reply");
         assert!(daemon.calls::<methods::ChatsRename>().is_empty());
+    }
+
+    /// With chats chosen, the Chat menu greys what the selection would
+    /// swallow (Rename… and the other commands for one chat: a selection
+    /// never falls through to the open chat), and keeps what acts on all
+    /// of the chosen chats.
+    #[gpui_kit::test]
+    fn the_chat_menu_greys_one_chat_commands_while_chats_are_chosen(cx: &mut TestAppContext) {
+        use crate::menus::{ChatMenuState, MenuState, build_menus, export_disabled};
+        let (stores, view, vcx) = bench_on(two_chats_and_a_folder(), cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        // The open chat as the menu bar reads it, everything offered.
+        let state = |choosing: bool| MenuState {
+            choosing,
+            chat: Some(ChatMenuState {
+                pinned: false,
+                archived: false,
+                folder_id: None,
+                unread: false,
+                offered: conduit_protocol::ChatMenuAbilities {
+                    share: true,
+                    duplicate: true,
+                    r#move: true,
+                    mark_unread: true,
+                    generate_title: true,
+                    export: true,
+                },
+                branches: false,
+            }),
+            ..MenuState::default()
+        };
+        let greyed = |state: &MenuState| -> Vec<String> {
+            let menus = build_menus(&L10n::new("en"), state);
+            let chat = menus.iter().find(|m| m.name.as_ref() == "Chat").unwrap();
+            chat.items
+                .iter()
+                .filter_map(|i| match i {
+                    gpui_kit::MenuItem::Action { name, disabled, .. } if *disabled => {
+                        Some(name.to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let one_chat = [
+            "Pin",
+            "Mark as Unread",
+            "Rename…",
+            "Duplicate Chat",
+            "Generate Title",
+            "Share Chat…",
+        ];
+
+        // ⌘-click on B, A open: both chosen.
+        view.update(vcx, |s, cx| s.pick_chat("chat-b", Pick::Toggle, cx));
+        let chosen = state(view.read_with(vcx, |s, _| s.has_selection()));
+        let off = greyed(&chosen);
+        for name in one_chat {
+            assert!(off.iter().any(|o| o == name), "{name} is on: {off:?}");
+        }
+        assert!(export_disabled(&chosen), "Export Chat is on");
+        for name in ["Archive", "Delete…"] {
+            assert!(!off.iter().any(|o| o == name), "{name} is off");
+        }
+
+        // A plain click: A alone, its commands back.
+        view.update(vcx, |s, cx| s.pick_chat("chat-a", Pick::Only, cx));
+        let one = state(view.read_with(vcx, |s, _| s.has_selection()));
+        let off = greyed(&one);
+        for name in one_chat {
+            assert!(!off.iter().any(|o| o == name), "{name} is off: {off:?}");
+        }
+        assert!(!export_disabled(&one));
     }
 
     #[gpui_kit::test]
