@@ -9,6 +9,8 @@ import 'package:conduit_core/database/app_database.dart' show AppDatabase;
 import 'package:conduit_core/database/database_provider.dart'
     show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show apiAuthTokenMirrorProvider, apiServiceProvider;
 import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
@@ -72,6 +74,38 @@ void main() {
       reason: "the drain's outcome landed after dispose returned",
     );
   });
+
+  // CodeRabbit 4651804323.
+  test(
+    'dispose cuts off a pull still out on a client a rebuild retired',
+    () async {
+      final bench = await _Bench.start(holdChatReads: true);
+      await bench.owui.chats.chatReadAsked.future;
+      final database = bench.database;
+      final container = bench.runtime.container;
+      // The session's client is rebuilt under the pull, which keeps the one it
+      // was built with.
+      final retired = container.read(apiServiceProvider);
+      final token = container.read(apiAuthTokenMirrorProvider);
+      container.read(apiAuthTokenMirrorProvider.notifier)
+        ..set('$token-renewed')
+        ..set(token);
+      expect(identical(container.read(apiServiceProvider), retired), isFalse);
+      final row = bench.owui.chats.stored[_chatId]!..['title'] = 'Shelf labels';
+      row['updated_at'] = (row['updated_at'] as int) + 1;
+
+      // The server answers the held read as soon as dispose is asked for.
+      final disposed = bench.dispose();
+      bench.owui.chats.holdChatReads!.complete();
+      await disposed;
+
+      expect(
+        (await database.chatsDao.getChat(_chatId))?.title,
+        isNot('Shelf labels'),
+        reason: "the retired client's pull was answered: dispose waited on it",
+      );
+    },
+  );
 
   test('stopping the daemon cuts off a pull the turns service waits for, '
       'rather than waiting for the server to answer it', () async {

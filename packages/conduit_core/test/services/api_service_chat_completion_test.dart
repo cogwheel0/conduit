@@ -13,6 +13,7 @@ import 'package:conduit_core/services/openwebui_stream_parser.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -956,6 +957,47 @@ void main() {
           session.byteStream!.toList().timeout(const Duration(seconds: 10)),
         ).throws<HeldReplyUnresolved>();
         check(adapter.requests).length.equals(4);
+      });
+
+      // Pullfrog 4651773023.
+      test('ends at once when its client is closed now, so nothing waits on '
+          'the server', () {
+        fakeAsync((async) {
+          final adapter = _QueuedFakeAdapter([
+            _TimeoutResponse(),
+            for (var i = 0; i < 5; i++)
+              _FakeAdapter.json(savedChat(reply('Hel', done: false))),
+          ]);
+          final api = _buildApiServiceForTest(adapter);
+          ChatCompletionSession? session;
+          unawaited(
+            api
+                .sendMessageSession(
+                  messages: _minimalMessages,
+                  model: _model,
+                  conversationId: 'chat-1',
+                  responseMessageId: 'reply-1',
+                )
+                .then((value) => session = value),
+          );
+          async.elapse(Duration.zero);
+          Object? ended;
+          unawaited(
+            session!.byteStream!.drain<void>().then(
+              (_) => ended = 'a clean end',
+              onError: (Object error) => ended = error,
+            ),
+          );
+          async.elapse(Duration.zero);
+          // The saved reply was read once, still running.
+          check(adapter.requests).length.equals(2);
+
+          api.closeNow();
+          async.elapse(Duration.zero);
+
+          check(ended).isA<HeldReplyAbandoned>();
+          check(adapter.requests).length.equals(2);
+        });
       });
 
       test('stops waiting when the session is aborted while its stream is '

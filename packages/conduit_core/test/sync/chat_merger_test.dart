@@ -34,7 +34,7 @@ ChatRows rowsFor({
     final spec = entry.value;
     messageMap[entry.key] = <String, dynamic>{
       'id': entry.key,
-      'parentId': spec['parentId'],
+      if (spec['omitParentId'] != true) 'parentId': spec['parentId'],
       'childrenIds': childrenByParent[entry.key] ?? <String>[],
       'role': spec['role'] ?? 'user',
       'content': spec['content'] ?? 'content of ${entry.key}',
@@ -243,6 +243,38 @@ void main() {
       final result = pull({'content': 'The middle one', 'done': true});
 
       check(answer(result).content).equals('The middle one');
+    });
+
+    // Macroscope 4651764897.
+    test('sits where the server has it, a parent the server no longer names '
+        'included', () {
+      final result = mergeChat(
+        server: rowsFor(
+          chatId: 'c',
+          messages: {
+            'a': {
+              'role': 'assistant',
+              'content': '',
+              'done': false,
+              'omitParentId': true,
+            },
+          },
+          currentId: 'a',
+          updatedAt: 300,
+        ),
+        local: local,
+        base: 200,
+        chatEnvelopeDirty: false,
+        dirtyMessageIds: const {},
+      );
+
+      check(answer(result).content).equals('The top one');
+      check(answer(result).parentId).isNull();
+      final messages =
+          (ChatBlobMapper.rowsToBlob(result.merged)['history']
+                  as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      check((messages['a'] as Map<String, dynamic>)['parentId']).isNull();
     });
   });
 

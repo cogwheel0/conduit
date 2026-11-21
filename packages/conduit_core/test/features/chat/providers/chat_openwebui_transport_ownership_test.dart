@@ -5373,6 +5373,53 @@ void main() {
     },
   );
 
+  // Pullfrog 4651773023.
+  test('a held reply abandoned as its client closes leaves the turn queued, '
+      'neither recovered nor failed', () async {
+    const chatId = 'abandoned-chat';
+    const assistantId = 'abandoned-assistant';
+    await _seedChat(db, chatId, assistantId: assistantId);
+    final release = Completer<void>()..complete();
+    final api = _GatedCompletionApi(release);
+    final syncEngine = _PersistingSyncEngine(db, api);
+    final messages = <ChatMessage>[
+      _user('user', 'hello'),
+      _streamingAssistant(assistantId, ''),
+    ];
+    final container = _container(
+      db: db,
+      active: _conversation(chatId, messages, ChatStorageKind.openWebUi),
+      messages: messages,
+      api: api,
+      syncEngine: syncEngine,
+    );
+    addTearDown(container.dispose);
+    final session = ChatCompletionSession.httpStream(
+      messageId: assistantId,
+      conversationId: chatId,
+      byteStream: Stream<List<int>>.error(const HeldReplyAbandoned()),
+      abort: () async {},
+    );
+
+    await check(
+      finishSubmittedOpenWebUiCompletionHeadlesslyForTest(
+        container,
+        session: session,
+        chatId: chatId,
+        assistantMessageId: assistantId,
+        recoveryAttempts: 2,
+        recoveryDelay: Duration.zero,
+      ),
+    ).throws<OutboxDeferralException>();
+
+    check(syncEngine.pulls).equals(0);
+    final payload = jsonDecode(
+      (await db.messagesDao.getMessage(chatId, assistantId))!.payload,
+    ) as Map<String, dynamic>;
+    check(payload['error']).isNull();
+    check(payload['done']).not((it) => it.equals(true));
+  });
+
   test(
     'socket bind loss returns unattached and cannot mutate the new chat',
     () async {
@@ -12150,6 +12197,196 @@ void main() {
         final stored = await storedAnswer(serverId, id);
         check(stored['content']).equals(content);
         check(stored['done']).equals(true);
+      }
+    });
+
+    /// Holds every push of a chat at the server until the test ends.
+    void holdPushes(FakeSyncApiClient client) {
+      final pushed = Completer<void>();
+      client.updateChatGate = pushed.future;
+      addTearDown(() {
+        if (!pushed.isCompleted) pushed.complete();
+      });
+    }
+
+    Future<bool> dirty(String chatId, String id) async =>
+        (await db.messagesDao.getMessage(chatId, id))!.dirty;
+
+    // Macroscope 4651764894, Qodo 1, CodeRabbit 4651804332.
+    test('a Stop whose answers were stored in part before the server took it '
+        'sends each of them once it does', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      // The store takes the first answer, and refuses the second.
+      final lift = await rejectStoppedAnswers(b, b);
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      await lift();
+      final stored = container
+          .read(chatMessagesProvider.notifier)
+          .settlePendingStoppedAnswers(
+            chatId: serverId,
+            database: db,
+            api: api,
+            authSessionEpoch: container.read(openWebUiAuthSessionEpochProvider),
+          );
+      check(stored).isNotNull();
+      check(await stored!).isTrue();
+
+      api.stopFailure = null;
+      holdPushes(client);
+      check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
+
+      for (final id in [a, b]) {
+        check(
+          await dirty(serverId, id),
+          because: '$id goes to the server',
+        ).isTrue();
+      }
+    });
+
+    // Macroscope 4651764896, Greptile 4651769232, Pullfrog 4651773028.
+    test('a Stop the server takes late leaves alone a finished answer a pull '
+        'brought since, though its text is the same', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      // The server finishes both with the text already shown here, and with
+      // what this device never had.
+      final server = client.server;
+      final chat =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final messages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final (id, content) in [(a, 'A so far'), (b, 'B so far')]) {
+        messages[id] = <String, dynamic>{
+          ...messages[id] as Map<String, dynamic>,
+          'content': content,
+          'done': true,
+          'usage': <String, dynamic>{'output_tokens': 3},
+        };
+      }
+      server
+        ..tick()
+        ..updateChat(serverId, chat);
+      await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
+
+      api.stopFailure = null;
+      holdPushes(client);
+      check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
+
+      check(
+        await db.outboxDao.hasUnconfirmedUpdate(serverId),
+        because: 'the finished answers are the server\'s, not this stop\'s',
+      ).isFalse();
+      for (final id in [a, b]) {
+        check((await storedAnswer(serverId, id))['usage'])
+            .isA<Map<String, dynamic>>()
+            .deepEquals({'output_tokens': 3});
+      }
+    });
+
+    // CodeRabbit 4651804328.
+    test('a Stop the server takes stores the answers a failed write left, '
+        'itself', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      final lift = await rejectStoppedAnswers(a, b);
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      await lift();
+
+      api.stopFailure = null;
+      holdPushes(client);
+      final cancellation = container
+          .read(chatMessagesProvider.notifier)
+          .settlePendingCancellation(
+            chatId: serverId,
+            database: db,
+            api: api,
+            authSessionEpoch: container.read(openWebUiAuthSessionEpochProvider),
+          );
+      check(cancellation).isNotNull();
+      check(await cancellation!).isTrue();
+
+      for (final id in [a, b]) {
+        check((await storedAnswer(serverId, id))['done']).equals(true);
+        check(await dirty(serverId, id)).isTrue();
+      }
+    });
+
+    // Qodo 3.
+    test('a later Stop in the chat leaves alone the answers of an earlier one '
+        'the server never took', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+
+      api.stopFailure = null;
+      final next = await durableCompareSend(
+        container,
+        'compare again',
+        null,
+        models: const [duplicate, duplicate],
+      );
+      final a2 = next.first.assistantMessageId;
+      final b2 = next.last.assistantMessageId;
+      socket.deliver(a2, 'chat:completion', {'content': 'A again'});
+      socket.deliver(b2, 'chat:completion', {'content': 'B again'});
+      holdPushes(client);
+      check(await container.read(stopGenerationSettledProvider)()).isTrue();
+
+      for (final id in [a, b]) {
+        check(
+          await dirty(serverId, id),
+          because: 'its stop was never taken',
+        ).isFalse();
+      }
+      for (final id in [a2, b2]) {
+        check(await dirty(serverId, id)).isTrue();
+      }
+    });
+
+    // CodeRabbit 4651804336.
+    test('a rename after a Stop the server never took carries none of the '
+        'stopped text', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      final pushed = Completer<Map<String, dynamic>>();
+      client.onUpdateChat = (id, blob) {
+        if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
+      };
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        serverId,
+        title: const Value('Shelves'),
+        enqueue: true,
+      );
+      unawaited(container.read(syncEngineProvider.notifier).drainOutbox());
+      final blob = await pushed.future;
+
+      final messages =
+          (blob['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final id in [a, b]) {
+        final message = messages[id] as Map<String, dynamic>;
+        check(message['content']).equals('');
+        check(message['done']).not((it) => it.equals(true));
       }
     });
 
