@@ -413,7 +413,8 @@ class MediaUploadController {
   ///
   /// The send holds them until it retires the snapshot or releases it
   /// ([releaseSentAttachments]): one removed from the tray meanwhile keeps its
-  /// staged copy, which the send still reads, until then.
+  /// staged copy, which the send still reads, until the last send holding it
+  /// is done.
   MediaAttachmentOwnershipSnapshot captureSentAttachments() {
     final sent = _captureOwnership([
       for (final attachment in _ref.read(attachedFilesProvider))
@@ -421,14 +422,22 @@ class MediaUploadController {
             attachment.fileId != null)
           attachment,
     ]);
-    _sending[sent] = <String>{};
+    _sending[sent] = {
+      for (final owner in sent._attachments) owner.attachment.file.path,
+    };
     return sent;
   }
 
-  /// The sends holding their files, each with the paths removed from the tray
-  /// while it did, whose cleanup waits for the send.
+  /// The paths each send not yet done holds ([captureSentAttachments]).
   final Map<MediaAttachmentOwnershipSnapshot, Set<String>> _sending =
       Map.identity();
+
+  /// Paths that left the tray while a send held them, whose cleanup waits for
+  /// the last send holding them.
+  final Set<String> _removedWhileSent = <String>{};
+
+  bool _sentHolds(String filePath) =>
+      _sending.values.any((paths) => paths.contains(filePath));
 
   MediaAttachmentOwnershipSnapshot _captureOwnership(
     List<FileUploadState> attachments,
@@ -454,13 +463,19 @@ class MediaUploadController {
   /// removed from the tray meanwhile are cleaned up now, as their removal
   /// would have. Nothing is left to release once the snapshot is retired.
   Future<void> releaseSentAttachments(MediaAttachmentOwnershipSnapshot sent) {
-    final removed = _sending.remove(sent);
-    if (removed == null || removed.isEmpty) return Future<void>.value();
-    return Future.wait<void>([
-      for (final filePath in removed)
-        if (_currentAttachment(filePath) == null)
-          cancelUploadsForFile(filePath),
-    ]).then<void>((_) {});
+    final held = _sending.remove(sent);
+    if (held == null) return Future<void>.value();
+    final cleanups = <Future<void>>[];
+    for (final filePath in held) {
+      if (!_removedWhileSent.contains(filePath) || _sentHolds(filePath)) {
+        continue;
+      }
+      _removedWhileSent.remove(filePath);
+      if (_currentAttachment(filePath) == null) {
+        cleanups.add(cancelUploadsForFile(filePath));
+      }
+    }
+    return Future.wait<void>(cleanups).then<void>((_) {});
   }
 
   /// Retires only owners captured by [captureAttachmentOwnership].
@@ -470,7 +485,7 @@ class MediaUploadController {
     final notifier = _ref.read(attachedFilesProvider.notifier);
     final cleanups = <Future<void>>[];
     final retiredPaths = <String>{};
-    final removedWhileSending = _sending.remove(snapshot) ?? const <String>{};
+    _sending.remove(snapshot);
 
     for (final owner in snapshot._attachments) {
       final latestInflightAttachment = owner.inflight?.attachmentOwner;
@@ -482,12 +497,18 @@ class MediaUploadController {
       }
       final removedAttachment = latestInflightAttachment ?? owner.attachment;
       final filePath = owner.attachment.file.path;
-      if (!(removed || removedWhileSending.contains(filePath)) ||
+      if (!(removed || _removedWhileSent.contains(filePath)) ||
           owner.attachment.isRemote ||
           filePath.startsWith('remote://') ||
           !retiredPaths.add(filePath)) {
         continue;
       }
+      // Another send still reads it: its cleanup waits for that one.
+      if (_sentHolds(filePath)) {
+        _removedWhileSent.add(filePath);
+        continue;
+      }
+      _removedWhileSent.remove(filePath);
       cleanups.add(
         _retireCapturedAttachment(
           filePath: filePath,
@@ -941,13 +962,9 @@ class MediaUploadController {
     if (isRemote || filePath.startsWith('remote://')) {
       return Future<void>.value();
     }
-    for (final MapEntry(key: sent, value: removed) in _sending.entries) {
-      if (sent._attachments.any(
-        (owner) => owner.attachment.file.path == filePath,
-      )) {
-        removed.add(filePath);
-        return Future<void>.value();
-      }
+    if (_sentHolds(filePath)) {
+      _removedWhileSent.add(filePath);
+      return Future<void>.value();
     }
     return cancelUploadsForFile(filePath);
   }

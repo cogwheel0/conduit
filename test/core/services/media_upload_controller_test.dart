@@ -1976,16 +1976,22 @@ void main() {
     expect(container.read(attachedFilesProvider), [same(uploading)]);
   });
 
-  for (final (label, sent) in const [('sent', true), ('not sent', false)]) {
-    test('a staged file removed while a send holds it keeps its bytes until '
-        'the send is done with it ($label)', () async {
+  // Each entry of [finishes] is one send holding the file, done in turn:
+  // sent (retired) or not.
+  for (final (index, (label, cleared, finishes)) in const [
+    ('removed; sent', false, [true]),
+    ('removed; not sent', false, [false]),
+    ('removed; two sends hold it', false, [true, false]),
+  ].indexed) {
+    test('a staged file a send holds keeps its bytes until the last send '
+        'holding it is done ($label)', () async {
       final stagingDirectory = Directory(
         '${Directory.systemTemp.path}/conduit-native-paste',
       );
       await stagingDirectory.create();
       final document = File(
         '${stagingDirectory.path}/'
-        '123e4567-e89b-12d3-a456-42661417412${sent ? 0 : 1}-notes.txt',
+        '123e4567-e89b-12d3-a456-4266141741${20 + index}-notes.txt',
       );
       await document.writeAsString('heron notes');
       addTearDown(() async {
@@ -2010,16 +2016,22 @@ void main() {
       );
       addTearDown(container.dispose);
       final controller = container.read(mediaUploadControllerProvider);
-      final taken = controller.captureSentAttachments();
+      final sends = [
+        for (final _ in finishes) controller.captureSentAttachments(),
+      ];
 
-      await controller.removeAttachment(document.path);
-
+      if (cleared) {
+        await controller.clearAttachments();
+      } else {
+        await controller.removeAttachment(document.path);
+      }
       expect(container.read(attachedFilesProvider), isEmpty);
-      expect(await document.exists(), isTrue);
 
-      if (sent) await controller.retireAttachmentOwnership(taken);
-      await controller.releaseSentAttachments(taken);
-
+      for (final (i, sent) in finishes.indexed) {
+        expect(await document.exists(), isTrue);
+        if (sent) await controller.retireAttachmentOwnership(sends[i]);
+        await controller.releaseSentAttachments(sends[i]);
+      }
       expect(await document.exists(), isFalse);
     });
   }
