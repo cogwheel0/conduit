@@ -153,8 +153,13 @@ WebEmbedServerMedia extractWebEmbedServerMedia(
 
   // The parser's offsets count line breaks as one, as a browser reads them.
   final text = html.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-  final scan = _MediaScan(server, maxItems)
-    ..visit(HtmlParser(text, generateSpans: true).parse());
+  final document = HtmlParser(text, generateSpans: true).parse();
+  final baseHref = _baseHref(document);
+  final scan = _MediaScan(
+    server,
+    maxItems,
+    base: baseHref == null ? null : _resolve(baseHref, server),
+  )..visit(document);
   final taken = scan.taken..sort((a, b) => a.start.compareTo(b.start));
   if (taken.isEmpty) return unchanged;
 
@@ -184,8 +189,20 @@ WebEmbedServerMedia extractWebEmbedServerMedia(
 /// It is read as a browser reads an http(s) address: surrounding space, tabs
 /// and line breaks dropped, and a backslash as a slash. A path from the root
 /// joins the server's own path, as the app joins a server path for images; a
-/// relative one resolves under it.
-Uri? resolveWebEmbedServerMediaUrl(String src, Uri server) {
+/// relative one resolves under it, or under the page's [base] address when
+/// it has one (`<base href>`, resolved the same way).
+Uri? resolveWebEmbedServerMediaUrl(String src, Uri server, {Uri? base}) {
+  final resolved = _resolve(src, server, base: base);
+  if (resolved == null ||
+      resolved.userInfo.isNotEmpty ||
+      !resolved.hasScheme ||
+      !imageUrlIsServerOrigin(server.toString(), resolved.toString())) {
+    return null;
+  }
+  return resolved.removeFragment().normalizePath();
+}
+
+Uri? _resolve(String src, Uri server, {Uri? base}) {
   final raw = src
       .trim()
       .replaceAll(RegExp('[\t\n\r]'), '')
@@ -198,33 +215,53 @@ Uri? resolveWebEmbedServerMediaUrl(String src, Uri server) {
     return null;
   }
 
-  final Uri resolved;
   if (reference.hasScheme || raw.startsWith('//')) {
-    resolved = server.resolveUri(reference);
-  } else if (raw.startsWith('/')) {
+    return server.resolveUri(reference);
+  }
+  // A base anywhere else takes every relative address with it.
+  if (base != null &&
+      (!raw.startsWith('/') ||
+          !imageUrlIsServerOrigin(server.toString(), base.toString()))) {
+    return base.resolveUri(reference);
+  }
+  if (raw.startsWith('/')) {
     final root = server.path.endsWith('/')
         ? server.path.substring(0, server.path.length - 1)
         : server.path;
-    resolved = Uri(
+    return Uri(
       scheme: server.scheme,
       host: server.host,
       port: server.hasPort ? server.port : null,
       path: '$root${reference.path}',
       query: reference.hasQuery ? reference.query : null,
     );
-  } else {
-    final base = server.path.endsWith('/')
-        ? server
-        : server.replace(path: '${server.path}/');
-    resolved = base.resolveUri(reference);
   }
+  final directory = server.path.endsWith('/')
+      ? server
+      : server.replace(path: '${server.path}/');
+  return directory.resolveUri(reference);
+}
 
-  if (resolved.userInfo.isNotEmpty ||
-      !resolved.hasScheme ||
-      !imageUrlIsServerOrigin(server.toString(), resolved.toString())) {
-    return null;
+/// The page's base address as written: the first `<base>` with an `href`,
+/// wherever it sits, as a browser takes it. A template's content is not in
+/// the page, and with scripts on, neither is a noscript's.
+String? _baseHref(Node node) {
+  for (final child in node.nodes) {
+    if (child is! Element) continue;
+    final html = child.namespaceUri == _htmlNamespace;
+    if (html &&
+        (child.localName == 'template' || child.localName == 'noscript')) {
+      continue;
+    }
+    if (html &&
+        child.localName == 'base' &&
+        child.attributes.containsKey('href')) {
+      return child.attributes['href'];
+    }
+    final found = _baseHref(child);
+    if (found != null) return found;
   }
-  return resolved.removeFragment().normalizePath();
+  return null;
 }
 
 final class _Taken {
@@ -237,10 +274,11 @@ final class _Taken {
 }
 
 final class _MediaScan {
-  _MediaScan(this.server, this.maxItems);
+  _MediaScan(this.server, this.maxItems, {this.base});
 
   final Uri server;
   final int maxItems;
+  final Uri? base;
   final List<_Taken> taken = [];
 
   /// Whether anything but the media taken would show.
@@ -306,7 +344,7 @@ final class _MediaScan {
           ];
     final urls = <Uri>[];
     for (final source in sources) {
-      final url = resolveWebEmbedServerMediaUrl(source, server);
+      final url = resolveWebEmbedServerMediaUrl(source, server, base: base);
       if (url == null) return null;
       if (!urls.contains(url)) urls.add(url);
     }

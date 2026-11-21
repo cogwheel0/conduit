@@ -118,6 +118,34 @@ void main() {
       }
     });
 
+    test("resolves relative addresses against the page's base", () {
+      check(
+        _extract(
+          '<base href="/api/v1/files/"><audio controls src="f1/content">'
+          '</audio>',
+        ).items.map((it) => it.url.toString()),
+      ).deepEquals(['https://chat.example.test/api/v1/files/f1/content']);
+
+      // A base anywhere else takes relative media there, so it stays, even
+      // with the base after it: a page has one base address.
+      for (final html in [
+        '<base href="https://cdn.example.test/media/">'
+            '<audio controls src="clip.mp3"></audio>',
+        '<audio controls src="/api/v1/files/f1/content"></audio>'
+            '<base href="https://cdn.example.test/">',
+      ]) {
+        final media = _extract(html);
+        check(because: html, media.items).isEmpty();
+        check(because: html, media.html).equals(html);
+      }
+      check(
+        _extract(
+          '<base href="https://cdn.example.test/">'
+          '<audio controls src="https://chat.example.test/a.mp3"></audio>',
+        ).items.map((it) => it.url.toString()),
+      ).deepEquals(['https://chat.example.test/a.mp3']);
+    });
+
     test('leaves media on any other origin in the page as it is', () {
       for (final html in [
         '<audio controls src="https://cdn.example.test/a.mp3"></audio>',
