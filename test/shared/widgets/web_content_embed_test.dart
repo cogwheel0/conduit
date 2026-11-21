@@ -579,7 +579,7 @@ void main() {
       await tester.pump();
 
       // The first account's transfer is let go, and nothing of it is kept.
-      check(cache.released).isGreaterOrEqual(1);
+      check(cache.released).contains(cache.claims.single);
       check(find.byTooltip('Play').evaluate()).length.equals(1);
 
       await tester.tap(find.byTooltip('Play'));
@@ -616,7 +616,7 @@ void main() {
         // Another account starts over, and lets the first one's transfer go.
         _container(tester).read(_activeToken.notifier).set('another-account');
         await tester.pump();
-        check(cache.released).isGreaterOrEqual(1);
+        check(cache.released).contains(cache.claims.single);
         check(find.byTooltip('Play Audio').evaluate()).length.equals(1);
       });
 
@@ -739,10 +739,11 @@ class _RecordingVideoCache extends VideoAttachmentCache {
   final List<VideoTransport Function(String url)> transports = [];
   final List<Completer<File>> pending = [];
   final List<String Function(String? mediaType)?> replyExtensions = [];
-  int released = 0;
+  final List<VideoDownloadClaim> claims = [];
+  final List<VideoDownloadClaim> released = [];
 
   @override
-  void releaseDownload(VideoDownloadClaim claim) => released++;
+  void releaseDownload(VideoDownloadClaim claim) => released.add(claim);
 
   @override
   Future<File> fetchForPlayback({
@@ -754,6 +755,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required bool Function() isCurrent,
     String Function(String? mediaType)? extensionForReply,
   }) {
+    claims.add(claim);
     urls.add(url);
     cacheIdentities.add(cacheIdentity);
     transports.add(transport);
