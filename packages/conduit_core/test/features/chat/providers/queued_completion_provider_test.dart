@@ -344,40 +344,36 @@ void main() {
     },
   );
 
-  test('a single transient retry (attempts=1) stays hidden — no flash on the '
-      'cold-connection first send', () async {
-    const chatId = 'c1';
-    const assistantId = 'a1';
-    final seq = await enqueueCompletion(chatId, assistantId);
-    // First attempt failed transiently (e.g. cold connection); auto-retry
-    // scheduled with backoff. attempts -> 1, non-offline error.
-    await db.outboxDao.markFailedRetryable(
-      seq,
-      error: 'Connection closed',
-      nextAttemptAt: 1,
+  // Once the connection is gone the drainer tries nothing until it is back,
+  // so the retry that hides a single failure online waits for it.
+  for (final online in [true, false]) {
+    test(
+      'a single transient retry (attempts=1) '
+      '${online ? 'stays hidden — no flash on the cold-connection first send' : 'shows as queued once the connection is gone'}',
+      () async {
+        const chatId = 'c1';
+        const assistantId = 'a1';
+        final seq = await enqueueCompletion(chatId, assistantId);
+        // First attempt failed transiently (e.g. cold connection); auto-retry
+        // scheduled with backoff. attempts -> 1, non-offline error.
+        await db.outboxDao.markFailedRetryable(
+          seq,
+          error: 'Connection closed',
+          nextAttemptAt: 1,
+        );
+
+        final container = makeContainer(online: online, chatId: chatId);
+        final info = await firstInfo(container, assistantId);
+        if (online) {
+          check(info).isNull();
+        } else {
+          check(info).isNotNull()
+            ..has((i) => i.isOffline, 'isOffline').isTrue()
+            ..has((i) => i.lastError, 'lastError').equals('Connection closed');
+        }
+      },
     );
-
-    final container = makeContainer(online: true, chatId: chatId);
-    check(await firstInfo(container, assistantId)).isNull();
-  });
-
-  test('a completion tried once shows as queued once the connection is '
-      'gone', () async {
-    const chatId = 'c1';
-    const assistantId = 'a1';
-    final seq = await enqueueCompletion(chatId, assistantId);
-    await db.outboxDao.markFailedRetryable(
-      seq,
-      error: 'Connection closed',
-      nextAttemptAt: 1,
-    );
-
-    final container = makeContainer(online: false, chatId: chatId);
-    final info = await firstInfo(container, assistantId);
-    check(info).isNotNull()
-      ..has((i) => i.isOffline, 'isOffline').isTrue()
-      ..has((i) => i.lastError, 'lastError').equals('Connection closed');
-  });
+  }
 
   test('a stalled completion (attempts >= 2) surfaces the banner', () async {
     const chatId = 'c1';

@@ -358,6 +358,12 @@ void main() {
         '<summary>Thought for 2 seconds</summary>\n'
         '> Fronts turn the wind.\n'
         '</details>';
+    // The same block with more of the model's reasoning.
+    const moreReasoning =
+        '<details type="reasoning" done="true" duration="2">\n'
+        '<summary>Thought for 2 seconds</summary>\n'
+        '> Fronts turn the wind, and the wind backs behind them.\n'
+        '</details>';
 
     /// The chat open, stored as this device stored it when the answer
     /// started, and the answer streaming here over the socket with
@@ -435,47 +441,25 @@ void main() {
       }
     }
 
-    test('settles with what streamed here, and the connection lost, once '
-        'the server runs no task for it', () {
-      fakeAsync((async) {
-        final api = _FakeApiService(_chat([question]));
-        final (:notifier, :db, :container) = streamHere(
-          async,
-          api,
-          'Gales veer as the front',
-        );
-        check(api.taskLookups).equals(1);
-
-        // The server stopped and is back: it runs no task for the chat, and
-        // keeps the answer not done and empty, as it was when it stopped.
-        api
-          ..taskIds = const <String>[]
-          ..conversation = _chat([
-            question,
-            _message(answerId, 'assistant', '').copyWith(metadata: unfinished),
-          ]);
-        pollTasks(async, notifier);
-
-        final answer = container.read(chatMessagesProvider).last;
-        check(answer.isStreaming).isFalse();
-        check(answer.content).equals('Gales veer as the front');
-        check(answer.error?.content)
-            .equals(TemporaryChatResume.connectionLostMessage);
-        check(storedAnswer(async, db))
-          ..has(
-            (it) => it['content'],
-            'content',
-          ).equals('Gales veer as the front')
-          ..has((it) => it['done'], 'done').equals(true);
-      });
-    });
-
     // Whichever copy holds more is kept, by its text without its reasoning
     // or tool blocks, not by one being the other's beginning. Those blocks
-    // count only between copies with as much text. The error is stored with
-    // it, so the chat opens on it, with Retry.
+    // count only between copies with as much text, the one with more
+    // reasoning first. The error is stored with it, so the chat opens on it,
+    // with Retry.
     for (final (label, streamed, onServer, kept)
         in <(String, String, String, String)>[
+          (
+            'no text, as it saved none before it stopped',
+            'Gales veer as the front',
+            '',
+            'Gales veer as the front',
+          ),
+          (
+            'the same text, with less of the reasoning that streamed here',
+            '$moreReasoning\nGales veer',
+            '$reasoning\nGales veer',
+            '$moreReasoning\nGales veer',
+          ),
           (
             'more text, without the reasoning that streamed here',
             '$reasoning\nGales veer',
@@ -507,6 +491,9 @@ void main() {
         fakeAsync((async) {
           final api = _FakeApiService(_chat([question]));
           final (:notifier, :db, :container) = streamHere(async, api, streamed);
+          check(api.taskLookups).equals(1);
+          // The server stopped and is back: it runs no task for the chat,
+          // and keeps the answer not done, as it was when it stopped.
           api
             ..taskIds = const <String>[]
             ..conversation = _chat([
@@ -534,52 +521,59 @@ void main() {
       });
     }
 
-    test('a cut-off answer stored late leaves a finished answer the store '
-        'got meanwhile as it is, with no error', () {
-      fakeAsync((async) {
-        final api = _FakeApiService(_chat([question]));
-        final (:notifier, :db, container: _) = streamHere(
-          async,
-          api,
-          'Gales veer',
-        );
-        // A pull stored the finished answer, before the cut-off copy is.
-        unawaited(
-          db.messagesDao.upsertLocalEchoTurn(
-            chatId: 'chat-1',
-            user: localEchoRowForMessage('chat-1', question),
-            assistant: localEchoRowForMessage(
-              'chat-1',
+    // A copy stored late never cuts a stored answer short: one the store
+    // got finished meanwhile stays as it is, with no error, and an unfinished
+    // one with more text keeps it, finished with the error.
+    for (final finished in [true, false]) {
+      test('a cut-off answer stored late keeps the more of a stored answer '
+          'that is ${finished ? 'finished' : 'unfinished'}', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (:notifier, :db, container: _) = streamHere(
+            async,
+            api,
+            'Gales veer',
+          );
+          // A pull stored a fuller answer, before the cut-off copy is.
+          unawaited(
+            db.messagesDao.upsertLocalEchoTurn(
+              chatId: 'chat-1',
+              user: localEchoRowForMessage('chat-1', question),
+              assistant: localEchoRowForMessage(
+                'chat-1',
+                _message(
+                  answerId,
+                  'assistant',
+                  'Gales veer as the warm front passes',
+                ).copyWith(isStreaming: !finished),
+              ),
+            ),
+          );
+          async.flushMicrotasks();
+          api
+            ..taskIds = const <String>[]
+            ..conversation = _chat([
+              question,
               _message(
                 answerId,
                 'assistant',
-                'Gales veer as the warm front passes',
-              ),
-            ),
-          ),
-        );
-        async.flushMicrotasks();
-        api
-          ..taskIds = const <String>[]
-          ..conversation = _chat([
-            question,
-            _message(
-              answerId,
-              'assistant',
-              'Gales veer',
-            ).copyWith(metadata: unfinished),
-          ]);
-        pollTasks(async, notifier);
+                'Gales veer',
+              ).copyWith(metadata: unfinished),
+            ]);
+          pollTasks(async, notifier);
 
-        check(storedAnswer(async, db))
-          ..has(
-            (it) => it['content'],
-            'content',
-          ).equals('Gales veer as the warm front passes')
-          ..has((it) => it['done'], 'done').equals(true)
-          ..has((it) => it['error'], 'error').isNull();
+          check(storedAnswer(async, db))
+            ..has(
+              (it) => it['content'],
+              'content',
+            ).equals('Gales veer as the warm front passes')
+            ..has((it) => it['done'], 'done').equals(true)
+            ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(
+              finished ? null : TemporaryChatResume.connectionLostMessage,
+            );
+        });
       });
-    });
+    }
 
     // A Responses stream sends output snapshots, and text deltas between
     // them that only the text takes: the stored text is read from the

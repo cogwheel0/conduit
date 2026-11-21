@@ -5094,8 +5094,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       await owed.locks.runExclusive(chatId, () async {
         final rows = <MessageRowData>[];
         for (final ended in owed.answers) {
-          final answer = _withOutputAsShown(ended);
-          final stored = await db.messagesDao.getMessage(chatId, answer.id);
+          final shown = _withOutputAsShown(ended);
+          final stored = await db.messagesDao.getMessage(chatId, shown.id);
           // An answer with no stored row was never made durable; this does not
           // create one.
           if (stored == null) continue;
@@ -5103,6 +5103,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           final current = decoded is Map
               ? Map<String, dynamic>.from(decoded)
               : <String, dynamic>{};
+          final storedOutput = current['output'] is List
+              ? <Map<String, dynamic>>[
+                  for (final item in current['output'] as List)
+                    if (item is Map) Map<String, dynamic>.from(item),
+                ]
+              : null;
+          final storedHoldsMore = _holdsMoreThan(
+            stored.content,
+            storedOutput,
+            persistedMessageContent(shown),
+            shown.output,
+          );
           // A result the store already has as finished, holding as much, is
           // newer than this stop or cut-off, and stays as it is, with no
           // error added, unless it is still exactly what this stop stored here
@@ -5110,20 +5122,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           // finishing an answer that no task runs with the text it had
           // stored, often none.
           final storedByThisStop = _isStoredByThisStop(
-            owed.storedHere[answer.id],
+            owed.storedHere[shown.id],
             stored,
           );
-          final storedOutput = current['output'];
           if (current['done'] == true &&
               !storedByThisStop &&
               !_holdsMoreThan(
-                persistedMessageContent(answer),
-                answer.output,
+                persistedMessageContent(shown),
+                shown.output,
                 stored.content,
-                storedOutput is List ? storedOutput : null,
+                storedOutput,
               )) {
             continue;
           }
+          // Never cut a stored answer short: an unfinished one that holds
+          // more is finished with its own text and output.
+          final answer = storedHoldsMore
+              ? shown.copyWith(content: stored.content, output: storedOutput)
+              : shown;
           final settled = localEchoRowForMessage(chatId, answer).payload;
           final metadata = <String, dynamic>{
             if (current['metadata'] is Map)
@@ -6605,7 +6621,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
 /// Whether an answer's [content] and [output] hold more than another copy of
 /// it ([otherContent], [otherOutput]): more text, or, with as much text, more
-/// output items or a reasoning or tool block where the copy has none. Text is
+/// text in its reasoning and tool blocks, more output items, a block where
+/// the copy has none, or the reasoning's duration the copy lacks. Text is
 /// compared without those blocks, which two renders of one answer write
 /// differently, and they never outweigh more text.
 bool _holdsMoreThan(
@@ -6617,10 +6634,29 @@ bool _holdsMoreThan(
   final text = comparableAssistantBody(content).length;
   final otherText = comparableAssistantBody(otherContent).length;
   if (text != otherText) return text > otherText;
-  return (output?.length ?? 0) > (otherOutput?.length ?? 0) ||
-      (containsRenderedSemanticDetails(content) &&
-          !containsRenderedSemanticDetails(otherContent));
+  final blockText = _detailsTextLength(content);
+  final otherBlockText = _detailsTextLength(otherContent);
+  if (blockText != otherBlockText) return blockText > otherBlockText;
+  final items = output?.length ?? 0;
+  final otherItems = otherOutput?.length ?? 0;
+  if (items != otherItems) return items > otherItems;
+  return (containsRenderedSemanticDetails(content) &&
+          !containsRenderedSemanticDetails(otherContent)) ||
+      serverBodyDropsLocalReasoningTiming(content, otherContent);
 }
+
+final RegExp _detailsMarkup = RegExp(
+  r'<details\b[^>]*>|</details>|<summary\b[^>]*>[\s\S]*?</summary>',
+  caseSensitive: false,
+);
+final RegExp _whitespace = RegExp(r'\s+');
+
+/// How much text [content]'s reasoning and tool blocks hold, without their
+/// tags and summaries, which carry the duration and so differ between two
+/// renders of one block.
+int _detailsTextLength(String content) =>
+    content.replaceAll(_detailsMarkup, '').replaceAll(_whitespace, '').length -
+    comparableAssistantBody(content).replaceAll(_whitespace, '').length;
 
 /// [answer] with an `output` that holds all the text it shows, for storing:
 /// a stored answer's text is read from its output, and a Responses stream
