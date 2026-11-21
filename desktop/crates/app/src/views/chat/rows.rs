@@ -672,9 +672,14 @@ impl AssistantRow {
         self.suggestions_height.get()
     }
 
-    /// All of its text is out: no paced release is left to draw.
-    pub(super) fn text_out(&self) -> bool {
+    /// All of its text is out: no paced release is left to draw, in it or
+    /// in any of a comparison's columns.
+    pub(super) fn text_out(&self, cx: &App) -> bool {
         self.paces.is_empty()
+            && self
+                .compare
+                .iter()
+                .all(|(_, column)| column.read(cx).text_out(cx))
     }
 
     /// The newest answer, just finished, whose suggestions may still come
@@ -2485,7 +2490,7 @@ impl RowView {
     /// All of an answer's text is out, as last drawn.
     pub fn text_out(&self, cx: &App) -> bool {
         match self {
-            Self::Assistant(row) => row.read(cx).text_out(),
+            Self::Assistant(row) => row.read(cx).text_out(cx),
             Self::User(_) => true,
         }
     }

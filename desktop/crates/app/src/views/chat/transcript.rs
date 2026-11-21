@@ -588,43 +588,30 @@ impl Transcript {
     /// from the pinned answer's start instead, which fills the view upward
     /// to the end when what is below fits. The row grows some frames after
     /// the store's change (its actions wait for its suggestions, then fade
-    /// in), so this holds until a layout no longer finds the end (the view
-    /// then rests at the answer's start, and the next growth is followed
-    /// again) or until that wait is over with everything fitting.
+    /// in), so this holds until that wait is over. A layout that no longer
+    /// finds the end leaves the view resting at the answer's start, and the
+    /// next growth is followed again.
     ///
     /// Until a layout since the pin armed has measured the answer's row
     /// with all of its text out (its text can have grown, it may never have
     /// been drawn, and a done answer's text is still released at a pace),
-    /// the list follows as it would. Then the pin holds only an
-    /// answer no taller than the view, in a view still following the end;
-    /// any other is let go, following its end.
-    fn step_pin(&mut self, now: std::time::Instant, cx: &App) {
-        let Some(pin) = &mut self.answer_pin else {
+    /// the list follows as it would. Then the pin holds only an answer no
+    /// taller than the view, in a view still following the end; any other
+    /// is let go, following its end. While it holds, an answer that still
+    /// outgrows the view (its last text laid out late) is let go too.
+    fn step_pin(&mut self, now: std::time::Instant, window: &mut Window, cx: &App) {
+        let Some(pin) = &self.answer_pin else {
             return;
         };
+        let viewport = self.list.viewport_bounds().size.height;
         if !pin.fits {
-            let measured = self
-                .newest_height
-                .borrow()
-                .as_ref()
-                .filter(|(key, _)| *key == pin.key)
-                .map(|(_, height)| *height);
-            // The row releases a done answer's text at a pace: its height
-            // is the answer's only once all of it is out.
             let text_out = self.rows.get(&pin.key).is_some_and(|row| row.text_out(cx));
-            let (Some(height), true) = (measured, text_out) else {
+            let (Some(answer), true) = (self.answer_height(&pin.key, cx), text_out) else {
                 return;
             };
-            // The answer itself, without the suggestions under it (a row
-            // first drawn done shows them at once): one no taller than the
-            // view, while the view follows the end, has its start in view.
-            let answer = height
-                - self
-                    .rows
-                    .get(&pin.key)
-                    .map_or(px(0.), |row| row.suggestions_height(cx));
-            let fits = answer <= self.list.viewport_bounds().size.height;
-            if !fits || !(self.chase.is_some() || self.list.is_following_tail()) {
+            // One no taller than the view, while the view follows the end,
+            // has its start in view.
+            if answer > viewport || !(self.chase.is_some() || self.list.is_following_tail()) {
                 self.answer_pin = None;
                 return;
             }
@@ -642,25 +629,69 @@ impl Transcript {
         let Some(pin) = &self.answer_pin else {
             return;
         };
-        let until = pin.until.unwrap_or(now);
-        let applied = pin.applied;
-        let ix = self.keys.iter().position(|k| *k == pin.key);
-        match ix {
-            Some(ix) if self.list.is_following_tail() && now < until => {
-                self.list.scroll_to(gpui_kit::ListOffset {
-                    item_ix: ix,
-                    offset_in_item: px(0.),
-                });
-                if let Some(pin) = &mut self.answer_pin {
-                    pin.applied = true;
-                }
-            }
-            Some(_) if !self.list.is_following_tail() => {
-                self.parked = applied;
-                self.answer_pin = None;
-            }
-            _ => self.answer_pin = None,
+        let (until, applied) = (pin.until.unwrap_or(now), pin.applied);
+        let Some(ix) = self.keys.iter().position(|k| *k == pin.key) else {
+            self.answer_pin = None;
+            return;
+        };
+        if now >= until {
+            self.answer_pin = None;
+            return;
         }
+        if self
+            .answer_height(&pin.key, cx)
+            .is_some_and(|answer| answer > viewport)
+        {
+            self.release_pin(now, window, cx);
+            return;
+        }
+        if self.list.is_following_tail() {
+            self.list.scroll_to(gpui_kit::ListOffset {
+                item_ix: ix,
+                offset_in_item: px(0.),
+            });
+            if let Some(pin) = &mut self.answer_pin {
+                pin.applied = true;
+            }
+        } else if applied {
+            self.parked = true;
+        } else {
+            self.answer_pin = None;
+        }
+    }
+
+    /// The answer `key` itself as last laid out, without the suggestions
+    /// under it (a row first drawn done shows them at once): its row's
+    /// height as noted after that layout, while it is the newest row.
+    fn answer_height(&self, key: &str, cx: &App) -> Option<Pixels> {
+        let height = self
+            .newest_height
+            .borrow()
+            .as_ref()
+            .filter(|(row, _)| row == key)
+            .map(|(_, height)| *height)?;
+        Some(
+            height
+                - self
+                    .rows
+                    .get(key)
+                    .map_or(px(0.), |row| row.suggestions_height(cx)),
+        )
+    }
+
+    /// The held answer outgrew the view: let go of it, easing to its end as
+    /// the chase does (at once under Reduce Motion).
+    fn release_pin(&mut self, now: std::time::Instant, window: &mut Window, cx: &App) {
+        self.answer_pin = None;
+        self.parked = false;
+        if cx.reduce_motion() {
+            self.list.set_follow_mode(FollowMode::Tail);
+            return;
+        }
+        self.list.pause_following_tail();
+        self.chase_fresh = true;
+        self.chase = Some((Chase::new(self.scroll_offset(), FOLLOW_RESPONSE), now));
+        window.request_animation_frame();
     }
 
     /// Something else moves the view now: easing toward the end, holding an
@@ -1546,7 +1577,7 @@ impl Render for Transcript {
         self.refresh_reading(cx);
         self.step_chase(window, cx);
         self.reveal_focused(window, cx);
-        self.step_pin(cx.background_executor().now(), cx);
+        self.step_pin(cx.background_executor().now(), window, cx);
         let t = cx.conduit().clone();
         let l10n = cx.l10n().clone();
         let r = t.roles;
@@ -2406,6 +2437,16 @@ mod tests {
 
     /// Streams the answer's next snapshot: `lines` paragraphs.
     fn stream(store: &Entity<ChatStore>, lines: usize, cx: &mut VisualTestContext) {
+        stream_answer(store, "a1", lines, cx);
+    }
+
+    /// [`stream`] for the answer `id`.
+    fn stream_answer(
+        store: &Entity<ChatStore>,
+        id: &str,
+        lines: usize,
+        cx: &mut VisualTestContext,
+    ) {
         let blocks = vec![MessageBlockDto {
             markdown: Some(streamed_text(lines)),
             ..empty_block(MessageBlockKind::Text)
@@ -2414,7 +2455,7 @@ mod tests {
             s.on_event(
                 &Event::TurnBlocks(TurnBlocks {
                     chat_id: "c1".into(),
-                    message_id: "a1".into(),
+                    message_id: id.into(),
                     blocks,
                     tasks: None,
                 }),
@@ -3039,6 +3080,157 @@ mod tests {
             start >= top - 0.5 && start <= top + TOP_INSET + 0.5,
             "the answer starts at {start}, not at the view's top {top}"
         );
+    }
+
+    /// An answer held at its start whose final text, laid out a frame
+    /// after the pin decided it fits (a long replacement is parsed off the
+    /// main thread), turns out taller than the view: it is let go and
+    /// follows its end.
+    #[gpui_kit::test]
+    fn a_held_answer_that_outgrows_the_view_late_is_let_go(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+
+        // The stored copy: one long paragraph in place of the streamed
+        // line, too long to parse while drawing (TextView parses it in the
+        // background), with suggestions.
+        let long = "A long paragraph about the tides and the moon. ".repeat(100);
+        let done = ChatMessageDto {
+            blocks: vec![
+                MessageBlockDto {
+                    markdown: Some(long.clone()),
+                    ..empty_block(MessageBlockKind::Text)
+                },
+                MessageBlockDto {
+                    follow_ups: Some(vec!["Why?".into()]),
+                    ..empty_block(MessageBlockKind::FollowUps)
+                },
+            ],
+            ..message("a1", "assistant", &long)
+        };
+        complete_turn_with(&store, &daemon, &question, done, cx);
+        let mut held = false;
+        for _ in 0..60 {
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.run_until_parked();
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+            held |=
+                transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied));
+        }
+        assert!(
+            held,
+            "the pin never held it: it was seen tall from the first"
+        );
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(end - start > QUICK_ASK_VIEWPORT, "it fits: {start}..{end}");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A short answer beside a longer comparison column whose text is
+    /// still paced out after the turn ends is never held: the pin waits for
+    /// every column's text, and the row is taller than the view.
+    #[gpui_kit::test]
+    fn a_short_answer_beside_a_longer_paced_column_follows_its_end(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) = open_with(vec![question.clone()], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(conduit_protocol::TurnStarted {
+                    companion_ids: vec!["a1".into(), "b1".into()],
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            )
+        });
+        stream_answer(&store, "a1", 1, cx);
+        stream_answer(&store, "b1", 1, cx);
+        quick_ask_frames(&transcript, cx);
+
+        // The stored copy: the first model's answer as it streamed, the
+        // second's going on from what it streamed.
+        let short = streamed_text(1);
+        let long = streamed_text(14);
+        let text = |md: &str| MessageBlockDto {
+            markdown: Some(md.into()),
+            ..empty_block(MessageBlockKind::Text)
+        };
+        let mut done = ChatMessageDto {
+            blocks: vec![text(&short)],
+            ..message("a1", "assistant", &short)
+        };
+        done.comparison = vec![
+            conduit_protocol::ComparisonSlotDto {
+                index: 0,
+                answer_ids: vec!["a1".into()],
+                model: Some("m".into()),
+            },
+            conduit_protocol::ComparisonSlotDto {
+                index: 1,
+                answer_ids: vec!["b1".into()],
+                model: Some("n".into()),
+            },
+        ];
+        done.versions = vec![conduit_protocol::ChatMessageVersionDto {
+            slot: Some(1),
+            merged: None,
+            streaming: false,
+            error_code: None,
+            id: "b1".into(),
+            content: long.clone(),
+            timestamp_ms: 1,
+            model: Some("n".into()),
+            model_name: None,
+            sources: vec![],
+            usage: None,
+            blocks: vec![text(&long)],
+        }];
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![question, done]));
+        store.update(cx, |s, cx| {
+            for (id, md) in [("a1", &short), ("b1", &long)] {
+                s.on_event(
+                    &Event::TurnCompleted(conduit_protocol::TurnCompleted {
+                        chat_id: "c1".into(),
+                        message_id: id.into(),
+                        text: md.clone(),
+                        reasoning: None,
+                        usage: None,
+                    }),
+                    cx,
+                );
+            }
+        });
+        cx.run_until_parked();
+        for _ in 0..60 {
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.run_until_parked();
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+            assert!(
+                !transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied)),
+                "held at its start while a column's text was still coming out"
+            );
+        }
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(end - start > QUICK_ASK_VIEWPORT, "it fits: {start}..{end}");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
     }
 
     /// A tall answer, followed past its start while it streamed, still
