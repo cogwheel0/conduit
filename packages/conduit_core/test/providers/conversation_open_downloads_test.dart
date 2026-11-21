@@ -314,7 +314,7 @@ void main() {
           .then<Object?>((_) => null, onError: (Object error) => error);
 
       check(reads.onRead).isNull();
-      check(wire.bearers).not((it) => it.contains('Bearer account-b'));
+      check(wire.bearers).isEmpty();
       check(failure).isA<OpenWebUiConversationOwnershipException>();
     });
   });
