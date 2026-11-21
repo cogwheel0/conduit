@@ -245,6 +245,13 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
+      for (
+        var stopping = _chatStopsUnderWay[savedChatId];
+        stopping != null;
+        stopping = _chatStopsUnderWay[savedChatId]
+      ) {
+        await stopping;
+      }
       if (stoppedOrReplaced()) {
         throw ChatCompletionStopped(
           RequestOptions(path: '/api/chat/completions'),
@@ -962,6 +969,28 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
   /// Whether a Stop reached the send of [messageId] before its request.
   bool sendStopped(String messageId) => _sendsUnderWay[messageId] ?? false;
+
+  /// Runs [stop], a stop of [chatId]'s tasks decided on a read of the tasks
+  /// running there. Until it ends, a completion request for that chat
+  /// ([sendMessageSession]) waits: the chat's stop ends every task the
+  /// account runs in the chat, a task this request would start among them.
+  Future<T> holdingChatCompletions<T>(
+    String chatId,
+    Future<T> Function() stop,
+  ) {
+    final ended = Completer<void>();
+    final earlier = _chatStopsUnderWay[chatId];
+    final held = earlier == null
+        ? ended.future
+        : Future.wait([earlier, ended.future]).then<void>((_) {});
+    _chatStopsUnderWay[chatId] = held;
+    return Future<T>.sync(stop).whenComplete(() {
+      ended.complete();
+      if (identical(_chatStopsUnderWay[chatId], held)) {
+        _chatStopsUnderWay.remove(chatId);
+      }
+    });
+  }
 
   /// The send of [messageId] ended before its request: its Stop goes too.
   void endSend(String messageId) => _sendsUnderWay.remove(messageId);

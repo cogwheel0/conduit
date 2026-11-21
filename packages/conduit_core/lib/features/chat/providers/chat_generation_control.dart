@@ -165,14 +165,16 @@ Future<bool> _askStopAgain(
 ///
 /// With nothing running, none of [own] does, unless [whenNoneRun] (given the
 /// chat's stop) says otherwise. Every request goes as [session]; once another
-/// has replaced it, none is sent and the answer is false.
+/// has replaced it, none is sent and the answer is false. A completion
+/// request this device sends to the chat meanwhile waits until it ends
+/// ([ApiService.holdingChatCompletions]).
 Future<bool> _stopOwnOpenWebUiTasks(
   ApiService api,
   String chatId,
   ({Set<String> ids, bool known}) own, {
   required ApiAuthSnapshot session,
   Future<bool> Function(Future<bool> Function() stopChat)? whenNoneRun,
-}) async {
+}) => api.holdingChatCompletions(chatId, () async {
   Future<bool> stopChat() async {
     if (!api.authSnapshotIsCurrent(session)) return false;
     await api.stopChatTasksRaw(chatId, authSnapshot: session);
@@ -185,7 +187,7 @@ Future<bool> _stopOwnOpenWebUiTasks(
   if (!own.known) return false;
   if (running.every(own.ids.contains)) return stopChat();
   return !running.any(own.ids.contains);
-}
+});
 
 /// Stops the tasks one Open WebUI request started, [taskIds] in [chatId], as
 /// [session], when nothing else of the account runs in the chat

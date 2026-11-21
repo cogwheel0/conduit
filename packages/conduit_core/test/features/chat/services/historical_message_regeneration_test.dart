@@ -1,7 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:dio/dio.dart' show DioException, RequestOptions, Response;
+import 'package:dio/dio.dart'
+    show
+        DioException,
+        Headers,
+        HttpClientAdapter,
+        RequestOptions,
+        Response,
+        ResponseBody;
+import 'package:fake_async/fake_async.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/models/chat_message.dart';
@@ -237,11 +247,37 @@ class _RecordingCompletionApi extends ApiService {
     runningTasks.clear();
   }
 
+  /// When set, a chat stop asked after a read of the chat's tasks reaches
+  /// the server only once this completes; [chatStopHeld] marks the wait.
+  Completer<void>? holdCheckedChatStop;
+  final Completer<void> chatStopHeld = Completer<void>();
+
   @override
   Future<void> stopChatTasksRaw(
     String chatId, {
     ApiAuthSnapshot? authSnapshot,
-  }) => stopTasksByChat(chatId);
+  }) async {
+    final hold = holdCheckedChatStop;
+    if (hold != null) {
+      if (!chatStopHeld.isCompleted) chatStopHeld.complete();
+      await hold.future;
+    }
+    await stopTasksByChat(chatId);
+  }
+
+  /// The service's own completion request for [chatId], past this fake's:
+  /// it goes to [dio]'s adapter.
+  Future<ChatCompletionSession> sendOverWire(
+    String chatId, {
+    required String answerId,
+  }) => super.sendMessageSession(
+    messages: const [
+      {'role': 'user', 'content': 'First prompt'},
+    ],
+    model: 'gpt-4',
+    conversationId: chatId,
+    responseMessageId: answerId,
+  );
 
   @override
   Future<void> stopTask(String taskId) async {
@@ -396,6 +432,43 @@ final class _BindingGatedSocketService extends SocketService {
     await gate.future;
     return false;
   }
+}
+
+/// Open WebUI's completion route for [api]'s server: each request starts a
+/// task, [taskId], which runs until a stop of the chat ends it.
+final class _TaskStartingAdapter implements HttpClientAdapter {
+  _TaskStartingAdapter(this.api, this.taskId);
+
+  final _RecordingCompletionApi api;
+  final String taskId;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final completion =
+        options.method == 'POST' && options.path == '/api/chat/completions';
+    if (completion) api.runningTasks.add(taskId);
+    return ResponseBody.fromString(
+      jsonEncode(
+        completion
+            ? {
+                'status': true,
+                'task_ids': [taskId],
+              }
+            : const <String, dynamic>{},
+      ),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 ChatMessage _userMessage({required String id, required String content}) {
@@ -852,6 +925,63 @@ void main() {
         ).isFalse();
       });
     }
+
+    // The cleanup reads the chat's tasks, then asks the chat's stop, which
+    // ends every task the account runs there: a request sent in between
+    // would be ended with them.
+    test('a request in the chat waits for a regeneration\'s cleanup to stop '
+        'its task, and its own task runs on', () {
+      fakeAsync((async) {
+        final sendGate = Completer<void>();
+        final api =
+            _RecordingCompletionApi(
+                sendGate: sendGate,
+                returnedTaskId: 'task-regeneration',
+                standardAccount: true,
+              )
+              ..holdCheckedChatStop = Completer<void>()
+              ..dio.interceptors.clear();
+        api.dio.httpClientAdapter = _TaskStartingAdapter(api, 'task-retry');
+        final initialMessages = [
+          _userMessage(id: 'u1', content: 'First prompt'),
+          _assistantMessage(id: 'a1', content: 'First answer'),
+        ];
+        final container = _container(
+          initialMessages: initialMessages,
+          activeConversation: _conversation(
+            id: 'conv-retry',
+            messages: initialMessages,
+          ),
+          apiService: api,
+        );
+        addTearDown(container.dispose);
+
+        unawaited(regenerateHistoricalMessageById(container, 'a1'));
+        async.flushMicrotasks();
+        check(api.sendStarted.isCompleted).isTrue();
+        container.read(stopGenerationProvider)();
+        sendGate.complete();
+        async.flushMicrotasks();
+        // The cleanup found the regeneration's task alone, and its stop is on
+        // its way.
+        check(api.chatStopHeld.isCompleted).isTrue();
+
+        // That task ends by itself, and the user tries again in the chat.
+        api.runningTasks.remove('task-regeneration');
+        ChatCompletionSession? retried;
+        unawaited(
+          api
+              .sendOverWire('conv-retry', answerId: 'retry-answer')
+              .then((session) => retried = session),
+        );
+        async.elapse(Duration.zero);
+        api.holdCheckedChatStop!.complete();
+        async.elapse(Duration.zero);
+
+        check(retried?.taskId).equals('task-retry');
+        check(api.runningTasks).deepEquals({'task-retry'});
+      });
+    });
 
     test('a Stop while the answer\'s task waits for the socket is taken, '
         'and stops that task, for a standard account', () async {
