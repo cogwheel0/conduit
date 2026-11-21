@@ -408,6 +408,10 @@ final class FakeOwuiChats {
 
   Completer<void>? holdStream;
 
+  /// Completes once a completion's task is running here, as Open WebUI
+  /// registers it before it answers the request.
+  Completer<void> taskStarted = Completer<void>();
+
   /// While set, taken by the next answer to start, whose first word waits
   /// for it: a model that is slow to start, so the client is listening by
   /// then.
@@ -1130,6 +1134,7 @@ final class FakeOwuiChats {
       }
       final task = 'task-${++_tasks}';
       _running[task] = chat;
+      if (!taskStarted.isCompleted) taskStarted.complete();
       unawaited(_run(task, chat, id, message));
       return json(<String, dynamic>{
         'status': true,
