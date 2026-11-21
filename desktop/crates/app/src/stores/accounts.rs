@@ -93,7 +93,8 @@ pub enum AccountNotice {
         name: String,
         next: String,
     },
-    /// The addition was left; back on `name` (or no account).
+    /// The addition was left, or an account nobody signed in to was
+    /// removed; back on `name` (or no account).
     AddCancelled {
         name: Option<String>,
     },
@@ -190,6 +191,15 @@ pub fn describe(
         .or_else(|| name_of(after, target_before.as_deref()))
         .unwrap_or_default();
     let next = name_of(after, active_after);
+    // Leaving an account nobody signed in to (a server that failed its
+    // check, Use a Different Server) signs out of nothing.
+    let never_signed_in = before
+        .and_then(|b| {
+            b.accounts
+                .iter()
+                .find(|a| Some(a.id.as_str()) == target_before.as_deref())
+        })
+        .is_some_and(|a| a.user.is_none() && !a.has_session);
     Some(match (change, result.outcome) {
         (_, O::BlockedByActiveReply) => return None,
         (_, O::Unknown) => AccountNotice::UnknownOutcome,
@@ -207,6 +217,9 @@ pub fn describe(
             AccountNotice::SwitchedNeedsSignIn { name }
         }
         (AccountChange::Switch { .. }, _) => AccountNotice::SwitchedTo { name },
+        (AccountChange::Remove { .. } | AccountChange::SignOut, _) if never_signed_in => {
+            AccountNotice::AddCancelled { name: next }
+        }
         (AccountChange::Remove { .. } | AccountChange::SignOut, O::NeedsSignIn) => match next {
             Some(next) => AccountNotice::SignedOutNextNeedsSignIn { name, next },
             None => AccountNotice::SignedOut { name, next: None },

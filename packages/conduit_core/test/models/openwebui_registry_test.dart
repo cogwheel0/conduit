@@ -69,6 +69,28 @@ void main() {
           .not((it) => it.equals(registry.account('a')!.serverId));
     });
 
+    test("an account that joins a saved server keeps the server's name", () {
+      final saved = OpenWebUiRegistry.empty.mergeServerConfigs([
+        config(
+          'a',
+          url: 'https://chat.example.com',
+        ).copyWith(name: 'Harbor Lab'),
+      ]);
+
+      // Named after its host, as a new server is when no name is typed.
+      final joined = saved.mergeServerConfigs([
+        ...saved.projectAll(),
+        config(
+          'b',
+          url: 'https://chat.example.com',
+        ).copyWith(name: 'chat.example.com'),
+      ]);
+
+      check(joined.servers.single.name).equals('Harbor Lab');
+      check(joined.projectAll().map((config) => config.name))
+          .deepEquals(['Harbor Lab', 'Harbor Lab']);
+    });
+
     test('a different client identity is a different server', () {
       final registry = OpenWebUiRegistry.empty.mergeServerConfigs([
         config('a', url: 'https://chat.example.com', mtlsKey: 'one'),

@@ -1,11 +1,11 @@
 //! Which window fronts the app: the setup window or the main window.
 //!
-//! * **The setup window** ([`SetupWindow`], 640×560 pt, fixed size) holds
-//!   everything before a session: the first-run chooser and its three
-//!   paths, and sign-in, whether it follows the server form on first run,
-//!   an account added from Settings, or a session that expired. It is
-//!   compact, as Setup Assistant and Mail's account sheet are, instead of a
-//!   column floating in the main window.
+//! * **The setup window** ([`SetupWindow`], 640 pt wide, as tall as its
+//!   chooser, not resizable) holds everything before a session: the
+//!   first-run chooser and its three paths, and sign-in, whether it follows
+//!   the server form on first run, an account added from Settings, or a
+//!   session that expired. It is compact, as Setup Assistant and Mail's
+//!   account sheet are, instead of a column floating in the main window.
 //! * **The main window** opens once there is a session (routed to Main),
 //!   and closes when there no longer is; it reopens at its saved frame.
 //!
@@ -26,8 +26,11 @@ use crate::l10n::ActiveL10n as _;
 use crate::stores::session::Route;
 use crate::views::setup_window::SetupWindow;
 
-/// The setup window's size (Setup Assistant's proportions).
-pub const SETUP_SIZE: (f32, f32) = (640., 560.);
+/// The setup window's width.
+pub const SETUP_WIDTH: f32 = 640.;
+/// Its height until the chooser has been measured: what a page other than
+/// the chooser keeps when the window opens on one.
+pub const SETUP_FIRST_HEIGHT: f32 = 640.;
 
 /// The window the app fronts with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,10 +155,12 @@ pub(crate) fn setup_alive(cx: &mut App) -> bool {
     handle.update(cx, |_, _, _| ()).is_ok()
 }
 
-/// The setup window's options: centred, fixed size, a plain title bar
-/// (AppKit drags it), titled for what it holds.
+/// The setup window's options: centred, not resizable, a plain title bar
+/// (AppKit drags it), titled for what it holds. It opens hidden: the
+/// window shows itself once it is as tall as its chooser
+/// ([`SetupWindow`]), so it never changes size as it appears.
 pub fn setup_options(title: &str, cx: &App) -> WindowOptions {
-    let bounds = Bounds::centered(None, size(px(SETUP_SIZE.0), px(SETUP_SIZE.1)), cx);
+    let bounds = Bounds::centered(None, size(px(SETUP_WIDTH), px(SETUP_FIRST_HEIGHT)), cx);
     WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(gpui_kit::TitlebarOptions {
@@ -163,8 +168,8 @@ pub fn setup_options(title: &str, cx: &App) -> WindowOptions {
             appears_transparent: true,
             traffic_light_position: None,
         }),
-        focus: true,
-        show: true,
+        focus: false,
+        show: false,
         is_movable: true,
         is_resizable: false,
         is_minimizable: true,
@@ -177,11 +182,16 @@ pub fn setup_options(title: &str, cx: &App) -> WindowOptions {
 
 /// Opens (or raises) the setup window.
 pub fn open_setup(cx: &mut App) {
-    if let Some((handle, _)) = cx
+    if let Some((handle, view)) = cx
         .try_global::<AppState>()
         .and_then(|s| s.setup_window.clone())
         && handle
-            .update(cx, |_, window, _| window.activate_window())
+            .update(cx, |_, window, cx| {
+                // Still being sized, it shows itself.
+                if view.read(cx).shown() {
+                    window.activate_window();
+                }
+            })
             .is_ok()
     {
         return;
@@ -276,12 +286,14 @@ mod tests {
         cx.update(|cx| {
             let o = setup_options("Set Up Conduit", cx);
             assert!(!o.is_resizable && o.is_movable && !o.app_owns_titlebar_drag);
+            // Shown by the window once it is sized.
+            assert!(!o.show && !o.focus);
             // Not the main window's minimum (720×480).
             assert!(o.window_min_size.is_none());
             match o.window_bounds {
                 Some(WindowBounds::Windowed(b)) => assert_eq!(
                     (f32::from(b.size.width), f32::from(b.size.height)),
-                    SETUP_SIZE
+                    (SETUP_WIDTH, SETUP_FIRST_HEIGHT)
                 ),
                 other => panic!("{other:?}"),
             }

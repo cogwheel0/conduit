@@ -877,4 +877,71 @@ mod undo_tests {
         );
         view.read_with(vcx, |v, _| assert!(v.error.is_some() && !v.busy));
     }
+
+    #[gpui_kit::test]
+    fn a_first_server_that_fails_its_check_says_so_and_nothing_of_signing_out(
+        cx: &mut TestAppContext,
+    ) {
+        let daemon = FakeDaemon::new();
+        let mut added = account("n", "New", true, false);
+        added.user = None;
+        added.connection.name = "127.0.0.1".into();
+        daemon.returns::<methods::AccountsAdd>(AccountChangeResult {
+            outcome: AccountChangeOutcome::NeedsSignIn,
+            accounts: list(vec![added]),
+        });
+        daemon.returns::<methods::AccountsRemove>(AccountChangeResult {
+            outcome: AccountChangeOutcome::NeedsSignIn,
+            accounts: list(vec![]),
+        });
+        daemon.on::<methods::ServersStatus>(|_| {
+            Ok(json!({
+                "activeServerId": "n",
+                "reachability": "unreachable",
+                "errorCode": "net.connectionFailed",
+                "maxSupportedVersion": "0.13.4",
+            }))
+        });
+        daemon.returns::<methods::AccountsList>(list(vec![]));
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-server-form-first-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            let stores = Stores::for_test(daemon.rpc(), &scratch, cx);
+            stores.toast_account_notices(
+                |notice, cx| crate::views::words::account_notice(notice, cx.l10n()),
+                cx,
+            );
+            stores
+        });
+        stores
+            .accounts
+            .update(cx, |a, cx| a.adopt(list(vec![]), cx));
+        let toasts = stores.toasts.clone();
+        let (view, vcx) = cx.add_window_view(move |window, cx| ServerForm::new(stores, window, cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.url
+                .update(cx, |i, cx| i.set_value("http://127.0.0.1:9", window, cx));
+            v.submit(window, cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::AccountsRemove>(),
+            vec![json!({"accountId": "n", "force": true})]
+        );
+        let l10n = L10n::new("en");
+        view.read_with(vcx, |v, _| {
+            assert_eq!(v.error, Some(l10n.desktop_couldnt_reach_server()));
+        });
+        // The undo removed an account nobody signed in to: no toast says
+        // it signed out of anything.
+        toasts.read_with(vcx, |t, _| {
+            let shown: Vec<_> = t
+                .toasts
+                .iter()
+                .map(|t| (t.level, t.message.clone()))
+                .collect();
+            assert_eq!(shown, vec![]);
+        });
+    }
 }

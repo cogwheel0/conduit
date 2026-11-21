@@ -473,6 +473,29 @@ fn settings_text_reads_on_its_dark_groups_and_fields() {
     }
 }
 
+/// A user's message reads as a bubble on the transcript in every palette,
+/// light and dark, including one whose cards are the page's own colour.
+#[test]
+fn a_user_bubble_stands_apart_from_the_transcript() {
+    let mut flat = vec![];
+    for p in &palettes().palettes {
+        for dark in [false, true] {
+            let t = ConduitTheme::new(&p.id, dark, DesignPrefs::default(), accent());
+            let ratio = contrast_ratio(t.roles.bubble, t.roles.content);
+            if ratio < 1.05 {
+                flat.push(format!(
+                    "{} {}: {} on {} is {ratio:.3}:1",
+                    p.id,
+                    if dark { "dark" } else { "light" },
+                    palette::to_hex(t.roles.bubble),
+                    palette::to_hex(t.roles.content),
+                ));
+            }
+        }
+    }
+    assert!(flat.is_empty(), "{flat:#?}");
+}
+
 #[test]
 fn an_off_switch_track_stands_apart_from_its_knob() {
     let light = ConduitTheme::new("conduit", false, DesignPrefs::default(), accent());

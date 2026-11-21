@@ -519,10 +519,11 @@ final class OpenWebUiRegistry {
   /// which is the selected one unless the config names another of the
   /// server's routes; an unknown one joins the saved server
   /// that already has an identical endpoint, or gets a server of its own.
+  /// Joining never renames the server: the new account takes its name.
   /// Accounts missing from [configs] are removed, and so is any server left
   /// with no account. Projections round-trip exactly: what [projectAll]
   /// returns after a merge is what was passed in, apart from a legacy
-  /// `apiKey`, which is never stored.
+  /// `apiKey`, which is never stored, and a joining account's name.
   ///
   /// A shared endpoint is edited only by a config that differs from it. When
   /// two accounts on one server are saved together and only one was edited,
@@ -577,7 +578,6 @@ final class OpenWebUiRegistry {
         if (match != null) {
           draft = match.draft;
           endpointId = match.endpointId;
-          draft.rename(config.name);
         } else {
           endpointId = uniqueId('endpoint:${config.id}');
           final server = OpenWebUiServer(

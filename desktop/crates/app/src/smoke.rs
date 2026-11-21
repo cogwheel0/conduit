@@ -399,10 +399,12 @@ pub fn run(dir: PathBuf, options: SmokeOptions, cx: &mut App) {
         if let Some(handle) = front {
             let is_main = cx.update(|cx| cx.global::<AppState>().main_window == Some(handle));
             if let Some(ns) = cx.update(|cx| ns_window(handle, cx)) {
+                // The setup window keeps the height it took.
                 let size = if is_main {
                     cw::MAIN_WINDOW_SIZE
                 } else {
-                    crate::windows::SETUP_SIZE
+                    let frame = ns.frame().size;
+                    (frame.width as f32, frame.height as f32)
                 };
                 place(&ns, (120., 90.), size);
             }

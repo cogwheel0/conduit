@@ -2355,6 +2355,11 @@ impl Render for SettingsView {
             window,
             (t.prefs.sidebar == SidebarStyle::Material).then_some(f64::from(SETTINGS_SIDEBAR)),
         );
+        // With nothing focused, Tab moves nowhere and actions reach the root
+        // only: keep focus somewhere, as the main window does.
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus, cx);
+        }
         let visible = Tab::visible(&self.stores, cx);
         // A pane that went away (signed out, Advanced turned off) gives the
         // window back to General.
@@ -2430,8 +2435,12 @@ impl Render for SettingsView {
             frame = frame.section(div().w_full().opacity(fade).child(s));
         }
         let stores = self.stores.clone();
+        // A click on no control focuses the window itself: named, so
+        // VoiceOver says where focus went rather than the whole window.
         div()
             .id("settings-root")
+            .role(Role::Group)
+            .aria_label(SharedString::from(l10n.desktop_settings_title()))
             .key_context("ConduitSettings")
             .track_focus(&self.focus)
             .on_action(move |a: &RemoveAccount, window, cx| {
@@ -2644,6 +2653,30 @@ mod language_tests {
         });
         vcx.run_until_parked();
         assert_eq!(reads(), before + 1, "showing the tab again read nothing");
+    }
+
+    /// Focus that went nowhere (its control gone, a blur) comes back to the
+    /// window, as in the main window: with none, Tab and the window's
+    /// actions reach nothing.
+    #[gpui_kit::test]
+    fn a_settings_window_with_nothing_focused_takes_focus_back(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-settings-blur-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let (_view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(settings, stores, Tab::Language, window, cx)
+        });
+        vcx.run_until_parked();
+        vcx.update(|window, cx| window.blur(cx));
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+        assert!(vcx.update(|window, cx| window.focused(cx).is_some()));
     }
 
     #[gpui_kit::test]
