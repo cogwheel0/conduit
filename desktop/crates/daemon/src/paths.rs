@@ -103,14 +103,9 @@ impl AppPaths {
     ///   siblings as on the Mac.
     /// * Linux: `$XDG_DATA_HOME/<name>` and `$XDG_STATE_HOME/<name>/logs`.
     pub fn standard(os: Os, flavor: Flavor, vars: &dyn Fn(&str) -> Option<OsString>) -> Self {
-        let home = || {
-            vars("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir)
-        };
         let (user_data, logs) = match os {
             Os::MacOs => {
-                let home = home();
+                let home = home(vars);
                 (
                     home.join("Library/Application Support")
                         .join(flavor.app_name()),
@@ -118,28 +113,14 @@ impl AppPaths {
                 )
             }
             Os::Windows => {
-                let local = vars("LOCALAPPDATA")
-                    .map(PathBuf::from)
-                    .or_else(|| {
-                        vars("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local"))
-                    })
-                    .unwrap_or_else(std::env::temp_dir);
-                let root = local.join(flavor.app_name());
+                let root = local_app_data(vars).join(flavor.app_name());
                 (root.join("User Data"), root.join("Logs"))
             }
             Os::Linux => {
-                // The spec says to ignore a relative path in these. (A
-                // rooted one: Linux's absolute paths, read on any host.)
-                let xdg = |key: &str, fallback: &str| {
-                    vars(key)
-                        .map(PathBuf::from)
-                        .filter(|p| p.has_root())
-                        .unwrap_or_else(|| home().join(fallback))
-                };
                 let name = flavor.unix_name();
                 (
-                    xdg("XDG_DATA_HOME", ".local/share").join(name),
-                    xdg("XDG_STATE_HOME", ".local/state")
+                    xdg(vars, "XDG_DATA_HOME", ".local/share").join(name),
+                    xdg(vars, "XDG_STATE_HOME", ".local/state")
                         .join(name)
                         .join("logs"),
                 )
@@ -194,6 +175,52 @@ impl Os {
             Self::MacOs | Self::Linux => name.to_string(),
         }
     }
+}
+
+/// The lock file launches take turns on to create `service`'s master key
+/// where the secret store's write replaces
+/// ([`crate::secrets::LockedStore`]). The key is the service's, whatever the
+/// profile (as the Keychain item is on the Mac), so the lock is one per
+/// user and service, outside every profile:
+///
+/// * Windows: `%LOCALAPPDATA%\<service>.master-key.lock`.
+/// * Linux: `$XDG_RUNTIME_DIR/<service>.master-key.lock`, else under
+///   `$XDG_STATE_HOME` (`~/.local/state`).
+/// * macOS (its stores need none): under `~/Library/Caches`.
+pub fn master_key_lock(os: Os, service: &str, vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    let folder = match os {
+        Os::MacOs => home(vars).join("Library/Caches"),
+        Os::Windows => local_app_data(vars),
+        Os::Linux => vars("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .filter(|p| p.has_root())
+            .unwrap_or_else(|| xdg(vars, "XDG_STATE_HOME", ".local/state")),
+    };
+    folder.join(format!("{service}.master-key.lock"))
+}
+
+fn home(vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    vars("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// `%LOCALAPPDATA%` (local, not roaming), never a `HOME`.
+fn local_app_data(vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    vars("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .or_else(|| vars("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// An XDG base folder from `key`, else `fallback` under `HOME`. The spec
+/// says to ignore a relative path in these. (A rooted one: Linux's absolute
+/// paths, read on any host.)
+fn xdg(vars: &dyn Fn(&str) -> Option<OsString>, key: &str, fallback: &str) -> PathBuf {
+    vars(key)
+        .map(PathBuf::from)
+        .filter(|p| p.has_root())
+        .unwrap_or_else(|| home(vars).join(fallback))
 }
 
 /// The packaged daemon for an executable at `exe`, if it exists.
@@ -416,6 +443,48 @@ mod tests {
             std::fs::write(dir.join(daemon), b"").unwrap();
             assert_eq!(packaged_daemon_for(os, &exe), Some(dir.join(daemon)));
         }
+    }
+
+    #[test]
+    fn the_master_key_lock_is_per_user_and_service_never_per_profile() {
+        let service = "app.example.conduit";
+        // Windows: in the user's local app data, whatever the profile.
+        let local = Path::new(r"C:\Users\avery\AppData\Local");
+        let windows = |profile: &str| {
+            master_key_lock(
+                Os::Windows,
+                service,
+                &vars(&[
+                    ("LOCALAPPDATA", local.to_str().unwrap()),
+                    ("CONDUIT_USER_DATA", profile),
+                ]),
+            )
+        };
+        assert_eq!(
+            windows(r"D:\profiles\one"),
+            local.join("app.example.conduit.master-key.lock")
+        );
+        assert_eq!(windows(r"D:\profiles\one"), windows(r"D:\profiles\two"));
+        // Linux: the runtime folder, else the state folder.
+        let linux = |pairs: &[(&str, &str)]| master_key_lock(Os::Linux, service, &vars(pairs));
+        assert_eq!(
+            linux(&[
+                ("HOME", "/home/avery"),
+                ("XDG_RUNTIME_DIR", "/run/user/1000"),
+                ("CONDUIT_USER_DATA", "/srv/one"),
+            ]),
+            Path::new("/run/user/1000/app.example.conduit.master-key.lock")
+        );
+        assert_eq!(
+            linux(&[("HOME", "/home/avery"), ("CONDUIT_USER_DATA", "/srv/two")]),
+            Path::new("/home/avery/.local/state/app.example.conduit.master-key.lock")
+        );
+        // Each service has its own.
+        let home = vars(&[("HOME", "/home/avery")]);
+        assert_ne!(
+            master_key_lock(Os::Linux, "app.example.conduit", &home),
+            master_key_lock(Os::Linux, "app.example.conduit.dev", &home)
+        );
     }
 
     #[test]
