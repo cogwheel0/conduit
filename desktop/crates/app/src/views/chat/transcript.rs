@@ -616,8 +616,12 @@ impl Transcript {
                 // Not drawn yet, or not measured since its text was all
                 // out: ask for the frame after the layout that measures it,
                 // which nothing else may draw (Reduce Motion animates
-                // nothing). Text still being released draws its own frames.
-                if text_out != Some(false) {
+                // nothing). Text still being released draws its own frames,
+                // and a view away from the end can't take the pin (its row
+                // may never be laid out again).
+                if text_out != Some(false)
+                    && (self.chase.is_some() || self.list.is_following_tail())
+                {
                     window.request_animation_frame();
                 }
                 return;
@@ -3258,6 +3262,63 @@ mod tests {
             transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied)),
             "the pin did not apply in that frame"
         );
+    }
+
+    /// An answer done while the reader is up in the chat, its row below
+    /// the view and never laid out, leaves no pin asking for frames.
+    #[gpui_kit::test]
+    fn an_answer_done_while_reading_above_asks_for_no_frames(cx: &mut TestAppContext) {
+        let earlier = [
+            message("u0", "user", "What makes the tides?"),
+            answer("a0", 40, &[]),
+        ];
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) = open_with(
+            vec![
+                earlier[0].clone(),
+                earlier[1].clone(),
+                question.clone(),
+                message("a1", "assistant", ""),
+            ],
+            cx,
+        );
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        quick_ask_frames(&transcript, cx);
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        // Up at the earlier answer's start: the newest row is far below.
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        transcript.update(cx, |t, _| t.stop_following());
+        list.scroll_to(gpui_kit::ListOffset {
+            item_ix: 1,
+            offset_in_item: px(0.),
+        });
+        quick_ask_frames(&transcript, cx);
+
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            earlier[0].clone(),
+            earlier[1].clone(),
+            question.clone(),
+            answer("a1", 1, &[]),
+        ]));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(conduit_protocol::TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text: streamed_text(1),
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        cx.update(|window, cx| window.simulate_next_frame(cx));
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        let asked = cx.update(|window, cx| window.simulate_next_frame(cx));
+        assert_eq!(asked, 0, "a frame was asked for with nothing to measure");
     }
 
     /// A short answer beside a longer comparison column whose text is
