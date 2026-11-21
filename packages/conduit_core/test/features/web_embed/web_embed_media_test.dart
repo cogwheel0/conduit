@@ -242,6 +242,14 @@ void main() {
           '<div class="card"><audio controls preload="metadata" '
           'src="/api/v1/files/n1/content"></audio></div>\n</body></html>';
       check(_extract(voiceNote).mediaOnly).isTrue();
+      // Layout alone shows nothing.
+      check(
+        _extract(
+          '<style>body{display:flex;justify-content:center}</style>'
+          '<div style="align-content:center"><audio controls src="/n.mp3">'
+          '</audio></div>',
+        ).mediaOnly,
+      ).isTrue();
 
       for (final html in [
         '<h3>Voice note</h3><audio controls src="/n.mp3"></audio>',
@@ -249,6 +257,13 @@ void main() {
         '<audio controls src="/n.mp3"></audio><img src="/cover.png">',
         '<audio controls src="/n.mp3"></audio>'
             '<audio controls src="https://cdn.example.test/m.mp3"></audio>',
+        // Styles can show text or an image of their own.
+        '<style>.caption::before{content:"Transcript unavailable"}</style>'
+            '<div class="caption"></div><audio controls src="/n.mp3"></audio>',
+        '<div style="height:90px;background:URL(/cover.png)"></div>'
+            '<audio controls src="/n.mp3"></audio>',
+        '<link rel="Stylesheet" href="https://cdn.example.test/s.css">'
+            '<audio controls src="/n.mp3"></audio>',
       ]) {
         check(because: html, _extract(html).mediaOnly).isFalse();
       }

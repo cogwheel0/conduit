@@ -264,6 +264,29 @@ String? _baseHref(Node node) {
   return null;
 }
 
+/// CSS that can show something of its own: generated text, an image, or
+/// rules from elsewhere.
+final RegExp _showingCss = RegExp(
+  r'(?<![\w-])content\s*:|url\s*\(|image-set\s*\(|@import',
+  caseSensitive: false,
+);
+
+/// Whether [element]'s styles, or a stylesheet it is, can show something in
+/// an otherwise empty page; layout and colour alone don't.
+bool _stylesShowSomething(Element element) {
+  final style = element.attributes['style'];
+  if (style != null && _showingCss.hasMatch(style)) return true;
+  return switch (element.localName) {
+    'style' => _showingCss.hasMatch(element.text),
+    'link' =>
+      (element.attributes['rel'] ?? '')
+          .toLowerCase()
+          .split(RegExp(r'\s+'))
+          .contains('stylesheet'),
+    _ => false,
+  };
+}
+
 final class _Taken {
   _Taken(this.start, this.end, this.item, this.placeholder);
 
@@ -302,9 +325,12 @@ final class _MediaScan {
       visit(element);
     } else if (name == 'audio' || name == 'video') {
       _visitMedia(element);
-    } else if (!_unrendered.contains(name)) {
-      if (!_containers.contains(name)) hasOtherContent = true;
-      visit(element);
+    } else {
+      if (_stylesShowSomething(element)) hasOtherContent = true;
+      if (!_unrendered.contains(name)) {
+        if (!_containers.contains(name)) hasOtherContent = true;
+        visit(element);
+      }
     }
   }
 
