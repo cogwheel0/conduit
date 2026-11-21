@@ -194,12 +194,18 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
             Flavor::Production => Box::new(Keychain::new(service)),
         }
     };
+    // Off the Mac a first key is written holding this lock, so two first
+    // launches of one profile never both store theirs.
     #[cfg(windows)]
-    let store: Box<dyn MasterKeyStore> =
-        Box::new(conduit_daemon::secrets::CredentialManager::new(service));
+    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::CredentialManager::new(
+        service,
+        paths.user_data.join(".master-key.lock"),
+    ));
     #[cfg(target_os = "linux")]
-    let store: Box<dyn MasterKeyStore> =
-        Box::new(conduit_daemon::secrets::SecretService::new(service));
+    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::SecretService::new(
+        service,
+        paths.user_data.join(".master-key.lock"),
+    ));
     load_or_create_master_key(store.as_ref()).map_err(|e| e.to_string())
 }
 

@@ -18,25 +18,24 @@ fn forced() -> Option<bool> {
 }
 
 /// Reads the setting now and follows it from then on.
-#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 pub fn install(cx: &mut App) {
     if let Some(on) = forced() {
         cx.set_reduce_motion(on);
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        cx.set_reduce_motion(system::reduce_motion());
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
-        system::on_change(move || {
-            let _ = tx.send(());
-        });
-        cx.spawn(async move |cx| {
-            while rx.recv().await.is_some() {
-                cx.update(|cx| cx.set_reduce_motion(system::reduce_motion()));
-            }
-        })
-        .detach();
+    } else {
+        #[cfg(target_os = "macos")]
+        {
+            cx.set_reduce_motion(system::reduce_motion());
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            system::on_change(move || {
+                let _ = tx.send(());
+            });
+            cx.spawn(async move |cx| {
+                while rx.recv().await.is_some() {
+                    cx.update(|cx| cx.set_reduce_motion(system::reduce_motion()));
+                }
+            })
+            .detach();
+        }
     }
 }
 

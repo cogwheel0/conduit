@@ -3,7 +3,6 @@
 //! it is terminated with no SIGTERM step (Windows has none).
 #![cfg(windows)]
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use conduit_daemon::supervisor::{
@@ -24,11 +23,14 @@ exit /b 0\r\n\
 :spin\r\n\
 goto spin\r\n";
 
-fn setup(name: &str, mode: &str) -> (SupervisorConfig, PathBuf) {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("supervisor-windows")
-        .join(format!("{name}-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+/// A config for a fake in `mode`, in a new folder of the test's own (removed
+/// when the returned guard drops): never one an earlier run left a log in.
+fn setup(name: &str, mode: &str) -> (SupervisorConfig, tempfile::TempDir) {
+    let scratch = tempfile::Builder::new()
+        .prefix(&format!("supervisor-{name}-"))
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .expect("a temporary folder");
+    let dir = scratch.path();
     let script = dir.join("fake-conduitd.cmd");
     std::fs::write(&script, FAKE).unwrap();
     let mut config = SupervisorConfig::new(
@@ -47,14 +49,17 @@ fn setup(name: &str, mode: &str) -> (SupervisorConfig, PathBuf) {
     };
     config.ready_timeout = Duration::from_secs(10);
     config.stop_grace = Duration::from_secs(5);
-    (config, dir)
+    (config, scratch)
 }
 
+/// Waits for the fake's ready line; a start that fails for good fails the
+/// test with its reason instead of waiting on.
 async fn until_ready(rx: &mut UnboundedReceiver<SupervisorEvent>) {
     loop {
-        let event = rx.recv().await.expect("the supervisor is alive");
-        if matches!(event, SupervisorEvent::Ready { port: 4242, .. }) {
-            return;
+        match rx.recv().await.expect("the supervisor is alive") {
+            SupervisorEvent::Ready { port: 4242, .. } => return,
+            SupervisorEvent::Fatal(reason) => panic!("the fake never got ready: {reason:?}"),
+            _ => {}
         }
     }
 }
@@ -65,7 +70,7 @@ async fn closing_stdin_stops_a_well_behaved_daemon() {
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until_ready(&mut rx).await;
     assert_eq!(sup.stop().await, StopOutcome::Graceful);
-    let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
+    let log = std::fs::read_to_string(dir.path().join("logs/conduitd.log")).unwrap();
     assert!(log.contains("stdin closed"), "{log}");
 }
 
@@ -76,7 +81,7 @@ async fn a_daemon_ignoring_stdin_is_terminated_without_a_sigterm_step() {
     let (sup, mut rx) = Supervisor::spawn(config, &tokio::runtime::Handle::current());
     until_ready(&mut rx).await;
     assert_eq!(sup.stop().await, StopOutcome::Killed);
-    let log = std::fs::read_to_string(dir.join("logs/conduitd.log")).unwrap();
+    let log = std::fs::read_to_string(dir.path().join("logs/conduitd.log")).unwrap();
     assert!(log.contains("terminating it"), "{log}");
     assert!(!log.contains("SIGTERM"), "{log}");
 }

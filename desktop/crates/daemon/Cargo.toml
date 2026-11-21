@@ -27,6 +27,9 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3"
+# The Keychain item's data for a create-only add (the version
+# security-framework takes).
+core-foundation = "0.10"
 
 # The master key's store off the Mac: Credential Manager and the Secret
 # Service, through the crates (and features) GPUI already uses for its own
@@ -40,6 +43,8 @@ futures-lite = "2"
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "test-util"] }
+# A fresh folder per test that writes files.
+tempfile = "3"
 
 [lints]
 workspace = true
