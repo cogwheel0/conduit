@@ -722,7 +722,9 @@ mod tests {
                     .write(true)
                     .truncate(false)
                     .open(&self.0.other_lock)
-                    .is_ok_and(|file| file.try_lock().is_err());
+                    .is_ok_and(|file| {
+                        matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+                    });
                 *self.0.other_held_while_writing.lock().unwrap() = Some(held);
                 *self.0.key.lock().unwrap() = Some(key.to_string());
                 Ok(())

@@ -29,7 +29,7 @@
 //!   them.
 //! * **Edges.** The list fades out under the search field and into the
 //!   footer's rule instead of cutting rows off: on the translucent sidebar
-//!   by a Core Animation mask on the window's content ([`ListEdges`]),
+//!   by a Core Animation mask on the window's content (`ListEdges`),
 //!   which shows the real material through; on a solid one, by painting its
 //!   colour.
 //! * The open chat is highlighted, and its folders open and the list
@@ -3893,7 +3893,7 @@ impl SidebarView {
     /// [`Self::LIST_FADE`]), so the list at rest is whole.
     ///
     /// On the translucent sidebar, a mask on the window's content
-    /// ([`ListEdges`]), synced from where the list was painted (a canvas
+    /// (`ListEdges`), synced from where the list was painted (a canvas
     /// filling it), with any tooltip or drag image kept whole; on a solid
     /// sidebar, its colour painted over the ends.
     fn edges(&self, window: &Window, t: &ConduitTheme, cx: &App) -> AnyElement {
