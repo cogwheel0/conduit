@@ -5093,7 +5093,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     try {
       await owed.locks.runExclusive(chatId, () async {
         final rows = <MessageRowData>[];
-        for (final answer in owed.answers) {
+        for (final ended in owed.answers) {
+          final answer = _withOutputAsShown(ended);
           final stored = await db.messagesDao.getMessage(chatId, answer.id);
           // An answer with no stored row was never made durable; this does not
           // create one.
@@ -6619,6 +6620,65 @@ bool _holdsMoreThan(
   return (output?.length ?? 0) > (otherOutput?.length ?? 0) ||
       (containsRenderedSemanticDetails(content) &&
           !containsRenderedSemanticDetails(otherContent));
+}
+
+/// [answer] with an `output` that holds all the text it shows, for storing:
+/// a stored answer's text is read from its output, and a Responses stream
+/// gives the text the deltas between output snapshots, which the output
+/// lacks until the next one.
+///
+/// When the output's text is where the shown text begins, the rest continues
+/// its last message, or follows it as one of its own after a tool call or
+/// reasoning item, and every structured item stays. Otherwise the output is
+/// dropped, and the text is stored as shown, its reasoning and tool blocks
+/// rendered into it.
+ChatMessage _withOutputAsShown(ChatMessage answer) {
+  final output = answer.output;
+  if (output == null || output.isEmpty) return answer;
+  final shown = comparableAssistantBody(answer.content);
+  final stored = outputItemsMessageText(output).trimLeft();
+  if (stored.trimRight().length >= shown.length) return answer;
+  if (!shown.startsWith(stored)) return answer.copyWith(output: null);
+  final rest = shown.substring(stored.length);
+  final last = output.last;
+  final parts = last['content'];
+  final List<Map<String, dynamic>> extended;
+  if (last['type'] == 'message' && parts is List && parts.isNotEmpty) {
+    final lastPart = parts.last;
+    extended = [
+      ...output.take(output.length - 1),
+      <String, dynamic>{
+        ...last,
+        'content': [
+          ...parts.take(parts.length - 1),
+          if (lastPart is Map && lastPart['text'] is String)
+            <String, dynamic>{
+              ...Map<String, dynamic>.from(lastPart),
+              'text': '${lastPart['text']}$rest',
+            }
+          else ...[
+            lastPart,
+            <String, dynamic>{'type': 'output_text', 'text': rest},
+          ],
+        ],
+      },
+    ];
+  } else {
+    extended = [
+      ...output,
+      <String, dynamic>{
+        'type': 'message',
+        'role': 'assistant',
+        'content': [
+          <String, dynamic>{'type': 'output_text', 'text': rest.trimLeft()},
+        ],
+      },
+    ];
+  }
+  final kept = answer.copyWith(output: extended);
+  return outputItemsMessageText(extended).trim().length >= shown.length
+      ? kept
+      : answer.copyWith(output: null);
 }
 
 /// History-message shape for the local turn echo.

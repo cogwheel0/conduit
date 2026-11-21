@@ -22,6 +22,8 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/testing.dart';
+import 'package:conduit_core/utils/persisted_message_content.dart'
+    show outputItemsMessageText;
 import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -365,13 +367,19 @@ void main() {
       AppDatabase db,
       ProviderContainer container,
     })
-    streamHere(FakeAsync async, _FakeApiService api, String streamed) {
+    streamHere(
+      FakeAsync async,
+      _FakeApiService api,
+      String streamed, {
+      List<Map<String, dynamic>>? output,
+    }) {
       api.taskIds = ['task-1'];
       final container = _openChatContainer(api: api);
       final notifier = container.read(chatMessagesProvider.notifier);
       final db = container.read(appDatabaseProvider)!;
       final placeholder = _message(answerId, 'assistant', '').copyWith(
         isStreaming: true,
+        output: output,
         metadata: const <String, dynamic>{
           'transport': 'taskSocket',
           'taskId': 'task-1',
@@ -572,6 +580,65 @@ void main() {
           ..has((it) => it['error'], 'error').isNull();
       });
     });
+
+    // A Responses stream sends output snapshots, and text deltas between
+    // them that only the text takes: the stored text is read from the
+    // output, which must hold all of what was shown.
+    for (final ended in ['cut off', 'stopped']) {
+      test('an answer $ended after text that streamed past its last output '
+          'snapshot opens again with all of that text', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (:notifier, :db, :container) = streamHere(
+            async,
+            api,
+            'Gales veer as the warm front passes',
+            output: const [
+              <String, dynamic>{
+                'type': 'message',
+                'role': 'assistant',
+                'content': [
+                  <String, dynamic>{
+                    'type': 'output_text',
+                    'text': 'Gales veer',
+                  },
+                ],
+              },
+            ],
+          );
+          api.taskIds = const <String>[];
+          if (ended == 'cut off') {
+            api.conversation = _chat([
+              question,
+              _message(
+                answerId,
+                'assistant',
+                '',
+              ).copyWith(metadata: unfinished),
+            ]);
+            pollTasks(async, notifier);
+          } else {
+            api.conversation = _chat([
+              question,
+              _message(answerId, 'assistant', ''),
+            ]);
+            unawaited(container.read(stopGenerationSettledProvider)());
+            async.flushMicrotasks();
+          }
+
+          final stored = storedAnswer(async, db);
+          check(stored)
+            ..has(
+              (it) => it['content'],
+              'content',
+            ).equals('Gales veer as the warm front passes')
+            ..has(
+              (it) => outputItemsMessageText(it['output'] as List),
+              'output text',
+            ).equals('Gales veer as the warm front passes');
+        });
+      });
+    }
 
     test('a cut-off answer keeps the text that streamed here together with '
         'its own output, not the server\'s older one', () {
