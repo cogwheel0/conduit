@@ -283,6 +283,7 @@ mixin _HealthApi on _ApiServiceBase {
   /// completion: for a host shutting down, which must not wait on the server.
   void closeNow() {
     _disposed = true;
+    _closedNow = true;
     _dio.close(force: true);
     for (final abandon in List.of(_heldReplyWaits)) {
       abandon();

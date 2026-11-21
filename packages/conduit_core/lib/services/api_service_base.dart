@@ -125,6 +125,9 @@ abstract class _ApiServiceBase {
   /// Ends each held-reply wait still running ([_awaitHeldReply]), for
   /// [closeNow].
   final Set<void Function()> _heldReplyWaits = <void Function()>{};
+
+  /// Set by [closeNow], for a held-reply wait first listened to after it.
+  bool _closedNow = false;
   _ChatRequestMetadataFormat? _chatRequestMetadataFormat;
   bool _runsOutletFiltersInline = false;
   // Whether chat requests carry `model_item` and `tool_servers`: null until
@@ -2096,6 +2099,12 @@ abstract class _ApiServiceBase {
 
     body = StreamController<List<int>>(
       onListen: () {
+        // Closed before anything listened (shutdown cut it while the caller
+        // was still preparing): nothing it could read will arrive.
+        if (_closedNow) {
+          abandon();
+          return;
+        }
         _heldReplyWaits.add(abandon);
         unawaited(wait().whenComplete(() => _heldReplyWaits.remove(abandon)));
       },
