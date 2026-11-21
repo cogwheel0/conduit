@@ -808,48 +808,50 @@ void main() {
           .deepEquals(['chat-1-m1', 'chat-1-m2']);
     });
 
+    // The copy shows `answer-b`, kept beside `answer-a`.
+    void seedTwoAnswers() => server.seedChat(
+      id: 'chat-1',
+      blob: {
+        'title': 'Title chat-1',
+        'models': ['llama3'],
+        'history': {
+          'currentId': 'answer-b',
+          'messages': {
+            'chat-1-m1': {
+              'id': 'chat-1-m1',
+              'parentId': null,
+              'childrenIds': ['answer-a', 'answer-b'],
+              'role': 'user',
+              'content': 'message 1 of chat-1',
+              'timestamp': 1001,
+            },
+            for (final (id, content, timestamp) in [
+              ('answer-a', 'The first answer', 1002),
+              ('answer-b', 'The second answer', 1003),
+            ])
+              id: {
+                'id': id,
+                'parentId': 'chat-1-m1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': content,
+                'timestamp': timestamp,
+                'model': 'llama3',
+              },
+          },
+        },
+      },
+      createdAt: 100,
+      updatedAt: 150,
+    );
+
     for (final landed in [false, true]) {
       test(
         "answers with the server's copy, after every read of it predates a "
         'turn stored here, without an answer whose delete '
         '${landed ? 'landed while it was read' : 'has not landed'}',
         () async {
-          // The copy shows `answer-b`, kept beside `answer-a`.
-          server.seedChat(
-            id: 'chat-1',
-            blob: {
-              'title': 'Title chat-1',
-              'models': ['llama3'],
-              'history': {
-                'currentId': 'answer-b',
-                'messages': {
-                  'chat-1-m1': {
-                    'id': 'chat-1-m1',
-                    'parentId': null,
-                    'childrenIds': ['answer-a', 'answer-b'],
-                    'role': 'user',
-                    'content': 'message 1 of chat-1',
-                    'timestamp': 1001,
-                  },
-                  for (final (id, content, timestamp) in [
-                    ('answer-a', 'The first answer', 1002),
-                    ('answer-b', 'The second answer', 1003),
-                  ])
-                    id: {
-                      'id': id,
-                      'parentId': 'chat-1-m1',
-                      'childrenIds': <String>[],
-                      'role': 'assistant',
-                      'content': content,
-                      'timestamp': timestamp,
-                      'model': 'llama3',
-                    },
-                },
-              },
-            },
-            createdAt: 100,
-            updatedAt: 150,
-          );
+          seedTwoAnswers();
           if (!landed) {
             await db.outboxDao.enqueue(
               kind: OutboxKind.deleteMessages,
@@ -911,6 +913,63 @@ void main() {
 
       check(pulled).isNotNull();
       check(order).deepEquals(['parsed', 'change']);
+    });
+
+    test("answers without an answer whose delete lands while the server's "
+        'copy is parsed', () async {
+      seedTwoAnswers();
+      final parseTaken = Completer<void>();
+      final parseGate = Completer<void>();
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(
+        client: hooked,
+        db: db,
+        locks: locks,
+        parseOffload: (envelope) async {
+          if (!parseTaken.isCompleted) parseTaken.complete();
+          await parseGate.future;
+          return parseFullConversationModel(envelope);
+        },
+      );
+
+      final opening = pull.pullChat('chat-1');
+      await parseTaken.future;
+      db.chatsDao.noteMessageDeletesLanded('chat-1', ['answer-b']);
+      parseGate.complete();
+      final pulled = await opening;
+
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'answer-a']);
+    });
+
+    test('parses the copy off this isolate twice at most while deletes keep '
+        'landing', () async {
+      seedTwoAnswers();
+      var offloaded = 0;
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(
+        client: hooked,
+        db: db,
+        locks: locks,
+        parseOffload: (envelope) async {
+          offloaded++;
+          // A delete lands during every parse off this isolate.
+          db.chatsDao.noteMessageDeletesLanded('chat-1', [
+            offloaded == 1 ? 'answer-b' : 'another-answer-$offloaded',
+          ]);
+          return parseFullConversationModel(envelope);
+        },
+      );
+
+      final pulled = await pull.pullChat('chat-1');
+
+      check(offloaded).equals(2);
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'answer-a']);
     });
 
     test('with a message of its own not sent yet, keeps a turn stored here '

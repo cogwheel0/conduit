@@ -345,6 +345,10 @@ class PullSync {
   /// carry the watermark past this one's changes.
   static const _readsWhenStale = 2;
 
+  /// How many times [_parseWithoutDeletes] parses a copy off this isolate
+  /// while deletes keep landing.
+  static const _parsesWhileDeletesLand = 2;
+
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
   /// AND the local row is present, clean, body-synced, and stamped at that
@@ -757,6 +761,11 @@ class PullSync {
   /// [resp], a copy of chat [id], parsed without the messages whose delete
   /// waits or has landed here, as `readChatWithoutUnsentDeletes` reads a chat
   /// whose pushes keep landing.
+  ///
+  /// A delete can land while the copy is parsed, since noting it takes no
+  /// chat lock. The copy is then parsed again without it: off this isolate
+  /// [_parsesWhileDeletesLand] times at most, then on it, where nothing can
+  /// land between the last look at the deletes and the return.
   Future<Conversation> _parseWithoutDeletes(
     String id,
     Map<String, dynamic> resp,
@@ -766,12 +775,20 @@ class PullSync {
       ..._db.chatsDao.landedMessageDeletes(id),
     };
     final rows = await _rowsOf(resp);
-    final without = chatResponseWithoutMessages(resp, rows, ids);
-    final parseOffload = _parseOffload;
-    final conversation = parseOffload != null
-        ? await parseOffload(without)
-        : parseFullConversationModel(without);
-    return withQuestionHeldAgain(conversation, rows, ids);
+    for (var parses = 0; ; parses++) {
+      final without = chatResponseWithoutMessages(resp, rows, ids);
+      final parseOffload = parses < _parsesWhileDeletesLand
+          ? _parseOffload
+          : null;
+      final conversation = parseOffload != null
+          ? await parseOffload(without)
+          : parseFullConversationModel(without);
+      final landed = _db.chatsDao.landedMessageDeletes(id);
+      if (ids.containsAll(landed)) {
+        return withQuestionHeldAgain(conversation, rows, ids);
+      }
+      ids.addAll(landed);
+    }
   }
 
   Future<ChatRows> _rowsOf(Map<String, dynamic> resp) async {
