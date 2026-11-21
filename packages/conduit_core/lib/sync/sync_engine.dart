@@ -1474,7 +1474,10 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   }
 
   Future<void> _scheduleFtsBuildIfNeeded(AppDatabase db, int cycleEpoch) async {
-    if (_ftsBuildInFlight) return;
+    // A closed engine starts none: the next launch builds it. A build already
+    // running is one SQLite transaction with nowhere to stop between batches;
+    // a process killed under it rolls it back, and the flag stays unset.
+    if (_closed || _ftsBuildInFlight) return;
     String? built;
     try {
       built = await db.syncMetaDao.getValue(kFtsBuiltKey);
@@ -1486,7 +1489,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
       rethrow;
     }
     if (!_cycleStillBound(cycleEpoch, 'after-fts-flag-read')) return;
-    if (built == '1') return;
+    if (_closed || built == '1') return;
 
     _ftsBuildInFlight = true;
     // The conversation list already streams from `watchChatList`; running this
