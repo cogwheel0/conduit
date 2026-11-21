@@ -160,6 +160,12 @@ mixin _ChatsRawApi on _ApiServiceBase {
   // `updateConversation` (which sends a partial `{title, system}` dict — the
   // §3.iii shallow-merge hazard).
 
+  /// Whether a 401 or 403 refused the session still current. One that
+  /// refused [authSnapshot]'s session after another replaced it says nothing
+  /// about the current one, so it is not terminal: the write goes again.
+  bool _refusedCurrentSession(ApiAuthSnapshot? authSnapshot) =>
+      authSnapshot == null || authSnapshotIsCurrent(authSnapshot);
+
   /// POST `/api/v1/chats/new` with the COMPLETE blob; returns the parsed
   /// `ChatResponse` map (the server mints `id`).
   Future<Map<String, dynamic>> createChatRaw(
@@ -176,7 +182,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
       return _requireResponseMap(response.data, 'createChatRaw');
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'createChat forbidden',
@@ -206,7 +213,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'updateChat $id forbidden',
@@ -229,7 +237,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return false;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'deleteChat $id forbidden',
@@ -253,7 +262,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return false;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'getChatPinned $id forbidden',
@@ -283,7 +293,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'pinChat $id forbidden',
@@ -313,7 +324,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'archiveChat $id forbidden',
@@ -340,7 +352,8 @@ mixin _ChatsRawApi on _ApiServiceBase {
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 404) return null;
-      if (code == 401 || code == 403) {
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
         throw SyncTerminalException(
           statusCode: code,
           message: 'moveChatToFolder $id forbidden',

@@ -710,6 +710,35 @@ void main() {
       check(refusal).isA<DioException>();
     });
 
+    // Open WebUI refuses a session that has been replaced (its token signed
+    // out) as it refuses one that may not write the chat. Only the second
+    // says anything about the session the op will go as next.
+    for (final (label, replaced) in const [
+      ('one replaced since stays queued', true),
+      ('the current one parks', false),
+    ]) {
+      test('a refusal of the session it went as: $label', () async {
+        await seedChat('c1');
+        final seq = await db.outboxDao.enqueue(
+          kind: OutboxKind.updateChat,
+          chatId: 'c1',
+        );
+        api.dio.httpClientAdapter = _RoutedAdapter((method, path) {
+          if (replaced) api.updateAuthToken('session-b');
+          return (401, {'detail': 'access prohibited'});
+        });
+
+        await _chatDrainer(
+          db,
+          ApiSyncApiClient(api, ownsDatabase: (_) => true),
+          remapper,
+        ).drain();
+
+        check((await db.outboxDao.opBySeq(seq))?.status)
+            .equals(replaced ? OutboxStatus.pending : OutboxStatus.failed);
+      });
+    }
+
     test('stays queued, unsent, while no session owns the account', () async {
       await seedChat('c1');
       final seq = await db.outboxDao.enqueue(
