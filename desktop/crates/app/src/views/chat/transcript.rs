@@ -116,6 +116,9 @@ struct AnswerPin {
     /// reveal, is over: set on the first frame after the pin arms, the one
     /// in which the answer's row sees itself done and starts that wait.
     until: Option<std::time::Instant>,
+    /// A layout since the pin armed has measured the answer's row, and it
+    /// fits the view. Until then the list follows as it would.
+    fits: bool,
     /// The list has been laid out from the answer's start at least once.
     applied: bool,
 }
@@ -152,9 +155,8 @@ pub struct Transcript {
     /// The newest answer as the last sync saw it: a pin arms only when it
     /// finishes or its suggestions come.
     newest: NewestAnswer,
-    /// The newest row's key and height as last laid out, noted after each
-    /// layout and kept from frame to frame: a store change remeasures the
-    /// rows, and the next one can come before they are laid out again.
+    /// The newest row's key and height, noted after each layout. Cleared
+    /// when a pin arms, so what it holds then was measured since.
     newest_height: std::rc::Rc<std::cell::RefCell<Option<(String, Pixels)>>>,
     focus: FocusHandle,
     /// What had focus when last drawn: Tab moving onto a row's buttons
@@ -544,7 +546,7 @@ impl Transcript {
         }
         self.seen = revisions;
         let was = std::mem::replace(&mut self.newest, newest);
-        let pinned = match (&was, &self.newest) {
+        match (&was, &self.newest) {
             (NewestAnswer::Writing, NewestAnswer::Done { .. }) => self.arm_pin(),
             (
                 NewestAnswer::Done {
@@ -556,51 +558,28 @@ impl Transcript {
                     suggestions: true,
                 },
             ) if before == key => self.arm_pin(),
-            _ => false,
-        };
-        if grows && !pinned {
+            _ => {}
+        }
+        if grows {
             self.ease_to_end(cx);
         }
         self.find_rows_changed();
         cx.notify();
     }
 
-    /// The newest answer just finished, or its suggestions just came, with
-    /// its first line in view while the view follows the end: from here
-    /// the view follows the end only as far as that line
-    /// ([`Self::step_pin`]). An answer already scrolled past its start
-    /// keeps following its end, as does one taller than the view as last
-    /// laid out ([`Self::newest_height`]). Whether it pinned.
-    fn arm_pin(&mut self) -> bool {
+    /// The newest answer just finished, or its suggestions just came: a
+    /// pin waits for that answer's next layout ([`Self::step_pin`]).
+    fn arm_pin(&mut self) {
         let NewestAnswer::Done { key, .. } = &self.newest else {
-            return false;
+            return;
         };
-        let Some(ix) = self.keys.iter().position(|k| k == key) else {
-            return false;
-        };
-        let top = self.list.logical_scroll_top();
-        let start_in_view = top.item_ix < ix || (top.item_ix == ix && top.offset_in_item <= px(0.));
-        let fits = self
-            .newest_height
-            .borrow()
-            .as_ref()
-            .is_some_and(|(row, height)| {
-                row == key && *height <= self.list.viewport_bounds().size.height
-            });
-        if !self.follows_end() || !start_in_view || !fits {
-            return false;
-        }
-        // The eased follow holds the list's own following paused, and the
-        // pin lays the list out only while it follows.
-        if self.chase.take().is_some() {
-            self.list.set_follow_mode(FollowMode::Tail);
-        }
+        *self.newest_height.borrow_mut() = None;
         self.answer_pin = Some(AnswerPin {
             key: key.clone(),
             until: None,
+            fits: false,
             applied: false,
         });
-        true
     }
 
     /// Before each layout, while the list would follow its end: lay it out
@@ -610,13 +589,54 @@ impl Transcript {
     /// in), so this holds until a layout no longer finds the end (the view
     /// then rests at the answer's start, and the next growth is followed
     /// again) or until that wait is over with everything fitting.
-    fn step_pin(&mut self, now: std::time::Instant) {
+    ///
+    /// Until a layout since the pin armed has measured the answer's row
+    /// (its text can have grown, or it may never have been drawn, before
+    /// that), the list follows as it would. Then the pin holds only an
+    /// answer no taller than the view, in a view still following the end;
+    /// any other is let go, following its end.
+    fn step_pin(&mut self, now: std::time::Instant, cx: &App) {
         let Some(pin) = &mut self.answer_pin else {
             return;
         };
-        let until = *pin
-            .until
+        pin.until
             .get_or_insert(now + motion::SETTLE_WAIT + specs::REVEAL.duration + motion::FRAME * 3);
+        if !pin.fits {
+            let measured = self
+                .newest_height
+                .borrow()
+                .as_ref()
+                .filter(|(key, _)| *key == pin.key)
+                .map(|(_, height)| *height);
+            let Some(height) = measured else {
+                return;
+            };
+            // The answer itself, without the suggestions under it (a row
+            // first drawn done shows them at once): one no taller than the
+            // view, while the view follows the end, has its start in view.
+            let answer = height
+                - self
+                    .rows
+                    .get(&pin.key)
+                    .map_or(px(0.), |row| row.suggestions_height(cx));
+            let fits = answer <= self.list.viewport_bounds().size.height;
+            if !fits || !(self.chase.is_some() || self.list.is_following_tail()) {
+                self.answer_pin = None;
+                return;
+            }
+            if let Some(pin) = &mut self.answer_pin {
+                pin.fits = true;
+            }
+            // The eased follow holds the list's own following paused, and
+            // the pin lays the list out only while it follows.
+            if self.chase.take().is_some() {
+                self.list.set_follow_mode(FollowMode::Tail);
+            }
+        }
+        let Some(pin) = &self.answer_pin else {
+            return;
+        };
+        let until = pin.until.unwrap_or(now);
         let applied = pin.applied;
         let ix = self.keys.iter().position(|k| *k == pin.key);
         match ix {
@@ -1520,7 +1540,7 @@ impl Render for Transcript {
         self.refresh_reading(cx);
         self.step_chase(window, cx);
         self.reveal_focused(window, cx);
-        self.step_pin(cx.background_executor().now());
+        self.step_pin(cx.background_executor().now(), cx);
         let t = cx.conduit().clone();
         let l10n = cx.l10n().clone();
         let r = t.roles;
@@ -2853,6 +2873,70 @@ mod tests {
         let (_, end) = painted(&list, 1).expect("the answer is on screen");
         assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
         assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// An answer whose stored copy comes taller than the view, with no
+    /// layout between its end and that copy, follows its end: whether it
+    /// fits is measured, not taken from how it was last drawn.
+    #[gpui_kit::test]
+    fn an_answer_that_outgrows_the_view_as_it_finishes_follows_its_end(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            start >= top && end - start < QUICK_ASK_VIEWPORT,
+            "not short: {start}..{end}"
+        );
+        complete_turn(&store, &daemon, &question, 12, cx);
+        quick_ask_frames(&transcript, cx);
+        let (_, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A short answer that starts and finishes while nothing draws (the
+    /// panel hidden before its row was ever drawn) shows from its first
+    /// line once drawing resumes.
+    #[gpui_kit::test]
+    fn a_short_answer_never_drawn_before_it_finished_shows_from_its_start(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) = open_with(vec![question.clone()], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(conduit_protocol::TurnStarted {
+                    companion_ids: vec![],
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            )
+        });
+        stream(&store, 1, cx);
+        complete_turn(&store, &daemon, &question, 1, cx);
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(1000));
+        quick_ask_frames(&transcript, cx);
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            end - start > QUICK_ASK_VIEWPORT,
+            "the suggestions fit after all: {}",
+            end - start
+        );
+        assert!(
+            start >= top - 0.5 && start <= top + TOP_INSET + 0.5,
+            "the answer starts at {start}, not at the view's top {top}"
+        );
     }
 
     /// A tall answer, followed past its start while it streamed, still

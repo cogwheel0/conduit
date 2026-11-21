@@ -513,6 +513,9 @@ pub struct AssistantRow {
     pub(super) paces: HashMap<usize, Pace>,
     /// The suggestions drawn last frame, if they were showing.
     follow_ups_shown: Option<Vec<String>>,
+    /// The room its suggestions take under the answer as last laid out
+    /// (none without them): what of the row is the answer itself.
+    suggestions_height: Rc<std::cell::Cell<gpui_kit::Pixels>>,
     /// A regenerate on its way: the old answer's suggestions, fading where
     /// they stand, their room kept until the new answer starts.
     stale_follow_ups: Option<Vec<String>>,
@@ -588,6 +591,7 @@ impl AssistantRow {
             motion_key: format!("answer{}", ROW_SERIAL.fetch_add(1, Ordering::Relaxed)),
             paces: HashMap::new(),
             follow_ups_shown: None,
+            suggestions_height: Rc::default(),
             stale_follow_ups: None,
             leaving: None,
             row_focus: None,
@@ -661,6 +665,11 @@ impl AssistantRow {
         self.leaving
             .iter()
             .flat_map(|l| l.texts.values().map(|(_, state)| state))
+    }
+
+    /// The room its suggestions take under the answer as last laid out.
+    pub(super) fn suggestions_height(&self) -> gpui_kit::Pixels {
+        self.suggestions_height.get()
     }
 
     /// The newest answer, just finished, whose suggestions may still come
@@ -1538,6 +1547,10 @@ impl AssistantRow {
             .flatten()
             .map(|q| self.queued_banner(&key, &q, &t, cx));
         let actions = if queued.is_some() { None } else { actions };
+        let measure = self.suggestions_height.clone();
+        if follow_ups.is_none() {
+            measure.set(px(0.));
+        }
         div()
             .flex()
             .flex_col()
@@ -1553,6 +1566,14 @@ impl AssistantRow {
                     .relative()
                     .opacity(open)
                     .child(follow_up_list(&key, &items, &host, &t, cx))
+                    .child(
+                        gpui_kit::canvas(
+                            move |b, _, _| measure.set(b.size.height + px(rhythm::BLOCK_GAP)),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .size_full(),
+                    )
                     .when(!wanted, |d| {
                         d.child(
                             div()
@@ -2453,6 +2474,14 @@ impl RowView {
                 Self::Assistant(cx.new(|_| AssistantRow::new(host, item, flags)))
             }
             MessageRole::User => Self::User(cx.new(|_| UserRow::new(host, item, flags))),
+        }
+    }
+
+    /// The room an answer's suggestions take under it as last laid out.
+    pub fn suggestions_height(&self, cx: &App) -> gpui_kit::Pixels {
+        match self {
+            Self::Assistant(row) => row.read(cx).suggestions_height(),
+            Self::User(_) => px(0.),
         }
     }
 
