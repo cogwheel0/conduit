@@ -12,6 +12,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
@@ -107,6 +108,7 @@ void main() {
     List<ChatMessage> transcript = const <ChatMessage>[],
     String? followUp,
     List<Override> overrides = const <Override>[],
+    void Function(ProviderContainer container)? whileSending,
   }) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
     final originalFlutterErrorOnError = FlutterError.onError;
@@ -204,6 +206,7 @@ void main() {
     if (ordinarySend) {
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+      whileSending?.call(container);
       await settle(tester);
       return container;
     }
@@ -313,6 +316,50 @@ void main() {
       }
     },
   );
+
+  // Send waits until every file in the tray is uploaded. A file attached
+  // after that, while the send reads the draft's recordings, is not one it
+  // checked: the message goes without it, and it stays for the next one.
+  testPage('a file attached while a send is admitted stays in the tray', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    await tester.runAsync(
+      () => db
+          .into(db.chats)
+          .insert(
+            ChatsCompanion.insert(
+              id: 'stored-chat',
+              title: 'A chat',
+              createdAt: 1,
+              updatedAt: 1,
+              bodySynced: const Value(true),
+            ),
+          ),
+    );
+    final checked = _upload(
+      'checked.txt',
+      status: FileUploadStatus.completed,
+      fileId: 'file-checked',
+    );
+    final later = _upload('later.txt', status: FileUploadStatus.uploading);
+    final container = await compareOnPage(
+      tester,
+      db: db,
+      ordinarySend: true,
+      overrides: [
+        attachedFilesProvider.overrideWith(() => _Tray([checked])),
+      ],
+      whileSending: (container) =>
+          (container.read(attachedFilesProvider.notifier) as _Tray).put(later),
+    );
+
+    final sent = container
+        .read(chatMessagesProvider)
+        .firstWhere((message) => message.role == 'user');
+    expect(sent.attachmentIds, ['file-checked']);
+    expect(container.read(attachedFilesProvider), [same(later)]);
+  });
 
   testPage('a tapped follow-up is sent with the tools picked for the chat', (
     tester,
@@ -430,6 +477,31 @@ void main() {
     expect(hermes.turns, 0);
     expect(composerText(tester), 'compare this');
   });
+}
+
+FileUploadState _upload(
+  String name, {
+  required FileUploadStatus status,
+  String? fileId,
+}) => FileUploadState(
+  file: File('${Directory.systemTemp.path}/sendpath-$name'),
+  fileName: name,
+  fileSize: 1,
+  progress: status == FileUploadStatus.completed ? 1 : 0.5,
+  status: status,
+  fileId: fileId,
+);
+
+/// The composer's tray, starting with [initial].
+class _Tray extends AttachedFilesNotifier {
+  _Tray(this.initial);
+
+  final List<FileUploadState> initial;
+
+  @override
+  List<FileUploadState> build() => initial;
+
+  void put(FileUploadState file) => state = [...state, file];
 }
 
 class _Conversations extends Conversations {

@@ -1945,6 +1945,37 @@ void main() {
     },
   );
 
+  test('a send takes only uploaded files; one still uploading stays', () async {
+    FileUploadState file(String name, FileUploadStatus status) =>
+        FileUploadState(
+          file: File('remote://$name'),
+          fileName: name,
+          fileSize: 1,
+          progress: status == FileUploadStatus.completed ? 1 : 0.5,
+          status: status,
+          fileId: status == FileUploadStatus.completed ? name : null,
+        );
+    final uploaded = file('uploaded', FileUploadStatus.completed);
+    final uploading = file('uploading', FileUploadStatus.uploading);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([uploaded, uploading]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    final sent = controller.captureSentAttachments();
+    await controller.retireAttachmentOwnership(sent);
+
+    expect(sent.attachments, [same(uploaded)]);
+    expect(container.read(attachedFilesProvider), [same(uploading)]);
+  });
+
   test(
     'ownership snapshot removes both original and inflight successor states',
     () async {

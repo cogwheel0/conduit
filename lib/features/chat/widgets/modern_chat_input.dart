@@ -82,6 +82,7 @@ import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
+import '../../../core/services/media_upload_controller.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../services/native_stt_service.dart';
 
@@ -414,8 +415,11 @@ class ModernChatInput extends ConsumerStatefulWidget {
   final Function(String) onSendMessage;
 
   /// Acknowledges admission before the composer retires its local draft.
+  /// [files] are the tray's files the send took when it was asked for: the
+  /// message carries exactly these, and the host retires exactly these.
   final Future<ChatSendPlaceholderHandle?> Function(
     String text,
+    MediaAttachmentOwnershipSnapshot files,
     void Function(ChatSendPlaceholderHandle) onPrepared,
   )?
   onSendDraft;
@@ -424,9 +428,11 @@ class ModernChatInput extends ConsumerStatefulWidget {
   /// Null where the host cannot run one. Completes with the committed turn, or
   /// null if it was not durably admitted; the composer keeps its draft unless
   /// it was, and clears it only while it still shows the chat the turn is in.
+  /// [files] are as for [onSendDraft].
   final Future<ChatSendPlaceholderHandle?> Function(
     String text,
     List<Model> models,
+    MediaAttachmentOwnershipSnapshot files,
     void Function(ChatSendPlaceholderHandle) onPrepared,
   )?
   onCompareSend;
@@ -1099,18 +1105,21 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     if (streaming) return;
+    // The files just checked. The send may wait before its host reads the
+    // tray, and a file attached meanwhile is not one it checked.
+    final sentFiles = _captureSentFiles();
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.
     final saved = ref.read(folderDraftComparisonModelsProvider);
     if (saved != null && widget.onCompareSend != null) {
-      unawaited(_sendComparison(saved, _captureComposerOwner()));
+      unawaited(_sendComparison(saved, _captureComposerOwner(), sentFiles));
       return;
     }
 
     final sendDraft = widget.onSendDraft;
     if (sendDraft != null) {
-      unawaited(_sendOwnedDraft(_captureComposerOwner(), sendDraft));
+      unawaited(_sendOwnedDraft(_captureComposerOwner(), sentFiles, sendDraft));
       return;
     }
 
@@ -1565,8 +1574,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!mounted || _isDeactivated) return;
     final owner = _captureComposerOwner();
     final models = await showComparisonSetupSheet(context, ref);
-    await _sendComparison(models, owner);
+    if (models == null || !mounted || _isDeactivated) return;
+    await _sendComparison(models, owner, _captureSentFiles());
   }
+
+  /// The tray's uploaded files, taken for one send.
+  MediaAttachmentOwnershipSnapshot _captureSentFiles() =>
+      ref.read(mediaUploadControllerProvider).captureSentAttachments();
 
   /// The account and the chat this composer is showing, named before anything
   /// awaits. A new chat has no conversation yet.
@@ -1577,26 +1591,28 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   );
 
   /// Sends the composer's message to [models] as one comparison turn and clears
-  /// the composer once that turn is committed. [models] is null when the user
-  /// chose none. The setup command and a project draft that starts with saved
-  /// models both send through here.
+  /// the composer once that turn is committed. The setup command and a project
+  /// draft that starts with saved models both send through here.
   Future<void> _sendComparison(
-    List<Model>? models,
+    List<Model> models,
     _ComposerOwner owner,
+    MediaAttachmentOwnershipSnapshot files,
   ) async {
-    if (models == null) return;
     final send = widget.onCompareSend;
     if (send == null) return;
     await _sendOwnedDraft(
       owner,
-      (text, onPrepared) => send(text, models, onPrepared),
+      files,
+      (text, files, onPrepared) => send(text, models, files, onPrepared),
     );
   }
 
   Future<void> _sendOwnedDraft(
     _ComposerOwner owner,
+    MediaAttachmentOwnershipSnapshot files,
     Future<ChatSendPlaceholderHandle?> Function(
       String,
+      MediaAttachmentOwnershipSnapshot,
       void Function(ChatSendPlaceholderHandle),
     )
     send,
@@ -1604,7 +1620,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (_sendingDraft) return;
     _sendingDraft = true;
     try {
-      await _admitOwnedDraft(owner, send);
+      await _admitOwnedDraft(owner, files, send);
     } catch (_) {
       if (mounted) {
         AdaptiveSnackBar.show(
@@ -1621,8 +1637,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   Future<void> _admitOwnedDraft(
     _ComposerOwner owner,
+    MediaAttachmentOwnershipSnapshot files,
     Future<ChatSendPlaceholderHandle?> Function(
       String,
+      MediaAttachmentOwnershipSnapshot,
       void Function(ChatSendPlaceholderHandle),
     )
     send,
@@ -1638,7 +1656,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     final wireText = _outgoingText();
-    if (!draftHasSendableContent(wireText, ref.read(attachedFilesProvider)) ||
+    if (!draftHasSendableContent(wireText, files.attachments) ||
         !widget.enabled) {
       return;
     }
@@ -1660,6 +1678,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     final committed = await send(
       wireText,
+      files,
       (handle) => _draftSendOwner = handle,
     );
     if (committed != null) {

@@ -350,6 +350,11 @@ final class MediaAttachmentOwnershipSnapshot {
   const MediaAttachmentOwnershipSnapshot._(this._attachments);
 
   final List<_MediaAttachmentOwnership> _attachments;
+
+  /// The tray's files as they were when captured.
+  List<FileUploadState> get attachments => [
+    for (final owner in _attachments) owner.attachment,
+  ];
 }
 
 typedef _MediaAttachmentOwnership = ({
@@ -398,8 +403,24 @@ class MediaUploadController {
   /// Captures the exact composer and upload owners present at an auth boundary.
   /// The snapshot can be retired later without touching attachments published
   /// by a session that authenticated in the meantime.
-  MediaAttachmentOwnershipSnapshot captureAttachmentOwnership() {
-    final attachments = _ref.read(attachedFilesProvider);
+  MediaAttachmentOwnershipSnapshot captureAttachmentOwnership() =>
+      _captureOwnership(_ref.read(attachedFilesProvider));
+
+  /// Captures the tray's uploaded files for one message. The message carries
+  /// exactly these, and retiring the snapshot once it is admitted removes
+  /// exactly these: a file still uploading, or attached afterwards, stays in
+  /// the tray for the next message.
+  MediaAttachmentOwnershipSnapshot captureSentAttachments() =>
+      _captureOwnership([
+        for (final attachment in _ref.read(attachedFilesProvider))
+          if (attachment.status == FileUploadStatus.completed &&
+              attachment.fileId != null)
+            attachment,
+      ]);
+
+  MediaAttachmentOwnershipSnapshot _captureOwnership(
+    List<FileUploadState> attachments,
+  ) {
     return MediaAttachmentOwnershipSnapshot._(<_MediaAttachmentOwnership>[
       for (final attachment in attachments)
         () {
