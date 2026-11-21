@@ -282,10 +282,11 @@ Stream<Map<String, QueuedCompletionInfo>> queuedCompletionInfoByMessage(
 /// which can race a cold connection) often fails once and is retried after
 /// about a second, and a banner for that one attempt flashes on screen. So
 /// a pending op shows when it is offline-deferred (queued until the
-/// connection returns) or has stalled across
-/// [_queuedCompletionStallAttempts] attempts. This is independent of
-/// [isOnline], which can be briefly false while connectivity resolves at
-/// startup; [isOnline] only says whether it waits for the connection.
+/// connection returns), has stalled across [_queuedCompletionStallAttempts]
+/// attempts, or failed an attempt and the connection is gone since: the
+/// drainer tries nothing more until it is back. An op never tried shows
+/// nothing for [isOnline] alone, which can be briefly false while
+/// connectivity resolves at startup.
 ///
 /// [blockedBy] is an earlier op of the same chat that is stuck the same way
 /// (see [queuedCompletionDisplaysOf]): a pending op behind it shows too, as
@@ -301,7 +302,7 @@ QueuedCompletionDisplay? queuedCompletionDisplayOf(
       ? QueuedCompletionPhase.failed
       : QueuedCompletionPhase.pending;
   if (phase == QueuedCompletionPhase.pending &&
-      !_queuedOpIsStuck(op) &&
+      !_queuedOpIsStuck(op, isOnline: isOnline) &&
       blockedBy == null) {
     return null;
   }
@@ -374,20 +375,22 @@ _queuedCompletionDisplayEntries(
         op.status != OutboxStatus.inFlight &&
         ((op.status == OutboxStatus.failed &&
                 OutboxDao.parkedOpHoldsUpLaterOps(op.kind)) ||
-            _queuedOpIsStuck(op))) {
+            _queuedOpIsStuck(op, isOnline: isOnline))) {
       stuck[chatId] = op;
     }
   }
 }
 
-/// A pending op that genuinely waits: offline-deferred, or stalled across
-/// [_queuedCompletionStallAttempts] attempts. One being sent right now is
-/// not waiting, whatever its history: Retry and Cancel only reach a pending
-/// op, so it is not shown as queued.
-bool _queuedOpIsStuck(OutboxOp op) =>
+/// A pending op that genuinely waits: offline-deferred, stalled across
+/// [_queuedCompletionStallAttempts] attempts, or tried and failed with the
+/// connection gone since ([queuedCompletionDisplayOf]). One being sent right
+/// now is not waiting, whatever its history: Retry and Cancel only reach a
+/// pending op, so it is not shown as queued.
+bool _queuedOpIsStuck(OutboxOp op, {required bool isOnline}) =>
     op.status == OutboxStatus.pending &&
     (op.lastError == 'offline' ||
-        op.attempts >= _queuedCompletionStallAttempts);
+        op.attempts >= _queuedCompletionStallAttempts ||
+        (!isOnline && op.attempts > 0));
 
 /// What one queued completion shows ([queuedCompletionDisplayOf]).
 final class QueuedCompletionDisplay {

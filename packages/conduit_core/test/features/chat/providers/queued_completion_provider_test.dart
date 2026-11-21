@@ -254,25 +254,38 @@ void main() {
     ).contains(update);
   });
 
-  test(
-    'an answer behind an update tried only once shows nothing yet',
-    () async {
-      const chatId = 'c1';
-      const assistantId = 'a1';
-      final update = await db.transaction(
-        () => db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
-      );
-      await enqueueCompletion(chatId, assistantId);
-      await db.outboxDao.markFailedRetryable(
-        update,
-        error: 'Connection closed',
-        nextAttemptAt: 1,
-      );
+  // Once the connection is gone the drainer tries nothing until it is back,
+  // so an op that failed once waits for it.
+  for (final online in [true, false]) {
+    test(
+      'an answer behind an update tried only once shows '
+      '${online ? 'nothing yet' : 'as queued once the connection is gone'}',
+      () async {
+        const chatId = 'c1';
+        const assistantId = 'a1';
+        final update = await db.transaction(
+          () =>
+              db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId),
+        );
+        await enqueueCompletion(chatId, assistantId);
+        await db.outboxDao.markFailedRetryable(
+          update,
+          error: 'Connection closed',
+          nextAttemptAt: 1,
+        );
 
-      final container = makeContainer(online: true, chatId: chatId);
-      check(await firstInfo(container, assistantId)).isNull();
-    },
-  );
+        final container = makeContainer(online: online, chatId: chatId);
+        final info = await firstInfo(container, assistantId);
+        if (online) {
+          check(info).isNull();
+        } else {
+          check(info).isNotNull()
+            ..has((i) => i.blockedBySeq, 'blockedBySeq').equals(update)
+            ..has((i) => i.isOffline, 'isOffline').isTrue();
+        }
+      },
+    );
+  }
 
   test('an offline-deferred completion surfaces the banner', () async {
     const chatId = 'c1';
@@ -346,6 +359,24 @@ void main() {
 
     final container = makeContainer(online: true, chatId: chatId);
     check(await firstInfo(container, assistantId)).isNull();
+  });
+
+  test('a completion tried once shows as queued once the connection is '
+      'gone', () async {
+    const chatId = 'c1';
+    const assistantId = 'a1';
+    final seq = await enqueueCompletion(chatId, assistantId);
+    await db.outboxDao.markFailedRetryable(
+      seq,
+      error: 'Connection closed',
+      nextAttemptAt: 1,
+    );
+
+    final container = makeContainer(online: false, chatId: chatId);
+    final info = await firstInfo(container, assistantId);
+    check(info).isNotNull()
+      ..has((i) => i.isOffline, 'isOffline').isTrue()
+      ..has((i) => i.lastError, 'lastError').equals('Connection closed');
   });
 
   test('a stalled completion (attempts >= 2) surfaces the banner', () async {
