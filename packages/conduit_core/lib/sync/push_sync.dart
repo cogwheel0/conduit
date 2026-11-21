@@ -231,6 +231,7 @@ class PushSync {
           if (_isHeldAnswer(m)) m.id,
       };
       final rows = await _withStoppedAnswersAsServerHas(
+        client,
         chatId,
         chatRowsFromDb(chat, messages).withoutMessages(heldAnswers),
       );
@@ -398,7 +399,7 @@ class PushSync {
 
   /// [rows] with each answer kept on this device for a Stop the server has
   /// not accepted ([kStoppedHereMetadataKey]) as the server has it now, read
-  /// under this push's lock.
+  /// under this push's lock with the [client] it sends with.
   ///
   /// The push replaces the chat's whole history, so neither a guess at the
   /// server's copy nor this device's text may go in its place: the one could
@@ -407,6 +408,7 @@ class PushSync {
   /// into is taken here too, so nothing marks it any more; one it does not
   /// have stays out.
   Future<ChatRows> _withStoppedAnswersAsServerHas(
+    SyncApiClient client,
     String chatId,
     ChatRows rows,
   ) async {
@@ -415,7 +417,7 @@ class PushSync {
         if (_isStoppedHere(message)) message.id,
     };
     if (stopped.isEmpty) return rows;
-    final blob = (await _client.getChatRaw(chatId))?['chat'];
+    final blob = (await client.getChatRaw(chatId))?['chat'];
     final serverById = <String, MessageRowData>{
       if (blob is Map)
         for (final message in ChatBlobMapper.blobToRows(
