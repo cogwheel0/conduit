@@ -73,9 +73,12 @@ class TerminalServerInfo {
     );
   }
 
+  /// A terminal made per model with no model to use: Open WebUI refuses it
+  /// (409 "This terminal requires a model").
+  bool get needsModel => requiresModelContext && modelId == null;
+
   bool isAvailableForChatScope(String sessionScopeId) {
     if (!chatContextAvailable) return false;
-    if (requiresModelContext && modelId == null) return false;
     return !requiresSavedChatContext ||
         isSavedTerminalChatScopeId(sessionScopeId);
   }

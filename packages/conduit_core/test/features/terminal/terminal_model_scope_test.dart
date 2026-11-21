@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -93,7 +94,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
-    container.listen(terminalAvailableServersProvider, (_, _) {});
+    container.listen(terminalSelectedServerProvider, (_, _) {});
 
     // No model yet: Open WebUI would answer 409 "This terminal requires a
     // model".
@@ -102,18 +103,24 @@ void main() {
     );
     check(before.map((s) => s.selectionId)).deepEquals(['orchestra:mine']);
 
-    (container.read(selectedModelProvider.notifier) as _Picked).choose(
-      const Model(id: 'nova-chat', name: 'Nova'),
-    );
+    final picked = container.read(selectedModelProvider.notifier) as _Picked;
+    picked.choose(const Model(id: 'nova-chat', name: 'Nova'));
     final servers = await container.read(
       terminalAvailableServersProvider.future,
     );
     check(servers.map((s) => s.selectionId))
         .deepEquals(['orchestra:per-model', 'orchestra:mine']);
+    container
+        .read(selectedTerminalIdProvider.notifier)
+        .set('orchestra:per-model');
+    final perModel = (await container.read(
+      terminalSelectedServerProvider.future,
+    ))!;
+    final mine = servers.last;
 
     final service = container.read(terminalServiceProvider)!;
     server.requests.clear();
-    for (final terminal in servers) {
+    for (final terminal in [perModel, mine]) {
       await service.getCwd(terminal, sessionScopeId: 'chat-1');
     }
     check(server.requests.map((r) => r.headers['X-Terminal-Model-Id']))
@@ -123,7 +130,7 @@ void main() {
 
     check(
       buildTerminalWebSocketAuthPayload(
-        servers.first,
+        perModel,
         token: 'token',
         sessionScopeId: 'chat-1',
       ),
@@ -135,10 +142,20 @@ void main() {
     });
     check(
       buildTerminalWebSocketAuthPayload(
-        servers.last,
+        mine,
         token: 'token',
         sessionScopeId: 'chat-1',
       ),
     ).deepEquals({'type': 'auth', 'token': 'token', 'chat_id': 'chat-1'});
+
+    // Another model: the selected terminal is that model's, and the list is
+    // not read again.
+    server.requests.clear();
+    picked.choose(const Model(id: 'nova-other', name: 'Nova Other'));
+    final switched = await container.read(
+      terminalSelectedServerProvider.future,
+    );
+    check(switched?.modelId).equals('nova-other');
+    check(server.requests).isEmpty();
   });
 }

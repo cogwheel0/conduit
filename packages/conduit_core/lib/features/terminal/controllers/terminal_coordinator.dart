@@ -226,6 +226,8 @@ final class TerminalCoordinator<S extends TerminalScreen>
       !_disposed &&
       _gateway.isActive &&
       _gateway.selectedServer?.selectionId == server.selectionId &&
+      // A terminal made per model is another machine for another model.
+      _gateway.selectedServer?.modelId == server.modelId &&
       _gateway.sessionScopeId == sessionScopeId;
 
   void _handleInitialServerList(AsyncValue<List<TerminalServerInfo>> state) {
