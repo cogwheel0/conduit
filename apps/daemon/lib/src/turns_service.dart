@@ -3177,10 +3177,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       chatStorageKindOf(conversation) != ChatStorageKind.openWebUi &&
       !isNativeHermesConversation(conversation);
 
-  void _scheduleLinger(_ChatSession session) {
+  void _scheduleLinger(_ChatSession session, {Duration? linger}) {
     session.linger?.cancel();
     if (session.scope.isDisposed) return;
-    session.linger = Timer(lingerAfterTurn, () {
+    session.linger = Timer(linger ?? lingerAfterTurn, () {
       if (session.holds > 0) return;
       final turn = session.turn;
       if (turn != null && !turn.finished) return;
@@ -3212,14 +3212,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
   }
 
   /// Looks at [session] again after [wait] ([_scheduleLinger]), unless the
-  /// held question's answer has come by then.
+  /// held question's answer has come by then. Its linger is over already: a
+  /// second one would keep the scope past [heldOpenLimit].
   void _waitForHeld(_ChatSession session, Duration wait) {
     final token = session.heldWait = Object();
     unawaited(
       _pause(wait).then((_) {
         if (!identical(session.heldWait, token)) return;
         if (session.scope.isDisposed) return;
-        _scheduleLinger(session);
+        _scheduleLinger(session, linger: Duration.zero);
       }),
     );
   }

@@ -395,6 +395,25 @@ void main() {
     },
   );
 
+  test('a held message\'s chat no window shows closes its scope as the wait '
+      'for the answer ends, without lingering again', () async {
+    final linger = TurnsService.lingerAfterTurn;
+    // The linger after the turn ends at once, and the wait starts.
+    TurnsService.lingerAfterTurn = Duration.zero;
+    addTearDown(() => TurnsService.lingerAfterTurn = linger);
+    const chatId = 'chat-scullery';
+    await heldSend(chatId);
+    subscribeWindow(events, turns, 'probe', const <String>[]);
+    await pumpEventQueue();
+    expect(turns.hasScope(chatId), isTrue);
+
+    // A linger runs on the wall clock, which the test does not move.
+    TurnsService.lingerAfterTurn = const Duration(seconds: 30);
+    clock.advance(TurnsService.heldOpenLimit);
+    await pumpEventQueue();
+    expect(turns.hasScope(chatId), isFalse);
+  });
+
   /// One answered turn in [chatId], with a window showing the chat, and what
   /// the daemon says from then on.
   Future<
