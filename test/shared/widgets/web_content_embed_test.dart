@@ -528,6 +528,31 @@ void main() {
         ).equals(_proxySecret);
       check(transport.client.options.followRedirects).isFalse();
     });
+
+    testWidgets('a video tries its next source when one cannot load', (
+      tester,
+    ) async {
+      final cache = _RecordingVideoCache();
+      await tester.pumpWidget(
+        _buildServerHarness(
+          '<video controls title="Walkthrough">'
+          '<source src="/api/v1/files/missing/content" type="video/webm">'
+          '<source src="/api/v1/files/v1/content" type="video/mp4">'
+          '</video>',
+          videoCache: cache,
+        ),
+      );
+
+      await tester.tap(find.text('Walkthrough'));
+      await tester.pump();
+      cache.pending.single.completeError(const HttpException('404'));
+      await tester.pump();
+
+      check(cache.urls).deepEquals([
+        'https://chat.example.test/api/v1/files/missing/content',
+        'https://chat.example.test/api/v1/files/v1/content',
+      ]);
+    });
   });
 }
 
@@ -562,10 +587,12 @@ Widget _buildServerHarness(String source, {VideoAttachmentCache? videoCache}) {
   );
 }
 
-/// Records what a video row fetches, and with what, and leaves it loading.
+/// Records what a video row fetches, and with what, and leaves each fetch
+/// loading until the test ends it.
 class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> urls = [];
   final List<VideoTransport Function(String url)> transports = [];
+  final List<Completer<File>> pending = [];
 
   @override
   Future<File> fetchForPlayback({
@@ -578,6 +605,8 @@ class _RecordingVideoCache extends VideoAttachmentCache {
   }) {
     urls.add(url);
     transports.add(transport);
-    return Completer<File>().future;
+    final fetch = Completer<File>();
+    pending.add(fetch);
+    return fetch.future;
   }
 }

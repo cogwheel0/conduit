@@ -223,10 +223,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         children: [
           for (final (index, item) in media.items.indexed) ...[
             if (index > 0) const SizedBox(height: Spacing.sm),
-            WebEmbedMediaPlayer(
-              key: ValueKey('$index|${item.url}'),
-              item: item,
-            ),
+            WebEmbedMediaPlayer(key: ValueKey((index, item)), item: item),
           ],
         ],
       ),

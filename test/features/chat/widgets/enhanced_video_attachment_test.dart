@@ -9,6 +9,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -44,6 +45,12 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform
   final List<int> played = <int>[];
   final Map<int, StreamController<VideoEvent>> _events = {};
   int _nextId = 0;
+
+  void failLoading(int playerId) {
+    _events[playerId]!.addError(
+      PlatformException(code: 'VideoError', message: 'unsupported format'),
+    );
+  }
 
   void finishLoading(int playerId) {
     _events[playerId]!.add(
@@ -203,6 +210,41 @@ void main() {
     testWidgets('the video plays once it loads', (tester) async {
       await loadAfterTap(tester);
       check(platform.played).deepEquals([0]);
+      await unmount(tester);
+    });
+
+    testWidgets('a source that cannot load or play gives way to the next', (
+      tester,
+    ) async {
+      const missing = 'https://cdn.example.com/out/missing.mp4';
+      const unplayable = 'https://cdn.example.com/out/clip.webm';
+      final cache = _RecordingVideoCache();
+      await tester.pumpWidget(
+        _harness(
+          cache,
+          const EnhancedVideoAttachment(
+            attachmentId: missing,
+            alternativeSources: [unplayable, clip],
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+
+      cache.pending[0].completeError(const HttpException('404'));
+      await tester.pump();
+      cache.pending[1].complete(File('${Directory.systemTemp.path}/c.webm'));
+      await tester.pump();
+      platform.failLoading(0);
+      await tester.pump();
+      cache.pending[2].complete(File('${Directory.systemTemp.path}/c.mp4'));
+      await tester.pump();
+      platform.finishLoading(1);
+      await tester.pump();
+
+      check(cache.fetches).deepEquals([missing, unplayable, clip]);
+      expect(find.byType(VideoPlayer), findsOneWidget);
+      check(platform.played).deepEquals([1]);
       await unmount(tester);
     });
 

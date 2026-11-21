@@ -29,12 +29,21 @@ enum WebEmbedMediaKind { audio, video }
 
 /// An audio or video element [extractWebEmbedServerMedia] took out of a page.
 final class WebEmbedMediaItem {
-  const WebEmbedMediaItem({required this.kind, required this.url, this.label});
+  const WebEmbedMediaItem({
+    required this.kind,
+    required this.sources,
+    this.label,
+  });
 
   final WebEmbedMediaKind kind;
 
-  /// Its absolute address on the server's origin.
-  final Uri url;
+  /// Its absolute addresses on the server's origin, never empty: its `src`,
+  /// or each of its `<source>` elements in page order, for a player to try in
+  /// turn as a browser does.
+  final List<Uri> sources;
+
+  /// The address tried first.
+  Uri get url => sources.first;
 
   /// The element's `aria-label` or `title`, when it has one.
   final String? label;
@@ -43,14 +52,22 @@ final class WebEmbedMediaItem {
   bool operator ==(Object other) =>
       other is WebEmbedMediaItem &&
       other.kind == kind &&
-      other.url == url &&
+      _sameSources(other.sources, sources) &&
       other.label == label;
 
   @override
-  int get hashCode => Object.hash(kind, url, label);
+  int get hashCode => Object.hash(kind, Object.hashAll(sources), label);
 
   @override
-  String toString() => 'WebEmbedMediaItem(${kind.name}, $url, $label)';
+  String toString() => 'WebEmbedMediaItem(${kind.name}, $sources, $label)';
+}
+
+bool _sameSources(List<Uri> a, List<Uri> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// A page with the media it names on the server taken out.
@@ -254,10 +271,10 @@ final class _MediaScan {
   }
 
   void _visitMedia(Element element) {
-    final url = _serverUrl(element);
+    final sources = _serverSources(element);
     final start = element.sourceSpan?.start.offset;
     final end = _endOffset(element);
-    if (url == null ||
+    if (sources == null ||
         start == null ||
         end == null ||
         taken.length >= maxItems) {
@@ -271,13 +288,13 @@ final class _MediaScan {
       _Taken(
         start,
         end,
-        WebEmbedMediaItem(kind: kind, url: url, label: _label(element)),
+        WebEmbedMediaItem(kind: kind, sources: sources, label: _label(element)),
         _placeholder(element, kind),
       ),
     );
   }
 
-  Uri? _serverUrl(Element element) {
+  List<Uri>? _serverSources(Element element) {
     final sources = element.attributes.containsKey('src')
         ? [element.attributes['src']!]
         : [
@@ -287,13 +304,13 @@ final class _MediaScan {
                   child.attributes.containsKey('src'))
                 child.attributes['src']!,
           ];
-    Uri? first;
+    final urls = <Uri>[];
     for (final source in sources) {
       final url = resolveWebEmbedServerMediaUrl(source, server);
       if (url == null) return null;
-      first ??= url;
+      if (!urls.contains(url)) urls.add(url);
     }
-    return first;
+    return urls.isEmpty ? null : urls;
   }
 }
 
@@ -558,6 +575,48 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
     sourceLength: length,
     contentType: type,
   );
+}
+
+/// Reads ranges of one of an item's [sources] for a player, trying them in
+/// turn as a browser tries an element's sources: one the server answers with
+/// an error or with something other than audio or video gives way to the
+/// next. Once a range of one has been read, every later range comes from that
+/// same source, so a player never gets bytes of two files.
+final class WebEmbedMediaReader {
+  WebEmbedMediaReader(this._client, this.sources, {int from = 0})
+    : _index = from;
+
+  final Dio _client;
+  final List<Uri> sources;
+  int _index;
+  bool _settled = false;
+
+  /// The source read: the one that answered, or while none has, the one
+  /// being tried.
+  int get index => _index;
+
+  /// Where a player that could not play [index]'s media starts again, or
+  /// null when it was the last.
+  int? get nextIndex => _index + 1 < sources.length ? _index + 1 : null;
+
+  /// [openWebEmbedServerMedia] of the current source.
+  Future<WebEmbedMediaBody> open(int? start, int? end) async {
+    while (true) {
+      try {
+        final body = await openWebEmbedServerMedia(
+          _client,
+          sources[_index],
+          start: start,
+          end: end,
+        );
+        _settled = true;
+        return body;
+      } on Object {
+        if (_settled || nextIndex == null) rethrow;
+        _index += 1;
+      }
+    }
+  }
 }
 
 bool _isPlayableType(String? type) =>

@@ -34,12 +34,16 @@ void main() {
       check(media.items).deepEquals([
         WebEmbedMediaItem(
           kind: WebEmbedMediaKind.audio,
-          url: Uri.parse('https://chat.example.test/api/v1/files/a1/content'),
+          sources: [
+            Uri.parse('https://chat.example.test/api/v1/files/a1/content'),
+          ],
           label: 'Morning note',
         ),
         WebEmbedMediaItem(
           kind: WebEmbedMediaKind.video,
-          url: Uri.parse('https://chat.example.test/api/v1/files/v1/content'),
+          sources: [
+            Uri.parse('https://chat.example.test/api/v1/files/v1/content'),
+          ],
           label: 'Walkthrough',
         ),
       ]);
@@ -53,6 +57,22 @@ void main() {
       check(RegExp('data-conduit-media').allMatches(media.html).length)
           .equals(2);
       check(media.mediaOnly).isFalse();
+    });
+
+    test('keeps every source on the server, in page order', () {
+      const html =
+          '<audio controls>'
+          '<source src="/api/v1/files/missing/content" type="audio/ogg">'
+          '<source src="https://chat.example.test/api/v1/files/a1/content">'
+          '</audio>';
+
+      final media = _extract(html);
+
+      check(media.items.single.sources.map((it) => '$it')).deepEquals([
+        'https://chat.example.test/api/v1/files/missing/content',
+        'https://chat.example.test/api/v1/files/a1/content',
+      ]);
+      check(media.html).not((it) => it.contains('<source'));
     });
 
     test('resolves relative addresses against the server', () {
@@ -381,6 +401,69 @@ void main() {
         check(await _collect(body.stream)).deepEquals([0, 1, 2, 3, 4, 5, 6, 7]);
       },
     );
+  });
+
+  group('WebEmbedMediaReader', () {
+    final missing = Uri.parse('https://chat.example.test/api/v1/files/m/c');
+    final page = Uri.parse('https://chat.example.test/api/v1/files/p/c');
+    final clip = Uri.parse('https://chat.example.test/api/v1/files/a/c');
+    late _Adapter adapter;
+    late Dio client;
+
+    setUp(() {
+      adapter = _Adapter();
+      client = webEmbedMediaClient(
+        const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'https://chat.example.test',
+        ),
+        const {},
+      )..httpClientAdapter = adapter;
+    });
+
+    tearDown(() => client.close(force: true));
+
+    test('reads the next source when one cannot be read', () async {
+      adapter.reply = (options) {
+        if (options.uri == missing) return ResponseBody.fromString('', 404);
+        if (options.uri == page) {
+          return ResponseBody.fromString(
+            '<html>Sign in</html>',
+            200,
+            headers: {
+              Headers.contentTypeHeader: ['text/html'],
+            },
+          );
+        }
+        return _media(200, 'audio/mpeg', 4);
+      };
+      final reader = WebEmbedMediaReader(client, [missing, page, clip]);
+
+      final body = await reader.open(0, null);
+
+      check(adapter.requests.map((it) => it.uri))
+          .deepEquals([missing, page, clip]);
+      check(await _collect(body.stream)).deepEquals([0, 1, 2, 3]);
+      check(reader.index).equals(2);
+      check(reader.nextIndex).isNull();
+    });
+
+    test('stays on a source once it has been read', () async {
+      var failing = false;
+      adapter.reply = (_) => failing
+          ? ResponseBody.fromString('', 503)
+          : _media(200, 'audio/mpeg', 4);
+      final reader = WebEmbedMediaReader(client, [clip, page]);
+
+      await _collect((await reader.open(0, null)).stream);
+      failing = true;
+
+      await check(reader.open(2, null)).throws<DioException>();
+      check(adapter.requests.map((it) => it.uri)).deepEquals([clip, clip]);
+      check(reader.nextIndex).equals(1);
+      check(WebEmbedMediaReader(client, [clip, page], from: 1).index).equals(1);
+    });
   });
 }
 

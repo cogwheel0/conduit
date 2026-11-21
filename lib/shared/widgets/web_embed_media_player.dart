@@ -18,9 +18,9 @@ import 'platform_ui/platform_ui.dart';
 import 'platform_ui/vocabulary.dart';
 
 /// The app's own player for media a web embed names on the account's server
-/// ([extractWebEmbedServerMedia]). It fetches [item]'s address and nothing
-/// else, with the account's credentials on a client of its own, and only
-/// once Play is pressed.
+/// ([extractWebEmbedServerMedia]). It fetches [item]'s addresses and nothing
+/// else, in turn until one plays, with the account's credentials on a client
+/// of its own, and only once Play is pressed.
 class WebEmbedMediaPlayer extends ConsumerWidget {
   const WebEmbedMediaPlayer({super.key, required this.item});
 
@@ -34,6 +34,9 @@ class WebEmbedMediaPlayer extends ConsumerWidget {
         alignment: AlignmentDirectional.centerStart,
         child: EnhancedVideoAttachment(
           attachmentId: item.url.toString(),
+          alternativeSources: [
+            for (final source in item.sources.skip(1)) '$source',
+          ],
           filenameHint: item.label,
           transport: (url) => (
             client: _mediaClient(ref, url),
@@ -82,7 +85,7 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   @override
   void didUpdateWidget(covariant _AudioRow oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.item.url != widget.item.url) {
+    if (oldWidget.item != widget.item) {
       _release();
     }
   }
@@ -116,13 +119,16 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
     _dragValue = null;
   }
 
-  Future<void> _load() async {
+  /// Plays the item from its source [from] on; Play and Retry start again
+  /// from the first.
+  Future<void> _load({int from = 0}) async {
     _release();
     final loadId = _loadId;
     setState(() => _status = _AudioStatus.loading);
-    final url = widget.item.url;
+    WebEmbedMediaReader? reader;
     try {
-      final client = _mediaClient(ref, url.toString());
+      final client = _mediaClient(ref, widget.item.url.toString());
+      reader = WebEmbedMediaReader(client, widget.item.sources, from: from);
       final player = AudioPlayer();
       _client = client;
       _player = player;
@@ -131,7 +137,7 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
           player.playbackEventStream.listen(
             (_) {},
             onError: (Object error, StackTrace stackTrace) =>
-                _fail(loadId, error, stackTrace),
+                _fail(loadId, error, stackTrace, reader: reader),
           ),
         )
         ..add(
@@ -156,21 +162,23 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
             setState(() => _duration = duration);
           }),
         );
-      await player.setAudioSource(
-        RangedAudioSource(
-          (start, end) =>
-              openWebEmbedServerMedia(client, url, start: start, end: end),
-        ),
-      );
+      await player.setAudioSource(RangedAudioSource(reader.open));
       if (!mounted || loadId != _loadId) return;
       setState(() => _status = _AudioStatus.ready);
       unawaited(player.play());
     } catch (error, stackTrace) {
-      _fail(loadId, error, stackTrace);
+      _fail(loadId, error, stackTrace, reader: reader);
     }
   }
 
-  void _fail(int loadId, Object error, StackTrace stackTrace) {
+  /// A source that never got ready gives way to the next, as in a browser;
+  /// once one has played, a failure ends playback.
+  void _fail(
+    int loadId,
+    Object error,
+    StackTrace stackTrace, {
+    WebEmbedMediaReader? reader,
+  }) {
     if (!mounted || loadId != _loadId) return;
     DebugLogger.error(
       'embed-audio-failed',
@@ -178,6 +186,11 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
       error: error,
       stackTrace: stackTrace,
     );
+    final next = _status == _AudioStatus.loading ? reader?.nextIndex : null;
+    if (next != null) {
+      unawaited(_load(from: next));
+      return;
+    }
     setState(() {
       _release();
       _status = _AudioStatus.failed;
