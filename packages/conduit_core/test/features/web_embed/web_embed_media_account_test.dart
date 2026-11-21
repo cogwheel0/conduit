@@ -1,7 +1,10 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesTransport;
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/features/web_embed/web_embed_media_account.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -9,6 +12,9 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/chat_completion_transport.dart';
+import 'package:conduit_core/services/direct_replay_output.dart'
+    show kConduitDirectTransport;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -45,7 +51,19 @@ void main() {
       }
     });
 
-    test('no other backend does, nor a reply a direct connection ran', () {
+    test('a reply the Open WebUI server ran, however it streamed', () {
+      for (final transport in ChatCompletionTransport.values) {
+        check(
+          because: transport.name,
+          webEmbedCameFromOpenWebUiChat(
+            _chat('c1'),
+            message: _reply(metadata: {'transport': transport.name}),
+          ),
+        ).isTrue();
+      }
+    });
+
+    test('no other backend does, nor a reply another backend ran', () {
       final cases = <String, (Conversation?, ChatMessage)>{
         'no chat': (null, _reply()),
         'Hermes': (_chat('${kHermesSessionConversationIdPrefix}s1'), _reply()),
@@ -63,7 +81,19 @@ void main() {
         ),
         'direct reply': (
           _chat('c1'),
-          _reply(metadata: {'transport': 'direct'}),
+          _reply(metadata: {'transport': kConduitDirectTransport}),
+        ),
+        'Hermes reply': (
+          _chat('c1'),
+          _reply(metadata: {'transport': kHermesTransport}),
+        ),
+        'LibreChat reply': (
+          _chat('c1'),
+          _reply(metadata: {'transport': kLibreChatTransport}),
+        ),
+        "an unknown backend's reply": (
+          _chat('c1'),
+          _reply(metadata: {'transport': 'anotherBackend'}),
         ),
       };
       for (final MapEntry(key: name, value: (conversation, message))

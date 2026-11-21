@@ -136,5 +136,10 @@ void main() {
     await _pumpReply(tester, _chat('c1'), metadata: {'transport': 'direct'});
     check(find.byType(WebEmbedMediaPlayer).evaluate()).isEmpty();
     check(_framePage(tester)).equals(_page);
+
+    // A Hermes turn, in an Open WebUI chat.
+    await _pumpReply(tester, _chat('c1'), metadata: {'transport': 'hermesRun'});
+    check(find.byType(WebEmbedMediaPlayer).evaluate()).isEmpty();
+    check(_framePage(tester)).equals(_page);
   });
 }

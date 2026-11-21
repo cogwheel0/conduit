@@ -10,7 +10,7 @@ import '../../models/chat_message.dart';
 import '../../models/conversation.dart';
 import '../../models/server_config.dart';
 import '../../providers/app_providers.dart';
-import '../../services/direct_replay_output.dart' show kConduitDirectTransport;
+import '../../services/chat_completion_transport.dart';
 import '../chat/providers/chat_providers.dart'
     show chatMutationOwnerScopeForConversation, openWebUiChatMutationOwnerScope;
 import '../hermes/services/hermes_session_provenance.dart'
@@ -20,9 +20,10 @@ import '../hermes/services/hermes_session_provenance.dart'
 /// Open WebUI chat: one the Open WebUI account owns, saved or temporary, and
 /// a reply its server ran.
 ///
-/// Hermes, Direct, LibreChat and on-device chats are not, nor a reply a
-/// direct connection ran in an Open WebUI chat. Their pages name addresses
-/// that mean nothing on the Open WebUI server, so they stay as written.
+/// Hermes, Direct, LibreChat and on-device chats are not, nor a reply another
+/// backend ran in an Open WebUI chat, such as a Hermes turn or a direct
+/// connection's. Their pages name addresses that mean nothing on the Open
+/// WebUI server, so they stay as written.
 bool webEmbedCameFromOpenWebUiChat(
   Conversation? conversation, {
   ChatMessage? message,
@@ -34,7 +35,11 @@ bool webEmbedCameFromOpenWebUiChat(
       openWebUiChatMutationOwnerScope(conversation.id)) {
     return false;
   }
-  return message?.metadata?['transport'] != kConduitDirectTransport;
+  // Every other backend marks its replies; Open WebUI's carry no marker, or
+  // the way its completion streamed.
+  final transport = message?.metadata?['transport'];
+  return transport == null ||
+      ChatCompletionTransport.values.any((it) => it.name == transport);
 }
 
 /// The account a web embed's server media is fetched as.
