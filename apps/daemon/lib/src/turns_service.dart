@@ -6,6 +6,8 @@ import 'package:collection/collection.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
+import 'package:conduit_core/database/local_conversation_loader.dart'
+    show readStoredConversation;
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -253,10 +255,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
   bool announced(String messageId) => _announced.contains(messageId);
   bool _disposed = false;
 
-  /// The pulls after a turn that are out ([_pull]). [dispose] waits for
-  /// them: the core is disposed next, and its database is never written to
-  /// after that.
-  final Set<Future<void>> _pulls = <Future<void>>{};
+  /// The pulls after a turn, and the checks of what they stored, that are out
+  /// ([_announceWhenSynced]). [dispose] waits for them: the core is disposed
+  /// next, and its database is never used after that.
+  final Set<Future<void>> _syncing = <Future<void>>{};
 
   /// Coalescing window for `turn.delta`: a 60 Hz ceiling. A fast model emits
   /// tokens far quicker than that, and every extra frame costs a JSON
@@ -2223,7 +2225,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       _close(session);
     }
-    await Future.wait(_pulls.toList());
+    await Future.wait(_syncing.toList());
   }
 
   // ---------------------------------------------------------------------------
@@ -4415,7 +4417,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       if (_disposed) return;
       await _pull(chatId);
-      // Reading the chat ([_hasAnswer]) can start a pull nothing waits for.
+      // A disposal under way waits only for what was out as it began.
       if (_disposed) return;
       // A failed turn has no answer to wait for; one pull is all it gets.
       if (answerId == null || await _hasAnswer(chatId, answerId)) break;
@@ -4423,9 +4425,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     if (!_disposed) _announce(chatId);
   }
 
-  Future<void> _pull(String chatId) async {
-    final pulled = Completer<void>();
-    _pulls.add(pulled.future);
+  Future<void> _pull(String chatId) => _synced(() async {
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {
@@ -4434,26 +4434,36 @@ final class TurnsService implements ChatTurns, AddressReplies {
         scope: 'daemon/turns',
         error: error,
       );
-    } finally {
-      _pulls.remove(pulled.future);
-      pulled.complete();
     }
     _container.invalidate(loadConversationProvider(chatId));
-  }
+  });
 
-  Future<bool> _hasAnswer(String chatId, String answerId) async {
+  Future<bool> _hasAnswer(String chatId, String answerId) => _synced(() async {
     try {
-      final conversation = await readSettled(
-        _container,
-        loadConversationProvider(chatId).future,
-      );
-      return conversation.messages.any(
+      // The copy the pull stored. Opening the chat would schedule a pull of
+      // its own, which nothing waits for.
+      final stored = await readStoredConversation(_container, chatId);
+      // Nothing stored to look in: announce what there is.
+      if (stored == null) return true;
+      return stored.messages.any(
         (message) => message.id == answerId && message.content.isNotEmpty,
       );
     } on Object {
       // Unreadable is not the same as missing, and retrying would not make
       // it readable. Announce what there is.
       return true;
+    }
+  });
+
+  /// [work], which [dispose] waits for while it runs.
+  Future<T> _synced<T>(Future<T> Function() work) async {
+    final done = Completer<void>();
+    _syncing.add(done.future);
+    try {
+      return await work();
+    } finally {
+      _syncing.remove(done.future);
+      done.complete();
     }
   }
 

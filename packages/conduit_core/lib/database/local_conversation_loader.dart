@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatDatabaseRepository, ChatStorageIdentity;
+import 'package:conduit_core/database/database_provider.dart'
+    show chatDatabaseRepositoryProvider;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show
@@ -189,6 +193,31 @@ Future<Conversation?> fetchChatNowForOpen(
     );
     return null;
   }
+}
+
+/// Chat [conversationId] (scoped or raw) as its own store holds it, parsed as
+/// an open shows it; null when no open store holds its body. Unlike an open
+/// ([loadConversationProvider]) it schedules no refresh and never asks the
+/// server, so a caller that has just pulled the chat starts nothing it could
+/// not wait for.
+Future<Conversation?> readStoredConversation(
+  dynamic ref,
+  String conversationId,
+) async {
+  final identity = ChatStorageIdentity.parse(conversationId);
+  final repository =
+      ref.read(chatDatabaseRepositoryProvider) as ChatDatabaseRepository;
+  final workerManager = ref.read(workerManagerProvider) as WorkerManager;
+  final located = await repository.loadConversation(
+    identity.rawId,
+    preferred: identity.storage,
+    offload: (envelope) => workerManager.schedule(
+      parseFullConversationModelWorker,
+      envelope,
+      debugLabel: 'db.readStoredConversation',
+    ),
+  );
+  return located?.conversation;
 }
 
 /// Freshen one chat through the sync engine, falling back to a direct API

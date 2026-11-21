@@ -9,7 +9,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/local_conversation_loader.dart'
-    show kOpenRefreshDirectPullMaxPayloadLength;
+    show kOpenRefreshDirectPullMaxPayloadLength, readStoredConversation;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -380,6 +380,49 @@ void main() {
 
       check(pulls).deepEquals(['edited']);
       check(cycles).isEmpty();
+    });
+  });
+
+  group('reading a chat\'s stored copy', () {
+    late List<String> pulls;
+    late List<String> cycles;
+
+    setUp(() {
+      pulls = <String>[];
+      cycles = <String>[];
+    });
+
+    ProviderContainer openRecording() =>
+        open(engine: () => _RecordingSyncEngine(pulls, cycles));
+
+    test('reads a stored chat with no refresh and no download', () async {
+      await store('small');
+      final container = openRecording();
+
+      final stored = await readStoredConversation(container, 'small');
+
+      check(stored!.messages.single.content).equals('hello');
+      check(chatStorageKindOf(stored)).equals(ChatStorageKind.openWebUi);
+      check(pulls).isEmpty();
+      check(cycles).isEmpty();
+      check(client.chatFetchStarts).isEmpty();
+      check(api.getConversationCalls).equals(0);
+    });
+
+    test('finds nothing for a chat with no stored body, and asks the server '
+        'for nothing', () async {
+      server.seedChat(
+        id: 'chat-1',
+        blob: _blob('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final container = openRecording();
+
+      check(await readStoredConversation(container, 'chat-1')).isNull();
+      check(pulls).isEmpty();
+      check(client.chatFetchStarts).isEmpty();
+      check(api.getConversationCalls).equals(0);
     });
   });
 

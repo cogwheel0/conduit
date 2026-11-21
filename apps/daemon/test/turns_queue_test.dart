@@ -813,4 +813,44 @@ void main() {
     final db = runtime.container.read(appDatabaseProvider)!;
     expect((await db.chatsDao.getChat(chatId))?.title, 'Bread bin');
   });
+
+  test('a finished turn\'s check of its answer leaves no read of the chat '
+      'out once dispose returns', () async {
+    const chatId = 'chat-pantry';
+    owui.chats.seed(chatId, userId: 'user-ada');
+    bool chatRead(String request) => request == 'GET /api/v1/chats/$chatId';
+    var readsBefore = 0;
+    var finished = false;
+    final announced = Completer<void>();
+    final untap = events.tap((event, _, _) {
+      if (event == ConduitEvents.turnFinished && !finished) {
+        finished = true;
+        readsBefore = owui.requests.where(chatRead).length;
+      } else if (finished &&
+          event == ConduitEvents.chatsChanged &&
+          !announced.isCompleted) {
+        announced.complete();
+      }
+    });
+    addTearDown(untap);
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is there jam?',
+        ),
+      ),
+    );
+    await clock.during(announced.future);
+    await clock.during(turns.dispose());
+
+    // Asked for after the check, this read reaches the server after any
+    // read the check started.
+    await runtime.container
+        .read(syncEngineProvider.notifier)
+        .pullChatNow(chatId);
+    // The pull after the turn, and this one.
+    expect(owui.requests.where(chatRead).length - readsBefore, 2);
+  });
 }
