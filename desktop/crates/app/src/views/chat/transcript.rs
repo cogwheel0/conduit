@@ -734,9 +734,7 @@ impl Transcript {
                 if at == PinAt::End {
                     match self.end_offset(answer, viewport, cx) {
                         Some(offset) => {
-                            if (offset - held).abs() > px(0.5) {
-                                self.lay_out_from(ix, offset);
-                            }
+                            self.lay_out_from(ix, offset);
                             if let Some(pin) = &mut self.answer_pin {
                                 pin.resting = true;
                             }
@@ -780,7 +778,10 @@ impl Transcript {
         if self.list.is_following_tail() {
             self.lay_out_from(ix, offset);
         } else if applied {
-            if (offset - held).abs() > px(0.5) {
+            // At the end, laid out from there every frame: a remeasure (its
+            // suggestions changing height, say) keeps the view's place in
+            // proportion to the row, which moves the answer's end.
+            if at == PinAt::End || (offset - held).abs() > px(0.5) {
                 self.lay_out_from(ix, offset);
             }
             self.parked = true;
@@ -1902,6 +1903,12 @@ impl Render for Transcript {
                 // row's height as laid out this frame.
                 canvas(
                     move |b, window, _| {
+                        // A pinned view whose height changed (the window
+                        // resized) is laid out again from the pin's place
+                        // in the next frame, as below.
+                        if pinned && (bounds.get().size.height - b.size.height).abs() > px(0.5) {
+                            window.request_animation_frame();
+                        }
                         bounds.set(b);
                         if let Some((ix, key)) = newest
                             && let Some(row) = list_state.bounds_for_item(ix)
@@ -2908,6 +2915,72 @@ mod tests {
         quick_ask_frames(&transcript, cx);
         let top = f32::from(list.viewport_bounds().top());
         let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let end = answer_end(&transcript, &list, 1, cx);
+        assert!(
+            (end - bottom).abs() < 0.5,
+            "the answer ends at {end}, not at the view's bottom {bottom}"
+        );
+    }
+
+    /// A tall answer at rest at its end whose suggestions alone change
+    /// height (a fourth comes; both take most of the view): the remeasure
+    /// keeps the view's place in proportion to the row, and the answer is
+    /// laid out from its end again.
+    #[gpui_kit::test]
+    fn a_tall_answer_at_rest_at_its_end_keeps_it_there_as_its_suggestions_change(
+        cx: &mut TestAppContext,
+    ) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        stop_at_a_tall_answers_end(&store, &transcript, &daemon, &question, cx);
+        let before = transcript.read_with(cx, |t, cx| t.rows[&t.keys[1]].suggestions_height(cx));
+
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            question,
+            answer("a1", 12, &["Why?", "How?", "When?", "Where?"]),
+        ]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        let after = transcript.read_with(cx, |t, cx| t.rows[&t.keys[1]].suggestions_height(cx));
+        assert!(
+            after > before,
+            "the suggestions kept their height: {after:?}"
+        );
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let end = answer_end(&transcript, &list, 1, cx);
+        assert!(
+            (end - bottom).abs() < 0.5,
+            "the answer ends at {end}, not at the view's bottom {bottom}"
+        );
+    }
+
+    /// A tall answer at rest at its end, then the view gets shorter with
+    /// its width unchanged (no row changes height): the frame that draws it
+    /// asks for the next, which lays the answer out from its end again.
+    #[gpui_kit::test]
+    fn a_tall_answer_at_rest_at_its_end_keeps_it_there_as_the_view_shrinks(
+        cx: &mut TestAppContext,
+    ) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        stop_at_a_tall_answers_end(&store, &transcript, &daemon, &question, cx);
+
+        let shorter = QUICK_ASK_VIEWPORT - 40.;
+        paint_in(&transcript, shorter, cx);
+        let asked = cx.update(|window, cx| window.simulate_next_frame(cx));
+        assert!(
+            asked > 0,
+            "no frame is asked for to lay the answer out again"
+        );
+        paint_in(&transcript, shorter, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + shorter - BOTTOM_INSET;
         let end = answer_end(&transcript, &list, 1, cx);
         assert!(
             (end - bottom).abs() < 0.5,
