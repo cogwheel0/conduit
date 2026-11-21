@@ -1,10 +1,10 @@
-//! Pixels from this process's own windows, without Screen Recording
-//! permission: this process's on-screen windows, named by id and composited
-//! within a screen rect, or one window alone, kept as a [`Frame`] so it can
-//! be compared, cropped or written later, from any thread. Every capture
-//! names the windows it takes, so another app's window (or a notification)
-//! never ends up in one. The appearance switch covers each window with its
-//! old look while the new one draws (`shell::macos`).
+//! Pixels from this process's own windows, for the scripted runs: its
+//! on-screen windows, named by id and composited within a screen rect, or
+//! one window alone, kept as a [`Frame`] so it can be compared, cropped or
+//! written later, from any thread. Every capture names the windows it
+//! takes, so another app's window (or a notification) never ends up in one.
+//! Even a capture of the app's own windows can make macOS ask for Screen
+//! Recording access, so nothing in ordinary use captures.
 
 use std::ffi::{CString, c_void};
 use std::path::Path;

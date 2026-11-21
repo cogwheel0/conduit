@@ -207,28 +207,15 @@ impl SettingsStore {
     pub fn apply(&self, cx: &mut App) {
         let accent = conduit_components::window::system_accent_color();
         let theme = self.theme(accent);
-        // Light and dark (or one palette and another) trade places in one
-        // frame across the whole window, as macOS switches its own
-        // appearance (no half-and-half frame on the way): AppKit's chrome
-        // and sidebar material take the app's appearance in the same frame
-        // as the content beside them.
+        // AppKit's chrome may take the new look a frame before the content
+        // beside it. Covering that with snapshots of the windows would need
+        // screen capture, which can make macOS ask for Screen Recording.
         #[cfg(target_os = "macos")]
-        {
-            let appearance = match self.prefs.appearance.mode {
-                ThemeMode::System => None,
-                ThemeMode::Light => Some(false),
-                ThemeMode::Dark => Some(true),
-            };
-            let set = move || crate::shell::macos::set_app_appearance(appearance);
-            if cx
-                .try_global::<conduit_components::ConduitTheme>()
-                .is_some_and(|t| t.dark != theme.dark || t.palette_id != theme.palette_id)
-            {
-                crate::shell::macos::switch_windows_at_once(cx, set);
-            } else {
-                set();
-            }
-        }
+        crate::shell::macos::set_app_appearance(match self.prefs.appearance.mode {
+            ThemeMode::System => None,
+            ThemeMode::Light => Some(false),
+            ThemeMode::Dark => Some(true),
+        });
         theme::install(theme, cx);
         if cx.try_global::<L10n>().map(L10n::locale) != Some(self.locale()) {
             cx.set_global(L10n::new(self.locale()));
