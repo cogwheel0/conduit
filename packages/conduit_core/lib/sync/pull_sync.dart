@@ -651,7 +651,8 @@ class PullSync {
   ///
   /// A copy read before a push of the chat landed stores nothing, so the
   /// chat is read again (see [_readsWhenStale]); past that the stored chat,
-  /// as pushed, is returned.
+  /// as pushed, is returned. A chat whose body was never stored has none to
+  /// return: the last copy read is returned, unstored.
   Future<Conversation?> pullChat(
     String chatId, {
     bool Function(Map<String, dynamic> response)? storeIf,
@@ -665,12 +666,11 @@ class PullSync {
             fetchedGeneration != _locks.generation) {
           return null;
         }
-        final parseOffload = _parseOffload;
-        if (parseOffload != null) return parseOffload(resp);
-        return parseFullConversationModel(resp);
+        return _parseUnstored(resp);
       }
       final id = resp['id'] is String ? resp['id'] as String : chatId;
-      final ({bool readAgain, Conversation? conversation}) pulled;
+      final ({bool readAgain, bool unstored, Conversation? conversation})
+      pulled;
       try {
         pulled = await _locks.runExclusive(id, () async {
           // Asked for by name, so what the server says now wins over a same-
@@ -681,13 +681,19 @@ class PullSync {
             refreshWhenClean: true,
           );
           if (merged.staleRead && read < _readsWhenStale) {
-            return (readAgain: true, conversation: null);
+            return (readAgain: true, unstored: false, conversation: null);
           }
           final chat = await _db.chatsDao.getChat(id);
-          if (chat == null) return (readAgain: false, conversation: null);
+          if (chat == null) {
+            return (readAgain: false, unstored: false, conversation: null);
+          }
+          if (merged.staleRead && !chat.bodySynced) {
+            return (readAgain: false, unstored: true, conversation: null);
+          }
           final messages = await _db.messagesDao.getForChat(id);
           return (
             readAgain: false,
+            unstored: false,
             conversation: await assembleConversationGuarded(
               chat,
               messages,
@@ -700,8 +706,15 @@ class PullSync {
         // for a chat the server no longer has.
         return null;
       }
+      if (pulled.unstored) return _parseUnstored(resp);
       if (!pulled.readAgain) return pulled.conversation;
     }
+  }
+
+  Future<Conversation> _parseUnstored(Map<String, dynamic> resp) async {
+    final parseOffload = _parseOffload;
+    if (parseOffload != null) return parseOffload(resp);
+    return parseFullConversationModel(resp);
   }
 
   /// Reads chat [id] and merges the copy under its lock, reading it again

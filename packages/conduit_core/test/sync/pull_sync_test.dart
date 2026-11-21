@@ -711,6 +711,140 @@ void main() {
         .equals('Connection lost');
   });
 
+  group('a chat listed but never opened, so its body was never fetched', () {
+    // The turn after `chat-1-m2`, as this device stores it.
+    Future<void> storeTurn(String answer) => db.messagesDao.upsertLocalEchoTurn(
+      chatId: 'chat-1',
+      user: const MessageRowData(
+        id: 'chat-1-m3',
+        chatId: 'chat-1',
+        parentId: null,
+        role: 'user',
+        content: 'message 3 of chat-1',
+        createdAt: 1003,
+        orderIndex: -1,
+        payload: {
+          'id': 'chat-1-m3',
+          'role': 'user',
+          'content': 'message 3 of chat-1',
+        },
+      ),
+      assistant: MessageRowData(
+        id: 'chat-1-m4',
+        chatId: 'chat-1',
+        parentId: 'chat-1-m3',
+        role: 'assistant',
+        content: answer,
+        model: 'llama3',
+        createdAt: 1004,
+        orderIndex: -1,
+        payload: {
+          'id': 'chat-1-m4',
+          'role': 'assistant',
+          'content': answer,
+          'model': 'llama3',
+        },
+      ),
+    );
+
+    setUp(() async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-1',
+        title: 'Title chat-1',
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+    });
+
+    test('keeps an answer stored while a pull reads it', () async {
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      // The server stored the next answer, and then this device did.
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 4),
+        createdAt: 100,
+        updatedAt: 151,
+      );
+      await storeTurn('message 4 of chat-1');
+      gate.complete();
+      final pulled = await pulling;
+
+      check((await db.messagesDao.getForChat('chat-1')).map((row) => row.id))
+          .deepEquals(['chat-1-m1', 'chat-1-m2', 'chat-1-m3', 'chat-1-m4']);
+      check((await db.chatsDao.getChat('chat-1'))!.bodySynced).isTrue();
+      check(pulled!.messages.last.content).equals('message 4 of chat-1');
+    });
+
+    test('keeps a turn stored here while every read of it is made, and the '
+        "pull answers with the server's copy", () async {
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(client: hooked, db: db, locks: locks);
+
+      final pulled = await pull.pullChat('chat-1');
+
+      final stored = await db.messagesDao.getForChat('chat-1');
+      check(stored.map((row) => row.id)).deepEquals(['chat-1-m3', 'chat-1-m4']);
+      check(stored.last.content).equals('The whole answer');
+      check((await db.chatsDao.getChat('chat-1'))!.bodySynced).isFalse();
+      // The stored rows are only the turn stored here, not the chat.
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'chat-1-m2']);
+    });
+
+    test('with a message of its own not sent yet, keeps a turn stored here '
+        'while every read of it is made', () async {
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'chat-1',
+        messages: const [
+          MessageRowData(
+            id: 'unsent-user',
+            chatId: 'chat-1',
+            parentId: null,
+            role: 'user',
+            content: 'An unsent question',
+            createdAt: 1001,
+            orderIndex: 0,
+            payload: {
+              'id': 'unsent-user',
+              'role': 'user',
+              'content': 'An unsent question',
+            },
+          ),
+        ],
+        currentMessageId: 'unsent-user',
+        updatedAt: 151,
+        enqueueCompletion: false,
+      );
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(client: hooked, db: db, locks: locks);
+
+      await pull.pullChat('chat-1');
+
+      final stored = await db.messagesDao.getForChat('chat-1');
+      check(stored.map((row) => row.id))
+          .deepEquals(['unsent-user', 'chat-1-m3', 'chat-1-m4']);
+      check(stored.last.content).equals('The whole answer');
+      final chat = (await db.chatsDao.getChat('chat-1'))!;
+      check(chat.dirty).isTrue();
+      check(chat.bodySynced).isFalse();
+    });
+  });
+
   // A turn stored here doesn't stamp the server's copy as a push does, so
   // a newer chat can't be allowed to carry the watermark past this one.
   test('a chat every read of which predates a turn stored here holds the '
