@@ -63,6 +63,24 @@ pub fn quick_ask_frame(visible: Rect, size: (f64, f64)) -> Rect {
     Rect::new(x.round(), y.round(), width, height)
 }
 
+/// The setup window's frame `height` points tall (at most the visible
+/// area's height) on a display whose visible area is `visible`. Not yet on
+/// screen, it is centred there; on screen, its top edge stays where it is,
+/// as long as the whole window stays inside the visible area.
+pub fn setup_frame(visible: Rect, current: Rect, height: f64, shown: bool) -> Rect {
+    let height = height.min(visible.height);
+    if !shown {
+        let x = visible.x + (visible.width - current.width) / 2.;
+        let y = visible.y + (visible.height - height) / 2.;
+        return Rect::new(x.round(), y.round(), current.width, height);
+    }
+    let top = current.y + current.height;
+    let y = (top - height)
+        .min(visible.y + visible.height - height)
+        .max(visible.y);
+    Rect::new(current.x, y, current.width, height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,6 +114,33 @@ mod tests {
         let f = quick_ask_frame(tiny, QUICK_ASK_SIZE);
         assert_eq!((f.x, f.width), (100., 600.));
         assert_eq!((f.y, f.height), (50., 300.));
+    }
+
+    #[test]
+    fn the_setup_window_opens_centred_at_its_height_at_most_the_visible_one() {
+        let opened = Rect::new(0., 0., 640., 640.);
+        let f = setup_frame(LAPTOP_VISIBLE, opened, 731., false);
+        assert_eq!((f.width, f.height), (640., 731.));
+        assert_eq!((f.x, f.y), (436., 109.)); // (1512 - 640) / 2, (949 - 731) / 2
+        let short = Rect::new(0., 0., 1280., 700.);
+        let f = setup_frame(short, opened, 731., false);
+        assert_eq!((f.y, f.height), (0., 700.));
+    }
+
+    #[test]
+    fn on_screen_the_setup_window_keeps_its_top_edge_inside_the_visible_area() {
+        let on = Rect::new(436., 200., 640., 640.);
+        // Grows downward from its top edge (840).
+        let f = setup_frame(LAPTOP_VISIBLE, on, 731., true);
+        assert_eq!((f.x, f.y + f.height, f.height), (436., 840., 731.));
+        // Near the bottom: moved up rather than off the visible area.
+        let low = Rect::new(436., 20., 640., 640.);
+        let f = setup_frame(LAPTOP_VISIBLE, low, 731., true);
+        assert_eq!((f.y, f.height), (0., 731.));
+        // Near the top, shrinking: the top edge stays.
+        let high = Rect::new(436., 309., 640., 640.);
+        let f = setup_frame(LAPTOP_VISIBLE, high, 600., true);
+        assert_eq!(f.y + f.height, 949.);
     }
 
     #[test]

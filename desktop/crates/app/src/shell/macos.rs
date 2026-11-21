@@ -995,6 +995,57 @@ pub fn fit_sheet(sheet: &objc2_app_kit::NSWindow, content_height: f64, margin: f
     sheet.setFrame_display_animate(next, true, animate);
 }
 
+/// The visible area of the display `window` is on (the main display for
+/// one not yet on screen), without the menu bar and the Dock.
+fn visible_area(window: &objc2_app_kit::NSWindow) -> Option<crate::shell::placement::Rect> {
+    let mtm = MainThreadMarker::new()?;
+    let screen = window
+        .screen()
+        .or_else(|| objc2_app_kit::NSScreen::mainScreen(mtm))?;
+    let v = screen.visibleFrame();
+    Some(crate::shell::placement::Rect::new(
+        v.origin.x,
+        v.origin.y,
+        v.size.width,
+        v.size.height,
+    ))
+}
+
+/// Sizes the setup window for `content_height` points of content, as
+/// [`crate::shell::placement::setup_frame`] places it.
+pub fn fit_setup_window(
+    window: &objc2_app_kit::NSWindow,
+    content_height: f64,
+    shown: bool,
+    animate: bool,
+) {
+    use crate::shell::placement::{Rect, setup_frame};
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    let Some(visible) = visible_area(window) else {
+        return;
+    };
+    let frame = window.frame();
+    let chrome = frame.size.height - window.contentRectForFrameRect(frame).size.height;
+    let current = Rect::new(
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height,
+    );
+    let next = setup_frame(visible, current, content_height + chrome, shown);
+    if next == current {
+        return;
+    }
+    window.setFrame_display_animate(
+        NSRect::new(
+            NSPoint::new(next.x, next.y),
+            NSSize::new(next.width, next.height),
+        ),
+        true,
+        animate,
+    );
+}
+
 /// The fade's shape from a band's edge inward, as (share of the fade,
 /// alpha): clear for its first 15%, so no sliver of a line shows against
 /// the header or the composer, then a smoothstep to opaque (not a straight

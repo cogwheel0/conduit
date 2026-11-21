@@ -952,6 +952,14 @@ async fn owui(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let Some(setup) = wait_setup(cx).await else {
         return ok("the setup window opened", false);
     };
+    pass &= ok(
+        "no main window while there is no session",
+        cx.update(main_window).is_none(),
+    );
+    settle(cx, 500).await;
+    shoot_setup(dir, "onboarding-chooser", cx).await;
+    let chooser = ax(setup, "onboarding-chooser", dir, cx).await;
+    // As tall as its chooser: Try the Demo, at its end, is in view.
     let size = cx.update(|cx| {
         setup
             .update(cx, |_, window, _| {
@@ -960,17 +968,20 @@ async fn owui(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             })
             .ok()
     });
+    let demo = cx.update(|cx| crate::l10n::ActiveL10n::l10n(cx).desktop_try_demo());
+    let demo_bottom = crate::capture::drive::nodes(setup, cx)
+        .await
+        .into_iter()
+        .find(|n| n.role == "Link" && n.label == demo)
+        .and_then(|n| n.bounds)
+        .map(|b| f32::from(b.origin.y + b.size.height));
     pass &= ok(
-        &format!("the setup window is 640×640 ({size:?})"),
-        size == Some(crate::windows::SETUP_SIZE),
+        &format!("the setup window is 640 wide and shows Try the Demo ({size:?}, {demo_bottom:?})"),
+        size.is_some_and(|(w, _)| w == crate::windows::SETUP_WIDTH)
+            && size
+                .zip(demo_bottom)
+                .is_some_and(|((_, h), bottom)| bottom <= h),
     );
-    pass &= ok(
-        "no main window while there is no session",
-        cx.update(main_window).is_none(),
-    );
-    settle(cx, 500).await;
-    shoot_setup(dir, "onboarding-chooser", cx).await;
-    let chooser = ax(setup, "onboarding-chooser", dir, cx).await;
     // The phone's chooser: a row per backend that goes straight to it.
     pass &= ok(
         "the chooser offers three labelled backends",
