@@ -205,6 +205,9 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
+  Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
+
+  @override
   Future<void> stopTasksByChat(String chatId) async {
     broadStopCalls += 1;
   }

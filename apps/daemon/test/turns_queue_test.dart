@@ -10,9 +10,12 @@ import 'package:conduit_core/database/database_provider.dart'
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart'
+    show isOnlineProvider;
 import 'package:conduit_core/sync/sync_engine.dart' show syncEngineProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/queued_completions_service.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
@@ -30,13 +33,15 @@ typedef HeldSend = ({
   int Function() changed,
 });
 
-/// The queue of an Open WebUI chat, against a fake Open WebUI that takes
-/// sends: an answer held running where the live test asks for a slow one.
+/// The queue of an Open WebUI chat, and its Stop, against a fake Open WebUI
+/// that takes sends: an answer held running where the live test asks for a
+/// slow one.
 void main() {
   late CoreRuntime runtime;
   late FakeOwuiAuthServer owui;
   late EventBus events;
   late TurnsService turns;
+  late QueuedCompletionsService queued;
   late StepClock clock;
 
   setUp(() async {
@@ -99,11 +104,14 @@ void main() {
     addTearDown(watch.close);
     await bound.future;
     clock = StepClock();
+    queued = QueuedCompletionsService(runtime.container, events);
+    addTearDown(queued.dispose);
     turns = TurnsService(
       runtime.container,
       events,
       now: clock.now,
       pause: clock.pause,
+      queued: queued,
     );
     addTearDown(turns.dispose);
   });
@@ -781,6 +789,121 @@ void main() {
       for (final id in others) (ConduitEvents.turnFinished, id, true),
       (ConduitEvents.turnFinished, main, true),
     ]);
+  });
+
+  test('a Stop on an answer the server stopped in the middle of keeps what '
+      'streamed, in the server\'s copy too', () async {
+    const chatId = 'chat-gale';
+    final first = Completer<void>();
+    final chats = owui.chats
+      ..seed(chatId, userId: 'user-ada')
+      ..holdFirstWord = first
+      ..holdStream = Completer<void>();
+    var streamed = false;
+    events.attach('probe', (envelope) {
+      if (envelope.event == ConduitEvents.turnDelta &&
+          envelope.payload['text'] == 'The') {
+        streamed = true;
+      }
+    });
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Will the gale veer?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    first.complete();
+    await until(() => streamed);
+
+    // The server stops in the middle of the answer and is started again,
+    // with no task running.
+    chats
+      ..stopServer()
+      ..startServer();
+    final saved = chats.chatSaved = Completer<String>();
+    await clock.during(turns.stop(chatId));
+
+    // Open WebUI's stop finished its copy with the text it had stored: none.
+    // What streamed here is stored, and goes to the server.
+    final db = runtime.container.read(appDatabaseProvider)!;
+    final stored = await db.messagesDao.getMessage(
+      chatId,
+      sent.assistantMessageId,
+    );
+    expect(stored?.content, 'The');
+    expect(await clock.during(saved.future), chatId);
+    final history =
+        (chats.stored[chatId]!['chat'] as Map<String, dynamic>)['history']
+            as Map<String, dynamic>;
+    final answer =
+        (history['messages'] as Map<String, dynamic>)[sent.assistantMessageId]
+            as Map<String, dynamic>;
+    expect(answer['content'], 'The');
+    expect(answer['done'], isTrue);
+  });
+
+  test('a message sent while the server is away shows queued, and goes out '
+      'once when it is back', () async {
+    const chatId = 'chat-tern';
+    const question = 'And the terns?';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    final completed = <String>[];
+    final endedQueued = <String>[];
+    events.attach('probe', (envelope) {
+      switch (envelope.event) {
+        case ConduitEvents.turnCompleted:
+          completed.add(TurnCompleted.fromJson(envelope.payload).messageId);
+        case ConduitEvents.turnFinished:
+          final finished = TurnFinished.fromJson(envelope.payload);
+          if (finished.queued) endedQueued.add(finished.messageId);
+      }
+    });
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Are the plovers back?',
+        ),
+      ),
+    );
+    subscribeWindow(events, turns, 'probe', <String>[chatId]);
+    await until(() => completed.isNotEmpty);
+
+    chats.stopServer();
+    final sent = await clock.during(
+      turns.send(
+        const SendTurn(chatId: chatId, model: 'kettle-model', text: question),
+      ),
+    );
+    // The chat's first op is tried, and fails: the server is away.
+    final db = runtime.container.read(appDatabaseProvider)!;
+    await clock.during(
+      db.outboxDao
+          .watchChatQueuesWithCompletions(chatId: chatId)
+          .firstWhere((ops) => ops.any((op) => op.attempts > 0)),
+    );
+    // Only then does the connection count as gone.
+    runtime.reportNetwork(online: false);
+    await until(() => !runtime.container.read(isOnlineProvider));
+
+    expect(endedQueued, [sent.assistantMessageId]);
+    expect(queued.isQueued(chatId, sent.assistantMessageId), isTrue);
+    expect(turns.isRunning(chatId), isFalse);
+
+    chats.startServer();
+    runtime.reportNetwork(online: true);
+    await until(() => completed.contains(sent.assistantMessageId));
+    expect(
+      chats.completions.where(
+        (asked) => (asked['user_message'] as Map?)?['content'] == question,
+      ),
+      hasLength(1),
+    );
   });
 
   test('dispose waits for the pull a finished turn started', () async {

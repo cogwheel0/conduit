@@ -127,11 +127,15 @@ void main() {
     await settle();
     expect(await queued.forChat('c1'), isEmpty);
 
-    // The connection goes. Until the outbox defers the update for it, the
-    // answer is not shown as waiting (the phone's rule).
+    // The connection goes: the outbox tries nothing more until it is back,
+    // so the update waits for it, and the answer behind it shows waiting
+    // (the phone's rule).
     container.read(_online.notifier).set(false);
     await settle();
-    expect(await queued.forChat('c1'), isEmpty);
+    expect(await queued.forChat('c1'), <String, QueuedCompletionDto>{
+      'a1': const QueuedCompletionDto(offline: true, error: 'connection error'),
+    });
+    expect(queued.isQueued('c1', 'a1'), isTrue);
     await db.outboxDao.markOfflineDeferred(update, nextAttemptAt: 0);
     await settle();
     expect(await queued.forChat('c1'), <String, QueuedCompletionDto>{

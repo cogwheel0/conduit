@@ -2870,6 +2870,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   static bool _isThisAccounts(String? author, String? userId) =>
       author == null || userId == null || author == userId;
 
+  /// Whether [answer] is this account's, an answer that names no author
+  /// being the chat owner's, as in [_answersThisAccountRuns]: only then does
+  /// no task of this account's mean the server stopped in the middle of it.
+  bool _isThisAccountsAnswer(ChatMessage answer) => _isThisAccounts(
+    _answerAuthor(
+      answer,
+      answer.id,
+      ref.read(activeConversationProvider)?.userId,
+    ),
+    ref.read(currentUserProvider2)?.id,
+  );
+
   /// Finishes answers of an earlier turn that the server still reports as
   /// not done once the chat runs no task of this account's: a chat whose
   /// last message is not an answer, say a prompt sent after a comparison a
@@ -3264,15 +3276,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
+      // An answer of this account's that the server keeps not done, with no
+      // task, shown finished because nothing marked it running: the server
+      // stopped in the middle of it, and the final fetch below settles it as
+      // cut off. One waiting on a saved prompt is not.
+      final cutOffAsOpened =
+          !openedAsStreaming &&
+          _isThisAccountsAnswer(openedTail) &&
+          openedTail.metadata?[kMessageServerUnfinishedMetadataKey] == true &&
+          findPendingOpenWebUiToolPrompt([openedTail]) == null;
+      final settlesThroughFetch = openedAsStreaming || cutOffAsOpened;
       // A restored streaming tail settles through the final fetch below:
       // finished first, it would leave nothing to retry that fetch should it
       // fail. Its answers are finished once the fetch succeeds.
       _finishAnswersWithoutTask(
-        openedAsStreaming
+        settlesThroughFetch
             ? eligible.where((id) => id != openedMessageId)
             : eligible,
       );
-      if (!openedAsStreaming) {
+      if (!settlesThroughFetch) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
         return;
@@ -3314,7 +3336,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         });
         _recheckEarlierAnswers();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
-          _hasStreamingAssistant) {
+          (_hasStreamingAssistant || cutOffAsOpened)) {
+        // Its copy could not be read: it is read again on the task checks'
+        // schedule, as an answer restored running is, rather than settled
+        // with this device's copy, which may hold less than the server's.
+        if (!_hasStreamingAssistant) {
+          state = [
+            ...state.sublist(0, state.length - 1),
+            state.last.copyWith(isStreaming: true),
+          ];
+        }
         _engageReopenedTailMonitor(openedMessageId);
       }
       return;
@@ -3549,16 +3580,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (live && serverIndex != serverMessages.length - 1) return false;
 
     final authoritativeServerTail = serverMessages[serverIndex];
+    // No task runs for the answer, yet the server's copy is not done: Open
+    // WebUI marks an answer done before its task ends, also when it is
+    // stopped, so the server itself stopped in the middle of it (a restart,
+    // a crash). It never finishes that copy, and keeps no more text than it
+    // had stored, often none.
+    // An answer waiting for a saved tool approval or an `ask_user` answer is
+    // also kept not done with no task, and is not cut off.
+    // Another person's answer runs under a task this account's list never
+    // shows.
+    final cutOff =
+        streaming == false &&
+        _isThisAccountsAnswer(authoritativeServerTail) &&
+        _serverReportsRunning(authoritativeServerTail) &&
+        findPendingOpenWebUiToolPrompt([authoritativeServerTail]) == null &&
+        findPendingOpenWebUiToolPrompt([localTail]) == null;
+    // A cut-off copy is no catching-up frame of what streamed here: whichever
+    // holds more is kept, whether or not one begins as the other does.
+    final keepsLocalText = cutOff
+        ? _holdsMoreThan(
+            localTail.content,
+            localTail.output,
+            authoritativeServerTail.content,
+            authoritativeServerTail.output,
+          )
+        : _shouldPreserveLocalAssistantContent(
+            localTail,
+            authoritativeServerTail,
+          );
     // A failed answer is final however little text it has. Waiting for more
     // would keep it running, its error unshown, for as long as each poll
     // brings the same copy.
     if (!live &&
+        !cutOff &&
         authoritativeServerTail.error == null &&
-        (authoritativeServerTail.content.trim().isEmpty ||
-            _shouldPreserveLocalAssistantContent(
-              localTail,
-              authoritativeServerTail,
-            ))) {
+        (authoritativeServerTail.content.trim().isEmpty || keepsLocalText)) {
       DebugLogger.log(
         'Deferring reopened completion until the authoritative assistant '
         'body catches up',
@@ -3588,6 +3644,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       serverTail = serverTail.copyWith(id: localTail.id);
     }
     serverTail = serverTail.copyWith(isStreaming: live);
+    if (cutOff) {
+      final metadata = <String, dynamic>{...?serverTail.metadata}
+        ..remove(kMessageServerUnfinishedMetadataKey);
+      // Text and output go together: the stored text is read from the output
+      // when there is one.
+      final kept = keepsLocalText ? localTail : authoritativeServerTail;
+      serverTail = serverTail.copyWith(
+        content: kept.content,
+        output: kept.output,
+        error:
+            serverTail.error ??
+            const ChatMessageError(
+              content: TemporaryChatResume.connectionLostMessage,
+            ),
+        metadata: metadata.isEmpty ? null : metadata,
+      );
+    }
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
@@ -3607,6 +3680,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       );
     }
     state = List<ChatMessage>.unmodifiable(reconciled);
+    // Stored finished, with the error, so the chat opens on it with Retry,
+    // and the server's copy is given what streamed here when it has less.
+    if (cutOff) {
+      final target = _endedAnswersTarget([serverTail]);
+      if (target != null) unawaited(_storeEndedAnswers(target));
+    }
 
     if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
@@ -4646,6 +4725,100 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     return settled;
   }
 
+  /// Keeps answer [answerId], stopped here, finished once the server has
+  /// answered the stop ([serverStopped]), when the server ran no task for it
+  /// as Stop was pressed ([taskRan]).
+  ///
+  /// Open WebUI saves an answer stopped while its task runs itself, and that
+  /// save, which can land after the stop is answered, is the answer. With no
+  /// task left (the server stopped in the middle of it), its stop finishes
+  /// the answer with the text it had stored, often none, or leaves it not
+  /// done, and only this device may still have what streamed. Whichever copy
+  /// holds more, its text and output together, is then stored finished, as a
+  /// stopped comparison's answers are ([settleStoppedSlotMessages]): as edits
+  /// that go to the server once it has accepted the stop, and on this device
+  /// alone until then. A copy that cannot be read keeps what streamed here,
+  /// when anything did.
+  ///
+  /// The answer and its store are captured now, before anything awaits. The
+  /// result is false only when storing it failed.
+  Future<bool> _keepStoppedAnswerText(
+    String answerId, {
+    required ApiService api,
+    required Future<bool?> taskRan,
+    required Future<List<bool>> serverStopped,
+  }) async {
+    final answer = state.where((message) => message.id == answerId).lastOrNull;
+    // A comparison's answers are stored with their turn.
+    if (answer == null ||
+        answer.role != 'assistant' ||
+        answer.isStreaming ||
+        answer.metadata?[kMessageModelIdxMetadataKey] is int) {
+      return true;
+    }
+    final target = _endedAnswersTarget([answer]);
+    if (target == null) return true;
+    if (await taskRan == true) return true;
+    var stopAccepted = false;
+    try {
+      stopAccepted = (await serverStopped).every((accepted) => accepted);
+    } catch (_) {}
+    // This Stop's ask, still owed when the server refused it: a later ask
+    // accepted while the server's copy is read is seen when the answer is
+    // stored, as no answer waits on it yet.
+    final cancellation = stopAccepted
+        ? null
+        : _owedCancellations
+              .where(
+                (entry) =>
+                    entry.chatId == target.chatId &&
+                    _sameOwner(entry.owner, target.owner),
+              )
+              .lastOrNull;
+    Future<bool> store(ChatMessage kept) {
+      final accepted = stopAccepted || (cancellation?.accepted ?? false);
+      final owed = _OwedStoppedAnswers(
+        owner: target.owner,
+        db: target.db,
+        locks: target.locks,
+        chatId: target.chatId,
+        answers: [kept],
+        updatedAt: target.updatedAt,
+        stopAccepted: accepted,
+      );
+      if (accepted) return _storeEndedAnswers(owed);
+      // Sent as edits once a later ask for this stop is accepted.
+      owed.cancellation = cancellation;
+      _stoppedAnswersAwaitingStop.add(owed);
+      return _storeStoppedAnswersHere(owed);
+    }
+
+    ChatMessage? copy;
+    try {
+      copy = (await api.getConversation(target.chatId)).messages
+          .where((message) => message.id == answerId)
+          .lastOrNull;
+    } catch (_) {
+      if (!_holdsMoreThan(answer.content, answer.output, '', null)) {
+        return true;
+      }
+      return store(answer);
+    }
+    if (copy == null ||
+        _holdsMoreThan(
+          answer.content,
+          answer.output,
+          copy.content,
+          copy.output,
+        )) {
+      return store(answer);
+    }
+    // The server's copy holds as much: left to it once it is finished, and
+    // stored finished otherwise.
+    if (!_serverReportsRunning(copy)) return true;
+    return store(answer.copyWith(content: copy.content, output: copy.output));
+  }
+
   /// Ends the answers [messageIds] whose tasks the server was told to stop, and
   /// stores them as finished.
   ///
@@ -4677,6 +4850,41 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     Iterable<String> messageIds, {
     bool stopAccepted = true,
   }) {
+    final running = <String>{
+      for (final message in state)
+        if (message.role == 'assistant' && message.isStreaming) message.id,
+    };
+    final ids = messageIds.where(running.contains).toList(growable: false);
+    for (final id in ids) {
+      finishSlotMessage(id);
+    }
+    // Only the answers of a comparison carry a model slot.
+    final owed = _endedAnswersTarget([
+      for (final message in state)
+        if (ids.contains(message.id) &&
+            message.role == 'assistant' &&
+            !message.isStreaming &&
+            message.metadata?[kMessageModelIdxMetadataKey] is int)
+          message,
+    ], stopAccepted: stopAccepted);
+    if (owed == null) return Future<bool>.value(true);
+    if (stopAccepted) return _storeEndedAnswers(owed);
+    // Stored once the server answers the stop ([_oweCancellation]), in one
+    // write either way; at once when this stop asks the server nothing.
+    _stoppedAnswersAwaitingStop.add(owed);
+    scheduleMicrotask(() {
+      if (owed.cancellation == null) unawaited(_storeStoppedAnswersHere(owed));
+    });
+    return owed.firstStored.future;
+  }
+
+  /// [answers], ended here, as they are to be stored in the open chat's store
+  /// under its owner, captured now so that nothing awaited after can redirect
+  /// the write. Null when there is nothing to store, or nowhere to store it.
+  _OwedStoppedAnswers? _endedAnswersTarget(
+    List<ChatMessage> answers, {
+    bool stopAccepted = true,
+  }) {
     final active = ref.read(activeConversationProvider);
     final chatId = active?.id;
     final db = _maybeDatabase();
@@ -4686,33 +4894,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       locks = ref.read(chatLocksProvider);
       updatedAt = ref.read(syncClockProvider).nowEpochSeconds();
     } catch (_) {}
-    final running = <String>{
-      for (final message in state)
-        if (message.role == 'assistant' && message.isStreaming) message.id,
-    };
-    final ids = messageIds.where(running.contains).toList(growable: false);
-    for (final id in ids) {
-      finishSlotMessage(id);
-    }
-    if (chatId == null ||
+    if (answers.isEmpty ||
+        active == null ||
+        chatId == null ||
         chatId.isEmpty ||
         isTemporaryChat(chatId) ||
         db == null ||
         locks == null ||
         updatedAt == null) {
-      return Future<bool>.value(true);
+      return null;
     }
-    // Only the answers of a comparison carry a model slot.
-    final answers = <ChatMessage>[
-      for (final message in state)
-        if (ids.contains(message.id) &&
-            message.role == 'assistant' &&
-            !message.isStreaming &&
-            message.metadata?[kMessageModelIdxMetadataKey] is int)
-          message,
-    ];
-    if (answers.isEmpty) return Future<bool>.value(true);
-    final owed = _OwedStoppedAnswers(
+    return _OwedStoppedAnswers(
       owner: captureChatMutationOwner(ref, active),
       db: db,
       locks: locks,
@@ -4721,17 +4913,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       updatedAt: updatedAt,
       stopAccepted: stopAccepted,
     );
-    if (stopAccepted) {
-      _owedStoppedAnswers.add(owed);
-      return _storeOwedStoppedAnswers(owed);
-    }
-    // Stored once the server answers the stop ([_oweCancellation]), in one
-    // write either way; at once when this stop asks the server nothing.
-    _stoppedAnswersAwaitingStop.add(owed);
-    scheduleMicrotask(() {
-      if (owed.cancellation == null) unawaited(_storeStoppedAnswersHere(owed));
-    });
-    return owed.firstStored.future;
+  }
+
+  /// Stores [owed]'s answers as finished, as local edits whose update op
+  /// carries them to the server; owed until stored (see
+  /// [settleStoppedSlotMessages]).
+  Future<bool> _storeEndedAnswers(_OwedStoppedAnswers owed) {
+    _owedStoppedAnswers.add(owed);
+    return _storeOwedStoppedAnswers(owed);
   }
 
   /// Stores the stopped answers still owed to [chatId] under the store, account
@@ -4960,8 +5149,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     try {
       await owed.locks.runExclusive(chatId, () async {
         final rows = <MessageRowData>[];
-        for (final answer in owed.answers) {
-          final stored = await db.messagesDao.getMessage(chatId, answer.id);
+        for (final ended in owed.answers) {
+          final shown = _withOutputAsShown(ended);
+          final stored = await db.messagesDao.getMessage(chatId, shown.id);
           // An answer with no stored row was never made durable; this does not
           // create one.
           if (stored == null) continue;
@@ -4969,14 +5159,46 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           final current = decoded is Map
               ? Map<String, dynamic>.from(decoded)
               : <String, dynamic>{};
-          // A result the store already has as finished is newer than this
-          // stop, unless it is still exactly what this stop stored here before
-          // the server accepted it.
+          final storedOutput = current['output'] is List
+              ? <Map<String, dynamic>>[
+                  for (final item in current['output'] as List)
+                    if (item is Map) Map<String, dynamic>.from(item),
+                ]
+              : null;
+          // Each copy as it shows when read again, its reasoning and tool
+          // blocks rendered with it, so their output items are not counted
+          // again: an answer whose output was dropped has its items rendered.
+          final shownNow = _storedShows(
+            persistedMessageContent(shown),
+            shown.output,
+          );
+          final storedNow = _storedShows(stored.content, storedOutput);
+          final storedHoldsMore = _holdsMoreThan(
+            storedNow,
+            null,
+            shownNow,
+            null,
+          );
+          // A result the store already has as finished, holding as much, is
+          // newer than this stop or cut-off, and stays as it is, with no
+          // error added, unless it is still exactly what this stop stored here
+          // before the server accepted it. One that holds less is Open WebUI
+          // finishing an answer that no task runs with the text it had
+          // stored, often none.
           final storedByThisStop = _isStoredByThisStop(
-            owed.storedHere[answer.id],
+            owed.storedHere[shown.id],
             stored,
           );
-          if (current['done'] == true && !storedByThisStop) continue;
+          if (current['done'] == true &&
+              !storedByThisStop &&
+              !_holdsMoreThan(shownNow, null, storedNow, null)) {
+            continue;
+          }
+          // Never cut a stored answer short: an unfinished one that holds
+          // more is finished with its own text and output.
+          final answer = storedHoldsMore
+              ? shown.copyWith(content: stored.content, output: storedOutput)
+              : shown;
           final settled = localEchoRowForMessage(chatId, answer).payload;
           final metadata = <String, dynamic>{
             if (current['metadata'] is Map)
@@ -4991,6 +5213,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           } else {
             metadata[kStoppedHereMetadataKey] = true;
           }
+          final payload = <String, dynamic>{
+            // Fields this build does not model stay as the server has them.
+            ...current,
+            ...settled,
+            // Where the answer sits in the graph is the stored row's.
+            for (final key in const ['parentId', 'childrenIds', 'timestamp'])
+              if (current.containsKey(key)) key: current[key],
+            if (metadata.isNotEmpty) 'metadata': metadata,
+          };
+          // The text is read from the output when there is one: an older
+          // output of the stored row's would replace the answer's text.
+          if (!settled.containsKey('output')) payload.remove('output');
           rows.add(
             MessageRowData(
               id: stored.id,
@@ -5001,19 +5235,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               model: answer.model ?? stored.model,
               createdAt: stored.createdAt,
               orderIndex: stored.orderIndex,
-              payload: <String, dynamic>{
-                // Fields this build does not model stay as the server has them.
-                ...current,
-                ...settled,
-                // Where the answer sits in the graph is the stored row's.
-                for (final key in const [
-                  'parentId',
-                  'childrenIds',
-                  'timestamp',
-                ])
-                  if (current.containsKey(key)) key: current[key],
-                if (metadata.isNotEmpty) 'metadata': metadata,
-              },
+              payload: payload,
             ),
           );
         }
@@ -6456,6 +6678,152 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 }
 
+/// Whether an answer's [content] and [output] hold more than another copy of
+/// it ([otherContent], [otherOutput]): more text, or, with as much text, more
+/// text in its reasoning and tool blocks, more output items, a block where
+/// the copy has none, or the reasoning's duration the copy lacks. Text is
+/// compared without those blocks, which two renders of one answer write
+/// differently, and they never outweigh more text.
+bool _holdsMoreThan(
+  String content,
+  List<Object?>? output,
+  String otherContent,
+  List<Object?>? otherOutput,
+) {
+  final text = comparableAssistantBody(content).length;
+  final otherText = comparableAssistantBody(otherContent).length;
+  if (text != otherText) return text > otherText;
+  final blockText = _detailsTextLength(content);
+  final otherBlockText = _detailsTextLength(otherContent);
+  if (blockText != otherBlockText) return blockText > otherBlockText;
+  final items = output?.length ?? 0;
+  final otherItems = otherOutput?.length ?? 0;
+  if (items != otherItems) return items > otherItems;
+  return (containsRenderedSemanticDetails(content) &&
+          !containsRenderedSemanticDetails(otherContent)) ||
+      serverBodyDropsLocalReasoningTiming(content, otherContent);
+}
+
+final RegExp _detailsMarkup = RegExp(
+  r'<details\b[^>]*>|</details>|<summary\b[^>]*>[\s\S]*?</summary>',
+  caseSensitive: false,
+);
+final RegExp _whitespace = RegExp(r'\s+');
+
+/// How much text [content]'s reasoning and tool blocks hold, without their
+/// tags and summaries, which carry the duration and so differ between two
+/// renders of one block.
+int _detailsTextLength(String content) =>
+    content.replaceAll(_detailsMarkup, '').replaceAll(_whitespace, '').length -
+    comparableAssistantBody(content).replaceAll(_whitespace, '').length;
+
+/// [answer] with an `output` that shows what [answer] showed, for storing: a
+/// stored answer is read again from its output when it has one. A Responses
+/// stream gives the shown text and reasoning the deltas between output
+/// snapshots, which the output lacks until the next one.
+///
+/// The output is kept, with every structured item, when its reasoning and
+/// tool blocks hold as much as those shown and the text it renders (a
+/// message's text, an image it made as its markdown) is the text shown, or
+/// where it begins: the text past it continues its last message, or follows
+/// as a message of its own after another item. Otherwise (blocks behind, or
+/// text that differs, runs past what was shown, or cannot be lined up with
+/// it) it is dropped, and the
+/// answer is stored as shown, its blocks rendered into its text: their items
+/// cannot be rebuilt from that rendering.
+ChatMessage _withOutputAsShown(ChatMessage answer) {
+  final output = answer.output;
+  if (output == null ||
+      output.isEmpty ||
+      parseConduitDirectReplayOutput(output) != null) {
+    return answer;
+  }
+  final rendered = _storedShows(answer.content, output);
+  if (_detailsTextLength(answer.content) > _detailsTextLength(rendered)) {
+    return answer.copyWith(output: null);
+  }
+  final shown = comparableAssistantBody(answer.content);
+  final stored = comparableAssistantBody(rendered);
+  if (_words(stored) == _words(shown)) return answer;
+  if (!_words(shown).startsWith(_words(stored)) || !shown.startsWith(stored)) {
+    return answer.copyWith(output: null);
+  }
+  final extended = _outputContinuedWith(output, shown.substring(stored.length));
+  return extended != null &&
+          _words(comparableAssistantBody(_storedShows('', extended))) ==
+              _words(shown)
+      ? answer.copyWith(output: extended)
+      : answer.copyWith(output: null);
+}
+
+/// [text] with whitespace evened out: the text between blocks keeps the
+/// blank lines that set them apart.
+String _words(String text) => text.replaceAll(_whitespace, ' ');
+
+/// [output] followed by [rest], the text shown past what it renders: on its
+/// last message, after that message's own text, or as a message of its own
+/// after another item, its leading whitespace kept (an indented code line's
+/// indent). Null when [rest] does not line up with the last message's text,
+/// which may end in whitespace the rendered text drops.
+List<Map<String, dynamic>>? _outputContinuedWith(
+  List<Map<String, dynamic>> output,
+  String rest,
+) {
+  final last = output.last;
+  final parts = last['content'];
+  if (last['type'] != 'message' || parts is! List || parts.isEmpty) {
+    return [
+      ...output,
+      <String, dynamic>{
+        'type': 'message',
+        'role': 'assistant',
+        'content': [
+          <String, dynamic>{'type': 'output_text', 'text': rest},
+        ],
+      },
+    ];
+  }
+  final lastPart = parts.last;
+  final text = lastPart is Map ? lastPart['text'] : null;
+  if (text is! String) {
+    return [
+      ...output.take(output.length - 1),
+      <String, dynamic>{
+        ...last,
+        'content': [
+          ...parts,
+          <String, dynamic>{'type': 'output_text', 'text': rest},
+        ],
+      },
+    ];
+  }
+  final trailing = text.substring(text.trimRight().length);
+  if (!rest.startsWith(trailing)) return null;
+  return [
+    ...output.take(output.length - 1),
+    <String, dynamic>{
+      ...last,
+      'content': [
+        ...parts.take(parts.length - 1),
+        <String, dynamic>{
+          ...Map<String, dynamic>.from(lastPart as Map),
+          'text': '$text${rest.substring(trailing.length)}',
+        },
+      ],
+    },
+  ];
+}
+
+/// What a stored answer with [content] and [output] shows when it is read
+/// again: its output rendered, as the chat's parser and Open WebUI's web
+/// client take it, or [content] when it has none.
+String _storedShows(String content, List<Map<String, dynamic>>? output) =>
+    output == null ||
+        output.isEmpty ||
+        parseConduitDirectReplayOutput(output) != null
+    ? content
+    : renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(output));
+
 /// History-message shape for the local turn echo.
 ///
 /// Top-level (rather than a notifier method) so tests can pin payload
@@ -6652,6 +7020,9 @@ final class _OwedCancellation {
   /// The chat's id, following a local-to-server remap.
   String chatId;
   final List<_CancellationStep> steps;
+
+  /// Whether the server has accepted every step for the chat's current id.
+  bool get accepted => steps.every((step) => step.acceptedFor(chatId));
 
   /// True once the server has accepted every step for the chat's current id;
   /// asks again for each that it has not.
