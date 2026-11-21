@@ -388,6 +388,10 @@ bool _keepsAnswerFinishedHere(MessageRowData local, MessageRowData server) =>
     server.payload['done'] != true &&
     server.content.isEmpty;
 
+/// The payload keys that place a message in the graph. A kept answer takes
+/// them from the server's copy, a key it leaves out included.
+const _graphKeys = {'parentId', 'childrenIds', 'timestamp'};
+
 /// [local]'s answer where [server] has it in the graph.
 MessageRowData _keptAt(MessageRowData local, MessageRowData server) =>
     MessageRowData(
@@ -400,8 +404,9 @@ MessageRowData _keptAt(MessageRowData local, MessageRowData server) =>
       createdAt: server.createdAt,
       orderIndex: server.orderIndex,
       payload: <String, dynamic>{
-        ...local.payload,
-        for (final key in const ['parentId', 'childrenIds', 'timestamp'])
+        for (final entry in local.payload.entries)
+          if (!_graphKeys.contains(entry.key)) entry.key: entry.value,
+        for (final key in _graphKeys)
           if (server.payload.containsKey(key)) key: server.payload[key],
       },
     );
