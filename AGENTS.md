@@ -269,8 +269,11 @@ Most code changes need no documentation change. Agents can read the code.
   function and the Hermes plugin that send pushes (Python). The relay, the
   plugins, and the Swift tests all check against `push/test-vectors`.
 - `tool/` holds the checks and generators, with their tests in `test/tool/`.
-- `openwebui-src/`, `librechat-src/`, `hermes-src/`, and `third_party/` are
-  submodules. Never edit them.
+- `openwebui-src/`, `librechat-src/`, `hermes-src/`, `third_party/katex`, and
+  `third_party/mermaid` are submodules. Never edit them. The other packages in
+  `third_party/` (`flutter_callkit_incoming`, `just_audio`, and `vad`) are
+  patched copies; change them only as their `PATCHES.md` (`README.md` for
+  `vad`) describes.
 
 ## Taste
 

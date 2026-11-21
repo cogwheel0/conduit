@@ -157,8 +157,12 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
             ) ??
             url,
         extension: webEmbedAudioExtension(source),
-        extensionForReply: (mediaType) =>
-            webEmbedAudioExtension(source, mediaType: mediaType),
+        extensionForReply: (mediaType, {contentDisposition}) =>
+            webEmbedAudioExtension(
+              source,
+              mediaType: mediaType,
+              contentDisposition: contentDisposition,
+            ),
         transport: (url) => (
           client: _mediaClient(ref, url),
           headers: const <String, String>{},

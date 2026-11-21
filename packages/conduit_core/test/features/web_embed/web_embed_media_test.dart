@@ -279,36 +279,51 @@ void main() {
     });
   });
 
-  test(
-    'webEmbedAudioExtension names a file by its reply, then its address',
-    () {
-      final note = Uri.parse(
-        'https://chat.example.test/api/v1/files/a1/content',
-      );
-      final cases = <(Uri, String?, String)>[
-        (note, 'audio/mpeg', 'mp3'),
-        (note, 'audio/wav; codecs=1', 'wav'),
-        (note, 'audio/mp4', 'm4a'),
-        (note, 'audio/flac', 'flac'),
-        (note, 'audio/x-flac', 'flac'),
-        (note, 'audio/webm; codecs=opus', 'webm'),
-        (note, 'audio/opus', 'opus'),
-        (
-          Uri.parse('https://chat.example.test/clip.ogg'),
-          'application/octet-stream',
-          'ogg',
+  test('webEmbedAudioExtension names a file by its reply type, then its '
+      'Content-Disposition name, then its address', () {
+    final note = Uri.parse('https://chat.example.test/api/v1/files/a1/content');
+    final clip = Uri.parse('https://chat.example.test/clip.ogg');
+    const octet = 'application/octet-stream';
+    const chime = "attachment; filename*=UTF-8''chime-a.m4a";
+    final cases = <(Uri, String?, String?, String)>[
+      (note, 'audio/mpeg', null, 'mp3'),
+      (note, 'audio/wav; codecs=1', null, 'wav'),
+      (note, 'audio/mp4', null, 'm4a'),
+      (note, 'audio/flac', null, 'flac'),
+      (note, 'audio/x-flac', null, 'flac'),
+      (note, 'audio/webm; codecs=opus', null, 'webm'),
+      (note, 'audio/opus', null, 'opus'),
+      (clip, octet, null, 'ogg'),
+      (Uri.parse('https://chat.example.test/clip.FLAC'), null, null, 'flac'),
+      (note, null, null, 'audio'),
+      (note, octet, chime, 'm4a'),
+      (note, null, 'inline; filename="Chime B.MP3"', 'mp3'),
+      (note, octet, 'attachment; filename=tone.wav', 'wav'),
+      // filename* wins over filename, as RFC 6266 has it.
+      (
+        note,
+        octet,
+        "attachment; filename=\"tone.wav\"; filename*=UTF-8''tone%2Eflac",
+        'flac',
+      ),
+      // A known reply type wins over the name, and the name over the address.
+      (note, 'audio/mpeg', chime, 'mp3'),
+      (clip, octet, chime, 'm4a'),
+      // A name that is not audio leaves the address.
+      (clip, octet, 'attachment; filename="notes.txt"', 'ogg'),
+      (note, octet, 'attachment', 'audio'),
+    ];
+    for (final (source, type, disposition, expected) in cases) {
+      check(
+        because: '$source $type $disposition',
+        webEmbedAudioExtension(
+          source,
+          mediaType: type,
+          contentDisposition: disposition,
         ),
-        (Uri.parse('https://chat.example.test/clip.FLAC'), null, 'flac'),
-        (note, null, 'audio'),
-      ];
-      for (final (source, type, expected) in cases) {
-        check(
-          because: '$source $type',
-          webEmbedAudioExtension(source, mediaType: type),
-        ).equals(expected);
-      }
-    },
-  );
+      ).equals(expected);
+    }
+  });
 
   group('webEmbedMediaClient', () {
     late _Adapter adapter;
