@@ -16,10 +16,16 @@ pub.dev archive (sha256
 -    //IndexedPlayerItem *playerItem = (IndexedPlayerItem *)notification.object;
      //NSLog(@"onFailToComplete");
 +    IndexedPlayerItem *playerItem = (IndexedPlayerItem *)notification.object;
-+    if (playerItem != _player.currentItem) return;
 +    NSError *error = notification.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];
-+    [self sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
-+    [_player removeAllItems];
++    // AVFoundation may post this on a background thread, and Flutter events
++    // must be sent from the main thread.
++    __weak __typeof__(self) weakSelf = self;
++    dispatch_async(dispatch_get_main_queue(), ^{
++        __typeof__(self) strongSelf = weakSelf;
++        if (!strongSelf || playerItem != strongSelf.player.currentItem) return;
++        [strongSelf sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
++        [strongSelf.player removeAllItems];
++    });
  }
 ```
 
@@ -36,6 +42,13 @@ of showing its failure with Retry.
 The handler now reports the failure the way the plugin already reports an
 item whose status turns to failed (`sendErrorForItem:`): an error with the
 AVFoundation error code and message, the idle state, and the queue emptied.
+
+Apple allows this notification to be posted on a thread other than the one
+that registered for it, and `BetterEventChannel` calls its Flutter sink
+directly, so the handler moves to the main queue first. It holds the player
+weakly, and once there it does nothing if the player is gone, disposed (its
+`player` is then nil), or has moved on to another item.
+
 Android is not patched; ExoPlayer already reports such failures.
 
 ## What was left out

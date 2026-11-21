@@ -751,10 +751,16 @@
 - (void)onFailToComplete:(NSNotification *)notification {
     //NSLog(@"onFailToComplete");
     IndexedPlayerItem *playerItem = (IndexedPlayerItem *)notification.object;
-    if (playerItem != _player.currentItem) return;
     NSError *error = notification.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];
-    [self sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
-    [_player removeAllItems];
+    // AVFoundation may post this on a background thread, and Flutter events
+    // must be sent from the main thread.
+    __weak __typeof__(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        __typeof__(self) strongSelf = weakSelf;
+        if (!strongSelf || playerItem != strongSelf.player.currentItem) return;
+        [strongSelf sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
+        [strongSelf.player removeAllItems];
+    });
 }
 
 - (void)onComplete:(NSNotification *)notification {
