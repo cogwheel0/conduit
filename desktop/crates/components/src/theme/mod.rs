@@ -323,8 +323,14 @@ impl ConduitTheme {
             secondary: c.secondary,
             secondary_foreground: c.secondary_foreground,
             // The phone's user bubble: the card tone in light, the muted
-            // tone in dark.
-            bubble: if dark { c.muted } else { c.card },
+            // tone in dark. A palette whose light cards are the page's own
+            // colour (Clay, T3 Chat) takes its muted tone in light too, or
+            // the bubble would vanish into the transcript.
+            bubble: if dark || contrast_ratio(c.card, s.panel) < 1.05 {
+                c.muted
+            } else {
+                c.card
+            },
             danger: legible_text(c.destructive, c.foreground, s.panel, 4.5),
             danger_fill: legible_fill(c.destructive, c.destructive_foreground, 4.5),
             danger_foreground: c.destructive_foreground,
