@@ -408,6 +408,33 @@ void main() {
   group("a web embed's audio", () {
     const note = 'https://chat.example.test/api/v1/files/a1/content';
 
+    Future<File> play(VideoAttachmentCache cache, _ReplyAdapter replies) =>
+        cache.fetchForPlayback(
+          claim: VideoDownloadClaim(),
+          url: note,
+          cacheIdentity: note,
+          extension: 'audio',
+          extensionForReply: (type, {contentDisposition}) =>
+              webEmbedAudioExtension(
+                Uri.parse(note),
+                mediaType: type,
+                contentDisposition: contentDisposition,
+              ),
+          transport: (url) => (
+            client: webEmbedMediaClient(
+              const ServerConfig(
+                id: 'synthetic',
+                name: 'Synthetic',
+                url: 'https://chat.example.test',
+              ),
+              const {},
+            )..httpClientAdapter = replies,
+            headers: const <String, String>{},
+            ownsClient: true,
+          ),
+          isCurrent: () => true,
+        );
+
     test('its reply names the file, and the next Play finds it', () async {
       final replies = _ReplyAdapter([
         ResponseBody.fromBytes(
@@ -419,35 +446,31 @@ void main() {
         ),
       ]);
       final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
-      Future<File> play() => cache.fetchForPlayback(
-        claim: VideoDownloadClaim(),
-        url: note,
-        cacheIdentity: note,
-        extension: 'audio',
-        extensionForReply: (type) =>
-            webEmbedAudioExtension(Uri.parse(note), mediaType: type),
-        transport: (url) => (
-          client: webEmbedMediaClient(
-            const ServerConfig(
-              id: 'synthetic',
-              name: 'Synthetic',
-              url: 'https://chat.example.test',
-            ),
-            const {},
-          )..httpClientAdapter = replies,
-          headers: const <String, String>{},
-          ownsClient: true,
-        ),
-        isCurrent: () => true,
-      );
 
-      final first = await play();
+      final first = await play(cache, replies);
       check(first.path).endsWith('.mp3');
       check(await first.readAsBytes()).deepEquals(_bytes);
       check(dir.listSync().map((it) => it.path)).deepEquals([first.path]);
 
-      check((await play()).path).equals(first.path);
+      check((await play(cache, replies)).path).equals(first.path);
       check(replies.requests).deepEquals([note]);
+    });
+
+    test('a reply with no audio type is named by its Content-Disposition '
+        'file name', () async {
+      final replies = _ReplyAdapter([
+        ResponseBody.fromBytes(
+          _bytes,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['application/octet-stream'],
+            'content-disposition': ["attachment; filename*=UTF-8''chime-a.m4a"],
+          },
+        ),
+      ]);
+      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+
+      check((await play(cache, replies)).path).endsWith('.m4a');
     });
   });
 }

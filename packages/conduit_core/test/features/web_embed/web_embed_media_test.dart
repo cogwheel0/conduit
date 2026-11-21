@@ -310,6 +310,42 @@ void main() {
     },
   );
 
+  test('webEmbedAudioExtension names a file with no audio type by its '
+      'Content-Disposition name, then its address', () {
+    final note = Uri.parse('https://chat.example.test/api/v1/files/a1/content');
+    final clip = Uri.parse('https://chat.example.test/clip.ogg');
+    const octet = 'application/octet-stream';
+    final cases = <(Uri, String?, String, String)>[
+      (note, octet, "attachment; filename*=UTF-8''chime-a.m4a", 'm4a'),
+      (note, null, 'inline; filename="Chime B.MP3"', 'mp3'),
+      (note, octet, 'attachment; filename=tone.wav', 'wav'),
+      // filename* wins over filename, as RFC 6266 has it.
+      (
+        note,
+        octet,
+        "attachment; filename=\"tone.wav\"; filename*=UTF-8''tone%2Eflac",
+        'flac',
+      ),
+      // A known reply type wins over the name.
+      (note, 'audio/mpeg', "attachment; filename*=UTF-8''chime-a.m4a", 'mp3'),
+      // The name wins over the address.
+      (clip, octet, "attachment; filename*=UTF-8''chime-a.m4a", 'm4a'),
+      // A name that is not audio leaves the address.
+      (clip, octet, 'attachment; filename="notes.txt"', 'ogg'),
+      (note, octet, 'attachment', 'audio'),
+    ];
+    for (final (source, type, disposition, expected) in cases) {
+      check(
+        because: '$source $type $disposition',
+        webEmbedAudioExtension(
+          source,
+          mediaType: type,
+          contentDisposition: disposition,
+        ),
+      ).equals(expected);
+    }
+  });
+
   group('webEmbedMediaClient', () {
     late _Adapter adapter;
     late Dio client;

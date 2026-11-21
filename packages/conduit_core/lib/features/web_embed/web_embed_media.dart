@@ -532,19 +532,70 @@ String? _mediaType(Headers headers) {
 }
 
 /// The extension for a file of audio [source] answered with: the reply's
-/// [mediaType] names it, or else the address does. A player may read a
-/// file's format from its name, and a server's file address often has none.
-String webEmbedAudioExtension(Uri source, {String? mediaType}) {
+/// [mediaType] names it, or else the file name its [contentDisposition]
+/// gives, or else the address. A player may read a file's format from its
+/// name, and a server's file address often has none.
+String webEmbedAudioExtension(
+  Uri source, {
+  String? mediaType,
+  String? contentDisposition,
+}) {
   final type = (mediaType ?? '').split(';').first.trim().toLowerCase();
   final fromType =
       _audioTypeExtensions[type] ?? audioExtensionForMimeType(type);
   if (fromType != 'audio') return fromType;
-  final name = source.pathSegments.isEmpty
-      ? ''
-      : source.pathSegments.last.toLowerCase();
+  final fileName = _dispositionFileName(contentDisposition);
+  return (fileName == null ? null : _audioExtensionOf(fileName)) ??
+      _audioExtensionOf(
+        source.pathSegments.isEmpty ? '' : source.pathSegments.last,
+      ) ??
+      'audio';
+}
+
+String? _audioExtensionOf(String name) {
   final dot = name.lastIndexOf('.');
-  final fromName = dot < 0 ? '' : name.substring(dot + 1);
-  return _audioExtensions.contains(fromName) ? fromName : 'audio';
+  final extension = dot < 0 ? '' : name.substring(dot + 1).toLowerCase();
+  return _audioExtensions.contains(extension) ? extension : null;
+}
+
+final RegExp _dispositionFileNameParameter = RegExp(
+  r'''(?:^|;)\s*(filename\*?)\s*=\s*("(?:[^"\\]|\\.)*"|[^;]*)''',
+  caseSensitive: false,
+);
+
+/// The file name a `Content-Disposition` header gives: its `filename*`,
+/// which RFC 6266 prefers, or else its `filename`.
+String? _dispositionFileName(String? header) {
+  if (header == null) return null;
+  String? plain;
+  for (final match in _dispositionFileNameParameter.allMatches(header)) {
+    final value = match.group(2)!.trim();
+    if (match.group(1)!.toLowerCase() == 'filename*') {
+      // charset'language'percent-encoded-name
+      final parts = value.split("'");
+      final decoded = parts.length == 3 ? _percentDecoded(parts[2]) : null;
+      if (decoded != null) return decoded;
+    } else if (value.length > 1 &&
+        value.startsWith('"') &&
+        value.endsWith('"')) {
+      plain ??= value
+          .substring(1, value.length - 1)
+          .replaceAllMapped(RegExp(r'\\(.)'), (m) => m[1]!);
+    } else {
+      plain ??= value;
+    }
+  }
+  return plain;
+}
+
+String? _percentDecoded(String value) {
+  try {
+    return Uri.decodeComponent(value);
+  } on ArgumentError {
+    return null;
+  } on FormatException {
+    return null;
+  }
 }
 
 /// Formats the speech helper ([audioExtensionForMimeType]) does not name.

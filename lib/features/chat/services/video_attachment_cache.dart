@@ -121,9 +121,10 @@ class VideoAttachmentCache {
   /// file URLs are the same for every account on a server). [isCurrent]
   /// reports whether the caller still wants this attempt.
   ///
-  /// The file takes [extension], or with [extensionForReply], the one that
-  /// names the reply's media type: a server's file address often names no
-  /// format, and a player may read it from the file's name.
+  /// The file takes [extension], or with [extensionForReply], the one the
+  /// reply names by its media type or its `Content-Disposition` file name: a
+  /// server's file address often names no format, and a player may read it
+  /// from the file's name.
   Future<File> fetchForPlayback({
     required VideoDownloadClaim claim,
     required String url,
@@ -131,7 +132,8 @@ class VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
-    String Function(String? mediaType)? extensionForReply,
+    String Function(String? mediaType, {String? contentDisposition})?
+    extensionForReply,
   }) async {
     final dir = await _cacheDirectory();
     final stem = '${dir.path}/video_${_cacheNameFor(url, cacheIdentity)}';
@@ -178,7 +180,12 @@ class VideoAttachmentCache {
           _runVideoDownload(
             url,
             stem,
-            (mediaType) => extensionForReply?.call(mediaType) ?? extension,
+            (reply) =>
+                extensionForReply?.call(
+                  reply.value(dio.Headers.contentTypeHeader),
+                  contentDisposition: reply['content-disposition']?.first,
+                ) ??
+                extension,
             created.token,
             transport,
           ).whenComplete(() {
@@ -299,21 +306,15 @@ class VideoAttachmentCache {
   Future<File> _runVideoDownload(
     String url,
     String stem,
-    String Function(String? mediaType) extension,
+    String Function(dio.Headers reply) extension,
     dio.CancelToken token,
     VideoTransport Function(String url) transport,
   ) async {
     final part = File('$stem.${_scratchSeq++}.part');
     final (:client, :headers, :ownsClient) = transport(url);
     try {
-      final mediaType = await _streamToFile(
-        client,
-        url,
-        part.path,
-        headers,
-        token,
-      );
-      final target = await part.rename('$stem.${extension(mediaType)}');
+      final reply = await _streamToFile(client, url, part.path, headers, token);
+      final target = await part.rename('$stem.${extension(reply)}');
       unawaited(prune());
       return target;
     } finally {
@@ -333,8 +334,8 @@ class VideoAttachmentCache {
   /// fixed total-transfer deadline: the request is aborted only when no data
   /// arrives for [_downloadStallTimeout] (45s) or the headers never arrive
   /// (60s), not because the file is large. Cancelable via [token]. Returns
-  /// the reply's media type.
-  Future<String?> _streamToFile(
+  /// the reply's headers.
+  Future<dio.Headers> _streamToFile(
     dio.Dio client,
     String url,
     String path,
@@ -365,7 +366,7 @@ class VideoAttachmentCache {
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
-      return response.headers.value(dio.Headers.contentTypeHeader);
+      return response.headers;
     } finally {
       watchdog.cancel();
     }
