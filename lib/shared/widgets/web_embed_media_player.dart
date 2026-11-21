@@ -74,8 +74,8 @@ enum _AudioStatus { idle, loading, ready, failed }
 class _AudioRowState extends ConsumerState<_AudioRow> {
   AudioPlayer? _player;
   Dio? _client;
+  WebEmbedMediaLoad? _current;
   final List<StreamSubscription<Object?>> _subscriptions = [];
-  int _loadId = 0;
   _AudioStatus _status = _AudioStatus.idle;
   bool _playing = false;
   Duration _position = Duration.zero;
@@ -97,7 +97,8 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   }
 
   void _release() {
-    _loadId += 1;
+    _current?.cancel();
+    _current = null;
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -123,72 +124,75 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   /// from the first.
   Future<void> _load({int from = 0}) async {
     _release();
-    final loadId = _loadId;
     setState(() => _status = _AudioStatus.loading);
-    WebEmbedMediaReader? reader;
+    final Dio client;
     try {
-      final client = _mediaClient(ref, widget.item.url.toString());
-      reader = WebEmbedMediaReader(client, widget.item.sources, from: from);
-      final player = AudioPlayer();
-      _client = client;
-      _player = player;
-      _subscriptions
-        ..add(
-          player.playbackEventStream.listen(
-            (_) {},
-            onError: (Object error, StackTrace stackTrace) =>
-                _fail(loadId, error, stackTrace, reader: reader),
-          ),
-        )
-        ..add(
-          player.playerStateStream.listen((state) {
-            if (!mounted || loadId != _loadId) return;
-            setState(() {
-              _playing =
-                  state.playing &&
-                  state.processingState != ProcessingState.completed;
-            });
-          }),
-        )
-        ..add(
-          player.positionStream.listen((position) {
-            if (!mounted || loadId != _loadId) return;
-            setState(() => _position = position);
-          }),
-        )
-        ..add(
-          player.durationStream.listen((duration) {
-            if (!mounted || loadId != _loadId) return;
-            setState(() => _duration = duration);
-          }),
-        );
-      await player.setAudioSource(RangedAudioSource(reader.open));
-      if (!mounted || loadId != _loadId) return;
-      setState(() => _status = _AudioStatus.ready);
-      unawaited(player.play());
+      client = _mediaClient(ref, widget.item.url.toString());
     } catch (error, stackTrace) {
-      _fail(loadId, error, stackTrace, reader: reader);
+      _failed(null, error, stackTrace);
+      return;
     }
+    final load = _current = WebEmbedMediaLoad(
+      WebEmbedMediaReader(client, widget.item.sources, from: from),
+      onFailure: _failed,
+    );
+    final player = AudioPlayer();
+    _client = client;
+    _player = player;
+    _subscriptions
+      // A failure after the load, such as a read error mid-file, arrives
+      // only here: just_audio sends no error on its playback events.
+      ..add(
+        player.errorStream.listen(
+          (error) => load.fail(error, StackTrace.current),
+        ),
+      )
+      ..add(
+        player.playerStateStream.listen((state) {
+          if (!mounted || !load.isCurrent) return;
+          setState(() {
+            _playing =
+                state.playing &&
+                state.processingState != ProcessingState.completed;
+          });
+        }),
+      )
+      ..add(
+        player.positionStream.listen((position) {
+          if (!mounted || !load.isCurrent) return;
+          setState(() => _position = position);
+        }),
+      )
+      ..add(
+        player.durationStream.listen((duration) {
+          if (!mounted || !load.isCurrent) return;
+          setState(() => _duration = duration);
+        }),
+      );
+    try {
+      await player.setAudioSource(RangedAudioSource(load.reader.open));
+    } catch (error, stackTrace) {
+      load.fail(error, stackTrace);
+      return;
+    }
+    if (!mounted || !load.isCurrent) return;
+    load.markReady();
+    setState(() => _status = _AudioStatus.ready);
+    unawaited(player.play());
   }
 
-  /// A source that never got ready gives way to the next, as in a browser;
-  /// once one has played, a failure ends playback.
-  void _fail(
-    int loadId,
-    Object error,
-    StackTrace stackTrace, {
-    WebEmbedMediaReader? reader,
-  }) {
-    if (!mounted || loadId != _loadId) return;
+  /// Plays from [retryFrom] when given ([WebEmbedMediaLoad]); otherwise
+  /// shows the failure, with Retry.
+  void _failed(int? retryFrom, Object error, StackTrace stackTrace) {
+    if (!mounted) return;
     DebugLogger.error(
       'embed-audio-failed',
       scope: 'embeds/media',
       error: error,
       stackTrace: stackTrace,
     );
-    final next = _status == _AudioStatus.loading ? reader?.nextIndex : null;
-    if (next != null) {
-      unawaited(_load(from: next));
+    if (retryFrom != null) {
+      unawaited(_load(from: retryFrom));
       return;
     }
     setState(() {

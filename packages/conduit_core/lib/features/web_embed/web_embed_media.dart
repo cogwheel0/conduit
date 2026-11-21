@@ -642,6 +642,44 @@ final class WebEmbedMediaReader {
   }
 }
 
+/// One load of a player from an item's sources, read through [reader], and
+/// where a failure of it leads. Before the player is ready, it leads to the
+/// next source, as a browser's media element moves on; once the player is
+/// ready, or from the last source, to the player showing the failure.
+///
+/// A player reports a failed load in more than one way (the load throws, and
+/// an error event arrives), so a load fails once: its first failure reaches
+/// [onFailure], and none does once it has been [cancel]led.
+final class WebEmbedMediaLoad {
+  WebEmbedMediaLoad(this.reader, {required this.onFailure});
+
+  final WebEmbedMediaReader reader;
+
+  /// [retryFrom] is the source the next load starts from, or null for none.
+  final void Function(int? retryFrom, Object error, StackTrace stackTrace)
+  onFailure;
+
+  bool _ready = false;
+  bool _over = false;
+
+  /// Whether the player's events still count: the load has neither failed
+  /// nor been cancelled.
+  bool get isCurrent => !_over;
+
+  /// The player can play this load's media.
+  void markReady() {
+    if (!_over) _ready = true;
+  }
+
+  void cancel() => _over = true;
+
+  void fail(Object error, StackTrace stackTrace) {
+    if (_over) return;
+    _over = true;
+    onFailure(_ready ? null : reader.nextIndex, error, stackTrace);
+  }
+}
+
 bool _isPlayableType(String? type) =>
     type == null ||
     type.startsWith('audio/') ||

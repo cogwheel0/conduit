@@ -539,6 +539,69 @@ void main() {
           .not((it) => it.contains(clip));
     });
   });
+
+  group('WebEmbedMediaLoad', () {
+    final first = Uri.parse('https://chat.example.test/api/v1/files/a/c');
+    final second = Uri.parse('https://chat.example.test/api/v1/files/b/c');
+    final client = Dio();
+    tearDownAll(() => client.close(force: true));
+
+    test('a failure before the player is ready moves to the next source', () {
+      final retries = <int?>[];
+      final load = WebEmbedMediaLoad(
+        WebEmbedMediaReader(client, [first, second]),
+        onFailure: (retryFrom, _, _) => retries.add(retryFrom),
+      );
+
+      load.fail(StateError('format'), StackTrace.empty);
+
+      check(retries).deepEquals([1]);
+      check(load.isCurrent).isFalse();
+    });
+
+    test('a failure once the player is ready, or of the last source, '
+        'shows the failure', () {
+      final retries = <int?>[];
+      final ready = WebEmbedMediaLoad(
+        WebEmbedMediaReader(client, [first, second]),
+        onFailure: (retryFrom, _, _) => retries.add(retryFrom),
+      )..markReady();
+      final last = WebEmbedMediaLoad(
+        WebEmbedMediaReader(client, [first, second], from: 1),
+        onFailure: (retryFrom, _, _) => retries.add(retryFrom),
+      );
+
+      ready.fail(StateError('playback'), StackTrace.empty);
+      last.fail(StateError('format'), StackTrace.empty);
+
+      check(retries).deepEquals([null, null]);
+    });
+
+    test('a load fails once, and not at all once cancelled', () {
+      final retries = <int?>[];
+      final failed = WebEmbedMediaLoad(
+        WebEmbedMediaReader(client, [first, second]),
+        onFailure: (retryFrom, _, _) => retries.add(retryFrom),
+      );
+      final cancelled = WebEmbedMediaLoad(
+        WebEmbedMediaReader(client, [first, second]),
+        onFailure: (retryFrom, _, _) => retries.add(retryFrom),
+      );
+
+      // A player reports a failed load both as an error event and by
+      // throwing from the load.
+      failed
+        ..fail(StateError('event'), StackTrace.empty)
+        ..fail(StateError('thrown'), StackTrace.empty);
+      cancelled
+        ..cancel()
+        ..markReady()
+        ..fail(StateError('late'), StackTrace.empty);
+
+      check(retries).deepEquals([1]);
+      check(cancelled.isCurrent).isFalse();
+    });
+  });
 }
 
 ResponseBody _media(
