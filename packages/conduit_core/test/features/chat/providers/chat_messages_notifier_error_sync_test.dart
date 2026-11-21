@@ -268,6 +268,56 @@ void main() {
     });
   });
 
+  group('a resumed answer that fails before it writes any text', () {
+    const failure = ChatMessageError(content: 'The model is not reachable');
+    final question = _message('user-1', 'user', 'Hi');
+    final answer = _message('assistant-1', 'assistant', '');
+
+    test('settles with its error when the poll sees its task end', () async {
+      final api = _FakeApiService(_chat([question, answer]))
+        ..taskIds = ['task-1'];
+      final container = _openChatContainer(api: api);
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_chat([question, answer]));
+      await pumpEventQueue();
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      api
+        ..taskIds = const <String>[]
+        ..conversation = _chat([question, answer.copyWith(error: failure)]);
+      notifier.debugCancelRemoteTaskMonitorTimer();
+      check(notifier.debugTaskStatusCheckInFlight).isFalse();
+      await notifier.debugSyncRemoteTaskStatus();
+
+      final settled = container.read(chatMessagesProvider).last;
+      check(settled.isStreaming).isFalse();
+      check(settled.error?.content).equals(failure.content);
+    });
+
+    test(
+      'settles with its error when the chat opens after its task ended',
+      () async {
+        final api = _FakeApiService(
+          _chat([question, answer.copyWith(error: failure)]),
+        );
+        final container = _openChatContainer(api: api);
+        check(container.read(chatMessagesProvider)).isEmpty();
+        // This device last saw the answer running.
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_chat([question, answer.copyWith(isStreaming: true)]));
+        await pumpEventQueue();
+
+        final settled = container.read(chatMessagesProvider).last;
+        check(settled.isStreaming).isFalse();
+        check(settled.error?.content).equals(failure.content);
+      },
+    );
+  });
+
   group("a failed relay to one of the user's devices", () {
     // The answer says itself that one of the user's devices was asked: the
     // model list, which may load after the chat opens, or never, is not.
