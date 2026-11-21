@@ -38,6 +38,7 @@
 //! ([`Relay`]): the test never reaches the local network at all. A call with
 //! the microphone never has a relay.
 
+#[cfg(any(target_os = "macos", test))]
 use base64::Engine as _;
 use serde_json::Value;
 
@@ -45,6 +46,7 @@ use serde_json::Value;
 pub const PAGE: &str = include_str!("../../assets/call/peer.html");
 /// The page's own scheme: its origin, the only one granted the microphone.
 pub const SCHEME: &str = "conduit-call";
+#[cfg(target_os = "macos")]
 const PAGE_URL: &str = "conduit-call://peer/";
 
 /// What the page's microphone is.
@@ -98,6 +100,7 @@ pub struct Options {
 
 impl Options {
     /// The script that hands the page its options before it runs.
+    #[cfg(any(target_os = "macos", test))]
     fn script(&self) -> String {
         let mut options = match &self.source {
             Source::Microphone => serde_json::json!({

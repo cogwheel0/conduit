@@ -193,6 +193,85 @@ jobs:
             desktop/target
           key: desktop-protocol-${{ runner.os }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
 
+  # Windows and Linux: the whole workspace, checked as the macOS job checks
+  # it, so it keeps compiling there ahead of shipping (the Windows/Linux
+  # plan's phase 0). These runners are free, so every pull request this
+  # workflow starts for runs both. Not required checks yet.
+  other-os:
+    name: Workspace (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CONDUIT_SKIP_UI_TESTS: '1'
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # GPUI (X11, Wayland, fontconfig, xkbcommon) and the web views
+      # (WebKitGTK, which brings GTK 3, libsoup 3 and JavaScriptCore).
+      # Wayland and Vulkan are loaded at run time and need no headers. The
+      # image's Android, .NET and Haskell SDKs make room for the target
+      # folder.
+      - name: Install the Linux build dependencies
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxkbcommon-x11-dev libx11-xcb-dev \
+            libwayland-dev libfontconfig-dev libfreetype-dev
+          df -h / | tail -1
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Restore the Cargo cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+          restore-keys: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Clippy without the test harness (as a release would build)
+        run: cargo clippy -p conduit-desktop --lib --bins --locked -- -D warnings
+      # Every test binary runs, so one failing crate hides none of the others.
+      - run: cargo test --workspace --locked --no-fail-fast
+      - name: Disk left
+        if: always()
+        shell: bash
+        run: df -h . | tail -1 && du -sh target 2>/dev/null || true
+      - name: Leave only dependencies in the target folder
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: >-
+          cargo clean -p conduit-desktop -p conduit-components -p conduit-gallery
+          -p conduit-protocol -p conduit-daemon
+      - name: Save the Cargo cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            desktop/target
+          key: desktop-workspace-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('desktop/Cargo.lock', 'desktop/rust-toolchain.toml') }}
+
   # macOS is the first desktop platform: the whole workspace, GPUI included.
   macos:
     name: Workspace (macOS)

@@ -52,7 +52,9 @@ use std::rc::Rc;
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::motion::specs;
-use conduit_components::theme::{self, SidebarStyle};
+use conduit_components::theme;
+#[cfg(target_os = "macos")]
+use conduit_components::theme::SidebarStyle;
 use conduit_components::views::focus::{
     ControlExt as _, RadioGroupExt as _, Ring, radio_option_id,
 };

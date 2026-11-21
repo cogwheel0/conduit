@@ -2079,6 +2079,7 @@ impl ChatPane {
 
     /// The ticket a Continuity Camera photo asked for now would carry: this
     /// account scope, this composer's draft and its composition.
+    #[cfg(target_os = "macos")]
     pub fn import_target(&self, cx: &App) -> crate::shell::continuity_camera::ImportTarget {
         let composer = self.composer_store.read(cx);
         crate::shell::continuity_camera::ImportTarget {
@@ -2093,6 +2094,7 @@ impl ChatPane {
     /// (`asked`): attached only while that account scope, composer and
     /// composition are still the ones shown. Otherwise it is dropped, and a
     /// toast says it couldn't be attached. Says whether it was attached.
+    #[cfg(target_os = "macos")]
     pub fn attach_import(
         &mut self,
         asked: &crate::shell::continuity_camera::ImportTarget,
@@ -3993,6 +3995,7 @@ mod tests {
         /// that account scope are still the ones shown. A later menu (another
         /// account's) never stands in for it, and replacing the composition
         /// (Send Text) drops it; otherwise it attaches.
+        #[cfg(target_os = "macos")]
         #[gpui_kit::test]
         fn a_continuity_photo_lands_only_in_the_composition_that_asked(cx: &mut TestAppContext) {
             let (_daemon, stores, pane, vcx) = bench(cx);

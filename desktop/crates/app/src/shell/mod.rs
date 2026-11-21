@@ -20,6 +20,7 @@ pub mod date_picker;
 pub mod deep_link;
 #[cfg(target_os = "macos")]
 pub mod grab;
+#[cfg(target_os = "macos")]
 pub mod hotkey;
 pub mod location;
 pub mod logger;

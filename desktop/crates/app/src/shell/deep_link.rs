@@ -449,21 +449,35 @@ mod tests {
 
     #[test]
     fn classifies_links_files_and_the_rest() {
+        // Files come as this OS's file URLs: on Windows a drive or a share.
+        #[cfg(windows)]
+        let (files, paths) = (
+            [
+                "file:///C:/Users/someone/Documents/notes%20v2.md",
+                "file://fileserver/photos/photo.png",
+            ],
+            [
+                r"C:\Users\someone\Documents\notes v2.md",
+                r"\\fileserver\photos\photo.png",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (files, paths) = (
+            [
+                "file:///Users/someone/Documents/notes%20v2.md",
+                "file:///tmp/photo.png",
+            ],
+            ["/Users/someone/Documents/notes v2.md", "/tmp/photo.png"],
+        );
         let incoming = classify(&[
             "conduit://chat/c1".into(),
-            "file:///Users/someone/Documents/notes%20v2.md".into(),
+            files[0].into(),
             "https://example.org".into(),
-            "file:///tmp/photo.png".into(),
+            files[1].into(),
             "conduit://unknown".into(),
         ]);
         assert_eq!(incoming.requests, vec![chat("c1").unwrap()]);
-        assert_eq!(
-            incoming.files,
-            vec![
-                PathBuf::from("/Users/someone/Documents/notes v2.md"),
-                PathBuf::from("/tmp/photo.png")
-            ]
-        );
+        assert_eq!(incoming.files, paths.map(PathBuf::from).to_vec());
         assert_eq!(
             incoming.ignored,
             vec![

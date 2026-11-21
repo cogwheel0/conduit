@@ -321,7 +321,7 @@ impl CallAudio {
         // Voice processing is set before anything is connected: the call's
         // engine is made again, with the microphone.
         let observer = engine.as_mut().and_then(platform::Engine::take_observer);
-        drop(engine.take());
+        *engine = None;
         self.generation.fetch_add(1, Ordering::SeqCst);
         let made = platform::Engine::new(self.muted, Some(self.taps.clone()));
         match made {

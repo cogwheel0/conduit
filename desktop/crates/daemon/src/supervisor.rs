@@ -9,7 +9,8 @@
 //!   cannot be opened with this master key).
 //! * **Stop:** close stdin (the daemon's stop signal), SIGTERM after
 //!   [`SupervisorConfig::stop_grace`], SIGKILL after
-//!   [`SupervisorConfig::term_grace`] more.
+//!   [`SupervisorConfig::term_grace`] more. Windows has no SIGTERM: there
+//!   the process is terminated (`TerminateProcess`) after the stdin grace.
 //! * **Watching:** a task owns the child and reports its exit at once, so a
 //!   dead daemon shows up as an exit rather than as calls that hang.
 //!
@@ -60,8 +61,14 @@ pub enum ExitInfo {
 
 impl ExitInfo {
     fn from_status(status: ExitStatus) -> Self {
-        use std::os::unix::process::ExitStatusExt as _;
-        match (status.code(), status.signal()) {
+        #[cfg(unix)]
+        let signal = {
+            use std::os::unix::process::ExitStatusExt as _;
+            status.signal()
+        };
+        #[cfg(not(unix))]
+        let signal = None;
+        match (status.code(), signal) {
             (Some(code), _) => Self::Code(code),
             (None, Some(sig)) => Self::Signal(sig),
             _ => Self::Unknown,
@@ -135,7 +142,7 @@ pub enum StopOutcome {
     Graceful,
     /// Needed SIGTERM.
     Terminated,
-    /// Needed SIGKILL.
+    /// Needed SIGKILL (on Windows, `TerminateProcess`).
     Killed,
     /// Nothing was running.
     NotRunning,
@@ -253,8 +260,8 @@ impl Supervisor {
         let _ = self.cmds.send(Cmd::Restart);
     }
 
-    /// Stops the daemon (stdin EOF → SIGTERM → SIGKILL) and stops
-    /// supervising.
+    /// Stops the daemon (stdin EOF → SIGTERM → SIGKILL; on Windows stdin
+    /// EOF → `TerminateProcess`) and stops supervising.
     pub async fn stop(&self) -> StopOutcome {
         let (tx, rx) = oneshot::channel();
         if self.cmds.send(Cmd::Stop(tx)).is_err() {
@@ -280,7 +287,7 @@ struct Running {
     /// Sent the moment the child is reaped: from then on nothing signals it.
     exit: oneshot::Receiver<ExitInfo>,
     /// Signals for the child, sent by its watcher only while it is unreaped.
-    signals: mpsc::UnboundedSender<i32>,
+    signals: mpsc::UnboundedSender<Signal>,
     /// Sent once the daemon's last stderr lines are in the log (or a bound
     /// passed), after `exit`.
     drained: Option<oneshot::Receiver<()>>,
@@ -340,7 +347,7 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
     });
     let (exit_tx, exit) = oneshot::channel();
     let (drained_tx, drained) = oneshot::channel();
-    let (signals, mut signal_rx) = mpsc::unbounded_channel::<i32>();
+    let (signals, mut signal_rx) = mpsc::unbounded_channel::<Signal>();
     // The watcher owns the child: it alone signals it, and only while
     // `wait()` has not returned, when the pid is still this child's (a zombie
     // at worst, which keeps the pid). Once reaped, the exit goes out at once,
@@ -349,14 +356,7 @@ async fn launch(config: &SupervisorConfig, log: &SharedLog) -> std::io::Result<R
         let status = loop {
             tokio::select! {
                 status = child.wait() => break status,
-                Some(sig) = signal_rx.recv() => {
-                    if let Some(pid) = child.id() {
-                        // SAFETY: plain kill(2) on our unreaped child.
-                        unsafe {
-                            libc::kill(pid as libc::pid_t, sig);
-                        }
-                    }
-                }
+                Some(sig) = signal_rx.recv() => send_signal(&mut child, sig),
             }
         };
         let info = match status {
@@ -401,9 +401,41 @@ pub fn parse_ready(line: &str) -> Option<u16> {
     }
 }
 
+/// What the supervisor asks the child's watcher to do to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Signal {
+    /// SIGTERM. Windows has no polite stop besides stdin EOF.
+    #[cfg(unix)]
+    Term,
+    /// SIGKILL, or `TerminateProcess` on Windows.
+    Kill,
+}
+
+/// Signals the unreaped `child` (only its watcher calls this).
+#[cfg(unix)]
+fn send_signal(child: &mut tokio::process::Child, sig: Signal) {
+    let sig = match sig {
+        Signal::Term => libc::SIGTERM,
+        Signal::Kill => libc::SIGKILL,
+    };
+    if let Some(pid) = child.id() {
+        // SAFETY: plain kill(2) on our unreaped child.
+        unsafe {
+            libc::kill(pid as libc::pid_t, sig);
+        }
+    }
+}
+
+/// Terminates the unreaped `child` (only its watcher calls this).
+#[cfg(not(unix))]
+fn send_signal(child: &mut tokio::process::Child, sig: Signal) {
+    let Signal::Kill = sig;
+    let _ = child.start_kill();
+}
+
 /// Asks the child's watcher to signal it. The watcher drops the request once
 /// the child is reaped, so a pid another process took is never signalled.
-fn signal(running: &Running, sig: i32) {
+fn signal(running: &Running, sig: Signal) {
     let _ = running.signals.send(sig);
 }
 
@@ -426,20 +458,28 @@ async fn stop_running(
         log_line(log, "[supervisor] conduitd stopped after stdin closed");
         return StopOutcome::Graceful;
     }
-    log_line(
-        log,
-        "[supervisor] conduitd ignored stdin EOF; sending SIGTERM",
-    );
-    signal(running, libc::SIGTERM);
-    if timeout(config.term_grace, &mut running.exit).await.is_ok() {
-        drain(running).await;
-        return StopOutcome::Terminated;
+    #[cfg(unix)]
+    {
+        log_line(
+            log,
+            "[supervisor] conduitd ignored stdin EOF; sending SIGTERM",
+        );
+        signal(running, Signal::Term);
+        if timeout(config.term_grace, &mut running.exit).await.is_ok() {
+            drain(running).await;
+            return StopOutcome::Terminated;
+        }
+        log_line(
+            log,
+            "[supervisor] conduitd ignored SIGTERM; sending SIGKILL",
+        );
     }
+    #[cfg(not(unix))]
     log_line(
         log,
-        "[supervisor] conduitd ignored SIGTERM; sending SIGKILL",
+        "[supervisor] conduitd ignored stdin EOF; terminating it",
     );
-    signal(running, libc::SIGKILL);
+    signal(running, Signal::Kill);
     let _ = timeout(Duration::from_secs(2), &mut running.exit).await;
     drain(running).await;
     StopOutcome::Killed
@@ -450,7 +490,7 @@ async fn reap(running: &mut Running) -> ExitInfo {
     match timeout(Duration::from_secs(2), &mut running.exit).await {
         Ok(Ok(info)) => info,
         _ => {
-            signal(running, libc::SIGKILL);
+            signal(running, Signal::Kill);
             timeout(Duration::from_secs(2), &mut running.exit)
                 .await
                 .ok()
@@ -528,7 +568,7 @@ async fn run(
                 info = &mut running.exit => break info.unwrap_or(ExitInfo::Unknown),
                 _ = sleep(config.ready_timeout), if before_ready => {
                     log_line(&log, "[supervisor] no ready line in time; killing conduitd");
-                    signal(&running, libc::SIGKILL);
+                    signal(&running, Signal::Kill);
                     break reap(&mut running).await;
                 }
                 cmd = cmds.recv() => match cmd {

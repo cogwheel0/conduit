@@ -524,6 +524,20 @@ mod tests {
     use gpui_kit::component::{Theme, ThemeMode as KitMode};
     use gpui_kit::{AppContext as _, TestAppContext};
 
+    /// A key press as GPUI delivers it, `secondary-` being the platform's
+    /// primary modifier: ⌘ on the Mac, Ctrl on Windows and Linux.
+    fn key(source: &str) -> gpui_kit::Keystroke {
+        use gpui_kit::OperatingSystem as Os;
+        let os = if cfg!(target_os = "macos") {
+            Os::Mac
+        } else if cfg!(windows) {
+            Os::Windows
+        } else {
+            Os::Linux
+        };
+        gpui_kit::Keystroke::parse_with_os(source, os).unwrap()
+    }
+
     fn store(dir: &str, system_dark: bool) -> SettingsStore {
         let path = std::env::temp_dir()
             .join(format!("conduit-settings-{dir}-{}", std::process::id()))
@@ -704,7 +718,6 @@ mod tests {
     #[gpui_kit::test]
     fn recording_the_quick_ask_shortcut(cx: &mut TestAppContext) {
         let settings = cx.new(|_| store("quick-ask", false));
-        let key = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
         // Turning Quick Ask off ends its recording: keys go back to the app.
         settings.update(cx, |s, cx| {
             s.record_quick_ask(true, cx);
@@ -744,7 +757,7 @@ mod tests {
             assert_eq!(s.quick_ask_message, Some(RecordMessage::NeedsModifier));
             assert!(s.recording_quick_ask);
         });
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-k"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-k"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
                 s.quick_ask_message,
@@ -797,9 +810,8 @@ mod tests {
     #[gpui_kit::test]
     fn recording_a_shortcut(cx: &mut TestAppContext) {
         let settings = cx.new(|_| store("record", false));
-        let key = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
         // Not recording: keystrokes pass through.
-        assert!(!settings.update(cx, |s, cx| s.record(&key("cmd-b"), cx)));
+        assert!(!settings.update(cx, |s, cx| s.record(&key("secondary-b"), cx)));
         settings.update(cx, |s, cx| {
             s.record_for(Some(ShortcutAction::ToggleSidebar), cx)
         });
@@ -809,7 +821,7 @@ mod tests {
             assert_eq!(s.record_message, Some(RecordMessage::NeedsModifier));
             assert_eq!(s.recording, Some(ShortcutAction::ToggleSidebar));
         });
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-k"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-k"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
                 s.record_message,
@@ -820,7 +832,7 @@ mod tests {
             );
         });
         // A free chord is taken and recording stops.
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-alt-b"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-alt-b"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(s.recording, None);
             assert_eq!(
@@ -846,10 +858,9 @@ mod tests {
     fn fixed_chords_are_refused_with_their_command(cx: &mut TestAppContext) {
         use crate::keymap::FixedCommand;
         let settings = cx.new(|_| store("fixed", false));
-        let key = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
         // ⌘R is Regenerate's (Chat menu), not free for New Chat.
         settings.update(cx, |s, cx| s.record_for(Some(ShortcutAction::NewChat), cx));
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-r"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-r"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
                 s.record_message,
@@ -865,18 +876,18 @@ mod tests {
         settings.update(cx, |s, cx| {
             s.record_for(Some(ShortcutAction::OpenSettings), cx)
         });
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-alt-,"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-alt-,"), cx)));
         settings.update(cx, |s, cx| {
             s.record_for(Some(ShortcutAction::OpenSettings), cx)
         });
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-,"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-,"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(s.recording, None);
             assert!(s.prefs.shortcuts.is_empty());
         });
         // Quick Ask can't take ⌘Q.
         settings.update(cx, |s, cx| s.record_quick_ask(true, cx));
-        assert!(settings.update(cx, |s, cx| s.record(&key("cmd-q"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-q"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
                 s.quick_ask_message,

@@ -8,6 +8,7 @@
 
 use gpui_kit::{App, Global};
 
+#[cfg(target_os = "macos")]
 use crate::actions::CheckForUpdates;
 
 /// The running updater, when this build has one.
