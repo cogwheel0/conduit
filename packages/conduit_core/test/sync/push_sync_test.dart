@@ -7,7 +7,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kStoppedHereMetadataKey;
+    show kSettledHereMetadataKey, kStoppedHereMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -2277,6 +2277,56 @@ void main() {
 
       check(db.chatsDao.pushVersion(chatId)).isGreaterThan(readBeforeStop);
     });
+
+    // The push takes the server's fuller finished copy, and its update fails.
+    // Another device then sends the server more of the answer.
+    for (final pulled in [false, true]) {
+      test('a settled answer that took the server\'s fuller copy keeps '
+          'giving way to more, after its update failed'
+          '${pulled ? ' and a pull' : ''}', () async {
+        await seed(stored: 'Gales veer', done: true);
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: chatId,
+          messages: [
+            await answerWith({
+              'content': 'Gales',
+              'done': true,
+              'error': {'content': lost},
+              'metadata': {kSettledHereMetadataKey: true},
+            }),
+          ],
+          updatedAt: 7000,
+          enqueueCompletion: false,
+        );
+        client.failWriteIds.add(chatId);
+        await check(push.pushUpdateChat(chatId)).throws<StateError>();
+        check((await answerHere()).content).equals('Gales veer');
+
+        final blob =
+            server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+        ((blob['history'] as Map)['messages'] as Map)['a1'] = {
+          ...onServer('a1'),
+          'content': 'Gales veer as the front passes',
+        };
+        server.saveFromTask(chatId, blob);
+        client.failWriteIds.clear();
+        if (pulled) {
+          await PullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ).pullChat(chatId);
+        }
+        await push.pushUpdateChat(chatId);
+
+        check(onServer('a1'))
+            .has((it) => it['content'], 'content')
+            .equals('Gales veer as the front passes');
+        check((await answerHere()).content)
+            .equals('Gales veer as the front passes');
+      });
+    }
 
     test('a stop that fails leaves the push owed, and the next push asks it '
         'again', () async {

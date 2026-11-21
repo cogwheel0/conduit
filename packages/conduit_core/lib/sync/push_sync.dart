@@ -279,6 +279,7 @@ class PushSync {
       // is chat-wide ([_ChatStop]); until it may be asked the push stays
       // owed.
       var kept = _answersKeptUnfinished(rows, resp);
+      final recovered = {...settled, ...kept};
       if (kept.isNotEmpty && !stop.asked) {
         final before = _serverMessages(chatId, resp['chat']);
         final outcome = await stop.ask(before);
@@ -398,7 +399,7 @@ class PushSync {
         for (final id in capturedMessageIds)
           if (!stop.unsent.contains(id) && !kept.contains(id)) id,
       ];
-      await _clearSettledMarks(chatId, sent.where(settled.contains));
+      await _clearSettledMarks(chatId, sent.where(recovered.contains));
       await _clearDirty(
         chatId: chatId,
         messageIds: sent,
@@ -684,6 +685,22 @@ class PushSync {
       ..addAll({if (rest.isNotEmpty) 'metadata': rest});
   }
 
+  static MessageRowData _settledMarked(MessageRowData message) {
+    final metadata = _metadataOf(message.payload);
+    return _rowWith(
+      message,
+      content: message.content,
+      payload: <String, dynamic>{
+        ...message.payload,
+        'metadata': <String, dynamic>{
+          if (metadata != null)
+            for (final entry in metadata.entries) '${entry.key}': entry.value,
+          kSettledHereMetadataKey: true,
+        },
+      },
+    );
+  }
+
   static MessageRowData _withoutMark(MessageRowData message, String key) =>
       _rowWith(
         message,
@@ -755,7 +772,9 @@ class PushSync {
   /// - Otherwise [local], finished, over the fields of the server's copy it
   ///   does not model; its own output or none, as its text is read from one.
   ///
-  /// It is no longer marked stopped here.
+  /// It is no longer marked stopped here, and is marked settled here
+  /// whichever copy it is, so that until its update lands every push weighs
+  /// it against the server's copy again, which may hold more by then.
   static MessageRowData _finishedOver(
     MessageRowData local,
     MessageRowData server, {
@@ -768,7 +787,7 @@ class PushSync {
       _outputOf(local),
     )) {
       if (serverFinished && server.payload['done'] == true) {
-        return answerAt(server, local);
+        return _settledMarked(answerAt(server, local));
       }
       final payload = <String, dynamic>{
         ..._payloadWithout(local.payload, kStoppedHereMetadataKey),
@@ -777,7 +796,9 @@ class PushSync {
       }..remove('output');
       final output = server.payload['output'];
       if (output is List) payload['output'] = output;
-      return _rowWith(local, content: server.content, payload: payload);
+      return _settledMarked(
+        _rowWith(local, content: server.content, payload: payload),
+      );
     }
     final payload = <String, dynamic>{
       ...server.payload,
@@ -785,7 +806,9 @@ class PushSync {
       'done': true,
     };
     if (!local.payload.containsKey('output')) payload.remove('output');
-    return _rowWith(local, content: local.content, payload: payload);
+    return _settledMarked(
+      _rowWith(local, content: local.content, payload: payload),
+    );
   }
 
   /// Stores [answer] as an edit still to push: a pull keeps it over the
