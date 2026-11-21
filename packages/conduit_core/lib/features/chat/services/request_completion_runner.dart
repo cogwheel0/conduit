@@ -114,6 +114,7 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
       api: ownedConversationSession.api,
       authSessionEpoch: ownedConversationSession.authSessionEpoch,
       contextWasCoherent: true,
+      authSnapshot: ownedConversationSession.api?.captureAuthSnapshot(),
     );
 
     void requireCurrentConversationOwner() {
@@ -124,6 +125,23 @@ class ChatRequestCompletionRunner implements RequestCompletionRunner {
     }
 
     requireCurrentConversationOwner();
+
+    if (decoded.held) {
+      // The request went out and the server held its question; settling it
+      // did not finish. A Stop since reaches nothing on the server.
+      await settleHeldOpenWebUiCompletion(
+        _liveOwnerOf(owner) ?? _ref,
+        api: owner.api,
+        owner: owner,
+        questionId: decoded.heldQuestionId,
+        assistantMessageIds: <String>{
+          assistantMessageId,
+          ...?decoded.comparison?.slots.map((slot) => slot.assistantMessageId),
+        },
+        earlierHoldIds: decoded.heldEarlierIds,
+      );
+      return;
+    }
 
     if (decoded.stopped) {
       await settleStoppedOpenWebUiCompletion(

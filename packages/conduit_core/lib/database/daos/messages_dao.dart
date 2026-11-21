@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 
 import '../../features/tether/tether_relay_failure.dart'
     show payloadWithTetherRecord, withStoredTetherRecord;
+import '../../models/chat_comparison.dart' show kCompletionHeldMetadataKey;
 import '../../models/chat_message.dart'
     show ChatMessageError, kCompletionViaTetherKey;
 
@@ -48,6 +49,17 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
 
   Future<MessageRow?> getMessage(String chatId, String messageId) {
     return _messageById(chatId, messageId);
+  }
+
+  /// The stored answers under question [questionId] of [chatId].
+  Future<List<MessageRow>> getAnswersTo(String chatId, String questionId) {
+    return (select(messages)..where(
+          (t) =>
+              t.chatId.equals(chatId) &
+              t.parentId.equals(questionId) &
+              t.role.equals('assistant'),
+        ))
+        .get();
   }
 
   /// Loads one page from the active branch, newest-first at the SQL boundary
@@ -200,6 +212,26 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
             ...metadata,
             'completionSubmitted': true,
           };
+      },
+    );
+  }
+
+  /// Marks a placeholder whose question the server held instead of answering
+  /// ([kCompletionHeldMetadataKey]), as part of the hold's record
+  /// ([ChatsDao.recordHeldTurn]).
+  Future<bool> markAssistantCompletionHeld({
+    required String chatId,
+    required String messageId,
+  }) {
+    return _updateAssistantPayload(
+      chatId: chatId,
+      messageId: messageId,
+      mutate: (payload) {
+        payload['metadata'] = <String, dynamic>{
+          ..._asJsonMap(payload['metadata']),
+          'completionSubmitted': true,
+          kCompletionHeldMetadataKey: true,
+        };
       },
     );
   }

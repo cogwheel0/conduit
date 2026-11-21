@@ -2190,7 +2190,11 @@ impl Render for UserRow {
         let m = t.metrics;
         let item = self.item.clone();
         let key = item.key.clone();
-        let label = format!("{}: {}", l10n.you(), shown_mentions(&item.text));
+        let held = item.held.then(|| l10n.desktop_held_message_waiting());
+        let label = match &held {
+            Some(waiting) => format!("{}: {}. {waiting}", l10n.you(), shown_mentions(&item.text)),
+            None => format!("{}: {}", l10n.you(), shown_mentions(&item.text)),
+        };
         let files = (!item.files.is_empty()).then(|| {
             file_list(
                 &format!("user-{key}"),
@@ -2409,6 +2413,12 @@ impl Render for UserRow {
                     .child(div().mb(px(5.)).child(actions))
                     .children(bubble),
             )
+            .children(held.map(|waiting| {
+                div()
+                    .text_size(px(m.caption))
+                    .text_color(r.text_subtle)
+                    .child(waiting)
+            }))
             .children(versions.map(|v| div().opacity(if visible { 1. } else { 0.6 }).child(v)))
     }
 }
@@ -2638,6 +2648,7 @@ mod activity_tests {
             last_answer: true,
             stale: false,
             queued: None,
+            held: false,
         }
     }
 

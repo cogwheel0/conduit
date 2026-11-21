@@ -42,7 +42,23 @@ const String kMessageAuthorIdMetadataKey = 'authorUserId';
 /// `{status, content}` object, or absent.
 const String kMessageMergedMetadataKey = 'merged';
 
+/// Where a question's metadata says the server holds it: Open WebUI 0.13.4
+/// keeps a message sent while a reply in its chat is still running
+/// (`meta.status: 'pending'`, with no answer under it) and answers it once
+/// that reply ends, under new ids. Absent for any other message.
+const String kMessageHeldByServerMetadataKey = 'heldByServer';
+
+/// Where an answer's metadata says the server held its question instead of
+/// answering it ([kMessageHeldByServerMetadataKey]): the request went out,
+/// and nothing comes under this id. A regeneration of the question reads it
+/// to tell this empty answer from one that answers; a retry of the turn
+/// reads its op instead ([RequestCompletionPayload.held]).
+const String kCompletionHeldMetadataKey = 'completionHeld';
+
 extension ChatMessageComparisonFields on ChatMessage {
+  /// Whether the server holds this question until a running reply ends.
+  bool get isHeldByServer => metadata?[kMessageHeldByServerMetadataKey] == true;
+
   /// The account that wrote this message, when the server said.
   String? get authorUserId {
     final stored = metadata?[kMessageAuthorIdMetadataKey];

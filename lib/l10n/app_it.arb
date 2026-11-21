@@ -5176,6 +5176,10 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "La chiave salvata non verrà inviata al nuovo indirizzo, quindi verrà rimossa. Inserisci una chiave per questo indirizzo.",
+  "chatHeldMessageWaiting": "In attesa che finisca la risposta in corso",
+  "@chatHeldMessageWaiting": {
+    "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  },
   "personalConnectionsMovedToTether": "Questo server ora riceve strumenti e terminali personali dai tuoi dispositivi tramite Tether.",
   "@personalConnectionsMovedToTether": {
     "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."

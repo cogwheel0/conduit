@@ -60,8 +60,9 @@ pub enum Outcome {
     Answered,
     /// It failed.
     Failed,
-    /// Its request waits in the outbox (sent while offline): no answer
-    /// yet, and none failed.
+    /// Its request waits in the outbox (sent while offline), or the server
+    /// holds its question until another reply ends: no answer yet, and
+    /// none failed.
     Queued,
 }
 

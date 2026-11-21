@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -18,10 +20,18 @@ part 'sync_api_client.g.dart';
 /// 404 is NOT modeled as terminal here: for delete it means already-gone
 /// (success), for update it is handled inline (Phase 2: log + done).
 class SyncTerminalException implements Exception {
-  const SyncTerminalException({this.statusCode, required this.message});
+  const SyncTerminalException({
+    this.statusCode,
+    required this.message,
+    this.mayRecover = false,
+  });
 
   final int? statusCode;
   final String message;
+
+  /// Whether the check behind the refusal could not tell, so the drainer asks
+  /// about its parked op again, a few times with backoff.
+  final bool mayRecover;
 
   @override
   String toString() => 'SyncTerminalException($statusCode): $message';
@@ -43,6 +53,26 @@ class SyncRejectedException implements Exception {
 
   @override
   String toString() => 'SyncRejectedException($statusCode): ${detail ?? ''}';
+}
+
+/// What the server says about a session owning a chat.
+enum ChatOwnership {
+  /// It reads the chat as the session's own.
+  owns,
+
+  /// It says the chat is not the session's: it refuses the session or the
+  /// chat, has no such chat, or names another owner.
+  notOwner,
+
+  /// It could not be asked, or did not answer in a way that tells.
+  unknown,
+}
+
+/// A [SyncApiClient] that can tell whether its session still owns a chat.
+abstract interface class ChatOwnershipProbe {
+  /// Whether the session this client sends as still reads chat [chatId] as
+  /// its owner, as Open WebUI's message delete requires.
+  Future<ChatOwnership> chatOwnership(String chatId);
 }
 
 /// Thin client seam so `PullSync`/`PushSync` are unit-testable against
@@ -113,6 +143,16 @@ abstract interface class SyncApiClient {
   /// `false` WITHOUT throwing. 401/403 (no delete perm) throws
   /// [SyncTerminalException].
   Future<bool> deleteChat(String id);
+
+  /// DELETE `/api/v1/chats/{id}/messages/{messageId}` for each of
+  /// [messageIds] in turn (or, on a server older than that route, the same
+  /// edit of its history), all as the session the call starts in: once
+  /// another replaces it, the deletes left are refused unsent. Completes when
+  /// the messages are gone, a 404 included: the message or its chat is
+  /// already gone. Throws [SyncTerminalException] for 401/403 once the
+  /// session no longer owns the chat, and the error itself for anything
+  /// worth trying again.
+  Future<void> deleteChatMessages(String chatId, List<String> messageIds);
 
   /// GET `/api/v1/chats/{id}/pinned` -> bool. (Toggle-delta source for
   /// pin/archive; see [togglePin].)
@@ -226,7 +266,7 @@ abstract interface class SyncApiClient {
 }
 
 /// Production implementation over [ApiService].
-class ApiSyncApiClient implements SyncApiClient {
+class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   ApiSyncApiClient(this.api);
 
   final ApiService api;
@@ -336,6 +376,73 @@ class ApiSyncApiClient implements SyncApiClient {
 
   @override
   Future<bool> deleteChat(String id) => api.deleteChatRaw(id);
+
+  @override
+  Future<void> deleteChatMessages(
+    String chatId,
+    List<String> messageIds,
+  ) async {
+    final authSnapshot = api.captureAuthSnapshot();
+    for (final messageId in messageIds) {
+      try {
+        await api.deleteConversationMessage(
+          chatId,
+          messageId,
+          authSnapshot: authSnapshot,
+        );
+      } on DioException catch (e) {
+        final code = e.response?.statusCode;
+        if (code == 404) continue;
+        if (code == 401 || code == 403) {
+          // Open WebUI 0.13.4 also answers 401 for a delete whose write
+          // failed (routers/chats.py:1683-1687), so only a session that owns
+          // the chat retries in place. Anything else parks: a parked delete
+          // holds up none of its chat's later work, and its recovery asks
+          // again, a few times when the check can't tell.
+          final ownership = await _chatOwnership(chatId, authSnapshot);
+          if (ownership == ChatOwnership.owns) rethrow;
+          throw SyncTerminalException(
+            statusCode: code,
+            message: 'deleteChatMessages forbidden',
+            mayRecover: ownership == ChatOwnership.unknown,
+          );
+        }
+        rethrow;
+      }
+    }
+  }
+
+  @override
+  Future<ChatOwnership> chatOwnership(String chatId) =>
+      _chatOwnership(chatId, api.captureAuthSnapshot());
+
+  Future<ChatOwnership> _chatOwnership(
+    String chatId,
+    ApiAuthSnapshot authSnapshot,
+  ) async {
+    try {
+      final user = await api.getCurrentUser(
+        authSnapshot: authSnapshot,
+        suppressAuthFailureNotification: true,
+      );
+      final chat = await api.getChatRaw(chatId, authSnapshot: authSnapshot);
+      if (chat == null) return ChatOwnership.notOwner;
+      final owner = chat['user_id'];
+      if (user.id.isEmpty || owner is! String || owner.isEmpty) {
+        return ChatOwnership.unknown;
+      }
+      return owner == user.id ? ChatOwnership.owns : ChatOwnership.notOwner;
+    } on DioException catch (e) {
+      // Open WebUI answers 401 for a chat the session may not read
+      // (routers/chats.py:1477).
+      return switch (e.response?.statusCode) {
+        401 || 403 || 404 => ChatOwnership.notOwner,
+        _ => ChatOwnership.unknown,
+      };
+    } catch (_) {
+      return ChatOwnership.unknown;
+    }
+  }
 
   @override
   Future<bool> getChatPinned(String id) => api.getChatPinnedRaw(id);

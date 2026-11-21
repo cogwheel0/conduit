@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
@@ -7,7 +9,7 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/local_conversation_loader.dart'
-    show kOpenRefreshDirectPullMaxPayloadLength;
+    show kOpenRefreshDirectPullMaxPayloadLength, readStoredConversation;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -20,7 +22,14 @@ import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/testing.dart';
-import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart'
+    show
+        ApplyInterceptor,
+        QueryExecutor,
+        QueryInterceptor,
+        Value,
+        driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -54,8 +63,9 @@ final class _RecordingSyncEngine extends SyncEngine {
 }
 
 /// Counts direct fetches; the open path should only use them as a fallback.
+/// Over [wire], a fetch goes through the service's own HTTP client.
 final class _CountingApi extends ApiService {
-  _CountingApi()
+  _CountingApi({this.wire})
     : super(
         serverConfig: const ServerConfig(
           id: 'server-a',
@@ -65,6 +75,7 @@ final class _CountingApi extends ApiService {
         workerManager: WorkerManager(),
       );
 
+  final _BearerRecorder? wire;
   int getConversationCalls = 0;
 
   @override
@@ -73,12 +84,61 @@ final class _CountingApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     getConversationCalls++;
+    if (wire case final wire?) {
+      dio.httpClientAdapter = wire;
+      return super.getConversation(id, authSnapshot: authSnapshot);
+    }
     return Conversation(
       id: id,
       title: 'Direct fetch',
       createdAt: DateTime.utc(2026, 10, 9),
       updatedAt: DateTime.utc(2026, 10, 9),
     );
+  }
+}
+
+/// Answers every request with an empty chat, keeping the bearer each came
+/// with.
+final class _BearerRecorder implements HttpClientAdapter {
+  final bearers = <String?>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    bearers.add(options.headers['Authorization'] as String?);
+    return ResponseBody.fromString(
+      jsonEncode({'id': 'chat-1', 'title': 'Direct fetch', 'chat': {}}),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+/// Runs [onRead] once, as the next read of the outbox returns.
+final class _OutboxReadTap extends QueryInterceptor {
+  void Function()? onRead;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final rows = await executor.runSelect(statement, args);
+    final read = onRead;
+    if (read != null && statement.contains('FROM "outbox_ops"')) {
+      onRead = null;
+      read();
+    }
+    return rows;
   }
 }
 
@@ -237,6 +297,26 @@ void main() {
         check(api.getConversationCalls).equals(1);
       },
     );
+
+    test('a direct fetch is made only as the account that opened it', () async {
+      final reads = _OutboxReadTap();
+      await db.close();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+      final wire = _BearerRecorder();
+      api = _CountingApi(wire: wire)..updateAuthToken('account-a');
+      final container = open(useSyncClient: false);
+      // The token is replaced, before the app's session says so, while the
+      // deletes still to land are read.
+      reads.onRead = () => api.updateAuthToken('account-b');
+
+      final failure = await container
+          .read(loadConversationProvider('chat-1').future)
+          .then<Object?>((_) => null, onError: (Object error) => error);
+
+      check(reads.onRead).isNull();
+      check(wire.bearers).isEmpty();
+      check(failure).isA<OpenWebUiConversationOwnershipException>();
+    });
   });
 
   group('reopening a stored chat', () {
@@ -300,6 +380,49 @@ void main() {
 
       check(pulls).deepEquals(['edited']);
       check(cycles).isEmpty();
+    });
+  });
+
+  group('reading a chat\'s stored copy', () {
+    late List<String> pulls;
+    late List<String> cycles;
+
+    setUp(() {
+      pulls = <String>[];
+      cycles = <String>[];
+    });
+
+    ProviderContainer openRecording() =>
+        open(engine: () => _RecordingSyncEngine(pulls, cycles));
+
+    test('reads a stored chat with no refresh and no download', () async {
+      await store('small');
+      final container = openRecording();
+
+      final stored = await readStoredConversation(container, 'small');
+
+      check(stored!.messages.single.content).equals('hello');
+      check(chatStorageKindOf(stored)).equals(ChatStorageKind.openWebUi);
+      check(pulls).isEmpty();
+      check(cycles).isEmpty();
+      check(client.chatFetchStarts).isEmpty();
+      check(api.getConversationCalls).equals(0);
+    });
+
+    test('finds nothing for a chat with no stored body, and asks the server '
+        'for nothing', () async {
+      server.seedChat(
+        id: 'chat-1',
+        blob: _blob('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      final container = openRecording();
+
+      check(await readStoredConversation(container, 'chat-1')).isNull();
+      check(pulls).isEmpty();
+      check(client.chatFetchStarts).isEmpty();
+      check(api.getConversationCalls).equals(0);
     });
   });
 

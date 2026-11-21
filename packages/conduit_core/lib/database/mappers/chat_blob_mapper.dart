@@ -233,6 +233,152 @@ class ChatRows {
   /// preserved verbatim here under its original key, and [rowsToBlob] will
   /// not overwrite it.
   final Map<String, dynamic> historyExtra;
+
+  /// These rows without the messages [ids], entries that are not rows
+  /// included, and without any mention of them: a row's `childrenIds` drops
+  /// them, and a `currentId` naming one moves to its nearest ancestor kept,
+  /// then on down the last of each one's kept children, as Open WebUI's own
+  /// delete moves it: an answer kept beside a removed one stays shown.
+  /// Ancestors that lead back to a removed message leave no `currentId`.
+  /// The legacy top-level `messages` list loses them the same way: a copy
+  /// with no usable `currentId` is read from it.
+  ChatRows withoutMessages(Set<String> ids) {
+    final legacy = chat.rawExtra['messages'];
+    final keptLegacy = legacyMessagesWithout(legacy, ids);
+    final named =
+        unmappableMessages.keys.any(ids.contains) ||
+        messages.any(
+          (message) => ids.contains(message.id) || _namesChildren(message, ids),
+        ) ||
+        !identical(keptLegacy, legacy);
+    if (!named) return this;
+    final parents = <String, String?>{
+      for (final entry in unmappableMessages.entries)
+        entry.key: switch (entry.value) {
+          {'parentId': final String parentId} => parentId,
+          _ => null,
+        },
+      for (final message in messages) message.id: message.parentId,
+    };
+    var currentId = chat.currentMessageId;
+    final visited = <String>{};
+    while (currentId != null && ids.contains(currentId)) {
+      if (!visited.add(currentId)) {
+        currentId = null;
+        break;
+      }
+      currentId = parents[currentId];
+    }
+    if (currentId != chat.currentMessageId) {
+      final kept = {
+        for (final message in messages)
+          if (!ids.contains(message.id)) message.id: message,
+      };
+      while (currentId != null && visited.add(currentId)) {
+        final children = kept[currentId]?.payload['childrenIds'];
+        final next = children is List
+            ? children.whereType<String>().where(kept.containsKey).lastOrNull
+            : null;
+        if (next == null) break;
+        currentId = next;
+      }
+    }
+    return ChatRows(
+      chat: ChatRowData(
+        id: chat.id,
+        title: chat.title,
+        folderId: chat.folderId,
+        pinned: chat.pinned,
+        archived: chat.archived,
+        currentMessageId: currentId,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        rawExtra: identical(keptLegacy, legacy)
+            ? chat.rawExtra
+            : <String, dynamic>{...chat.rawExtra, 'messages': keptLegacy},
+      ),
+      messages: [
+        for (final message in messages)
+          if (!ids.contains(message.id)) _withoutChildren(message, ids),
+      ],
+      unmappableMessages: {
+        for (final entry in unmappableMessages.entries)
+          if (!ids.contains(entry.key)) entry.key: entry.value,
+      },
+      unmappableMessageOrder: {
+        for (final entry in unmappableMessageOrder.entries)
+          if (!ids.contains(entry.key)) entry.key: entry.value,
+      },
+      blobHadTitle: blobHadTitle,
+      blobTitleValue: blobTitleValue,
+      blobHadHistory: blobHadHistory,
+      historyHadMessages: historyHadMessages,
+      historyHadCurrentId: historyHadCurrentId,
+      historyExtra: historyExtra,
+    );
+  }
+
+  /// [legacy], a chat's top-level `messages` list, without the messages
+  /// [ids], and without them in any entry's `childrenIds`. [legacy] itself
+  /// when it names none of them, or is no list.
+  static Object? legacyMessagesWithout(Object? legacy, Set<String> ids) {
+    if (legacy is! List ||
+        !legacy.any(
+          (entry) =>
+              entry is Map &&
+              (ids.contains(entry['id']) || _listsAny(entry, ids)),
+        )) {
+      return legacy;
+    }
+    return [
+      for (final entry in legacy)
+        if (entry is! Map)
+          entry
+        else if (!ids.contains(entry['id']))
+          _listsAny(entry, ids)
+              ? <String, dynamic>{
+                  for (final e in entry.entries) e.key.toString(): e.value,
+                  'childrenIds': [
+                    for (final child in entry['childrenIds'])
+                      if (!ids.contains(child)) child,
+                  ],
+                }
+              : entry,
+    ];
+  }
+
+  static bool _namesChildren(MessageRowData message, Set<String> ids) =>
+      _listsAny(message.payload, ids);
+
+  static bool _listsAny(Map<dynamic, dynamic> message, Set<String> ids) {
+    final children = message['childrenIds'];
+    return children is List && children.any(ids.contains);
+  }
+
+  static MessageRowData _withoutChildren(
+    MessageRowData message,
+    Set<String> ids,
+  ) {
+    if (!_namesChildren(message, ids)) return message;
+    final children = message.payload['childrenIds'] as List;
+    return MessageRowData(
+      id: message.id,
+      chatId: message.chatId,
+      parentId: message.parentId,
+      role: message.role,
+      content: message.content,
+      model: message.model,
+      createdAt: message.createdAt,
+      orderIndex: message.orderIndex,
+      payload: <String, dynamic>{
+        ...message.payload,
+        'childrenIds': [
+          for (final child in children)
+            if (!ids.contains(child)) child,
+        ],
+      },
+    );
+  }
 }
 
 /// Pure mapping between Open WebUI chat blobs and normalized rows

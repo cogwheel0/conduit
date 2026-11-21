@@ -1461,6 +1461,20 @@ Future<void> regenerateMessage(
         useModelIdForModels: openWebUiDirectRoute != null,
       );
     } catch (_) {}
+    // Open WebUI holds a regeneration under a reply still running as it holds
+    // a new message, and answers the held copy under new ids: an answer the
+    // question has would be left behind. Such a regeneration names the
+    // answer it asks for, which the server never holds; one whose question
+    // has none yet waits as a send does if held. Null when it has one.
+    final questionId = parentMsgMap?['id']?.toString() ?? lastUserMessageId;
+    final earlierHolds = isTemporary
+        ? const <String>{}
+        : await _heldQuestionEarlierHolds(
+            ref,
+            regenerationOwner,
+            questionId: questionId,
+            placeholderId: assistantMessageId,
+          );
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,
@@ -1496,40 +1510,63 @@ Future<void> regenerateMessage(
         admitted: admittedToolServers,
       );
       // Use transport-aware session dispatch
-      final session = await api!.sendMessageSession(
-        messages: requestMessages,
-        model: serverModelId,
-        conversationId: regenerationOwner.chatId,
-        terminalId: terminalIdForApi,
-        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-        filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
-        enableWebSearch: webSearchEnabled,
-        enableImageGeneration: imageGenerationEnabled,
-        enableCodeInterpreter: codeInterpreterEnabled,
-        modelItem: modelItem,
-        sessionIdOverride: socketSessionId,
-        toolServers: toolServers,
-        backgroundTasks: bgTasks,
-        responseMessageId: assistantMessageId,
-        userSettings: userSettingsData,
-        chatParams: turnSettings.chatParams,
-        reasoningEffort: turnSettings.reasoningEffort,
-        parentId: parentMsgMap?['parentId']?.toString(),
-        userMessage: parentMsgMap,
-        variables: promptVars2,
-        files: _extractTopLevelRequestFiles(parentMsgMap),
-        // Only this one answer is asked for again, in its own column.
-        messageIds: comparisonTarget == null
-            ? null
-            : [
-                ChatCompletionTarget(
-                  modelId: serverModelId,
-                  messageId: assistantMessageId,
-                  modelIdx: comparisonTarget.slot,
-                ),
-              ],
-        viaTether: viaTether,
-      );
+      final ChatCompletionSession session;
+      try {
+        session = await api!.sendMessageSession(
+          messages: requestMessages,
+          model: serverModelId,
+          conversationId: regenerationOwner.chatId,
+          terminalId: terminalIdForApi,
+          toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+          filterIds: selectedFilterIds.isNotEmpty ? selectedFilterIds : null,
+          enableWebSearch: webSearchEnabled,
+          enableImageGeneration: imageGenerationEnabled,
+          enableCodeInterpreter: codeInterpreterEnabled,
+          modelItem: modelItem,
+          sessionIdOverride: socketSessionId,
+          toolServers: toolServers,
+          backgroundTasks: bgTasks,
+          responseMessageId: assistantMessageId,
+          userSettings: userSettingsData,
+          chatParams: turnSettings.chatParams,
+          reasoningEffort: turnSettings.reasoningEffort,
+          parentId: parentMsgMap?['parentId']?.toString(),
+          userMessage: parentMsgMap,
+          variables: promptVars2,
+          files: _extractTopLevelRequestFiles(parentMsgMap),
+          // Only this one answer is asked for again, in its own column.
+          messageIds: comparisonTarget == null
+              ? null
+              : [
+                  ChatCompletionTarget(
+                    modelId: serverModelId,
+                    messageId: assistantMessageId,
+                    modelIdx: comparisonTarget.slot,
+                  ),
+                ],
+          viaTether: viaTether,
+          regenerationMessageId: earlierHolds == null
+              ? assistantMessageId
+              : null,
+          authSnapshot: regenerationOwner.authSnapshot,
+        );
+      } on ChatCompletionHeld {
+        // Regenerated under a reply still running (on another device): the
+        // server holds the question, and answers it once that reply ends
+        // only while nothing answers it. One with an answer of its own, held
+        // by a server not known to read what it names, fails as any
+        // regeneration does, and keeps that answer here.
+        if (earlierHolds == null) rethrow;
+        await settleHeldOpenWebUiCompletion(
+          ref,
+          api: api,
+          owner: regenerationOwner,
+          questionId: questionId,
+          assistantMessageIds: [assistantMessageId],
+          earlierHoldIds: earlierHolds,
+        );
+        return;
+      }
       submittedSession = session;
 
       // Stop/replacement can race the completion POST itself. The request may
@@ -1692,6 +1729,61 @@ Future<void> regenerateMessage(
     );
     Error.throwWithStackTrace(error, stackTrace);
   }
+}
+
+/// The answers of question [questionId] besides [placeholderId] when all of
+/// them are empty ones a hold of it left, and null once one of them answers
+/// it. An earlier hold's answer is marked held ([kCompletionHeldMetadataKey])
+/// in the transcript, or the stored chat knows it as one
+/// ([ChatsDao.questionAnswers]): the transcript's copy is usually the one its
+/// send showed, which no mark reaches, and the stored row may be one a pull
+/// wrote.
+///
+/// The transcript is read only while it shows [owner]'s chat: message ids
+/// are a chat's own, and another chat may hold the same ones.
+Future<Set<String>?> _heldQuestionEarlierHolds(
+  dynamic ref,
+  OpenWebUiCompletionOwner owner, {
+  required String? questionId,
+  required String placeholderId,
+}) async {
+  final earlierHolds = <String>{};
+  if (questionId == null) return earlierHolds;
+  final shownAnswers = <ChatMessage>[];
+  if (activeOpenWebUiChatIdForMutation(ref, owner) != null) {
+    final shown = ref.read(chatMessagesProvider) as List<ChatMessage>;
+    final at = shown.indexWhere((m) => m.id == questionId);
+    if (at >= 0) {
+      for (final later in shown.skip(at + 1)) {
+        if (later.role == 'user') break;
+        if (later.role == 'assistant') shownAnswers.add(later);
+      }
+    }
+  }
+  final stored =
+      await owner.database?.chatsDao.questionAnswers(
+        owner.chatId,
+        questionId,
+      ) ??
+      (answers: const <String>[], holds: const <String>{});
+  // Whether [id] answers the question: false for an earlier hold's, noted.
+  bool answers(String id, {Object? metadata}) {
+    if (id == placeholderId || earlierHolds.contains(id)) return false;
+    if ((metadata is Map && metadata[kCompletionHeldMetadataKey] == true) ||
+        stored.holds.contains(id)) {
+      earlierHolds.add(id);
+      return false;
+    }
+    return true;
+  }
+
+  for (final answer in shownAnswers) {
+    if (answers(answer.id, metadata: answer.metadata)) return null;
+  }
+  for (final id in stored.answers) {
+    if (answers(id)) return null;
+  }
+  return earlierHolds;
 }
 
 const String _openWebUiRegenerationAttemptMetadataKey =

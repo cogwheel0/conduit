@@ -162,6 +162,7 @@ final class OpenWebUiCompletionOwner {
     required this.api,
     required this.contextWasCoherent,
     required this.authSessionEpoch,
+    this.authSnapshot,
   });
 
   String chatId;
@@ -169,6 +170,10 @@ final class OpenWebUiCompletionOwner {
   final Object? api;
   final bool contextWasCoherent;
   final Object? authSessionEpoch;
+
+  /// [api]'s session as the owner was captured: a request sent with it is
+  /// refused once another session has replaced it.
+  final ApiAuthSnapshot? authSnapshot;
 }
 
 OpenWebUiCompletionOwner captureOpenWebUiCompletionOwner(
@@ -185,6 +190,9 @@ OpenWebUiCompletionOwner captureOpenWebUiCompletionOwner(
     database: capturedDatabase,
     api: capturedApi,
     authSessionEpoch: _readOpenWebUiAuthSessionEpoch(ref),
+    authSnapshot: capturedApi is ApiService
+        ? capturedApi.captureAuthSnapshot()
+        : null,
     contextWasCoherent: _openWebUiContextTupleIsCoherent(
       ref,
       database: capturedDatabase,

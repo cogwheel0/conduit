@@ -114,7 +114,7 @@ class AppDatabase extends _$AppDatabase {
   }) => AppDatabase(opener.open(serverId));
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -200,6 +200,12 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(composerRecordings);
         await m.createTable(composerRecordingChunks);
       }
+      if (from >= 2 && from < 13 && await _hasTable('outbox_ops')) {
+        // The kind check takes `deleteMessages`. SQLite cannot change a
+        // check in place: the table is rebuilt, its rows and indexes kept.
+        // A pre-v2 file created the current shape above.
+        await m.alterTable(TableMigration(outboxOps));
+      }
     },
     beforeOpen: (details) async {
       // Required for the messages -> chats cascade.
@@ -214,6 +220,14 @@ class AppDatabase extends _$AppDatabase {
     await _createNoteIndexes();
     await _createAttachmentReceiptIndex();
     await _createMessageBranchIndex();
+  }
+
+  Future<bool> _hasTable(String name) async {
+    final rows = await customSelect(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+      variables: [Variable<String>(name)],
+    ).get();
+    return rows.isNotEmpty;
   }
 
   Future<bool> _chatsHasColumn(String name) async {

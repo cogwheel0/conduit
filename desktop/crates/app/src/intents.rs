@@ -1522,6 +1522,7 @@ mod tests {
             ok: true,
             code: None,
             queued: false,
+            held: false,
         }
     }
 

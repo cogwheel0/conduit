@@ -7,7 +7,7 @@
 const Map<String, String> protocolGoldens = <String, String>{
   'handshakeRequest': r'''
 {
-  "protocolVersion": "1.75.0",
+  "protocolVersion": "1.76.0",
   "clientName": "conduit-desktop-ui",
   "clientVersion": "0.1.0",
   "windowKind": "main",
@@ -16,7 +16,7 @@ const Map<String, String> protocolGoldens = <String, String>{
 
   'handshakeResponse': r'''
 {
-  "protocolVersion": "1.75.0",
+  "protocolVersion": "1.76.0",
   "daemonVersion": "0.1.0",
   "sessionId": "0f9d1c2e-4b6a-4d8f-9a1b-2c3d4e5f6071",
   "capabilities": {
@@ -980,7 +980,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
   "ok": true,
-  "queued": false
+  "queued": false,
+  "held": false
 }''',
 
   'turnFinishedFailed': r'''
@@ -989,7 +990,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "messageId": "msg-assistant-1",
   "ok": false,
   "code": "net.serverError",
-  "queued": false
+  "queued": false,
+  "held": false
 }''',
 
   'turnFinishedQueued': r'''
@@ -997,7 +999,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "chatId": "chat-7c1f0b2a",
   "messageId": "msg-assistant-1",
   "ok": true,
-  "queued": true
+  "queued": true,
+  "held": false
 }''',
 
   'stopTurn': r'''
@@ -5778,7 +5781,8 @@ const Map<String, String> protocolGoldens = <String, String>{
     "failed": false,
     "offline": true,
     "reasoningEffortRejected": false
-  }
+  },
+  "held": false
 }''',
 
   'chatDetail': r'''
@@ -5816,7 +5820,8 @@ const Map<String, String> protocolGoldens = <String, String>{
       "retryWithoutEffort": false,
       "comparison": [],
       "mergeableIds": [],
-      "siblingIds": []
+      "siblingIds": [],
+      "held": false
     }
   ],
   "readOnly": true,
@@ -7707,7 +7712,8 @@ const Map<String, String> protocolGoldens = <String, String>{
   "siblingIds": [
     "msg-a1",
     "msg-b1"
-  ]
+  ],
+  "held": false
 }''',
 
   'chatMessageVersionFailed': r'''

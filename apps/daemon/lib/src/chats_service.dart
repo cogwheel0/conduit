@@ -1903,6 +1903,7 @@ final class ChatsService {
             ],
       siblingIds: siblingIdsOf(message, parent),
       queued: assistant ? queued : null,
+      held: message.isHeldByServer,
     );
   }
 

@@ -3,5 +3,6 @@
   "messageId": "msg-assistant-1",
   "ok": false,
   "code": "net.serverError",
-  "queued": false
+  "queued": false,
+  "held": false
 }

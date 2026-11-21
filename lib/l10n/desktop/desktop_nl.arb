@@ -559,6 +559,7 @@
   "desktopVideoFullScreen": "Schermvullende weergave",
   "desktopQueuedRemove": "Verwijder",
   "desktopQueuedFailedMessage": "Probeer het antwoord opnieuw of verwijder het.",
+  "desktopHeldMessageWaiting": "Wacht tot het huidige antwoord klaar is",
   "desktopCitationMore": "+{count}",
   "@desktopSourcesCount": {
     "placeholders": {

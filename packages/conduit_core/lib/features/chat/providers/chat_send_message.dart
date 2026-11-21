@@ -1470,6 +1470,23 @@ Future<void> _sendMessageInternal(
       );
     }
 
+    // Clear context attachments after successfully initiating the message send.
+    // This prevents stale attachments from being included in subsequent messages.
+    void clearSentContextAttachments() {
+      try {
+        final ownerStillActive =
+            submittedOwner != null &&
+            activeOpenWebUiChatIdForMutation(ref, submittedOwner) != null;
+        if (ownerStillActive &&
+            identical(
+              ref.read(contextAttachmentsProvider),
+              contextAttachments,
+            )) {
+          ref.read(contextAttachmentsProvider.notifier).clear();
+        }
+      } catch (_) {}
+    }
+
     try {
       requireOpenWebUiPreflightOwner();
       _admitPersonalToolServers(
@@ -1479,31 +1496,46 @@ Future<void> _sendMessageInternal(
         messageId: assistantMessageId,
         admitted: admittedToolServers,
       );
-      final session = await api.sendMessageSession(
-        messages: requestMessages,
-        model: serverModelId,
-        conversationId: submittedOwner?.chatId,
-        terminalId: terminalIdForApi,
-        toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
-        filterIds: filterIdsForApi,
-        enableWebSearch: webSearchEnabled,
-        enableImageGeneration: imageGenerationEnabled,
-        enableCodeInterpreter: codeInterpreterEnabled,
-        isVoiceMode: isVoiceMode,
-        modelItem: modelItem,
-        sessionIdOverride: socketSessionId,
-        toolServers: toolServers,
-        backgroundTasks: bgTasks,
-        responseMessageId: assistantMessageId,
-        userSettings: userSettingsData,
-        chatParams: turnSettings.chatParams,
-        reasoningEffort: turnSettings.reasoningEffort,
-        parentId: userMessageMap?['parentId']?.toString(),
-        userMessage: userMessageMap,
-        variables: promptVariables,
-        files: _extractTopLevelRequestFiles(userMessageMap),
-        viaTether: answerViaTether(placeholder),
-      );
+      final ChatCompletionSession session;
+      try {
+        session = await api.sendMessageSession(
+          messages: requestMessages,
+          model: serverModelId,
+          conversationId: submittedOwner?.chatId,
+          terminalId: terminalIdForApi,
+          toolIds: toolIdsForApi.isNotEmpty ? toolIdsForApi : null,
+          filterIds: filterIdsForApi,
+          enableWebSearch: webSearchEnabled,
+          enableImageGeneration: imageGenerationEnabled,
+          enableCodeInterpreter: codeInterpreterEnabled,
+          isVoiceMode: isVoiceMode,
+          modelItem: modelItem,
+          sessionIdOverride: socketSessionId,
+          toolServers: toolServers,
+          backgroundTasks: bgTasks,
+          responseMessageId: assistantMessageId,
+          userSettings: userSettingsData,
+          chatParams: turnSettings.chatParams,
+          reasoningEffort: turnSettings.reasoningEffort,
+          parentId: userMessageMap?['parentId']?.toString(),
+          userMessage: userMessageMap,
+          variables: promptVariables,
+          files: _extractTopLevelRequestFiles(userMessageMap),
+          viaTether: answerViaTether(placeholder),
+          authSnapshot: submittedOwner?.authSnapshot,
+        );
+      } on ChatCompletionHeld {
+        // Only a saved chat is held, so it has an owner.
+        await settleHeldOpenWebUiCompletion(
+          ref,
+          api: api,
+          owner: submittedOwner!,
+          questionId: userMessageMap?['id']?.toString(),
+          assistantMessageIds: [assistantMessageId],
+        );
+        clearSentContextAttachments();
+        return;
+      }
 
       if (submittedOwner != null) {
         submittedOwner.chatId = await resolveOpenWebUiCompletionChatId(
@@ -1606,18 +1638,7 @@ Future<void> _sendMessageInternal(
       }
     }
 
-    // Clear context attachments after successfully initiating the message send.
-    // This prevents stale attachments from being included in subsequent messages.
-    try {
-      final ownerStillActive =
-          submittedOwner != null &&
-          activeOpenWebUiChatIdForMutation(ref, submittedOwner) != null;
-      if (ownerStillActive &&
-          identical(ref.read(contextAttachmentsProvider), contextAttachments)) {
-        ref.read(contextAttachmentsProvider.notifier).clear();
-      }
-    } catch (_) {}
-
+    clearSentContextAttachments();
     return;
   } catch (e, st) {
     // Clean up buffering on error
@@ -1760,6 +1781,9 @@ String chatErrorContentForException(Object e) {
     final words = _serverRefusalWords(e.detail);
     if (words != null) return words;
   }
+  // Only a regeneration whose question has an answer gets here: anything
+  // else the server holds waits for its answer.
+  if (e is ChatCompletionHeld) return kReplyStillRunningMessage;
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is HermesGatewaySignInRequired) return e.message;

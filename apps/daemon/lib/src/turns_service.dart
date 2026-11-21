@@ -6,6 +6,8 @@ import 'package:collection/collection.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/chat_database_repository.dart'
     show ChatStorageKind;
+import 'package:conduit_core/database/local_conversation_loader.dart'
+    show readStoredConversation;
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -253,6 +255,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
   bool announced(String messageId) => _announced.contains(messageId);
   bool _disposed = false;
 
+  /// The pulls after a turn, and the checks of what they stored, that are out
+  /// ([_announceWhenSynced]). [dispose] waits for them: the core is disposed
+  /// next, and its database is never used after that.
+  final Set<Future<void>> _syncing = <Future<void>>{};
+
   /// Coalescing window for `turn.delta`: a 60 Hz ceiling. A fast model emits
   /// tokens far quicker than that, and every extra frame costs a JSON
   /// encode, a socket write and a markdown parse for text nobody can read at
@@ -264,6 +271,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// over the chat's socket subscription, which lives in the scope.
   /// Assignable so a test can shorten it.
   static Duration lingerAfterTurn = const Duration(seconds: 30);
+
+  /// How long a chat's scope waits for the answer to a question the server
+  /// holds ([_requestHeld]) when no window shows the chat. The answer comes
+  /// on the scope's socket; once the scope has closed, the next pull of the
+  /// chat brings it instead. Measured with [_now] and waited with [_pause].
+  static const Duration heldOpenLimit = Duration(minutes: 10);
 
   /// How long to keep looking for a finished answer in the server's copy
   /// before telling the windows it changed. Open WebUI writes the answer
@@ -528,7 +541,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   /// finished since the window could last have seen it -- a fast model can
   /// finish before `turns.send` returns the new chat's id -- that turn's
   /// final `turn.blocks` and its `turn.completed` or `turn.failed`, for as
-  /// long as its scope lingers.
+  /// long as its scope lingers; for a turn the server held, the `turn.finished`
+  /// of each of its answers.
   void catchUp(
     String sessionId,
     EventSubscription subscription, {
@@ -631,11 +645,18 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (alreadySubscribed.contains(chatId)) continue;
       final ended = _sessionOf(chatId)?.ended;
       if (ended == null) continue;
-      if (wants(ConduitEvents.turnBlocks)) {
+      if (wants(ConduitEvents.turnFinished)) {
+        for (final finished in ended.held) {
+          // Unscoped, as it went out ([_emitHeld]).
+          _events.emitTo(sessionId, ConduitEventSpecs.turnFinished, finished);
+        }
+      }
+      if (ended.blocks case final blocks?
+          when wants(ConduitEvents.turnBlocks)) {
         _events.emitTo(
           sessionId,
           ConduitEventSpecs.turnBlocks,
-          ended.blocks,
+          blocks,
           scope: chatId,
         );
       }
@@ -1193,9 +1214,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       // The turn that ended here last is replayed to a window that opens
       // the chat now ([catchUp]); an answer that is gone must not come back.
-      final ended = session.ended;
-      if (ended != null &&
-          !session.scope.messages.any((m) => m.id == ended.blocks.messageId)) {
+      // A held turn's answers are gone already, and it is replayed as held.
+      final answer = session.ended?.blocks?.messageId;
+      if (answer != null &&
+          !session.scope.messages.any((m) => m.id == answer)) {
         session.ended = null;
       }
       final chatId = session.chatId ?? request.chatId;
@@ -2203,6 +2225,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       _close(session);
     }
+    await Future.wait(_syncing.toList());
   }
 
   // ---------------------------------------------------------------------------
@@ -2389,6 +2412,16 @@ final class TurnsService implements ChatTurns, AddressReplies {
     _handOffQueued(session);
     final turn = current;
     if (turn == null || turn.finished) {
+      if (messages.lastOrNull?.isHeldByServer ?? false) {
+        session.heldSince ??= _now();
+      } else if (session.heldSince != null) {
+        // The held question's answer has come: the windows read the chat
+        // again to show it.
+        session.heldSince = null;
+        session.heldWait = null;
+        _scheduleLinger(session);
+        if (session.chatId case final answered?) _announce(answered);
+      }
       // Between turns (a chat reopened while Hermes still waits on a
       // question): the latest answer's question, if any.
       final chatId = session.chatId;
@@ -2405,7 +2438,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       return;
     }
     final answer = _find(session, messages, turn.messageId);
-    if (answer == null) return;
+    if (answer == null) {
+      if (_requestHeld(turn.messageId)) _endHeld(session, turn);
+      return;
+    }
     if (answer.isStreaming) {
       _refreshText(session, turn);
     } else if (answer.content != turn.text) {
@@ -2533,6 +2569,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
   ) {
     final answer = _pendingAnswer(session, pending, messages);
     if (answer == null) {
+      final answerId = pending.assistantMessageId;
+      if (answerId != null && _requestHeld(answerId)) {
+        _endQueuedBeforeStart(session, pending, answerId);
+        _emitHeld(session, session.chatId, answerId);
+        return;
+      }
       if (pending.sendSettled && pending.sendError == null) {
         pending.started.completeError(
           const RpcError(
@@ -2710,6 +2752,72 @@ final class TurnsService implements ChatTurns, AddressReplies {
         queued: true,
       ),
     );
+    _announce(chatId);
+  }
+
+  /// Whether the server held the request for answer [answerId] until another
+  /// reply in its chat ends (Open WebUI 0.13.4), as the core recorded it: the
+  /// core takes that empty answer away, and the server's own answer comes
+  /// under other ids. Not the question's mark, which the core leaves off once
+  /// a pull has stored an answer to it, and which a pull can replace.
+  bool _requestHeld(String answerId) =>
+      _container.read(heldCompletionsProvider).contains(answerId);
+
+  /// [turn]'s request was held by the server ([_requestHeld]): the turn ends
+  /// here, with neither an answer nor a failure, as a queued one does
+  /// ([_handOffQueued]), even once the server has answered the question. The
+  /// windows fetch the chat, where the question shows waiting, or with the
+  /// answer a pull stored meanwhile; a later answer comes with a later fetch.
+  /// A comparison's other answers end held first, the same way.
+  void _endHeld(_ChatSession session, _Turn turn) {
+    final companions = <TurnFinished>[];
+    for (final entry in turn.companions.entries) {
+      if (entry.value.finished) continue;
+      entry.value.finished = true;
+      _remember(entry.key);
+      final finished = TurnFinished(
+        chatId: turn.chatId,
+        messageId: entry.key,
+        ok: true,
+        held: true,
+      );
+      companions.add(finished);
+      _events.emit(ConduitEventSpecs.turnFinished, finished);
+    }
+    turn.finished = true;
+    if (!turn.ended.isCompleted) turn.ended.complete();
+    turn.ticker?.cancel();
+    final pending = session.pending;
+    if (pending != null && identical(pending, turn.pending)) {
+      session.pending = null;
+    }
+    _scheduleLinger(session);
+    _emitHeld(session, turn.chatId, turn.messageId, companions: companions);
+  }
+
+  /// Tells the windows [messageId]'s turn ended held, after [companions], its
+  /// comparison's other answers that did. From now on the scope waits for
+  /// the server's answer ([_scheduleLinger]), and announces the chat when it
+  /// comes ([_project]), however soon that is.
+  void _emitHeld(
+    _ChatSession session,
+    String? chatId,
+    String messageId, {
+    List<TurnFinished> companions = const <TurnFinished>[],
+  }) {
+    session.heldSince ??= _now();
+    if (chatId == null) return;
+    _remember(messageId);
+    final finished = TurnFinished(
+      chatId: chatId,
+      messageId: messageId,
+      ok: true,
+      held: true,
+    );
+    // A window back after `turn.started` is told too ([catchUp]): once the
+    // server has answered, nothing in the chat shows the turn ended.
+    session.ended = _Ended.held(<TurnFinished>[...companions, finished]);
+    _events.emit(ConduitEventSpecs.turnFinished, finished);
     _announce(chatId);
   }
 
@@ -3069,10 +3177,10 @@ final class TurnsService implements ChatTurns, AddressReplies {
       chatStorageKindOf(conversation) != ChatStorageKind.openWebUi &&
       !isNativeHermesConversation(conversation);
 
-  void _scheduleLinger(_ChatSession session) {
+  void _scheduleLinger(_ChatSession session, {Duration? linger}) {
     session.linger?.cancel();
     if (session.scope.isDisposed) return;
-    session.linger = Timer(lingerAfterTurn, () {
+    session.linger = Timer(linger ?? lingerAfterTurn, () {
       if (session.holds > 0) return;
       final turn = session.turn;
       if (turn != null && !turn.finished) return;
@@ -3085,8 +3193,36 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (chatId != null && (_queuedCompletions?.hasQueued(chatId) ?? false)) {
         return;
       }
+      // A question the server holds: its answer comes, under new ids, on this
+      // scope's socket (`chat:reload`) once the reply before it ends. The
+      // scope waits for it while a window shows the chat, and for at most
+      // [heldOpenLimit] otherwise; it lingers again once its transcript has
+      // that answer ([_project]).
+      if (session.scope.messages.lastOrNull?.isHeldByServer ?? false) {
+        final since = session.heldSince ??= _now();
+        final left = heldOpenLimit - _now().difference(since);
+        if (left > Duration.zero ||
+            (chatId != null && _events.watches(chatId))) {
+          _waitForHeld(session, left > Duration.zero ? left : heldOpenLimit);
+          return;
+        }
+      }
       _close(session);
     });
+  }
+
+  /// Looks at [session] again after [wait] ([_scheduleLinger]), unless the
+  /// held question's answer has come by then. Its linger is over already: a
+  /// second one would keep the scope past [heldOpenLimit].
+  void _waitForHeld(_ChatSession session, Duration wait) {
+    final token = session.heldWait = Object();
+    unawaited(
+      _pause(wait).then((_) {
+        if (!identical(session.heldWait, token)) return;
+        if (session.scope.isDisposed) return;
+        _scheduleLinger(session, linger: Duration.zero);
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -4282,13 +4418,15 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       if (_disposed) return;
       await _pull(chatId);
+      // A disposal under way waits only for what was out as it began.
+      if (_disposed) return;
       // A failed turn has no answer to wait for; one pull is all it gets.
       if (answerId == null || await _hasAnswer(chatId, answerId)) break;
     }
     if (!_disposed) _announce(chatId);
   }
 
-  Future<void> _pull(String chatId) async {
+  Future<void> _pull(String chatId) => _synced(() async {
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {
@@ -4299,21 +4437,34 @@ final class TurnsService implements ChatTurns, AddressReplies {
       );
     }
     _container.invalidate(loadConversationProvider(chatId));
-  }
+  });
 
-  Future<bool> _hasAnswer(String chatId, String answerId) async {
+  Future<bool> _hasAnswer(String chatId, String answerId) => _synced(() async {
     try {
-      final conversation = await readSettled(
-        _container,
-        loadConversationProvider(chatId).future,
-      );
-      return conversation.messages.any(
+      // The copy the pull stored. Opening the chat would schedule a pull of
+      // its own, which nothing waits for.
+      final stored = await readStoredConversation(_container, chatId);
+      // Nothing stored to look in: announce what there is.
+      if (stored == null) return true;
+      return stored.messages.any(
         (message) => message.id == answerId && message.content.isNotEmpty,
       );
     } on Object {
       // Unreadable is not the same as missing, and retrying would not make
       // it readable. Announce what there is.
       return true;
+    }
+  });
+
+  /// [work], which [dispose] waits for while it runs.
+  Future<T> _synced<T>(Future<T> Function() work) async {
+    final done = Completer<void>();
+    _syncing.add(done.future);
+    try {
+      return await work();
+    } finally {
+      _syncing.remove(done.future);
+      done.complete();
     }
   }
 
@@ -4426,6 +4577,14 @@ final class _ChatSession {
   _PendingTurn? pending;
   _Turn? turn;
   Timer? linger;
+
+  /// Since when the transcript has ended with a question the server holds:
+  /// the scope is kept past its linger for that question's answer, which
+  /// comes on its socket ([TurnsService._scheduleLinger]). Null otherwise.
+  DateTime? heldSince;
+
+  /// The wait for that answer now running ([TurnsService._waitForHeld]).
+  Object? heldWait;
 
   /// Save Chat is making this temporary chat a stored one.
   bool saving = false;
@@ -4669,11 +4828,17 @@ final class _Merge {
 
 /// How a turn ended, kept for a window that subscribes afterwards.
 final class _Ended {
-  _Ended({required this.blocks, this.completed, this.failed});
+  _Ended({required TurnBlocks this.blocks, this.completed, this.failed})
+    : held = const <TurnFinished>[];
 
-  final TurnBlocks blocks;
+  /// A turn whose question the server holds ([TurnsService._endHeld]): its
+  /// answers are gone, so a window is told only that each ended held.
+  _Ended.held(this.held) : blocks = null, completed = null, failed = null;
+
+  final TurnBlocks? blocks;
   final TurnCompleted? completed;
   final TurnFailed? failed;
+  final List<TurnFinished> held;
 }
 
 /// Who a new chat's settings were checked for.

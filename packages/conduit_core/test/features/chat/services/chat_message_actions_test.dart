@@ -1,4 +1,6 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -42,8 +44,9 @@ class _RecordingApi extends ApiService {
   @override
   Future<void> deleteConversationMessage(
     String conversationId,
-    String messageId,
-  ) async {
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     if (failAfter != null && deleted.length >= failAfter!) {
       throw StateError('server rejected the delete');
     }

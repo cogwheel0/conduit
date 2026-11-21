@@ -2270,6 +2270,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       'chat:completed',
       'chat:title',
       'chat:tags',
+      // Open WebUI 0.13.4's answer to a message it held while another reply
+      // ran: new ids, announced by this alone.
+      'chat:reload',
     };
 
     if (!refreshingTypes.contains(type)) {

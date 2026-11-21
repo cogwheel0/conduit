@@ -11971,6 +11971,10 @@
   "@personalConnectionsKeyRemovedForNewAddress": {
     "description": "Hint shown instead of a stored key when the edit moves the connection to another address: Save removes the saved key there, so the user must enter one for the new address."
   },
+  "chatHeldMessageWaiting": "Waiting for the current reply to finish",
+  "@chatHeldMessageWaiting": {
+    "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  },
   "personalConnectionsMovedToTether": "This server now takes personal tools and terminals from your devices through Tether.",
   "@personalConnectionsMovedToTether": {
     "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."

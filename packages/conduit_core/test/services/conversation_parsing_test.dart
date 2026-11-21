@@ -1,4 +1,5 @@
 import 'package:checks/checks.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
@@ -2086,6 +2087,47 @@ void main() {
     );
     check(stale.metadata!.containsKey(kMessageVoiceMetadataKey)).isFalse();
   });
+
+  test(
+    'a message the server holds is read from meta, and only the user\'s',
+    () {
+      // Open WebUI 0.13.4 marks a message it holds behind a running reply
+      // `meta.status: pending`; a sub-agent's or timer's pending message is
+      // its own (`meta.internal`). A marker kept in metadata is an echo.
+      Map<String, dynamic> question(String id, Map<String, dynamic> extra) => {
+        'id': id,
+        'role': 'user',
+        'content': 'And the pantry?',
+        'timestamp': 1700000000,
+        ...extra,
+      };
+      final conversation = parseFullConversationModel({
+        'id': 'conv-1',
+        'chat': {
+          'messages': [
+            question('held', {
+              'meta': {'status': 'pending'},
+            }),
+            question('internal', {
+              'meta': {'status': 'pending', 'internal': true, 'type': 'timer'},
+            }),
+            question('answered', {
+              'meta': <String, dynamic>{},
+              'metadata': {kMessageHeldByServerMetadataKey: true},
+            }),
+            // Regenerated elsewhere while held: the server keeps the status,
+            // and answers held messages only while nothing answers them.
+            question('replied', {
+              'meta': {'status': 'pending'},
+              'childrenIds': ['reply'],
+            }),
+          ],
+        },
+      });
+      check(conversation.messages.map((m) => m.isHeldByServer).toList())
+          .deepEquals([true, false, false, false]);
+    },
+  );
 
   group('chat params projection', () {
     Map<String, dynamic> chatWith(Map<String, dynamic> extra) =>

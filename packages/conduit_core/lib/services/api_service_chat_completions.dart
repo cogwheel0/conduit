@@ -128,7 +128,19 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     /// Whether [model] is one of the user's devices offers through Tether.
     /// A refusal is read with it ([ChatCompletionHttpException.relay]).
     bool viaTether = false,
+
+    /// The new answer of a regeneration whose question has an answer already.
+    /// Open WebUI 0.13.4 would hold it under a reply still running, as a new
+    /// message, and answer the held copy under new ids, leaving that answer
+    /// behind. Sent only to a server known to read it.
+    String? regenerationMessageId,
+
+    /// The session every request of this send goes as, captured here when
+    /// null. Once another session has replaced it, nothing more is sent and
+    /// the send ends as a stopped one does ([ChatCompletionStopped]).
+    ApiAuthSnapshot? authSnapshot,
   }) async {
+    final sender = authSnapshot ?? captureAuthSnapshot();
     // Generate unique IDs
     final messageId =
         (responseMessageId != null && responseMessageId.isNotEmpty)
@@ -166,7 +178,8 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     for (final id in answerIds) {
       if (_sendsUnderWay.remove(id) ?? false) stopped = true;
     }
-    if (stopped) {
+    bool stoppedOrReplaced() => stopped || !authSnapshotIsCurrent(sender);
+    if (stoppedOrReplaced()) {
       throw ChatCompletionStopped(
         RequestOptions(path: '/api/chat/completions'),
       );
@@ -201,6 +214,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         model: model,
         userMessage: userMessage,
         modelItem: modelItem,
+        authSnapshot: sender,
       );
       legacyPendingTurnPersisted = true;
     }
@@ -211,7 +225,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       try {
         await ensureLegacyPendingTurnPersisted();
       } on Object {
-        if (stopped) {
+        if (stoppedOrReplaced()) {
           throw ChatCompletionStopped(
             RequestOptions(path: '/api/chat/completions'),
           );
@@ -220,6 +234,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       }
     }
 
+    // Whether the server reads [regenerationMessageId] or passes it on to
+    // the provider is its version's to say. The version is the server's, the
+    // same for every account, so the read is not bound to [sender].
+    if (regenerationMessageId != null) await _readServerVersionIfUnknown();
     var includeClientModelFields = _sendsClientModelFields ?? true;
     // Another send can learn the version while this one waits on its refusal.
     final versionUnknown = _sendsClientModelFields == null;
@@ -227,6 +245,11 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
+      if (stoppedOrReplaced()) {
+        throw ChatCompletionStopped(
+          RequestOptions(path: '/api/chat/completions'),
+        );
+      }
       final data = _buildChatCompletionPayload(
         messages: messages,
         model: model,
@@ -253,6 +276,9 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         variables: variables,
         files: files,
         messageIds: messageIds,
+        regenerationMessageId: _holdsMessages == true
+            ? regenerationMessageId
+            : null,
         metadataFormat: metadataFormat,
         includeClientModelFields: includeClientModelFields,
       );
@@ -263,24 +289,22 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
         'metadataFormat=${metadataFormat.name})',
       );
 
-      if (stopped) {
-        throw ChatCompletionStopped(
-          RequestOptions(path: '/api/chat/completions'),
-        );
-      }
       final cancelToken = CancelToken();
       activeCancelToken = cancelToken;
 
       return _dio.post<ResponseBody>(
         '/api/chat/completions',
         data: data,
-        options: Options(
-          responseType: ResponseType.stream,
-          // Accept all non-5xx so we can inspect error bodies ourselves.
-          validateStatus: (status) => status != null && status < 600,
-          receiveTimeout: heldUntilReplyEnds
-              ? ApiService.heldCompletionReceiveTimeout
-              : null,
+        options: _withAuthSnapshot(
+          Options(
+            responseType: ResponseType.stream,
+            // Accept all non-5xx so we can inspect error bodies ourselves.
+            validateStatus: (status) => status != null && status < 600,
+            receiveTimeout: heldUntilReplyEnds
+                ? ApiService.heldCompletionReceiveTimeout
+                : null,
+          ),
+          sender,
         ),
         cancelToken: cancelToken,
       );
@@ -296,7 +320,8 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       try {
         return await postWithMetadataFormat(metadataFormat);
       } on DioException catch (error) {
-        if (stopped && error.type == DioExceptionType.cancel) {
+        // Cancelled by a Stop, or refused unsent once [sender] was replaced.
+        if (error.type == DioExceptionType.cancel && stoppedOrReplaced()) {
           throw ChatCompletionStopped(error.requestOptions);
         }
         if (!heldUntilReplyEnds ||
@@ -317,6 +342,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       messageId: messageId,
       sessionId: sessionId,
       abort: abort,
+      authSnapshot: sender,
     );
 
     var metadataFormat =
@@ -352,6 +378,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           conversationId: conversationId,
           abort: abort,
           viaTether: viaTether,
+          authSnapshot: sender,
         );
       }
 
@@ -386,19 +413,31 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
           conversationId: conversationId,
           abort: abort,
           viaTether: viaTether,
+          authSnapshot: sender,
         );
       }
     } else {
       _chatRequestMetadataFormat ??= metadataFormat;
     }
 
-    final session = await classifyChatCompletionResponse(
-      resp,
-      messageId: messageId,
-      sessionId: sessionId,
-      conversationId: conversationId,
-      abort: abort,
-    );
+    final ChatCompletionSession session;
+    try {
+      session = await classifyChatCompletionResponse(
+        resp,
+        messageId: messageId,
+        sessionId: sessionId,
+        conversationId: conversationId,
+        abort: abort,
+      );
+    } on ChatCompletionHeld {
+      // Nothing streams, so no Stop is kept for its answers.
+      for (final id in answerIds) {
+        if (identical(_streamCancelActions[id], abort)) {
+          _streamCancelActions.remove(id);
+        }
+      }
+      rethrow;
+    }
     _traceApi(
       'sendMessageSession: transport=${session.transport.name}, '
       'taskId=${session.taskId}, messageId=${session.messageId}',

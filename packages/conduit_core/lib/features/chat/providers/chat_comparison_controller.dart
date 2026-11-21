@@ -991,12 +991,22 @@ Future<void> runComparisonCompletion(
         files: _extractTopLevelRequestFiles(userMessageMap),
         messageIds: comparisonTargets(group),
         viaTether: viaTether.contains(primary.assistantMessageId),
+        authSnapshot: owner.authSnapshot,
       );
     } on ChatCompletionStopped {
       await settleStoppedOpenWebUiCompletion(
         ref,
         api: api,
         owner: owner,
+        assistantMessageIds: slotIds,
+      );
+      return;
+    } on ChatCompletionHeld {
+      await settleHeldOpenWebUiCompletion(
+        ref,
+        api: api,
+        owner: owner,
+        questionId: userMessageMap?['id']?.toString(),
         assistantMessageIds: slotIds,
       );
       return;

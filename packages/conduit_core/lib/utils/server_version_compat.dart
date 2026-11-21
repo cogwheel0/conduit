@@ -75,6 +75,12 @@ class ServerVersionCompat {
   /// with the rest of it.
   static const String clientModelFieldsPassedOnVersion = '0.13.4';
 
+  /// The first Open WebUI release that holds a message sent while a reply in
+  /// its chat is still running, and that reads `regeneration_message_id`,
+  /// which keeps a regeneration from being held. An older one passes that
+  /// field on to the provider.
+  static const String heldMessagesVersion = '0.13.4';
+
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.
   static bool? knownAtLeast(String? rawVersion, String minimum) {

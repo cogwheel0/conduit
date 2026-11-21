@@ -27,7 +27,7 @@ const String kChatPullWatermarkKey = 'pull_watermark';
 /// `sync_entity_adapter.dart`). The drainer routes chat push ops through
 /// [pushOp]; the engine drives chat PULL through [PullSync.run] (not the
 /// generic `runPullFor`) so the archived/folders coupling is preserved.
-class ChatAdapter implements SyncEntityAdapter {
+class ChatAdapter implements SyncEntityAdapter, ParkedOpRecovery {
   ChatAdapter({required PullSync pull, required PushSync push})
     : _pull = pull,
       _push = push;
@@ -54,6 +54,7 @@ class ChatAdapter implements SyncEntityAdapter {
       kind == OutboxKind.updateChat ||
       kind == OutboxKind.deleteChat ||
       kind == OutboxKind.requestCompletion ||
+      kind == OutboxKind.deleteMessages ||
       kind.isFolderKind;
 
   @override
@@ -65,6 +66,10 @@ class ChatAdapter implements SyncEntityAdapter {
   @override
   Future<bool> mergeServer(Map<String, dynamic> raw) =>
       _pull.mergeChatResponseForAdapter(raw);
+
+  @override
+  Future<bool> rearmRecoverable({required int nowEpochSeconds}) =>
+      _push.rearmOwnedMessageDeletes(nowEpochSeconds: nowEpochSeconds);
 
   @override
   Future<void> pushOp(OutboxOp op) async {
@@ -81,6 +86,17 @@ class ChatAdapter implements SyncEntityAdapter {
         break;
       case OutboxKind.deleteChat:
         await _push.pushDeleteChat(_requiredChatId(op, OutboxKind.deleteChat));
+        break;
+      case OutboxKind.deleteMessages:
+        final ids = decodeOutboxPayload(op.payload)[kDeleteMessagesIdsKey];
+        await _push.pushDeleteMessages(
+          _requiredChatId(op, OutboxKind.deleteMessages),
+          [
+            if (ids is List)
+              for (final id in ids)
+                if (id is String) id,
+          ],
+        );
         break;
       case OutboxKind.folderUpsert:
         final payload = decodeOutboxPayload(op.payload);

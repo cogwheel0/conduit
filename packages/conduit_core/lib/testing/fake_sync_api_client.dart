@@ -222,6 +222,18 @@ class FakeSyncApiClient implements SyncApiClient {
   }
 
   @override
+  Future<void> deleteChatMessages(
+    String chatId,
+    List<String> messageIds,
+  ) async {
+    for (final messageId in messageIds) {
+      await Future<void>.delayed(Duration.zero);
+      _maybeThrow(chatId);
+      server.deleteChatMessage(chatId, messageId);
+    }
+  }
+
+  @override
   Future<bool> getChatPinned(String id) async {
     try {
       return server.getChatPinned(id);

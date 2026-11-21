@@ -1819,4 +1819,232 @@ void main() {
       check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('m1');
     });
   });
+
+  group('a turn the server holds behind a running reply', () {
+    // Open WebUI 0.13.4 answers the question later, under new ids, and only
+    // once nothing answers it.
+    /// The chat as the server holds it at [updatedAt], with the question's
+    /// [questionMeta]: its empty answer `a1` is still there.
+    ChatRows heldTurnRows({
+      int updatedAt = 1,
+      Map<String, dynamic>? questionMeta,
+      bool legacyList = false,
+    }) {
+      return ChatBlobMapper.blobToRows(
+        chatId: 'c1',
+        title: 'Pantry',
+        createdAt: 1,
+        updatedAt: updatedAt,
+        blob: <String, dynamic>{
+          'title': 'Pantry',
+          if (legacyList)
+            'messages': <Map<String, dynamic>>[
+              {
+                'id': 'u1',
+                'role': 'user',
+                'content': 'And the pantry?',
+                'childrenIds': <String>['a1'],
+              },
+              {
+                'id': 'a1',
+                'parentId': 'u1',
+                'role': 'assistant',
+                'content': '',
+              },
+            ],
+          'history': <String, dynamic>{
+            'currentId': 'a1',
+            'messages': <String, dynamic>{
+              'b0': <String, dynamic>{
+                'id': 'b0',
+                'parentId': null,
+                'childrenIds': <String>[],
+                'role': 'user',
+                'content': 'Another branch',
+                'timestamp': 1,
+              },
+              'u1': <String, dynamic>{
+                'id': 'u1',
+                'parentId': null,
+                'childrenIds': <String>['a1'],
+                'role': 'user',
+                'content': 'And the pantry?',
+                'timestamp': 2,
+                'meta': ?questionMeta,
+              },
+              'a1': <String, dynamic>{
+                'id': 'a1',
+                'parentId': 'u1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': '',
+                'timestamp': 3,
+              },
+            },
+          },
+        },
+      );
+    }
+
+    Future<void> seedHeldTurn() =>
+        db.chatsDao.upsertServerChat(rows: heldTurnRows());
+
+    test('an empty answer the server kept is deleted there later', () async {
+      await seedHeldTurn();
+
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        unsentServerDeletes: ['a1'],
+      );
+
+      check(await db.messagesDao.getMessage('c1', 'a1')).isNull();
+      final question = jsonDecode(
+        (await db.messagesDao.getMessage('c1', 'u1'))!.payload,
+      );
+      check(question['meta']).isA<Map>().deepEquals({'status': 'pending'});
+      check(question['childrenIds']).isA<List>().isEmpty();
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u1');
+      check(chat.dirty).isFalse();
+      final op = (await db.outboxDao.pendingForChat('c1')).single;
+      check(op.kind).equals(OutboxKind.deleteMessages.name);
+      check(jsonDecode(op.payload)).isA<Map>().deepEquals({
+        kDeleteMessagesIdsKey: ['a1'],
+      });
+    });
+
+    test('its record keeps the earlier holds its retry takes for no '
+        'answer', () async {
+      await seedHeldTurn();
+      await db.outboxDao.enqueue(
+        kind: OutboxKind.requestCompletion,
+        chatId: 'c1',
+        payload: const RequestCompletionPayload(
+          assistantMessageId: 'a1',
+          model: 'model-1',
+        ).toJson(),
+      );
+
+      await db.chatsDao.recordHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        earlierHoldIds: ['a0', 'a1'],
+      );
+
+      final op = (await db.outboxDao.pendingForChat('c1'))
+          .firstWhere((op) => op.kind == OutboxKind.requestCompletion.name);
+      check(RequestCompletionPayload.fromJson(jsonDecode(op.payload)))
+        ..has((p) => p.held, 'held').isTrue()
+        ..has((p) => p.heldQuestionId, 'heldQuestionId').equals('u1')
+        ..has((p) => p.heldEarlierIds, 'heldEarlierIds').deepEquals(['a0']);
+    });
+
+    // A push sends the chat's legacy top-level message list as it is
+    // stored, once no delete is left to say the empty answer is gone.
+    for (final (label, remove) in <(String, Future<void> Function())>[
+      (
+        'its settle',
+        () => db.chatsDao.settleHeldTurn(
+          'c1',
+          questionId: 'u1',
+          assistantMessageIds: ['a1'],
+        ),
+      ),
+      ('a Stop', () => db.chatsDao.cancelPendingCompletion('c1')),
+      (
+        'dismissing its parked turn',
+        () =>
+            db.chatsDao.cancelQueuedCompletion('c1', assistantMessageId: 'a1'),
+      ),
+    ]) {
+      test('the stored legacy message list loses it with $label', () async {
+        await db.chatsDao.upsertServerChat(
+          rows: heldTurnRows(legacyList: true),
+        );
+        final seq = await db.outboxDao.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'c1',
+          payload: const RequestCompletionPayload(
+            assistantMessageId: 'a1',
+            model: 'model-1',
+          ).toJson(),
+        );
+        if (label.startsWith('dismissing')) {
+          await db.outboxDao.markParked(seq, error: 'refused');
+        }
+
+        await remove();
+
+        final pushed = ChatBlobMapper.rowsToBlob(
+          chatRowsFromDb(
+            (await db.chatsDao.getChat('c1'))!,
+            await db.messagesDao.getForChat('c1'),
+          ),
+        );
+        check(pushed['messages']).isA<List>().deepEquals([
+          {
+            'id': 'u1',
+            'role': 'user',
+            'content': 'And the pantry?',
+            'childrenIds': <String>[],
+          },
+        ]);
+      });
+    }
+
+    test('a branch picked while it settles stays picked', () async {
+      await seedHeldTurn();
+      await (db.update(db.chats)..where((t) => t.id.equals('c1'))).write(
+        const ChatsCompanion(currentMessageId: Value('b0')),
+      );
+
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+      );
+
+      check((await db.chatsDao.getChat('c1'))!.currentMessageId).equals('b0');
+      check(await db.outboxDao.pendingForChat('c1')).isEmpty();
+    });
+
+    test('a pull while its delete waits does not bring the empty answer '
+        'back', () async {
+      await seedHeldTurn();
+      await db.chatsDao.settleHeldTurn(
+        'c1',
+        questionId: 'u1',
+        assistantMessageIds: ['a1'],
+        unsentServerDeletes: ['a1'],
+      );
+
+      // The server's copy, newer, still has the answer: the delete has not
+      // landed. The question is held there.
+      await db.chatsDao.mergeServerChat(
+        server: heldTurnRows(
+          updatedAt: 2,
+          questionMeta: <String, dynamic>{'status': 'pending'},
+        ),
+      );
+
+      check(await db.messagesDao.getMessage('c1', 'a1')).isNull();
+      final question = jsonDecode(
+        (await db.messagesDao.getMessage('c1', 'u1'))!.payload,
+      );
+      check(question['childrenIds']).isA<List>().isEmpty();
+      final chat = (await db.chatsDao.getChat('c1'))!;
+      check(chat.currentMessageId).equals('u1');
+      check(chat.serverUpdatedAt).equals(2);
+      final conversation = assembleConversation(
+        chat,
+        await db.messagesDao.getForChat('c1'),
+      );
+      check(conversation.messages.last)
+        ..has((m) => m.id, 'id').equals('u1')
+        ..has((m) => m.isHeldByServer, 'held').isTrue();
+    });
+  });
 }

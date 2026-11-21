@@ -912,4 +912,122 @@ void main() {
       check(ChatBlobMapper.treeIsConsistent(blob)).isTrue();
     });
   });
+
+  group('without the messages whose delete waits', () {
+    ChatRows rowsOf(Map<String, dynamic> messages, {String? currentId}) =>
+        ChatBlobMapper.blobToRows(
+          chatId: 'c1',
+          blob: <String, dynamic>{
+            'history': <String, dynamic>{
+              'messages': messages,
+              'currentId': currentId,
+            },
+          },
+          title: 'Pantry',
+          createdAt: 1,
+          updatedAt: 2,
+        );
+
+    Map<String, dynamic> message(
+      String id, {
+      String? parentId,
+      Object? role = 'user',
+      List<String> children = const <String>[],
+    }) => <String, dynamic>{
+      'id': id,
+      'parentId': parentId,
+      'childrenIds': children,
+      'role': role,
+      'content': '',
+      'timestamp': 1,
+    };
+
+    test('a current message whose parents circle back is dropped, not '
+        'followed forever', () {
+      // Server history no client writes: a removed answer that is its own
+      // parent, and two removed answers that are each other's.
+      final own = rowsOf({
+        'q1': message('q1', children: ['a1']),
+        'a1': message('a1', parentId: 'a1', role: 'assistant'),
+      }, currentId: 'a1').withoutMessages({'a1'});
+      check(own.chat.currentMessageId).isNull();
+      check(own.messages.map((m) => m.id)).deepEquals(['q1']);
+
+      final each = rowsOf({
+        'a1': message('a1', parentId: 'a2', role: 'assistant'),
+        'a2': message('a2', parentId: 'a1', role: 'assistant'),
+      }, currentId: 'a1').withoutMessages({'a1', 'a2'});
+      check(each.chat.currentMessageId).isNull();
+      check(each.messages).isEmpty();
+    });
+
+    // As Open WebUI's own delete does: the parent's last child is current,
+    // and on down its last children.
+    test('a left-out current message moves to the newest kept branch', () {
+      final rows = rowsOf({
+        'q1': message('q1', children: ['a1', 'p1']),
+        'a1': message(
+          'a1',
+          parentId: 'q1',
+          role: 'assistant',
+          children: ['q2'],
+        ),
+        'q2': message('q2', parentId: 'a1'),
+        'p1': message('p1', parentId: 'q1', role: 'assistant'),
+      }, currentId: 'p1').withoutMessages({'p1'});
+
+      check(rows.chat.currentMessageId).equals('q2');
+    });
+
+    test('an entry that is not a row leaves too, and its parent stops '
+        'naming it', () {
+      // `p1` has no role, so it cannot be a row; `x1` is unrelated garbage
+      // that stays as it was.
+      final rows = rowsOf({
+        'q1': message('q1', children: ['p1', 'x1']),
+        'p1': <String, dynamic>{'id': 'p1', 'parentId': 'q1', 'role': null},
+        'x1': null,
+      }, currentId: 'p1').withoutMessages({'p1'});
+
+      check(rows.unmappableMessages).deepEquals({'x1': null});
+      check(rows.unmappableMessageOrder.keys).deepEquals(['x1']);
+      check(rows.chat.currentMessageId).equals('q1');
+      final history =
+          ChatBlobMapper.rowsToBlob(rows)['history'] as Map<String, dynamic>;
+      check(history['currentId']).equals('q1');
+      final messages = history['messages'] as Map<String, dynamic>;
+      check(messages.keys).deepEquals(['q1', 'x1']);
+      check((messages['q1'] as Map)['childrenIds'])
+          .isA<List>()
+          .deepEquals(['x1']);
+    });
+
+    test('the legacy message list loses it too, and nothing else', () {
+      // A copy without a usable `currentId` is read from this list instead.
+      final rows = ChatBlobMapper.blobToRows(
+        chatId: 'c1',
+        blob: <String, dynamic>{
+          'history': <String, dynamic>{
+            'messages': {
+              'q1': message('q1', children: ['a1']),
+              'a1': message('a1', parentId: 'q1', role: 'assistant'),
+            },
+          },
+          'messages': [
+            message('q1', children: ['a1']),
+            message('a1', parentId: 'q1', role: 'assistant'),
+          ],
+          'tags': ['pantry'],
+        },
+        title: 'Pantry',
+        createdAt: 1,
+        updatedAt: 2,
+      ).withoutMessages({'a1'});
+
+      final legacy = rows.chat.rawExtra['messages'] as List;
+      check([for (final m in legacy) m['id']]).deepEquals(['q1']);
+      check((legacy.single as Map)['childrenIds']).isA<List>().isEmpty();
+      check(rows.chat.rawExtra['tags']).isA<List>().deepEquals(['pantry']);
+    });
+  });
 }

@@ -27,6 +27,7 @@ import 'package:conduit_core/features/direct_connections/direct_connections.dart
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/id_remapper.dart' show RemapEvent;
@@ -44,9 +45,19 @@ import 'package:conduit_core/utils/debug_logger.dart';
 /// A model comparison has one main answer per model, and all of them end the
 /// transcript. [isChatStreamingProvider] stays true while any one of them
 /// streams, so the queue waits for the last slot whichever finishes first.
+///
+/// A question the server holds until another reply ends
+/// ([ChatMessageComparisonFields.isHeldByServer]) has its answer still to
+/// come: a message sent under it would branch off the held question.
 final chatMainAnswerActiveProvider = Provider<bool>(_chatMainAnswerActive);
 
-bool _chatMainAnswerActive(Ref ref) => ref.watch(isChatStreamingProvider);
+bool _chatMainAnswerActive(Ref ref) =>
+    ref.watch(isChatStreamingProvider) ||
+    ref.watch(
+      chatMessagesProvider.select(
+        (messages) => messages.lastOrNull?.isHeldByServer ?? false,
+      ),
+    );
 
 /// Whether a draft's files are ready to send.
 enum ChatDraftReadiness {

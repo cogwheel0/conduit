@@ -7304,6 +7304,10 @@
     "description": "Subtitle of the exact-timing row: why to allow Alarms & reminders."
   },
   "personalConnectionsKeyRemovedForNewAddress": "Uložený klíč se na novou adresu neodešle, a proto bude odebrán. Zadejte klíč pro tuto adresu.",
+  "chatHeldMessageWaiting": "Čeká na dokončení aktuální odpovědi",
+  "@chatHeldMessageWaiting": {
+    "description": "Caption under a message the server holds because a reply in the same chat is still running (started on another device, say); the server answers the message once that reply finishes."
+  },
   "personalConnectionsMovedToTether": "Tento server nyní přebírá osobní nástroje a terminály z vašich zařízení přes Tether.",
   "@personalConnectionsMovedToTether": {
     "description": "Shown in Settings › Personal Connections when the Open WebUI server is 0.13.4 or later, which replaced personal tool servers and terminals with Tether, Open WebUI's companion app that connects the user's own computers. Keep 'Tether' untranslated."

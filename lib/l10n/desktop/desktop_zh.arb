@@ -559,6 +559,7 @@
   "desktopVideoFullScreen": "进入全屏幕",
   "desktopQueuedRemove": "移除",
   "desktopQueuedFailedMessage": "重试此回答，或将其移除。",
+  "desktopHeldMessageWaiting": "正在等待当前回复完成",
   "desktopCitationMore": "+{count}",
   "@desktopSourcesCount": {
     "placeholders": {

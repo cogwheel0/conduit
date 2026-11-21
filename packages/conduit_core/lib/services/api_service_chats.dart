@@ -179,14 +179,20 @@ mixin _ChatsApi on _ApiServiceBase {
     );
   }
 
-  /// Deletes one message from the current server-side chat history.
+  /// Deletes one message from the current server-side chat history. With
+  /// [authSnapshot], every request it makes goes as that session or not at
+  /// all.
   Future<void> deleteConversationMessage(
     String conversationId,
-    String messageId,
-  ) async {
+    String messageId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
     _traceApi('Deleting message $messageId from chat $conversationId');
     try {
-      await _dio.delete('/api/v1/chats/$conversationId/messages/$messageId');
+      await _dio.delete(
+        '/api/v1/chats/$conversationId/messages/$messageId',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
     } on DioException catch (error) {
       if (!_shouldFallbackToLegacyMessageDelete(error)) {
         rethrow;
@@ -203,6 +209,7 @@ mixin _ChatsApi on _ApiServiceBase {
       await _deleteConversationMessageByHistoryRewrite(
         conversationId,
         messageId,
+        authSnapshot: authSnapshot,
       );
     }
   }

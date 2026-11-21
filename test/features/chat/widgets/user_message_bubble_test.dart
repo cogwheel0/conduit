@@ -7,6 +7,8 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kMessageHeldByServerMetadataKey;
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit/features/chat/widgets/enhanced_attachment.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
@@ -164,6 +166,40 @@ void main() {
     expect(find.text('notes.txt'), findsOneWidget);
     expect(find.text('Service unavailable'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a message the server holds says it waits, until its answer '
+      'comes', (WidgetTester tester) async {
+    // Open WebUI 0.13.4 holds a message sent while another reply in the chat
+    // runs, and answers it under new ids once that reply ends.
+    final held = ChatMessage(
+      id: 'user-held',
+      role: 'user',
+      content: 'And the pantry?',
+      timestamp: DateTime.utc(2026, 3, 28, 10),
+      metadata: const {kMessageHeldByServerMetadataKey: true},
+    );
+
+    await tester.pumpWidget(buildHarness(held));
+    await tester.pump();
+
+    expect(find.byKey(const Key('user-message-held-caption')), findsOneWidget);
+    expect(
+      find.text('Waiting for the current reply to finish'),
+      findsOneWidget,
+    );
+
+    final answered = ChatMessage(
+      id: 'user-answered',
+      role: 'user',
+      content: 'And the pantry?',
+      timestamp: DateTime.utc(2026, 3, 28, 10),
+    );
+    await tester.pumpWidget(buildHarness(answered));
+    await tester.pump();
+
+    expect(find.byKey(const Key('user-message-held-caption')), findsNothing);
+    expect(find.text('Waiting for the current reply to finish'), findsNothing);
   });
 
   testWidgets('uses a tail-less borderless user bubble surface', (

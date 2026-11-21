@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+
 /// Just enough of an Open WebUI server on a loopback port to sign in to:
 /// health, config, password sign-in (with a second step for the users in
 /// `twoStep`, whose `mfa/verify` takes any code), the current user and
@@ -382,6 +384,9 @@ final class _Sessions {
 /// task is stopped (counted in [stopped]).
 /// [refusal], while set, refuses each completion let through admission with
 /// it, as Open WebUI's 400.
+/// [runElsewhere] starts an answer as another device would; a completion
+/// sent under it while it runs is held as Open WebUI 0.13.4 holds one
+/// (`{queued: true}`), and answered under new ids once it ends.
 final class FakeOwuiChats {
   /// The answer every completion streams.
   String answer = 'The kettle is on.';
@@ -409,6 +414,15 @@ final class FakeOwuiChats {
   Completer<void>? holdChatSaves;
   Completer<void> chatSaveAsked = Completer<void>();
 
+  /// While set, [holdChatSaves] holds only this chat's saves.
+  String? holdChatSavesOf;
+
+  /// While set, a message delete (`DELETE /api/v1/chats/{id}/messages/{id}`)
+  /// is done, and its answer waits for it; [messageDeleteAsked] completes as
+  /// one reaches it.
+  Completer<void>? holdMessageDeletes;
+  Completer<void> messageDeleteAsked = Completer<void>();
+
   /// A held chat read or save, once let go, loses its connection instead of
   /// being answered, as when the network drops.
   bool dropHeldChats = false;
@@ -428,6 +442,33 @@ final class FakeOwuiChats {
 
   var _made = 0;
   var _tasks = 0;
+
+  /// Answers [runElsewhere] started that are still running, by message id.
+  final Set<String> _elsewhere = <String>{};
+
+  /// Completion requests held behind an answer running elsewhere.
+  final List<Map<String, dynamic>> heldCompletions = <Map<String, dynamic>>[];
+
+  /// While set, the end of an answer [runElsewhere] answers a message held
+  /// alone under it in place, under its own id, rather than as a copy under
+  /// a new one. Several held under it are still answered as one copy, as
+  /// Open WebUI keeps a message's id only for a batch of one.
+  bool answerHeldInPlace = false;
+
+  /// Messages deleted with `DELETE /api/v1/chats/{id}/messages/{id}`, as
+  /// `chatId/messageId`.
+  final List<String> deletedMessages = <String>[];
+
+  /// Moves [chatId]'s `updated_at` on, as Open WebUI does with each change
+  /// it makes to a chat itself: a pull reads a chat whose date has not moved
+  /// as unchanged. Never the same second twice, so a change made within the
+  /// second of the last one still reads as one.
+  void _touch(String chatId) {
+    final row = stored[chatId]!;
+    final now = clock.now().millisecondsSinceEpoch ~/ 1000;
+    final last = row['updated_at'] as int? ?? 0;
+    row['updated_at'] = now > last ? now : last + 1;
+  }
 
   // The socket: one Engine.IO session at a time, over a websocket or by
   // long-polling (its packets for the client's next poll, and that poll
@@ -487,6 +528,7 @@ final class FakeOwuiChats {
       holdStream,
       holdChatReads,
       holdChatSaves,
+      holdMessageDeletes,
       ..._holds.values,
       ..._streamHolds,
     ]) {
@@ -648,6 +690,164 @@ final class FakeOwuiChats {
     };
   }
 
+  /// An answer to [question] that another device of the chat's owner
+  /// started, running at the end of [chatId]: its stored copy is not done,
+  /// and its task is listed with the chat's. Completing the returned hold
+  /// ends it, and answers the messages held under it ([heldCompletions]) as
+  /// Open WebUI 0.13.4 does: each that nothing answers is replaced by a copy
+  /// under a new id with its answer, and `chat:reload` announces them.
+  Completer<void> runElsewhere(
+    String chatId, {
+    String question = 'Write the shopping list',
+  }) {
+    final chat = stored[chatId]!['chat'] as Map<String, dynamic>;
+    final history = chat['history'] as Map<String, dynamic>;
+    final messages = history['messages'] as Map<String, dynamic>;
+    final n = ++_tasks;
+    final questionId = 'elsewhere-question-$n';
+    final answerId = 'elsewhere-answer-$n';
+    final parentId = history['currentId'] as String?;
+    if (parentId != null) {
+      final parent = messages[parentId] as Map<String, dynamic>;
+      parent['childrenIds'] = <Object?>[
+        ...parent['childrenIds'] as List? ?? const [],
+        questionId,
+      ];
+    }
+    messages[questionId] = <String, dynamic>{
+      'id': questionId,
+      'parentId': parentId,
+      'childrenIds': <String>[answerId],
+      'role': 'user',
+      'content': question,
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+    };
+    messages[answerId] = <String, dynamic>{
+      'id': answerId,
+      'parentId': questionId,
+      'childrenIds': <String>[],
+      'role': 'assistant',
+      'content': 'Eggs,',
+      'model': 'kettle-model',
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+      'done': false,
+    };
+    history['currentId'] = answerId;
+    _touch(chatId);
+    _elsewhere.add(answerId);
+    _running['task-$n'] = chatId;
+    final ends = Completer<void>();
+    unawaited(
+      ends.future.then((_) {
+        _running.remove('task-$n');
+        _elsewhere.remove(answerId);
+        // The chat as stored now: a save while it ran replaced its history.
+        final history = (stored[chatId]?['chat'] as Map?)?['history'] as Map?;
+        final answer = (history?['messages'] as Map?)?[answerId] as Map?;
+        if (answer != null) {
+          answer['content'] = 'Eggs, flour.';
+          answer['done'] = true;
+        }
+        _touch(chatId);
+        _answerHeld(chatId, answerId);
+      }),
+    );
+    return ends;
+  }
+
+  /// Holds [question], sent under [replyId] while it runs elsewhere.
+  void _hold(String chatId, String replyId, Map<String, dynamic> question) {
+    final chat = stored[chatId]!['chat'] as Map<String, dynamic>;
+    final messages =
+        (chat['history'] as Map<String, dynamic>)['messages']
+            as Map<String, dynamic>;
+    final id = question['id'] as String;
+    messages[id] = <String, dynamic>{
+      ...question,
+      'parentId': replyId,
+      'childrenIds': <String>[],
+      'meta': <String, dynamic>{'status': 'pending'},
+    };
+    final reply = messages[replyId] as Map<String, dynamic>;
+    reply['childrenIds'] = <Object?>[
+      ...reply['childrenIds'] as List? ?? const [],
+      id,
+    ];
+    _touch(chatId);
+  }
+
+  /// Answers the messages held under [replyId] that nothing answers: Open
+  /// WebUI reads a message's answers from the messages naming it as parent.
+  void _answerHeld(String chatId, String replyId) {
+    final chat = stored[chatId]!['chat'] as Map<String, dynamic>;
+    final history = chat['history'] as Map<String, dynamic>;
+    final messages = history['messages'] as Map<String, dynamic>;
+    final waiting = <Map<String, dynamic>>[
+      for (final message in messages.values.cast<Map<String, dynamic>>())
+        if (message['parentId'] == replyId &&
+            (message['meta'] as Map?)?['status'] == 'pending' &&
+            !messages.values.any(
+              (other) => (other as Map)['parentId'] == message['id'],
+            ))
+          message,
+    ];
+    if (waiting.isEmpty) return;
+    final n = ++_tasks;
+    if (answerHeldInPlace && waiting.length == 1) {
+      final question = waiting.single;
+      final answerId = 'held-answer-$n';
+      question['meta'] = <String, dynamic>{};
+      question['childrenIds'] = <String>[answerId];
+      messages[answerId] = <String, dynamic>{
+        'id': answerId,
+        'parentId': question['id'],
+        'childrenIds': <String>[],
+        'role': 'assistant',
+        'content': answer,
+        'model': 'kettle-model',
+        'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+        'done': true,
+      };
+      history['currentId'] = answerId;
+      _touch(chatId);
+      _event(chatId, answerId, <String, dynamic>{'type': 'chat:reload'});
+      return;
+    }
+    final questionId = 'held-question-$n';
+    final answerId = 'held-answer-$n';
+    for (final message in waiting) {
+      messages.remove(message['id']);
+    }
+    final reply = messages[replyId] as Map<String, dynamic>;
+    reply['childrenIds'] = <Object?>[
+      for (final child in reply['childrenIds'] as List? ?? const [])
+        if (!waiting.any((m) => m['id'] == child)) child,
+      questionId,
+    ];
+    messages[questionId] = <String, dynamic>{
+      'id': questionId,
+      'parentId': replyId,
+      'childrenIds': <String>[answerId],
+      'role': 'user',
+      'content': waiting.map((m) => m['content']).join('\n\n'),
+      'meta': <String, dynamic>{},
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+    };
+    messages[answerId] = <String, dynamic>{
+      'id': answerId,
+      'parentId': questionId,
+      'childrenIds': <String>[],
+      'role': 'assistant',
+      'content': answer,
+      'model': 'kettle-model',
+      'timestamp': clock.now().millisecondsSinceEpoch ~/ 1000,
+      'done': true,
+    };
+    history['currentId'] = answerId;
+    _touch(chatId);
+    _event(chatId, answerId, <String, dynamic>{'type': 'chat:reload'});
+  }
+
   /// Answers [request] when it is one of a chat's: true then.
   Future<bool> _handle(
     HttpRequest request,
@@ -731,6 +931,38 @@ final class FakeOwuiChats {
           },
       ]);
     }
+    final deleted = RegExp(r'^/api/v1/chats/([^/]+)/messages/([^/]+)$')
+        .firstMatch(path);
+    if (request.method == 'DELETE' &&
+        deleted != null &&
+        stored.containsKey(deleted[1])) {
+      await request.drain<void>();
+      final row = stored[deleted[1]!]!;
+      final history =
+          (row['chat'] as Map<String, dynamic>)['history']
+              as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      final gone = messages.remove(deleted[2]) as Map<String, dynamic>?;
+      if (gone != null) {
+        deletedMessages.add('${deleted[1]}/${deleted[2]}');
+        final parent = messages[gone['parentId']] as Map<String, dynamic>?;
+        if (parent != null) {
+          parent['childrenIds'] = <Object?>[
+            for (final child in parent['childrenIds'] as List? ?? const [])
+              if (child != deleted[2]) child,
+          ];
+        }
+        if (history['currentId'] == deleted[2]) {
+          history['currentId'] = gone['parentId'];
+        }
+        _touch(deleted[1]!);
+      }
+      if (holdMessageDeletes case final held?) {
+        if (!messageDeleteAsked.isCompleted) messageDeleteAsked.complete();
+        await held.future;
+      }
+      return json(row);
+    }
     final chatId = RegExp(r'^/api/v1/chats/([^/]+)$').firstMatch(path)?[1];
     // A chat it does not keep (the core reads a new chat's own id before
     // the server has made it) is not found, as Open WebUI answers it.
@@ -744,7 +976,11 @@ final class FakeOwuiChats {
     }
     if (chatId != null && stored.containsKey(chatId)) {
       final row = stored[chatId]!;
-      final held = post ? holdChatSaves : holdChatReads;
+      final held = !post
+          ? holdChatReads
+          : holdChatSavesOf == null || holdChatSavesOf == chatId
+          ? holdChatSaves
+          : null;
       if (held != null) {
         final asked = post ? chatSaveAsked : chatReadAsked;
         if (!asked.isCompleted) asked.complete();
@@ -777,6 +1013,20 @@ final class FakeOwuiChats {
       final id = asked['id'] as String?;
       if (chat == null || id == null) {
         return json(<String, dynamic>{'detail': 'no chat'}, 400);
+      }
+      final parentId = asked['parent_id'] as String?;
+      final question = asked['user_message'] as Map<String, dynamic>?;
+      if (parentId != null &&
+          question != null &&
+          _elsewhere.contains(parentId) &&
+          stored.containsKey(chat)) {
+        heldCompletions.add(asked);
+        _hold(chat, parentId, question);
+        return json(<String, dynamic>{
+          'status': true,
+          'queued': true,
+          'chat_id': chat,
+        });
       }
       // The question and its answer are in the stored chat before the task
       // starts, as Open WebUI writes the turn first; the answer fills in

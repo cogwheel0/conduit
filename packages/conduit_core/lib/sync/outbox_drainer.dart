@@ -65,6 +65,11 @@ class OutboxDrainer {
   /// N=5 (§7.2): requestCompletion parks after this many failed attempts.
   static const int kCompletionMaxAttempts = 5;
 
+  /// How many times a re-arm of parked ops whose checks could not tell is
+  /// repeated, each on a later drain after a backoff. Past it they wait for
+  /// the connection to return, or for the next drainer.
+  static const int kParkedRecheckLimit = 5;
+
   /// Short retry window for a sync op that failed only because we were
   /// offline (pure sync ops retry indefinitely; this just paces re-checks).
   static const int _offlineRetrySeconds = 5;
@@ -91,6 +96,13 @@ class OutboxDrainer {
   bool _draining = false;
   bool _rerun = false;
 
+  /// Completed by a drain asked for while one waits on a re-arm.
+  Completer<void>? _rerunAsked;
+
+  /// Whether a drain was asked for since the last pass looked whether a
+  /// recheck of parked ops is due ([_recheckParkedIfDue]).
+  bool _drainAsked = false;
+
   bool get isDraining => _draining;
 
   /// Stranded-`inFlight` recovery runs exactly once per process, before the
@@ -98,6 +110,17 @@ class OutboxDrainer {
   /// rerun mid-session never re-reclaims an op a live worker just flipped to
   /// `inFlight`.
   bool _recovered = false;
+
+  /// The repeats of an undecided re-arm so far ([kParkedRecheckLimit]), and
+  /// when the next is due: null when none is.
+  int _parkedRechecks = 0;
+  int? _parkedRecheckAt;
+
+  /// The re-arm running now, whether another was asked for meanwhile, and
+  /// whether a worker parked an op that may recover meanwhile.
+  Future<void>? _rearm;
+  bool _rearmAgain = false;
+  bool _parkedWhileRearming = false;
 
   /// §B5: `SyncApiClient` write methods throw [SyncTerminalException] for
   /// 401/403 (not owner / no perm). Treat those as terminal; everything else
@@ -108,22 +131,44 @@ class OutboxDrainer {
   /// One drain: spins up to [kPoolSize] workers, each claiming + running ops
   /// until `claimNextRunnable` returns null. Single-flight — overlapping
   /// triggers collapse to at most one queued rerun (mirrors
-  /// `SyncEngine._startCycle`).
+  /// `SyncEngine._startCycle`). A re-arm of parked ops runs beside the
+  /// workers, and the drain lasts until it ends, so what it re-arms is sent.
   Future<void> drain() async {
+    _drainAsked = true;
     if (_draining) {
-      _rerun = true;
+      _askRerun();
       return;
     }
     _draining = true;
     try {
       await _recoverStrandedOnce();
-      do {
+      while (true) {
         _rerun = false;
+        // A drain asked for while this one runs is a rerun of it. The rerun a
+        // re-arm asks for repeats no recheck. One asked for while a re-arm
+        // runs looks once it ends, since an op parked meanwhile leaves a
+        // recheck that came due in place.
+        if (_drainAsked && _rearm == null) {
+          _drainAsked = false;
+          _recheckParkedIfDue();
+        }
         await _runPass();
-      } while (_rerun);
+        if (_rerun) continue;
+        final rearm = _rearm;
+        if (rearm == null) break;
+        final asked = _rerunAsked = Completer<void>();
+        await Future.any([rearm, asked.future]);
+        _rerunAsked = null;
+      }
     } finally {
       _draining = false;
     }
+  }
+
+  void _askRerun() {
+    _rerun = true;
+    _rerunAsked?.complete();
+    _rerunAsked = null;
   }
 
   /// Reclaims ops left `inFlight` by a previous process that was killed
@@ -142,14 +187,107 @@ class OutboxDrainer {
         data: {'count': reclaimed},
       );
     }
+    _requestRearm();
   }
 
   /// Connectivity regained: reset backoff on every pending op (next attempt =
-  /// now) so they re-run immediately, then drain (A6/A7).
+  /// now) so they re-run immediately, re-arm the parked ops that can go
+  /// again, then drain (A6/A7).
   Future<void> onConnectivityRegained() async {
     final now = _clock.nowEpochSeconds();
     await _db.outboxDao.resetBackoffForPending(nowEpochSeconds: now);
+    _parkedRechecks = 0;
+    // A first drain re-arms them itself. A re-arm running now may have asked
+    // before the connection returned, so another follows it.
+    if (_recovered) _requestRearm(again: true);
     await drain();
+  }
+
+  void _recheckParkedIfDue() {
+    final due = _parkedRecheckAt;
+    if (due == null || _clock.nowEpochSeconds() < due) return;
+    _requestRearm();
+  }
+
+  /// Starts [_rearmRecoverableParked] unless it runs already; [again] then
+  /// has it go once more after. A drain waits for it only once its workers
+  /// are out of work.
+  void _requestRearm({bool again = false}) {
+    if (_rearm != null) {
+      _rearmAgain |= again;
+      return;
+    }
+    _rearm = () async {
+      try {
+        do {
+          _rearmAgain = false;
+          await _rearmRecoverableParked();
+        } while (_rearmAgain);
+      } finally {
+        _rearm = null;
+        // The workers may have run out of work before what it re-armed was
+        // runnable, and the drain then no longer waits for it.
+        if (_draining) _askRerun();
+      }
+    }();
+  }
+
+  /// Asks each adapter that can ([ParkedOpRecovery]) to re-arm its parked ops
+  /// that can go again. Runs on a drainer's first drain, whenever the
+  /// connection returns, and on a later drain after a worker parks an op on a
+  /// check that could not tell. When one could not tell, or failed, it runs
+  /// again on a later drain after a backoff, at most [kParkedRecheckLimit]
+  /// times.
+  Future<void> _rearmRecoverableParked() async {
+    _parkedWhileRearming = false;
+    var undecided = false;
+    for (final adapter in _adapters) {
+      if (adapter is! ParkedOpRecovery) continue;
+      try {
+        if (await (adapter as ParkedOpRecovery).rearmRecoverable(
+          nowEpochSeconds: _clock.nowEpochSeconds(),
+        )) {
+          undecided = true;
+        }
+      } catch (error, stack) {
+        undecided = true;
+        DebugLogger.error(
+          'parked ops not re-armed',
+          scope: 'outbox/drain',
+          error: error,
+          stackTrace: stack,
+        );
+      }
+    }
+    // An op parked meanwhile may not have been asked about: the rechecks it
+    // started stand.
+    if (_parkedWhileRearming) return;
+    if (!undecided) {
+      _parkedRechecks = 0;
+      _parkedRecheckAt = null;
+    } else if (_parkedRechecks < kParkedRecheckLimit) {
+      _scheduleParkedRecheck();
+    } else {
+      _parkedRecheckAt = null;
+    }
+  }
+
+  /// An op a worker parked on a check that could not tell
+  /// ([SyncTerminalException.mayRecover]) starts the rechecks afresh, keeping
+  /// one already due.
+  void _startParkedRechecks() {
+    _parkedWhileRearming = true;
+    _parkedRechecks = 0;
+    if (_parkedRecheckAt == null) _scheduleParkedRecheck();
+  }
+
+  void _scheduleParkedRecheck() {
+    final delayMs = _backoff.delayMsForAttempt(_parkedRechecks);
+    _parkedRechecks++;
+    // At least a second: the drain that follows a re-arm never repeats it.
+    final delaySeconds = (delayMs / 1000).ceil();
+    _parkedRecheckAt =
+        _clock.nowEpochSeconds() + (delaySeconds < 1 ? 1 : delaySeconds);
   }
 
   Future<void> _runPass() async {
@@ -358,6 +496,9 @@ class OutboxDrainer {
     final terminalStatus = _isTerminal(error);
     if (terminalStatus != null) {
       await _handleTerminal(op, kind, terminalStatus, message);
+      if (error is SyncTerminalException && error.mayRecover) {
+        _startParkedRechecks();
+      }
       return;
     }
 

@@ -176,7 +176,7 @@ class _TimeoutResponse extends _FakeAdapter {
 class _VersionedServer implements HttpClientAdapter {
   _VersionedServer({required this.version, required this.completions});
 
-  final String? version;
+  String? version;
   final List<_FakeAdapter> completions;
   final completionBodies = <Map<String, dynamic>>[];
 
@@ -1166,6 +1166,32 @@ void main() {
       check(session.taskId).isNull();
     });
 
+    test('a message the server holds behind a running reply is no answer', () async {
+      // Open WebUI 0.13.4 keeps a message sent while a reply in its chat is
+      // still running, and answers it once that reply ends.
+      final adapter = _FakeAdapter.json({
+        'status': true,
+        'queued': true,
+        'chat_id': 'chat-1',
+      });
+      final api = _buildApiServiceForTest(adapter);
+
+      await check(
+        api.sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          responseMessageId: 'assistant-1',
+          sessionIdOverride: 'socket-1',
+        ),
+      ).throws<ChatCompletionHeld>();
+
+      // Nothing streams, so its Stop is not kept: a later Stop of the answer
+      // reaches no request.
+      api.cancelStreamingMessage('assistant-1');
+      check(adapter.lastRequest!.cancelToken!.isCancelled).isFalse();
+    });
+
     test('JSON null uses an empty HTTP stream for recovery', () async {
       final adapter = _FakeAdapter.raw(
         bytes: utf8.encode('null'),
@@ -1784,6 +1810,114 @@ void main() {
           .deepEquals(userMessage2);
       check(cachedLegacyBody.containsKey('user_message')).isFalse();
     });
+  });
+
+  // Open WebUI 0.13.4 holds a regeneration under a reply still running unless
+  // it names the answer it regenerates. An older server passes the field on
+  // to the provider, which may refuse it. A version not read yet is read
+  // before the request.
+  test('a regeneration names its answer to 0.13.4 and later only', () async {
+    for (final (version, read, named) in const [
+      ('0.13.3', true, false),
+      ('0.13.4', true, true),
+      (null, true, false),
+      ('0.13.4', false, true),
+      ('0.13.3', false, false),
+      (null, false, false),
+    ]) {
+      final server = _VersionedServer(
+        version: version,
+        completions: [
+          _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+      if (read) await api.getBackendConfig();
+
+      await api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-2',
+        regenerationMessageId: 'assistant-2',
+      );
+
+      check(
+        server.completionBodies.single['regeneration_message_id'],
+        because: '$version, read before: $read',
+      ).equals(named ? 'assistant-2' : null);
+    }
+  });
+
+  test('a version that could not be told is read again later', () async {
+    for (final unusable in const [null, 'main']) {
+      final server = _VersionedServer(
+        version: unusable,
+        completions: [
+          _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+          _FakeAdapter.json({'task_id': 'task-2', 'status': true}),
+        ],
+      );
+      final api = _buildApiServiceForTest(server);
+      Future<void> regenerate() => api.sendMessageSession(
+        messages: _minimalMessages,
+        model: _model,
+        conversationId: 'chat-1',
+        responseMessageId: 'assistant-2',
+        regenerationMessageId: 'assistant-2',
+      );
+
+      await regenerate();
+      server.version = '0.13.4';
+      await regenerate();
+
+      check([
+        for (final body in server.completionBodies)
+          body['regeneration_message_id'],
+      ], because: '$unusable').deepEquals([null, 'assistant-2']);
+    }
+  });
+
+  // An account switch does not stop a send: the request itself must refuse
+  // to go as the account that signed in meanwhile.
+  test('a request is not sent as an account that signs in during its version '
+      'read', () async {
+    final inner = _QueuedFakeAdapter([
+      _FakeAdapter.json({
+        'status': true,
+        'version': '0.13.4',
+        'features': <String, dynamic>{},
+      }),
+      _FakeAdapter.json({'task_id': 'task-1', 'status': true}),
+    ]);
+    final api = ApiService(
+      serverConfig: const ServerConfig(
+        id: 'test',
+        name: 'Test Server',
+        url: 'http://localhost:9999',
+      ),
+      workerManager: WorkerManager(),
+      authToken: 'account-a',
+    );
+    api.dio.httpClientAdapter = _HookedAdapter(inner, (options) {
+      if (options.path == '/api/config') api.updateAuthToken('account-b');
+    });
+
+    final failure = await api
+        .sendMessageSession(
+          messages: _minimalMessages,
+          model: _model,
+          conversationId: 'chat-1',
+          responseMessageId: 'assistant-2',
+          regenerationMessageId: 'assistant-2',
+        )
+        .then<Object?>((_) => null, onError: (Object error) => error);
+
+    check([
+      for (final request in inner.requests)
+        (request.path, request.headers['Authorization']),
+    ]).deepEquals([('/api/config', 'Bearer account-a')]);
+    check(failure).isA<ChatCompletionStopped>();
   });
 
   // Open WebUI read and removed both before 0.13.4. From 0.13.4 it passes

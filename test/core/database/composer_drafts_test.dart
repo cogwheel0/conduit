@@ -249,7 +249,7 @@ void main() {
           .data
           .values
           .single,
-      12,
+      upgraded.schemaVersion,
     );
   });
   test('native session moves stay ordered with edits and scoped to their connection', () async {

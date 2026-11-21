@@ -38,7 +38,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_chat_br
     show directModelAdvertisedContextLength, isDirectTooManyImagesError;
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_core/services/chat_completion_transport.dart'
-    show isHeldReplyUnresolvedError;
+    show isHeldReplyUnresolvedError, isReplyStillRunningError;
 import 'package:conduit_markdown/conduit_markdown.dart';
 
 import '../providers/text_to_speech_provider.dart';
@@ -1880,7 +1880,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         : isHeldReplyUnresolvedError(errorContent)
         ? l10n.heldReplyStillRunning
         : relayFailure ??
-              ((errorContent != null && errorContent.isNotEmpty)
+              (isReplyStillRunningError(errorContent)
+                  ? l10n.chatDataControlsResponseRunning
+                  : (errorContent != null && errorContent.isNotEmpty)
                   ? errorContent
                   // If no content, show a generic error message
                   : 'An error occurred while generating this response.');

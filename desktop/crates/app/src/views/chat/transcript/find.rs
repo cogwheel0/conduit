@@ -468,6 +468,7 @@ mod tests {
                 vec![]
             },
             queued: None,
+            held: false,
         }
     }
 

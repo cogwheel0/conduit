@@ -1,10 +1,14 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart'
-    show kFolderExpandedKey;
+    show OutboxKind, kFolderExpandedKey;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kCompletionHeldMetadataKey;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -216,7 +220,15 @@ class PushSync {
       }
       final messages = await _db.messagesDao.getForChat(chatId);
       final capturedMessageIds = [for (final m in messages) m.id];
-      final rows = chatRowsFromDb(chat, messages);
+      // A held turn's empty answers never go back: Open WebUI answers a held
+      // message only while nothing answers it. One whose delete landed may
+      // still be here, its settle unfinished.
+      final heldAnswers = {
+        ...await _db.outboxDao.unsentMessageDeletes(chatId),
+        for (final m in messages)
+          if (_isHeldAnswer(m)) m.id,
+      };
+      final rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
       final blob = ChatBlobMapper.rowsToBlob(rows);
 
       final resp = await _client.updateChat(chatId, blob);
@@ -362,6 +374,17 @@ class PushSync {
     }
   }
 
+  static bool _isHeldAnswer(MessageRow message) {
+    if (message.role != 'assistant') return false;
+    try {
+      final payload = jsonDecode(message.payload);
+      final metadata = payload is Map ? payload['metadata'] : null;
+      return metadata is Map && metadata[kCompletionHeldMetadataKey] == true;
+    } on FormatException {
+      return false;
+    }
+  }
+
   // ---- deleteChat (§7.5) ----
 
   /// Confirms the server delete (or 404 already-gone), then purges the local
@@ -374,6 +397,54 @@ class PushSync {
       await _client.deleteChat(chatId);
       await _db.chatsDao.purgeReconciledChat(chatId);
     });
+  }
+
+  /// Deletes [messageIds] from the server's copy of [chatId], all as one
+  /// session. A message (or chat) already gone counts as deleted
+  /// ([SyncApiClient.deleteChatMessages]).
+  /// The local rows are not touched: whoever recorded the op already removed
+  /// them, and a pull keeps them out while the op waits
+  /// ([OutboxDao.unsentMessageDeletes]). Once the deletes land, a copy read
+  /// before them is a stale read, as one read before a push is.
+  Future<void> pushDeleteMessages(
+    String chatId,
+    List<String> messageIds,
+  ) async {
+    await _client.deleteChatMessages(chatId, messageIds);
+    _db.chatsDao.noteMessageDeletesLanded(chatId, messageIds);
+  }
+
+  /// Sends again each `deleteMessages` op parked on a refusal whose chat this
+  /// session still owns ([ChatOwnershipProbe]): Open WebUI refuses a delete
+  /// whose write failed as it refuses one the session may not make. One whose
+  /// chat it doesn't own, or can't say it owns, stays parked. Returns whether
+  /// a chat's check could not tell, so a later pass may ask again.
+  Future<bool> rearmOwnedMessageDeletes({required int nowEpochSeconds}) async {
+    final probe = switch (_client) {
+      final ChatOwnershipProbe probe => probe,
+      _ => null,
+    };
+    if (probe == null) return false;
+    final ownership = <String, ChatOwnership>{};
+    var undecided = false;
+    for (final op in await _db.outboxDao.parkedOfKind(
+      OutboxKind.deleteMessages,
+    )) {
+      final chatId = op.chatId;
+      if (chatId == null) continue;
+      switch (ownership[chatId] ??= await probe.chatOwnership(chatId)) {
+        case ChatOwnership.owns:
+          await _db.outboxDao.requeueParked(
+            op.seq,
+            nowEpochSeconds: nowEpochSeconds,
+          );
+        case ChatOwnership.unknown:
+          undecided = true;
+        case ChatOwnership.notOwner:
+          break;
+      }
+    }
+    return undecided;
   }
 
   // ---- folderUpsert / folderDelete (§7.6) ----

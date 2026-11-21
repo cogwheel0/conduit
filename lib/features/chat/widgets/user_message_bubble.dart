@@ -22,6 +22,8 @@ import '../../../shared/utils/locale_display_formatters.dart';
 
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/models/chat_message.dart';
 
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
@@ -945,9 +947,41 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           if (_isEditing) ...[
             const SizedBox(height: Spacing.sm),
             _buildEditActionButtons(),
+          ] else if (_heldByServer) ...[
+            const SizedBox(height: Spacing.xs),
+            _buildHeldCaption(),
           ],
         ],
       ),
+    );
+  }
+
+  /// Whether the server holds this message until a reply still running in
+  /// the chat ends (Open WebUI 0.13.4): it answers the message then.
+  bool get _heldByServer {
+    final message = widget.message;
+    return message is ChatMessage && message.isHeldByServer;
+  }
+
+  Widget _buildHeldCaption() {
+    final theme = context.conduitTheme;
+    return Row(
+      key: const Key('user-message-held-caption'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Platform.isIOS ? CupertinoIcons.clock : Icons.schedule,
+          size: IconSize.xs,
+          color: theme.textSecondary,
+        ),
+        const SizedBox(width: Spacing.xs),
+        Flexible(
+          child: Text(
+            AppLocalizations.of(context)!.chatHeldMessageWaiting,
+            style: AppTypography.small.copyWith(color: theme.textSecondary),
+          ),
+        ),
+      ],
     );
   }
 
