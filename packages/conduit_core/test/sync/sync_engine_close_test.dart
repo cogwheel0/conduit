@@ -14,7 +14,7 @@ import 'package:test/test.dart';
 
 void main() {
   test('close waits for a pull still storing the chat it read, and a '
-      'closed engine starts no more', () async {
+      'closed engine starts no more, even rebuilt', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final server = FakeOpenWebUiServer()
@@ -65,8 +65,11 @@ void main() {
 
     check(ended).deepEquals(['pulled', 'closed']);
     check(await db.chatsDao.getChat('chat-1')).isNotNull();
-    check(await engine.requestPull(reason: 'after close')).isNull();
-    check(await engine.pullChatNow('chat-1')).isNull();
+    container.invalidate(syncEngineProvider);
+    container.read(syncEngineProvider);
+    final rebuilt = container.read(syncEngineProvider.notifier);
+    check(await rebuilt.requestPull(reason: 'after close')).isNull();
+    check(await rebuilt.pullChatNow('chat-1')).isNull();
     check(client.chatFetchStarts).deepEquals(['chat-1']);
   });
 }

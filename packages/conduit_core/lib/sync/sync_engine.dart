@@ -485,6 +485,10 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   /// engine's work is running: nothing it began writes the database after
   /// that. A request still out is not cut off here; closing the API client
   /// does that.
+  ///
+  /// Closing is for good: the notifier outlives a rebuild, and a host that
+  /// closes it before tearing the rest down (conduitd) must not have a
+  /// rebuild meanwhile start work again.
   Future<void> close() async {
     _closed = true;
     _debounce?.cancel();
