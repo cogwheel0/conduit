@@ -25,7 +25,12 @@ import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/models/librechat_server.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -45,6 +50,18 @@ class _StaticActive extends ActiveConversationNotifier {
   Conversation? build() => initial;
 
   void put(Conversation? next) => state = next;
+}
+
+/// A value a test changes as the app would.
+class _Held<T> extends Notifier<T> {
+  _Held(this.initial);
+
+  final T initial;
+
+  @override
+  T build() => initial;
+
+  void put(T next) => state = next;
 }
 
 class _TestMessagesNotifier extends ChatMessagesNotifier {
@@ -1442,5 +1459,71 @@ void main() {
         ),
       ).equals('local-id');
     });
+  });
+
+  group('chatSendOwnerIsCurrent', () {
+    // A send that waits (for a model, with none picked) goes only to the
+    // account it was asked in. LibreChat accounts and Hermes connections
+    // change apart from the Open WebUI session.
+    const server = LibreChatServer(baseUrl: 'https://chat.example.test');
+    const accountA = LibreChatAccount(
+      id: 'librechat-a',
+      server: server,
+      userId: 'user-a',
+    );
+    const accountB = LibreChatAccount(
+      id: 'librechat-b',
+      server: server,
+      userId: 'user-b',
+    );
+    final libreChatAccount =
+        NotifierProvider<_Held<LibreChatAccount?>, LibreChatAccount?>(
+          () => _Held(accountA),
+        );
+    final hermesConnection = NotifierProvider<_Held<String?>, String?>(
+      () => _Held('hermes-a'),
+    );
+
+    for (final (label, change, current) in [
+      ('holds while nothing changes', (ProviderContainer _) {}, true),
+      (
+        'fails once another LibreChat account is in use',
+        (ProviderContainer c) =>
+            c.read(libreChatAccount.notifier).put(accountB),
+        false,
+      ),
+      (
+        'fails once another Hermes connection is in use',
+        (ProviderContainer c) =>
+            c.read(hermesConnection.notifier).put('hermes-b'),
+        false,
+      ),
+    ]) {
+      test(label, () {
+        final container = ProviderContainer(
+          overrides: [
+            appDatabaseProvider.overrideWithValue(null),
+            apiServiceProvider.overrideWithValue(null),
+            openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+            activeConversationProvider.overrideWith(() => _StaticActive(null)),
+            primaryAccountKindProvider.overrideWithValue(
+              PrimaryAccountKind.libreChat,
+            ),
+            activeLibreChatAccountProvider.overrideWith(
+              (ref) => ref.watch(libreChatAccount),
+            ),
+            hermesActiveConnectionIdProvider.overrideWith(
+              (ref) => ref.watch(hermesConnection),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        final owner = captureChatSendOwner(container);
+
+        change(container);
+
+        check(chatSendOwnerIsCurrent(container, owner)).equals(current);
+      });
+    }
   });
 }

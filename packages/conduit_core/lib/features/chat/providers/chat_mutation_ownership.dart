@@ -87,16 +87,22 @@ ChatMutationOwnerToken captureChatMutationOwner(
 }
 
 /// The account, its sign-in session and the chat a send was asked for in,
-/// named before the send waits on anything ([chatSendOwnerIsCurrent]).
+/// named before the send waits on anything ([chatSendOwnerIsCurrent]): the
+/// Open WebUI session, and the LibreChat account (while LibreChat owns the
+/// Chats tab) and Hermes connection, which change apart from it.
 typedef ChatSendOwner = ({
   Object? api,
   Object? authSessionEpoch,
+  String? libreChatAccountId,
+  String? hermesConnectionId,
   ChatMutationOwnerToken chat,
 });
 
 ChatSendOwner captureChatSendOwner(dynamic ref) => (
   api: _readApiServiceOrNull(ref),
   authSessionEpoch: _readOpenWebUiAuthSessionEpoch(ref),
+  libreChatAccountId: _readPrimaryLibreChatAccountId(ref),
+  hermesConnectionId: _readHermesConnectionId(ref),
   chat: captureChatMutationOwner(
     ref,
     ref.read(activeConversationProvider) as Conversation?,
@@ -108,7 +114,28 @@ ChatSendOwner captureChatSendOwner(dynamic ref) => (
 bool chatSendOwnerIsCurrent(dynamic ref, ChatSendOwner owner) =>
     identical(_readApiServiceOrNull(ref), owner.api) &&
     identical(_readOpenWebUiAuthSessionEpoch(ref), owner.authSessionEpoch) &&
+    _readPrimaryLibreChatAccountId(ref) == owner.libreChatAccountId &&
+    _readHermesConnectionId(ref) == owner.hermesConnectionId &&
     chatMutationTokenStillActive(ref, owner.chat);
+
+String? _readPrimaryLibreChatAccountId(dynamic ref) {
+  try {
+    if (ref.read(primaryAccountKindProvider) != PrimaryAccountKind.libreChat) {
+      return null;
+    }
+    return (ref.read(activeLibreChatAccountProvider) as LibreChatAccount?)?.id;
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _readHermesConnectionId(dynamic ref) {
+  try {
+    return ref.read(hermesActiveConnectionIdProvider) as String?;
+  } catch (_) {
+    return null;
+  }
+}
 
 void _requireChatMutationOpenWebUiAuthSession(
   dynamic ref,
