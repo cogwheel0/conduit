@@ -15,7 +15,9 @@
 //! * **Terminal:** a model's `display_file` for a PDF with a page opens
 //!   PDFKit's viewer at that page; a port preview's live-reload WebSocket
 //!   passes the daemon's preview listener (a personal terminal straight to
-//!   the fake Open Terminal: Open WebUI's own proxy takes no WebSockets).
+//!   the fake Open Terminal: Open WebUI's own proxy takes no WebSockets);
+//!   skipped, with a line saying so, on a server that moved personal
+//!   terminals into Tether (Open WebUI 0.13.4).
 //!
 //! Every new element is shot in light and dark.
 
@@ -674,6 +676,13 @@ async fn preview_socket(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bo
     let Some(list) = call::<methods::IntegrationsList>(&NoParams, cx).await else {
         return ok("integrations.list", false);
     };
+    if super::personal_moved_to_tether(&list) {
+        println!(
+            "SMOKE e2e skip a personal terminal's preview: {}",
+            super::MOVED_TO_TETHER
+        );
+        return true;
+    }
     let added = call::<methods::IntegrationsSave>(
         &PersonalConnectionSave {
             owner: list.owner.clone(),

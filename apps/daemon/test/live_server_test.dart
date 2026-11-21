@@ -2143,7 +2143,8 @@ void main() {
 
         final after = await direct.remove(connection.id);
         expect(after.connections.where(ours), isEmpty);
-      }, timeout: const Timeout(Duration(minutes: 4)));
+        // Skipped: 0.13.4 moved these into Tether (Tether device follow-up).
+      }, skip: _movedToTether, timeout: const Timeout(Duration(minutes: 4)));
 
       // Notes, stored as markdown and edited as Quill ops.
       test('creates, edits, pins and deletes a note', () async {
@@ -3615,7 +3616,8 @@ void main() {
             removed.toolServers.any((s) => s.name.startsWith('Live Buoys')),
             isFalse,
           );
-        }, timeout: const Timeout(Duration(minutes: 3)));
+          // Skipped: 0.13.4 moved these into Tether (Tether device follow-up).
+        }, skip: _movedToTether, timeout: const Timeout(Duration(minutes: 3)));
 
         test('adds, edits and deletes a memory', () async {
           final memories = MemoriesService(runtime.container);
@@ -5222,3 +5224,9 @@ Future<Set<String>> _allChatIds(dynamic api) async {
   }
   return ids;
 }
+
+/// Why the tests of connections kept in the Open WebUI account are skipped:
+/// `tool/local_owui` runs Open WebUI 0.13.4, which moved them into Tether.
+const _movedToTether =
+    'needs Open WebUI 0.13.3 or older: 0.13.4 moved Personal Connections and '
+    'direct connections into Tether; back with the Tether device follow-up';

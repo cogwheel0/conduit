@@ -215,6 +215,21 @@ pub(crate) fn is_local_url(url: &str) -> bool {
 /// What a pass says when the env file is missing or incomplete.
 const NO_SERVER: &str = "the local Open WebUI's env file is there (tool/local_owui/owui.sh up)";
 
+/// Why a pass skips connections kept in the Open WebUI account when the
+/// server says they moved (0.13.4, which `tool/local_owui` runs).
+const MOVED_TO_TETHER: &str = "Open WebUI 0.13.4 moved Personal Connections and direct connections into Tether; back with the Tether device follow-up";
+
+/// Whether a pass may skip Personal Connections: the list loaded and says
+/// they moved. One that failed to load fails the pass, as Settings shows it.
+fn personal_moved_to_tether(list: &conduit_protocol::PersonalConnections) -> bool {
+    list.access == conduit_protocol::PersonalAccess::MovedToTether && !list.failed
+}
+
+/// The same for the direct connections kept in the account.
+fn direct_moved_to_tether(list: &conduit_protocol::DirectConnectionList) -> bool {
+    list.open_web_ui_moved_to_tether && !list.open_web_ui_load_failed
+}
+
 impl E2eInputs {
     pub fn from_args(args: &[String]) -> Option<Self> {
         let arg = |k: &str| {
@@ -2444,6 +2459,38 @@ mod tests {
         ));
         assert!(!names_another_machine("OWUI_URL", "localhost:20500"));
         assert!(names_another_machine("OWUI_URL", "ftp://127.0.0.1/x"));
+    }
+
+    #[test]
+    fn only_a_list_that_loaded_and_moved_skips_the_tether_steps() {
+        use conduit_protocol::{DirectConnectionList, PersonalAccess, PersonalConnections};
+        let personal = |access, failed| PersonalConnections {
+            access,
+            failed,
+            ..Default::default()
+        };
+        assert!(personal_moved_to_tether(&personal(
+            PersonalAccess::MovedToTether,
+            false
+        )));
+        // The account's saved settings could not be read: Settings shows the
+        // failure, so the pass must fail too.
+        assert!(!personal_moved_to_tether(&personal(
+            PersonalAccess::MovedToTether,
+            true
+        )));
+        assert!(!personal_moved_to_tether(&personal(
+            PersonalAccess::Allowed,
+            false
+        )));
+        let direct = |moved, failed| DirectConnectionList {
+            open_web_ui_moved_to_tether: moved,
+            open_web_ui_load_failed: failed,
+            ..Default::default()
+        };
+        assert!(direct_moved_to_tether(&direct(true, false)));
+        assert!(!direct_moved_to_tether(&direct(true, true)));
+        assert!(!direct_moved_to_tether(&direct(false, false)));
     }
 
     #[test]

@@ -166,14 +166,14 @@ never a real one. Each has its own README:
 
 | Tool | What it starts |
 | --- | --- |
-| [`tool/local_owui`](../tool/local_owui/README.md) | Open WebUI 0.13.2 in a venv, seeded with invented users, folders, chats, notes, channels, a knowledge base and files; a fake model (streaming, tools, images, speech, transcription), a fake Hermes API server, a fake Open Terminal, a sign-in proxy, a two-step sign-in account and a synthetic "other site" for remote pictures |
+| [`tool/local_owui`](../tool/local_owui/README.md) | Open WebUI 0.13.4 in a venv, seeded with invented users, folders, chats, notes, channels, a knowledge base and files; a fake model (streaming, tools, images, speech, transcription), a fake Hermes API server, a fake Open Terminal, a sign-in proxy, a two-step sign-in account and a synthetic "other site" for remote pictures |
 | [`tool/local_librechat`](../tool/local_librechat/README.md) | a fake LibreChat server for the LibreChat passes and tests |
 | [`tool/local_hermes_live`](../tool/local_hermes_live/README.md) | a fake live-voice vendor and a loopback TURN relay, for a Hermes voice call |
 
 From the repository root (the `cd` lines included):
 
 ```sh
-tool/local_owui/owui.sh setup     # once: a venv with open-webui 0.13.2
+tool/local_owui/owui.sh setup     # once: a venv with open-webui 0.13.4
 tool/local_owui/owui.sh up        # start it with its fakes, seed it
 (cd apps/daemon && dart test test/live_server_test.dart)
 (cd desktop && crates/app/run.sh --shots /tmp/shots --e2e chat)
@@ -226,6 +226,11 @@ CONDUIT_USER_DATA=/tmp/p-1 CONDUIT_LOGS=/tmp/l-1 \
   passes change the seed, and `rendering` restarts the server.
 - Run one GUI pass at a time: another Conduit window takes the activation
   and greys the screenshots' chrome.
+- On Open WebUI 0.13.4, which moved Personal Connections and direct
+  connections into Tether, `integrations` stops once its pane opens, and
+  `direct-advanced` (the connection kept in the account) and
+  `apps-leftovers` (the personal terminal's preview) skip those steps.
+  Each prints a `SMOKE e2e skip` line.
 - A scripted run never asks macOS for a permission (microphone, speech,
   notifications, location): it uses stand-ins (a WAV for the microphone, a
   fixed position for `{{USER_LOCATION}}`) or skips what needs the real

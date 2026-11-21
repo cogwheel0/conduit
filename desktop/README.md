@@ -64,7 +64,7 @@ quits, which stops the daemon. `CONDUIT_USER_DATA`, `CONDUIT_LOGS` and
 ### Live passes (E2E)
 
 `--e2e <scenario>` drives the app over the real daemon against a throwaway
-local Open WebUI 0.13.2 with a fake model, a fake Hermes server and invented
+local Open WebUI 0.13.4 with a fake model, a fake Hermes server and invented
 accounts and chats ([`tool/local_owui`](../tool/local_owui/README.md)). It
 never talks to a real server; CI does not run it. The passes, `--capture`,
 `--probe` and the fixtures are compiled only with the `harness` cargo

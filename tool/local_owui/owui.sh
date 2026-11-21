@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A throwaway local Open WebUI 0.13.2 with a fake model and synthetic seed
+# A throwaway local Open WebUI 0.13.4 with a fake model and synthetic seed
 # data, for the daemon's live tests and the desktop app's E2E passes.
 #
 #   tool/local_owui/owui.sh setup          venv with open-webui (once, ~5 min)
@@ -55,7 +55,7 @@
 #
 #   CONDUIT_DEV_CACHE    the cache root (~/Library/Caches/conduit-dev on
 #                        macOS, ${XDG_CACHE_HOME:-~/.cache}/conduit-dev elsewhere)
-#   CONDUIT_OWUI_VENV    the venv (default $CONDUIT_DEV_CACHE/owui-0.13.2)
+#   CONDUIT_OWUI_VENV    the venv (default $CONDUIT_DEV_CACHE/owui-0.13.4)
 #   CONDUIT_OWUI_PYTHON  a CPython 3.11 for setup (default: uv's, then
 #                        python3.11 on PATH)
 #   CONDUIT_OWUI_ENV     the env file seed writes and the tests read
@@ -65,7 +65,7 @@
 # ever deleted: reset moves the old data into $CONDUIT_OWUI_DIR/old/.
 set -euo pipefail
 
-OWUI_VERSION=0.13.2
+OWUI_VERSION=0.13.4
 TOOL_DIR=$(cd "$(dirname "$0")" && pwd)
 
 if [ "$(uname -s)" = Darwin ]; then
@@ -222,9 +222,24 @@ find_python() {
   exit 1
 }
 
+# The open-webui version installed in the venv, or nothing.
+venv_version() {
+  "$VENV/bin/python" -I -c 'import importlib.metadata as m; print(m.version("open-webui"))' 2>/dev/null || true
+}
+
+# The version the server on URL says it runs (/api/config), or nothing when
+# it does not answer.
+running_version() {
+  curl -s --noproxy '*' --max-time 5 "$URL/api/config" 2>/dev/null |
+    "$VENV/bin/python" -I -c 'import json, sys
+try:
+    print(json.load(sys.stdin).get("version") or "")
+except ValueError:
+    pass' 2>/dev/null || true
+}
+
 setup() {
-  if [ -x "$VENV/bin/open-webui" ] &&
-    [ "$("$VENV/bin/python" -c 'import importlib.metadata as m; print(m.version("open-webui"))' 2>/dev/null)" = "$OWUI_VERSION" ]; then
+  if [ -x "$VENV/bin/open-webui" ] && [ "$(venv_version)" = "$OWUI_VERSION" ]; then
     echo "open-webui $OWUI_VERSION is ready in $VENV"
     return
   fi
@@ -254,6 +269,15 @@ persistent_config() {
 start() {
   need_venv
   if alive server; then
+    # A server started from an older venv (before a `setup` that installed
+    # another version) keeps running; seeding it would test the wrong version.
+    local running installed
+    running=$(running_version)
+    installed=$(venv_version)
+    if [ -n "$running" ] && [ -n "$installed" ] && [ "$running" != "$installed" ]; then
+      echo "the server at $(cat "$STATE/url") runs Open WebUI $running, but $VENV has $installed: run '$0 stop' (the data stays), then '$0 up'" >&2
+      exit 1
+    fi
     echo "already running at $(cat "$STATE/url")"
     return
   fi
@@ -329,6 +353,8 @@ start() {
     # DATABASE_TYPE and its parts), STORAGE_PROVIDER (s3, gcs, azure) or
     # OPENAI_API_BASE_URLS/KEYS would point this throwaway server at real
     # data, a real bucket or a real provider.
+    # ENABLE_DIRECT_CONNECTIONS and ENABLE_DIRECT_INTEGRATIONS only reach a
+    # CONDUIT_OWUI_VENV of 0.13.3 or older: 0.13.4 moved both into Tether.
     DATA_DIR="$DATA" STORAGE_PROVIDER=local \
       DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
       OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \

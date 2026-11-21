@@ -2,7 +2,7 @@
 
 The daemon's live tests (`apps/daemon/test/live_server_test.dart`), its
 signed-in smoke run (`apps/daemon/tool/smoke.dart`) and the desktop app's
-`--e2e` passes run against a throwaway Open WebUI 0.13.2 on this machine,
+`--e2e` passes run against a throwaway Open WebUI 0.13.4 on this machine,
 with a fake model and invented data. Nothing here talks to a real server
 or a real model, and CI never starts it: there, those tests skip.
 
@@ -16,7 +16,7 @@ tool/local_owui/owui.sh stop
 
 `setup` needs a CPython 3.11: uv's (`uv python install 3.11`), or
 `python3.11` on `PATH`, or `CONDUIT_OWUI_PYTHON`. The venv lives in
-`~/Library/Caches/conduit-dev/owui-0.13.2` (`CONDUIT_OWUI_VENV`), and the
+`~/Library/Caches/conduit-dev/owui-0.13.4` (`CONDUIT_OWUI_VENV`), and the
 instance (data, logs, pids and a generated secret key) in
 `~/Library/Caches/conduit-dev/local-owui` (`CONDUIT_OWUI_DIR`, or `--dir`).
 The daemon's tests find the instance through `CONDUIT_OWUI_DIR` (or
@@ -38,20 +38,22 @@ A start refuses a port something else already listens on, and a running
 instance keeps the ports it was started on: any command but `stop`,
 `status`, `reset` and `env` given another port is refused, so `seed` and
 `chat` never reach another listener. `tool/local_owui/ports_test.sh` checks
-that.
+that. `start` and `up` also refuse a running server that says it runs
+another Open WebUI version than the venv has, as one started before a
+`setup` of a newer version does: `stop` it first (the data stays).
+`tool/local_owui/version_test.sh` checks that.
 
 ## What it holds
 
 `owui.sh start` runs Open WebUI with `ENABLE_PERSISTENT_CONFIG=false`,
-offline, with direct connections and channels on, retrieval bypassed, and
-one OpenAI connection, `fake_model.py`, which also does its speech-to-text,
-text-to-speech and embeddings (saving a memory needs one), and is the voice
-behind the server's realtime calls (a scripted exchange over its
-`/v1/realtime` WebSocket). The fake model also serves a personal tool
-server (OpenAPI, `/personal/openapi.json`, one operation `read_buoy`) for
-the app to add and run client-side (direct integrations are on), and
-takes webhook deliveries on any `/webhook/...` path (user webhooks are
-on), logging both. `seed.py` then
+offline, with channels on, retrieval bypassed, and one OpenAI connection,
+`fake_model.py`, which also does its speech-to-text, text-to-speech and
+embeddings (saving a memory needs one), and is the voice behind the
+server's realtime calls (a scripted exchange over its `/v1/realtime`
+WebSocket). The fake model also serves a personal tool server (OpenAPI,
+`/personal/openapi.json`, one operation `read_buoy`) for Personal
+Connections (see below), and takes webhook deliveries on any
+`/webhook/...` path (user webhooks are on), logging both. `seed.py` then
 makes:
 
 - an admin, Avery Tester (`avery@example.test`), and a second user, Riley
@@ -63,6 +65,14 @@ makes:
   with the admin;
 - prompts `/orbit` and `/brief` (with a select variable) and an uploaded
   text file.
+
+Open WebUI 0.13.4 moved direct connections and Personal Connections (the
+tool servers and terminals kept in the account) into Tether, its companion
+app, and dropped the settings that turned them on. Against it, the tests
+of a connection kept in the account are skipped, and the desktop passes
+skip those steps with a line saying so, until Conduit can act as a Tether
+device. The daemon's terminal test still writes a terminal into the
+account's settings itself and reaches it directly.
 
 ## The env file
 
