@@ -1029,6 +1029,15 @@ Future<void> _finishSubmittedOpenWebUiCompletionHeadlessly(
         data: {'chatId': chatId},
       );
       await _abortQuietly(session);
+      // The client closed under the wait (the host shutting down): nothing
+      // can be read now, and the reply may still finish. The turn stays
+      // queued, and its retry reads the reply (it is marked submitted).
+      if (error is HeldReplyAbandoned) {
+        throw const _QueuedCompletionDeferred(
+          'The wait for a held reply ended with its client; it is read again '
+          'on the next drain.',
+        );
+      }
       drainFailure = error;
     }
   }

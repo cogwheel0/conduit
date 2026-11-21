@@ -36,6 +36,7 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show openWebUiDuplicateAccountReconcilerProvider;
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:conduit_core/services/api_service.dart' show ApiService;
 import 'package:conduit_core/services/connectivity_service.dart'
     show isOnlineProvider;
 import 'package:conduit_core/services/settings_service.dart'
@@ -520,9 +521,11 @@ final class CoreRuntime {
     }
   }
 
-  /// Fails the Open WebUI requests still out at once: the container's own
+  /// Fails the Open WebUI requests still out at once, on the current client
+  /// and on any a rebuild retired that a sync still holds: the container's own
   /// dispose lets them run to completion, as a rebuild needs.
   void _cutOpenWebUiRequests() {
+    ApiService.closeRetiredNow();
     if (!container.read(apiServiceProvider.exists)) return;
     try {
       container.read(apiServiceProvider)?.closeNow();
