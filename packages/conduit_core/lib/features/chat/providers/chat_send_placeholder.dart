@@ -288,6 +288,11 @@ Future<void> durableSend(
   onAssistantPlaceholderCreated,
   void Function(ChatSendAdmissionReceipt receipt)? onAdmissionCommitted,
   void Function()? onTurnStarted,
+
+  /// The composer's files [attachments] were taken from, as the send took
+  /// them. The send reads them here, not in the tray, which may have changed
+  /// since. Null reads the tray.
+  List<FileUploadState>? attachmentStates,
 }) async {
   Future<void> inlineSend() {
     if (onAdmissionCommitted != null) {
@@ -303,6 +308,7 @@ Future<void> durableSend(
       onAssistantPlaceholderCreated,
       voice,
       onTurnStarted,
+      attachmentStates,
     );
   }
 
@@ -488,6 +494,7 @@ Future<void> durableSend(
       attachmentList,
       sourceApi: sendMutationOwner.openWebUiApi,
       sourceAuthSnapshot: sendMutationOwner.openWebUiAuthSnapshot,
+      attachmentStates: attachmentStates,
       requireSourceContext: () =>
           _requireChatMutationOpenWebUiAuthSession(ref, sendMutationOwner),
     );
@@ -869,12 +876,17 @@ Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
   ApiAuthSnapshot? sourceAuthSnapshot,
   CancelToken? cancelToken,
   _AttachmentFactsMap? capturedFacts,
+  List<FileUploadState>? attachmentStates,
   void Function()? requireSourceContext,
 }) async {
   if (attachments.isEmpty) return const [];
 
   final facts = capturedFacts == null
-      ? _durableAttachmentFactsFromState(ref, attachments)
+      ? _durableAttachmentFactsFromState(
+          ref,
+          attachments,
+          states: attachmentStates,
+        )
       : Map<String, _AttachmentFacts>.from(capturedFacts);
   // The server's record of a file has what the composer and the cached list
   // do not: the type of a document, and the name of one attached from
@@ -918,10 +930,13 @@ Future<List<Map<String, dynamic>>> _resolveDurableFilesFor(
   return _durableFilesFor(attachments, facts: facts);
 }
 
+/// What the files [attachments] name are, read from [states] (the files a
+/// send took), or else from the tray and the queued drafts.
 _AttachmentFactsMap _durableAttachmentFactsFromState(
   dynamic ref,
-  List<String> attachments,
-) {
+  List<String> attachments, {
+  List<FileUploadState>? states,
+}) {
   // A data-URL image is named only by the file it came from.
   final ids = attachments.toSet();
   if (ids.isEmpty) return <String, _AttachmentFacts>{};
@@ -930,13 +945,15 @@ _AttachmentFactsMap _durableAttachmentFactsFromState(
 
   try {
     // Files of drafts queued behind a response are no longer in the tray.
-    for (final file in [
-      ...ref.read(attachedFilesProvider) as List<FileUploadState>,
-      for (final held in ref.read(
-        queuedDraftAttachmentsProvider,
-      ) as List<QueuedDraftAttachment>)
-        held.upload,
-    ]) {
+    for (final file
+        in states ??
+            [
+              ...ref.read(attachedFilesProvider) as List<FileUploadState>,
+              for (final held in ref.read(
+                queuedDraftAttachmentsProvider,
+              ) as List<QueuedDraftAttachment>)
+                held.upload,
+            ]) {
       final fileId = file.fileId;
       if (fileId == null || !ids.contains(fileId)) continue;
       // An image's type from its name; a document's is the server's.

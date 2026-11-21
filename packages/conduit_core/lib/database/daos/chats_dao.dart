@@ -2112,6 +2112,46 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Records that the server took the request writing answer [messageId] of
+  /// chat [chatId]: its row says so
+  /// ([MessagesDao.markAssistantCompletionSubmitted]), and so does the
+  /// `requestCompletion` op that sent it ([RequestCompletionPayload.submitted]),
+  /// which no pull rewrites. Returns whether the row was there to mark.
+  Future<bool> recordCompletionSubmitted({
+    required String chatId,
+    required String messageId,
+  }) {
+    return transaction(() async {
+      final marked = await attachedDatabase.messagesDao
+          .markAssistantCompletionSubmitted(
+            chatId: chatId,
+            messageId: messageId,
+          );
+      final completions =
+          await (select(_outboxDao.outboxOps)..where(
+                (t) =>
+                    t.chatId.equals(chatId) &
+                    t.kind.equals(OutboxKind.requestCompletion.name),
+              ))
+              .get();
+      for (final op in completions) {
+        if (!_requestCompletionAssistantIds(op.payload).contains(messageId)) {
+          continue;
+        }
+        final payload = _decodeJsonObject(op.payload);
+        if (payload['submitted'] == true) continue;
+        await (update(
+          _outboxDao.outboxOps,
+        )..where((t) => t.seq.equals(op.seq))).write(
+          OutboxOpsCompanion(
+            payload: Value(jsonEncode({...payload, 'submitted': true})),
+          ),
+        );
+      }
+      return marked;
+    });
+  }
+
   /// Records that the server held the question [questionId] of a turn
   /// instead of answering it, before anything else of the turn's settle
   /// ([settleHeldTurn]) runs: its empty answers [assistantMessageIds] are

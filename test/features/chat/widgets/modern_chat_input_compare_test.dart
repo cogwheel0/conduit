@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit/core/services/media_upload_controller.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
@@ -96,6 +97,7 @@ void main() {
     Future<ChatSendPlaceholderHandle?> Function()? host,
     Future<ChatSendPlaceholderHandle?> Function(
       String,
+      MediaAttachmentOwnershipSnapshot,
       void Function(ChatSendPlaceholderHandle),
     )?
     draftHost,
@@ -159,7 +161,7 @@ void main() {
               onSendMessage: ordinarySends.add,
               onSendDraft: draftHost,
               onCompareSend: hostsComparison
-                  ? (text, models, onPrepared) async {
+                  ? (text, models, _, onPrepared) async {
                       sends.add((
                         text: text,
                         models: [for (final m in models) m.id],
@@ -276,7 +278,10 @@ void main() {
     tester,
   ) async {
     final admission = Completer<ChatSendPlaceholderHandle?>();
-    final container = await pump(tester, draftHost: (_, _) => admission.future);
+    final container = await pump(
+      tester,
+      draftHost: (_, _, _) => admission.future,
+    );
     await recording(tester, container, 'first-recording');
     await tester.enterText(find.byType(TextField), 'Keep this unsent input');
     await tester.pump();
@@ -301,7 +306,7 @@ void main() {
       late ProviderContainer container;
       container = await pump(
         tester,
-        draftHost: (text, onPrepared) async {
+        draftHost: (text, _, onPrepared) async {
           await admission.future;
           ChatSendPlaceholderHandle? committed;
           await durableSend(

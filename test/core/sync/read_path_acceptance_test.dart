@@ -28,6 +28,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:conduit_core/testing.dart';
 
 class _AirplaneModeSyncApiClient implements SyncApiClient {
+  @override
+  SyncApiClient? ownedBy(AppDatabase db) => this;
+
   int calls = 0;
 
   Never _offline() {

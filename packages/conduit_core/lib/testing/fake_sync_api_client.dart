@@ -5,6 +5,7 @@ library;
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 
 import 'fake_open_webui_server.dart';
@@ -94,6 +95,9 @@ class FakeSyncApiClient implements SyncApiClient {
     }
     return _hide(server.getArchivedChatList(page: page));
   }
+
+  @override
+  SyncApiClient? ownedBy(AppDatabase db) => this;
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) async {

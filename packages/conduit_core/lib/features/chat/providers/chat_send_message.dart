@@ -11,6 +11,7 @@ Future<void> _sendMessageInternal(
   onAssistantPlaceholderCreated,
   ChatSendVoiceContext? voice,
   void Function()? onTurnStarted,
+  List<FileUploadState>? attachmentStates,
 ]) async {
   final libreChatSelected = ref.read(selectedModelProvider) as Model?;
   final libreChatActive = ref.read(activeConversationProvider) as Conversation?;
@@ -165,6 +166,7 @@ Future<void> _sendMessageInternal(
   final directAttachmentFacts = _durableAttachmentFactsFromState(
     ref,
     attachments ?? const <String>[],
+    states: attachmentStates,
   );
   final directAttachmentNames = <String>[
     for (final attachment in attachments ?? const <String>[])
@@ -202,6 +204,7 @@ Future<void> _sendMessageInternal(
           selectedModel: selectedModel,
           text: message,
           attachmentIds: attachments,
+          attachmentStates: attachmentStates,
           contextAttachments: contextAttachments,
         )
       : null;
@@ -209,6 +212,7 @@ Future<void> _sendMessageInternal(
       ? await _prepareDirectDocuments(
           ref,
           attachmentIds: attachments,
+          attachmentStates: attachmentStates,
           supportsOpenRouterPdfInputs:
               directRoute.profile.supportsOpenRouterPdfInputs,
         )
@@ -241,7 +245,8 @@ Future<void> _sendMessageInternal(
   if (attachments != null && preparedHermesTurn == null) {
     final trayNames = <String, String>{
       for (final file
-          in ref.read(attachedFilesProvider) as List<FileUploadState>)
+          in attachmentStates ??
+              ref.read(attachedFilesProvider) as List<FileUploadState>)
         ?file.fileId: file.fileName,
     };
     for (final attachment in attachments) {

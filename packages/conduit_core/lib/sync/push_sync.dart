@@ -108,6 +108,7 @@ class PushSync {
       });
     }
 
+    final client = _ownedClient(localId);
     return _chatLocks.runExclusive(localId, () async {
       final chat = await _db.chatsDao.getChat(localId);
       if (chat == null) {
@@ -127,7 +128,7 @@ class PushSync {
           'createChat deferred until folder remap completes: $localId',
         );
       }
-      final resp = await _client.createChat(blob, folderId: chat.folderId);
+      final resp = await client.createChat(blob, folderId: chat.folderId);
       final serverId = resp['id'];
       if (serverId is! String || serverId.isEmpty) {
         throw StateError('createChat response without a string id');
@@ -197,6 +198,7 @@ class PushSync {
   /// reconstructs from those rows (which already overlay local dirty edits) and
   /// pushes the complete blob.
   Future<void> pushUpdateChat(String chatId) async {
+    final client = _ownedClient(chatId);
     await _chatLocks.runExclusive(chatId, () async {
       final chat = await _db.chatsDao.getChat(chatId);
       if (chat == null || chat.deleted) {
@@ -231,7 +233,7 @@ class PushSync {
       final rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
       final blob = ChatBlobMapper.rowsToBlob(rows);
 
-      final resp = await _client.updateChat(chatId, blob);
+      final resp = await client.updateChat(chatId, blob);
       if (resp == null) {
         // 404: chat gone server-side. Phase 2 treats this as terminal (log +
         // let the drainer markDone); Phase 3 reconciles.
@@ -268,7 +270,7 @@ class PushSync {
           : null;
       final movedFolder = chat.folderId != serverFolderId;
       if (movedFolder) {
-        await _client.moveChatToFolder(chatId, chat.folderId);
+        await client.moveChatToFolder(chatId, chat.folderId);
       }
 
       // pin/archive toggle-delta (B1): the server only exposes stateless toggle
@@ -286,17 +288,18 @@ class PushSync {
         // Pin lives in a join table; confirm against /pinned (authoritative)
         // rather than the ChatResponse copy. This path intentionally skips
         // getChatRaw; no archive liveness check is needed for a pin-only delta.
-        await _setChatPinned(chatId, desired: chat.pinned);
+        await _setChatPinned(client, chatId, desired: chat.pinned);
       } else if (needsArchiveCheck) {
         // A liveness fetch is needed only for archive reconciliation: the
         // archive flag rides the ChatResponse, while pin has a dedicated
         // authoritative endpoint below.
-        final liveRaw = await _client.getChatRaw(chatId);
+        final liveRaw = await client.getChatRaw(chatId);
         if (liveRaw != null) {
           if (needsPinCheck) {
-            await _setChatPinned(chatId, desired: chat.pinned);
+            await _setChatPinned(client, chatId, desired: chat.pinned);
           }
           await _setChatArchived(
+            client,
             chatId,
             desired: chat.archived,
             initialRaw: liveRaw,
@@ -318,11 +321,15 @@ class PushSync {
     });
   }
 
-  Future<void> _setChatPinned(String chatId, {required bool desired}) async {
-    var livePinned = await _client.getChatPinned(chatId);
+  Future<void> _setChatPinned(
+    SyncApiClient client,
+    String chatId, {
+    required bool desired,
+  }) async {
+    var livePinned = await client.getChatPinned(chatId);
     if (livePinned != desired) {
-      await _client.togglePin(chatId);
-      livePinned = await _client.getChatPinned(chatId);
+      await client.togglePin(chatId);
+      livePinned = await client.getChatPinned(chatId);
     }
     if (livePinned != desired) {
       DebugLogger.warning(
@@ -335,11 +342,12 @@ class PushSync {
   }
 
   Future<void> _setChatArchived(
+    SyncApiClient client,
     String chatId, {
     required bool desired,
     Map<String, dynamic>? initialRaw,
   }) async {
-    var liveRaw = initialRaw ?? await _client.getChatRaw(chatId);
+    var liveRaw = initialRaw ?? await client.getChatRaw(chatId);
     if (liveRaw == null) {
       DebugLogger.warning(
         'archive-confirm-404',
@@ -351,8 +359,8 @@ class PushSync {
 
     var liveArchived = liveRaw['archived'] == true;
     if (liveArchived != desired) {
-      await _client.toggleArchive(chatId);
-      liveRaw = await _client.getChatRaw(chatId);
+      await client.toggleArchive(chatId);
+      liveRaw = await client.getChatRaw(chatId);
       if (liveRaw == null) {
         DebugLogger.warning(
           'archive-post-toggle-404',
@@ -374,6 +382,17 @@ class PushSync {
     }
   }
 
+  /// The client one chat push sends with, taken as it starts: bound to the
+  /// session that owns this account's database then
+  /// ([SyncApiClient.ownedBy]). While none does, the push waits, unsent.
+  SyncApiClient _ownedClient(String chatId) {
+    final client = _client.ownedBy(_db);
+    if (client == null) {
+      throw _OutboxDeferred('no session owns the account of chat $chatId');
+    }
+    return client;
+  }
+
   static bool _isHeldAnswer(MessageRow message) {
     if (message.role != 'assistant') return false;
     try {
@@ -391,10 +410,11 @@ class PushSync {
   /// rows. On a terminal 401/403 the [SyncTerminalException] propagates so the
   /// drainer parks the op; the rows stay tombstoned (NOT purged).
   Future<void> pushDeleteChat(String chatId) async {
+    final client = _ownedClient(chatId);
     await _chatLocks.runExclusive(chatId, () async {
       // 404 -> false (already gone) -> still proceed to purge. 401/403 throws
       // and aborts the purge.
-      await _client.deleteChat(chatId);
+      await client.deleteChat(chatId);
       await _db.chatsDao.purgeReconciledChat(chatId);
     });
   }
@@ -410,7 +430,7 @@ class PushSync {
     String chatId,
     List<String> messageIds,
   ) async {
-    await _client.deleteChatMessages(chatId, messageIds);
+    await _ownedClient(chatId).deleteChatMessages(chatId, messageIds);
     _db.chatsDao.noteMessageDeletesLanded(chatId, messageIds);
   }
 

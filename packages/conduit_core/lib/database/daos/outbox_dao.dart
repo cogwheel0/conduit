@@ -80,6 +80,7 @@ class RequestCompletionPayload {
     this.chatSettings,
     this.comparison,
     this.stopped = false,
+    this.submitted = false,
     this.held = false,
     this.heldQuestionId,
     this.heldEarlierIds = const <String>[],
@@ -124,6 +125,13 @@ class RequestCompletionPayload {
   /// later run of the app, and its answer is settled as stopped instead.
   final bool stopped;
 
+  /// The server took the request ([ChatsDao.recordCompletionSubmitted]).
+  /// Every later attempt only collects the answers, by pull, and never sends
+  /// the request again. Kept here, beside the op, because a pull rewrites the
+  /// answers' rows and the mark on them with it. An op queued before this
+  /// field existed has only that mark.
+  final bool submitted;
+
   /// The request went out and the server held its question [heldQuestionId]
   /// behind a reply still running ([ChatsDao.recordHeldTurn]). Every later
   /// attempt only settles the turn, its empty answers' delete included, and
@@ -150,6 +158,7 @@ class RequestCompletionPayload {
     if (chatSettings != null) 'chatSettings': chatSettings!.toJson(),
     if (comparison != null) 'comparison': comparison!.toJson(),
     if (stopped) 'stopped': true,
+    if (submitted) 'submitted': true,
     if (held) 'held': true,
     if (heldQuestionId != null) 'heldQuestionId': heldQuestionId,
     if (heldEarlierIds.isNotEmpty) 'heldEarlierIds': heldEarlierIds,
@@ -180,6 +189,7 @@ class RequestCompletionPayload {
           ? ComparisonGroupSnapshot.fromJson(json['comparison'])
           : null,
       stopped: json['stopped'] == true,
+      submitted: json['submitted'] == true,
       held: json['held'] == true,
       heldQuestionId: json['heldQuestionId'] is String
           ? json['heldQuestionId'] as String

@@ -1510,9 +1510,14 @@ void main() {
     },
   );
 
-  test(
-    'direct document text stays out of the bubble and reaches the adapter',
-    () async {
+  // The send reads its files as it took them: a document removed from the
+  // tray after Send still goes with the message.
+  for (final (label, removedSince) in const [
+    ('in the tray', false),
+    ('removed from the tray since the send took it', true),
+  ]) {
+    test('direct document text stays out of the bubble and reaches the adapter '
+        '($label)', () async {
       final directory = await Directory.systemTemp.createTemp(
         'conduit_direct_send_document_',
       );
@@ -1570,7 +1575,7 @@ void main() {
             (ref) async => _directDocumentTestKey,
           ),
           attachedFilesProvider.overrideWith(
-            () => _SeededDirectAttachments([attachment]),
+            () => _SeededDirectAttachments(removedSince ? [] : [attachment]),
           ),
         ],
       );
@@ -1578,9 +1583,9 @@ void main() {
       container.read(activeConversationProvider.notifier).set(chat);
       container.read(chatMessagesProvider.notifier).setMessages(chat.messages);
 
-      await sendMessageWithContainer(container, 'Summarize this', const [
+      await durableSend(container, 'Summarize this', const [
         attachmentId,
-      ]);
+      ], attachmentStates: removedSince ? [attachment] : null);
 
       final request = adapter.request;
       expect(request, isNotNull);
@@ -1603,8 +1608,8 @@ void main() {
         user.files!.single['direct_extracted_text'],
         'private direct reference',
       );
-    },
-  );
+    });
+  }
 
   test(
     'navigation during direct attachment preflight completes in its owner chat',

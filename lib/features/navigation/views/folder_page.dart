@@ -635,32 +635,36 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
   }
 
+  /// Sends [text] as a new chat in this folder, with [sentFiles], the
+  /// composer's files taken for it, or else the tray's uploaded files now.
   Future<chat.ChatSendPlaceholderHandle?> _handleComposerSend(
     String text, {
     void Function(chat.ChatSendPlaceholderHandle)? onPrepared,
+    MediaAttachmentOwnershipSnapshot? sentFiles,
   }) async {
+    final media = ref.read(mediaUploadControllerProvider);
+    final files = sentFiles ?? media.captureSentAttachments();
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
+      unawaited(media.releaseSentAttachments(files));
       return null;
     }
 
     setState(() => _isSendingComposerMessage = true);
     final container = ProviderScope.containerOf(context, listen: false);
+    final owner = chat.captureChatSendOwner(container);
     chat.ChatSendPlaceholderHandle? pendingSend;
 
     try {
       final hasModel = await _ensureSelectedModel(container);
-      if (!hasModel) {
+      if (!hasModel || !chat.chatSendOwnerIsCurrent(container, owner)) {
         return null;
       }
 
-      final attachedFiles = container.read(attachedFilesProvider);
       final mediaUploadController = container.read(
         mediaUploadControllerProvider,
       );
-      final sentAttachmentOwnership = mediaUploadController
-          .captureAttachmentOwnership();
-      final uploadedFileIds = attachedFiles
+      final uploadedFileIds = files.attachments
           .where(
             (file) =>
                 file.status == FileUploadStatus.completed &&
@@ -686,6 +690,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         text,
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
+        attachmentStates: files.attachments,
         pendingFolderIdOverride: widget.folderId,
         onAssistantPlaceholderCreated: (handle) {
           pendingSend = handle;
@@ -695,16 +700,17 @@ class _FolderPageState extends ConsumerState<FolderPage> {
 
       // durableSend has now transferred all message/outbox ownership.
       unawaited(
-        mediaUploadController
-            .retireAttachmentOwnership(sentAttachmentOwnership)
-            .catchError((Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'sent-attachment-cleanup-failed',
-                scope: 'navigation/folder',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            }),
+        mediaUploadController.retireAttachmentOwnership(files).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          DebugLogger.error(
+            'sent-attachment-cleanup-failed',
+            scope: 'navigation/folder',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }),
       );
       return pendingSend;
     } catch (e, stackTrace) {
@@ -721,6 +727,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       chat.recoverFailedChatSend(container, e, pendingSend);
       return null;
     } finally {
+      unawaited(media.releaseSentAttachments(files));
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
       }
@@ -733,10 +740,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   Future<chat.ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    MediaAttachmentOwnershipSnapshot files,
     void Function(chat.ChatSendPlaceholderHandle) onPrepared,
   ) async {
+    final media = ref.read(mediaUploadControllerProvider);
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
+      unawaited(media.releaseSentAttachments(files));
       return null;
     }
 
@@ -744,13 +754,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     final container = ProviderScope.containerOf(context, listen: false);
 
     try {
-      final attachedFiles = container.read(attachedFilesProvider);
       final mediaUploadController = container.read(
         mediaUploadControllerProvider,
       );
-      final sentAttachmentOwnership = mediaUploadController
-          .captureAttachmentOwnership();
-      final uploadedFileIds = attachedFiles
+      final uploadedFileIds = files.attachments
           .where(
             (file) =>
                 file.status == FileUploadStatus.completed &&
@@ -776,6 +783,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         models: models,
         onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
+        attachmentStates: files.attachments,
         onCommitted: () {
           // The shell keeps this page mounted in a branch no longer shown,
           // and a page pushed over it keeps it mounted behind.
@@ -793,16 +801,17 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       );
 
       unawaited(
-        mediaUploadController
-            .retireAttachmentOwnership(sentAttachmentOwnership)
-            .catchError((Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'sent-attachment-cleanup-failed',
-                scope: 'navigation/folder',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            }),
+        mediaUploadController.retireAttachmentOwnership(files).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          DebugLogger.error(
+            'sent-attachment-cleanup-failed',
+            scope: 'navigation/folder',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }),
       );
       return handles.first;
     } on chat.ComparisonAdmissionException catch (error) {
@@ -826,6 +835,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       );
       return null;
     } finally {
+      unawaited(media.releaseSentAttachments(files));
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
       }
@@ -1558,8 +1568,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     'folder-page-composer-${widget.folderId}-$_composerResetNonce',
                   ),
                   onSendMessage: _handleComposerSend,
-                  onSendDraft: (text, onPrepared) =>
-                      _handleComposerSend(text, onPrepared: onPrepared),
+                  onSendDraft: (text, files, onPrepared) => _handleComposerSend(
+                    text,
+                    onPrepared: onPrepared,
+                    sentFiles: files,
+                  ),
                   onCompareSend: _handleCompareSend,
                   enabled:
                       !ref.watch(conversationSelectionProvider).isLoading &&

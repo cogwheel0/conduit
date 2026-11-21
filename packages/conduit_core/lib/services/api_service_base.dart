@@ -97,7 +97,7 @@ abstract class _ApiServiceBase {
     String messageId,
   );
   Future<ServerUserSettings> getServerUserSettingsModel();
-  Future<bool> deleteChatRaw(String id);
+  Future<bool> deleteChatRaw(String id, {ApiAuthSnapshot? authSnapshot});
   Future<Map<String, dynamic>?> getChatRaw(
     String id, {
     ApiAuthSnapshot? authSnapshot,

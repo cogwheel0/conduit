@@ -350,6 +350,11 @@ final class MediaAttachmentOwnershipSnapshot {
   const MediaAttachmentOwnershipSnapshot._(this._attachments);
 
   final List<_MediaAttachmentOwnership> _attachments;
+
+  /// The tray's files as they were when captured.
+  List<FileUploadState> get attachments => [
+    for (final owner in _attachments) owner.attachment,
+  ];
 }
 
 typedef _MediaAttachmentOwnership = ({
@@ -398,8 +403,45 @@ class MediaUploadController {
   /// Captures the exact composer and upload owners present at an auth boundary.
   /// The snapshot can be retired later without touching attachments published
   /// by a session that authenticated in the meantime.
-  MediaAttachmentOwnershipSnapshot captureAttachmentOwnership() {
-    final attachments = _ref.read(attachedFilesProvider);
+  MediaAttachmentOwnershipSnapshot captureAttachmentOwnership() =>
+      _captureOwnership(_ref.read(attachedFilesProvider));
+
+  /// Captures the tray's uploaded files for one message. The message carries
+  /// exactly these, and retiring the snapshot once it is admitted removes
+  /// exactly these: a file still uploading, or attached afterwards, stays in
+  /// the tray for the next message.
+  ///
+  /// The send holds them until it retires the snapshot or releases it
+  /// ([releaseSentAttachments]): one removed from the tray meanwhile keeps its
+  /// staged copy, which the send still reads, until the last send holding it
+  /// is done.
+  MediaAttachmentOwnershipSnapshot captureSentAttachments() {
+    final sent = _captureOwnership([
+      for (final attachment in _ref.read(attachedFilesProvider))
+        if (attachment.status == FileUploadStatus.completed &&
+            attachment.fileId != null)
+          attachment,
+    ]);
+    _sending[sent] = {
+      for (final owner in sent._attachments) owner.attachment.file.path,
+    };
+    return sent;
+  }
+
+  /// The paths each send not yet done holds ([captureSentAttachments]).
+  final Map<MediaAttachmentOwnershipSnapshot, Set<String>> _sending =
+      Map.identity();
+
+  /// Paths that left the tray while a send held them, whose cleanup waits for
+  /// the last send holding them.
+  final Set<String> _removedWhileSent = <String>{};
+
+  bool _sentHolds(String filePath) =>
+      _sending.values.any((paths) => paths.contains(filePath));
+
+  MediaAttachmentOwnershipSnapshot _captureOwnership(
+    List<FileUploadState> attachments,
+  ) {
     return MediaAttachmentOwnershipSnapshot._(<_MediaAttachmentOwnership>[
       for (final attachment in attachments)
         () {
@@ -417,6 +459,25 @@ class MediaUploadController {
     ]);
   }
 
+  /// The send that took [sent] is done with it without retiring it: files
+  /// removed from the tray meanwhile are cleaned up now, as their removal
+  /// would have. Nothing is left to release once the snapshot is retired.
+  Future<void> releaseSentAttachments(MediaAttachmentOwnershipSnapshot sent) {
+    final held = _sending.remove(sent);
+    if (held == null) return Future<void>.value();
+    final cleanups = <Future<void>>[];
+    for (final filePath in held) {
+      if (!_removedWhileSent.contains(filePath) || _sentHolds(filePath)) {
+        continue;
+      }
+      _removedWhileSent.remove(filePath);
+      if (_currentAttachment(filePath) == null) {
+        cleanups.add(cancelUploadsForFile(filePath));
+      }
+    }
+    return Future.wait<void>(cleanups).then<void>((_) {});
+  }
+
   /// Retires only owners captured by [captureAttachmentOwnership].
   Future<void> retireAttachmentOwnership(
     MediaAttachmentOwnershipSnapshot snapshot,
@@ -424,6 +485,7 @@ class MediaUploadController {
     final notifier = _ref.read(attachedFilesProvider.notifier);
     final cleanups = <Future<void>>[];
     final retiredPaths = <String>{};
+    _sending.remove(snapshot);
 
     for (final owner in snapshot._attachments) {
       final latestInflightAttachment = owner.inflight?.attachmentOwner;
@@ -435,12 +497,18 @@ class MediaUploadController {
       }
       final removedAttachment = latestInflightAttachment ?? owner.attachment;
       final filePath = owner.attachment.file.path;
-      if (!removed ||
+      if (!(removed || _removedWhileSent.contains(filePath)) ||
           owner.attachment.isRemote ||
           filePath.startsWith('remote://') ||
           !retiredPaths.add(filePath)) {
         continue;
       }
+      // Another send still reads it: its cleanup waits for that one.
+      if (_sentHolds(filePath)) {
+        _removedWhileSent.add(filePath);
+        continue;
+      }
+      _removedWhileSent.remove(filePath);
       cleanups.add(
         _retireCapturedAttachment(
           filePath: filePath,
@@ -894,6 +962,10 @@ class MediaUploadController {
     if (isRemote || filePath.startsWith('remote://')) {
       return Future<void>.value();
     }
+    if (_sentHolds(filePath)) {
+      _removedWhileSent.add(filePath);
+      return Future<void>.value();
+    }
     return cancelUploadsForFile(filePath);
   }
 
@@ -908,8 +980,11 @@ class MediaUploadController {
           attachment.file.path,
     };
     _ref.read(attachedFilesProvider.notifier).clearAll();
-    if (localPaths.isEmpty) return Future<void>.value();
-    return Future.wait<void>(localPaths.map(cancelUploadsForFile))
+    final held = localPaths.where(_sentHolds).toSet();
+    _removedWhileSent.addAll(held);
+    final released = localPaths.difference(held);
+    if (released.isEmpty) return Future<void>.value();
+    return Future.wait<void>(released.map(cancelUploadsForFile))
         .then<void>((_) {});
   }
 
@@ -1003,6 +1078,10 @@ class MediaUploadController {
           path.startsWith('remote://') ||
           next.any((entry) => entry.upload.file.path == path) ||
           _currentAttachment(path) != null) {
+        continue;
+      }
+      if (_sentHolds(path)) {
+        _removedWhileSent.add(path);
         continue;
       }
       unawaited(
@@ -1585,11 +1664,12 @@ class MediaUploadController {
         }
 
         // A photo compressed as it was picked is the tray's own copy, which
-        // its preview reads until the attachment is sent or removed; those
-        // delete it. The row stays to clean it up after a restart.
+        // its preview, and a send that took it, read until the attachment is
+        // sent or removed and that send is done; those delete it. The row
+        // stays to clean it up after a restart.
         if (pickedConversion &&
             entry?.status == QueuedAttachmentStatus.completed &&
-            _currentAttachment(filePath) != null) {
+            (_currentAttachment(filePath) != null || _sentHolds(filePath))) {
           _trayHeldRows[filePath] = (queue: uploader, id: id);
           return;
         }

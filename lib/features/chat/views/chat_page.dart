@@ -1095,18 +1095,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _handleMessageSend(String text) async {
-    await _sendMessage(text, includeComposerContext: true);
+    await _sendMessage(text, sentFiles: _captureSentFiles());
   }
+
+  /// The composer's uploaded files, taken for a send that did not take them
+  /// itself. Read before the send waits on anything.
+  MediaAttachmentOwnershipSnapshot _captureSentFiles() =>
+      ref.read(mediaUploadControllerProvider).captureSentAttachments();
 
   Future<ChatSendPlaceholderHandle?> _handleDraftSend(
     String text,
+    MediaAttachmentOwnershipSnapshot files,
     void Function(ChatSendPlaceholderHandle) onPrepared,
   ) {
     final committed = Completer<ChatSendPlaceholderHandle?>();
     unawaited(
       _sendMessage(
         text,
-        includeComposerContext: true,
+        sentFiles: files,
         onSendPrepared: onPrepared,
         onDraftCommitted: (handle) {
           if (!committed.isCompleted) committed.complete(handle);
@@ -1130,12 +1136,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    MediaAttachmentOwnershipSnapshot files,
     void Function(ChatSendPlaceholderHandle) onPrepared,
   ) async {
     ChatSendPlaceholderHandle? committed;
     final result = await _sendMessage(
       text,
-      includeComposerContext: true,
+      sentFiles: files,
       compareModels: models,
       onSendPrepared: onPrepared,
       onComparisonCommitted: (handle) => committed = handle,
@@ -1283,7 +1290,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   Future<void> _handleFollowUpSend(String text) async {
-    await _sendMessage(text, includeComposerContext: false);
+    await _sendMessage(text);
   }
 
   void _scheduleScreenContextSubmission() {
@@ -1303,7 +1310,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       final result = await _sendMessage(
         'Here is the content of my screen:\n\n$screenContext\n\n'
         'Can you summarize this?',
-        includeComposerContext: true,
+        sentFiles: _captureSentFiles(),
       );
       if (!mounted) return;
 
@@ -1414,14 +1421,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _syncLayoutBottomAnchor();
   }
 
+  /// Sends [text] with [sentFiles], the composer's files taken for it; a send
+  /// with none (a tapped follow-up) takes no file.
   Future<({bool admitted, bool dispatched})> _sendMessage(
     String text, {
-    required bool includeComposerContext,
+    MediaAttachmentOwnershipSnapshot? sentFiles,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
     void Function(ChatSendPlaceholderHandle)? onSendPrepared,
     void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
+    final media = ref.read(mediaUploadControllerProvider);
+    try {
+      return await _sendMessageWithFiles(
+        text,
+        sentFiles: sentFiles,
+        compareModels: compareModels,
+        onComparisonCommitted: onComparisonCommitted,
+        onSendPrepared: onSendPrepared,
+        onDraftCommitted: onDraftCommitted,
+      );
+    } finally {
+      if (sentFiles != null) unawaited(media.releaseSentAttachments(sentFiles));
+    }
+  }
+
+  Future<({bool admitted, bool dispatched})> _sendMessageWithFiles(
+    String text, {
+    required MediaAttachmentOwnershipSnapshot? sentFiles,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
+  }) async {
+    // Named as the send is asked for, with its files: after any wait below,
+    // the message goes only to this account and chat.
+    final owner = captureChatSendOwner(ref);
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
       isSavingTemporary: _isSavingTemporary,
@@ -1436,7 +1471,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     try {
       dispatched = await _sendMessageAfterAdmission(
         text,
-        includeComposerContext: includeComposerContext,
+        owner: owner,
+        sentFiles: sentFiles,
         sendOwner: sendOwner,
         compareModels: compareModels,
         onComparisonCommitted: onComparisonCommitted,
@@ -1451,7 +1487,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Future<bool> _sendMessageAfterAdmission(
     String text, {
-    required bool includeComposerContext,
+    required ChatSendOwner owner,
+    required MediaAttachmentOwnershipSnapshot? sentFiles,
     required Object sendOwner,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
@@ -1472,7 +1509,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       } catch (_) {
         failed = true;
       }
-      if (!mounted) return false;
+      if (!mounted || !chatSendOwnerIsCurrent(ref, owner)) return false;
       // A model picked while that waited is the user's choice; the fallback
       // only stands in for none.
       selectedModel = ref.read(selectedModelProvider) ?? fallback;
@@ -1493,13 +1530,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     var pendingSends = const <ChatSendPlaceholderHandle>[];
     var didDispatch = false;
     try {
-      // Get attached files and collect uploaded file IDs (including data URLs for images)
-      final attachedFiles = includeComposerContext
-          ? ref.read(attachedFilesProvider)
-          : const <FileUploadState>[];
+      // Collect uploaded file IDs (including data URLs for images)
+      final attachedFiles = sentFiles?.attachments ?? const <FileUploadState>[];
       final mediaUploadController = ref.read(mediaUploadControllerProvider);
-      final sentAttachmentOwnership = mediaUploadController
-          .captureAttachmentOwnership();
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
@@ -1531,6 +1564,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           models: compareModels,
           onAssistantPlaceholderCreated: onSendPrepared,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
+          attachmentStates: sentFiles?.attachments,
         );
         pendingSends = handles;
         onComparisonCommitted?.call(handles.first);
@@ -1559,6 +1593,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           text,
           uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
+          attachmentStates: sentFiles?.attachments,
           onAssistantPlaceholderCreated: (handle) {
             didDispatch = true;
             _releaseMessageSendAdmission(sendOwner);
@@ -1597,19 +1632,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Clear only after durableSend has transferred every attachment needed
       // by the message/outbox. Retire only the exact identities/generations
       // captured for this send: a paste or picker result published while the
-      // durable transaction awaited still belongs to the next composer turn.
-      if (includeComposerContext) {
+      // send awaited still belongs to the next composer turn.
+      if (sentFiles != null) {
         unawaited(
-          mediaUploadController
-              .retireAttachmentOwnership(sentAttachmentOwnership)
-              .catchError((Object error, StackTrace stackTrace) {
-                DebugLogger.error(
-                  'sent-attachment-cleanup-failed',
-                  scope: 'chat/attachment',
-                  error: error,
-                  stackTrace: stackTrace,
-                );
-              }),
+          mediaUploadController.retireAttachmentOwnership(sentFiles).catchError(
+            (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'chat/attachment',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
         );
       }
 

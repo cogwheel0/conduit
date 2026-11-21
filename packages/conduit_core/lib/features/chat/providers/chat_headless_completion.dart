@@ -1312,7 +1312,7 @@ Future<bool> _markHeadlessCompletionSubmitted(
   final db = owner.database;
   if (db == null) return false;
   try {
-    return await db.messagesDao.markAssistantCompletionSubmitted(
+    return await db.chatsDao.recordCompletionSubmitted(
       chatId: chatId,
       messageId: assistantMessageId,
     );

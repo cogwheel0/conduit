@@ -1055,6 +1055,147 @@ void main() {
     expect(await database.attachmentQueueDao.getAll(), isEmpty);
   });
 
+  // A queued draft can take a file from the tray while a send that took it is
+  // still going; when the draft lets it go, the send still reads it.
+  test('a file a queued draft lets go while a send holds it is cleaned up by '
+      'that send', () async {
+    final stagingDirectory = Directory(
+      '${Directory.systemTemp.path}/conduit-native-paste',
+    );
+    await stagingDirectory.create();
+    final document = File(
+      '${stagingDirectory.path}/'
+      '123e4567-e89b-12d3-a456-426614174130-notes.txt',
+    );
+    await document.writeAsString('heron notes');
+    addTearDown(() async {
+      if (await document.exists()) await document.delete();
+    });
+    final uploaded = FileUploadState(
+      file: document,
+      fileName: 'notes.txt',
+      fileSize: 11,
+      progress: 1,
+      status: FileUploadStatus.completed,
+      fileId: 'file-notes',
+    );
+    final cleanupAsked = Completer<void>();
+    final allowCleanup = Completer<void>();
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([uploaded]),
+        ),
+        terminalAttachmentCleanupProvider.overrideWithValue((
+          filePath, {
+          required beforeDeleteAdmission,
+          required canDelete,
+        }) async {
+          if (!cleanupAsked.isCompleted) cleanupAsked.complete();
+          await allowCleanup.future;
+          return cleanupTerminalAttachmentFile(
+            filePath,
+            beforeDeleteAdmission: (_) => beforeDeleteAdmission(),
+            canDelete: (_) => canDelete(),
+          );
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+    final taken = controller.captureSentAttachments();
+    final drafts = container.read(queuedDraftAttachmentsProvider.notifier);
+    drafts.adopt([
+      QueuedDraftAttachment(
+        id: 'draft-file',
+        queueId: 'queue',
+        upload: uploaded,
+      ),
+    ]);
+    container.read(attachedFilesProvider.notifier).releaseIdentical([uploaded]);
+    drafts.release('queue', ['draft-file']);
+
+    var sendDone = false;
+    final releasing = controller
+        .releaseSentAttachments(taken)
+        .then((_) => sendDone = true);
+    await cleanupAsked.future;
+
+    // The cleanup is the send's: the send is not done until it is.
+    expect(sendDone, isFalse);
+    allowCleanup.complete();
+    await releasing;
+    expect(await document.exists(), isFalse);
+  });
+
+  // The upload's last step reads the photo for the cache, then keeps the
+  // photo only while the tray shows it. A send that took it, and is not done
+  // with it, holds it too.
+  for (final (label, sent) in const [('sent', true), ('not sent', false)]) {
+    test('a picked photo removed while a send holds it outlasts its '
+        'upload until the send is done ($label)', () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final picked = await Directory.systemTemp.createTemp('conduit_img_');
+      addTearDown(() async {
+        if (await picked.exists()) await picked.delete(recursive: true);
+      });
+      final photo = File('${picked.path}/converted.jpg');
+      await photo.writeAsBytes(List<int>.filled(600 * 1024, 7));
+      final queue = AttachmentUploadQueue();
+      await queue.initialize(
+        onUpload: (filePath, fileName, {cancelToken}) async =>
+            'server-$fileName',
+        database: () => database,
+      );
+      addTearDown(queue.dispose);
+      final cacheReading = Completer<void>();
+      final cacheRead = Completer<Uint8List?>();
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachmentUploadQueueProvider.overrideWithValue(queue),
+          imageUploadConverterProvider.overrideWithValue((_) async => null),
+          uploadImagePrecacheReaderProvider.overrideWithValue((path, maxBytes) {
+            cacheReading.complete();
+            return cacheRead.future;
+          }),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([
+              _pendingImage(photo, reportedBytes: 600 * 1024),
+            ]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(mediaUploadControllerProvider);
+
+      final uploading = controller.upload(
+        filePath: photo.path,
+        fileName: 'photo.jpg',
+        fileSize: 600 * 1024,
+        mimeType: 'image/jpeg',
+      );
+      await cacheReading.future;
+      final taken = controller.captureSentAttachments();
+      await controller.removeAttachment(photo.path);
+      cacheRead.complete(null);
+      await uploading;
+
+      expect(taken.attachments, hasLength(1));
+      expect(await photo.exists(), isTrue);
+
+      if (sent) await controller.retireAttachmentOwnership(taken);
+      await controller.releaseSentAttachments(taken);
+
+      expect(await photo.exists(), isFalse);
+      expect(await database.attachmentQueueDao.getAll(), isEmpty);
+    });
+  }
+
   test(
     'durable queue ownership survives synchronous publication failure',
     () async {
@@ -1944,6 +2085,98 @@ void main() {
       expect(await image.readAsBytes(), [1]);
     },
   );
+
+  test('a send takes only uploaded files; one still uploading stays', () async {
+    FileUploadState file(String name, FileUploadStatus status) =>
+        FileUploadState(
+          file: File('remote://$name'),
+          fileName: name,
+          fileSize: 1,
+          progress: status == FileUploadStatus.completed ? 1 : 0.5,
+          status: status,
+          fileId: status == FileUploadStatus.completed ? name : null,
+        );
+    final uploaded = file('uploaded', FileUploadStatus.completed);
+    final uploading = file('uploading', FileUploadStatus.uploading);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+        attachedFilesProvider.overrideWith(
+          () => _SeededAttachedFilesNotifier([uploaded, uploading]),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(mediaUploadControllerProvider);
+
+    final sent = controller.captureSentAttachments();
+    await controller.retireAttachmentOwnership(sent);
+
+    expect(sent.attachments, [same(uploaded)]);
+    expect(container.read(attachedFilesProvider), [same(uploading)]);
+  });
+
+  // Each entry of [finishes] is one send holding the file, done in turn:
+  // sent (retired) or not.
+  for (final (index, (label, cleared, finishes)) in const [
+    ('removed; sent', false, [true]),
+    ('removed; not sent', false, [false]),
+    ('removed; two sends hold it', false, [true, false]),
+    ('cleared with the tray', true, [false]),
+  ].indexed) {
+    test('a staged file a send holds keeps its bytes until the last send '
+        'holding it is done ($label)', () async {
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-native-paste',
+      );
+      await stagingDirectory.create();
+      final document = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-4266141741${20 + index}-notes.txt',
+      );
+      await document.writeAsString('heron notes');
+      addTearDown(() async {
+        if (await document.exists()) await document.delete();
+      });
+      final uploaded = FileUploadState(
+        file: document,
+        fileName: 'notes.txt',
+        fileSize: 11,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: 'file-notes',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([uploaded]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(mediaUploadControllerProvider);
+      final sends = [
+        for (final _ in finishes) controller.captureSentAttachments(),
+      ];
+
+      if (cleared) {
+        await controller.clearAttachments();
+      } else {
+        await controller.removeAttachment(document.path);
+      }
+      expect(container.read(attachedFilesProvider), isEmpty);
+
+      for (final (i, sent) in finishes.indexed) {
+        expect(await document.exists(), isTrue);
+        if (sent) await controller.retireAttachmentOwnership(sends[i]);
+        await controller.releaseSentAttachments(sends[i]);
+      }
+      expect(await document.exists(), isFalse);
+    });
+  }
 
   test(
     'ownership snapshot removes both original and inflight successor states',
