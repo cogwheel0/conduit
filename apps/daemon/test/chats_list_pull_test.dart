@@ -21,6 +21,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart' show chatLocksProvider;
 import 'package:conduit_core/sync/pull_sync.dart' show PullResult;
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
@@ -213,6 +214,82 @@ void main() {
 
     expect(owui.toggles, ['pin srv-chat', 'archive srv-chat']);
     expect(changedHere, [true, true]);
+  });
+
+  // Macroscope 4652079206: a pin that waited for the chat while another
+  // account took over went to that account, and was noted in its database.
+  test('an Open WebUI pin or archive stays with the account that asked for '
+      'it', () async {
+    final warned = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(
+      () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warned,
+    );
+    final first = (api: _OwuiApi(), db: AppDatabase(NativeDatabase.memory()));
+    final second = (api: _OwuiApi(), db: AppDatabase(NativeDatabase.memory()));
+    for (final account in [first, second]) {
+      addTearDown(account.db.close);
+      addTearDown(account.api.dispose);
+    }
+    var account = first;
+    var epoch = Object();
+    final scoped = ProviderContainer(
+      overrides: [
+        syncEngineProvider.overrideWith(() => engine),
+        conversationsProvider.overrideWith(_Conversations.new),
+        foldersProvider.overrideWith(_Folders.new),
+        currentUserProvider2.overrideWithValue(null),
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.openWebUi,
+        ),
+        appDatabaseProvider.overrideWith((ref) => account.db),
+        apiServiceProvider.overrideWith((ref) => account.api),
+        openWebUiAuthSessionEpochProvider.overrideWith((ref) => epoch),
+      ],
+    );
+    addTearDown(scoped.dispose);
+    void takeOver(({_OwuiApi api, AppDatabase db}) next) {
+      account = next;
+      epoch = Object();
+      scoped
+        ..invalidate(appDatabaseProvider)
+        ..invalidate(apiServiceProvider)
+        ..invalidate(openWebUiAuthSessionEpochProvider);
+    }
+
+    final service = ChatsService(scoped, now: () => now);
+
+    // The second account takes over while the pin waits for the chat.
+    final busy = Completer<void>();
+    unawaited(
+      scoped
+          .read(chatLocksProvider)
+          .runExclusive('srv-chat', () => busy.future),
+    );
+    final waiting = service.setPinned('srv-chat', value: true);
+    takeOver(second);
+    busy.complete();
+    await expectLater(
+      waiting,
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.sessionExpired,
+        ),
+      ),
+    );
+    expect(first.api.toggles, isEmpty);
+    expect(second.api.toggles, isEmpty);
+
+    // The first takes over again while the server takes the second's
+    // archive.
+    second.api.whileWriting = (_) => takeOver(first);
+    await service.setArchived('srv-chat', value: true);
+
+    expect(second.api.toggles, ['archive srv-chat']);
+    expect(second.db.chatsDao.envelopeChangedSince('srv-chat', 0), isTrue);
+    expect(first.db.chatsDao.envelopeChangedSince('srv-chat', 0), isFalse);
   });
 }
 

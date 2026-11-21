@@ -880,7 +880,7 @@ final class ChatsService {
     } else if (_isLibreChat(id)) {
       await pinConversation(_container, _libreChatScoped(id), value);
     } else {
-      await _onServer(id, () => _api.pinConversation(id, value));
+      await _onServer(id, (api) => api.pinConversation(id, value));
     }
     return _refresh();
   }
@@ -899,7 +899,7 @@ final class ChatsService {
     if (_isLibreChat(id)) {
       return archiveConversation(_container, _libreChatScoped(id), value);
     }
-    await _onServer(id, () => _api.archiveConversation(id, value));
+    await _onServer(id, (api) => api.archiveConversation(id, value));
   }
 
   /// Makes [change], a pin or archive of Open WebUI chat [id] that this
@@ -907,17 +907,33 @@ final class ChatsService {
   /// chat's lock: a pull that read the server before then writes nothing
   /// over the chat. Noted even when the request fails, which may be after
   /// the server took it.
-  Future<void> _onServer(String id, Future<void> Function() change) =>
-      _container.read(chatLocksProvider).runExclusive(id, () async {
-        try {
-          await change();
-        } finally {
-          _container
-              .read(appDatabaseProvider)
-              ?.chatsDao
-              .noteEnvelopeChanged(id);
-        }
-      });
+  ///
+  /// It goes as the account that asked, to its server and its database: one
+  /// that another account replaced while the chat was busy is refused.
+  Future<void> _onServer(
+    String id,
+    Future<void> Function(ApiService api) change,
+  ) async {
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final api = _api;
+    final database = _container.read(appDatabaseProvider);
+    await _container.read(chatLocksProvider).runExclusive(id, () async {
+      if (!identical(
+        session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      )) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed',
+        );
+      }
+      try {
+        await change(api);
+      } finally {
+        database?.chatsDao.noteEnvelopeChanged(id);
+      }
+    });
+  }
 
   /// Whether chat [id] is one of the LibreChat account's: its changes go
   /// through the core's LibreChat mutations, which write the account's own
