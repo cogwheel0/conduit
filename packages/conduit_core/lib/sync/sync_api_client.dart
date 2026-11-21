@@ -154,6 +154,21 @@ abstract interface class SyncApiClient {
     Map<String, dynamic> fullBlob,
   );
 
+  /// GET `/api/tasks/chat/{id}`: the tasks the session's account runs in
+  /// chat [chatId]. Another device of the account answering there has one.
+  Future<List<String>> getChatTaskIds(String chatId);
+
+  /// The id of the user the session this client sends as signs in, as the
+  /// server answers it; null when it does not say.
+  Future<String?> sessionUserId();
+
+  /// POST `/api/tasks/chat/{id}/stop`. It stops every task the account runs
+  /// in chat [chatId]. With none running, Open WebUI marks each of the
+  /// account's answers there that it holds as not done as done, keeping the
+  /// text it stored, and only then takes an update of them ([updateChat]).
+  /// 401/403 throws [SyncTerminalException].
+  Future<void> stopChatTasks(String chatId);
+
   /// DELETE `/api/v1/chats/{id}`. `true` on success; 404 (already-gone) ->
   /// `false` WITHOUT throwing. 401/403 (no delete perm) throws
   /// [SyncTerminalException].
@@ -414,6 +429,23 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
     String id,
     Map<String, dynamic> fullBlob,
   ) => api.updateChatRaw(id, fullBlob, authSnapshot: _session);
+
+  @override
+  Future<List<String>> getChatTaskIds(String chatId) =>
+      api.getChatTaskIdsRaw(chatId, authSnapshot: _session);
+
+  @override
+  Future<void> stopChatTasks(String chatId) =>
+      api.stopChatTasksRaw(chatId, authSnapshot: _session);
+
+  @override
+  Future<String?> sessionUserId() async {
+    final user = await api.getCurrentUser(
+      authSnapshot: _session ?? api.captureAuthSnapshot(),
+      suppressAuthFailureNotification: true,
+    );
+    return user.id.isEmpty ? null : user.id;
+  }
 
   @override
   Future<bool> deleteChat(String id) =>

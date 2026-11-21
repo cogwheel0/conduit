@@ -111,6 +111,7 @@ import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
 import 'package:conduit_core/services/chat_completion_transport.dart';
 
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/answer_copies.dart';
 import 'package:conduit_core/services/moa_completion.dart';
 import 'package:conduit_core/services/openwebui_stream_parser.dart';
 

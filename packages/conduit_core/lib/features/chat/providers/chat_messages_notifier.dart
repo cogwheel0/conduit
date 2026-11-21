@@ -3598,7 +3598,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // A cut-off copy is no catching-up frame of what streamed here: whichever
     // holds more is kept, whether or not one begins as the other does.
     final keepsLocalText = cutOff
-        ? _holdsMoreThan(
+        ? answerHoldsMoreThan(
             localTail.content,
             localTail.output,
             authoritativeServerTail.content,
@@ -4799,13 +4799,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           .where((message) => message.id == answerId)
           .lastOrNull;
     } catch (_) {
-      if (!_holdsMoreThan(answer.content, answer.output, '', null)) {
+      if (!answerHoldsMoreThan(answer.content, answer.output, '', null)) {
         return true;
       }
       return store(answer);
     }
     if (copy == null ||
-        _holdsMoreThan(
+        answerHoldsMoreThan(
           answer.content,
           answer.output,
           copy.content,
@@ -5168,12 +5168,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           // Each copy as it shows when read again, its reasoning and tool
           // blocks rendered with it, so their output items are not counted
           // again: an answer whose output was dropped has its items rendered.
-          final shownNow = _storedShows(
+          final shownNow = storedAnswerShows(
             persistedMessageContent(shown),
             shown.output,
           );
-          final storedNow = _storedShows(stored.content, storedOutput);
-          final storedHoldsMore = _holdsMoreThan(
+          final storedNow = storedAnswerShows(stored.content, storedOutput);
+          final storedHoldsMore = answerHoldsMoreThan(
             storedNow,
             null,
             shownNow,
@@ -5191,7 +5191,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           );
           if (current['done'] == true &&
               !storedByThisStop &&
-              !_holdsMoreThan(shownNow, null, storedNow, null)) {
+              !answerHoldsMoreThan(shownNow, null, storedNow, null)) {
             continue;
           }
           // Never cut a stored answer short: an unfinished one that holds
@@ -5213,6 +5213,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           } else {
             metadata[kStoppedHereMetadataKey] = true;
           }
+          metadata[kSettledHereMetadataKey] = true;
           final payload = <String, dynamic>{
             // Fields this build does not model stay as the server has them.
             ...current,
@@ -5242,7 +5243,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         if (rows.isEmpty) return;
         if (!asEdits) {
           for (final row in rows) {
-            await db.messagesDao.upsertLocalEcho(row, keepDirty: true);
+            // The stop owed, kept in the store with each answer: the chat's
+            // push asks it again once the server is back, after a relaunch
+            // too, and sends these only once it is taken ([PushSync]).
+            await db.transaction(() async {
+              await db.messagesDao.upsertLocalEcho(row, keepDirty: true);
+              await db.outboxDao.enqueue(
+                kind: OutboxKind.updateChat,
+                chatId: chatId,
+              );
+            });
             // As the store keeps it, read back after each write: a row still
             // exactly this is this stop's own write, anything else is newer.
             final written = await db.messagesDao.getMessage(chatId, row.id);
@@ -5258,6 +5268,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           enqueueCompletion: false,
         );
       });
+      _drainStoredAnswers(db);
       return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -5269,6 +5280,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       );
       return false;
     }
+  }
+
+  /// Sends what a stopped or cut-off answer's write queued in [db] now: on
+  /// the desktop nothing else drains the outbox until a send, a reconnect or
+  /// a list-prompted pull, and a reconnect's drain may have run before this
+  /// write. Only while [db] is still the store the sync engine serves.
+  void _drainStoredAnswers(AppDatabase db) {
+    try {
+      unawaited(
+        ref
+            .read(syncEngineProvider.notifier)
+            .drainNowForDatabase(db)
+            .catchError((Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'stopped-answer-drain-failed',
+                scope: 'chat/providers',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }),
+      );
+    } catch (_) {}
   }
 
   /// Whether [stored] is still the row this stop wrote here ([written]): its
@@ -6678,44 +6711,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 }
 
-/// Whether an answer's [content] and [output] hold more than another copy of
-/// it ([otherContent], [otherOutput]): more text, or, with as much text, more
-/// text in its reasoning and tool blocks, more output items, a block where
-/// the copy has none, or the reasoning's duration the copy lacks. Text is
-/// compared without those blocks, which two renders of one answer write
-/// differently, and they never outweigh more text.
-bool _holdsMoreThan(
-  String content,
-  List<Object?>? output,
-  String otherContent,
-  List<Object?>? otherOutput,
-) {
-  final text = comparableAssistantBody(content).length;
-  final otherText = comparableAssistantBody(otherContent).length;
-  if (text != otherText) return text > otherText;
-  final blockText = _detailsTextLength(content);
-  final otherBlockText = _detailsTextLength(otherContent);
-  if (blockText != otherBlockText) return blockText > otherBlockText;
-  final items = output?.length ?? 0;
-  final otherItems = otherOutput?.length ?? 0;
-  if (items != otherItems) return items > otherItems;
-  return (containsRenderedSemanticDetails(content) &&
-          !containsRenderedSemanticDetails(otherContent)) ||
-      serverBodyDropsLocalReasoningTiming(content, otherContent);
-}
-
-final RegExp _detailsMarkup = RegExp(
-  r'<details\b[^>]*>|</details>|<summary\b[^>]*>[\s\S]*?</summary>',
-  caseSensitive: false,
-);
 final RegExp _whitespace = RegExp(r'\s+');
-
-/// How much text [content]'s reasoning and tool blocks hold, without their
-/// tags and summaries, which carry the duration and so differ between two
-/// renders of one block.
-int _detailsTextLength(String content) =>
-    content.replaceAll(_detailsMarkup, '').replaceAll(_whitespace, '').length -
-    comparableAssistantBody(content).replaceAll(_whitespace, '').length;
 
 /// [answer] with an `output` that shows what [answer] showed, for storing: a
 /// stored answer is read again from its output when it has one. A Responses
@@ -6738,8 +6734,8 @@ ChatMessage _withOutputAsShown(ChatMessage answer) {
       parseConduitDirectReplayOutput(output) != null) {
     return answer;
   }
-  final rendered = _storedShows(answer.content, output);
-  if (_detailsTextLength(answer.content) > _detailsTextLength(rendered)) {
+  final rendered = storedAnswerShows(answer.content, output);
+  if (answerBlockTextLength(answer.content) > answerBlockTextLength(rendered)) {
     return answer.copyWith(output: null);
   }
   final shown = comparableAssistantBody(answer.content);
@@ -6750,7 +6746,7 @@ ChatMessage _withOutputAsShown(ChatMessage answer) {
   }
   final extended = _outputContinuedWith(output, shown.substring(stored.length));
   return extended != null &&
-          _words(comparableAssistantBody(_storedShows('', extended))) ==
+          _words(comparableAssistantBody(storedAnswerShows('', extended))) ==
               _words(shown)
       ? answer.copyWith(output: extended)
       : answer.copyWith(output: null);
@@ -6813,16 +6809,6 @@ List<Map<String, dynamic>>? _outputContinuedWith(
     },
   ];
 }
-
-/// What a stored answer with [content] and [output] shows when it is read
-/// again: its output rendered, as the chat's parser and Open WebUI's web
-/// client take it, or [content] when it has none.
-String _storedShows(String content, List<Map<String, dynamic>>? output) =>
-    output == null ||
-        output.isEmpty ||
-        parseConduitDirectReplayOutput(output) != null
-    ? content
-    : renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(output));
 
 /// History-message shape for the local turn echo.
 ///
@@ -6973,11 +6959,19 @@ final class _OwedStoppedAnswers {
 ///
 /// A [chatScoped] step is asked for the chat's id as it is now: an ask made
 /// under an id the chat has since been remapped from does not count as accepted.
+/// Asked again, it runs [retry] when given: by then the chat may run an answer
+/// another device started.
 final class _CancellationStep {
-  _CancellationStep(this._run, {this.chatScoped = false});
+  _CancellationStep(
+    this._run, {
+    this.chatScoped = false,
+    Future<bool> Function(String chatId)? retry,
+  }) : _retry = retry;
 
   final Future<bool> Function(String chatId) _run;
+  final Future<bool> Function(String chatId)? _retry;
   final bool chatScoped;
+  bool _asked = false;
   bool _accepted = false;
   String? _askedChatId;
   Future<bool>? _attempt;
@@ -6995,7 +6989,9 @@ final class _CancellationStep {
       return running.then((_) => attempt(chatId));
     }
     _askedChatId = chatId;
-    return _attempt = Future<bool>.sync(() => _run(chatId))
+    final run = _asked ? _retry ?? _run : _run;
+    _asked = true;
+    return _attempt = Future<bool>.sync(() => run(chatId))
         .then((ok) => ok, onError: (Object _) => false)
         .then((ok) {
           _accepted = ok;

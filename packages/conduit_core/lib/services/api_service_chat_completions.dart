@@ -863,16 +863,8 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   }
 
   Future<List<String>> getTaskIdsByChat(String chatId) async {
-    try {
-      final resp = await _dio.get('/api/tasks/chat/$chatId');
-      final data = resp.data;
-      if (data is Map && data['task_ids'] is List) {
-        return (data['task_ids'] as List).map((e) => e.toString()).toList();
-      }
-      return const [];
-    } catch (e) {
-      rethrow;
-    }
+    final resp = await _dio.get('/api/tasks/chat/$chatId');
+    return _chatTaskIds(resp.data, chatId);
   }
 
   Future<List<String>> resolveChatMessageToolCall({

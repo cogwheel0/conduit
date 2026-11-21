@@ -307,6 +307,54 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
   return null;
 }
 
+/// Whether Open WebUI's stop of [chat], asked with no task running, would
+/// reject a tool call an answer waits on, as the chat takes one
+/// ([findPendingOpenWebUiToolPrompt]). [chat] is the chat as
+/// `GET /api/v1/chats/{id}` answers it. The stop finishes each answer of
+/// [userId]'s that its whole stored history holds as not done, on every
+/// branch: by the message's `user_id`, or the chat owner's when it names
+/// none, an empty id naming no one (`main.py`,
+/// `stop_tasks_by_chat_id_endpoint`, `message.get('user_id') or
+/// chat.user_id`). With no [userId], every answer counts.
+bool openWebUiChatStopRejectsPrompt(
+  Map<String, dynamic>? chat, {
+  String? userId,
+}) {
+  final blob = chat?['chat'];
+  final history = blob is Map ? blob['history'] : null;
+  final messages = history is Map ? history['messages'] : null;
+  if (messages is! Map) return false;
+  for (final message in messages.values) {
+    if (message is! Map ||
+        message['role'] != 'assistant' ||
+        message['done'] != false) {
+      continue;
+    }
+    final named = message['user_id'];
+    final author = named is String && named.isNotEmpty
+        ? named
+        : chat?['user_id'];
+    if (userId != null && author != userId) continue;
+    final output = message['output'];
+    final waits = findPendingOpenWebUiToolPrompt([
+      ChatMessage(
+        id: '${message['id']}',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        output: output is List
+            ? <Map<String, dynamic>>[
+                for (final item in output)
+                  if (item is Map) Map<String, dynamic>.from(item),
+              ]
+            : null,
+      ),
+    ]);
+    if (waits != null) return true;
+  }
+  return false;
+}
+
 /// The title and message a socket `confirmation` request shows.
 ///
 /// A tool call awaiting approval in a chat that is not saved (tool approval

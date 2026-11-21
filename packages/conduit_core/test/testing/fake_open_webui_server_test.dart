@@ -374,6 +374,86 @@ void main() {
       check(stale!['updated_at']).equals(50);
       check(server.getChatById(id)!['title']).equals('v3-stale');
     });
+
+    Map<String, dynamic> answer(String content, {required bool done}) => {
+      'id': 'a1',
+      'parentId': null,
+      'childrenIds': <String>[],
+      'role': 'assistant',
+      'content': content,
+      'done': done,
+    };
+
+    Map<String, dynamic> storedAnswer(FakeOpenWebUiServer server, String id) =>
+        ((server.getChatById(id)!['chat'] as Map)['history']
+                as Map)['messages']['a1']
+            as Map<String, dynamic>;
+
+    test('keeps the stored copy of an answer it holds as not done, or that '
+        'the update sends as not done', () {
+      final server = FakeOpenWebUiServer();
+      final id =
+          server.createChat({
+                'history': {
+                  'messages': {'a1': answer('', done: false)},
+                  'currentId': 'a1',
+                },
+              })['id']
+              as String;
+
+      server.updateChat(id, {
+        'history': {
+          'messages': {'a1': answer('Gales veer', done: true)},
+          'currentId': 'a1',
+        },
+      });
+      check(storedAnswer(server, id))
+        ..has((it) => it['content'], 'content').equals('')
+        ..has((it) => it['done'], 'done').equals(false);
+
+      server.saveFromTask(id, {
+        'history': {
+          'messages': {'a1': answer('Gales veer', done: true)},
+          'currentId': 'a1',
+        },
+      });
+      server.updateChat(id, {
+        'history': {
+          'messages': {'a1': answer('', done: false)},
+          'currentId': 'a1',
+        },
+      });
+      check(storedAnswer(server, id))
+        ..has((it) => it['content'], 'content').equals('Gales veer')
+        ..has((it) => it['done'], 'done').equals(true);
+    });
+
+    test('a chat\'s stop with no task finishes its unfinished answers with '
+        'the text they hold, and one with a task running stops only the '
+        'task', () {
+      final server = FakeOpenWebUiServer();
+      final id =
+          server.createChat({
+                'history': {
+                  'messages': {'a1': answer('Gales', done: false)},
+                  'currentId': 'a1',
+                },
+              })['id']
+              as String;
+      server.runTask(id, 'task-1');
+
+      server.stopTasksByChat(id);
+      check(server.getTaskIdsByChat(id)).isEmpty();
+      check(storedAnswer(server, id))
+          .has((it) => it['done'], 'done')
+          .equals(false);
+
+      server.stopTasksByChat(id);
+      check(storedAnswer(server, id))
+        ..has((it) => it['content'], 'content').equals('Gales')
+        ..has((it) => it['done'], 'done').equals(true);
+      check(server.chatStops).deepEquals([id, id]);
+    });
   });
 
   group('updateChat output-to-content re-derivation', () {

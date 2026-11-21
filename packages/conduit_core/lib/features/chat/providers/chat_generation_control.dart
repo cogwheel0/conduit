@@ -91,6 +91,76 @@ ChatMessage? _trailingStreamingAssistant(
   return null;
 }
 
+/// The task ids of this account's answers still running at the end of
+/// [messages]: the ones a Stop ends, and whether those are all of them. An
+/// answer with no task id of its own, or another unfinished answer of this
+/// account's beside one ([versionsOf], which may list the answer itself),
+/// leaves them unknown.
+({Set<String> ids, bool known}) _tasksOfRunningAnswers(
+  List<ChatMessage> messages,
+  String? userId,
+  List<String> Function(String messageId) versionsOf,
+) {
+  final ids = <String>{};
+  var known = true;
+  for (final message in messages.reversed) {
+    if (message.role != 'assistant') break;
+    if (versionsOf(message.id).any((id) => id != message.id)) known = false;
+    if (!message.isStreaming || !message.isWrittenBy(userId)) continue;
+    final taskId = message.metadata?['taskId'];
+    if (taskId is String && taskId.isNotEmpty) {
+      ids.add(taskId);
+    } else {
+      known = false;
+    }
+  }
+  return (ids: ids, known: known && ids.isNotEmpty);
+}
+
+/// A Stop the server refused, or never answered, asked again; whether it is
+/// done with. Only an administrator may stop a single task, so it is asked
+/// through the chat's stop, which ends every task the account runs in the
+/// chat, and with none running finishes the account's unfinished answers,
+/// rejecting a tool call one waits on. Another device may answer there by
+/// now, so it is asked only while nothing but [own] runs, and with nothing
+/// running, while no answer of [userId]'s waits for a tool's approval on any
+/// branch of the chat as the server stores it.
+/// With [own] gone and another's task running, nothing is left to stop, and
+/// the answers' stored update finishes them once the chat runs no task.
+/// Otherwise it stays owed.
+///
+/// Every request goes as the session the ask starts under, the one that owes
+/// the Stop: once another has replaced it, none is sent, and the Stop stays
+/// owed.
+Future<bool> _askStopAgain(
+  ApiService api,
+  String chatId,
+  ({Set<String> ids, bool known}) own,
+  String? userId,
+) async {
+  final session = api.captureAuthSnapshot();
+  Future<bool> stopChat() async {
+    if (!api.authSnapshotIsCurrent(session)) return false;
+    await api.stopChatTasksRaw(chatId, authSnapshot: session);
+    return true;
+  }
+
+  final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
+  if (!api.authSnapshotIsCurrent(session)) return false;
+  if (running.isEmpty) {
+    // Open WebUI stores no temporary chat, and answers a read of one 401 as
+    // it does a refused session; its stop there finishes no stored answer.
+    if (!isTemporaryChat(chatId)) {
+      final chat = await api.getChatRaw(chatId, authSnapshot: session);
+      if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+    }
+    return stopChat();
+  }
+  if (!own.known) return false;
+  if (running.every(own.ids.contains)) return stopChat();
+  return !running.any(own.ids.contains);
+}
+
 // Stop generation provider
 final stopGenerationProvider = Provider<void Function()>(_stopGenerationAction);
 
@@ -232,11 +302,31 @@ Future<bool> _stopGeneration(Ref ref) {
   Future<bool> cancelOnServer(
     Future<bool> Function(String chatId) run, {
     bool chatScoped = false,
+    Future<bool> Function(String chatId)? retry,
   }) {
-    final step = _CancellationStep(run, chatScoped: chatScoped);
+    final step = _CancellationStep(run, chatScoped: chatScoped, retry: retry);
     cancellation.add(step);
     return step.attempt(stoppedChatId);
   }
+
+  // The tasks of the answers this Stop ends, and one ask again for every step
+  // of it at a time.
+  final stopping = ref.read(chatMessagesProvider.notifier);
+  final ownTasks = _tasksOfRunningAnswers(
+    ref.read(chatMessagesProvider),
+    userId,
+    (messageId) => stopping._answersThisAccountRuns(inMessage: messageId),
+  );
+  Future<bool>? askingAgain;
+  Future<bool> Function(String chatId)? askAgainWith(ApiService? api) =>
+      api == null
+      ? null
+      : (chatId) => askingAgain ??= _askStopAgain(
+          api,
+          chatId,
+          ownTasks,
+          userId,
+        ).whenComplete(() => askingAgain = null);
 
   try {
     final messages = ref.read(chatMessagesProvider);
@@ -363,6 +453,7 @@ Future<bool> _stopGeneration(Ref ref) {
         final lookup = taskRan = _openWebUiTaskRuns(api, stoppedChatId, last);
         final transportStop = cancelOnServer(
           (_) => stopActiveTransport(last, api, beforeTaskStop: lookup),
+          retry: askAgainWith(api),
         );
         serverStops.add(transportStop);
         settled.add(transportStop);
@@ -419,11 +510,15 @@ Future<bool> _stopGeneration(Ref ref) {
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
       final lookup = taskRan;
-      final chatStop = cancelOnServer((chatId) async {
-        await lookup;
-        await api.stopTasksByChat(chatId);
-        return true;
-      }, chatScoped: true);
+      final chatStop = cancelOnServer(
+        (chatId) async {
+          await lookup;
+          await api.stopTasksByChat(chatId);
+          return true;
+        },
+        chatScoped: true,
+        retry: askAgainWith(api),
+      );
       serverStops.add(chatStop);
       settled.add(chatStop);
       final stopped = stoppedAnswerId;

@@ -345,6 +345,9 @@ void main() {
         ),
       );
       expect(turns.addressAnswering, isTrue);
+      // The send returns once the turn starts here; the server has a task
+      // to stop only once it has taken the completion.
+      await clock.during(chats.taskStarted.future);
       await clock.during(turns.stopAddressAnswers());
       expect(chats.stopped, hasLength(1));
       expect(turns.isRunning(garden.chatId), isFalse);

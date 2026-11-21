@@ -11507,6 +11507,14 @@ void main() {
       );
       final serverId = container.read(activeConversationProvider)!.id;
       socket.chatId = serverId;
+      // Both answers run as tasks on the server the sync client reads, until
+      // a stop the server takes ends them.
+      client.server
+        ..runTask(serverId, 'task-0')
+        ..runTask(serverId, 'task-1');
+      api
+        ..onChatStopped = client.server.stopTasksByChat
+        ..onTaskStopped = (task) => client.server.endTask(serverId, task);
       return (
         api: api,
         socket: socket,
@@ -12207,6 +12215,7 @@ void main() {
       // As when conduitd has cut its client at shutdown, or the server cannot
       // be reached: the stop never reaches the server, which runs on.
       api.stopFailure = StateError('client closed');
+      final server = client.server;
 
       check(await container.read(stopGenerationSettledProvider)()).isFalse();
 
@@ -12226,19 +12235,50 @@ void main() {
       }
 
       await expectStoppedHere();
-      check(
-        await db.outboxDao.hasUnconfirmedUpdate(serverId),
-        because: 'nothing may carry the stopped answers over the server\'s',
-      ).isFalse();
+      // Its chat's update asks the stop again only once the chat runs no
+      // task: until then it carries the server's own copies.
+      final queued = (await db.outboxDao.activeForChat(serverId))
+          .singleWhere((op) => op.kind == OutboxKind.updateChat.name);
+      final engine = container.read(syncEngineProvider.notifier);
+      await engine.drainNow();
+      // The drain the Stop's write asked for may still hold the op: wait
+      // until it has been tried.
+      final ops =
+          await (db.select(
+            db.outboxOps,
+          )..where((op) => op.chatId.equals(serverId))).watch().firstWhere(
+            (ops) => ops.every(
+              (op) =>
+                  op.kind != OutboxKind.updateChat.name ||
+                  (op.status != OutboxStatus.inFlight && op.lastError != null),
+            ),
+          );
+      // Still owed: deferred, with no attempt spent.
+      final owed = ops.singleWhere(
+        (op) => op.kind == OutboxKind.updateChat.name,
+      );
+      check(owed.seq).equals(queued.seq);
+      check(owed.status).equals(OutboxStatus.pending);
+      check(owed.attempts).equals(queued.attempts);
+      check(owed.lastError).isNotNull().contains('unfinished answers owed');
+      Map<String, dynamic> serverAnswer(String id) =>
+          ((server.getChatById(serverId)!['chat'] as Map)['history']
+                  as Map)['messages'][id]
+              as Map<String, dynamic>;
+      check(server.chatStops).isEmpty();
+      for (final id in [a, b]) {
+        check(
+          serverAnswer(id)['content'],
+          because: 'nothing may carry the stopped answers over the server\'s',
+        ).equals('');
+      }
 
       // The server's copy is still the one saved as the answers' tasks
       // started, unfinished and empty: the stopped answers stay.
-      final engine = container.read(syncEngineProvider.notifier);
       await engine.pullChatNow(serverId);
       await expectStoppedHere();
 
       // The server finishes the answers it was never told to stop.
-      final server = client.server;
       final chat =
           server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
       final messages =
@@ -12252,8 +12292,10 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       await engine.pullChatNow(serverId);
 
       for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
@@ -12298,7 +12340,10 @@ void main() {
       check(stored).isNotNull();
       check(await stored!).isTrue();
 
-      api.stopFailure = null;
+      api
+        ..stopFailure = null
+        // The server is back, and its copy of the chat can be read.
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
 
@@ -12336,19 +12381,24 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
 
-      api.stopFailure = null;
+      api
+        ..stopFailure = null
+        // The server is back, and its copy of the chat can be read.
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
 
-      check(
-        await db.outboxDao.hasUnconfirmedUpdate(serverId),
-        because: 'the finished answers are the server\'s, not this stop\'s',
-      ).isFalse();
       for (final id in [a, b]) {
+        check(
+          await dirty(serverId, id),
+          because: 'the finished answers are the server\'s, not this stop\'s',
+        ).isFalse();
         check((await storedAnswer(serverId, id))['usage'])
             .isA<Map<String, dynamic>>()
             .deepEquals({'output_tokens': 3});
@@ -12367,7 +12417,10 @@ void main() {
       check(await container.read(stopGenerationSettledProvider)()).isFalse();
       await lift();
 
-      api.stopFailure = null;
+      api
+        ..stopFailure = null
+        // The server is back, and its copy of the chat can be read.
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       final cancellation = container
           .read(chatMessagesProvider.notifier)
@@ -12395,6 +12448,34 @@ void main() {
       socket.deliver(b, 'chat:completion', {'content': 'B so far'});
       api.stopFailure = StateError('client closed');
       check(await container.read(stopGenerationSettledProvider)()).isFalse();
+
+      // The server finishes the answers it was never told to stop, and the
+      // connection comes back: the update the Stop left goes out first.
+      final server = client.server;
+      final chat =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final messages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final (id, content) in [
+        (a, 'A in full, shelf by shelf'),
+        (b, 'B in full, shelf by shelf'),
+      ]) {
+        messages[id] = <String, dynamic>{
+          ...messages[id] as Map<String, dynamic>,
+          'content': content,
+          'done': true,
+        };
+      }
+      server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
+        ..tick()
+        ..saveFromTask(serverId, chat);
+      await container.read(syncEngineProvider.notifier).drainNow();
+      await (db.select(db.outboxOps)..where((op) => op.chatId.equals(serverId)))
+          .watch()
+          .firstWhere((ops) => ops.isEmpty);
 
       api.stopFailure = null;
       final next = await durableCompareSend(
@@ -12478,8 +12559,10 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       final pushed = Completer<Map<String, dynamic>>();
       client.onUpdateChat = (id, blob) {
         if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
@@ -12538,13 +12621,14 @@ void main() {
               as Map<String, dynamic>;
       serverMessages[shown] = <String, dynamic>{
         ...serverMessages[shown] as Map<String, dynamic>,
-        'content': 'In full',
+        'content': 'In full, shelf by shelf',
         'done': true,
         'childrenIds': <String>[],
       };
       server
+        ..endTask(serverId, shown == a ? 'task-0' : 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       final pushed = Completer<Map<String, dynamic>>();
       client.onUpdateChat = (id, blob) {
         if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
@@ -12562,12 +12646,12 @@ void main() {
           (blob['history'] as Map<String, dynamic>)['messages']
               as Map<String, dynamic>;
       final answer = messages[shown] as Map<String, dynamic>;
-      check(answer['content']).equals('In full');
+      check(answer['content']).equals('In full, shelf by shelf');
       check(answer['childrenIds'] as List).contains(followUp.id);
       check((messages[followUp.id] as Map<String, dynamic>)['parentId'])
           .equals(shown);
       final stored = await storedAnswer(serverId, shown);
-      check(stored['content']).equals('In full');
+      check(stored['content']).equals('In full, shelf by shelf');
       check(stored['childrenIds'] as List).contains(followUp.id);
     });
 
@@ -14424,7 +14508,7 @@ void main() {
           ..['content'] = 'partial ${handle.messageId}'
           ..['done'] = false;
       }
-      client.server.updateChat(serverId, blob);
+      client.server.saveFromTask(serverId, blob);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       await until(
         () => container
@@ -14492,7 +14576,7 @@ void main() {
       Map<String, dynamic> serverAnswer(String id) =>
           messages[id] as Map<String, dynamic>;
       Future<void> pull() async {
-        client.server.updateChat(serverId, blob);
+        client.server.saveFromTask(serverId, blob);
         await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       }
 
@@ -14618,7 +14702,7 @@ void main() {
       (messages[b] as Map<String, dynamic>)
         ..['content'] = 'partial $b'
         ..['done'] = false;
-      client.server.updateChat(serverId, blob);
+      client.server.saveFromTask(serverId, blob);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
       await until(
         () => container
@@ -14889,7 +14973,13 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     await holdStop?.future;
     final failure = stopFailure;
     if (failure != null) throw failure;
+    onTaskStopped?.call(taskId);
   }
+
+  /// Run as a stop is taken, so the server the sync client reads stops the
+  /// same tasks.
+  void Function(String chatId)? onChatStopped;
+  void Function(String taskId)? onTaskStopped;
 
   /// When set, a task stop is acknowledged only once this completes.
   Completer<void>? holdStop;
@@ -14902,7 +14992,21 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     stoppedChats.add(chatId);
     final failure = stopFailure;
     if (failure != null) throw failure;
+    onChatStopped?.call(chatId);
   }
+
+  // A Stop asked again goes by the raw routes, bound to its session.
+  @override
+  Future<void> stopChatTasksRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => stopTasksByChat(chatId);
+
+  @override
+  Future<List<String>> getChatTaskIdsRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => getTaskIdsByChat(chatId);
 
   @override
   Future<MoaCompletion> generateMoaCompletion({
@@ -14942,6 +15046,15 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async => serverCopy ?? (throw StateError('offline'));
+
+  /// The server's stored chat, every branch of it, once it can be read.
+  Map<String, dynamic>? serverChat;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => serverChat ?? (throw StateError('offline'));
 
   @override
   Future<ChatCompletionSession> sendMessageSession({

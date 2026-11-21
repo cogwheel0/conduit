@@ -6,6 +6,8 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kSettledHereMetadataKey, kStoppedHereMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -187,6 +189,45 @@ class _DeleteSourceAfterCreateClient extends FakeSyncApiClient {
     // before PushSync can commit the local -> server id remap.
     await db.chatsDao.deleteLocalOnlyChat(localId);
     return response;
+  }
+}
+
+/// Runs [beforeStop] as a chat's stop is asked, before the server takes it,
+/// and fails every update after a stop when [failAfterStop] is set, or the
+/// first read of the chat after one when [failReadAfterStop] is.
+class _StopHookClient extends FakeSyncApiClient {
+  _StopHookClient(super.server);
+
+  void Function()? beforeStop;
+  bool failAfterStop = false;
+  bool failReadAfterStop = false;
+  var _stopped = false;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    if (failReadAfterStop && _stopped) {
+      failReadAfterStop = false;
+      throw StateError('the chat could not be read after the stop');
+    }
+    return super.getChatRaw(id);
+  }
+
+  @override
+  Future<void> stopChatTasks(String chatId) async {
+    beforeStop?.call();
+    await super.stopChatTasks(chatId);
+    _stopped = true;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    if (failAfterStop && _stopped) {
+      throw StateError('connection reset after the stop');
+    }
+    return super.updateChat(id, fullBlob);
   }
 }
 
@@ -1807,6 +1848,722 @@ void main() {
           );
       await push.pushUpdateChat('tomb');
       check(client.updateChatCalls).equals(0);
+    });
+  });
+
+  // Open WebUI keeps its stored copy of an answer it holds as not done,
+  // whatever an update sends. Its server stopped in the middle of the
+  // answer, so it holds it that way for good, empty, until the chat's stop
+  // (with no task running) finishes it.
+  group('pushUpdateChat, an answer the server holds unfinished', () {
+    const chatId = 'srv-gale';
+    const kept = 'Gales veer as the warm front passes';
+    const lost = 'Connection lost. Please retry.';
+
+    /// The chat on the server with its answer `a1` not done (or [done]),
+    /// holding [stored] and [output], and pulled here. With [elsewhere],
+    /// another device is answering a later question, its task running; with
+    /// [approval] too, that answer waits for a tool's approval instead, with
+    /// no task.
+    Future<void> seed({
+      String stored = '',
+      bool? done = false,
+      List<Map<String, dynamic>>? output,
+      bool elsewhere = false,
+      bool elsewhereRuns = true,
+      bool approval = false,
+      String? elsewhereAuthor,
+    }) async {
+      server.seedChat(
+        id: chatId,
+        blob: {
+          'title': 'Weather log',
+          'models': ['kettle-model'],
+          'history': {
+            'messages': {
+              'q1': {
+                'id': 'q1',
+                'parentId': null,
+                'childrenIds': ['a1'],
+                'role': 'user',
+                'content': 'Why do gales veer?',
+              },
+              'a1': {
+                'id': 'a1',
+                'parentId': 'q1',
+                'childrenIds': [if (elsewhere) 'q2'],
+                'role': 'assistant',
+                'content': stored,
+                'model': 'kettle-model',
+                'done': ?done,
+                'output': ?output,
+              },
+              if (elsewhere) ...{
+                'q2': {
+                  'id': 'q2',
+                  'parentId': 'a1',
+                  'childrenIds': ['a2'],
+                  'role': 'user',
+                  'content': 'Write the shopping list',
+                },
+                'a2': {
+                  'id': 'a2',
+                  'parentId': 'q2',
+                  'childrenIds': <String>[],
+                  'role': 'assistant',
+                  'content': 'Eggs,',
+                  'model': 'kettle-model',
+                  'done': false,
+                  'user_id': ?elsewhereAuthor,
+                  if (approval)
+                    'output': [
+                      {
+                        'type': 'function_call',
+                        'call_id': 'call-1',
+                        'name': 'order_groceries',
+                        'arguments': '{}',
+                        'status': 'requires_approval',
+                      },
+                    ],
+                },
+              },
+            },
+            'currentId': elsewhere ? 'a2' : 'a1',
+          },
+        },
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      if (elsewhere && elsewhereRuns && !approval) {
+        server.runTask(chatId, 'task-elsewhere');
+      }
+      await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(chatId);
+    }
+
+    /// The other device's answer ends: its task is gone, its copy finished.
+    void finishElsewhere() {
+      server.endTask(chatId, 'task-elsewhere');
+      final blob = server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+      ((blob['history'] as Map)['messages'] as Map)['a2'] as Map
+        ..['content'] = 'Eggs, flour.'
+        ..['done'] = true;
+      server.seedChat(id: chatId, blob: blob, createdAt: 100, updatedAt: 7001);
+    }
+
+    Future<MessageRow> answerHere() async =>
+        (await db.messagesDao.getMessage(chatId, 'a1'))!;
+
+    Future<MessageRowData> answerWith(Map<String, dynamic> fields) async {
+      final row = await answerHere();
+      final payload = <String, dynamic>{
+        ...jsonDecode(row.payload) as Map<String, dynamic>,
+        ...fields,
+      };
+      return MessageRowData(
+        id: row.id,
+        chatId: chatId,
+        parentId: row.parentId,
+        role: row.role,
+        content: payload['content'] as String,
+        model: row.model,
+        createdAt: row.createdAt,
+        orderIndex: row.orderIndex,
+        payload: payload,
+      );
+    }
+
+    /// The answer as the core stores one the server stopped in the middle
+    /// of: finished, with [text] and the connection-lost error, as an edit.
+    /// Its stored `output` goes, as the settle drops one the answer it keeps
+    /// does not carry.
+    Future<void> settleCutOff([String text = kept]) async {
+      final answer = await answerWith({
+        'content': text,
+        'done': true,
+        'error': {'content': lost},
+        'metadata': {kSettledHereMetadataKey: true},
+      });
+      answer.payload.remove('output');
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: chatId,
+        messages: [answer],
+        updatedAt: 7000,
+        enqueueCompletion: false,
+      );
+    }
+
+    /// The answer as the core stores one stopped while the server was away:
+    /// finished with [text] on this device alone, marked stopped here, its
+    /// chat's update queued.
+    Future<void> stopHere(String text) async {
+      await db.messagesDao.upsertLocalEcho(
+        await answerWith({
+          'content': text,
+          'done': true,
+          'metadata': {
+            kStoppedHereMetadataKey: true,
+            kSettledHereMetadataKey: true,
+          },
+        }),
+        keepDirty: true,
+      );
+      await db.outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
+    }
+
+    Map<String, dynamic> onServer(String id) =>
+        ((server.getChatById(chatId)!['chat'] as Map)['history']
+                as Map)['messages'][id]
+            as Map<String, dynamic>;
+
+    test('a cut-off answer reaches the server finished, with the text kept '
+        'here and its error, the chat stopped first while no task '
+        'runs', () async {
+      await seed();
+      await settleCutOff();
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept)
+        ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
+      check(server.chatStops).deepEquals([chatId]);
+      check((await answerHere()).dirty).isFalse();
+    });
+
+    test('a cut-off answer whose unfinished copy on the server holds more '
+        'text is finished with the server\'s text and the error '
+        'here', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept)
+        ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
+      check((await answerHere()).content).equals(kept);
+    });
+
+    test('with a task running in the chat (another device answering), no '
+        'stop is asked, neither answer the server holds is touched, and the '
+        'push stays owed until the task ends', () async {
+      await seed(elsewhere: true);
+      await settleCutOff();
+
+      await check(push.pushUpdateChat(chatId))
+          .throws<OutboxDeferralException>();
+
+      check(server.chatStops).isEmpty();
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has((it) => it['content'], 'content').equals('');
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+      check((await answerHere()).dirty).isTrue();
+
+      finishElsewhere();
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs, flour.');
+    });
+
+    test('with an answer in the chat waiting for a tool\'s approval, no stop '
+        'is asked, which would refuse the call, and the push stays '
+        'owed', () async {
+      await seed(elsewhere: true, approval: true);
+      await settleCutOff();
+
+      await check(push.pushUpdateChat(chatId))
+          .throws<OutboxDeferralException>();
+
+      check(server.chatStops).isEmpty();
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has(
+          (it) => ((it['output'] as List).single as Map)['status'],
+          'status',
+        ).equals('requires_approval');
+      check(onServer('a1')).has((it) => it['done'], 'done').equals(false);
+    });
+
+    test('a cut-off answer whose unfinished copy on the server holds as much '
+        'text and more of its reasoning is stored with that copy\'s output, '
+        'as it is sent', () async {
+      final output = [
+        {
+          'type': 'reasoning',
+          'summary': [
+            {'type': 'summary_text', 'text': 'Fronts turn the wind.'},
+          ],
+        },
+        {
+          'type': 'message',
+          'role': 'assistant',
+          'content': [
+            {'type': 'output_text', 'text': 'Gales veer'},
+          ],
+        },
+      ];
+      await seed(stored: 'Gales veer', output: output);
+      await settleCutOff('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['output'], 'output').isA<List>().deepEquals(output);
+      check((jsonDecode((await answerHere()).payload) as Map)['output'])
+          .isA<List>()
+          .deepEquals(output);
+    });
+
+    test('an answer stopped here whose stop the server took, with its answer '
+        'then lost, keeps its text: the server\'s copy, finished and empty, '
+        'takes it', () async {
+      // The stop was taken and the answer finished with what the server had
+      // stored, but its response, or this device, was gone before the
+      // answer was stored here.
+      await seed(done: true);
+      await stopHere('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Gales veer');
+      check(server.chatStops).isEmpty();
+      final row = await answerHere();
+      check(row.content).equals('Gales veer');
+      check(
+        (jsonDecode(row.payload) as Map)['metadata']?[kStoppedHereMetadataKey],
+      ).isNull();
+    });
+
+    for (final approval in [false, true]) {
+      test('an answer stopped here keeps its finish, on this device alone, '
+          'over the server\'s unfinished copy with some text, while '
+          '${approval ? 'an answer waits for a tool\'s approval' : 'a task runs'} '
+          'in the chat', () async {
+        await seed(stored: 'Gales', elsewhere: true, approval: approval);
+        await stopHere('Gales veer as the warm front passes');
+
+        await check(push.pushUpdateChat(chatId))
+            .throws<OutboxDeferralException>();
+
+        check(server.chatStops).isEmpty();
+        check(onServer('a1'))
+          ..has((it) => it['done'], 'done').equals(false)
+          ..has((it) => it['content'], 'content').equals('Gales');
+        final row = await answerHere();
+        check(row.content).equals('Gales veer as the warm front passes');
+        check(
+          (jsonDecode(row.payload)
+              as Map)['metadata']?[kStoppedHereMetadataKey],
+        ).equals(true);
+      });
+    }
+
+    test('a cut-off answer whose tool call was approved before the server '
+        'stopped is finished there: it waits for no approval', () async {
+      await seed(
+        output: [
+          {
+            'type': 'function_call',
+            'call_id': 'call-1',
+            'name': 'trail_weather',
+            'arguments': '{}',
+            'status': 'queued',
+            'approved': true,
+          },
+        ],
+      );
+      await settleCutOff();
+
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+    });
+
+    PushSync pushWith(SyncApiClient client) => PushSync(
+      client: client,
+      db: db,
+      chatLocks: chatLocks,
+      folderLocks: folderLocks,
+      clock: clock,
+      remapper: remapper,
+    );
+
+    // Another device finishes the answer, with more of it, after this push
+    // read the chat and before its stop: the stop leaves that answer alone.
+    for (final stopped in [false, true]) {
+      test('${stopped ? 'an answer stopped here' : 'a cut-off answer'} '
+          'another device finishes as the stop is asked keeps that fuller '
+          'answer: the push reads the chat again after the stop', () async {
+        await seed();
+        if (stopped) {
+          await stopHere('Gales veer');
+        } else {
+          await settleCutOff('Gales veer');
+        }
+        final client = _StopHookClient(server)
+          ..beforeStop = () {
+            final blob =
+                server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+            ((blob['history'] as Map)['messages'] as Map)['a1'] = {
+              ...onServer('a1'),
+              'content': kept,
+              'done': true,
+            };
+            server.saveFromTask(chatId, blob);
+          };
+
+        await pushWith(client).pushUpdateChat(chatId);
+
+        check(onServer('a1'))
+          ..has((it) => it['done'], 'done').equals(true)
+          ..has((it) => it['content'], 'content').equals(kept);
+        check((await answerHere()).content).equals(kept);
+      });
+    }
+
+    test('another answer the stop finishes keeps the text the server holds, '
+        'over the empty placeholder this device has of it', () async {
+      await seed(elsewhere: true, elsewhereRuns: false);
+      final placeholder = (await db.messagesDao.getMessage(chatId, 'a2'))!;
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: 'a2',
+          chatId: chatId,
+          parentId: 'q2',
+          role: 'assistant',
+          content: '',
+          createdAt: placeholder.createdAt,
+          orderIndex: placeholder.orderIndex,
+          payload: {
+            'id': 'a2',
+            'parentId': 'q2',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': '',
+          },
+        ),
+      );
+      await settleCutOff();
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+      check((await db.messagesDao.getMessage(chatId, 'a2'))!.content)
+          .equals('Eggs,');
+    });
+
+    test('another answer the stop finishes keeps the text the server holds '
+        'when the read after the stop fails and the push runs again', () async {
+      await seed(elsewhere: true, elsewhereRuns: false);
+      final placeholder = (await db.messagesDao.getMessage(chatId, 'a2'))!;
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: 'a2',
+          chatId: chatId,
+          parentId: 'q2',
+          role: 'assistant',
+          content: '',
+          createdAt: placeholder.createdAt,
+          orderIndex: placeholder.orderIndex,
+          payload: {
+            'id': 'a2',
+            'parentId': 'q2',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': '',
+          },
+        ),
+      );
+      await settleCutOff();
+      final client = _StopHookClient(server)..failReadAfterStop = true;
+
+      await check(pushWith(client).pushUpdateChat(chatId)).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .equals('the chat could not be read after the stop'),
+      );
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+
+      await pushWith(client).pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+      check((await db.messagesDao.getMessage(chatId, 'a2'))!.content)
+          .equals('Eggs,');
+    });
+
+    test('another answer the server finished before the stop keeps its text '
+        'over the empty placeholder this device has of it', () async {
+      await seed(elsewhere: true, elsewhereRuns: false);
+      finishElsewhere();
+      final placeholder = (await db.messagesDao.getMessage(chatId, 'a2'))!;
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: 'a2',
+          chatId: chatId,
+          parentId: 'q2',
+          role: 'assistant',
+          content: '',
+          createdAt: placeholder.createdAt,
+          orderIndex: placeholder.orderIndex,
+          payload: {
+            'id': 'a2',
+            'parentId': 'q2',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': '',
+          },
+        ),
+      );
+      await stopHere('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Gales veer');
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs, flour.');
+      check((await db.messagesDao.getMessage(chatId, 'a2'))!.content)
+          .equals('Eggs, flour.');
+    });
+
+    test('a stop the server took counts as a push that landed, even when the '
+        'update after it fails: a copy read before it is older', () async {
+      await seed();
+      await settleCutOff();
+      late int readBeforeStop;
+      final client = _StopHookClient(server)
+        ..failAfterStop = true
+        ..beforeStop = () {
+          readBeforeStop = db.chatsDao.pushVersion(chatId);
+        };
+
+      await check(pushWith(client).pushUpdateChat(chatId)).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .equals('connection reset after the stop'),
+      );
+
+      check(db.chatsDao.pushVersion(chatId)).isGreaterThan(readBeforeStop);
+    });
+
+    // The push takes the server's fuller finished copy, and its update fails.
+    // Another device then sends the server more of the answer.
+    for (final pulled in [false, true]) {
+      test('a settled answer that took the server\'s fuller copy keeps '
+          'giving way to more, after its update failed'
+          '${pulled ? ' and a pull' : ''}', () async {
+        await seed(stored: 'Gales veer', done: true);
+        await db.chatsDao.appendMessagesWithUpdateOp(
+          chatId: chatId,
+          messages: [
+            await answerWith({
+              'content': 'Gales',
+              'done': true,
+              'error': {'content': lost},
+              'metadata': {kSettledHereMetadataKey: true},
+            }),
+          ],
+          updatedAt: 7000,
+          enqueueCompletion: false,
+        );
+        client.failWriteIds.add(chatId);
+        await check(push.pushUpdateChat(chatId)).throws<StateError>();
+        check((await answerHere()).content).equals('Gales veer');
+
+        final blob =
+            server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+        ((blob['history'] as Map)['messages'] as Map)['a1'] = {
+          ...onServer('a1'),
+          'content': 'Gales veer as the front passes',
+        };
+        server.saveFromTask(chatId, blob);
+        client.failWriteIds.clear();
+        if (pulled) {
+          await PullSync(
+            client: client,
+            db: db,
+            locks: chatLocks,
+            remapper: remapper,
+          ).pullChat(chatId);
+        }
+        await push.pushUpdateChat(chatId);
+
+        check(onServer('a1'))
+            .has((it) => it['content'], 'content')
+            .equals('Gales veer as the front passes');
+        check((await answerHere()).content)
+            .equals('Gales veer as the front passes');
+      });
+    }
+
+    // A copy the server saved while the answer streamed carries no `done`.
+    // Open WebUI's guard does not keep it, and its stop leaves it as it is.
+    for (final running in [false, true]) {
+      test(
+        'an answer stopped here whose server copy says neither done nor '
+        'not done ${running ? 'stays owed while a task runs' : 'is sent, once no task runs'}',
+        () async {
+          await seed(stored: 'Gales', done: null, elsewhere: running);
+          await stopHere('Gales veer as the warm front passes');
+
+          if (running) {
+            await check(push.pushUpdateChat(chatId))
+                .throws<OutboxDeferralException>();
+            check(onServer('a1'))
+                .has((it) => it['content'], 'content')
+                .equals('Gales');
+            check(
+              (jsonDecode((await answerHere()).payload)
+                  as Map)['metadata']?[kStoppedHereMetadataKey],
+            ).equals(true);
+          } else {
+            await push.pushUpdateChat(chatId);
+            check(onServer('a1'))
+              ..has((it) => it['done'], 'done').equals(true)
+              ..has(
+                (it) => it['content'],
+                'content',
+              ).equals('Gales veer as the warm front passes');
+          }
+        },
+      );
+    }
+
+    test('another person\'s answer waiting for a tool\'s approval does not '
+        'hold this account\'s answer back: the stop leaves theirs', () async {
+      await seed(
+        elsewhere: true,
+        approval: true,
+        elsewhereAuthor: 'user-other',
+      );
+      await settleCutOff();
+
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has(
+          (it) => ((it['output'] as List).single as Map)['status'],
+          'status',
+        ).equals('requires_approval');
+    });
+
+    test('a stop that fails leaves the push owed, and the next push asks it '
+        'again', () async {
+      await seed();
+      await settleCutOff();
+      client.failChatStopIds.add(chatId);
+
+      await check(push.pushUpdateChat(chatId)).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .equals('injected chat stop failure ($chatId)'),
+      );
+      check(onServer('a1')).has((it) => it['done'], 'done').equals(false);
+      check((await answerHere()).dirty).isTrue();
+
+      client.failChatStopIds.clear();
+      await push.pushUpdateChat(chatId);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+    });
+
+    test('an answer stopped here while the server was away has its stop '
+        'asked again once the server is back, with no task running, and '
+        'reaches the server finished with the text kept here', () async {
+      await seed();
+      await stopHere('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Gales veer');
+      check(server.chatStops).deepEquals([chatId]);
+      final row = await answerHere();
+      check(row.content).equals('Gales veer');
+      check(
+        (jsonDecode(row.payload) as Map)['metadata']?[kStoppedHereMetadataKey],
+      ).isNull();
+      check(row.dirty).isFalse();
+    });
+
+    test('an answer stopped here whose unfinished copy on the server holds '
+        'more text is finished with the server\'s text', () async {
+      await seed(stored: kept);
+      await stopHere('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check((await answerHere()).content).equals(kept);
+    });
+
+    test('an answer stopped here, with a task running in the chat, asks no '
+        'stop, stays stopped here and on this device alone, and leaves the '
+        'push owed', () async {
+      await seed(elsewhere: true);
+      await stopHere('Gales veer');
+
+      await check(push.pushUpdateChat(chatId))
+          .throws<OutboxDeferralException>();
+
+      check(server.chatStops).isEmpty();
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has((it) => it['content'], 'content').equals('');
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+      final row = await answerHere();
+      check(row.content).equals('Gales veer');
+      check(
+        (jsonDecode(row.payload) as Map)['metadata']?[kStoppedHereMetadataKey],
+      ).equals(true);
     });
   });
 

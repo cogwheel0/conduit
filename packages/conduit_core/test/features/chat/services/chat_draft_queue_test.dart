@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -148,6 +150,32 @@ class _Api extends ApiService {
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async => chatTaskIds;
+
+  // A Stop asked again goes by the raw routes, bound to its session.
+  @override
+  Future<List<String>> getChatTaskIdsRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => getTaskIdsByChat(chatId);
+
+  @override
+  Future<void> stopChatTasksRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => stopTasksByChat(chatId);
+
+  /// The server's copy, read before a refused Stop is asked again with no
+  /// task running: no answer in it waits for a tool's approval.
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => <String, dynamic>{
+    'id': id,
+    'chat': <String, dynamic>{
+      'history': <String, dynamic>{'messages': <String, dynamic>{}},
+    },
+  };
 }
 
 /// The outbox drain and the remap announcements, which belong to the sync
