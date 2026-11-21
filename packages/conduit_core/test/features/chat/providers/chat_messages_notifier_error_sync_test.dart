@@ -14,6 +14,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/testing.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -273,33 +274,40 @@ void main() {
     final question = _message('user-1', 'user', 'Hi');
     final answer = _message('assistant-1', 'assistant', '');
 
-    test('settles with its error when the poll sees its task end', () async {
-      final api = _FakeApiService(_chat([question, answer]))
-        ..taskIds = ['task-1'];
-      final container = _openChatContainer(api: api);
-      check(container.read(chatMessagesProvider)).isEmpty();
-      final notifier = container.read(chatMessagesProvider.notifier);
-      container
-          .read(activeConversationProvider.notifier)
-          .set(_chat([question, answer]));
-      await pumpEventQueue();
-      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+    test('settles with its error when the poll sees its task end', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question, answer]))
+          ..taskIds = ['task-1'];
+        final container = _openChatContainer(api: api);
+        check(container.read(chatMessagesProvider)).isEmpty();
+        final notifier = container.read(chatMessagesProvider.notifier);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_chat([question, answer]));
+        async.flushMicrotasks();
+        check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+        // The poll below is the only one: the monitor's own never fires.
+        notifier.debugCancelRemoteTaskMonitorTimer();
 
-      api
-        ..taskIds = const <String>[]
-        ..conversation = _chat([question, answer.copyWith(error: failure)]);
-      notifier.debugCancelRemoteTaskMonitorTimer();
-      check(notifier.debugTaskStatusCheckInFlight).isFalse();
-      await notifier.debugSyncRemoteTaskStatus();
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([question, answer.copyWith(error: failure)]);
+        check(notifier.debugTaskStatusCheckInFlight).isFalse();
+        var polled = false;
+        unawaited(
+          notifier.debugSyncRemoteTaskStatus().then((_) => polled = true),
+        );
+        async.flushMicrotasks();
+        check(polled).isTrue();
 
-      final settled = container.read(chatMessagesProvider).last;
-      check(settled.isStreaming).isFalse();
-      check(settled.error?.content).equals(failure.content);
+        final settled = container.read(chatMessagesProvider).last;
+        check(settled.isStreaming).isFalse();
+        check(settled.error?.content).equals(failure.content);
+      });
     });
 
-    test(
-      'settles with its error when the chat opens after its task ended',
-      () async {
+    test('settles with its error when the chat opens after its task ended', () {
+      fakeAsync((async) {
         final api = _FakeApiService(
           _chat([question, answer.copyWith(error: failure)]),
         );
@@ -309,13 +317,13 @@ void main() {
         container
             .read(activeConversationProvider.notifier)
             .set(_chat([question, answer.copyWith(isStreaming: true)]));
-        await pumpEventQueue();
+        async.flushMicrotasks();
 
         final settled = container.read(chatMessagesProvider).last;
         check(settled.isStreaming).isFalse();
         check(settled.error?.content).equals(failure.content);
-      },
-    );
+      });
+    });
   });
 
   group("a failed relay to one of the user's devices", () {
