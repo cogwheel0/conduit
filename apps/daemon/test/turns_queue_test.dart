@@ -783,13 +783,18 @@ void main() {
     final chats = owui.chats..seed(chatId, userId: 'user-ada');
     // The pull after the turn reads the chat, which the server renames while
     // that read is out.
+    final pullRead = Completer<void>();
+    // Before teardown's own dispose, which would wait for the read.
+    addTearDown(() {
+      if (!pullRead.isCompleted) pullRead.complete();
+    });
     final untap = events.tap((event, _, _) {
       if (event != ConduitEvents.turnFinished || chats.holdChatReads != null) {
         return;
       }
       chats
         ..chatReadAsked = Completer<void>()
-        ..holdChatReads = Completer<void>();
+        ..holdChatReads = pullRead;
     });
     addTearDown(untap);
     await clock.during(
@@ -807,7 +812,7 @@ void main() {
     row['updated_at'] = (row['updated_at'] as int) + 1;
 
     final disposing = turns.dispose();
-    chats.holdChatReads!.complete();
+    pullRead.complete();
     await clock.during(disposing);
 
     final db = runtime.container.read(appDatabaseProvider)!;
