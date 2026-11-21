@@ -12508,6 +12508,69 @@ void main() {
       }
     });
 
+    // Macroscope 4652075225.
+    test('a push that takes the server\'s finished answer keeps a follow-up '
+        'sent here under it', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      api.stopFailure = StateError('client closed');
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+      api.stopFailure = null;
+      // A follow-up sent here, under the shown answer.
+      await durableCompareSend(
+        container,
+        'and the bottom shelf?',
+        null,
+        models: const [duplicate, duplicate],
+      );
+      final followUp = (await userTurns(serverId)).last;
+      final shown = followUp.parentId!;
+      check([a, b]).contains(shown);
+      // The server finishes the stopped answer, with the edges it had when
+      // its task started.
+      final server = client.server;
+      final chat =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final serverMessages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      serverMessages[shown] = <String, dynamic>{
+        ...serverMessages[shown] as Map<String, dynamic>,
+        'content': 'In full',
+        'done': true,
+        'childrenIds': <String>[],
+      };
+      server
+        ..tick()
+        ..updateChat(serverId, chat);
+      final pushed = Completer<Map<String, dynamic>>();
+      client.onUpdateChat = (id, blob) {
+        if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
+      };
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        serverId,
+        title: const Value('Shelves'),
+        enqueue: true,
+      );
+      unawaited(container.read(syncEngineProvider.notifier).drainOutbox());
+      final blob = await pushed.future;
+
+      final messages =
+          (blob['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      final answer = messages[shown] as Map<String, dynamic>;
+      check(answer['content']).equals('In full');
+      check(answer['childrenIds'] as List).contains(followUp.id);
+      check((messages[followUp.id] as Map<String, dynamic>)['parentId'])
+          .equals(shown);
+      final stored = await storedAnswer(serverId, shown);
+      check(stored['content']).equals('In full');
+      check(stored['childrenIds'] as List).contains(followUp.id);
+    });
+
     test('an administrator stopping one answer has it stored as finished at '
         'once, and it stays so when its sibling and the next turn complete',
         () async {
