@@ -1165,9 +1165,11 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "conduit-protocol",
+ "futures-lite",
  "futures-util",
  "libc",
  "log",
+ "oo7",
  "percent-encoding",
  "rand 0.9.5",
  "reqwest",
@@ -1176,6 +1178,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "windows 0.62.2",
 ]
 
 [[package]]

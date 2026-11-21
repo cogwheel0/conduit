@@ -18,6 +18,7 @@ fn forced() -> Option<bool> {
 }
 
 /// Reads the setting now and follows it from then on.
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 pub fn install(cx: &mut App) {
     if let Some(on) = forced() {
         cx.set_reduce_motion(on);

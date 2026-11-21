@@ -24,10 +24,10 @@ pub mod calendar_fixture;
 pub mod capture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod channel_fixture;
-#[cfg(feature = "harness")]
+#[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod chat_fixture;
 pub mod desktop;
-#[cfg(feature = "harness")]
+#[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod diagram_fixture;
 #[cfg(all(target_os = "macos", feature = "harness"))]
 pub mod e2e;
@@ -158,13 +158,9 @@ fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
 }
 
 /// The app's own profile for `flavor` (`~/Library/Application Support/
-/// Conduit Dev`, or `Conduit`), which no scripted run may use.
+/// Conduit Dev`, or `Conduit`, on the Mac), which no scripted run may use.
 pub fn app_profile(flavor: Flavor) -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join("Library/Application Support")
-        .join(flavor.app_name())
+    AppPaths::standard(paths::Os::CURRENT, flavor, &|key| std::env::var_os(key)).user_data
 }
 
 /// Whether a scripted pass (E2E, capture) may reset the profile at
@@ -179,31 +175,32 @@ fn harness_service(flavor: Flavor) -> String {
     format!("{}.harness", flavor.keychain_service())
 }
 
-/// The master key from the Keychain (created on first run).
+/// The master key from the Keychain (Credential Manager on Windows, the
+/// Secret Service on Linux), created on first run.
 fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
+    use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
+    let service = if scripted {
+        harness_service(paths.flavor)
+    } else {
+        paths.flavor.keychain_service()
+    };
     #[cfg(target_os = "macos")]
-    {
-        use conduit_daemon::secrets::{
-            Keychain, MasterKeyStore, SecurityCli, load_or_create_master_key,
-        };
-        let service = if scripted {
-            harness_service(paths.flavor)
-        } else {
-            paths.flavor.keychain_service()
-        };
+    let store: Box<dyn MasterKeyStore> = {
+        use conduit_daemon::secrets::{Keychain, SecurityCli};
         // Dev builds go through /usr/bin/security so a rebuilt (re-hashed)
         // binary never meets a Keychain prompt; see conduit_daemon::secrets.
-        let store: Box<dyn MasterKeyStore> = match paths.flavor {
+        match paths.flavor {
             Flavor::Dev => Box::new(SecurityCli::new(service)),
             Flavor::Production => Box::new(Keychain::new(service)),
-        };
-        load_or_create_master_key(store.as_ref()).map_err(|e| e.to_string())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (paths, scripted);
-        Err("no secret store on this platform yet".into())
-    }
+        }
+    };
+    #[cfg(windows)]
+    let store: Box<dyn MasterKeyStore> =
+        Box::new(conduit_daemon::secrets::CredentialManager::new(service));
+    #[cfg(target_os = "linux")]
+    let store: Box<dyn MasterKeyStore> =
+        Box::new(conduit_daemon::secrets::SecretService::new(service));
+    load_or_create_master_key(store.as_ref()).map_err(|e| e.to_string())
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts

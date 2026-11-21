@@ -4,7 +4,9 @@
 //!   every launch (32 random bytes, base64url) and never stored.
 //! * The **master key** encrypts the daemon's secure store. It is 32 random
 //!   bytes (base64), created once and kept in the macOS Keychain under the
-//!   flavour's service ([`crate::paths::Flavor::keychain_service`]).
+//!   flavour's service ([`crate::paths::Flavor::keychain_service`]). On
+//!   Windows it is a Credential Manager credential ([`CredentialManager`]),
+//!   on Linux a Secret Service item ([`SecretService`]).
 //!
 //! Dev builds reach the Keychain through `/usr/bin/security` ([`SecurityCli`]):
 //! every rebuild changes an ad-hoc binary's code hash, and an item an ad-hoc
@@ -60,7 +62,8 @@ pub enum SecretError {
 impl std::fmt::Display for SecretError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Store(e) => write!(f, "keychain: {e}"),
+            Self::Store(e) if cfg!(target_os = "macos") => write!(f, "keychain: {e}"),
+            Self::Store(e) => write!(f, "secret store: {e}"),
             Self::Corrupt => f.write_str("the stored master key is not 32 bytes of base64"),
         }
     }
@@ -149,6 +152,190 @@ mod keychain {
         fn save(&self, key: &str) -> Result<(), SecretError> {
             set_generic_password(&self.service, MASTER_KEY_ACCOUNT, key.as_bytes())
                 .map_err(|e| SecretError::Store(format!("{} ({})", e, e.code())))
+        }
+    }
+}
+
+#[cfg(windows)]
+pub use credential_manager::CredentialManager;
+
+#[cfg(windows)]
+mod credential_manager {
+    use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
+    use windows::Win32::Foundation::ERROR_NOT_FOUND;
+    use windows::Win32::Security::Credentials::{
+        CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredFree,
+        CredReadW, CredWriteW,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+
+    /// A generic credential in the user's Credential Manager (DPAPI, this
+    /// machine only, never roaming): target `<service>:masterKey`.
+    pub struct CredentialManager {
+        pub service: String,
+    }
+
+    impl CredentialManager {
+        pub fn new(service: impl Into<String>) -> Self {
+            Self {
+                service: service.into(),
+            }
+        }
+
+        fn target(&self) -> Vec<u16> {
+            wide(&format!("{}:{MASTER_KEY_ACCOUNT}", self.service))
+        }
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(Some(0)).collect()
+    }
+
+    impl MasterKeyStore for CredentialManager {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            let target = self.target();
+            let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
+            // SAFETY: `target` is NUL-terminated and outlives the call.
+            let read = unsafe {
+                CredReadW(
+                    PCWSTR::from_raw(target.as_ptr()),
+                    CRED_TYPE_GENERIC,
+                    None,
+                    &mut credential,
+                )
+            };
+            if let Err(e) = read {
+                return if e.code() == ERROR_NOT_FOUND.to_hresult() {
+                    Ok(None)
+                } else {
+                    Err(SecretError::Store(e.to_string()))
+                };
+            }
+            if credential.is_null() {
+                return Ok(None);
+            }
+            // SAFETY: `CredReadW` succeeded, so `credential` is valid until
+            // `CredFree`, and a non-null blob is `CredentialBlobSize` bytes.
+            let bytes = unsafe {
+                let c = &*credential;
+                let bytes = if c.CredentialBlob.is_null() {
+                    Vec::new()
+                } else {
+                    std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize)
+                        .to_vec()
+                };
+                CredFree(credential as *const _);
+                bytes
+            };
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| SecretError::Corrupt)
+        }
+
+        fn save(&self, key: &str) -> Result<(), SecretError> {
+            let mut target = self.target();
+            let mut account = wide(MASTER_KEY_ACCOUNT);
+            let blob = key.as_bytes();
+            let credential = CREDENTIALW {
+                Flags: CRED_FLAGS(0),
+                Type: CRED_TYPE_GENERIC,
+                TargetName: PWSTR::from_raw(target.as_mut_ptr()),
+                CredentialBlobSize: blob.len() as u32,
+                CredentialBlob: blob.as_ptr() as *mut u8,
+                Persist: CRED_PERSIST_LOCAL_MACHINE,
+                UserName: PWSTR::from_raw(account.as_mut_ptr()),
+                ..CREDENTIALW::default()
+            };
+            // SAFETY: every pointer in `credential` outlives the call, which
+            // only reads them.
+            unsafe { CredWriteW(&credential, 0) }.map_err(|e| SecretError::Store(e.to_string()))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::{is_valid_master_key, load_or_create_master_key};
+        use super::*;
+        use windows::Win32::Security::Credentials::CredDeleteW;
+
+        #[test]
+        fn the_master_key_round_trips_through_the_credential_manager() {
+            let store =
+                CredentialManager::new(format!("app.example.conduit-test.{}", std::process::id()));
+            assert_eq!(store.load(), Ok(None));
+            let key = load_or_create_master_key(&store).unwrap();
+            assert!(is_valid_master_key(&key));
+            assert_eq!(load_or_create_master_key(&store).unwrap(), key);
+            let target = store.target();
+            // SAFETY: `target` is NUL-terminated and outlives the call.
+            unsafe { CredDeleteW(PCWSTR::from_raw(target.as_ptr()), CRED_TYPE_GENERIC, None) }
+                .unwrap();
+            assert_eq!(store.load(), Ok(None));
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub use secret_service::SecretService;
+
+#[cfg(target_os = "linux")]
+mod secret_service {
+    use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
+
+    /// An item in the user's Secret Service (GNOME Keyring, KWallet), or in
+    /// a Flatpak the portal's keyring file, labelled with the service and
+    /// found by its `service` and `account` attributes. Unlocking can show
+    /// the desktop's own prompt. With no Secret Service at all this fails,
+    /// and the app says so: the key is never written to a plain file.
+    pub struct SecretService {
+        pub service: String,
+    }
+
+    impl SecretService {
+        pub fn new(service: impl Into<String>) -> Self {
+            Self {
+                service: service.into(),
+            }
+        }
+
+        fn attributes(&self) -> [(&str, &str); 2] {
+            [("service", &self.service), ("account", MASTER_KEY_ACCOUNT)]
+        }
+    }
+
+    fn store_error(e: oo7::Error) -> SecretError {
+        SecretError::Store(e.to_string())
+    }
+
+    impl MasterKeyStore for SecretService {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            futures_lite::future::block_on(async {
+                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                keyring.unlock().await.map_err(store_error)?;
+                let items = keyring
+                    .search_items(&self.attributes())
+                    .await
+                    .map_err(store_error)?;
+                let Some(item) = items.first() else {
+                    return Ok(None);
+                };
+                item.unlock().await.map_err(store_error)?;
+                let secret = item.secret().await.map_err(store_error)?;
+                String::from_utf8(secret.to_vec())
+                    .map(Some)
+                    .map_err(|_| SecretError::Corrupt)
+            })
+        }
+
+        fn save(&self, key: &str) -> Result<(), SecretError> {
+            futures_lite::future::block_on(async {
+                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                keyring.unlock().await.map_err(store_error)?;
+                keyring
+                    .create_item(&self.service, &self.attributes(), key, true)
+                    .await
+                    .map_err(store_error)
+            })
         }
     }
 }

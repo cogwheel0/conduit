@@ -63,7 +63,9 @@ use crate::stores::connection::{ConnectionEvent, ConnectionStore};
 use crate::stores::navigation::{Area, AreaItem};
 use crate::stores::session::Route;
 use crate::stores::settings::SettingsEvent;
-use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess, ShellStore};
+use crate::stores::shell::ShellStore;
+#[cfg(target_os = "macos")]
+use crate::stores::shell::{HotkeyState, LoginState, NotificationAccess};
 use crate::views::chat_pane::NewChatContent;
 use crate::views::quick_ask::{QuickAskEvent, QuickAskView};
 use crate::views::settings::Tab;
@@ -980,6 +982,8 @@ pub fn hide_main(cx: &mut App) {
                 .detach();
         }
     });
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// The main window's should-close hook: with "Close to menu bar" on, the
@@ -1063,6 +1067,8 @@ pub fn refresh_statuses(cx: &mut App) {
         }
         refresh_notification_access(cx);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = cx;
 }
 
 /// Open at login on or off: `SMAppService.mainApp`, then what the system
@@ -1663,6 +1669,7 @@ fn post(n: notify::Notification, raised_for: RaisedFor, cx: &mut App) {
 }
 
 /// A notification was clicked: the main window on that chat.
+#[cfg(target_os = "macos")]
 fn on_notification_click(identifier: String, cx: &mut App) {
     // A channel's: the main window on that channel.
     if let Some(channel_id) = notify::channel_for(&identifier) {
@@ -1898,6 +1905,7 @@ pub fn hide_quick_ask(cx: &mut App) {
 /// The panel lost focus: a moment later (focus settles), hide it unless it
 /// went to one of the app's own sheets or panels (a file picker opened
 /// from the composer, say).
+#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 fn schedule_quick_ask_blur(cx: &mut App) {
     cx.spawn(async move |cx| {
         cx.background_executor()
@@ -2140,6 +2148,7 @@ pub fn install_continuity_camera(
 /// A photo or scan from Continuity Camera, staged where the composer reads
 /// files from: its file, its name and the ticket of the + menu session it
 /// was asked in.
+#[cfg(target_os = "macos")]
 pub(crate) struct StagedImport {
     pub path: std::path::PathBuf,
     pub name: String,
@@ -2150,6 +2159,7 @@ pub(crate) struct StagedImport {
 /// executor: a scan can be large), one folder each, named by the time it
 /// came (nanoseconds), so a second photo never replaces the first before
 /// the composer read it. `None` when it could not be saved.
+#[cfg(target_os = "macos")]
 pub(crate) fn stage_import(
     imported: crate::shell::continuity_camera::Imported,
 ) -> Option<StagedImport> {
@@ -2865,6 +2875,7 @@ mod tests {
 
     /// A photo is staged (off the main thread) with its own ticket, to be
     /// checked when it is attached.
+    #[cfg(target_os = "macos")]
     #[test]
     fn a_continuity_photo_is_staged_with_its_ticket() {
         use crate::shell::continuity_camera::{ImportTarget, Imported};

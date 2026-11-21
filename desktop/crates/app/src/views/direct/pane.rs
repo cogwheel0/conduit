@@ -1531,6 +1531,7 @@ mod tests {
         });
     }
 
+    #[cfg(target_os = "macos")]
     fn apple_pane<'a>(
         cx: &'a mut TestAppContext,
         daemon: &crate::stores::rpc::fake::FakeDaemon,
@@ -1550,6 +1551,7 @@ mod tests {
         cx.add_window_view(move |window, cx| DirectPane::new(stores, window, cx))
     }
 
+    #[cfg(target_os = "macos")]
     fn on_device(availability: AppleAvailability) -> AppleModels {
         AppleModels {
             models: vec![AppleModelStatus {

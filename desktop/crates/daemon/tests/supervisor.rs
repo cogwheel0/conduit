@@ -1,6 +1,7 @@
 //! The supervisor against a fake `conduitd` (a shell script): bootstrap
 //! line, ready line, stderr capture, exit-code handling, restart policy and
-//! the stop ladder.
+//! the stop ladder. Windows has its own (tests/supervisor_windows.rs).
+#![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

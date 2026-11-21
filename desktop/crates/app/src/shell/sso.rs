@@ -30,7 +30,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use gpui_kit::{App, AppContext as _, AsyncApp, Task};
+use gpui_kit::{App, Task};
 
 /// How long a sign-in may take.
 pub const SSO_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -421,7 +421,8 @@ mod macos {
     use futures::{FutureExt as _, StreamExt as _};
     use gpui_kit::prelude::*;
     use gpui_kit::{
-        AnyWindowHandle, Bounds, Context, Entity, SharedString, Window, WindowBounds, div, px, size,
+        AnyWindowHandle, AsyncApp, Bounds, Context, Entity, SharedString, Window, WindowBounds,
+        div, px, size,
     };
     use gpui_webview::WebView;
 

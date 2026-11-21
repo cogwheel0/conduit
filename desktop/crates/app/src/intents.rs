@@ -469,9 +469,13 @@ pub fn install(cx: &mut App) {
     cx.background_executor()
         .spawn(async {
             let now = std::time::SystemTime::now();
-            let continuity =
-                std::env::temp_dir().join(crate::shell::continuity_camera::IMPORT_FOLDER);
-            let removed = prune_images(&image_folder(), now) + prune_images(&continuity, now);
+            let removed = prune_images(&image_folder(), now);
+            #[cfg(target_os = "macos")]
+            let removed = removed
+                + prune_images(
+                    &std::env::temp_dir().join(crate::shell::continuity_camera::IMPORT_FOLDER),
+                    now,
+                );
             if removed > 0 {
                 log::info!("intents: cleared {removed} staged image(s)");
             }
