@@ -157,7 +157,17 @@ impl MainWindow {
             cx.new(|cx| AreaPane::new(stores, layout, window, cx))
         };
         let palette = cx.new(|cx| PaletteView::new(stores.clone(), window, cx));
+        // The Chat menu greys its commands for one chat while chats are
+        // chosen: it follows the choosing, not every redraw of the list.
+        let mut choosing = false;
         let subscriptions = vec![
+            cx.observe(&sidebar, move |_, sidebar, cx| {
+                let now = sidebar.read(cx).has_selection();
+                if now != choosing {
+                    choosing = now;
+                    cx.defer(crate::menus::refresh_menus);
+                }
+            }),
             cx.observe(&stores.connection, |_, _, cx| cx.notify()),
             cx.observe(&stores.session, |_, _, cx| cx.notify()),
             cx.observe(&stores.accounts, |_, _, cx| cx.notify()),
