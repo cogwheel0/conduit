@@ -177,6 +177,8 @@ dev_dependencies:
   plugin_platform_interface: ^2.1.8
   # Used only in tests to fake the video player platform.
   video_player_platform_interface: ^6.9.0
+  # Used only in tests to fake the audio player platform.
+  just_audio_platform_interface: ^4.6.0
 
 flutter:
   config:
