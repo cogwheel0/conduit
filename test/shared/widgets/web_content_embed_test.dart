@@ -553,26 +553,100 @@ void main() {
         'https://chat.example.test/api/v1/files/v1/content',
       ]);
     });
+
+    testWidgets('another backend\'s page stays exactly as written', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildServerHarness(page, openWebUi: false));
+
+      check(framePage(tester)).equals(page);
+      check(find.byType(WebEmbedMediaPlayer).evaluate()).isEmpty();
+    });
+
+    testWidgets('a mounted page follows the active server', (tester) async {
+      const voiceNote =
+          '<audio controls title="Morning note" '
+          'src="/api/v1/files/a1/content"></audio>';
+      Uri playing() => tester
+          .widget<WebEmbedMediaPlayer>(find.byType(WebEmbedMediaPlayer))
+          .item
+          .url;
+      await tester.pumpWidget(_buildServerHarness(voiceNote));
+      check(
+        playing(),
+      ).equals(Uri.parse('https://chat.example.test/api/v1/files/a1/content'));
+
+      _container(tester)
+          .read(_activeApi.notifier)
+          .set(_api('https://other.example.test'));
+      await tester.pump();
+      check(
+        playing(),
+      ).equals(Uri.parse('https://other.example.test/api/v1/files/a1/content'));
+
+      _container(tester).read(_activeApi.notifier).set(null);
+      await tester.pump();
+      check(find.byType(WebEmbedMediaPlayer).evaluate()).isEmpty();
+      check(framePage(tester)).equals(voiceNote);
+    });
   });
 }
 
 const _sessionToken = 'synthetic-session-token';
 const _proxySecret = 'synthetic-proxy-secret';
 
-Widget _buildServerHarness(String source, {VideoAttachmentCache? videoCache}) {
-  final api = ApiService(
-    serverConfig: const ServerConfig(
-      id: 'synthetic',
-      name: 'Synthetic',
-      url: 'https://chat.example.test',
-      customHeaders: {'X-Proxy-Session': _proxySecret},
-    ),
-    workerManager: WorkerManager(),
-  );
+ApiService _api(String url) => ApiService(
+  serverConfig: ServerConfig(
+    id: 'synthetic-$url',
+    name: 'Synthetic',
+    url: url,
+    customHeaders: const {'X-Proxy-Session': _proxySecret},
+  ),
+  workerManager: WorkerManager(),
+);
+
+/// The active account's client, which a test can change under a mounted
+/// embed.
+final _activeApi = NotifierProvider<_ActiveApi, ApiService?>(_ActiveApi.new);
+
+final class _ActiveApi extends Notifier<ApiService?> {
+  @override
+  ApiService? build() => _api('https://chat.example.test');
+
+  void set(ApiService? api) => state = api;
+}
+
+/// The signed-in account's token, which a test can change under a mounted
+/// embed.
+final _activeToken = NotifierProvider<_ActiveToken, String>(_ActiveToken.new);
+
+final class _ActiveToken extends Notifier<String> {
+  @override
+  String build() => _sessionToken;
+
+  void set(String token) => state = token;
+}
+
+ProviderContainer _container(WidgetTester tester) =>
+    ProviderScope.containerOf(tester.element(find.byType(WebContentEmbed)));
+
+Widget _buildServerHarness(
+  String source, {
+  VideoAttachmentCache? videoCache,
+  bool openWebUi = true,
+}) {
   return ProviderScope(
     overrides: [
-      apiServiceProvider.overrideWithValue(api),
-      authTokenProvider3.overrideWithValue(_sessionToken),
+      apiServiceProvider.overrideWith((ref) => ref.watch(_activeApi)),
+      authTokenProvider3.overrideWith((ref) => ref.watch(_activeToken)),
+      openWebUiAccountAvailableProvider.overrideWith(
+        (ref) => ref.watch(_activeApi) != null,
+      ),
+      // A new session for each account, as signing in starts one.
+      openWebUiAuthSessionEpochProvider.overrideWith((ref) {
+        ref.watch(_activeToken);
+        return Object();
+      }),
       if (videoCache != null)
         videoAttachmentCacheProvider.overrideWithValue(videoCache),
     ],
@@ -581,7 +655,12 @@ Widget _buildServerHarness(String source, {VideoAttachmentCache? videoCache}) {
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
-        body: SingleChildScrollView(child: WebContentEmbed(source: source)),
+        body: SingleChildScrollView(
+          child: WebEmbedServerMediaScope(
+            enabled: openWebUi,
+            child: WebContentEmbed(source: source),
+          ),
+        ),
       ),
     ),
   );

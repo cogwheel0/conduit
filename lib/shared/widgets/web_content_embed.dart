@@ -9,8 +9,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/web_embed/web_embed_document.dart';
 import 'package:conduit_core/features/web_embed/web_embed_media.dart';
+import 'package:conduit_core/features/web_embed/web_embed_media_account.dart';
 import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
-import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../theme/theme_extensions.dart';
@@ -158,17 +158,52 @@ class WebContentEmbed extends StatefulWidget {
   State<WebContentEmbed> createState() => _WebContentEmbedState();
 }
 
-/// Takes the audio and video an inline page names on the active account's
-/// server out of it ([extractWebEmbedServerMedia]) and plays them in the
-/// app's own players beside the page, which shows in a [WebContentFrame]
-/// unless nothing else is left in it.
+/// Whether the inline embeds below came from an Open WebUI chat on the
+/// active account ([webEmbedCameFromOpenWebUiChat]), so the media they name
+/// on its server may play in the app's own players. Without one, a page stays
+/// exactly as written.
+class WebEmbedServerMediaScope extends InheritedWidget {
+  const WebEmbedServerMediaScope({
+    super.key,
+    required this.enabled,
+    required super.child,
+  });
+
+  final bool enabled;
+
+  static bool enabledOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<WebEmbedServerMediaScope>()
+          ?.enabled ??
+      false;
+
+  /// [child] under the scope [context] is in, for a route opened from there.
+  static Widget carry(BuildContext context, Widget child) {
+    final scope = context
+        .getInheritedWidgetOfExactType<WebEmbedServerMediaScope>();
+    return scope == null
+        ? child
+        : WebEmbedServerMediaScope(enabled: scope.enabled, child: child);
+  }
+
+  @override
+  bool updateShouldNotify(WebEmbedServerMediaScope oldWidget) =>
+      oldWidget.enabled != enabled;
+}
+
+/// Under a [WebEmbedServerMediaScope] that allows it, takes the audio and
+/// video an inline page names on the active account's server out of it
+/// ([extractWebEmbedServerMedia]) and plays them in the app's own players
+/// beside the page, which shows in a [WebContentFrame] unless nothing else is
+/// left in it. It follows the active account: another server reads the page
+/// again, and another account starts the players over.
 class _WebContentEmbedState extends State<WebContentEmbed> {
   WebEmbedServerMedia? _media;
   String? _mediaSource;
   Uri? _mediaServer;
 
-  WebEmbedServerMedia _serverMedia() {
-    final server = _activeServer();
+  WebEmbedServerMedia _serverMedia(WebEmbedMediaAccount? account) {
+    final server = account == null ? null : Uri.tryParse(account.server.url);
     final cached = _media;
     if (cached != null &&
         _mediaSource == widget.source &&
@@ -177,40 +212,39 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     }
     _mediaSource = widget.source;
     _mediaServer = server;
-    return _media = isRemoteWebEmbedSource(widget.source)
-        ? WebEmbedServerMedia(html: widget.source)
-        : extractWebEmbedServerMedia(widget.source, server: server);
+    return _media = extractWebEmbedServerMedia(widget.source, server: server);
   }
 
-  Uri? _activeServer() {
-    try {
-      final api = ProviderScope.containerOf(
-        context,
-        listen: false,
-      ).read(apiServiceProvider);
-      return api == null ? null : Uri.tryParse(api.serverConfig.url);
-    } catch (_) {
-      // No app owner, as in teardown: the page shows as given.
-      return null;
-    }
-  }
+  WebContentFrame _frame(String source) => WebContentFrame(
+    source: source,
+    argsText: widget.argsText,
+    deferUntilExpanded: widget.deferUntilExpanded,
+    initiallyExpanded: widget.initiallyExpanded,
+    showChrome: widget.showChrome,
+    fillAvailableHeight: widget.fillAvailableHeight,
+    previewTitle: widget.previewTitle,
+    previewDescription: widget.previewDescription,
+    debugTreatAsSupported: widget.debugTreatAsSupported,
+    debugSeedControllerForTesting: widget.debugSeedControllerForTesting,
+    debugOnControllerReset: widget.debugOnControllerReset,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final media = _serverMedia();
-    final frame = WebContentFrame(
-      source: media.html,
-      argsText: widget.argsText,
-      deferUntilExpanded: widget.deferUntilExpanded,
-      initiallyExpanded: widget.initiallyExpanded,
-      showChrome: widget.showChrome,
-      fillAvailableHeight: widget.fillAvailableHeight,
-      previewTitle: widget.previewTitle,
-      previewDescription: widget.previewDescription,
-      debugTreatAsSupported: widget.debugTreatAsSupported,
-      debugSeedControllerForTesting: widget.debugSeedControllerForTesting,
-      debugOnControllerReset: widget.debugOnControllerReset,
+    if (!WebEmbedServerMediaScope.enabledOf(context) ||
+        isRemoteWebEmbedSource(widget.source)) {
+      return _frame(widget.source);
+    }
+    return Consumer(
+      builder: (context, ref, _) {
+        final account = ref.watch(webEmbedMediaAccountProvider);
+        return _withPlayers(_serverMedia(account));
+      },
     );
+  }
+
+  Widget _withPlayers(WebEmbedServerMedia media) {
+    final frame = _frame(media.html);
     if (media.items.isEmpty) return frame;
 
     final players = Padding(
