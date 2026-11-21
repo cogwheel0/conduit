@@ -146,9 +146,14 @@ Future<bool> _askStopAgain(
   }
 
   final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
+  if (!api.authSnapshotIsCurrent(session)) return false;
   if (running.isEmpty) {
-    final chat = await api.getChatRaw(chatId, authSnapshot: session);
-    if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+    // Open WebUI stores no temporary chat, and answers a read of one 401 as
+    // it does a refused session; its stop there finishes no stored answer.
+    if (!isTemporaryChat(chatId)) {
+      final chat = await api.getChatRaw(chatId, authSnapshot: session);
+      if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+    }
     return stopChat();
   }
   if (!own.known) return false;

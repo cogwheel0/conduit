@@ -436,12 +436,19 @@ class FakeOpenWebUiServer {
     for (final message in messages.values) {
       if (message is! Map ||
           message['role'] != 'assistant' ||
-          message['done'] != false ||
-          (message['user_id'] ?? record.ownerId ?? userId) != userId) {
+          message['done'] != false) {
         continue;
       }
+      // `message.get('user_id') or chat.user_id`: an empty id names no one.
+      final named = message['user_id'];
+      final author = named is String && named.isNotEmpty
+          ? named
+          : record.ownerId ?? userId;
+      if (author != userId) continue;
       message['done'] = true;
-      for (final item in [...?(message['output'] as List?)]) {
+      final output = message['output'];
+      if (output is! List) continue;
+      for (final item in output) {
         if (item is Map &&
             item['type'] == 'function_call' &&
             const {

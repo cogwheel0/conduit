@@ -193,13 +193,24 @@ class _DeleteSourceAfterCreateClient extends FakeSyncApiClient {
 }
 
 /// Runs [beforeStop] as a chat's stop is asked, before the server takes it,
-/// and fails every update after a stop when [failAfterStop] is set.
+/// and fails every update after a stop when [failAfterStop] is set, or the
+/// first read of the chat after one when [failReadAfterStop] is.
 class _StopHookClient extends FakeSyncApiClient {
   _StopHookClient(super.server);
 
   void Function()? beforeStop;
   bool failAfterStop = false;
+  bool failReadAfterStop = false;
   var _stopped = false;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) async {
+    if (failReadAfterStop && _stopped) {
+      failReadAfterStop = false;
+      throw StateError('the chat could not be read after the stop');
+    }
+    return super.getChatRaw(id);
+  }
 
   @override
   Future<void> stopChatTasks(String chatId) async {
@@ -2257,6 +2268,52 @@ void main() {
       await settleCutOff();
 
       await push.pushUpdateChat(chatId);
+
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+      check((await db.messagesDao.getMessage(chatId, 'a2'))!.content)
+          .equals('Eggs,');
+    });
+
+    test('another answer the stop finishes keeps the text the server holds '
+        'when the read after the stop fails and the push runs again', () async {
+      await seed(elsewhere: true, elsewhereRuns: false);
+      final placeholder = (await db.messagesDao.getMessage(chatId, 'a2'))!;
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: 'a2',
+          chatId: chatId,
+          parentId: 'q2',
+          role: 'assistant',
+          content: '',
+          createdAt: placeholder.createdAt,
+          orderIndex: placeholder.orderIndex,
+          payload: {
+            'id': 'a2',
+            'parentId': 'q2',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': '',
+          },
+        ),
+      );
+      await settleCutOff();
+      final client = _StopHookClient(server)..failReadAfterStop = true;
+
+      await check(pushWith(client).pushUpdateChat(chatId)).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .equals('the chat could not be read after the stop'),
+      );
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs,');
+
+      await pushWith(client).pushUpdateChat(chatId);
 
       check(onServer('a1'))
         ..has((it) => it['done'], 'done').equals(true)

@@ -313,8 +313,9 @@ OpenWebUiPendingToolPrompt? findPendingOpenWebUiToolPrompt(
 /// `GET /api/v1/chats/{id}` answers it. The stop finishes each answer of
 /// [userId]'s that its whole stored history holds as not done, on every
 /// branch: by the message's `user_id`, or the chat owner's when it names
-/// none (`main.py`, `stop_tasks_by_chat_id_endpoint`). With no [userId],
-/// every answer counts.
+/// none, an empty id naming no one (`main.py`,
+/// `stop_tasks_by_chat_id_endpoint`, `message.get('user_id') or
+/// chat.user_id`). With no [userId], every answer counts.
 bool openWebUiChatStopRejectsPrompt(
   Map<String, dynamic>? chat, {
   String? userId,
@@ -326,11 +327,14 @@ bool openWebUiChatStopRejectsPrompt(
   for (final message in messages.values) {
     if (message is! Map ||
         message['role'] != 'assistant' ||
-        message['done'] != false ||
-        (userId != null &&
-            (message['user_id'] ?? chat?['user_id']) != userId)) {
+        message['done'] != false) {
       continue;
     }
+    final named = message['user_id'];
+    final author = named is String && named.isNotEmpty
+        ? named
+        : chat?['user_id'];
+    if (userId != null && author != userId) continue;
     final output = message['output'];
     final waits = findPendingOpenWebUiToolPrompt([
       ChatMessage(

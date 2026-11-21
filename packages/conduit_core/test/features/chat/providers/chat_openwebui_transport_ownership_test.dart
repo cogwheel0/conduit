@@ -12381,8 +12381,10 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
 
       api
@@ -12557,8 +12559,10 @@ void main() {
         };
       }
       server
+        ..endTask(serverId, 'task-0')
+        ..endTask(serverId, 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       final pushed = Completer<Map<String, dynamic>>();
       client.onUpdateChat = (id, blob) {
         if (id == serverId && !pushed.isCompleted) pushed.complete(blob);
@@ -12622,8 +12626,9 @@ void main() {
         'childrenIds': <String>[],
       };
       server
+        ..endTask(serverId, shown == a ? 'task-0' : 'task-1')
         ..tick()
-        ..updateChat(serverId, chat);
+        ..saveFromTask(serverId, chat);
       final pushed = Completer<Map<String, dynamic>>();
       client.onUpdateChat = (id, blob) {
         if (id == serverId && !pushed.isCompleted) pushed.complete(blob);

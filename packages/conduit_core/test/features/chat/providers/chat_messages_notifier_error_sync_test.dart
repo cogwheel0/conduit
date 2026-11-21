@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:dio/dio.dart'
+    show DioException, DioExceptionType, RequestOptions, Response;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
@@ -148,13 +150,27 @@ class _FakeApiService extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     _send(authSnapshot);
-    return server?.getChatById(id) ??
-        <String, dynamic>{
-          'id': id,
-          'chat': <String, dynamic>{
-            'history': <String, dynamic>{'messages': <String, dynamic>{}},
-          },
-        };
+    final stored = server;
+    if (stored == null) {
+      return <String, dynamic>{
+        'id': id,
+        'chat': <String, dynamic>{
+          'history': <String, dynamic>{'messages': <String, dynamic>{}},
+        },
+      };
+    }
+    // Open WebUI answers a chat it does not store, a temporary one among
+    // them, as it does one the session may not read: 401.
+    return stored.getChatById(id) ??
+        (throw DioException(
+          requestOptions: RequestOptions(path: '/api/v1/chats/$id'),
+          response: Response<Object?>(
+            requestOptions: RequestOptions(path: '/api/v1/chats/$id'),
+            statusCode: 401,
+            data: <String, dynamic>{'detail': 'Not found'},
+          ),
+          type: DioExceptionType.badResponse,
+        ));
   }
 
   /// The session each read of the chat or its tasks, and each stop, went out
@@ -520,6 +536,7 @@ void main() {
       bool withTaskId = true,
       bool listedUnfinished = false,
       User? user,
+      String chatId = 'chat-1',
     }) {
       api.taskIds = ['task-1'];
       final container = _openChatContainer(
@@ -535,33 +552,36 @@ void main() {
         metadata: <String, dynamic>{
           'transport': 'taskSocket',
           if (withTaskId) 'taskId': 'task-1',
-          'taskConversationId': 'chat-1',
+          'taskConversationId': chatId,
           // As the server's copy lists it once the chat is read again.
           if (listedUnfinished)
             kMessageUnfinishedAnswersMetadataKey: [answerId],
         },
       );
-      unawaited(() async {
-        await db.chatsDao.upsertEnvelopeStub(
-          id: 'chat-1',
-          title: 'Test Chat',
-          createdAt: 1,
-          updatedAt: 1,
-        );
-        await db.messagesDao.upsertLocalEchoTurn(
-          chatId: 'chat-1',
-          user: localEchoRowForMessage('chat-1', question),
-          // Its output snapshots come later in the stream.
-          assistant: localEchoRowForMessage(
-            'chat-1',
-            placeholder.copyWith(output: null),
-          ),
-        );
-      }());
+      // A temporary chat is stored nowhere.
+      if (!isTemporaryChat(chatId)) {
+        unawaited(() async {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: chatId,
+            title: 'Test Chat',
+            createdAt: 1,
+            updatedAt: 1,
+          );
+          await db.messagesDao.upsertLocalEchoTurn(
+            chatId: chatId,
+            user: localEchoRowForMessage(chatId, question),
+            // Its output snapshots come later in the stream.
+            assistant: localEchoRowForMessage(
+              chatId,
+              placeholder.copyWith(output: null),
+            ),
+          );
+        }());
+      }
       async.flushMicrotasks();
       container
           .read(activeConversationProvider.notifier)
-          .set(_chat([question]));
+          .set(_chat([question]).copyWith(id: chatId));
       async.flushMicrotasks();
       notifier
         ..addMessage(placeholder)
@@ -1722,6 +1742,11 @@ void main() {
             waiting: (shown: false, author: FakeOpenWebUiServer.userId),
           ),
           reAsk(
+            'nothing runs but an answer that names its author as empty, the '
+            'chat owner\'s, waits for a tool\'s approval, stays owed',
+            waiting: (shown: false, author: ''),
+          ),
+          reAsk(
             'nothing runs but another person\'s answer waits for a tool\'s '
             'approval, stops the chat, which leaves theirs',
             waiting: (shown: false, author: 'user-b'),
@@ -1849,52 +1874,118 @@ void main() {
       });
     }
 
-    test('a Stop asked again while another account signs in sends nothing '
-        'as that account, and stays owed', () {
-      fakeAsync((async) {
-        final api = _FakeApiService(_chat([question]))
-          ..updateAuthToken('session-a');
-        final (notifier: _, :db, :container) = streamHere(
-          async,
-          api,
-          'Gales veer',
-        );
-        api
-          ..away = true
-          ..readFailures = 1
-          ..stopsRefused = true;
-        unawaited(container.read(stopGenerationSettledProvider)());
-        async.flushMicrotasks();
-        final chatStopsBefore = api.chatStops;
+    // Open WebUI stores no temporary chat, and its stop there finishes no
+    // stored answer.
+    for (final (label, chatId, admits, chatStops) in [
+      (
+        'a temporary chat, which the server stores no copy of, stops it',
+        'local:gale-draft',
+        true,
+        1,
+      ),
+      (
+        'a saved chat whose copy the server refuses to read, stays owed',
+        'chat-1',
+        false,
+        0,
+      ),
+    ]) {
+      test('a Stop asked again with nothing running, in $label', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (notifier: _, :db, :container) = streamHere(
+            async,
+            api,
+            'Gales veer',
+            chatId: chatId,
+          );
+          api
+            ..away = true
+            ..readFailures = 1
+            ..stopsRefused = true;
+          unawaited(container.read(stopGenerationSettledProvider)());
+          async.flushMicrotasks();
+          final chatStopsBefore = api.chatStops;
 
-        // The server is back, the answer's task still running there. Another
-        // account signs in once the retry has read the chat's tasks.
-        api
-          ..away = false
-          ..stopsRefused = false
-          ..taskIds = ['task-1']
-          ..afterTaskList = () => api.updateAuthToken('session-b');
-        bool? admitted;
-        unawaited(
-          container
-              .read(chatMessagesProvider.notifier)
-              .settlePendingCancellation(
-                chatId: 'chat-1',
-                database: db,
-                api: api,
-                authSessionEpoch: container.read(
-                  openWebUiAuthSessionEpochProvider,
-                ),
-              )!
-              .then((ok) => admitted = ok),
-        );
-        async.flushMicrotasks();
+          // The server is back, storing neither chat.
+          api
+            ..away = false
+            ..stopsRefused = false
+            ..taskIds = const <String>[]
+            ..server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000);
+          bool? admitted;
+          unawaited(
+            container
+                .read(chatMessagesProvider.notifier)
+                .settlePendingCancellation(
+                  chatId: chatId,
+                  database: db,
+                  api: api,
+                  authSessionEpoch: container.read(
+                    openWebUiAuthSessionEpochProvider,
+                  ),
+                )!
+                .then((ok) => admitted = ok),
+          );
+          async.flushMicrotasks();
 
-        check(api.sentAs).not((it) => it.contains('session-b'));
-        check(api.chatStops - chatStopsBefore).equals(0);
-        check(admitted).equals(false);
+          check(admitted).equals(admits);
+          check(api.chatStops - chatStopsBefore).equals(chatStops);
+        });
       });
-    });
+    }
+
+    for (final (label, running) in [
+      ('the answer\'s task still running', ['task-1']),
+      ('another device\'s task alone running', ['task-elsewhere']),
+    ]) {
+      test('a Stop asked again while another account signs in sends nothing '
+          'as that account, and stays owed, with $label', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]))
+            ..updateAuthToken('session-a');
+          final (notifier: _, :db, :container) = streamHere(
+            async,
+            api,
+            'Gales veer',
+          );
+          api
+            ..away = true
+            ..readFailures = 1
+            ..stopsRefused = true;
+          unawaited(container.read(stopGenerationSettledProvider)());
+          async.flushMicrotasks();
+          final chatStopsBefore = api.chatStops;
+
+          // The server is back. Another account signs in once the retry has
+          // read the chat's tasks.
+          api
+            ..away = false
+            ..stopsRefused = false
+            ..taskIds = running
+            ..afterTaskList = () => api.updateAuthToken('session-b');
+          bool? admitted;
+          unawaited(
+            container
+                .read(chatMessagesProvider.notifier)
+                .settlePendingCancellation(
+                  chatId: 'chat-1',
+                  database: db,
+                  api: api,
+                  authSessionEpoch: container.read(
+                    openWebUiAuthSessionEpochProvider,
+                  ),
+                )!
+                .then((ok) => admitted = ok),
+          );
+          async.flushMicrotasks();
+
+          check(api.sentAs).not((it) => it.contains('session-b'));
+          check(api.chatStops - chatStopsBefore).equals(0);
+          check(admitted).equals(false);
+        });
+      });
+    }
 
     test('a Stop the server did not take asks for a drain of its store once '
         'its answer is stored here', () {
