@@ -749,8 +749,12 @@
 }
 
 - (void)onFailToComplete:(NSNotification *)notification {
-    //IndexedPlayerItem *playerItem = (IndexedPlayerItem *)notification.object;
     //NSLog(@"onFailToComplete");
+    IndexedPlayerItem *playerItem = (IndexedPlayerItem *)notification.object;
+    if (playerItem != _player.currentItem) return;
+    NSError *error = notification.userInfo[AVPlayerItemFailedToPlayToEndTimeErrorKey];
+    [self sendError:@((int)error.code) errorMessage:error.localizedDescription playerItem:playerItem switchToIdle:YES];
+    [_player removeAllItems];
 }
 
 - (void)onComplete:(NSNotification *)notification {

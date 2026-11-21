@@ -131,7 +131,7 @@ dependencies:
   html_unescape: ^2.0.0
   home_widget: ^0.10.0
   flutter_highlight: ^0.7.0
-  # just_audio 0.10.6, an unchanged copy of its pub.dev archive.
+  # just_audio 0.10.6, patched; see its PATCHES.md.
   just_audio:
     path: third_party/just_audio
   cupertino_native_better: ^2.5.2
