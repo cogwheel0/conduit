@@ -136,24 +136,24 @@ final class TerminalsService {
   /// made per model is used for the chat's model (the page's: New Chat's).
   Future<List<TerminalServerInfo>> _available(String scopeId) async {
     final scope = _scope(scopeId);
-    final servers = await _chatServers();
-    final modelId = servers.any((s) => s.requiresModelContext)
-        ? await terminalModelFor(_modelFor, scope)
-        : null;
     return [
-      for (final server in servers)
-        if (server.forModel(modelId) case final usable
-            when usable.isAvailableForChatScope(scope))
-          usable,
+      for (final server in await _forModel(await _chatServers(), scope))
+        if (server.isAvailableForChatScope(scope)) server,
     ];
   }
+
+  Future<List<TerminalServerInfo>> _forModel(
+    List<TerminalServerInfo> servers,
+    String scope,
+  ) => withTerminalModel(servers, _modelFor, scope, log: _log);
 
   /// The servers [scopeId]'s chat may use. With none, every one the
   /// account's chats may use: the window offers one that needs a saved chat
   /// only to a saved chat, and never on the page, which opens outside any.
+  /// One made per model is among them while New Chat has a model.
   Future<TerminalServers> servers(String scopeId) async {
     final servers = scopeId.trim().isEmpty
-        ? await _chatServers()
+        ? await _forModel(await _chatServers(), _pageScope)
         : await _available(scopeId);
     final selected = resolveSelectedTerminalServerForTest(
       servers,

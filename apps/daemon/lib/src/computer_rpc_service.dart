@@ -104,14 +104,12 @@ final class ComputerRpcService {
     if (selected == null) return null;
     final terminal = _container.read(terminalServiceProvider);
     if (terminal == null) return null;
-    final listed = await terminal.getAvailableServers();
-    final modelId = listed.any((s) => s.requiresModelContext)
-        ? await terminalModelFor(_modelFor, scope)
-        : null;
-    final servers = listed
-        .map((s) => s.forModel(modelId))
-        .where((s) => s.isAvailableForChatScope(scope))
-        .toList(growable: false);
+    final servers = (await withTerminalModel(
+      await terminal.getAvailableServers(),
+      _modelFor,
+      scope,
+      log: _log,
+    )).where((s) => s.isAvailableForChatScope(scope)).toList(growable: false);
     final server = resolveSelectedTerminalServerForTest(servers, selected);
     if (server == null) return null;
     return ComputerService(terminal, server, scope);

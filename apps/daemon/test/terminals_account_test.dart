@@ -298,6 +298,10 @@ void main() {
       check(
         (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
       ).not((it) => it.contains('per-model'));
+      // The list the window offers outside any chat leaves it out too, and
+      // still lists the one that needs a saved chat, for the chats.
+      check((await terminals.servers('')).servers.map((s) => s.id))
+          .deepEquals(['box', 'per-chat']);
       await check(
         terminals.attach(
           const TerminalAttach(
@@ -308,6 +312,28 @@ void main() {
       ).throws<RpcError>(
         (e) => e.has((e) => e.code, 'code').equals(ConduitErrorCodes.notFound),
       );
+      check(server.modelIds).isEmpty();
+    });
+
+    test('a model list that cannot be read leaves out only it', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async =>
+            throw const SocketException('No route to host'),
+      );
+      addTearDown(terminals.dispose);
+
+      for (final scope in ['chat-lighthouse', '']) {
+        check(
+          because: scope,
+          (await terminals.servers(scope)).servers.map((s) => s.id),
+        ).deepEquals(['box', 'per-chat']);
+      }
+      final attached = await terminals.attach(
+        const TerminalAttach(serverId: 'box', scopeId: 'chat-lighthouse'),
+      );
+      check(attached.handle).isNotEmpty();
       check(server.modelIds).isEmpty();
     });
   });
