@@ -1905,45 +1905,46 @@ pub fn hide_quick_ask(cx: &mut App) {
 /// The panel lost focus: a moment later (focus settles), hide it unless it
 /// went to one of the app's own sheets or panels (a file picker opened
 /// from the composer, say).
-#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 fn schedule_quick_ask_blur(cx: &mut App) {
     cx.spawn(async move |cx| {
         cx.background_executor()
             .timer(Duration::from_millis(150))
             .await;
         cx.update(|cx| {
-            if !quick_ask_visible(cx) || quick_ask_key(cx) {
-                return;
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let key = crate::shell::macos::key_window();
-                let main = main_ns_window(cx);
-                let settings = cx
-                    .try_global::<AppState>()
-                    .and_then(|s| s.settings_window.clone())
-                    .and_then(|(h, _)| {
-                        h.update(cx, |_, window, _| crate::shell::macos::ns_window(window))
-                            .ok()
-                            .flatten()
-                    });
-                let same =
-                    |a: &Option<objc2::rc::Retained<objc2_app_kit::NSWindow>>| match (&key, a) {
-                        (Some(k), Some(w)) => {
-                            objc2::rc::Retained::as_ptr(k) == objc2::rc::Retained::as_ptr(w)
-                        }
-                        _ => false,
-                    };
-                // Another app took focus (no key window of ours), or the
-                // main window or Settings did: hide. One of our own panels
-                // (a file picker, an alert): keep.
-                if key.is_none() || same(&main) || same(&settings) {
-                    hide_quick_ask(cx);
-                }
+            if quick_ask_visible(cx) && !quick_ask_key(cx) && focus_left_quick_ask(cx) {
+                hide_quick_ask(cx);
             }
         });
     })
     .detach();
+}
+
+/// Whether focus left the panel for another app (no key window of ours),
+/// or for the main window or Settings; not for one of our own panels (a
+/// file picker, an alert), which keep it up.
+#[cfg(target_os = "macos")]
+fn focus_left_quick_ask(cx: &mut App) -> bool {
+    let key = crate::shell::macos::key_window();
+    let main = main_ns_window(cx);
+    let settings = cx
+        .try_global::<AppState>()
+        .and_then(|s| s.settings_window.clone())
+        .and_then(|(h, _)| {
+            h.update(cx, |_, window, _| crate::shell::macos::ns_window(window))
+                .ok()
+                .flatten()
+        });
+    let same = |a: &Option<objc2::rc::Retained<objc2_app_kit::NSWindow>>| match (&key, a) {
+        (Some(k), Some(w)) => objc2::rc::Retained::as_ptr(k) == objc2::rc::Retained::as_ptr(w),
+        _ => false,
+    };
+    key.is_none() || same(&main) || same(&settings)
+}
+
+/// Off the Mac the panel stays up (its focus handling is a later phase's).
+#[cfg(not(target_os = "macos"))]
+fn focus_left_quick_ask(_: &mut App) -> bool {
+    false
 }
 
 /// Quick Ask drafts on their way to the main window, by id: the text and

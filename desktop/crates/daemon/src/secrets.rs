@@ -74,22 +74,60 @@ impl std::error::Error for SecretError {}
 /// Where the master key lives.
 pub trait MasterKeyStore {
     fn load(&self) -> Result<Option<String>, SecretError>;
-    fn save(&self, key: &str) -> Result<(), SecretError>;
+    /// Stores `key` unless a key is stored already, and then answers
+    /// `false` and replaces nothing: another launch stored its key first.
+    fn add(&self, key: &str) -> Result<bool, SecretError>;
 }
 
-/// The stored master key, creating and storing one on first run.
+/// The stored master key, creating and storing one on first run. Two first
+/// launches at once both make a key, but only one is stored, and the other
+/// launch takes that one: a second write would leave the data the first
+/// launch encrypted under a key nobody has.
 pub fn load_or_create_master_key(store: &dyn MasterKeyStore) -> Result<String, SecretError> {
     if let Some(key) = store.load()? {
-        let key = key.trim().to_string();
-        return if is_valid_master_key(&key) {
-            Ok(key)
-        } else {
-            Err(SecretError::Corrupt)
-        };
+        return checked(key);
     }
     let key = new_master_key();
-    store.save(&key)?;
-    Ok(key)
+    if store.add(&key)? {
+        return Ok(key);
+    }
+    match store.load()? {
+        Some(key) => checked(key),
+        None => Err(SecretError::Store("the stored master key went away".into())),
+    }
+}
+
+/// A stored key, trimmed, unless it is not base64 of 32 bytes.
+fn checked(key: String) -> Result<String, SecretError> {
+    let key = key.trim().to_string();
+    if is_valid_master_key(&key) {
+        Ok(key)
+    } else {
+        Err(SecretError::Corrupt)
+    }
+}
+
+/// Runs `f` holding an exclusive lock on the file at `path` (made if
+/// missing), for a store with no create-only write: every launch that
+/// shares the data folder takes its turn to look and write.
+#[cfg(any(windows, target_os = "linux"))]
+fn exclusively<T>(
+    path: &std::path::Path,
+    f: impl FnOnce() -> Result<T, SecretError>,
+) -> Result<T, SecretError> {
+    let locked = |e: std::io::Error| SecretError::Store(format!("{}: {e}", path.display()));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(locked)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .map_err(locked)?;
+    // Released when `file` closes.
+    file.lock().map_err(locked)?;
+    f()
 }
 
 /// An in-memory store, for tests.
@@ -104,12 +142,16 @@ impl MasterKeyStore for MemoryStore {
             .map_err(|e| SecretError::Store(e.to_string()))?
             .clone())
     }
-    fn save(&self, key: &str) -> Result<(), SecretError> {
-        *self
+    fn add(&self, key: &str) -> Result<bool, SecretError> {
+        let mut stored = self
             .0
             .lock()
-            .map_err(|e| SecretError::Store(e.to_string()))? = Some(key.to_string());
-        Ok(())
+            .map_err(|e| SecretError::Store(e.to_string()))?;
+        if stored.is_some() {
+            return Ok(false);
+        }
+        *stored = Some(key.to_string());
+        Ok(true)
     }
 }
 
@@ -119,10 +161,14 @@ pub use keychain::Keychain;
 #[cfg(target_os = "macos")]
 mod keychain {
     use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
-    use security_framework::passwords::{get_generic_password, set_generic_password};
+    use core_foundation::data::CFData;
+    use security_framework::item::{ItemAddOptions, ItemAddValue, ItemClass};
+    use security_framework::passwords::get_generic_password;
 
     /// `errSecItemNotFound`.
     const ITEM_NOT_FOUND: i32 = -25300;
+    /// `errSecDuplicateItem`.
+    const DUPLICATE_ITEM: i32 = -25299;
 
     /// A generic-password item: service = the flavour's, account
     /// [`MASTER_KEY_ACCOUNT`], default ACL (the signed app).
@@ -149,9 +195,22 @@ mod keychain {
             }
         }
 
-        fn save(&self, key: &str) -> Result<(), SecretError> {
-            set_generic_password(&self.service, MASTER_KEY_ACCOUNT, key.as_bytes())
-                .map_err(|e| SecretError::Store(format!("{} ({})", e, e.code())))
+        /// `SecItemAdd` with the attributes `set_generic_password` gives
+        /// (class, service, account, data), but never its update of an item
+        /// that is already there.
+        fn add(&self, key: &str) -> Result<bool, SecretError> {
+            let mut options = ItemAddOptions::new(ItemAddValue::Data {
+                class: ItemClass::generic_password(),
+                data: CFData::from_buffer(key.as_bytes()),
+            });
+            options
+                .set_service(&self.service)
+                .set_account_name(MASTER_KEY_ACCOUNT);
+            match options.add() {
+                Ok(()) => Ok(true),
+                Err(e) if e.code() == DUPLICATE_ITEM => Ok(false),
+                Err(e) => Err(SecretError::Store(format!("{} ({})", e, e.code()))),
+            }
         }
     }
 }
@@ -170,15 +229,19 @@ mod credential_manager {
     use windows::core::{PCWSTR, PWSTR};
 
     /// A generic credential in the user's Credential Manager (DPAPI, this
-    /// machine only, never roaming): target `<service>:masterKey`.
+    /// machine only, never roaming): target `<service>:masterKey`. It has
+    /// no create-only write, so a new key is written holding `lock` (a
+    /// file in the data folder).
     pub struct CredentialManager {
         pub service: String,
+        pub lock: std::path::PathBuf,
     }
 
     impl CredentialManager {
-        pub fn new(service: impl Into<String>) -> Self {
+        pub fn new(service: impl Into<String>, lock: impl Into<std::path::PathBuf>) -> Self {
             Self {
                 service: service.into(),
+                lock: lock.into(),
             }
         }
 
@@ -232,7 +295,19 @@ mod credential_manager {
                 .map_err(|_| SecretError::Corrupt)
         }
 
-        fn save(&self, key: &str) -> Result<(), SecretError> {
+        fn add(&self, key: &str) -> Result<bool, SecretError> {
+            super::exclusively(&self.lock, || {
+                if self.load()?.is_some() {
+                    return Ok(false);
+                }
+                self.write(key)?;
+                Ok(true)
+            })
+        }
+    }
+
+    impl CredentialManager {
+        fn write(&self, key: &str) -> Result<(), SecretError> {
             let mut target = self.target();
             let mut account = wide(MASTER_KEY_ACCOUNT);
             let blob = key.as_bytes();
@@ -258,18 +333,39 @@ mod credential_manager {
         use super::*;
         use windows::Win32::Security::Credentials::CredDeleteW;
 
+        /// Deletes the test's credential when it drops, the test failed or not.
+        struct Cleanup(Vec<u16>);
+
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                // SAFETY: the target is NUL-terminated and outlives the call.
+                let _ = unsafe {
+                    CredDeleteW(PCWSTR::from_raw(self.0.as_ptr()), CRED_TYPE_GENERIC, None)
+                };
+            }
+        }
+
         #[test]
         fn the_master_key_round_trips_through_the_credential_manager() {
-            let store =
-                CredentialManager::new(format!("app.example.conduit-test.{}", std::process::id()));
+            let folder = tempfile::Builder::new()
+                .prefix("conduit-credentials-")
+                .tempdir()
+                .expect("a temporary folder");
+            // A service of this run's own: never a credential an earlier
+            // run (or another test process) left.
+            let store = CredentialManager::new(
+                format!("app.example.conduit-test.{:016x}", rand::random::<u64>()),
+                folder.path().join("master-key.lock"),
+            );
+            let cleanup = Cleanup(store.target());
             assert_eq!(store.load(), Ok(None));
             let key = load_or_create_master_key(&store).unwrap();
             assert!(is_valid_master_key(&key));
             assert_eq!(load_or_create_master_key(&store).unwrap(), key);
-            let target = store.target();
-            // SAFETY: `target` is NUL-terminated and outlives the call.
-            unsafe { CredDeleteW(PCWSTR::from_raw(target.as_ptr()), CRED_TYPE_GENERIC, None) }
-                .unwrap();
+            // A second key is refused, never written over the first.
+            assert_eq!(store.add(&super::super::new_master_key()), Ok(false));
+            assert_eq!(store.load(), Ok(Some(key)));
+            drop(cleanup);
             assert_eq!(store.load(), Ok(None));
         }
     }
@@ -286,15 +382,19 @@ mod secret_service {
     /// a Flatpak the portal's keyring file, labelled with the service and
     /// found by its `service` and `account` attributes. Unlocking can show
     /// the desktop's own prompt. With no Secret Service at all this fails,
-    /// and the app says so: the key is never written to a plain file.
+    /// and the app says so: the key is never written to a plain file. A
+    /// create-only item would be a second one beside it, so a new key is
+    /// written holding `lock` (a file in the data folder).
     pub struct SecretService {
         pub service: String,
+        pub lock: std::path::PathBuf,
     }
 
     impl SecretService {
-        pub fn new(service: impl Into<String>) -> Self {
+        pub fn new(service: impl Into<String>, lock: impl Into<std::path::PathBuf>) -> Self {
             Self {
                 service: service.into(),
+                lock: lock.into(),
             }
         }
 
@@ -327,14 +427,20 @@ mod secret_service {
             })
         }
 
-        fn save(&self, key: &str) -> Result<(), SecretError> {
-            futures_lite::future::block_on(async {
-                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
-                keyring.unlock().await.map_err(store_error)?;
-                keyring
-                    .create_item(&self.service, &self.attributes(), key, true)
-                    .await
-                    .map_err(store_error)
+        fn add(&self, key: &str) -> Result<bool, SecretError> {
+            super::exclusively(&self.lock, || {
+                if self.load()?.is_some() {
+                    return Ok(false);
+                }
+                futures_lite::future::block_on(async {
+                    let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                    keyring.unlock().await.map_err(store_error)?;
+                    keyring
+                        .create_item(&self.service, &self.attributes(), key, true)
+                        .await
+                        .map_err(store_error)
+                })?;
+                Ok(true)
             })
         }
     }
@@ -434,10 +540,11 @@ impl MasterKeyStore for SecurityCli {
         }
     }
 
-    fn save(&self, key: &str) -> Result<(), SecretError> {
+    fn add(&self, key: &str) -> Result<bool, SecretError> {
         // Interactive mode reads the command from stdin, keeping the key out
         // of every process's argv. Service, account and key are plain tokens
-        // (no spaces or quotes).
+        // (no spaces or quotes). Without -U, `security` refuses to replace
+        // an item that is already there.
         let command = format!(
             "add-generic-password -s {s} -a {a} -l {s} -w {key}\n",
             s = self.service,
@@ -446,8 +553,8 @@ impl MasterKeyStore for SecurityCli {
         self.run(&["-i"], Some(&command))?;
         // `security -i` exits 0 whatever its commands did; read it back.
         match self.load()? {
-            Some(stored) if stored == key => Ok(()),
-            _ => Err(SecretError::Store(
+            Some(stored) => Ok(stored == key),
+            None => Err(SecretError::Store(
                 "the Keychain did not keep the key".into(),
             )),
         }
@@ -487,14 +594,17 @@ mod tests {
     #[test]
     fn the_security_cli_store_round_trips_through_a_fake_tool() {
         use std::os::unix::fs::PermissionsExt as _;
-        let dir = std::env::temp_dir().join(format!("conduit-seccli-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let tool = dir.join("security");
-        let store = dir.join("store.txt");
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-seccli-")
+            .tempdir()
+            .expect("a temporary folder");
+        let tool = dir.path().join("security");
+        let store = dir.path().join("store.txt");
         // find-generic-password: print the stored key or exit 44;
-        // -i: read "add-generic-password ... -w KEY" from stdin.
+        // -i: read "add-generic-password ... -w KEY" from stdin, and as
+        // without -U, keep an item that is already there.
         let script = format!(
-            "#!/bin/sh\nset -e\nif [ \"$1\" = \"-i\" ]; then\n  read -r cmd\n  case \"$*\" in *-w*) exit 9;; esac\n  echo \"$cmd\" | sed 's/.*-w //' > '{s}'\n  exit 0\nfi\nif [ -f '{s}' ]; then cat '{s}'; exit 0; fi\nexit 44\n",
+            "#!/bin/sh\nset -e\nif [ \"$1\" = \"-i\" ]; then\n  read -r cmd\n  case \"$*\" in *-w*) exit 9;; esac\n  [ -f '{s}' ] || echo \"$cmd\" | sed 's/.*-w //' > '{s}'\n  exit 0\nfi\nif [ -f '{s}' ]; then cat '{s}'; exit 0; fi\nexit 44\n",
             s = store.display()
         );
         std::fs::write(&tool, script).unwrap();
@@ -509,6 +619,9 @@ mod tests {
         assert!(is_valid_master_key(&key));
         assert_eq!(std::fs::read_to_string(&store).unwrap().trim(), key);
         assert_eq!(load_or_create_master_key(&cli).unwrap(), key);
+        // Another launch's key is refused, never written over this one.
+        assert_eq!(cli.add(&new_master_key()), Ok(false));
+        assert_eq!(cli.load(), Ok(Some(key)));
     }
 
     #[cfg(unix)]
@@ -526,6 +639,44 @@ mod tests {
             timeout: std::time::Duration::from_millis(300),
         };
         assert!(matches!(cli.load(), Err(SecretError::Store(_))));
+    }
+
+    /// Two first launches at once both find no key and make one: the store
+    /// keeps one of them and both use it. Two keys would leave the data one
+    /// launch encrypted under a key nobody has.
+    #[test]
+    fn two_first_launches_end_with_one_key() {
+        struct Racing {
+            inner: MemoryStore,
+            first_loads: std::sync::atomic::AtomicUsize,
+            both_loaded: std::sync::Barrier,
+        }
+        impl MasterKeyStore for Racing {
+            fn load(&self) -> Result<Option<String>, SecretError> {
+                use std::sync::atomic::Ordering;
+                let found = self.inner.load();
+                // Neither writes before both have looked.
+                if self.first_loads.fetch_add(1, Ordering::SeqCst) < 2 {
+                    self.both_loaded.wait();
+                }
+                found
+            }
+            fn add(&self, key: &str) -> Result<bool, SecretError> {
+                self.inner.add(key)
+            }
+        }
+        let store = Racing {
+            inner: MemoryStore::default(),
+            first_loads: Default::default(),
+            both_loaded: std::sync::Barrier::new(2),
+        };
+        let (a, b) = std::thread::scope(|s| {
+            let a = s.spawn(|| load_or_create_master_key(&store));
+            let b = s.spawn(|| load_or_create_master_key(&store));
+            (a.join().unwrap().unwrap(), b.join().unwrap().unwrap())
+        });
+        assert_eq!(a, b, "both launches use one key");
+        assert_eq!(store.inner.load().unwrap(), Some(a));
     }
 
     #[test]

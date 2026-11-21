@@ -399,12 +399,17 @@ mod tests {
 
     #[test]
     fn off_the_mac_the_packaged_daemon_sits_beside_the_executable() {
-        let root = std::env::temp_dir().join(format!("conduit-packaged-{}", std::process::id()));
+        // Its own new folder, removed when it drops: never one an earlier
+        // run left a daemon in.
+        let root = tempfile::Builder::new()
+            .prefix("conduit-packaged-")
+            .tempdir()
+            .expect("a temporary folder");
         for (os, exe, daemon) in [
             (Os::Windows, "Conduit.exe", "conduitd/bin/conduitd.exe"),
             (Os::Linux, "conduit", "conduitd/bin/conduitd"),
         ] {
-            let dir = root.join(format!("{os:?}"));
+            let dir = root.path().join(format!("{os:?}"));
             std::fs::create_dir_all(dir.join("conduitd/bin")).unwrap();
             let exe = dir.join(exe);
             assert_eq!(packaged_daemon_for(os, &exe), None);

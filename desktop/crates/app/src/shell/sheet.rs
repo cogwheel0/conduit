@@ -78,16 +78,15 @@ pub struct Beeps(pub u32);
 impl Global for Beeps {}
 
 /// The system beep, as a Mac app gives a key press it can't take now.
-#[cfg_attr(not(target_os = "macos"), allow(clippy::needless_return))]
 pub fn beep(cx: &mut App) {
     if cx.has_global::<Beeps>() {
         cx.global_mut::<Beeps>().0 += 1;
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    // SAFETY: AppKit's NSBeep takes nothing and may be called any time.
-    unsafe {
-        NSBeep();
+    } else {
+        #[cfg(target_os = "macos")]
+        // SAFETY: AppKit's NSBeep takes nothing and may be called any time.
+        unsafe {
+            NSBeep();
+        }
     }
 }
 
@@ -352,10 +351,13 @@ fn ask_in_window(
                         std::future::pending::<()>().await;
                     }
                 };
-                futures::select! {
+                let chose = futures::select! {
                     answer = answer.fuse() => answer == Ok(0),
                     () = closed.fuse() => false,
-                }
+                };
+                // A close settles it at once, though its signal comes later:
+                // an answer that won the race after it is still Cancel.
+                chose && !closer.as_ref().is_some_and(SheetCloser::is_closed)
             }
             None => false,
         };
@@ -499,5 +501,13 @@ mod tests {
         vcx.simulate_prompt_answer("Remove");
         vcx.run_until_parked();
         assert_eq!(answer.get(), Some(false));
+
+        // A confirmation that comes after the close, before anything ran
+        // between them: still Cancel.
+        let (answer, closer) = ask(vcx, true);
+        vcx.update(|_, cx| closer.unwrap().close(cx));
+        vcx.simulate_prompt_answer("Remove");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(false), "confirmed after the close");
     }
 }
