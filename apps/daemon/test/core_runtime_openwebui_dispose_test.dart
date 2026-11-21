@@ -13,18 +13,21 @@ import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:test/test.dart';
+import 'package:web_socket_channel/io.dart';
 
 import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
 
 const _chatId = 'chat-shelf';
 
-/// Disposing the runtime while Open WebUI sync work nobody waits on is still
-/// out: the first pull after sign-in, or the outbox drain a shutdown's flush
-/// gave up on. The process exits, or a test deletes the directory, once
-/// dispose returns: nothing may write the account database after that, and
-/// a server that does not answer must not hold it up.
+/// Disposing the runtime, or stopping the daemon, while Open WebUI sync work
+/// is still out: the first pull after sign-in, the outbox drain a shutdown's
+/// flush gave up on, or a pull the turns service waits for. The process
+/// exits, or a test deletes the directory, once dispose returns: nothing may
+/// write the account database after that, and a server that does not answer
+/// must not hold it up.
 void main() {
   test('dispose cuts off a pull the server holds, and nothing writes the '
       'account database after it', () async {
@@ -69,10 +72,42 @@ void main() {
       reason: "the drain's outcome landed after dispose returned",
     );
   });
+
+  test('stopping the daemon cuts off a pull the turns service waits for, '
+      'rather than waiting for the server to answer it', () async {
+    final bench = await _Bench.start(daemon: true);
+    await bench.firstPull;
+    final database = bench.database;
+    final chats = bench.owui.chats;
+    // A rating pulls its chat once it is done, and the turns service waits
+    // for that pull as it is disposed. The rating's own read of the chat goes
+    // through; the pull's is held, and the chat changes meanwhile.
+    chats.chatReadsToPass = 1;
+    final held = bench.hold(chats.holdChatReads = Completer());
+    await expectLater(
+      bench.rate('answer-gone'),
+      throwsA(isA<json_rpc.RpcException>()),
+    );
+    await chats.chatReadAsked.future;
+    final row = chats.stored[_chatId]!..['title'] = 'Shelf labels';
+    row['updated_at'] = (row['updated_at'] as int) + 1;
+
+    // The server answers the held read as soon as the stop is asked for.
+    final stopped = bench.dispose();
+    held.complete();
+    await stopped;
+
+    expect(
+      (await database.chatsDao.getChat(_chatId))?.title,
+      'Shelf',
+      reason: "the held pull's answer was stored: stop waited on the server",
+    );
+  });
 }
 
 /// A runtime signed in to a fake Open WebUI server that keeps one chat, and
-/// the first pull certification asks for, which reads it.
+/// the first pull certification asks for, which reads it. With a [_daemon],
+/// the runtime is its core, and [_window] is a window connected to it.
 final class _Bench {
   _Bench._(this.runtime, this.owui, this._accounts, this._auth);
 
@@ -80,6 +115,8 @@ final class _Bench {
   final FakeOwuiAuthServer owui;
   final AccountsService _accounts;
   final AuthService _auth;
+  DaemonServer? _daemon;
+  json_rpc.Peer? _window;
   late final Future<Object?> firstPull;
   final List<String> writes = <String>[];
   late final AppDatabase database = runtime.container.read(
@@ -87,19 +124,25 @@ final class _Bench {
   )!;
   Future<void>? _disposing;
 
-  static Future<_Bench> start({bool holdChatReads = false}) async {
+  static Future<_Bench> start({
+    bool holdChatReads = false,
+    bool daemon = false,
+  }) async {
     // Each runtime reads its own preferences: the store is the process's.
     addTearDown(PreferencesStore.debugReset);
     final temporary = Directory.systemTemp.createTempSync('owui-dispose');
     addTearDown(() => temporary.deleteSync(recursive: true));
+    final config = BootstrapConfig(
+      sessionToken: 'a' * 43,
+      masterKey: base64.encode(List<int>.generate(32, (i) => i)),
+      userDataDir: temporary.path,
+    );
+    final directories = DaemonDirectories.create(temporary.path);
+    final log = DaemonLog(level: 'error', sink: NullSink());
     final runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
+      config: config,
+      directories: directories,
+      log: log,
     );
     final owui =
         await FakeOwuiAuthServer.start(
@@ -119,6 +162,7 @@ final class _Bench {
     final auth = AuthService(runtime.container);
     final bench = _Bench._(runtime, owui, accounts, auth);
     addTearDown(bench.dispose);
+    if (daemon) await bench._attach(config, directories, log);
     if (holdChatReads) bench.hold(owui.chats.holdChatReads = Completer());
 
     // Certification asks for the first pull once it has opened the
@@ -151,6 +195,48 @@ final class _Bench {
     return bench;
   }
 
+  Future<void> _attach(
+    BootstrapConfig config,
+    DaemonDirectories directories,
+    DaemonLog log,
+  ) async {
+    final daemon = _daemon = DaemonServer(
+      config: config,
+      directories: directories,
+      daemonVersion: '0.0.0-test',
+      log: log,
+    );
+    final port = await daemon.start();
+    daemon.attachCore(runtime);
+    final socket = IOWebSocketChannel.connect(
+      Uri.parse('ws://127.0.0.1:$port${ConduitHttpRoutes.rpc}'),
+      protocols: buildSubprotocols(config.sessionToken),
+      headers: <String, dynamic>{'Origin': kConduitAppOrigin},
+    );
+    await socket.ready;
+    final window = _window = json_rpc.Peer(socket.cast<String>());
+    unawaited(window.listen());
+    addTearDown(window.close);
+    await callTyped<HandshakeResponse>(
+      window,
+      ConduitMethods.systemHandshake,
+      params: const HandshakeRequest(
+        protocolVersion: kConduitProtocolVersion,
+        clientName: 'test',
+        clientVersion: '0.0.0',
+        windowKind: WindowKind.headless,
+        locale: 'en',
+      ).toJson(),
+      decodeResult: HandshakeResponse.fromJson,
+    );
+  }
+
+  /// Rates [messageId] in the chat up, from the window.
+  Future<Object?> rate(String messageId) => _window!.sendRequest(
+    ConduitMethods.turnsRate,
+    RateTurn(chatId: _chatId, messageId: messageId, rating: 1).toJson(),
+  );
+
   /// Lets the server answer what [held] holds once the test ends, before
   /// the runtime is disposed.
   Completer<void> hold(Completer<void> held) {
@@ -168,9 +254,10 @@ final class _Bench {
     addTearDown(watch.cancel);
   }
 
+  /// Disposes the runtime, through the daemon's stop when it has one.
   Future<void> dispose() => _disposing ??= () {
     _accounts.dispose();
     _auth.dispose();
-    return runtime.dispose();
+    return _daemon?.stop() ?? runtime.dispose();
   }();
 }
