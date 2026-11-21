@@ -709,51 +709,61 @@ void main() {
     }
 
     // An image the model made is an output item that renders as markdown:
-    // text past it is the only text the output lacks.
+    // text past it is the only text the output lacks, and opens again as
+    // the same markdown, an indented code line's indent included.
+    String markdownBlocks(String text) =>
+        text.trim().replaceAll(RegExp(r'\n(?:[ \t]*\n)+'), '\n\n');
     for (final ended in ['cut off', 'stopped']) {
-      test('an answer $ended after text that streamed past a generated image '
-          'opens again with the image once and all of the text', () {
-        fakeAsync((async) {
-          final snapshot = [
-            <String, dynamic>{
-              'type': 'image_generation_call',
-              'result': 'data:image/png;base64,iVBORw0KGgo=',
-              'revised_prompt': 'A weather vane',
-            },
-          ];
-          final api = _FakeApiService(_chat([question]));
-          final (:notifier, :db, :container) = streamHere(
-            async,
-            api,
-            '${renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(snapshot))}'
-            'The vane turns with the gale.',
-            output: snapshot,
-          );
-          api.taskIds = const <String>[];
-          if (ended == 'cut off') {
-            api.conversation = _chat([
-              question,
-              _message(
-                answerId,
-                'assistant',
-                '',
-              ).copyWith(metadata: unfinished),
-            ]);
-            pollTasks(async, notifier);
-          } else {
-            api.conversation = _chat([
-              question,
-              _message(answerId, 'assistant', ''),
-            ]);
-            unawaited(container.read(stopGenerationSettledProvider)());
-            async.flushMicrotasks();
-          }
+      for (final (label, past) in <(String, String)>[
+        ('text', 'The vane turns with the gale.'),
+        ('indented code', '\n\n    vane.turn(gale)'),
+      ]) {
+        test('an answer $ended after $label that streamed past a generated '
+            'image opens again with the image once and the $label shown', () {
+          fakeAsync((async) {
+            final snapshot = [
+              <String, dynamic>{
+                'type': 'image_generation_call',
+                'result': 'data:image/png;base64,iVBORw0KGgo=',
+                'revised_prompt': 'A weather vane',
+              },
+            ];
+            final api = _FakeApiService(_chat([question]));
+            final shown =
+                '${renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(snapshot))}'
+                '$past';
+            final (:notifier, :db, :container) = streamHere(
+              async,
+              api,
+              shown,
+              output: snapshot,
+            );
+            api.taskIds = const <String>[];
+            if (ended == 'cut off') {
+              api.conversation = _chat([
+                question,
+                _message(
+                  answerId,
+                  'assistant',
+                  '',
+                ).copyWith(metadata: unfinished),
+              ]);
+              pollTasks(async, notifier);
+            } else {
+              api.conversation = _chat([
+                question,
+                _message(answerId, 'assistant', ''),
+              ]);
+              unawaited(container.read(stopGenerationSettledProvider)());
+              async.flushMicrotasks();
+            }
 
-          final opened = reopened(async, db).content;
-          check('![A weather vane]'.allMatches(opened).length).equals(1);
-          check(opened).contains('The vane turns with the gale.');
+            final opened = reopened(async, db).content;
+            check('![A weather vane]'.allMatches(opened).length).equals(1);
+            check(markdownBlocks(opened)).equals(markdownBlocks(shown));
+          });
         });
-      });
+      }
     }
 
     // Reasoning deltas reach the shown reasoning too, and not the output's

@@ -6762,8 +6762,9 @@ String _words(String text) => text.replaceAll(_whitespace, ' ');
 
 /// [output] followed by [rest], the text shown past what it renders: on its
 /// last message, after that message's own text, or as a message of its own
-/// after another item. Null when [rest] does not line up with the last
-/// message's text, which may end in whitespace the rendered text drops.
+/// after another item, its leading whitespace kept (an indented code line's
+/// indent). Null when [rest] does not line up with the last message's text,
+/// which may end in whitespace the rendered text drops.
 List<Map<String, dynamic>>? _outputContinuedWith(
   List<Map<String, dynamic>> output,
   String rest,
@@ -6777,7 +6778,7 @@ List<Map<String, dynamic>>? _outputContinuedWith(
         'type': 'message',
         'role': 'assistant',
         'content': [
-          <String, dynamic>{'type': 'output_text', 'text': rest.trimLeft()},
+          <String, dynamic>{'type': 'output_text', 'text': rest},
         ],
       },
     ];
