@@ -18,6 +18,8 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
         hermesModelSwitchPromptProvider,
         hostHermesDashboardBridgeFactoryProvider,
         hostHermesDashboardSignOutProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart'
+    show libreChatSyncEngineProvider;
 import 'package:conduit_core/navigation/route_redirect.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/persistence/hive_boxes.dart';
@@ -468,10 +470,28 @@ final class CoreRuntime {
   }
 
   Future<void> dispose() async {
+    await _closeLibreChatSync();
     container.dispose();
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
+    }
+  }
+
+  /// Waits for the LibreChat pulls and pushes still out, which write the
+  /// account database until they end: a list refresh runs with nobody
+  /// waiting on it, and once the container is gone nothing could.
+  Future<void> _closeLibreChatSync() async {
+    // Reading it when it is not there would start an engine.
+    if (!container.read(libreChatSyncEngineProvider.exists)) return;
+    try {
+      await container.read(libreChatSyncEngineProvider)?.close();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'librechat-sync-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
     }
   }
 
