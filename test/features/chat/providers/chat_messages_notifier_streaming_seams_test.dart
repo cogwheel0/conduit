@@ -274,6 +274,9 @@ final class _CountingStopApi extends ApiService {
   int broadStops = 0;
 
   @override
+  Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
+
+  @override
   Future<void> stopTasksByChat(String chatId) async {
     broadStops++;
   }

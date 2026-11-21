@@ -152,6 +152,27 @@ bool _goesToOpenWebUi(ChatMessage reply) {
       transport != kLibreChatTransport;
 }
 
+/// Whether the server runs a task for [chatId], as its list of the account's
+/// tasks says: null when that is not asked (a temporary chat, or an [answer]
+/// that never had a task) or cannot be read.
+Future<bool?> _openWebUiTaskRuns(
+  ApiService? api,
+  String chatId,
+  ChatMessage answer,
+) {
+  final metadata = answer.metadata;
+  if (api == null ||
+      chatId.isEmpty ||
+      isTemporaryChat(chatId) ||
+      (metadata?['taskId'] == null &&
+          metadata?['taskConversationId'] == null)) {
+    return Future<bool?>.value();
+  }
+  return api
+      .getTaskIdsByChat(chatId)
+      .then<bool?>((ids) => ids.isNotEmpty, onError: (Object _) => null);
+}
+
 /// [stopOpenWebUiMainResponse] for the chat this provider's container has
 /// open: a chat session scope's own, in a scope ([chatSessionScopeOverrides]).
 final stopOpenWebUiMainResponseProvider = Provider<Future<bool> Function()>(
@@ -184,9 +205,11 @@ Future<bool> _stopGeneration(Ref ref) {
   var stoppedClientOwnedRun = false;
   var stoppedOpenWebUiRun = false;
   var hadStreamingAssistant = false;
-  // This account's Open WebUI answer that was stopped, and the asks that stop
-  // it on the server: its text is kept once they are answered.
+  // This account's Open WebUI answer that was stopped, whether the server ran
+  // a task for the chat as Stop was pressed, and the asks that stop it on
+  // the server: the answer is kept once they are answered.
   String? stoppedAnswerId;
+  var taskRan = Future<bool?>.value();
   final serverStops = <Future<bool>>[];
   // The server-side effects of this stop, kept so that a refusal can be asked
   // again after the visible answers have settled (see [_oweCancellation]).
@@ -335,8 +358,11 @@ Future<bool> _stopGeneration(Ref ref) {
         // both).
         stoppedOpenWebUiRun = true;
         stoppedAnswerId = last.id;
+        // Asked before the server is told to stop: only a task running then
+        // saves the stopped answer itself.
+        final lookup = taskRan = _openWebUiTaskRuns(api, stoppedChatId, last);
         final transportStop = cancelOnServer(
-          (_) => stopActiveTransport(last, api),
+          (_) => stopActiveTransport(last, api, beforeTaskStop: lookup),
         );
         serverStops.add(transportStop);
         settled.add(transportStop);
@@ -392,7 +418,9 @@ Future<bool> _stopGeneration(Ref ref) {
     final api = ref.read(apiServiceProvider);
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
+      final lookup = taskRan;
       final chatStop = cancelOnServer((chatId) async {
+        await lookup;
         await api.stopTasksByChat(chatId);
         return true;
       }, chatScoped: true);
@@ -406,6 +434,7 @@ Future<bool> _stopGeneration(Ref ref) {
               ._keepStoppedAnswerText(
                 stopped,
                 api: api,
+                taskRan: taskRan,
                 serverStopped: Future.wait(serverStops),
               ),
         );

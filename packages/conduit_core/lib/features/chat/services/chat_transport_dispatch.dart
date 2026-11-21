@@ -196,7 +196,11 @@ void configureRemoteTaskMonitoring({
 /// Both are started before this returns. The result completes once the server
 /// has answered the task stop, and says whether it accepted it; a message with
 /// no task has nothing to refuse. Callers that only fire the stop may ignore it.
-Future<bool> stopActiveTransport(ChatMessage message, ApiService? api) async {
+Future<bool> stopActiveTransport(
+  ChatMessage message,
+  ApiService? api, {
+  Future<Object?>? beforeTaskStop,
+}) async {
   final meta = message.metadata;
   final transport = meta?['transport']?.toString();
   final hasAbortHandle = meta?['hasActiveAbortHandle'] == true;
@@ -207,6 +211,7 @@ Future<bool> stopActiveTransport(ChatMessage message, ApiService? api) async {
   if (transport == null || transport == 'httpStream' || hasAbortHandle) {
     api?.cancelStreamingMessage(message.id);
   }
+  if (beforeTaskStop != null) await beforeTaskStop;
 
   // Stop background task
   final taskId = meta?['taskId']?.toString();

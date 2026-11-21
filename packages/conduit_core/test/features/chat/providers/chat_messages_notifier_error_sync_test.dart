@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart'
+    show appDatabaseProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show kMessageServerUnfinishedMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_prompt.dart'
+    show findPendingOpenWebUiToolPrompt;
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -105,6 +111,12 @@ class _FakeApiService extends ApiService {
     taskLookups++;
     return taskIds;
   }
+
+  @override
+  Future<void> stopTasksByChat(String chatId) async {}
+
+  @override
+  Future<void> stopTask(String taskId) async {}
 }
 
 /// The model list, answered when a test says.
@@ -334,32 +346,97 @@ void main() {
 
   group('an answer the server stopped in the middle of', () {
     final question = _message('user-1', 'user', 'Why do gales veer?');
+    const answerId = 'assistant-1';
+    const unfinished = <String, dynamic>{
+      kMessageServerUnfinishedMetadataKey: true,
+    };
+    // A reasoning block as Open WebUI renders one, before any answer text.
+    const reasoning =
+        '<details type="reasoning" done="true" duration="2">\n'
+        '<summary>Thought for 2 seconds</summary>\n'
+        '> Fronts turn the wind.\n'
+        '</details>';
+
+    /// The chat open, stored as this device stored it when the answer
+    /// started, and the answer streaming here over the socket with
+    /// [streamed] so far, its task seen running.
+    ({
+      ChatMessagesNotifier notifier,
+      AppDatabase db,
+      ProviderContainer container,
+    })
+    streamHere(FakeAsync async, _FakeApiService api, String streamed) {
+      api.taskIds = ['task-1'];
+      final container = _openChatContainer(api: api);
+      final notifier = container.read(chatMessagesProvider.notifier);
+      final db = container.read(appDatabaseProvider)!;
+      final placeholder = _message(answerId, 'assistant', '').copyWith(
+        isStreaming: true,
+        metadata: const <String, dynamic>{
+          'transport': 'taskSocket',
+          'taskId': 'task-1',
+          'taskConversationId': 'chat-1',
+        },
+      );
+      unawaited(() async {
+        await db.chatsDao.upsertEnvelopeStub(
+          id: 'chat-1',
+          title: 'Test Chat',
+          createdAt: 1,
+          updatedAt: 1,
+        );
+        await db.messagesDao.upsertLocalEchoTurn(
+          chatId: 'chat-1',
+          user: localEchoRowForMessage('chat-1', question),
+          assistant: localEchoRowForMessage('chat-1', placeholder),
+        );
+      }());
+      async.flushMicrotasks();
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_chat([question]));
+      async.flushMicrotasks();
+      notifier
+        ..addMessage(placeholder)
+        ..setSocketSubscriptions(answerId, [() {}]);
+      if (streamed.isNotEmpty) notifier.appendToLastMessage(streamed);
+      async.elapse(Duration.zero);
+      notifier.debugCancelRemoteTaskMonitorTimer();
+      return (notifier: notifier, db: db, container: container);
+    }
+
+    /// The answer's row as the store keeps it: what the chat opens with.
+    Map<String, dynamic> storedAnswer(FakeAsync async, AppDatabase db) {
+      MessageRow? row;
+      unawaited(
+        db.messagesDao.getMessage('chat-1', answerId).then((it) => row = it),
+      );
+      async.flushMicrotasks();
+      return <String, dynamic>{
+        ...jsonDecode(row!.payload) as Map<String, dynamic>,
+        'content': row!.content,
+      };
+    }
+
+    /// Polls the server's task list until the reply settles, past the
+    /// socket's own end, which is waited for first.
+    void pollTasks(FakeAsync async, ChatMessagesNotifier notifier) {
+      for (var poll = 0; poll < 3; poll++) {
+        unawaited(notifier.debugSyncRemoteTaskStatus());
+        async.flushMicrotasks();
+      }
+    }
 
     test('settles with what streamed here, and the connection lost, once '
         'the server runs no task for it', () {
       fakeAsync((async) {
-        final api = _FakeApiService(_chat([question]))..taskIds = ['task-1'];
-        final container = _openChatContainer(api: api);
-        final notifier = container.read(chatMessagesProvider.notifier);
-        container
-            .read(activeConversationProvider.notifier)
-            .set(_chat([question]));
-        async.flushMicrotasks();
-
-        // The answer streams here over the socket, and its task is seen.
-        notifier
-          ..addMessage(
-            _message(
-              'assistant-1',
-              'assistant',
-              '',
-            ).copyWith(isStreaming: true),
-          )
-          ..setSocketSubscriptions('assistant-1', [() {}])
-          ..appendToLastMessage('Gales veer as the front');
-        async.elapse(Duration.zero);
+        final api = _FakeApiService(_chat([question]));
+        final (:notifier, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer as the front',
+        );
         check(api.taskLookups).equals(1);
-        notifier.debugCancelRemoteTaskMonitorTimer();
 
         // The server stopped and is back: it runs no task for the chat, and
         // keeps the answer not done and empty, as it was when it stopped.
@@ -367,23 +444,237 @@ void main() {
           ..taskIds = const <String>[]
           ..conversation = _chat([
             question,
-            _message('assistant-1', 'assistant', '').copyWith(
-              metadata: const <String, dynamic>{
-                kMessageServerUnfinishedMetadataKey: true,
-              },
-            ),
+            _message(answerId, 'assistant', '').copyWith(metadata: unfinished),
           ]);
-        // The socket's own end is waited for first.
-        for (var poll = 0; poll < 3; poll++) {
-          unawaited(notifier.debugSyncRemoteTaskStatus());
-          async.flushMicrotasks();
-        }
+        pollTasks(async, notifier);
 
         final answer = container.read(chatMessagesProvider).last;
         check(answer.isStreaming).isFalse();
         check(answer.content).equals('Gales veer as the front');
         check(answer.error?.content)
             .equals(TemporaryChatResume.connectionLostMessage);
+        check(storedAnswer(async, db))
+          ..has(
+            (it) => it['content'],
+            'content',
+          ).equals('Gales veer as the front')
+          ..has((it) => it['done'], 'done').equals(true);
+      });
+    });
+
+    // Whichever copy holds more is kept, by its text without its reasoning
+    // or tool blocks, not by one being the other's beginning. The error is
+    // stored with it, so the chat opens on it, with Retry.
+    for (final (label, streamed, onServer, kept)
+        in <(String, String, String, String)>[
+          (
+            'all of its text',
+            'Gales veer as the front',
+            'Gales veer as the front',
+            'Gales veer as the front',
+          ),
+          ('no text, as this device had none', '', '', ''),
+          (
+            'less text, written otherwise',
+            'Gales veer as the warm front passes',
+            'Gales back as',
+            'Gales veer as the warm front passes',
+          ),
+          (
+            'more text, written otherwise',
+            'Gales veer',
+            'Gales back as the warm front passes',
+            'Gales back as the warm front passes',
+          ),
+        ]) {
+      test('a cut-off answer whose server copy has $label keeps the longer, '
+          'and opens again with the connection lost', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (:notifier, :db, :container) = streamHere(async, api, streamed);
+          api
+            ..taskIds = const <String>[]
+            ..conversation = _chat([
+              question,
+              _message(
+                answerId,
+                'assistant',
+                onServer,
+              ).copyWith(metadata: unfinished),
+            ]);
+          pollTasks(async, notifier);
+
+          final answer = container.read(chatMessagesProvider).last;
+          check(answer.isStreaming).isFalse();
+          check(answer.content).equals(kept);
+          final stored = storedAnswer(async, db);
+          check(stored)
+            ..has((it) => it['content'], 'content').equals(kept)
+            ..has((it) => it['done'], 'done').equals(true)
+            ..has(
+              (it) => (it['error'] as Map?)?['content'],
+              'error',
+            ).equals(TemporaryChatResume.connectionLostMessage);
+        });
+      });
+    }
+
+    test('a cut-off answer keeps the text that streamed here together with '
+        'its own output, not the server\'s older one', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (:notifier, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer as the warm front passes',
+        );
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([
+            question,
+            _message(answerId, 'assistant', 'Gales veer').copyWith(
+              metadata: unfinished,
+              output: const [
+                <String, dynamic>{
+                  'type': 'message',
+                  'content': [
+                    <String, dynamic>{
+                      'type': 'output_text',
+                      'text': 'Gales veer',
+                    },
+                  ],
+                },
+              ],
+            ),
+          ]);
+        pollTasks(async, notifier);
+
+        final stored = storedAnswer(async, db);
+        check(stored)
+          ..has(
+            (it) => it['content'],
+            'content',
+          ).equals('Gales veer as the warm front passes')
+          ..has((it) => it['output'], 'output').isNull();
+      });
+    });
+
+    test('an answer waiting for a saved tool approval, with no task, keeps '
+        'its prompt and is not failed', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (:notifier, db: _, :container) = streamHere(
+          async,
+          api,
+          'Checking the barometer',
+        );
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([
+            question,
+            _message(answerId, 'assistant', 'Checking the barometer').copyWith(
+              metadata: unfinished,
+              output: const [
+                <String, dynamic>{
+                  'type': 'function_call',
+                  'call_id': 'call-1',
+                  'name': 'read_barometer',
+                  'arguments': '{}',
+                  'status': 'requires_approval',
+                },
+              ],
+            ),
+          ]);
+        pollTasks(async, notifier);
+
+        final messages = container.read(chatMessagesProvider);
+        check(messages.last.error).isNull();
+        check(findPendingOpenWebUiToolPrompt(messages)).isNotNull();
+      });
+    });
+
+    // Open WebUI's stop of a chat with no task running finishes each of its
+    // answers with the text it had stored, often none.
+    for (final (label, streamed, onServer, kept)
+        in <(String, String, ChatMessage, String)>[
+          (
+            'only reasoning',
+            reasoning,
+            _message(answerId, 'assistant', ''),
+            reasoning,
+          ),
+          (
+            'the same text as the server\'s unfinished copy',
+            'Gales veer',
+            _message(
+              answerId,
+              'assistant',
+              'Gales veer',
+            ).copyWith(metadata: unfinished),
+            'Gales veer',
+          ),
+          (
+            'nothing, and the server\'s copy is unfinished',
+            '',
+            _message(answerId, 'assistant', '').copyWith(metadata: unfinished),
+            '',
+          ),
+        ]) {
+      test('a Stop with no task running on an answer that streamed $label '
+          'stores it finished, as the chat opens again', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (notifier: _, :db, :container) = streamHere(
+            async,
+            api,
+            streamed,
+          );
+          api
+            ..taskIds = const <String>[]
+            ..conversation = _chat([question, onServer]);
+          var settled = false;
+          unawaited(
+            container
+                .read(stopGenerationSettledProvider)()
+                .then((_) => settled = true),
+          );
+          async.flushMicrotasks();
+          check(settled).isTrue();
+
+          check(storedAnswer(async, db))
+            ..has((it) => it['content'], 'content').equals(kept)
+            ..has((it) => it['done'], 'done').equals(true);
+        });
+      });
+    }
+
+    test('a Stop while the server runs the answer\'s task leaves the answer '
+        'to the server\'s own save', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        // The task runs as Stop is pressed. Its save of the stopped answer
+        // lands after the stop is answered, so the copy still reads empty.
+        api.conversation = _chat([
+          question,
+          _message(answerId, 'assistant', '').copyWith(metadata: unfinished),
+        ]);
+        var settled = false;
+        unawaited(
+          container
+              .read(stopGenerationSettledProvider)()
+              .then((_) => settled = true),
+        );
+        async.flushMicrotasks();
+        check(settled).isTrue();
+
+        check(storedAnswer(async, db))
+          ..has((it) => it['content'], 'content').equals('')
+          ..has((it) => it['done'], 'done').isNull();
       });
     });
   });
