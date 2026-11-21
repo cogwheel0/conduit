@@ -253,6 +253,11 @@ final class TurnsService implements ChatTurns, AddressReplies {
   bool announced(String messageId) => _announced.contains(messageId);
   bool _disposed = false;
 
+  /// The pulls after a turn that are out ([_pull]). [dispose] waits for
+  /// them: the core is disposed next, and its database is never written to
+  /// after that.
+  final Set<Future<void>> _pulls = <Future<void>>{};
+
   /// Coalescing window for `turn.delta`: a 60 Hz ceiling. A fast model emits
   /// tokens far quicker than that, and every extra frame costs a JSON
   /// encode, a socket write and a markdown parse for text nobody can read at
@@ -2218,6 +2223,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
       }
       _close(session);
     }
+    await Future.wait(_pulls.toList());
   }
 
   // ---------------------------------------------------------------------------
@@ -4409,6 +4415,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
       if (delay > Duration.zero) await Future<void>.delayed(delay);
       if (_disposed) return;
       await _pull(chatId);
+      // Reading the chat ([_hasAnswer]) can start a pull nothing waits for.
+      if (_disposed) return;
       // A failed turn has no answer to wait for; one pull is all it gets.
       if (answerId == null || await _hasAnswer(chatId, answerId)) break;
     }
@@ -4416,6 +4424,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
   }
 
   Future<void> _pull(String chatId) async {
+    final pulled = Completer<void>();
+    _pulls.add(pulled.future);
     try {
       await _container.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } on Object catch (error) {
@@ -4424,6 +4434,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
         scope: 'daemon/turns',
         error: error,
       );
+    } finally {
+      _pulls.remove(pulled.future);
+      pulled.complete();
     }
     _container.invalidate(loadConversationProvider(chatId));
   }

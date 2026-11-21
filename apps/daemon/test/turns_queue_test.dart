@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/database/database_provider.dart'
-    show openWebUiCertifiedDatabaseServerProvider;
+    show appDatabaseProvider, openWebUiCertifiedDatabaseServerProvider;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/model.dart' as core;
 import 'package:conduit_core/providers/app_providers.dart';
@@ -776,5 +776,41 @@ void main() {
       for (final id in others) (ConduitEvents.turnFinished, id, true),
       (ConduitEvents.turnFinished, main, true),
     ]);
+  });
+
+  test('dispose waits for the pull a finished turn started', () async {
+    const chatId = 'chat-bread-bin';
+    final chats = owui.chats..seed(chatId, userId: 'user-ada');
+    // The pull after the turn reads the chat, which the server renames while
+    // that read is out.
+    final untap = events.tap((event, _, _) {
+      if (event != ConduitEvents.turnFinished || chats.holdChatReads != null) {
+        return;
+      }
+      chats
+        ..chatReadAsked = Completer<void>()
+        ..holdChatReads = Completer<void>();
+    });
+    addTearDown(untap);
+    await clock.during(
+      turns.send(
+        const SendTurn(
+          chatId: chatId,
+          model: 'kettle-model',
+          text: 'Is there bread?',
+        ),
+      ),
+    );
+    await clock.during(chats.chatReadAsked.future);
+    final row = chats.stored[chatId]!;
+    row['title'] = 'Bread bin';
+    row['updated_at'] = (row['updated_at'] as int) + 1;
+
+    final disposing = turns.dispose();
+    chats.holdChatReads!.complete();
+    await clock.during(disposing);
+
+    final db = runtime.container.read(appDatabaseProvider)!;
+    expect((await db.chatsDao.getChat(chatId))?.title, 'Bread bin');
   });
 }
