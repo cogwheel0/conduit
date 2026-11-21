@@ -12231,6 +12231,7 @@ void main() {
       await expectStoppedHere();
       // Its chat's update asks the stop again only once the chat runs no
       // task: until then it carries the server's own copies.
+      check(await db.outboxDao.hasUnconfirmedUpdate(serverId)).isTrue();
       final engine = container.read(syncEngineProvider.notifier);
       await engine.drainNow();
       Map<String, dynamic> serverAnswer(String id) =>
@@ -12552,7 +12553,7 @@ void main() {
               as Map<String, dynamic>;
       serverMessages[shown] = <String, dynamic>{
         ...serverMessages[shown] as Map<String, dynamic>,
-        'content': 'In full',
+        'content': 'In full, shelf by shelf',
         'done': true,
         'childrenIds': <String>[],
       };
@@ -12576,12 +12577,12 @@ void main() {
           (blob['history'] as Map<String, dynamic>)['messages']
               as Map<String, dynamic>;
       final answer = messages[shown] as Map<String, dynamic>;
-      check(answer['content']).equals('In full');
+      check(answer['content']).equals('In full, shelf by shelf');
       check(answer['childrenIds'] as List).contains(followUp.id);
       check((messages[followUp.id] as Map<String, dynamic>)['parentId'])
           .equals(shown);
       final stored = await storedAnswer(serverId, shown);
-      check(stored['content']).equals('In full');
+      check(stored['content']).equals('In full, shelf by shelf');
       check(stored['childrenIds'] as List).contains(followUp.id);
     });
 

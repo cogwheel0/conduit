@@ -914,10 +914,14 @@ void main() {
     );
 
     // Started again with no task running, its copy not done and empty.
-    final chats = owui.chats..startServer();
-    final saved = chats.chatSaved = Completer<String>();
+    owui.chats.startServer();
     runtime.reportNetwork(online: true);
-    expect(await clock.during(saved.future), chatId);
+    // The update has gone, past its stop and the save that follows it.
+    await clock.during(
+      (db.select(db.outboxOps)..where((op) => op.chatId.equals(chatId)))
+          .watch()
+          .firstWhere((ops) => !ops.any((op) => op.kind == 'updateChat')),
+    );
 
     final answer = serverAnswer(chatId, sent.assistantMessageId);
     expect(answer['content'], 'The');

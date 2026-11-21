@@ -153,13 +153,19 @@ class _FakeApiService extends ApiService {
   /// While set, the server answers every stop with an error.
   bool stopsRefused = false;
 
+  /// The chat's stops asked, and the tasks stopped one by one.
+  int chatStops = 0;
+  final List<String> stoppedTasks = <String>[];
+
   @override
   Future<void> stopTasksByChat(String chatId) async {
+    chatStops++;
     if (stopsRefused) throw StateError('the stop was refused');
   }
 
   @override
   Future<void> stopTask(String taskId) async {
+    stoppedTasks.add(taskId);
     if (stopsRefused) throw StateError('the stop was refused');
   }
 }
@@ -1357,6 +1363,94 @@ void main() {
       });
     });
 
+    /// The chat on the server, which [database] stores this device's side
+    /// of: the question and its answer not done and empty, as Open WebUI
+    /// stores a turn before its task starts, and holds it once its server
+    /// stopped in the middle of it. `pull` reads the chat's body, as a sync
+    /// does; `drain` sends what the outbox holds, as a reconnect or a launch
+    /// does, through a drainer that knows only the store.
+    ({FakeOpenWebUiServer server, void Function() pull, void Function() drain})
+    serverOf(FakeAsync async, AppDatabase database) {
+      final server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000)
+        ..seedChat(
+          id: 'chat-1',
+          blob: <String, dynamic>{
+            'title': 'Test Chat',
+            'history': <String, dynamic>{
+              'messages': <String, dynamic>{
+                question.id: <String, dynamic>{
+                  'id': question.id,
+                  'parentId': null,
+                  'childrenIds': [answerId],
+                  'role': 'user',
+                  'content': question.content,
+                },
+                answerId: <String, dynamic>{
+                  'id': answerId,
+                  'parentId': question.id,
+                  'childrenIds': <String>[],
+                  'role': 'assistant',
+                  'content': '',
+                  'done': false,
+                },
+              },
+              'currentId': answerId,
+            },
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        );
+      final client = FakeSyncApiClient(server);
+      final locks = ConversationLocks();
+      final remapper = IdRemapper(database);
+      addTearDown(remapper.dispose);
+      final pullSync = PullSync(
+        client: client,
+        db: database,
+        locks: locks,
+        remapper: remapper,
+      );
+      final clock = _SyncClock();
+      final drainer = OutboxDrainer(
+        db: database,
+        clock: clock,
+        backoff: Backoff(jitter: () => 0.0),
+        isOnline: () => true,
+        completion: _NoCompletions(),
+        adapters: [
+          ChatAdapter(
+            pull: pullSync,
+            push: PushSync(
+              client: client,
+              db: database,
+              chatLocks: locks,
+              folderLocks: FolderLocks(),
+              clock: clock,
+              remapper: remapper,
+            ),
+          ),
+        ],
+      );
+      return (
+        server: server,
+        pull: () {
+          unawaited(pullSync.pullChat('chat-1'));
+          async.elapse(Duration.zero);
+        },
+        drain: () {
+          var drained = false;
+          unawaited(drainer.drain().then((_) => drained = true));
+          async.elapse(const Duration(seconds: 1));
+          check(drained).isTrue();
+        },
+      );
+    }
+
+    Map<String, dynamic> answerOn(FakeOpenWebUiServer server) =>
+        ((server.getChatById('chat-1')!['chat'] as Map)['history']
+                as Map)['messages'][answerId]
+            as Map<String, dynamic>;
+
     // The server is stopped while the answer streams, Stop is pressed, and
     // the server is started again with no task running and its copy of the
     // answer not done and empty. What streamed here reaches it, as the outbox
@@ -1368,47 +1462,7 @@ void main() {
         fakeAsync((async) {
           final database = AppDatabase(NativeDatabase.memory());
           addTearDown(database.close);
-          // The chat as Open WebUI stores a turn before its task starts, and
-          // as it holds it once its server stopped in the middle of it.
-          final server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000)
-            ..seedChat(
-              id: 'chat-1',
-              blob: <String, dynamic>{
-                'title': 'Test Chat',
-                'history': <String, dynamic>{
-                  'messages': <String, dynamic>{
-                    question.id: <String, dynamic>{
-                      'id': question.id,
-                      'parentId': null,
-                      'childrenIds': [answerId],
-                      'role': 'user',
-                      'content': question.content,
-                    },
-                    answerId: <String, dynamic>{
-                      'id': answerId,
-                      'parentId': question.id,
-                      'childrenIds': <String>[],
-                      'role': 'assistant',
-                      'content': '',
-                      'done': false,
-                    },
-                  },
-                  'currentId': answerId,
-                },
-              },
-              createdAt: 1,
-              updatedAt: 1,
-            );
-          final client = FakeSyncApiClient(server);
-          final locks = ConversationLocks();
-          final remapper = IdRemapper(database);
-          addTearDown(remapper.dispose);
-          final pull = PullSync(
-            client: client,
-            db: database,
-            locks: locks,
-            remapper: remapper,
-          );
+          final (:server, :pull, :drain) = serverOf(async, database);
 
           final api = _FakeApiService(_chat([question]));
           final (notifier: _, :db, :container) = streamHere(
@@ -1443,45 +1497,16 @@ void main() {
           // The server is back, with no task running; it holds the answer as
           // it stopped it. The chat's body is read, as a sync does, and keeps
           // what was stopped here; then the outbox drains.
-          unawaited(pull.pullChat('chat-1'));
-          async.elapse(Duration.zero);
+          pull();
           check(storedAnswer(async, db))
             ..has((it) => it['content'], 'content').equals('Gales veer')
             ..has(
               (it) => (it['metadata'] as Map?)?[kStoppedHereMetadataKey],
               'stopped here',
             ).equals(true);
-          final clock = _SyncClock();
-          final drainer = OutboxDrainer(
-            db: database,
-            clock: clock,
-            backoff: Backoff(jitter: () => 0.0),
-            isOnline: () => true,
-            completion: _NoCompletions(),
-            adapters: [
-              ChatAdapter(
-                pull: pull,
-                push: PushSync(
-                  client: client,
-                  db: database,
-                  chatLocks: locks,
-                  folderLocks: FolderLocks(),
-                  clock: clock,
-                  remapper: remapper,
-                ),
-              ),
-            ],
-          );
-          var drained = false;
-          unawaited(drainer.drain().then((_) => drained = true));
-          async.elapse(const Duration(seconds: 1));
-          check(drained).isTrue();
+          drain();
 
-          final onServer =
-              ((server.getChatById('chat-1')!['chat'] as Map)['history']
-                      as Map)['messages'][answerId]
-                  as Map;
-          check(onServer)
+          check(answerOn(server))
             ..has((it) => it['done'], 'done').equals(true)
             ..has((it) => it['content'], 'content').equals('Gales veer');
           check(server.chatStops).deepEquals(['chat-1']);
@@ -1494,6 +1519,186 @@ void main() {
         });
       });
     }
+
+    // Two devices of the account settle the same cut-off answer: this one
+    // from the server's empty copy, or with less of it, while the other's
+    // push lands with the text it kept. This one's push comes after, and the
+    // server, holding the answer finished, would take it.
+    for (final streamed in ['', 'Gales veer']) {
+      test('a cut-off answer settled here with '
+          '${streamed.isEmpty ? 'no text' : 'less text'} leaves the fuller '
+          'text another device sent the server in place, and takes it', () {
+        fakeAsync((async) {
+          const fuller = 'Gales veer as the warm front passes';
+          final database = AppDatabase(NativeDatabase.memory());
+          addTearDown(database.close);
+          final (:server, :pull, :drain) = serverOf(async, database);
+          final api = _FakeApiService(_chat([question]));
+          final (:notifier, :db, container: _) = streamHere(
+            async,
+            api,
+            streamed,
+            database: database,
+          );
+          api
+            ..taskIds = const <String>[]
+            ..conversation = _chat([
+              question,
+              _message(
+                answerId,
+                'assistant',
+                '',
+              ).copyWith(metadata: unfinished),
+            ]);
+          pollTasks(async, notifier);
+          check(storedAnswer(async, db))
+            ..has((it) => it['done'], 'done').equals(true)
+            ..has((it) => it['content'], 'content').equals(streamed);
+
+          // The other device's push lands, after its stop of the chat.
+          server.stopTasksByChat('chat-1');
+          final chat =
+              server.getChatById('chat-1')!['chat'] as Map<String, dynamic>;
+          ((chat['history'] as Map)['messages'] as Map)[answerId] = {
+            ...answerOn(server),
+            'content': fuller,
+            'done': true,
+            'error': {'content': TemporaryChatResume.connectionLostMessage},
+          };
+          server.updateChat('chat-1', chat);
+
+          pull();
+          drain();
+
+          check(answerOn(server))
+            ..has((it) => it['done'], 'done').equals(true)
+            ..has((it) => it['content'], 'content').equals(fuller);
+          check(storedAnswer(async, db))
+              .has((it) => it['content'], 'content')
+              .equals(fuller);
+        });
+      });
+    }
+
+    // A Stop the server did not take is asked again as the next turn is
+    // admitted. The chat's stop ends every task the account runs there.
+    for (final mineRuns in [false, true]) {
+      test('a Stop asked again as a next turn is admitted, while '
+          '${mineRuns ? 'its own task still runs' : 'another device answers in the chat'}, '
+          'stops ${mineRuns ? 'that task alone' : 'nothing'}', () {
+        fakeAsync((async) {
+          final api = _FakeApiService(_chat([question]));
+          final (notifier: _, :db, :container) = streamHere(
+            async,
+            api,
+            'Gales veer',
+          );
+          api
+            ..away = true
+            ..readFailures = 1
+            ..stopsRefused = true;
+          unawaited(container.read(stopGenerationSettledProvider)());
+          async.flushMicrotasks();
+          final chatStopsBefore = api.chatStops;
+
+          api
+            ..away = false
+            ..stopsRefused = false
+            ..taskIds = [mineRuns ? 'task-1' : 'task-elsewhere'];
+          bool? admitted;
+          unawaited(
+            container
+                .read(chatMessagesProvider.notifier)
+                .settlePendingCancellation(
+                  chatId: 'chat-1',
+                  database: db,
+                  api: api,
+                  authSessionEpoch: container.read(
+                    openWebUiAuthSessionEpochProvider,
+                  ),
+                )!
+                .then((ok) => admitted = ok),
+          );
+          async.flushMicrotasks();
+
+          check(admitted).equals(true);
+          check(api.chatStops).equals(chatStopsBefore);
+          check(api.stoppedTasks).deepEquals([if (mineRuns) 'task-1']);
+        });
+      });
+    }
+
+    test('a Stop the server did not take stores its answer and queues its '
+        "chat's update together, or neither", () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        bool updateQueued() {
+          var queued = false;
+          unawaited(
+            db.outboxDao
+                .activeForChat('chat-1')
+                .then(
+                  (ops) => queued = ops.any(
+                    (op) => op.kind == OutboxKind.updateChat.name,
+                  ),
+                ),
+          );
+          async.flushMicrotasks();
+          return queued;
+        }
+
+        // The store takes the answer but nothing for its outbox.
+        unawaited(
+          db.customStatement(
+            'CREATE TEMP TRIGGER outbox_refused BEFORE INSERT ON outbox_ops '
+            "BEGIN SELECT RAISE(ABORT, 'outbox refused'); END",
+          ),
+        );
+        async.flushMicrotasks();
+        api
+          ..away = true
+          ..readFailures = 1
+          ..stopsRefused = true;
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+
+        check(
+          (storedAnswer(async, db)['metadata']
+              as Map?)?[kStoppedHereMetadataKey],
+        ).isNull();
+        check(updateQueued()).isFalse();
+
+        unawaited(db.customStatement('DROP TRIGGER outbox_refused'));
+        async.flushMicrotasks();
+        bool? stored;
+        unawaited(
+          container
+              .read(chatMessagesProvider.notifier)
+              .settlePendingStoppedAnswers(
+                chatId: 'chat-1',
+                database: db,
+                api: api,
+                authSessionEpoch: container.read(
+                  openWebUiAuthSessionEpochProvider,
+                ),
+              )!
+              .then((ok) => stored = ok),
+        );
+        async.flushMicrotasks();
+
+        check(stored).equals(true);
+        check(
+          (storedAnswer(async, db)['metadata']
+              as Map?)?[kStoppedHereMetadataKey],
+        ).equals(true);
+        check(updateQueued()).isTrue();
+      });
+    });
 
     test('a Stop while the server runs the answer\'s task leaves the answer '
         'to the server\'s own save', () {

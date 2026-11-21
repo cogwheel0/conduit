@@ -241,20 +241,30 @@ mixin _ChatsRawApi on _ApiServiceBase {
   }
 
   /// GET `/api/tasks/chat/{id}`: the tasks the session's account runs in
-  /// chat [chatId], as Open WebUI lists them (only that account's).
+  /// chat [chatId], as Open WebUI lists them (only that account's). Throws
+  /// [FormatException] for an answer that is not such a list, and
+  /// [SyncTerminalException] for 401/403.
   Future<List<String>> getChatTaskIdsRaw(
     String chatId, {
     ApiAuthSnapshot? authSnapshot,
   }) async {
-    final response = await _dio.get(
-      '/api/tasks/chat/${Uri.encodeComponent(chatId)}',
-      options: _withAuthSnapshot(Options(), authSnapshot),
-    );
-    final data = response.data;
-    final ids = data is Map ? data['task_ids'] : null;
-    return ids is List
-        ? <String>[for (final id in ids) id.toString()]
-        : const <String>[];
+    try {
+      final response = await _dio.get(
+        '/api/tasks/chat/${Uri.encodeComponent(chatId)}',
+        options: _withAuthSnapshot(Options(), authSnapshot),
+      );
+      return _chatTaskIds(response.data, chatId);
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if ((code == 401 || code == 403) &&
+          _refusedCurrentSession(authSnapshot)) {
+        throw SyncTerminalException(
+          statusCode: code,
+          message: 'getChatTaskIds $chatId forbidden',
+        );
+      }
+      rethrow;
+    }
   }
 
   /// POST `/api/tasks/chat/{id}/stop`. With none of the account's tasks
@@ -449,4 +459,15 @@ mixin _ChatsRawApi on _ApiServiceBase {
       rethrow;
     }
   }
+}
+
+/// The task ids in [data], a chat's task list as Open WebUI answers it
+/// (`{"task_ids": [...]}`). Anything else is no answer: an empty list read
+/// from it would let the chat's stop be asked over a task still running.
+List<String> _chatTaskIds(Object? data, String chatId) {
+  final ids = data is Map ? data['task_ids'] : null;
+  if (ids is! List) {
+    throw FormatException('no task list for chat $chatId');
+  }
+  return <String>[for (final id in ids) id.toString()];
 }

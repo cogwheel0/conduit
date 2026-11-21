@@ -60,6 +60,12 @@ const String kCompletionHeldMetadataKey = 'completionHeld';
 /// the chat carries the answer as the server holds it, unfinished and empty.
 const String kStoppedHereMetadataKey = 'stoppedHere';
 
+/// Where an answer's metadata says this device finished it itself, stopped or
+/// cut off, and has not yet seen that reach the server: its push never lets
+/// the server's copy, finished or not, give way to one that holds less.
+/// Kept on this device only.
+const String kSettledHereMetadataKey = 'settledHere';
+
 extension ChatMessageComparisonFields on ChatMessage {
   /// Whether the server holds this question until a running reply ends.
   bool get isHeldByServer => metadata?[kMessageHeldByServerMetadataKey] == true;

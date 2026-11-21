@@ -5213,6 +5213,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           } else {
             metadata[kStoppedHereMetadataKey] = true;
           }
+          metadata[kSettledHereMetadataKey] = true;
           final payload = <String, dynamic>{
             // Fields this build does not model stay as the server has them.
             ...current,
@@ -5242,19 +5243,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         if (rows.isEmpty) return;
         if (!asEdits) {
           for (final row in rows) {
-            await db.messagesDao.upsertLocalEcho(row, keepDirty: true);
+            // The stop owed, kept in the store with each answer: the chat's
+            // push asks it again once the server is back, after a relaunch
+            // too, and sends these only once it is taken ([PushSync]).
+            await db.transaction(() async {
+              await db.messagesDao.upsertLocalEcho(row, keepDirty: true);
+              await db.outboxDao.enqueue(
+                kind: OutboxKind.updateChat,
+                chatId: chatId,
+              );
+            });
             // As the store keeps it, read back after each write: a row still
             // exactly this is this stop's own write, anything else is newer.
             final written = await db.messagesDao.getMessage(chatId, row.id);
             if (written != null) owed.storedHere[row.id] = written;
           }
-          // The stop owed, kept in the store: the chat's push asks it again
-          // once the server is back, after a relaunch too, and sends these
-          // only once it is taken ([PushSync]).
-          await db.outboxDao.enqueue(
-            kind: OutboxKind.updateChat,
-            chatId: chatId,
-          );
           return;
         }
         // No current message is given, so the chat's active branch stays put.
@@ -6957,11 +6960,19 @@ final class _OwedStoppedAnswers {
 ///
 /// A [chatScoped] step is asked for the chat's id as it is now: an ask made
 /// under an id the chat has since been remapped from does not count as accepted.
+/// Asked again, it runs [retry] when given: by then the chat may run an answer
+/// another device started.
 final class _CancellationStep {
-  _CancellationStep(this._run, {this.chatScoped = false});
+  _CancellationStep(
+    this._run, {
+    this.chatScoped = false,
+    Future<bool> Function(String chatId)? retry,
+  }) : _retry = retry;
 
   final Future<bool> Function(String chatId) _run;
+  final Future<bool> Function(String chatId)? _retry;
   final bool chatScoped;
+  bool _asked = false;
   bool _accepted = false;
   String? _askedChatId;
   Future<bool>? _attempt;
@@ -6979,7 +6990,9 @@ final class _CancellationStep {
       return running.then((_) => attempt(chatId));
     }
     _askedChatId = chatId;
-    return _attempt = Future<bool>.sync(() => _run(chatId))
+    final run = _asked ? _retry ?? _run : _run;
+    _asked = true;
+    return _attempt = Future<bool>.sync(() => run(chatId))
         .then((ok) => ok, onError: (Object _) => false)
         .then((ok) {
           _accepted = ok;
