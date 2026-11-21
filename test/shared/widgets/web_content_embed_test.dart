@@ -592,6 +592,68 @@ void main() {
       check(transport.client.options.headers['Authorization'])
           .equals('Bearer another-account');
     });
+
+    group('audio', () {
+      testWidgets('downloads into the cache before it plays', (tester) async {
+        final cache = _RecordingVideoCache();
+        await tester.pumpWidget(_buildServerHarness(page, videoCache: cache));
+
+        await tester.tap(find.byTooltip('Play Audio'));
+        await tester.pump();
+
+        check(cache.urls)
+            .deepEquals(['https://chat.example.test/api/v1/files/a1/content']);
+        final transport = cache.transports.single(cache.urls.single);
+        addTearDown(() => transport.client.close(force: true));
+        check(transport.client.options.followRedirects).isFalse();
+        check(transport.client.options.headers['Authorization'])
+            .equals('Bearer $_sessionToken');
+        // The file takes the format its reply names.
+        check(cache.replyExtensions.single?.call('audio/mpeg')).equals('mp3');
+        check(find.bySemanticsLabel('Loading audio...').evaluate())
+            .isNotEmpty();
+
+        // Another account starts over, and lets the first one's transfer go.
+        _container(tester).read(_activeToken.notifier).set('another-account');
+        await tester.pump();
+        check(cache.released).isGreaterOrEqual(1);
+        check(find.byTooltip('Play Audio').evaluate()).length.equals(1);
+      });
+
+      testWidgets(
+        'a source that cannot be fetched gives way to the next, and Retry '
+        'starts again from the first',
+        (tester) async {
+          const sources = [
+            'https://chat.example.test/api/v1/files/a1/content',
+            'https://chat.example.test/api/v1/files/a2/content',
+          ];
+          final cache = _RecordingVideoCache();
+          await tester.pumpWidget(
+            _buildServerHarness(
+              '<audio controls title="Morning note">'
+              '${sources.map((it) => '<source src="$it">').join()}'
+              '</audio>',
+              videoCache: cache,
+            ),
+          );
+
+          await tester.tap(find.byTooltip('Play Audio'));
+          await tester.pump();
+          cache.pending[0].completeError(const HttpException('404'));
+          await tester.pump();
+          check(cache.urls).deepEquals(sources);
+
+          cache.pending[1].completeError(const HttpException('sign-in page'));
+          await tester.pump();
+          check(find.text('Failed to load audio').evaluate()).length.equals(1);
+
+          await tester.tap(find.byTooltip('Retry'));
+          await tester.pump();
+          check(cache.urls).deepEquals([...sources, sources.first]);
+        },
+      );
+    });
   });
 }
 
@@ -676,6 +738,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> cacheIdentities = [];
   final List<VideoTransport Function(String url)> transports = [];
   final List<Completer<File>> pending = [];
+  final List<String Function(String? mediaType)?> replyExtensions = [];
   int released = 0;
 
   @override
@@ -689,10 +752,12 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
+    String Function(String? mediaType)? extensionForReply,
   }) {
     urls.add(url);
     cacheIdentities.add(cacheIdentity);
     transports.add(transport);
+    replyExtensions.add(extensionForReply);
     final fetch = Completer<File>();
     pending.add(fetch);
     return fetch.future;

@@ -404,6 +404,52 @@ void main() {
       check(dir.listSync()).isEmpty();
     });
   });
+
+  group("a web embed's audio", () {
+    const note = 'https://chat.example.test/api/v1/files/a1/content';
+
+    test('its reply names the file, and the next Play finds it', () async {
+      final replies = _ReplyAdapter([
+        ResponseBody.fromBytes(
+          _bytes,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['audio/mpeg'],
+          },
+        ),
+      ]);
+      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+      Future<File> play() => cache.fetchForPlayback(
+        claim: VideoDownloadClaim(),
+        url: note,
+        cacheIdentity: note,
+        extension: 'audio',
+        extensionForReply: (type) =>
+            webEmbedAudioExtension(Uri.parse(note), mediaType: type),
+        transport: (url) => (
+          client: webEmbedMediaClient(
+            const ServerConfig(
+              id: 'synthetic',
+              name: 'Synthetic',
+              url: 'https://chat.example.test',
+            ),
+            const {},
+          )..httpClientAdapter = replies,
+          headers: const <String, String>{},
+          ownsClient: true,
+        ),
+        isCurrent: () => true,
+      );
+
+      final first = await play();
+      check(first.path).endsWith('.mp3');
+      check(await first.readAsBytes()).deepEquals(_bytes);
+      check(dir.listSync().map((it) => it.path)).deepEquals([first.path]);
+
+      check((await play()).path).equals(first.path);
+      check(replies.requests).deepEquals([note]);
+    });
+  });
 }
 
 /// Answers each request with the next of [replies].

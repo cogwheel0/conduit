@@ -19,6 +19,7 @@ import 'package:html/parser.dart';
 import '../../models/server_config.dart';
 import '../../network/server_origin.dart';
 import '../../services/server_tls_http_client_factory.dart';
+import '../chat/read_aloud/tts_manager.dart' show audioExtensionForMimeType;
 import 'web_embed_document.dart' show escapeHtmlAttribute;
 
 // ---------------------------------------------------------------------------
@@ -530,6 +531,33 @@ String? _mediaType(Headers headers) {
   return type == null || type.isEmpty ? null : type;
 }
 
+/// The extension for a file of audio [source] answered with: the reply's
+/// [mediaType] names it, or else the address does. A player may read a
+/// file's format from its name, and a server's file address often has none.
+String webEmbedAudioExtension(Uri source, {String? mediaType}) {
+  final fromType = audioExtensionForMimeType(mediaType ?? '');
+  if (fromType != 'audio') return fromType;
+  final name = source.pathSegments.isEmpty
+      ? ''
+      : source.pathSegments.last.toLowerCase();
+  final dot = name.lastIndexOf('.');
+  final fromName = dot < 0 ? '' : name.substring(dot + 1);
+  return _audioExtensions.contains(fromName) ? fromName : 'audio';
+}
+
+const Set<String> _audioExtensions = {
+  'aac',
+  'flac',
+  'm4a',
+  'mp3',
+  'mp4',
+  'oga',
+  'ogg',
+  'opus',
+  'wav',
+  'webm',
+};
+
 /// A server reply that is not audio or video, such as a page or data.
 final class WebEmbedMediaRefused implements Exception {
   const WebEmbedMediaRefused(this.contentType);
@@ -540,182 +568,7 @@ final class WebEmbedMediaRefused implements Exception {
   String toString() => 'WebEmbedMediaRefused($contentType)';
 }
 
-/// Part of a media file: [stream] holds [contentLength] bytes from [offset]
-/// in a file [sourceLength] long; a null length is one the server did not
-/// give. A body of unknown [contentLength] always starts at byte zero.
-typedef WebEmbedMediaBody = ({
-  Stream<List<int>> stream,
-  int offset,
-  int? contentLength,
-  int? sourceLength,
-  String? contentType,
-});
-
-final RegExp _contentRange = RegExp(
-  r'^\s*bytes\s+(\d+)-(\d+)/(\d+|\*)\s*$',
-  caseSensitive: false,
-);
-
-/// Streams [url] with [client] ([webEmbedMediaClient]) from byte [start] up
-/// to [end], exclusive; null for the start or the end of the file.
-///
-/// It asks for the range; a server that sends the whole file instead is read
-/// from [start] when it gives the file's length, and from byte zero when it
-/// doesn't. Throws [WebEmbedMediaRefused] for a reply that is not audio or
-/// video.
-Future<WebEmbedMediaBody> openWebEmbedServerMedia(
-  Dio client,
-  Uri url, {
-  int? start,
-  int? end,
-}) async {
-  final from = start ?? 0;
-  // Dio goes on downloading a body its reader has left; only cancelling the
-  // request stops it.
-  final request = CancelToken();
-  final Response<ResponseBody> response;
-  try {
-    response = await client.getUri<ResponseBody>(
-      url,
-      cancelToken: request,
-      options: Options(
-        responseType: ResponseType.stream,
-        headers: {
-          'Range': 'bytes=$from-${end == null ? '' : end - 1}',
-          'Accept': 'audio/*, video/*, */*;q=0.1',
-        },
-      ),
-    );
-  } on DioException catch (error) {
-    request.cancel();
-    if (error.error case final WebEmbedMediaRefused refused) throw refused;
-    rethrow;
-  }
-  final stream = _stoppingOnLeave(response.data!.stream, request);
-  final type = _mediaType(response.headers);
-  if (!_isPlayableType(type)) {
-    await stream.listen(null).cancel();
-    throw WebEmbedMediaRefused(type);
-  }
-
-  final length = int.tryParse(
-    response.headers.value(Headers.contentLengthHeader) ?? '',
-  );
-  if (response.statusCode == 206) {
-    final range = _contentRange.firstMatch(
-      response.headers.value('content-range') ?? '',
-    );
-    final first = int.tryParse(range?[1] ?? '');
-    final last = int.tryParse(range?[2] ?? '');
-    final size = range?[3];
-    final total = size == '*' ? null : int.tryParse(size ?? '');
-    if (first == null ||
-        last == null ||
-        last < first ||
-        (size != '*' && (total == null || last >= total))) {
-      await stream.listen(null).cancel();
-      throw WebEmbedMediaRefused(type);
-    }
-    return (
-      stream: stream,
-      offset: first,
-      contentLength: last - first + 1,
-      sourceLength: total,
-      contentType: type,
-    );
-  }
-
-  if (length == null) {
-    // Without a length there are no valid range headers to describe a slice
-    // with, so the reply goes out as a whole file and its reader skips to the
-    // start itself, as HTTP readers do for a 200.
-    return (
-      stream: stream,
-      offset: 0,
-      contentLength: null,
-      sourceLength: null,
-      contentType: type,
-    );
-  }
-  final available = math.max(0, length - from);
-  final take = end == null
-      ? available
-      : math.min(available, math.max(0, end - from));
-  return (
-    stream: _slice(stream, skip: from, take: take),
-    offset: from,
-    contentLength: take,
-    sourceLength: length,
-    contentType: type,
-  );
-}
-
-/// Reads ranges of one of an item's [sources] for a player, trying them in
-/// turn as a browser tries an element's sources: one the server answers with
-/// an error or with something other than audio or video gives way to the
-/// next. Once a range of one has been read, every later range comes from that
-/// same source, so a player never gets bytes of two files.
-final class WebEmbedMediaReader {
-  WebEmbedMediaReader(this._client, this.sources, {int from = 0})
-    : _index = from;
-
-  final Dio _client;
-  final List<Uri> sources;
-  int _index;
-  bool _settled = false;
-  Future<void>? _choosing;
-
-  /// The source read: the one that answered, or while none has, the one
-  /// being tried.
-  int get index => _index;
-
-  /// Where a player that could not play [index]'s media starts again, or
-  /// null when it was the last.
-  int? get nextIndex => _index + 1 < sources.length ? _index + 1 : null;
-
-  /// [openWebEmbedServerMedia] of the current source.
-  Future<WebEmbedMediaBody> open(int? start, int? end) async {
-    // Until a source has answered, reads take turns. Overlapping ones (a
-    // player asks for several ranges, and Android asks again when one is
-    // slow) would each move past a failure, skipping a source, or answer
-    // from one source after another had moved the reader on.
-    for (var turn = _choosing; !_settled && turn != null; turn = _choosing) {
-      await turn;
-    }
-    if (_settled) {
-      return openWebEmbedServerMedia(
-        _client,
-        sources[_index],
-        start: start,
-        end: end,
-      );
-    }
-    final turn = Completer<void>();
-    _choosing = turn.future;
-    try {
-      while (true) {
-        try {
-          final body = await openWebEmbedServerMedia(
-            _client,
-            sources[_index],
-            start: start,
-            end: end,
-          );
-          _settled = true;
-          return body;
-        } on Object {
-          if (nextIndex == null) rethrow;
-          _index += 1;
-        }
-      }
-    } finally {
-      _choosing = null;
-      turn.complete();
-    }
-  }
-}
-
-/// One load of a player from an item's sources, read through [reader], and
+/// One load of a player from one of an item's [sources], at [index], and
 /// where a failure of it leads. Before the player is ready, it leads to the
 /// next source, as a browser's media element moves on; once the player is
 /// ready, or from the last source, to the player showing the failure.
@@ -724,9 +577,10 @@ final class WebEmbedMediaReader {
 /// an error event arrives), so a load fails once: its first failure reaches
 /// [onFailure], and none does once it has been [cancel]led.
 final class WebEmbedMediaLoad {
-  WebEmbedMediaLoad(this.reader, {required this.onFailure});
+  WebEmbedMediaLoad(this.sources, {this.index = 0, required this.onFailure});
 
-  final WebEmbedMediaReader reader;
+  final List<Uri> sources;
+  final int index;
 
   /// [retryFrom] is the source the next load starts from, or null for none.
   final void Function(int? retryFrom, Object error, StackTrace stackTrace)
@@ -734,6 +588,8 @@ final class WebEmbedMediaLoad {
 
   bool _ready = false;
   bool _over = false;
+
+  Uri get source => sources[index];
 
   /// Whether the player's events still count: the load has neither failed
   /// nor been cancelled.
@@ -749,7 +605,8 @@ final class WebEmbedMediaLoad {
   void fail(Object error, StackTrace stackTrace) {
     if (_over) return;
     _over = true;
-    onFailure(_ready ? null : reader.nextIndex, error, stackTrace);
+    final next = index + 1 < sources.length ? index + 1 : null;
+    onFailure(_ready ? null : next, error, stackTrace);
   }
 }
 
@@ -760,61 +617,3 @@ bool _isPlayableType(String? type) =>
     type == 'application/ogg' ||
     type == 'application/octet-stream' ||
     type == 'binary/octet-stream';
-
-/// [source], cancelling [request] when its reader leaves before the end.
-Stream<List<int>> _stoppingOnLeave(
-  Stream<List<int>> source,
-  CancelToken request,
-) {
-  late StreamSubscription<List<int>> subscription;
-  late StreamController<List<int>> controller;
-  var done = false;
-  controller = StreamController<List<int>>(
-    sync: true,
-    onListen: () {
-      subscription = source.listen(
-        controller.add,
-        onError: controller.addError,
-        onDone: () {
-          done = true;
-          controller.close();
-        },
-      );
-    },
-    onPause: () => subscription.pause(),
-    onResume: () => subscription.resume(),
-    onCancel: () {
-      if (!done) request.cancel();
-      return subscription.cancel();
-    },
-  );
-  return controller.stream;
-}
-
-Stream<List<int>> _slice(
-  Stream<List<int>> source, {
-  required int skip,
-  int? take,
-}) async* {
-  var toSkip = skip;
-  var left = take;
-  await for (final chunk in source) {
-    var data = chunk;
-    if (toSkip > 0) {
-      if (data.length <= toSkip) {
-        toSkip -= data.length;
-        continue;
-      }
-      data = data.sublist(toSkip);
-      toSkip = 0;
-    }
-    if (left != null) {
-      if (data.length >= left) {
-        yield data.sublist(0, left);
-        return;
-      }
-      left -= data.length;
-    }
-    yield data;
-  }
-}

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -277,6 +276,33 @@ void main() {
     });
   });
 
+  test(
+    'webEmbedAudioExtension names a file by its reply, then its address',
+    () {
+      final note = Uri.parse(
+        'https://chat.example.test/api/v1/files/a1/content',
+      );
+      final cases = <(Uri, String?, String)>[
+        (note, 'audio/mpeg', 'mp3'),
+        (note, 'audio/wav; codecs=1', 'wav'),
+        (note, 'audio/mp4', 'm4a'),
+        (
+          Uri.parse('https://chat.example.test/clip.ogg'),
+          'application/octet-stream',
+          'ogg',
+        ),
+        (Uri.parse('https://chat.example.test/clip.FLAC'), null, 'flac'),
+        (note, null, 'audio'),
+      ];
+      for (final (source, type, expected) in cases) {
+        check(
+          because: '$source $type',
+          webEmbedAudioExtension(source, mediaType: type),
+        ).equals(expected);
+      }
+    },
+  );
+
   group('webEmbedMediaClient', () {
     late _Adapter adapter;
     late Dio client;
@@ -302,10 +328,7 @@ void main() {
       check(adapter.requests).isEmpty();
 
       adapter.reply = (_) => _media(200, 'audio/mpeg', 4);
-      await openWebEmbedServerMedia(
-        client,
-        Uri.parse('https://chat.example.test/a.mp3'),
-      );
+      await client.getUri<void>(Uri.parse('https://chat.example.test/a.mp3'));
       check(adapter.requests.single.headers['Authorization'])
           .equals('Bearer synthetic-token');
     });
@@ -319,29 +342,10 @@ void main() {
         },
       );
       await check(
-        openWebEmbedServerMedia(
-          client,
-          Uri.parse('https://chat.example.test/a.mp3'),
-        ),
+        client.getUri<void>(Uri.parse('https://chat.example.test/a.mp3')),
       ).throws<DioException>();
       // The fake adapter follows nothing itself; Dio's adapter would.
       check(adapter.requests.single.followRedirects).isFalse();
-    });
-
-    test('refuses a reply that is not audio or video', () async {
-      adapter.reply = (_) => ResponseBody.fromString(
-        '<html>Sign in</html>',
-        200,
-        headers: {
-          Headers.contentTypeHeader: ['text/html; charset=utf-8'],
-        },
-      );
-      await check(
-        openWebEmbedServerMedia(
-          client,
-          Uri.parse('https://chat.example.test/a.mp3'),
-        ),
-      ).throws<WebEmbedMediaRefused>();
     });
 
     test('refuses a page before a download writes any of it', () async {
@@ -365,302 +369,16 @@ void main() {
     });
   });
 
-  group('openWebEmbedServerMedia', () {
-    late _Adapter adapter;
-    late Dio client;
-
-    setUp(() {
-      adapter = _Adapter();
-      client = webEmbedMediaClient(
-        const ServerConfig(
-          id: 'test',
-          name: 'Test',
-          url: 'https://chat.example.test',
-        ),
-        const {},
-      )..httpClientAdapter = adapter;
-    });
-
-    tearDown(() => client.close(force: true));
-
-    test('streams the range the server sends', () async {
-      adapter.reply = (_) => _media(
-        206,
-        'audio/wav',
-        4,
-        first: 10,
-        extra: {
-          'content-range': ['bytes 10-13/100'],
-        },
-      );
-
-      final body = await openWebEmbedServerMedia(
-        client,
-        Uri.parse('https://chat.example.test/a.wav'),
-        start: 10,
-        end: 14,
-      );
-
-      check(adapter.requests.single.headers['Range']).equals('bytes=10-13');
-      check(body.offset).equals(10);
-      check(body.contentLength).equals(4);
-      check(body.sourceLength).equals(100);
-      check(body.contentType).equals('audio/wav');
-      check(await _collect(body.stream)).deepEquals([10, 11, 12, 13]);
-    });
-
-    test('refuses a range the server describes impossibly', () async {
-      for (final range in [
-        'bytes 10-8/100',
-        'bytes 10-13/13',
-        'bytes 99999999999999999999-99999999999999999999/*',
-      ]) {
-        adapter.reply = (_) => _media(
-          206,
-          'audio/wav',
-          4,
-          first: 10,
-          extra: {
-            'content-range': [range],
-          },
-        );
-
-        await check(
-          because: range,
-          openWebEmbedServerMedia(
-            client,
-            Uri.parse('https://chat.example.test/a.wav'),
-            start: 10,
-            end: 14,
-          ),
-        ).throws<WebEmbedMediaRefused>();
-      }
-    });
-
-    test('skips to the start when the server sends the whole file', () async {
-      adapter.reply = (_) => _media(200, 'audio/mpeg', 8);
-
-      final body = await openWebEmbedServerMedia(
-        client,
-        Uri.parse('https://chat.example.test/a.mp3'),
-        start: 5,
-      );
-
-      check(body.offset).equals(5);
-      check(body.contentLength).equals(3);
-      check(body.sourceLength).equals(8);
-      check(await _collect(body.stream)).deepEquals([5, 6, 7]);
-    });
-
-    test('stops a download once its read is done with it', () async {
-      // The server sends the whole of a large file for a short range, or the
-      // player leaves a range part way, as when it seeks.
-      for (final (status, range, end) in [
-        (200, null, 2),
-        (206, 'bytes 0-999/1000', null),
-      ]) {
-        final stopped = Completer<void>();
-        final upstream = StreamController<Uint8List>(
-          onCancel: stopped.complete,
-        );
-        addTearDown(upstream.close);
-        adapter.reply = (_) => ResponseBody(
-          upstream.stream,
-          status,
-          headers: {
-            Headers.contentTypeHeader: ['audio/mpeg'],
-            Headers.contentLengthHeader: ['1000'],
-            'content-range': [?range],
-          },
-        );
-        upstream.add(Uint8List.fromList([0, 1, 2, 3]));
-
-        final body = await openWebEmbedServerMedia(
-          client,
-          Uri.parse('https://chat.example.test/a.mp3'),
-          end: end,
-        );
-        if (end != null) {
-          check(await _collect(body.stream)).deepEquals([0, 1]);
-        } else {
-          await body.stream.first;
-        }
-        await pumpEventQueue();
-
-        check(because: '$status', stopped.isCompleted).isTrue();
-      }
-    });
-
-    test(
-      'a whole file of unknown length is read from its first byte',
-      () async {
-        adapter.reply = (_) {
-          final media = _media(200, 'audio/mpeg', 8);
-          media.headers.remove(Headers.contentLengthHeader);
-          return media;
-        };
-
-        final body = await openWebEmbedServerMedia(
-          client,
-          Uri.parse('https://chat.example.test/a.mp3'),
-          start: 5,
-        );
-
-        check(adapter.requests.single.headers['Range']).equals('bytes=5-');
-        check(body.offset).equals(0);
-        check(body.contentLength).isNull();
-        check(body.sourceLength).isNull();
-        check(await _collect(body.stream)).deepEquals([0, 1, 2, 3, 4, 5, 6, 7]);
-      },
-    );
-  });
-
-  group('WebEmbedMediaReader', () {
-    final missing = Uri.parse('https://chat.example.test/api/v1/files/m/c');
-    final page = Uri.parse('https://chat.example.test/api/v1/files/p/c');
-    final clip = Uri.parse('https://chat.example.test/api/v1/files/a/c');
-    late _Adapter adapter;
-    late Dio client;
-
-    setUp(() {
-      adapter = _Adapter();
-      client = webEmbedMediaClient(
-        const ServerConfig(
-          id: 'test',
-          name: 'Test',
-          url: 'https://chat.example.test',
-        ),
-        const {},
-      )..httpClientAdapter = adapter;
-    });
-
-    tearDown(() => client.close(force: true));
-
-    test('reads the next source when one cannot be read', () async {
-      adapter.reply = (options) {
-        if (options.uri == missing) return ResponseBody.fromString('', 404);
-        if (options.uri == page) {
-          return ResponseBody.fromString(
-            '<html>Sign in</html>',
-            200,
-            headers: {
-              Headers.contentTypeHeader: ['text/html'],
-            },
-          );
-        }
-        return _media(200, 'audio/mpeg', 4);
-      };
-      final reader = WebEmbedMediaReader(client, [missing, page, clip]);
-
-      final body = await reader.open(0, null);
-
-      check(adapter.requests.map((it) => it.uri))
-          .deepEquals([missing, page, clip]);
-      check(await _collect(body.stream)).deepEquals([0, 1, 2, 3]);
-      check(reader.index).equals(2);
-      check(reader.nextIndex).isNull();
-    });
-
-    test('stays on a source once it has been read', () async {
-      var failing = false;
-      adapter.reply = (_) => failing
-          ? ResponseBody.fromString('', 503)
-          : _media(200, 'audio/mpeg', 4);
-      final reader = WebEmbedMediaReader(client, [clip, page]);
-
-      await _collect((await reader.open(0, null)).stream);
-      failing = true;
-
-      await check(reader.open(2, null)).throws<DioException>();
-      check(adapter.requests.map((it) => it.uri)).deepEquals([clip, clip]);
-      check(reader.nextIndex).equals(1);
-      check(WebEmbedMediaReader(client, [clip, page], from: 1).index).equals(1);
-    });
-
-    test('overlapping reads agree on one source when the first fails late '
-        'for one of them', () async {
-      final firstFails = Completer<void>();
-      final firstAnswers = Completer<void>();
-      final secondAsked = Completer<void>();
-      var firstRequests = 0;
-      adapter.reply = (options) async {
-        if (options.uri == missing) {
-          if (firstRequests++ == 0) {
-            await firstFails.future;
-            return ResponseBody.fromString('', 503);
-          }
-          await firstAnswers.future;
-          return _media(200, 'audio/mpeg', 4);
-        }
-        if (!secondAsked.isCompleted) secondAsked.complete();
-        return _media(200, 'audio/mpeg', 4, first: 100);
-      };
-      final reader = WebEmbedMediaReader(client, [missing, clip]);
-
-      final reads = [reader.open(0, null), reader.open(2, null)];
-      // A read of the first source fails, and the reader moves on...
-      firstFails.complete();
-      await secondAsked.future;
-      // ...before another read of the first source, if one is out, answers.
-      firstAnswers.complete();
-
-      final bodies = await Future.wait(reads);
-      check(await _collect(bodies[0].stream)).deepEquals([100, 101, 102, 103]);
-      check(await _collect(bodies[1].stream)).deepEquals([102, 103]);
-      check(reader.index).equals(1);
-      check(await _collect((await reader.open(1, null)).stream))
-          .deepEquals([101, 102, 103]);
-    });
-
-    test('overlapping reads skip no source when the first fails for each '
-        'at a different time', () async {
-      final failures = [Completer<void>(), Completer<void>()];
-      final secondAsked = Completer<void>();
-      final secondAnswers = Completer<void>();
-      var firstRequests = 0;
-      adapter.reply = (options) async {
-        if (options.uri == missing) {
-          await failures[firstRequests++].future;
-          return ResponseBody.fromString('', 503);
-        }
-        if (options.uri == page) {
-          if (!secondAsked.isCompleted) secondAsked.complete();
-          await secondAnswers.future;
-          return _media(200, 'audio/mpeg', 4, first: 100);
-        }
-        return _media(200, 'audio/mpeg', 4, first: 200);
-      };
-      final reader = WebEmbedMediaReader(client, [missing, page, clip]);
-
-      final reads = [reader.open(0, null), reader.open(0, null)];
-      // One read of the first source fails, and the second is asked...
-      failures[0].complete();
-      await secondAsked.future;
-      // ...then another read of the first, if one is out, fails before the
-      // second answers.
-      failures[1].complete();
-      secondAnswers.complete();
-
-      final bodies = await Future.wait(reads);
-      for (final body in bodies) {
-        check(await _collect(body.stream)).deepEquals([100, 101, 102, 103]);
-      }
-      check(reader.index).equals(1);
-      check(adapter.requests.map((it) => it.uri))
-          .not((it) => it.contains(clip));
-    });
-  });
-
   group('WebEmbedMediaLoad', () {
-    final first = Uri.parse('https://chat.example.test/api/v1/files/a/c');
-    final second = Uri.parse('https://chat.example.test/api/v1/files/b/c');
-    final client = Dio();
-    tearDownAll(() => client.close(force: true));
+    final sources = [
+      Uri.parse('https://chat.example.test/api/v1/files/a/c'),
+      Uri.parse('https://chat.example.test/api/v1/files/b/c'),
+    ];
 
     test('a failure before the player is ready moves to the next source', () {
       final retries = <int?>[];
       final load = WebEmbedMediaLoad(
-        WebEmbedMediaReader(client, [first, second]),
+        sources,
         onFailure: (retryFrom, _, _) => retries.add(retryFrom),
       );
 
@@ -674,11 +392,12 @@ void main() {
         'shows the failure', () {
       final retries = <int?>[];
       final ready = WebEmbedMediaLoad(
-        WebEmbedMediaReader(client, [first, second]),
+        sources,
         onFailure: (retryFrom, _, _) => retries.add(retryFrom),
       )..markReady();
       final last = WebEmbedMediaLoad(
-        WebEmbedMediaReader(client, [first, second], from: 1),
+        sources,
+        index: 1,
         onFailure: (retryFrom, _, _) => retries.add(retryFrom),
       );
 
@@ -691,11 +410,11 @@ void main() {
     test('a load fails once, and not at all once cancelled', () {
       final retries = <int?>[];
       final failed = WebEmbedMediaLoad(
-        WebEmbedMediaReader(client, [first, second]),
+        sources,
         onFailure: (retryFrom, _, _) => retries.add(retryFrom),
       );
       final cancelled = WebEmbedMediaLoad(
-        WebEmbedMediaReader(client, [first, second]),
+        sources,
         onFailure: (retryFrom, _, _) => retries.add(retryFrom),
       );
 
@@ -740,13 +459,9 @@ ResponseBody _media(
   );
 }
 
-Future<List<int>> _collect(Stream<List<int>> stream) async => [
-  for (final chunk in await stream.toList()) ...chunk,
-];
-
 final class _Adapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
-  FutureOr<ResponseBody> Function(RequestOptions options) reply = (_) =>
+  ResponseBody Function(RequestOptions options) reply = (_) =>
       ResponseBody.fromString(jsonEncode({}), 404);
 
   @override

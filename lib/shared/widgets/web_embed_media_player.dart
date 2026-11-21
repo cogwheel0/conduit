@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit_core/features/web_embed/web_embed_media.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -9,10 +10,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../../core/network/image_header_utils.dart';
+import '../../features/chat/services/video_attachment_cache.dart';
 import '../../features/chat/widgets/enhanced_video_attachment.dart';
 import '../../l10n/app_localizations.dart';
 import '../theme/theme_extensions.dart';
-import '../utils/bytes_audio_source.dart';
 import 'conduit_components.dart';
 import 'platform_ui/platform_ui.dart';
 import 'platform_ui/vocabulary.dart';
@@ -72,8 +73,10 @@ class _AudioRow extends ConsumerStatefulWidget {
 enum _AudioStatus { idle, loading, ready, failed }
 
 class _AudioRowState extends ConsumerState<_AudioRow> {
+  late final VideoAttachmentCache _cache;
+  final VideoDownloadClaim _download = VideoDownloadClaim();
   AudioPlayer? _player;
-  Dio? _client;
+  String? _file;
   WebEmbedMediaLoad? _current;
   final List<StreamSubscription<Object?>> _subscriptions = [];
   _AudioStatus _status = _AudioStatus.idle;
@@ -81,6 +84,12 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   Duration _position = Duration.zero;
   Duration? _duration;
   double? _dragValue;
+
+  @override
+  void initState() {
+    super.initState();
+    _cache = ref.read(videoAttachmentCacheProvider);
+  }
 
   @override
   void didUpdateWidget(covariant _AudioRow oldWidget) {
@@ -99,18 +108,19 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   void _release() {
     _current?.cancel();
     _current = null;
+    _cache.releaseDownload(_download);
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }
     _subscriptions.clear();
     final player = _player;
-    final client = _client;
+    final file = _file;
     _player = null;
-    _client = null;
-    // The player's reads run on the client, so it closes after them.
+    _file = null;
+    // The cache keeps the file until the player has let go of it.
     unawaited(
       (player?.dispose() ?? Future<void>.value()).whenComplete(
-        () => client?.close(force: true),
+        () => _cache.releaseCachePath(file),
       ),
     );
     _status = _AudioStatus.idle;
@@ -121,24 +131,52 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
   }
 
   /// Plays the item from its source [from] on; Play and Retry start again
-  /// from the first.
+  /// from the first. Each source is downloaded into the media cache first,
+  /// as a chat video is, and played from there.
   Future<void> _load({int from = 0}) async {
     _release();
     setState(() => _status = _AudioStatus.loading);
-    final Dio client;
-    try {
-      client = _mediaClient(ref, widget.item.url.toString());
-    } catch (error, stackTrace) {
-      _failed(null, error, stackTrace);
-      return;
-    }
     final load = _current = WebEmbedMediaLoad(
-      WebEmbedMediaReader(client, widget.item.sources, from: from),
+      widget.item.sources,
+      index: from,
       onFailure: _failed,
     );
+    final source = load.source;
+    final url = source.toString();
+    final File file;
+    try {
+      file = await _cache.fetchForPlayback(
+        claim: _download,
+        url: url,
+        // Open WebUI file addresses are the same for every account on a
+        // server; the image cache's key is scoped to the account.
+        cacheIdentity:
+            buildImageCacheKeyForUrlFromContainer(
+              ProviderScope.containerOf(context, listen: false),
+              url,
+            ) ??
+            url,
+        extension: webEmbedAudioExtension(source),
+        extensionForReply: (mediaType) =>
+            webEmbedAudioExtension(source, mediaType: mediaType),
+        transport: (url) => (
+          client: _mediaClient(ref, url),
+          headers: const <String, String>{},
+          ownsClient: true,
+        ),
+        isCurrent: () => mounted && load.isCurrent,
+      );
+    } catch (error, stackTrace) {
+      load.fail(error, stackTrace);
+      return;
+    }
+    if (!mounted || !load.isCurrent) {
+      _cache.releaseCachePath(file.path);
+      return;
+    }
     final player = AudioPlayer();
-    _client = client;
     _player = player;
+    _file = file.path;
     _subscriptions
       // A failure after the load, such as a read error mid-file, arrives
       // only here: just_audio sends no error on its playback events.
@@ -170,7 +208,7 @@ class _AudioRowState extends ConsumerState<_AudioRow> {
         }),
       );
     try {
-      await player.setAudioSource(RangedAudioSource(load.reader.open));
+      await player.setFilePath(file.path);
     } catch (error, stackTrace) {
       load.fail(error, stackTrace);
       return;
