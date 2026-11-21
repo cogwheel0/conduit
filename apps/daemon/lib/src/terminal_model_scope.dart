@@ -3,10 +3,18 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 
 import 'log.dart';
 
+/// What ends a session or says the account changed: the caller's terminals
+/// are then another account's, so the lookup's failure is the answer.
+const Set<String> _sessionEnded = {
+  ConduitErrorCodes.sessionExpired,
+  ConduitErrorCodes.unauthenticated,
+  ConduitErrorCodes.unauthorized,
+};
+
 /// The model a turn in [scope] runs with ([modelFor]; New Chat's outside a
 /// saved chat), which a terminal made per model is used for. Null where no
 /// model can run or it can't be read: a failed lookup holds back no other
-/// terminal.
+/// terminal. A session that ended meanwhile is rethrown.
 Future<String?> terminalModelIn(
   Future<String> Function(String? chatId)? modelFor,
   String scope, {
@@ -16,7 +24,8 @@ Future<String?> terminalModelIn(
     return await modelFor?.call(
       isSavedTerminalChatScopeId(scope) ? scope : null,
     );
-  } on RpcError {
+  } on RpcError catch (error) {
+    if (_sessionEnded.contains(error.code)) rethrow;
     return null;
   } on Object catch (error) {
     log?.warn('terminal model lookup failed: ${error.runtimeType}');

@@ -193,7 +193,11 @@ final class TerminalsService {
     String? serverId, {
     String scopeId = '',
   }) async {
+    final session = _session();
     final servers = await _available(scopeId);
+    // The list, and the pick from it, are the account's the request began
+    // under; another one's selection is never written with them.
+    _requireSession(session);
     final server = serverId == null
         ? null
         : servers.where((s) => s.selectionId == serverId).firstOrNull ??
@@ -206,6 +210,7 @@ final class TerminalsService {
         server != null && server.isDirect ? server.selectionId : null,
       ),
     );
+    _requireSession(session);
     final selection = _container.read(selectedTerminalIdProvider.notifier);
     if (server == null) {
       selection.clear();
@@ -225,6 +230,7 @@ final class TerminalsService {
     final server = (await _available(request.scopeId))
         .where((s) => s.selectionId == request.serverId)
         .firstOrNull;
+    _requireSession(session);
     if (server == null) {
       throw RpcError(
         code: ConduitErrorCodes.notFound,

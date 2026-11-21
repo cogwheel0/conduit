@@ -337,6 +337,72 @@ void main() {
       check(server.modelIds).isEmpty();
     });
 
+    test('a lookup the session ended surfaces as that', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        // As `ModelsService.modelFor` ends once the account changed.
+        modelFor: (chatId) async => throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          args: <String, String>{'reason': 'account'},
+          debugMessage: 'the account changed before the model in use is read',
+        ),
+      );
+      addTearDown(terminals.dispose);
+
+      for (final scope in ['', 'chat-lighthouse']) {
+        await check(because: scope, terminals.servers(scope)).throws<RpcError>(
+          (e) => e
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.sessionExpired),
+        );
+      }
+    });
+
+    test('an account change mid-lookup acts for no account', () async {
+      server.moreTerminals.add(_perModel);
+      final acts = <String, Future<Object?> Function(TerminalsService)>{
+        'select': (t) => t.select('per-model', scopeId: 'chat-lighthouse'),
+        'attach': (t) => t.attach(
+          const TerminalAttach(
+            serverId: 'per-model',
+            scopeId: 'chat-lighthouse',
+          ),
+        ),
+      };
+      for (final MapEntry(key: name, value: act) in acts.entries) {
+        final (next, away) = await awayAccount();
+        away.moreTerminals.add(_perModel);
+        final asked = Completer<void>();
+        final answer = Completer<String>();
+        final terminals = TerminalsService(
+          container,
+          modelFor: (chatId) {
+            asked.complete();
+            return answer.future;
+          },
+        );
+        addTearDown(terminals.dispose);
+
+        final acting = act(terminals);
+        await asked.future;
+        switchAccount(next);
+        answer.complete('nova-chat');
+
+        await check(because: name, acting).throws<RpcError>(
+          (e) => e
+              .has((e) => e.code, 'code')
+              .equals(ConduitErrorCodes.sessionExpired),
+        );
+        check(
+          because: name,
+          container.read(selectedTerminalIdProvider),
+        ).equals('box');
+        check(because: name, away.writes).isEmpty();
+        check(because: name, away.modelIds).isEmpty();
+      }
+    });
+
     test("a saved chat keeps one New Chat can't use", () async {
       server.moreTerminals.add(_perModel);
       final terminals = TerminalsService(
