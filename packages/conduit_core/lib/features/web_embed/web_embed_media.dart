@@ -590,6 +590,7 @@ final class WebEmbedMediaReader {
   final List<Uri> sources;
   int _index;
   bool _settled = false;
+  Future<void>? _choosing;
 
   /// The source read: the one that answered, or while none has, the one
   /// being tried.
@@ -601,20 +602,42 @@ final class WebEmbedMediaReader {
 
   /// [openWebEmbedServerMedia] of the current source.
   Future<WebEmbedMediaBody> open(int? start, int? end) async {
-    while (true) {
-      try {
-        final body = await openWebEmbedServerMedia(
-          _client,
-          sources[_index],
-          start: start,
-          end: end,
-        );
-        _settled = true;
-        return body;
-      } on Object {
-        if (_settled || nextIndex == null) rethrow;
-        _index += 1;
+    // Until a source has answered, reads take turns. Overlapping ones (a
+    // player asks for several ranges, and Android asks again when one is
+    // slow) would each move past a failure, skipping a source, or answer
+    // from one source after another had moved the reader on.
+    for (var turn = _choosing; !_settled && turn != null; turn = _choosing) {
+      await turn;
+    }
+    if (_settled) {
+      return openWebEmbedServerMedia(
+        _client,
+        sources[_index],
+        start: start,
+        end: end,
+      );
+    }
+    final turn = Completer<void>();
+    _choosing = turn.future;
+    try {
+      while (true) {
+        try {
+          final body = await openWebEmbedServerMedia(
+            _client,
+            sources[_index],
+            start: start,
+            end: end,
+          );
+          _settled = true;
+          return body;
+        } on Object {
+          if (nextIndex == null) rethrow;
+          _index += 1;
+        }
       }
+    } finally {
+      _choosing = null;
+      turn.complete();
     }
   }
 }

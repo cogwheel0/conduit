@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -464,6 +465,79 @@ void main() {
       check(reader.nextIndex).equals(1);
       check(WebEmbedMediaReader(client, [clip, page], from: 1).index).equals(1);
     });
+
+    test('overlapping reads agree on one source when the first fails late '
+        'for one of them', () async {
+      final firstFails = Completer<void>();
+      final firstAnswers = Completer<void>();
+      final secondAsked = Completer<void>();
+      var firstRequests = 0;
+      adapter.reply = (options) async {
+        if (options.uri == missing) {
+          if (firstRequests++ == 0) {
+            await firstFails.future;
+            return ResponseBody.fromString('', 503);
+          }
+          await firstAnswers.future;
+          return _media(200, 'audio/mpeg', 4);
+        }
+        if (!secondAsked.isCompleted) secondAsked.complete();
+        return _media(200, 'audio/mpeg', 4, first: 100);
+      };
+      final reader = WebEmbedMediaReader(client, [missing, clip]);
+
+      final reads = [reader.open(0, null), reader.open(2, null)];
+      // A read of the first source fails, and the reader moves on...
+      firstFails.complete();
+      await secondAsked.future;
+      // ...before another read of the first source, if one is out, answers.
+      firstAnswers.complete();
+
+      final bodies = await Future.wait(reads);
+      check(await _collect(bodies[0].stream)).deepEquals([100, 101, 102, 103]);
+      check(await _collect(bodies[1].stream)).deepEquals([102, 103]);
+      check(reader.index).equals(1);
+      check(await _collect((await reader.open(1, null)).stream))
+          .deepEquals([101, 102, 103]);
+    });
+
+    test('overlapping reads skip no source when the first fails for each '
+        'at a different time', () async {
+      final failures = [Completer<void>(), Completer<void>()];
+      final secondAsked = Completer<void>();
+      final secondAnswers = Completer<void>();
+      var firstRequests = 0;
+      adapter.reply = (options) async {
+        if (options.uri == missing) {
+          await failures[firstRequests++].future;
+          return ResponseBody.fromString('', 503);
+        }
+        if (options.uri == page) {
+          if (!secondAsked.isCompleted) secondAsked.complete();
+          await secondAnswers.future;
+          return _media(200, 'audio/mpeg', 4, first: 100);
+        }
+        return _media(200, 'audio/mpeg', 4, first: 200);
+      };
+      final reader = WebEmbedMediaReader(client, [missing, page, clip]);
+
+      final reads = [reader.open(0, null), reader.open(0, null)];
+      // One read of the first source fails, and the second is asked...
+      failures[0].complete();
+      await secondAsked.future;
+      // ...then another read of the first, if one is out, fails before the
+      // second answers.
+      failures[1].complete();
+      secondAnswers.complete();
+
+      final bodies = await Future.wait(reads);
+      for (final body in bodies) {
+        check(await _collect(body.stream)).deepEquals([100, 101, 102, 103]);
+      }
+      check(reader.index).equals(1);
+      check(adapter.requests.map((it) => it.uri))
+          .not((it) => it.contains(clip));
+    });
   });
 }
 
@@ -498,7 +572,7 @@ Future<List<int>> _collect(Stream<List<int>> stream) async => [
 
 final class _Adapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
-  ResponseBody Function(RequestOptions options) reply = (_) =>
+  FutureOr<ResponseBody> Function(RequestOptions options) reply = (_) =>
       ResponseBody.fromString(jsonEncode({}), 404);
 
   @override
