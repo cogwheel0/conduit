@@ -132,6 +132,9 @@ void main() {
             '<audio controls src="clip.mp3"></audio>',
         '<audio controls src="/api/v1/files/f1/content"></audio>'
             '<base href="https://cdn.example.test/">',
+        // A scheme-relative address takes the base's scheme.
+        '<base href="http://cdn.example.test/media/">'
+            '<audio controls src="//chat.example.test/a.mp3"></audio>',
       ]) {
         final media = _extract(html);
         check(because: html, media.items).isEmpty();

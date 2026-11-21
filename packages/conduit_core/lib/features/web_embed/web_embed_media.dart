@@ -216,9 +216,9 @@ Uri? _resolve(String src, Uri server, {Uri? base}) {
     return null;
   }
 
-  if (reference.hasScheme || raw.startsWith('//')) {
-    return server.resolveUri(reference);
-  }
+  if (reference.hasScheme) return reference;
+  // A scheme-relative address takes the scheme of the page's base.
+  if (raw.startsWith('//')) return (base ?? server).resolveUri(reference);
   // A base anywhere else takes every relative address with it.
   if (base != null &&
       (!raw.startsWith('/') ||
