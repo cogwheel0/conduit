@@ -451,6 +451,45 @@ void main() {
       check(await _collect(body.stream)).deepEquals([5, 6, 7]);
     });
 
+    test('stops a download once its read is done with it', () async {
+      // The server sends the whole of a large file for a short range, or the
+      // player leaves a range part way, as when it seeks.
+      for (final (status, range, end) in [
+        (200, null, 2),
+        (206, 'bytes 0-999/1000', null),
+      ]) {
+        final stopped = Completer<void>();
+        final upstream = StreamController<Uint8List>(
+          onCancel: stopped.complete,
+        );
+        addTearDown(upstream.close);
+        adapter.reply = (_) => ResponseBody(
+          upstream.stream,
+          status,
+          headers: {
+            Headers.contentTypeHeader: ['audio/mpeg'],
+            Headers.contentLengthHeader: ['1000'],
+            'content-range': [?range],
+          },
+        );
+        upstream.add(Uint8List.fromList([0, 1, 2, 3]));
+
+        final body = await openWebEmbedServerMedia(
+          client,
+          Uri.parse('https://chat.example.test/a.mp3'),
+          end: end,
+        );
+        if (end != null) {
+          check(await _collect(body.stream)).deepEquals([0, 1]);
+        } else {
+          await body.stream.first;
+        }
+        await pumpEventQueue();
+
+        check(because: '$status', stopped.isCompleted).isTrue();
+      }
+    });
+
     test(
       'a whole file of unknown length is read from its first byte',
       () async {

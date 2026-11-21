@@ -568,14 +568,16 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
   Uri url, {
   int? start,
   int? end,
-  CancelToken? cancelToken,
 }) async {
   final from = start ?? 0;
+  // Dio goes on downloading a body its reader has left; only cancelling the
+  // request stops it.
+  final request = CancelToken();
   final Response<ResponseBody> response;
   try {
     response = await client.getUri<ResponseBody>(
       url,
-      cancelToken: cancelToken,
+      cancelToken: request,
       options: Options(
         responseType: ResponseType.stream,
         headers: {
@@ -585,13 +587,14 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
       ),
     );
   } on DioException catch (error) {
+    request.cancel();
     if (error.error case final WebEmbedMediaRefused refused) throw refused;
     rethrow;
   }
-  final body = response.data!;
+  final stream = _stoppingOnLeave(response.data!.stream, request);
   final type = _mediaType(response.headers);
   if (!_isPlayableType(type)) {
-    await body.stream.listen(null).cancel();
+    await stream.listen(null).cancel();
     throw WebEmbedMediaRefused(type);
   }
 
@@ -610,11 +613,11 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
         last == null ||
         last < first ||
         (size != '*' && (total == null || last >= total))) {
-      await body.stream.listen(null).cancel();
+      await stream.listen(null).cancel();
       throw WebEmbedMediaRefused(type);
     }
     return (
-      stream: body.stream,
+      stream: stream,
       offset: first,
       contentLength: last - first + 1,
       sourceLength: total,
@@ -627,7 +630,7 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
     // with, so the reply goes out as a whole file and its reader skips to the
     // start itself, as HTTP readers do for a 200.
     return (
-      stream: body.stream,
+      stream: stream,
       offset: 0,
       contentLength: null,
       sourceLength: null,
@@ -639,7 +642,7 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
       ? available
       : math.min(available, math.max(0, end - from));
   return (
-    stream: _slice(body.stream, skip: from, take: take),
+    stream: _slice(stream, skip: from, take: take),
     offset: from,
     contentLength: take,
     sourceLength: length,
@@ -757,6 +760,36 @@ bool _isPlayableType(String? type) =>
     type == 'application/ogg' ||
     type == 'application/octet-stream' ||
     type == 'binary/octet-stream';
+
+/// [source], cancelling [request] when its reader leaves before the end.
+Stream<List<int>> _stoppingOnLeave(
+  Stream<List<int>> source,
+  CancelToken request,
+) {
+  late StreamSubscription<List<int>> subscription;
+  late StreamController<List<int>> controller;
+  var done = false;
+  controller = StreamController<List<int>>(
+    sync: true,
+    onListen: () {
+      subscription = source.listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          done = true;
+          controller.close();
+        },
+      );
+    },
+    onPause: () => subscription.pause(),
+    onResume: () => subscription.resume(),
+    onCancel: () {
+      if (!done) request.cancel();
+      return subscription.cancel();
+    },
+  );
+  return controller.stream;
+}
 
 Stream<List<int>> _slice(
   Stream<List<int>> source, {
