@@ -21,6 +21,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 /// completes it.
 class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> fetches = <String>[];
+  final List<String> extensions = <String>[];
   final List<Completer<File>> pending = <Completer<File>>[];
 
   @override
@@ -33,6 +34,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required bool Function() isCurrent,
   }) {
     fetches.add(url);
+    extensions.add(extension);
     final completer = Completer<File>();
     pending.add(completer);
     return completer.future;
@@ -153,6 +155,33 @@ void main() {
     await tester.tap(find.text('clip.mp4'));
     await tester.pump();
     check(cache.fetches).deepEquals([clip]);
+  });
+
+  testWidgets("the address fetched names the file's format, then the title", (
+    tester,
+  ) async {
+    final cache = _RecordingVideoCache();
+    for (final (url, title) in [
+      // An embed's title is a label, whatever it ends with.
+      ('https://cdn.example.com/out/clip.webm', 'clip.mp4'),
+      // An address without a format leaves it to an attachment's file name.
+      ('https://cdn.example.com/files/f1/content', 'clip.mov'),
+    ]) {
+      await tester.pumpWidget(
+        _harness(
+          cache,
+          EnhancedVideoAttachment(
+            key: ValueKey(url),
+            attachmentId: url,
+            filenameHint: title,
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+    }
+
+    check(cache.extensions).deepEquals(['webm', 'mov']);
   });
 
   testWidgets('tapping the card starts playback', (tester) async {

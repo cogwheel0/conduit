@@ -407,13 +407,15 @@ class _EnhancedVideoAttachmentState
     return declared.startsWith('video/') ? declared : '';
   }
 
-  /// The container of [url], by default the source that opened.
+  /// The container of [url], by default the source that opened. The address
+  /// names it first, since a fallback source can differ from the first and
+  /// an embed's title is only a label; without one, the file name does.
   String _videoExtension([String? url]) {
     final fromMime = _videoExtensionByMime[_declaredContentType()];
     if (fromMime != null) return fromMime;
     final candidates = <String>[
-      widget.filenameHint ?? '',
       url ?? _openUrl ?? '',
+      widget.filenameHint ?? '',
       widget.attachmentId,
     ];
     final pattern = RegExp(r'\.([A-Za-z0-9]{2,5})(?=$|[?&#])');
