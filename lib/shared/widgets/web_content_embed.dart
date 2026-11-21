@@ -238,12 +238,15 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     return Consumer(
       builder: (context, ref, _) {
         final account = ref.watch(webEmbedMediaAccountProvider);
-        return _withPlayers(_serverMedia(account));
+        return _withPlayers(_serverMedia(account), account);
       },
     );
   }
 
-  Widget _withPlayers(WebEmbedServerMedia media) {
+  Widget _withPlayers(
+    WebEmbedServerMedia media,
+    WebEmbedMediaAccount? account,
+  ) {
     final frame = _frame(media.html);
     if (media.items.isEmpty) return frame;
 
@@ -257,7 +260,13 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
         children: [
           for (final (index, item) in media.items.indexed) ...[
             if (index > 0) const SizedBox(height: Spacing.sm),
-            WebEmbedMediaPlayer(key: ValueKey((index, item)), item: item),
+            // The account is part of each player's identity: another account
+            // on the same server must never reuse one that fetched or cached
+            // the media as this one.
+            WebEmbedMediaPlayer(
+              key: ValueKey((index, item, account)),
+              item: item,
+            ),
           ],
         ],
       ),

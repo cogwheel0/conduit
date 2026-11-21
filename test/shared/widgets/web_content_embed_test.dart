@@ -589,6 +589,34 @@ void main() {
       check(find.byType(WebEmbedMediaPlayer).evaluate()).isEmpty();
       check(framePage(tester)).equals(voiceNote);
     });
+
+    testWidgets('another account on the same server starts the player over', (
+      tester,
+    ) async {
+      final cache = _RecordingVideoCache();
+      await tester.pumpWidget(_buildServerHarness(page, videoCache: cache));
+      await tester.tap(find.text('Walkthrough'));
+      await tester.pump();
+      check(cache.urls).length.equals(1);
+      check(find.byTooltip('Play').evaluate()).isEmpty();
+
+      _container(tester).read(_activeToken.notifier).set('another-account');
+      await tester.pump();
+
+      // The first account's transfer is let go, and nothing of it is kept.
+      check(cache.released).isGreaterOrEqual(1);
+      check(find.byTooltip('Play').evaluate()).length.equals(1);
+
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      check(cache.urls).length.equals(2);
+      check(cache.cacheIdentities.last)
+          .not((it) => it.equals(cache.cacheIdentities.first));
+      final transport = cache.transports.last(cache.urls.last);
+      addTearDown(() => transport.client.close(force: true));
+      check(transport.client.options.headers['Authorization'])
+          .equals('Bearer another-account');
+    });
   });
 }
 
@@ -670,8 +698,13 @@ Widget _buildServerHarness(
 /// loading until the test ends it.
 class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> urls = [];
+  final List<String> cacheIdentities = [];
   final List<VideoTransport Function(String url)> transports = [];
   final List<Completer<File>> pending = [];
+  int released = 0;
+
+  @override
+  void releaseDownload(VideoDownloadClaim claim) => released++;
 
   @override
   Future<File> fetchForPlayback({
@@ -683,6 +716,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required bool Function() isCurrent,
   }) {
     urls.add(url);
+    cacheIdentities.add(cacheIdentity);
     transports.add(transport);
     final fetch = Completer<File>();
     pending.add(fetch);
