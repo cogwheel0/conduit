@@ -3532,7 +3532,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (live && serverIndex != serverMessages.length - 1) return false;
 
     final authoritativeServerTail = serverMessages[serverIndex];
+    // A failed answer is final however little text it has. Waiting for more
+    // would keep it running, its error unshown, for as long as each poll
+    // brings the same copy.
     if (!live &&
+        authoritativeServerTail.error == null &&
         (authoritativeServerTail.content.trim().isEmpty ||
             _shouldPreserveLocalAssistantContent(
               localTail,

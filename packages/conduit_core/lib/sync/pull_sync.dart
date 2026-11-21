@@ -6,6 +6,9 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/models/chat_comparison.dart'
+    show kMessageHeldByServerMetadataKey;
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/services/conversation_parsing.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -45,6 +48,43 @@ typedef ChatRowsParseOffload = Future<ChatRows> Function(
 /// [ChatRowsParseOffload]. Keeping this pure also makes it directly testable.
 ChatRows parseChatRowsWorker(Map<String, dynamic> response) =>
     _chatRowsFromResponse(response);
+
+/// [response], a chat as the server returns it whose rows are [rows], without
+/// the messages [ids], as a pull stores it ([ChatRows.withoutMessages]).
+Map<String, dynamic> chatResponseWithoutMessages(
+  Map<String, dynamic> response,
+  ChatRows rows,
+  Set<String> ids,
+) => {
+  ...response,
+  'chat': ChatBlobMapper.rowsToBlob(rows.withoutMessages(ids)),
+};
+
+/// [conversation], parsed from [chatResponseWithoutMessages], with the
+/// question it ends on waiting again when [ids] left out an answer to it in
+/// [rows]: the server's copy read it as answered.
+Conversation withQuestionHeldAgain(
+  Conversation conversation,
+  ChatRows rows,
+  Set<String> ids,
+) {
+  final last = conversation.messages.lastOrNull;
+  if (last == null ||
+      last.role != 'user' ||
+      !rows.messages.any((m) => m.parentId == last.id && ids.contains(m.id))) {
+    return conversation;
+  }
+  return conversation.copyWith(
+    messages: [
+      ...conversation.messages.take(conversation.messages.length - 1),
+      questionHeldAgain(last),
+    ],
+  );
+}
+
+ChatMessage questionHeldAgain(ChatMessage question) => question.copyWith(
+  metadata: {...?question.metadata, kMessageHeldByServerMetadataKey: true},
+);
 
 ChatRows _chatRowsFromResponse(Map<String, dynamic> response) {
   final id = response['id'] as String;
@@ -304,6 +344,10 @@ class PullSync {
   /// stamp the server's copy as a push does, so a newer chat could otherwise
   /// carry the watermark past this one's changes.
   static const _readsWhenStale = 2;
+
+  /// How many times [_parseWithoutDeletes] parses a copy off this isolate
+  /// while deletes keep landing.
+  static const _parsesWhileDeletesLand = 2;
 
   /// Whether the overlap-window fetch of [item] can be skipped this cycle:
   /// the same `(id, updatedAt)` was already fetched in two earlier cycles
@@ -651,7 +695,9 @@ class PullSync {
   ///
   /// A copy read before a push of the chat landed stores nothing, so the
   /// chat is read again (see [_readsWhenStale]); past that the stored chat,
-  /// as pushed, is returned.
+  /// as pushed, is returned. A chat whose body was never stored has none to
+  /// return: the last copy read is returned, unstored, without the messages
+  /// whose delete waits or has landed here, which it may still hold.
   Future<Conversation?> pullChat(
     String chatId, {
     bool Function(Map<String, dynamic> response)? storeIf,
@@ -685,6 +731,14 @@ class PullSync {
           }
           final chat = await _db.chatsDao.getChat(id);
           if (chat == null) return (readAgain: false, conversation: null);
+          // Parsed under the lock, as the stored chat is assembled: an
+          // account-wide change waits for it.
+          if (merged.staleRead && !chat.bodySynced) {
+            return (
+              readAgain: false,
+              conversation: await _parseWithoutDeletes(id, resp),
+            );
+          }
           final messages = await _db.messagesDao.getForChat(id);
           return (
             readAgain: false,
@@ -702,6 +756,51 @@ class PullSync {
       }
       if (!pulled.readAgain) return pulled.conversation;
     }
+  }
+
+  /// [resp], a copy of chat [id], parsed without the messages whose delete
+  /// waits or has landed here, as `readChatWithoutUnsentDeletes` reads a chat
+  /// whose pushes keep landing.
+  ///
+  /// A delete can land while the copy is parsed, since noting it takes no
+  /// chat lock. The copy is then parsed again without it: off this isolate
+  /// [_parsesWhileDeletesLand] times at most, then on it, where nothing can
+  /// land between the last look at the deletes and the return.
+  Future<Conversation> _parseWithoutDeletes(
+    String id,
+    Map<String, dynamic> resp,
+  ) async {
+    final ids = {
+      ...await _db.outboxDao.unsentMessageDeletes(id),
+      ..._db.chatsDao.landedMessageDeletes(id),
+    };
+    final rows = await _rowsOf(resp);
+    for (var parses = 0; ; parses++) {
+      final without = chatResponseWithoutMessages(resp, rows, ids);
+      final parseOffload = parses < _parsesWhileDeletesLand
+          ? _parseOffload
+          : null;
+      final conversation = parseOffload != null
+          ? await parseOffload(without)
+          : parseFullConversationModel(without);
+      final landed = _db.chatsDao.landedMessageDeletes(id);
+      if (ids.containsAll(landed)) {
+        return withQuestionHeldAgain(conversation, rows, ids);
+      }
+      ids.addAll(landed);
+    }
+  }
+
+  Future<ChatRows> _rowsOf(Map<String, dynamic> resp) async {
+    final rowsParser = _rowsParseOffload;
+    return rowsParser != null &&
+            (_chatMessageCount(resp) > kLocalConversationWorkerThreshold ||
+                _chatMessageTextExceeds(
+                  resp,
+                  kLocalConversationWorkerPayloadThreshold,
+                ))
+        ? await rowsParser(resp)
+        : _chatRowsFromResponse(resp);
   }
 
   /// Reads chat [id] and merges the copy under its lock, reading it again
@@ -824,16 +923,7 @@ class PullSync {
           _db.chatsDao.pendingServerTasks(id) ?? previous['_conduit_tasks'];
       if (retainedTasks != null) meta['_conduit_tasks'] = retainedTasks;
     }
-    final rowsParser = _rowsParseOffload;
-    final rows =
-        rowsParser != null &&
-            (_chatMessageCount(resp) > kLocalConversationWorkerThreshold ||
-                _chatMessageTextExceeds(
-                  resp,
-                  kLocalConversationWorkerPayloadThreshold,
-                ))
-        ? await rowsParser(resp)
-        : _chatRowsFromResponse(resp);
+    final rows = await _rowsOf(resp);
 
     // §7.3 createChat crash-heal: if this server chat is the materialization of
     // a local createChat that crashed between server-create and remap-commit,

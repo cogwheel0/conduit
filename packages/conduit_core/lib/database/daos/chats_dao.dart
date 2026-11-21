@@ -484,8 +484,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///    pending `deleteChat` wins; the drainer purges on confirm) so the
   ///    fast-forward never resurrects a locally-deleted chat;
   ///  * a copy older than the base (or read before a push or a turn stored
-  ///    here, [readBeforeLocalWrite]) → SKIP entirely, reported as
-  ///    [ChatMergeWriteResult.staleRead];
+  ///    here, [readBeforeLocalWrite], which a never-synced stub honours too)
+  ///    → SKIP entirely, reported as [ChatMergeWriteResult.staleRead];
   ///  * otherwise → pure [mergeChat] then write per [MergeOutcome]:
   ///    - noRemoteChange: rows untouched (only `mustPush` is reported);
   ///    - fastForward: delete+reinsert messages `dirty=false`,
@@ -551,14 +551,26 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // an envelope stub before the first body pull, and _writeChatRows replaces
       // all messages.
       if (existing == null || existing.serverUpdatedAt == null) {
-        if (existing != null && existing.dirty) {
-          if (existing.deleted) {
-            return const ChatMergeWriteResult(
+        if (existing != null && existing.dirty && existing.deleted) {
+          return const ChatMergeWriteResult(
+            outcome: MergeOutcome.noRemoteChange,
+            mustPush: false,
+          );
+        }
+        // A copy read before a push or a turn stored here, as for a synced
+        // chat below. Both writes here would drop a turn this device stored
+        // in the stub since: its rows are clean, and the copy lacks them.
+        if (existing != null && readBeforeLocalWrite) {
+          return _mergeResultWithUpdateOpIfMissing(
+            serverChat.id,
+            ChatMergeWriteResult(
               outcome: MergeOutcome.noRemoteChange,
-              mustPush: false,
-            );
-          }
-
+              mustPush: existing.dirty,
+              staleRead: true,
+            ),
+          );
+        }
+        if (existing != null && existing.dirty) {
           final localMessages = await (select(
             messages,
           )..where((t) => t.chatId.equals(serverChat.id))).get();

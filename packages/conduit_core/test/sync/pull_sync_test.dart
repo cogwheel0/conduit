@@ -3,11 +3,15 @@ import 'dart:convert';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/outbox_dao.dart'
+    show OutboxKind, kDeleteMessagesIdsKey;
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart'
     show
         kLocalConversationWorkerPayloadThreshold,
         kLocalConversationWorkerThreshold;
+import 'package:conduit_core/services/conversation_parsing.dart'
+    show parseFullConversationModel;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -709,6 +713,304 @@ void main() {
     check((jsonDecode(answer.payload) as Map)['error'])
         .isA<Map<String, dynamic>>()['content']
         .equals('Connection lost');
+  });
+
+  group('a chat listed but never opened, so its body was never fetched', () {
+    // The turn after `chat-1-m2`, as this device stores it.
+    Future<void> storeTurn(String answer) => db.messagesDao.upsertLocalEchoTurn(
+      chatId: 'chat-1',
+      user: const MessageRowData(
+        id: 'chat-1-m3',
+        chatId: 'chat-1',
+        parentId: null,
+        role: 'user',
+        content: 'message 3 of chat-1',
+        createdAt: 1003,
+        orderIndex: -1,
+        payload: {
+          'id': 'chat-1-m3',
+          'role': 'user',
+          'content': 'message 3 of chat-1',
+        },
+      ),
+      assistant: MessageRowData(
+        id: 'chat-1-m4',
+        chatId: 'chat-1',
+        parentId: 'chat-1-m3',
+        role: 'assistant',
+        content: answer,
+        model: 'llama3',
+        createdAt: 1004,
+        orderIndex: -1,
+        payload: {
+          'id': 'chat-1-m4',
+          'role': 'assistant',
+          'content': answer,
+          'model': 'llama3',
+        },
+      ),
+    );
+
+    setUp(() async {
+      await db.chatsDao.upsertEnvelopeStub(
+        id: 'chat-1',
+        title: 'Title chat-1',
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1'),
+        createdAt: 100,
+        updatedAt: 150,
+      );
+    });
+
+    test('keeps an answer stored while a pull reads it', () async {
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      // The server stored the next answer, and then this device did.
+      server.seedChat(
+        id: 'chat-1',
+        blob: blobFor('chat-1', messageCount: 4),
+        createdAt: 100,
+        updatedAt: 151,
+      );
+      await storeTurn('message 4 of chat-1');
+      gate.complete();
+      final pulled = await pulling;
+
+      check((await db.messagesDao.getForChat('chat-1')).map((row) => row.id))
+          .deepEquals(['chat-1-m1', 'chat-1-m2', 'chat-1-m3', 'chat-1-m4']);
+      check((await db.chatsDao.getChat('chat-1'))!.bodySynced).isTrue();
+      check(pulled!.messages.last.content).equals('message 4 of chat-1');
+    });
+
+    test('keeps a turn stored here while every read of it is made, and the '
+        "pull answers with the server's copy", () async {
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(client: hooked, db: db, locks: locks);
+
+      final pulled = await pull.pullChat('chat-1');
+
+      final stored = await db.messagesDao.getForChat('chat-1');
+      check(stored.map((row) => row.id)).deepEquals(['chat-1-m3', 'chat-1-m4']);
+      check(stored.last.content).equals('The whole answer');
+      check((await db.chatsDao.getChat('chat-1'))!.bodySynced).isFalse();
+      // The stored rows are only the turn stored here, not the chat.
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'chat-1-m2']);
+    });
+
+    // The copy shows `answer-b`, kept beside `answer-a`.
+    void seedTwoAnswers() => server.seedChat(
+      id: 'chat-1',
+      blob: {
+        'title': 'Title chat-1',
+        'models': ['llama3'],
+        'history': {
+          'currentId': 'answer-b',
+          'messages': {
+            'chat-1-m1': {
+              'id': 'chat-1-m1',
+              'parentId': null,
+              'childrenIds': ['answer-a', 'answer-b'],
+              'role': 'user',
+              'content': 'message 1 of chat-1',
+              'timestamp': 1001,
+            },
+            for (final (id, content, timestamp) in [
+              ('answer-a', 'The first answer', 1002),
+              ('answer-b', 'The second answer', 1003),
+            ])
+              id: {
+                'id': id,
+                'parentId': 'chat-1-m1',
+                'childrenIds': <String>[],
+                'role': 'assistant',
+                'content': content,
+                'timestamp': timestamp,
+                'model': 'llama3',
+              },
+          },
+        },
+      },
+      createdAt: 100,
+      updatedAt: 150,
+    );
+
+    for (final landed in [false, true]) {
+      test(
+        "answers with the server's copy, after every read of it predates a "
+        'turn stored here, without an answer whose delete '
+        '${landed ? 'landed while it was read' : 'has not landed'}',
+        () async {
+          seedTwoAnswers();
+          if (!landed) {
+            await db.outboxDao.enqueue(
+              kind: OutboxKind.deleteMessages,
+              chatId: 'chat-1',
+              payload: {
+                kDeleteMessagesIdsKey: ['answer-b'],
+              },
+            );
+          }
+          final answers = ['Part of an answer', 'The whole answer'];
+          final hooked = _ChatHookClient(server)
+            ..whileChatLoads = (id) async {
+              await storeTurn(answers.removeAt(0));
+              // After the last copy was read.
+              if (landed && answers.isEmpty) {
+                db.chatsDao.noteMessageDeletesLanded('chat-1', ['answer-b']);
+              }
+            };
+          pull = PullSync(client: hooked, db: db, locks: locks);
+
+          final pulled = await pull.pullChat('chat-1');
+
+          check(pulled!.messages.map((message) => message.id))
+              .deepEquals(['chat-1-m1', 'answer-a']);
+          check(pulled.messages.last.versions).isEmpty();
+          check(
+            (await db.messagesDao.getForChat('chat-1')).map((row) => row.id),
+          ).deepEquals(['chat-1-m3', 'chat-1-m4']);
+        },
+      );
+    }
+
+    test('answers with a copy it parsed before an account-wide change ran, '
+        'never one it parsed after', () async {
+      final order = <String>[];
+      final parseTaken = Completer<void>();
+      final parseGate = Completer<void>();
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(
+        client: hooked,
+        db: db,
+        locks: locks,
+        parseOffload: (envelope) async {
+          parseTaken.complete();
+          await parseGate.future;
+          order.add('parsed');
+          return parseFullConversationModel(envelope);
+        },
+      );
+
+      final opening = pull.pullChat('chat-1');
+      await parseTaken.future;
+      final change = locks.runBarrier(() async => order.add('change'));
+      parseGate.complete();
+      final pulled = await opening;
+      await change;
+
+      check(pulled).isNotNull();
+      check(order).deepEquals(['parsed', 'change']);
+    });
+
+    test("answers without an answer whose delete lands while the server's "
+        'copy is parsed', () async {
+      seedTwoAnswers();
+      final parseTaken = Completer<void>();
+      final parseGate = Completer<void>();
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(
+        client: hooked,
+        db: db,
+        locks: locks,
+        parseOffload: (envelope) async {
+          if (!parseTaken.isCompleted) parseTaken.complete();
+          await parseGate.future;
+          return parseFullConversationModel(envelope);
+        },
+      );
+
+      final opening = pull.pullChat('chat-1');
+      await parseTaken.future;
+      db.chatsDao.noteMessageDeletesLanded('chat-1', ['answer-b']);
+      parseGate.complete();
+      final pulled = await opening;
+
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'answer-a']);
+    });
+
+    test('parses the copy off this isolate twice at most while deletes keep '
+        'landing', () async {
+      seedTwoAnswers();
+      var offloaded = 0;
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(
+        client: hooked,
+        db: db,
+        locks: locks,
+        parseOffload: (envelope) async {
+          offloaded++;
+          // A delete lands during every parse off this isolate.
+          db.chatsDao.noteMessageDeletesLanded('chat-1', [
+            offloaded == 1 ? 'answer-b' : 'another-answer-$offloaded',
+          ]);
+          return parseFullConversationModel(envelope);
+        },
+      );
+
+      final pulled = await pull.pullChat('chat-1');
+
+      check(offloaded).equals(2);
+      check(pulled!.messages.map((message) => message.id))
+          .deepEquals(['chat-1-m1', 'answer-a']);
+    });
+
+    test('with a message of its own not sent yet, keeps a turn stored here '
+        'while every read of it is made', () async {
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'chat-1',
+        messages: const [
+          MessageRowData(
+            id: 'unsent-user',
+            chatId: 'chat-1',
+            parentId: null,
+            role: 'user',
+            content: 'An unsent question',
+            createdAt: 1001,
+            orderIndex: 0,
+            payload: {
+              'id': 'unsent-user',
+              'role': 'user',
+              'content': 'An unsent question',
+            },
+          ),
+        ],
+        currentMessageId: 'unsent-user',
+        updatedAt: 151,
+        enqueueCompletion: false,
+      );
+      final answers = ['Part of an answer', 'The whole answer'];
+      final hooked = _ChatHookClient(server)
+        ..whileChatLoads = (id) => storeTurn(answers.removeAt(0));
+      pull = PullSync(client: hooked, db: db, locks: locks);
+
+      await pull.pullChat('chat-1');
+
+      final stored = await db.messagesDao.getForChat('chat-1');
+      check(stored.map((row) => row.id))
+          .deepEquals(['unsent-user', 'chat-1-m3', 'chat-1-m4']);
+      check(stored.last.content).equals('The whole answer');
+      final chat = (await db.chatsDao.getChat('chat-1'))!;
+      check(chat.dirty).isTrue();
+      check(chat.bodySynced).isFalse();
+    });
   });
 
   // A turn stored here doesn't stamp the server's copy as a push does, so
