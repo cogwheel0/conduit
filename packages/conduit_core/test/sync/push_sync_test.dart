@@ -2325,6 +2325,44 @@ void main() {
           .equals('Eggs,');
     });
 
+    test('another answer the server finished before the stop keeps its text '
+        'over the empty placeholder this device has of it', () async {
+      await seed(elsewhere: true, elsewhereRuns: false);
+      finishElsewhere();
+      final placeholder = (await db.messagesDao.getMessage(chatId, 'a2'))!;
+      await db.messagesDao.upsertLocalEcho(
+        MessageRowData(
+          id: 'a2',
+          chatId: chatId,
+          parentId: 'q2',
+          role: 'assistant',
+          content: '',
+          createdAt: placeholder.createdAt,
+          orderIndex: placeholder.orderIndex,
+          payload: {
+            'id': 'a2',
+            'parentId': 'q2',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': '',
+          },
+        ),
+      );
+      await stopHere('Gales veer');
+
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Gales veer');
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals('Eggs, flour.');
+      check((await db.messagesDao.getMessage(chatId, 'a2'))!.content)
+          .equals('Eggs, flour.');
+    });
+
     test('a stop the server took counts as a push that landed, even when the '
         'update after it fails: a copy read before it is older', () async {
       await seed();

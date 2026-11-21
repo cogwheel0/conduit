@@ -496,8 +496,7 @@ class PushSync {
   /// push left owed; one the server does not have stays out.
   ///
   /// Every other answer goes as the server holds it when the server holds it
-  /// finished and this device does not ([_takenFromServer]): an earlier push's
-  /// stop may have finished it there, the chat's read after that stop lost.
+  /// finished and this device does not ([_caughtUp]).
   Future<ChatRows> _withSettledAnswers(
     SyncApiClient client,
     String chatId,
@@ -534,14 +533,7 @@ class PushSync {
     for (final message in rows.messages) {
       final copy = server[message.id];
       if (!settled.contains(message.id)) {
-        messages.add(
-          copy != null &&
-                  message.role == 'assistant' &&
-                  message.payload['done'] != true &&
-                  copy.payload['done'] == true
-              ? await _takenFromServer(message, copy, rows.messages)
-              : message,
-        );
+        messages.add(await _caughtUp(message, copy, rows.messages));
       } else if (copy == null) {
         if (_isStoppedHere(message)) {
           absent.add(message.id);
@@ -565,8 +557,9 @@ class PushSync {
   /// [before], the copy the stop was asked over, may have moved since.
   ///
   /// The answers this device finished ([ours]) go as the fuller copy
-  /// ([_finishedOver]). Every other answer the stop finished, held not done
-  /// in [before], goes as the server holds it now ([_takenFromServer]).
+  /// ([_finishedOver]). Every other answer goes as the server holds it now
+  /// when the server holds it finished and this device does not
+  /// ([_caughtUp]), whether this stop finished it or it was finished before.
   Future<ChatRows> _afterStop(
     SyncApiClient client,
     String chatId,
@@ -609,11 +602,8 @@ class PushSync {
             serverFinished: !finishedByStop,
           ),
         );
-      } else if (before[message.id]?.payload['done'] == false &&
-          copy.payload['done'] != false) {
-        messages.add(await _takenFromServer(message, copy, rows.messages));
       } else {
-        messages.add(message);
+        messages.add(await _caughtUp(message, copy, rows.messages));
       }
     }
     return _withRows(rows, messages).withoutMessages(absent);
@@ -726,14 +716,23 @@ class PushSync {
     payload: payload,
   );
 
-  /// [message] as the server holds it, [copy], stored so: this device's copy
-  /// is older, perhaps an empty placeholder, which the server would take over
-  /// its own.
-  Future<MessageRowData> _takenFromServer(
+  /// [message], an answer this device did not settle, as it is to go over
+  /// [copy], the server's: as the server holds it, stored so, when the server
+  /// holds it finished and this device does not. This device's copy is then
+  /// older, perhaps an empty placeholder, which the server would take over its
+  /// own: a stop, this push's or an earlier one whose read after it was lost,
+  /// or another device may have finished it there.
+  Future<MessageRowData> _caughtUp(
     MessageRowData message,
-    MessageRowData copy,
+    MessageRowData? copy,
     List<MessageRowData> rows,
   ) async {
+    if (copy == null ||
+        message.role != 'assistant' ||
+        message.payload['done'] == true ||
+        copy.payload['done'] != true) {
+      return message;
+    }
     final taken = withDerivedChildren(answerAt(copy, message), rows);
     if (_differs(taken, message)) {
       await _db.messagesDao.upsertLocalEcho(taken);
