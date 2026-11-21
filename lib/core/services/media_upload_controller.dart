@@ -410,13 +410,25 @@ class MediaUploadController {
   /// exactly these, and retiring the snapshot once it is admitted removes
   /// exactly these: a file still uploading, or attached afterwards, stays in
   /// the tray for the next message.
-  MediaAttachmentOwnershipSnapshot captureSentAttachments() =>
-      _captureOwnership([
-        for (final attachment in _ref.read(attachedFilesProvider))
-          if (attachment.status == FileUploadStatus.completed &&
-              attachment.fileId != null)
-            attachment,
-      ]);
+  ///
+  /// The send holds them until it retires the snapshot or releases it
+  /// ([releaseSentAttachments]): one removed from the tray meanwhile keeps its
+  /// staged copy, which the send still reads, until then.
+  MediaAttachmentOwnershipSnapshot captureSentAttachments() {
+    final sent = _captureOwnership([
+      for (final attachment in _ref.read(attachedFilesProvider))
+        if (attachment.status == FileUploadStatus.completed &&
+            attachment.fileId != null)
+          attachment,
+    ]);
+    _sending[sent] = <String>{};
+    return sent;
+  }
+
+  /// The sends holding their files, each with the paths removed from the tray
+  /// while it did, whose cleanup waits for the send.
+  final Map<MediaAttachmentOwnershipSnapshot, Set<String>> _sending =
+      Map.identity();
 
   MediaAttachmentOwnershipSnapshot _captureOwnership(
     List<FileUploadState> attachments,
@@ -438,6 +450,19 @@ class MediaUploadController {
     ]);
   }
 
+  /// The send that took [sent] is done with it without retiring it: files
+  /// removed from the tray meanwhile are cleaned up now, as their removal
+  /// would have. Nothing is left to release once the snapshot is retired.
+  Future<void> releaseSentAttachments(MediaAttachmentOwnershipSnapshot sent) {
+    final removed = _sending.remove(sent);
+    if (removed == null || removed.isEmpty) return Future<void>.value();
+    return Future.wait<void>([
+      for (final filePath in removed)
+        if (_currentAttachment(filePath) == null)
+          cancelUploadsForFile(filePath),
+    ]).then<void>((_) {});
+  }
+
   /// Retires only owners captured by [captureAttachmentOwnership].
   Future<void> retireAttachmentOwnership(
     MediaAttachmentOwnershipSnapshot snapshot,
@@ -445,6 +470,7 @@ class MediaUploadController {
     final notifier = _ref.read(attachedFilesProvider.notifier);
     final cleanups = <Future<void>>[];
     final retiredPaths = <String>{};
+    final removedWhileSending = _sending.remove(snapshot) ?? const <String>{};
 
     for (final owner in snapshot._attachments) {
       final latestInflightAttachment = owner.inflight?.attachmentOwner;
@@ -456,7 +482,7 @@ class MediaUploadController {
       }
       final removedAttachment = latestInflightAttachment ?? owner.attachment;
       final filePath = owner.attachment.file.path;
-      if (!removed ||
+      if (!(removed || removedWhileSending.contains(filePath)) ||
           owner.attachment.isRemote ||
           filePath.startsWith('remote://') ||
           !retiredPaths.add(filePath)) {
@@ -914,6 +940,14 @@ class MediaUploadController {
     _ref.read(attachedFilesProvider.notifier).removeFile(filePath);
     if (isRemote || filePath.startsWith('remote://')) {
       return Future<void>.value();
+    }
+    for (final MapEntry(key: sent, value: removed) in _sending.entries) {
+      if (sent._attachments.any(
+        (owner) => owner.attachment.file.path == filePath,
+      )) {
+        removed.add(filePath);
+        return Future<void>.value();
+      }
     }
     return cancelUploadsForFile(filePath);
   }

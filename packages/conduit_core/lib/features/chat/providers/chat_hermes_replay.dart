@@ -5,6 +5,7 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
   required Model selectedModel,
   required String text,
   required List<String>? attachmentIds,
+  List<FileUploadState>? attachmentStates,
   required List<ChatContextAttachment> contextAttachments,
 }) async {
   ensureHermesSendSupportsAttachments(
@@ -14,6 +15,7 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
   );
 
   final attachedStates =
+      attachmentStates ??
       ref.read(attachedFilesProvider) as List<FileUploadState>;
   final stateById = <String, FileUploadState>{
     for (final state in attachedStates)

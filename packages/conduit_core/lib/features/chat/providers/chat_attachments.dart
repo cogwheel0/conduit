@@ -322,9 +322,11 @@ const int _kDirectMaxAggregatePdfBytes = 2 * kDirectMaxLocalDocumentBytes;
 Future<_PreparedDirectDocuments> _prepareDirectDocuments(
   dynamic ref, {
   required List<String>? attachmentIds,
+  List<FileUploadState>? attachmentStates,
   required bool supportsOpenRouterPdfInputs,
 }) async {
   final attachedStates =
+      attachmentStates ??
       ref.read(attachedFilesProvider) as List<FileUploadState>;
   final stateById = <String, FileUploadState>{
     for (final state in attachedStates)

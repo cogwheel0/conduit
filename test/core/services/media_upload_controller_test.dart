@@ -1976,6 +1976,54 @@ void main() {
     expect(container.read(attachedFilesProvider), [same(uploading)]);
   });
 
+  for (final (label, sent) in const [('sent', true), ('not sent', false)]) {
+    test('a staged file removed while a send holds it keeps its bytes until '
+        'the send is done with it ($label)', () async {
+      final stagingDirectory = Directory(
+        '${Directory.systemTemp.path}/conduit-native-paste',
+      );
+      await stagingDirectory.create();
+      final document = File(
+        '${stagingDirectory.path}/'
+        '123e4567-e89b-12d3-a456-42661417412${sent ? 0 : 1}-notes.txt',
+      );
+      await document.writeAsString('heron notes');
+      addTearDown(() async {
+        if (await document.exists()) await document.delete();
+      });
+      final uploaded = FileUploadState(
+        file: document,
+        fileName: 'notes.txt',
+        fileSize: 11,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: 'file-notes',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          apiServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWith(() => _SeededSelectedModel(null)),
+          attachedFilesProvider.overrideWith(
+            () => _SeededAttachedFilesNotifier([uploaded]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(mediaUploadControllerProvider);
+      final taken = controller.captureSentAttachments();
+
+      await controller.removeAttachment(document.path);
+
+      expect(container.read(attachedFilesProvider), isEmpty);
+      expect(await document.exists(), isTrue);
+
+      if (sent) await controller.retireAttachmentOwnership(taken);
+      await controller.releaseSentAttachments(taken);
+
+      expect(await document.exists(), isFalse);
+    });
+  }
+
   test(
     'ownership snapshot removes both original and inflight successor states',
     () async {

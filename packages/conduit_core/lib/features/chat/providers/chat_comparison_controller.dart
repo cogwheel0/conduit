@@ -156,6 +156,9 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
   void Function()? onCommitted,
   void Function(ChatSendPlaceholderHandle handle)?
   onAssistantPlaceholderCreated,
+
+  /// As for [durableSend].
+  List<FileUploadState>? attachmentStates,
 }) async {
   final activeAtSendStart = ref.read(activeConversationProvider);
   final sendMutationOwner = captureChatMutationOwner(ref, activeAtSendStart);
@@ -312,6 +315,7 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
     attachmentList,
     sourceApi: sendMutationOwner.openWebUiApi,
     sourceAuthSnapshot: sendMutationOwner.openWebUiAuthSnapshot,
+    attachmentStates: attachmentStates,
     requireSourceContext: () =>
         _requireChatMutationOpenWebUiAuthSession(ref, sendMutationOwner),
   );

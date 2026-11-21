@@ -642,11 +642,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     void Function(chat.ChatSendPlaceholderHandle)? onPrepared,
     MediaAttachmentOwnershipSnapshot? sentFiles,
   }) async {
-    final files =
-        sentFiles ??
-        ref.read(mediaUploadControllerProvider).captureSentAttachments();
+    final media = ref.read(mediaUploadControllerProvider);
+    final files = sentFiles ?? media.captureSentAttachments();
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
+      unawaited(media.releaseSentAttachments(files));
       return null;
     }
 
@@ -690,6 +690,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         text,
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
+        attachmentStates: files.attachments,
         pendingFolderIdOverride: widget.folderId,
         onAssistantPlaceholderCreated: (handle) {
           pendingSend = handle;
@@ -726,6 +727,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       chat.recoverFailedChatSend(container, e, pendingSend);
       return null;
     } finally {
+      unawaited(media.releaseSentAttachments(files));
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
       }
@@ -741,8 +743,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     MediaAttachmentOwnershipSnapshot files,
     void Function(chat.ChatSendPlaceholderHandle) onPrepared,
   ) async {
+    final media = ref.read(mediaUploadControllerProvider);
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
+      unawaited(media.releaseSentAttachments(files));
       return null;
     }
 
@@ -779,6 +783,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         models: models,
         onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
+        attachmentStates: files.attachments,
         onCommitted: () {
           // The shell keeps this page mounted in a branch no longer shown,
           // and a page pushed over it keeps it mounted behind.
@@ -830,6 +835,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       );
       return null;
     } finally {
+      unawaited(media.releaseSentAttachments(files));
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
       }

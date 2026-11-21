@@ -1431,6 +1431,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     void Function(ChatSendPlaceholderHandle)? onSendPrepared,
     void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
+    final media = ref.read(mediaUploadControllerProvider);
+    try {
+      return await _sendMessageWithFiles(
+        text,
+        sentFiles: sentFiles,
+        compareModels: compareModels,
+        onComparisonCommitted: onComparisonCommitted,
+        onSendPrepared: onSendPrepared,
+        onDraftCommitted: onDraftCommitted,
+      );
+    } finally {
+      if (sentFiles != null) unawaited(media.releaseSentAttachments(sentFiles));
+    }
+  }
+
+  Future<({bool admitted, bool dispatched})> _sendMessageWithFiles(
+    String text, {
+    required MediaAttachmentOwnershipSnapshot? sentFiles,
+    List<Model>? compareModels,
+    void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
+  }) async {
     // Named as the send is asked for, with its files: after any wait below,
     // the message goes only to this account and chat.
     final owner = captureChatSendOwner(ref);
@@ -1541,6 +1564,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           models: compareModels,
           onAssistantPlaceholderCreated: onSendPrepared,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
+          attachmentStates: sentFiles?.attachments,
         );
         pendingSends = handles;
         onComparisonCommitted?.call(handles.first);
@@ -1569,6 +1593,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           text,
           uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
+          attachmentStates: sentFiles?.attachments,
           onAssistantPlaceholderCreated: (handle) {
             didDispatch = true;
             _releaseMessageSendAdmission(sendOwner);

@@ -1105,21 +1105,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     if (streaming) return;
-    // The files just checked. The send may wait before its host reads the
-    // tray, and a file attached meanwhile is not one it checked.
-    final sentFiles = _captureSentFiles();
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.
     final saved = ref.read(folderDraftComparisonModelsProvider);
     if (saved != null && widget.onCompareSend != null) {
-      unawaited(_sendComparison(saved, _captureComposerOwner(), sentFiles));
+      unawaited(
+        _sendComparison(saved, _captureComposerOwner(), _captureSentFiles()),
+      );
       return;
     }
 
     final sendDraft = widget.onSendDraft;
     if (sendDraft != null) {
-      unawaited(_sendOwnedDraft(_captureComposerOwner(), sentFiles, sendDraft));
+      unawaited(
+        _sendOwnedDraft(
+          _captureComposerOwner(),
+          _captureSentFiles(),
+          sendDraft,
+        ),
+      );
       return;
     }
 
@@ -1578,7 +1583,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     await _sendComparison(models, owner, _captureSentFiles());
   }
 
-  /// The tray's uploaded files, taken for one send.
+  /// The tray's uploaded files, taken for one send as it is asked for: the
+  /// send may wait before its host reads the tray, and a file attached
+  /// meanwhile is not one it checked.
   MediaAttachmentOwnershipSnapshot _captureSentFiles() =>
       ref.read(mediaUploadControllerProvider).captureSentAttachments();
 
@@ -1599,7 +1606,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     MediaAttachmentOwnershipSnapshot files,
   ) async {
     final send = widget.onCompareSend;
-    if (send == null) return;
+    if (send == null) {
+      unawaited(
+        ref.read(mediaUploadControllerProvider).releaseSentAttachments(files),
+      );
+      return;
+    }
     await _sendOwnedDraft(
       owner,
       files,
@@ -1617,10 +1629,19 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     )
     send,
   ) async {
-    if (_sendingDraft) return;
+    final media = ref.read(mediaUploadControllerProvider);
+    if (_sendingDraft) {
+      unawaited(media.releaseSentAttachments(files));
+      return;
+    }
     _sendingDraft = true;
+    // Once the host has the files, it is the host that lets them go.
+    var handedOver = false;
     try {
-      await _admitOwnedDraft(owner, files, send);
+      await _admitOwnedDraft(owner, files, (text, files, onPrepared) {
+        handedOver = true;
+        return send(text, files, onPrepared);
+      });
     } catch (_) {
       if (mounted) {
         AdaptiveSnackBar.show(
@@ -1630,6 +1651,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         );
       }
     } finally {
+      if (!handedOver) unawaited(media.releaseSentAttachments(files));
       _sendingDraft = false;
       _draftSendOwner = null;
     }
