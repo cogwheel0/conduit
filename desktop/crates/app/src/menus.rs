@@ -648,7 +648,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         choosing,
         folders,
         zoom,
-        chat_settings: offer.chat_settings,
+        chat_settings: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_open_chat_settings(cx)),
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
         hermes_context: state

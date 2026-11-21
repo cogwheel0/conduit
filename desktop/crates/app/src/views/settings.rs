@@ -2753,24 +2753,34 @@ mod language_tests {
             "⌘− in Settings did not step the text size"
         );
 
+        // A reading started and ended elsewhere (the main window), with
+        // Audio's pane closed: followed at once.
         assert!(
             !appkit_enables(vcx, &StopSpeaking),
             "Stop Speaking is on with nothing read"
         );
-        daemon.returns::<methods::SpeechGet>(SpeechState {
+        let state = |status, message: Option<&str>| SpeechState {
             progress: SpeechProgress {
-                status: SpeechStatus::Speaking,
+                status,
                 reading: 1,
-                message_id: Some("preview".into()),
+                message_id: message.map(String::from),
                 ..Default::default()
             },
             sentences: vec![],
-        });
+        };
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Speaking, Some("answer-1")));
         stores.speech.update(vcx, |s, cx| s.refresh(cx));
         vcx.run_until_parked();
         assert!(
             appkit_enables(vcx, &StopSpeaking),
-            "Stop Speaking is off while the preview reads"
+            "Stop Speaking is off while a reading started elsewhere"
+        );
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Idle, None));
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is on after the reading ended elsewhere"
         );
     }
 }

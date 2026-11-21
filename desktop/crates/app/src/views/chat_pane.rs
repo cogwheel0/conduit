@@ -1714,15 +1714,20 @@ impl ChatPane {
                 .is_some()
     }
 
-    /// Chat › Ask Conduit has a composer to give the selection to: a chat
-    /// the window shows that takes messages (a temporary or Hermes chat
-    /// too), not a read-only one, whose composer is a notice.
+    /// The pane shows a composer: a new chat, or a chat that takes
+    /// messages (a temporary or Hermes chat too). Another user's chat, or a
+    /// Hermes session another Hermes app owns, shows a notice instead.
+    fn has_composer(&self, cx: &App) -> bool {
+        !self.chat.as_ref().is_some_and(|c| {
+            let s = c.store.read(cx);
+            s.read_only() || s.hermes_read_only()
+        })
+    }
+
+    /// Chat › Ask Conduit has a composer to give the selection to, in a
+    /// chat the window shows.
     pub fn can_ask_conduit(&self, cx: &App) -> bool {
-        self.can_read_aloud(cx)
-            && self.chat.as_ref().is_some_and(|c| {
-                let s = c.store.read(cx);
-                !s.read_only() && !s.hermes_read_only()
-            })
+        self.can_read_aloud(cx) && self.has_composer(cx)
     }
 
     /// Chat › Read Aloud: the newest answer, or Stop Speaking while it is
@@ -1753,13 +1758,6 @@ impl ChatPane {
         }
         // ⌥⌘V as the button: only when the core admits a call, online.
         if !self.call_startable(cx) {
-            return;
-        }
-        if self
-            .chat
-            .as_ref()
-            .is_some_and(|c| c.store.read(cx).read_only())
-        {
             return;
         }
         self.begin_call(cx);
@@ -1815,11 +1813,11 @@ impl ChatPane {
     }
 
     /// A call can start here now, as the composer's call button would
-    /// take it: the core admits one with the chosen model, and the window is
-    /// online.
+    /// take it: the pane shows the composer, the core admits a call with the
+    /// chosen model, and the window is online.
     pub fn call_startable(&self, cx: &App) -> bool {
         let composer = self.composer.read(cx);
-        composer.call_ready && !composer.offline
+        self.has_composer(cx) && composer.call_ready && !composer.offline
     }
 
     /// Chat › Start Voice Call, or End Voice Call while one is on.
@@ -1870,10 +1868,7 @@ impl ChatPane {
     /// model (`ComposerOptions::voice_call`, the phone's rule: a Hermes
     /// chat's call is a Standard one).
     fn sync_call_offer(&mut self, cx: &mut Context<Self>) {
-        let offer = !self
-            .chat
-            .as_ref()
-            .is_some_and(|c| c.store.read(cx).read_only());
+        let offer = self.has_composer(cx);
         let on = self.stores.call.read(cx).is_active();
         let ready = !on && self.composer_store.read(cx).call_ready();
         self.composer.update(cx, |c, cx| {
@@ -2280,15 +2275,18 @@ impl ChatPane {
         }));
     }
 
+    /// Chat › Chat Settings… has something to show, and a chat to show it
+    /// for: not a new chat whose first message is on its way (its settings
+    /// went with it, and the chat it makes is not open yet).
+    pub fn can_open_chat_settings(&self, cx: &App) -> bool {
+        self.settings_offer.chat_settings
+            && !(self.first_send_pending(cx) && self.open_chat_id(cx).is_none())
+    }
+
     /// Chat › Chat Settings… (⌘I): the open chat's settings, or the new
     /// chat's (kept for its first message).
     pub fn open_chat_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.settings_offer.chat_settings {
-            return;
-        }
-        // A new chat whose first message is on its way: its settings went
-        // with it, and the chat it makes is not open yet.
-        if self.first_send_pending(cx) && self.open_chat_id(cx).is_none() {
+        if !self.can_open_chat_settings(cx) {
             return;
         }
         let composer = self.composer_store.read(cx);
@@ -2343,7 +2341,7 @@ impl ChatPane {
     pub fn more_menu_items(&self, cx: &App) -> Vec<(String, Box<dyn gpui_kit::Action>)> {
         let l10n = cx.l10n();
         let mut items: Vec<(String, Box<dyn gpui_kit::Action>)> = vec![];
-        if self.settings_offer.chat_settings {
+        if self.can_open_chat_settings(cx) {
             items.push((
                 l10n.desktop_chat_settings_menu(),
                 Box::new(crate::actions::ChatSettings),

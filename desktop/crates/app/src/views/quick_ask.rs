@@ -963,54 +963,76 @@ mod tests {
 
     /// The panel's text follows the text size and its answers are read
     /// aloud: ⌘+ and ⌘. reach it while they would act (no handler on the
-    /// app answers them).
+    /// app answers them). A change made elsewhere while it stays open
+    /// (Settings, the main window, a reading that starts or ends) is
+    /// followed at once.
     #[gpui_kit::test]
     fn the_zoom_keys_and_stop_speaking_reach_quick_ask_while_they_act(cx: &mut TestAppContext) {
         use conduit_protocol::{SpeechProgress, SpeechState, SpeechStatus};
 
-        use crate::actions::{StopSpeaking, ZoomIn};
+        use crate::actions::{ActualSize, StopSpeaking, ZoomIn, ZoomOut};
         use crate::menus::appkit_enables;
         use crate::prefs::TEXT_SIZE_MAX;
         let (daemon, stores, view, vcx) = bench(cx);
         vcx.cx.update(crate::register_actions);
         // Shown: the caret in the composer.
         view.update_in(vcx, |v, window, cx| v.focus_composer(window, cx));
-        let settings = view.read_with(vcx, |v, _| v.settings.clone());
-        settings.update(vcx, |s, cx| {
-            s.set_appearance(|a| a.text_size = Some(TEXT_SIZE_MAX - 1.), cx)
-        });
         vcx.run_until_parked();
         assert!(appkit_enables(vcx, &ZoomIn), "⌘+ is off in Quick Ask");
-        vcx.dispatch_action(ZoomIn);
+        assert!(
+            !appkit_enables(vcx, &ActualSize),
+            "⌘0 is on at the actual size"
+        );
+
+        // Elsewhere: the largest size.
+        let settings = view.read_with(vcx, |v, _| v.settings.clone());
+        settings.update(vcx, |s, cx| {
+            s.set_appearance(|a| a.text_size = Some(TEXT_SIZE_MAX), cx)
+        });
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &ZoomIn),
+            "⌘+ is on at the largest size, set elsewhere"
+        );
+        assert!(
+            appkit_enables(vcx, &ActualSize),
+            "⌘0 is off, the size set elsewhere"
+        );
+        vcx.dispatch_action(ZoomOut);
         vcx.run_until_parked();
         assert_eq!(
             settings.read_with(vcx, |s, _| s.prefs.appearance.text_size),
-            Some(TEXT_SIZE_MAX),
-            "⌘+ did not step the text size"
-        );
-        assert!(
-            !appkit_enables(vcx, &ZoomIn),
-            "⌘+ is on at the largest size"
+            Some(TEXT_SIZE_MAX - 1.),
+            "⌘− did not step the text size"
         );
 
+        // Elsewhere: a reading starts, then ends.
         assert!(
             !appkit_enables(vcx, &StopSpeaking),
             "⌘. is on with nothing read"
         );
-        daemon.returns::<methods::SpeechGet>(SpeechState {
+        let state = |status, message: Option<&str>, reading| SpeechState {
             progress: SpeechProgress {
-                status: SpeechStatus::Speaking,
-                reading: 1,
-                message_id: Some("answer-1".into()),
+                status,
+                reading,
+                message_id: message.map(String::from),
                 ..Default::default()
             },
             sentences: vec![],
-        });
+        };
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Speaking, Some("answer-1"), 1));
         stores.speech.update(vcx, |s, cx| s.refresh(cx));
         vcx.run_until_parked();
         assert!(
             appkit_enables(vcx, &StopSpeaking),
-            "⌘. is off while reading"
+            "⌘. is off while a reading started elsewhere"
+        );
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Idle, None, 1));
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "⌘. is on after the reading ended elsewhere"
         );
     }
 

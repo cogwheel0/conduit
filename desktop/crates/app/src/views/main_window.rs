@@ -690,11 +690,8 @@ impl Render for MainWindow {
         let reads_aloud = shows_main && pane.can_read_aloud(cx);
         let calls =
             self.stores.call.read(cx).is_active() || (shows_main && pane.call_startable(cx));
-        let settings_offer = if shows_main {
-            pane.settings_offer.clone()
-        } else {
-            Default::default()
-        };
+        let chat_settings = shows_main && pane.can_open_chat_settings(cx);
+        let tool_settings = shows_main && !pane.settings_offer.tool_targets.is_empty();
         let (settings, speech) = (self.settings.clone(), self.stores.speech.clone());
 
         // A click on no control focuses the window itself (closing the model
@@ -1034,13 +1031,13 @@ impl Render for MainWindow {
             })
             // ⌘I is Get Info: the chat's settings (the sidebar's list takes
             // it first for a folder its keyboard is on).
-            .when(settings_offer.chat_settings, |d| {
+            .when(chat_settings, |d| {
                 d.on_action(cx.listener(|this, _: &ChatSettings, window, cx| {
                     this.chat_pane
                         .update(cx, |p, cx| p.open_chat_settings(window, cx));
                 }))
             })
-            .when(!settings_offer.tool_targets.is_empty(), |d| {
+            .when(tool_settings, |d| {
                 d.on_action(cx.listener(|this, _: &ToolSettings, window, cx| {
                     this.chat_pane
                         .update(cx, |p, cx| p.open_tool_settings(window, cx));
@@ -1205,6 +1202,48 @@ mod chat_menu_tests {
         stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
         vcx.run_until_parked();
         (stores, settings, view, vcx)
+    }
+
+    /// The chat's model takes calls, has settings to show and a tool with
+    /// personal settings.
+    fn offer_everything(daemon: &FakeDaemon) {
+        use conduit_protocol::methods;
+        daemon.returns::<methods::ModelsList>(
+            serde_json::from_value(serde_json::json!({
+                "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::ComposerOptions>(
+            serde_json::from_value(serde_json::json!({"voiceCall": true})).unwrap(),
+        );
+        daemon.returns::<methods::ChatSettingsGet>(
+            serde_json::from_value(serde_json::json!({
+                "entry": "editor",
+                "systemPrompt": {"key": "system", "kind": "text"}
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::ValvesTargets>(
+            serde_json::from_value(serde_json::json!({
+                "advanced": true,
+                "targets": [{"kind": "tool", "id": "tool-tides", "label": "Tides"}]
+            }))
+            .unwrap(),
+        );
+    }
+
+    /// The composer lists the models, online.
+    fn list_models_online(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) {
+        pane.update(vcx, |p, cx| {
+            p.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+            // The bench has no connection to say it is online.
+            p.composer.update(cx, |c, cx| {
+                c.offline = false;
+                cx.notify()
+            });
+        });
+        vcx.run_until_parked();
     }
 
     fn available(vcx: &mut VisualTestContext, action: &dyn Action) -> bool {
@@ -1507,41 +1546,9 @@ mod chat_menu_tests {
         stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
         vcx.run_until_parked();
 
-        // The chat's model takes calls, has settings to show and a tool
-        // with personal settings.
-        daemon.returns::<methods::ModelsList>(
-            serde_json::from_value(serde_json::json!({
-                "models": [{"id": "m", "name": "M"}], "selectedId": "m"
-            }))
-            .unwrap(),
-        );
-        daemon.returns::<methods::ComposerOptions>(
-            serde_json::from_value(serde_json::json!({"voiceCall": true})).unwrap(),
-        );
-        daemon.returns::<methods::ChatSettingsGet>(
-            serde_json::from_value(serde_json::json!({
-                "entry": "editor",
-                "systemPrompt": {"key": "system", "kind": "text"}
-            }))
-            .unwrap(),
-        );
-        daemon.returns::<methods::ValvesTargets>(
-            serde_json::from_value(serde_json::json!({
-                "advanced": true,
-                "targets": [{"kind": "tool", "id": "tool-tides", "label": "Tides"}]
-            }))
-            .unwrap(),
-        );
+        offer_everything(&daemon);
         let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
-        pane.update(vcx, |p, cx| {
-            p.composer_store.update(cx, |c, cx| c.refresh_models(cx));
-            // The bench has no connection to say it is online.
-            p.composer.update(cx, |c, cx| {
-                c.offline = false;
-                cx.notify()
-            });
-        });
-        vcx.run_until_parked();
+        list_models_online(&pane, vcx);
         for (name, action) in &offered {
             assert!(
                 appkit_enables(vcx, action.as_ref()),
@@ -1555,6 +1562,135 @@ mod chat_menu_tests {
             daemon.calls::<methods::CallsStart>().len(),
             1,
             "Start Voice Call started nothing"
+        );
+    }
+
+    /// ⌘I (Chat › Chat Settings…) with the sidebar's keyboard on a row:
+    /// a folder whose menu offers its settings opens them; on a chat row
+    /// it is the open chat's, so it is off when that chat offers none.
+    #[gpui_kit::test]
+    fn chat_settings_in_the_sidebar_is_available_only_where_it_acts(cx: &mut TestAppContext) {
+        use crate::menus::appkit_enables;
+        use crate::views::folder_settings::FolderSettingsSheet;
+        use crate::views::sidebar_keys::{KeyRow, ListKey};
+        let daemon = chats();
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        stores.navigation.update(vcx, |n, cx| n.open("chat-c", cx));
+        vcx.run_until_parked();
+        let sidebar = main.read_with(vcx, |m, _| m.sidebar.clone());
+        sidebar.update_in(vcx, |s, window, cx| s.focus_list(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            sidebar.read_with(vcx, |s, _| s.cursor().cloned()),
+            Some(KeyRow::Chat("chat-c".into()))
+        );
+        assert!(
+            !appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is on, on a chat that offers none"
+        );
+
+        let folder = KeyRow::Folder("recipes".into());
+        let rows = sidebar.read_with(vcx, |s, _| s.rows().len());
+        for _ in 0..rows {
+            if sidebar.read_with(vcx, |s, _| s.cursor() == Some(&folder)) {
+                break;
+            }
+            sidebar.update(vcx, |s, cx| s.key(ListKey::Up, cx));
+            vcx.run_until_parked();
+        }
+        assert_eq!(
+            sidebar.read_with(vcx, |s, _| s.cursor().cloned()),
+            Some(folder)
+        );
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off on a folder with settings"
+        );
+        vcx.dispatch_action(ChatSettings);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<FolderSettingsSheet>(cx))
+                .is_some(),
+            "⌘I did not open the folder's settings"
+        );
+    }
+
+    /// Start Voice Call is the composer's call button: never in a chat with
+    /// no composer (another user's), whatever its model takes. A chat with
+    /// one takes it.
+    #[gpui_kit::test]
+    fn start_voice_call_is_off_in_a_chat_with_no_composer(cx: &mut TestAppContext) {
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        offer_everything(&daemon);
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        stores.navigation.update(vcx, |n, cx| n.open("chat-e", cx));
+        vcx.run_until_parked();
+        list_models_online(&pane, vcx);
+        assert!(
+            pane.read_with(vcx, |p, cx| p.composer_store.read(cx).call_ready()),
+            "the model takes no calls"
+        );
+        assert!(
+            !appkit_enables(vcx, &VoiceCall),
+            "Start Voice Call is on in a chat with no composer"
+        );
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &VoiceCall),
+            "Start Voice Call is off in a chat with a composer"
+        );
+    }
+
+    /// Chat Settings… is off while a new chat's first message is on its way
+    /// (its settings went with it, and the chat it makes is not open yet):
+    /// on before the send, and again once the chat opens.
+    #[gpui_kit::test]
+    fn chat_settings_waits_for_a_new_chats_first_message(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        offer_everything(&daemon);
+        daemon.returns::<methods::TurnsSend>(
+            serde_json::from_value(serde_json::json!({
+                "chatId": "chat-a", "userMessageId": "m1", "assistantMessageId": "a1"
+            }))
+            .unwrap(),
+        );
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        list_models_online(&pane, vcx);
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off before the first message"
+        );
+        let held = daemon.hold::<methods::TurnsSend>();
+        pane.update_in(vcx, |p, window, cx| {
+            p.send_text("Plan the trip".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is on while the first message is on its way"
+        );
+        drop(held);
+        vcx.run_until_parked();
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+            Some("chat-a".into()),
+            "the chat did not open"
+        );
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off once the chat opened"
         );
     }
 }
