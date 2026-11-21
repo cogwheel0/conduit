@@ -1606,6 +1606,31 @@ void main() {
       });
     }
 
+    // The answer's own stop asks its chat's stop, and so does the Stop's
+    // stop of the chat: one request does both.
+    test('a Stop with the server up asks the chat\'s stop once', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, db: _, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+
+        bool? taken;
+        unawaited(
+          container
+              .read(stopGenerationSettledProvider)()
+              .then((it) => taken = it),
+        );
+        async.flushMicrotasks();
+
+        check(taken).equals(true);
+        check(api.chatStops).equals(1);
+        check(api.stoppedTasks).isEmpty();
+      });
+    });
+
     // Two devices of the account settle the same cut-off answer: this one
     // from the server's empty copy, or with less of it, while the other's
     // push lands with the text it kept. This one's push comes after, and the
