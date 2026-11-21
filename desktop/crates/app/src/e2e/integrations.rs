@@ -142,27 +142,25 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let loaded = wait_until(cx, Duration::from_secs(20), |cx| {
         pane(cx).is_some_and(|p| {
             p.read(cx).list.as_ref().is_some_and(|l| {
-                matches!(
-                    l.access,
-                    PersonalAccess::Allowed | PersonalAccess::MovedToTether
-                ) && !l.failed
+                (l.access == PersonalAccess::Allowed && !l.failed) || personal_moved_to_tether(l)
             })
         })
     })
     .await;
-    let moved = cx.update(|cx| {
-        pane(cx).is_some_and(|p| {
-            p.read(cx)
-                .list
-                .as_ref()
-                .is_some_and(|l| l.access == PersonalAccess::MovedToTether)
-        })
-    });
+    pass &= ok("the account's connections load (none yet)", loaded);
+    let moved = loaded
+        && cx.update(|cx| {
+            pane(cx).is_some_and(|p| {
+                p.read(cx)
+                    .list
+                    .as_ref()
+                    .is_some_and(personal_moved_to_tether)
+            })
+        });
     if moved {
         println!("SMOKE e2e skip Settings › Personal Connections: {MOVED_TO_TETHER}");
         return pass;
     }
-    pass &= ok("the account's connections load (none yet)", loaded);
     settings_shot(dir, "connections-empty", cx).await;
     let controls = ax(h, "connections-empty", dir, cx).await;
     pass &= ok(

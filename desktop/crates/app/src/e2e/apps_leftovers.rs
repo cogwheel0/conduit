@@ -25,10 +25,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use conduit_protocol::{
-    ChatRef, NoParams, NoteRecordingAdd, PersonalAccess, PersonalConnectionDraft,
-    PersonalConnectionSave, PersonalEditOp, PersonalKeyMode, PersonalKind, WorkspaceDetail,
-    WorkspaceImageSource, WorkspaceKind, WorkspaceKnowledgeDto, WorkspaceRef, WorkspaceSave,
-    methods,
+    ChatRef, NoParams, NoteRecordingAdd, PersonalConnectionDraft, PersonalConnectionSave,
+    PersonalEditOp, PersonalKeyMode, PersonalKind, WorkspaceDetail, WorkspaceImageSource,
+    WorkspaceKind, WorkspaceKnowledgeDto, WorkspaceRef, WorkspaceSave, methods,
 };
 use gpui_kit::{App, AsyncApp, Entity};
 
@@ -677,7 +676,7 @@ async fn preview_socket(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bo
     let Some(list) = call::<methods::IntegrationsList>(&NoParams, cx).await else {
         return ok("integrations.list", false);
     };
-    if list.access == PersonalAccess::MovedToTether {
+    if super::personal_moved_to_tether(&list) {
         println!(
             "SMOKE e2e skip a personal terminal's preview: {}",
             super::MOVED_TO_TETHER

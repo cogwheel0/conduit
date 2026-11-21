@@ -389,7 +389,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             .and_then(|p| {
                 let p = p.read(cx);
                 let l = p.list.as_ref()?;
-                Some((l.open_web_ui_available, l.open_web_ui_moved_to_tether))
+                Some((l.open_web_ui_available, direct_moved_to_tether(l)))
             })
             .unwrap_or_default()
     });
