@@ -183,18 +183,18 @@ impl Os {
 /// profile (as the Keychain item is on the Mac), so the lock is one per
 /// user and service, outside every profile:
 ///
-/// * Windows: `%LOCALAPPDATA%\<service>.master-key.lock`.
-/// * Linux: `$XDG_RUNTIME_DIR/<service>.master-key.lock`, else under
-///   `$XDG_STATE_HOME` (`~/.local/state`).
+/// * Windows: `%LOCALAPPDATA%\<service>.master-key.lock`. Windows sets
+///   `LOCALAPPDATA` whenever a user profile is loaded; with a stripped
+///   environment it is `%USERPROFILE%\AppData\Local`, the same folder.
+/// * Linux: `~/.local/state/<service>.master-key.lock`, from `HOME` alone:
+///   `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` can differ between a desktop
+///   session's launch and an ssh or cron one, which would split the lock.
 /// * macOS (its stores need none): under `~/Library/Caches`.
 pub fn master_key_lock(os: Os, service: &str, vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
     let folder = match os {
         Os::MacOs => home(vars).join("Library/Caches"),
         Os::Windows => local_app_data(vars),
-        Os::Linux => vars("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .filter(|p| p.has_root())
-            .unwrap_or_else(|| xdg(vars, "XDG_STATE_HOME", ".local/state")),
+        Os::Linux => home(vars).join(".local/state"),
     };
     folder.join(format!("{service}.master-key.lock"))
 }
@@ -448,37 +448,42 @@ mod tests {
     #[test]
     fn the_master_key_lock_is_per_user_and_service_never_per_profile() {
         let service = "app.example.conduit";
-        // Windows: in the user's local app data, whatever the profile.
-        let local = Path::new(r"C:\Users\avery\AppData\Local");
-        let windows = |profile: &str| {
-            master_key_lock(
-                Os::Windows,
-                service,
-                &vars(&[
-                    ("LOCALAPPDATA", local.to_str().unwrap()),
-                    ("CONDUIT_USER_DATA", profile),
-                ]),
-            )
-        };
+        // Windows: in the user's local app data, whatever the profile, and
+        // the same folder when only the profile root is known.
+        let profile = Path::new(r"C:\Users\avery");
+        let local = profile.join("AppData").join("Local");
+        let windows = |pairs: &[(&str, &str)]| master_key_lock(Os::Windows, service, &vars(pairs));
+        let expected = local.join("app.example.conduit.master-key.lock");
         assert_eq!(
-            windows(r"D:\profiles\one"),
-            local.join("app.example.conduit.master-key.lock")
+            windows(&[
+                ("LOCALAPPDATA", local.to_str().unwrap()),
+                ("CONDUIT_USER_DATA", r"D:\profiles\one"),
+            ]),
+            expected
         );
-        assert_eq!(windows(r"D:\profiles\one"), windows(r"D:\profiles\two"));
-        // Linux: the runtime folder, else the state folder.
-        let linux = |pairs: &[(&str, &str)]| master_key_lock(Os::Linux, service, &vars(pairs));
         assert_eq!(
-            linux(&[
+            windows(&[
+                ("USERPROFILE", profile.to_str().unwrap()),
+                ("CONDUIT_USER_DATA", r"D:\profiles\two"),
+            ]),
+            expected
+        );
+        // Linux: from HOME alone. A desktop session's launch (with
+        // XDG_RUNTIME_DIR), an ssh or cron one (without), and a shell that
+        // sets XDG_STATE_HOME all take the one lock.
+        let linux = |pairs: &[(&str, &str)]| master_key_lock(Os::Linux, service, &vars(pairs));
+        let expected = Path::new("/home/avery/.local/state/app.example.conduit.master-key.lock");
+        for launch in [
+            &[
                 ("HOME", "/home/avery"),
                 ("XDG_RUNTIME_DIR", "/run/user/1000"),
                 ("CONDUIT_USER_DATA", "/srv/one"),
-            ]),
-            Path::new("/run/user/1000/app.example.conduit.master-key.lock")
-        );
-        assert_eq!(
-            linux(&[("HOME", "/home/avery"), ("CONDUIT_USER_DATA", "/srv/two")]),
-            Path::new("/home/avery/.local/state/app.example.conduit.master-key.lock")
-        );
+            ][..],
+            &[("HOME", "/home/avery"), ("CONDUIT_USER_DATA", "/srv/two")],
+            &[("HOME", "/home/avery"), ("XDG_STATE_HOME", "/srv/state")],
+        ] {
+            assert_eq!(linux(launch), expected, "{launch:?}");
+        }
         // Each service has its own.
         let home = vars(&[("HOME", "/home/avery")]);
         assert_ne!(
