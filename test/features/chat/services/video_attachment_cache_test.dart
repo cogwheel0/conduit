@@ -435,42 +435,73 @@ void main() {
           isCurrent: () => true,
         );
 
-    test('its reply names the file, and the next Play finds it', () async {
-      final replies = _ReplyAdapter([
-        ResponseBody.fromBytes(
-          _bytes,
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['audio/mpeg'],
-          },
-        ),
-      ]);
+    for (final (headers, named) in [
+      (
+        {
+          Headers.contentTypeHeader: ['audio/mpeg'],
+        },
+        'mp3',
+      ),
+      (
+        {
+          Headers.contentTypeHeader: ['application/octet-stream'],
+          'content-disposition': ["attachment; filename*=UTF-8''chime-a.m4a"],
+        },
+        'm4a',
+      ),
+    ]) {
+      test(
+        'its reply names the file .$named, and the next Play finds it',
+        () async {
+          final replies = _ReplyAdapter([
+            ResponseBody.fromBytes(_bytes, 200, headers: headers),
+          ]);
+          final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+
+          final first = await play(cache, replies);
+          check(first.path).endsWith('.$named');
+          check(await first.readAsBytes()).deepEquals(_bytes);
+          check(dir.listSync().map((it) => it.path)).deepEquals([first.path]);
+
+          check((await play(cache, replies)).path).equals(first.path);
+          check(replies.requests).deepEquals([note]);
+        },
+      );
+    }
+
+    test('a clip an earlier release cached as .audio is fetched again and '
+        'named by its reply', () async {
+      ResponseBody untyped() => ResponseBody.fromBytes(
+        _bytes,
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['application/octet-stream'],
+          'content-disposition': ["attachment; filename*=UTF-8''chime-a.m4a"],
+        },
+      );
+      final replies = _ReplyAdapter([untyped(), untyped()]);
       final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
-
-      final first = await play(cache, replies);
-      check(first.path).endsWith('.mp3');
-      check(await first.readAsBytes()).deepEquals(_bytes);
-      check(dir.listSync().map((it) => it.path)).deepEquals([first.path]);
-
-      check((await play(cache, replies)).path).equals(first.path);
-      check(replies.requests).deepEquals([note]);
-    });
-
-    test('a reply with no audio type is named by its Content-Disposition '
-        'file name', () async {
-      final replies = _ReplyAdapter([
-        ResponseBody.fromBytes(
-          _bytes,
-          200,
-          headers: {
-            Headers.contentTypeHeader: ['application/octet-stream'],
-            'content-disposition': ["attachment; filename*=UTF-8''chime-a.m4a"],
-          },
+      // Where a release that named files by the reply's type alone left this
+      // reply: the clip's name with the generic extension.
+      final earlier = await cache.fetchForPlayback(
+        claim: VideoDownloadClaim(),
+        url: note,
+        cacheIdentity: note,
+        extension: 'audio',
+        transport: (url) => (
+          client: Dio()..httpClientAdapter = replies,
+          headers: const <String, String>{},
+          ownsClient: true,
         ),
-      ]);
-      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+        isCurrent: () => true,
+      );
+      check(earlier.path).endsWith('.audio');
 
-      check((await play(cache, replies)).path).endsWith('.m4a');
+      final named = await play(cache, replies);
+      check(named.path).endsWith('.m4a');
+      check(replies.requests).deepEquals([note, note]);
+      check((await play(cache, replies)).path).equals(named.path);
+      check(replies.requests).length.equals(2);
     });
   });
 }

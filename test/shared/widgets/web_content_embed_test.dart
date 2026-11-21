@@ -617,12 +617,6 @@ void main() {
             .equals('Bearer $_sessionToken');
         // The file takes the format its reply names.
         check(cache.replyExtensions.single?.call('audio/mpeg')).equals('mp3');
-        check(
-          cache.replyExtensions.single?.call(
-            'application/octet-stream',
-            contentDisposition: "attachment; filename*=UTF-8''chime-a.m4a",
-          ),
-        ).equals('m4a');
         check(find.bySemanticsLabel('Loading audio...').evaluate())
             .isNotEmpty();
 
@@ -895,8 +889,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> cacheIdentities = [];
   final List<VideoTransport Function(String url)> transports = [];
   final List<Completer<File>> pending = [];
-  final List<String Function(String? mediaType, {String? contentDisposition})?>
-  replyExtensions = [];
+  final List<String Function(String? mediaType)?> replyExtensions = [];
   final List<VideoDownloadClaim> claims = [];
   final List<VideoDownloadClaim> released = [];
   final _milestones = _Milestones();
@@ -924,8 +917,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
-    String Function(String? mediaType, {String? contentDisposition})?
-    extensionForReply,
+    String Function(String? mediaType)? extensionForReply,
   }) {
     claims.add(claim);
     urls.add(url);

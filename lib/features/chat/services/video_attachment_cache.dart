@@ -136,7 +136,13 @@ class VideoAttachmentCache {
     extensionForReply,
   }) async {
     final dir = await _cacheDirectory();
-    final stem = '${dir.path}/video_${_cacheNameFor(url, cacheIdentity)}';
+    // Earlier releases named a reply by its media type alone, and cached an
+    // untyped one as `.audio`, which iOS cannot open. Files named by their
+    // reply now have a key of their own, so none of those is ever found.
+    final identity = extensionForReply == null
+        ? cacheIdentity
+        : 'named-by-reply-v2:$cacheIdentity';
+    final stem = '${dir.path}/video_${_cacheNameFor(url, identity)}';
     final cached = extensionForReply == null
         ? File('$stem.$extension')
         : await _namedFromReply(dir, stem);
