@@ -250,69 +250,76 @@ class PushSync {
       _db.chatsDao.notePushLanded(chatId);
       final serverUpdatedAt = _epoch(resp['updated_at']) ?? chat.updatedAt;
 
-      // folder-move delta runs BEFORE the pin/archive reconcile: the server's
-      // update_chat_folder_id forces pinned=false on every move (vendored
-      // models/chats.py), so a pin reconcile must run AFTER the move to re-
-      // assert the desired pinned state — otherwise a pinned chat that is moved
-      // in the same coalesced update silently loses its pin.
-      //
-      // update_chat IGNORES folder_id, so a changed folder must go through the
-      // dedicated /folder endpoint.
-      //
-      // FOLDER-BEFORE-CHAT ORDERING (§7.6, non-negotiable 6): never send a
-      // `local:`-prefixed folder id — the folder's createChat hasn't been
-      // drained+remapped yet, so the server would 400/404 the move. The
-      // pre-flight guard above throws before updateChat so the drainer backs
-      // off this same op until IdRemapper rewrites chats.folderId to the real
-      // server id.
-      final serverFolderId = resp['folder_id'] is String
-          ? resp['folder_id'] as String
-          : null;
-      final movedFolder = chat.folderId != serverFolderId;
-      if (movedFolder) {
-        await client.moveChatToFolder(chatId, chat.folderId);
-      }
-
-      // pin/archive toggle-delta (B1): the server only exposes stateless toggle
-      // endpoints for these axes, so the sync path always drives them through
-      // desired-state reconcilers that probe before toggling and confirm after.
-      // A retry after a post-toggle timeout re-probes and therefore cannot
-      // double-flip. After a folder move the server pin is known to be false,
-      // so treat it as such (the pre-move ChatResponse copy is stale).
-      final serverPinned = movedFolder ? false : resp['pinned'] == true;
-      final serverArchived = resp['archived'] == true;
-      final needsPinCheck = chat.pinned != serverPinned;
-      final needsArchiveCheck = chat.archived != serverArchived;
-
-      if (needsPinCheck && !needsArchiveCheck) {
-        // Pin lives in a join table; confirm against /pinned (authoritative)
-        // rather than the ChatResponse copy. This path intentionally skips
-        // getChatRaw; no archive liveness check is needed for a pin-only delta.
-        await _setChatPinned(client, chatId, desired: chat.pinned);
-      } else if (needsArchiveCheck) {
-        // A liveness fetch is needed only for archive reconciliation: the
-        // archive flag rides the ChatResponse, while pin has a dedicated
-        // authoritative endpoint below.
-        final liveRaw = await client.getChatRaw(chatId);
-        if (liveRaw != null) {
-          if (needsPinCheck) {
-            await _setChatPinned(client, chatId, desired: chat.pinned);
-          }
-          await _setChatArchived(
-            client,
-            chatId,
-            desired: chat.archived,
-            initialRaw: liveRaw,
-          );
+      try {
+        // folder-move delta runs BEFORE the pin/archive reconcile: the server's
+        // update_chat_folder_id forces pinned=false on every move (vendored
+        // models/chats.py), so a pin reconcile must run AFTER the move to re-
+        // assert the desired pinned state — otherwise a pinned chat that is
+        // moved in the same coalesced update silently loses its pin.
+        //
+        // update_chat IGNORES folder_id, so a changed folder must go through
+        // the dedicated /folder endpoint.
+        //
+        // FOLDER-BEFORE-CHAT ORDERING (§7.6, non-negotiable 6): never send a
+        // `local:`-prefixed folder id — the folder's createChat hasn't been
+        // drained+remapped yet, so the server would 400/404 the move. The
+        // pre-flight guard above throws before updateChat so the drainer backs
+        // off this same op until IdRemapper rewrites chats.folderId to the real
+        // server id.
+        final serverFolderId = resp['folder_id'] is String
+            ? resp['folder_id'] as String
+            : null;
+        final movedFolder = chat.folderId != serverFolderId;
+        if (movedFolder) {
+          await client.moveChatToFolder(chatId, chat.folderId);
         }
+
+        // pin/archive toggle-delta (B1): the server only exposes stateless
+        // toggle endpoints for these axes, so the sync path always drives them
+        // through desired-state reconcilers that probe before toggling and
+        // confirm after. A retry after a post-toggle timeout re-probes and
+        // therefore cannot double-flip. After a folder move the server pin is
+        // known to be false, so treat it as such (the pre-move ChatResponse
+        // copy is stale).
+        final serverPinned = movedFolder ? false : resp['pinned'] == true;
+        final serverArchived = resp['archived'] == true;
+        final needsPinCheck = chat.pinned != serverPinned;
+        final needsArchiveCheck = chat.archived != serverArchived;
+
+        if (needsPinCheck && !needsArchiveCheck) {
+          // Pin lives in a join table; confirm against /pinned (authoritative)
+          // rather than the ChatResponse copy. This path intentionally skips
+          // getChatRaw; no archive liveness check is needed for a pin-only
+          // delta.
+          await _setChatPinned(client, chatId, desired: chat.pinned);
+        } else if (needsArchiveCheck) {
+          // A liveness fetch is needed only for archive reconciliation: the
+          // archive flag rides the ChatResponse, while pin has a dedicated
+          // authoritative endpoint below.
+          final liveRaw = await client.getChatRaw(chatId);
+          if (liveRaw != null) {
+            if (needsPinCheck) {
+              await _setChatPinned(client, chatId, desired: chat.pinned);
+            }
+            await _setChatArchived(
+              client,
+              chatId,
+              desired: chat.archived,
+              initialRaw: liveRaw,
+            );
+          }
+        }
+      } finally {
+        // Noted again however this ends: the folder move, pin and archive
+        // above write too, and one may land before a later request fails, so
+        // a copy or list read between them and the update is older than the
+        // chat as pushed.
+        _db.chatsDao.notePushLanded(chatId);
       }
 
       // Store serverUpdatedAt + clear dirty ONLY for the captured snapshot:
       // any row dirtied after the capture (none possible inside this single
-      // lock span, but defensively) stays dirty. Noted again: the folder
-      // move, pin and archive above write too, so a copy read between them
-      // and the update is older than the chat as pushed.
-      _db.chatsDao.notePushLanded(chatId);
+      // lock span, but defensively) stays dirty.
       await _clearDirty(
         chatId: chatId,
         messageIds: capturedMessageIds,

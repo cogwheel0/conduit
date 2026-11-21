@@ -59,6 +59,7 @@ import 'package:conduit_core/providers/host_ports.dart'
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart'
     show kMessageRatingMetadataKey;
+import 'package:conduit_core/sync/chat_locks.dart' show chatLocksProvider;
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show PrimaryAccountKind, primaryAccountKindProvider;
@@ -879,8 +880,7 @@ final class ChatsService {
     } else if (_isLibreChat(id)) {
       await pinConversation(_container, _libreChatScoped(id), value);
     } else {
-      await _api.pinConversation(id, value);
-      _noteEnvelopeChanged(id);
+      await _onServer(id, () => _api.pinConversation(id, value));
     }
     return _refresh();
   }
@@ -899,15 +899,25 @@ final class ChatsService {
     if (_isLibreChat(id)) {
       return archiveConversation(_container, _libreChatScoped(id), value);
     }
-    await _api.archiveConversation(id, value);
-    _noteEnvelopeChanged(id);
+    await _onServer(id, () => _api.archiveConversation(id, value));
   }
 
-  /// A pin or archive this daemon made on the server, which it does not
-  /// write to the chat's row: a pull that read the server before it takes
-  /// nothing for the chat.
-  void _noteEnvelopeChanged(String id) =>
-      _container.read(appDatabaseProvider)?.chatsDao.noteEnvelopeChanged(id);
+  /// Makes [change], a pin or archive of Open WebUI chat [id] that this
+  /// daemon does not write to the chat's row, and notes it, under the
+  /// chat's lock: a pull that read the server before then writes nothing
+  /// over the chat. Noted even when the request fails, which may be after
+  /// the server took it.
+  Future<void> _onServer(String id, Future<void> Function() change) =>
+      _container.read(chatLocksProvider).runExclusive(id, () async {
+        try {
+          await change();
+        } finally {
+          _container
+              .read(appDatabaseProvider)
+              ?.chatsDao
+              .noteEnvelopeChanged(id);
+        }
+      });
 
   /// Whether chat [id] is one of the LibreChat account's: its changes go
   /// through the core's LibreChat mutations, which write the account's own

@@ -931,6 +931,29 @@ final class FakeOwuiChats {
           },
       ]);
     }
+    // The pinned list leaves archived chats out; neither list is paged here.
+    if (!post &&
+        (path == '/api/v1/chats/pinned' || path == '/api/v1/chats/archived')) {
+      await request.drain<void>();
+      final archived = path.endsWith('/archived');
+      return json(<Object>[
+        for (final row in stored.values)
+          if (archived
+              ? row['archived'] == true
+              : row['pinned'] == true && row['archived'] != true)
+            <String, dynamic>{
+              'id': row['id'],
+              'title': row['title'],
+              'updated_at': row['updated_at'],
+              'created_at': row['created_at'],
+              'last_read_at': null,
+            },
+      ]);
+    }
+    if (!post && path == '/api/v1/chats/archived/count') {
+      await request.drain<void>();
+      return json(stored.values.where((row) => row['archived'] == true).length);
+    }
     final deleted = RegExp(r'^/api/v1/chats/([^/]+)/messages/([^/]+)$')
         .firstMatch(path);
     if (request.method == 'DELETE' &&

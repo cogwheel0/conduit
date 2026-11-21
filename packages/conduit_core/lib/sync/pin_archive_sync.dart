@@ -181,10 +181,9 @@ Future<int> syncServerPinsAndArchives({
       final row = local[id];
       // A chat not held here comes from the archived loop, as a stub.
       if (row == null || row.archived) continue;
-      // The server takes an archived chat out of its folder.
-      if (!await apply(id, archived: true, folderId: const Value(null))) {
-        settled = false;
-      }
+      // Its own copy carries the pin, which the archived list leaves out
+      // and a later push of the chat would put back on the server.
+      if (!await adopt(id)) settled = false;
     }
     final unlisted = [
       for (final MapEntry(key: id, value: row) in local.entries)
