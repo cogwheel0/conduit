@@ -185,6 +185,12 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   _retiredDrainerRemapForwards =
       <OutboxDrainer, List<StreamSubscription<RemapEvent>>>{};
 
+  bool _closed = false;
+
+  /// The cycles, drains, reconciles, single-chat pulls and search-index
+  /// builds running now; [close] waits for them.
+  final Set<Future<void>> _working = <Future<void>>{};
+
   @override
   SyncStatus build() {
     _registerDisposeForBuild();
@@ -475,10 +481,44 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
       ref.read(syncApiClientProvider) != null &&
       ref.read(isAuthenticatedProvider2);
 
+  /// Stops new pulls, drains and reconciles, and completes once none of this
+  /// engine's work is running: nothing it began writes the database after
+  /// that. A request still out is not cut off here; closing the API client
+  /// does that.
+  Future<void> close() async {
+    _closed = true;
+    _debounce?.cancel();
+    _debounce = null;
+    _rerunRequested = false;
+    final joinable = _joinable;
+    _joinable = null;
+    if (joinable != null && !joinable.isCompleted) joinable.complete(null);
+    // A cycle that ends starts its search-index build as it goes.
+    while (_working.isNotEmpty) {
+      await Future.wait<void>(_working.toList());
+    }
+  }
+
+  /// Runs [work] as work [close] waits for.
+  Future<T> _tracked<T>(Future<T> Function() work) async {
+    final done = Completer<void>();
+    _working.add(done.future);
+    try {
+      return await work();
+    } finally {
+      _working.remove(done.future);
+      done.complete();
+    }
+  }
+
+  /// [_tracked], unless the engine is closed.
+  Future<void> _whileOpen(Future<void> Function() work) =>
+      _closed ? Future<void>.value() : _tracked(work);
+
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
   @override
-  Future<void> drainNow() async {
+  Future<void> drainNow() => _whileOpen(() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
@@ -489,7 +529,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     } finally {
       _clearStaleDrainerIfIdle(drainer);
     }
-  }
+  });
 
   /// Drains only while this engine remains bound to [expectedDatabase].
   ///
@@ -498,33 +538,34 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   /// and drain the newly-active backend instead of the database that owns the
   /// write. This variant snapshots the engine epoch before its first await and
   /// refuses to cross either a database or session rebind.
-  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {
-    if (!_refreshBoundDependencies() ||
-        _inert ||
-        !identical(_boundDb, expectedDatabase)) {
-      return;
-    }
-    final epoch = _sessionEpoch;
-    await _migrateLegacyTaskQueueIfNeeded();
-    if (!_cycleStillBound(epoch, 'database-owned-drain-after-migration') ||
-        !identical(_boundDb, expectedDatabase)) {
-      return;
-    }
-    final drainer = _ensureDrainer();
-    if (drainer == null) return;
-    try {
-      await drainer.drain();
-    } finally {
-      _clearStaleDrainerIfIdle(drainer);
-    }
-  }
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) =>
+      _whileOpen(() async {
+        if (!_refreshBoundDependencies() ||
+            _inert ||
+            !identical(_boundDb, expectedDatabase)) {
+          return;
+        }
+        final epoch = _sessionEpoch;
+        await _migrateLegacyTaskQueueIfNeeded();
+        if (!_cycleStillBound(epoch, 'database-owned-drain-after-migration') ||
+            !identical(_boundDb, expectedDatabase)) {
+          return;
+        }
+        final drainer = _ensureDrainer();
+        if (drainer == null) return;
+        try {
+          await drainer.drain();
+        } finally {
+          _clearStaleDrainerIfIdle(drainer);
+        }
+      });
 
   /// Plain outbox drain (no backoff reset). Used by the active-conversation
   /// trigger so a completion deferred because a DIFFERENT chat was foregrounded
   /// (request_completion_runner Option B) runs promptly once the user opens its
   /// chat. Single-flight via the shared drainer's `_draining` guard.
   @override
-  Future<void> drainOutbox() async {
+  Future<void> drainOutbox() => _whileOpen(() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     await _migrateLegacyTaskQueueIfNeeded();
@@ -535,7 +576,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     } finally {
       _clearStaleDrainerIfIdle(drainer);
     }
-  }
+  });
 
   /// Single debounced entry point (RFC §7.6). 300 ms debounce; single-flight:
   /// a call during a running cycle sets a rerun flag (storms collapse to <= 1
@@ -543,7 +584,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   /// joined finishes — pull-to-refresh spinners await it.
   @override
   Future<PullResult?> requestPull({required String reason}) {
-    if (!_refreshBoundDependencies()) {
+    if (_closed || !_refreshBoundDependencies()) {
       return Future.value(null);
     }
     if (_inert) {
@@ -581,7 +622,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     required String reason,
     bool Function(Map<String, dynamic> response)? storeIf,
   }) async {
-    if (!_refreshBoundDependencies()) return null;
+    if (_closed || !_refreshBoundDependencies()) return null;
     if (_inert) {
       DebugLogger.log(
         'inert',
@@ -592,7 +633,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     }
     final pull = _buildPullSync();
     if (pull == null) return null;
-    return pull.pullChat(chatId, storeIf: storeIf);
+    return _tracked(() => pull.pullChat(chatId, storeIf: storeIf));
   }
 
   PullSync? _buildPullSync({SyncItemProgressCallback? onProgress}) {
@@ -1036,7 +1077,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
   /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle) for
   /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
   @override
-  Future<void> reconcileNow() async {
+  Future<void> reconcileNow() => _whileOpen(() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
     // Same deferral as pull cycles: reconciles walk chats/notes and issue
@@ -1090,9 +1131,11 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
         );
       }
     }
-  }
+  });
 
-  Future<void> _startCycle() async {
+  Future<void> _startCycle() => _tracked(_cycle);
+
+  Future<void> _cycle() async {
     final joined = _joinable;
     _joinable = null;
     if (joined == null || _running) return;
@@ -1445,7 +1488,7 @@ class SyncEngine extends _$SyncEngine implements PrimarySync {
     // The conversation list already streams from `watchChatList`; running this
     // out of band keeps large backfills off the cycle completion path.
     unawaited(
-      Future.microtask(() async {
+      _tracked(() async {
         try {
           await db.buildFtsIfNeeded();
         } catch (error, stackTrace) {

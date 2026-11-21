@@ -276,6 +276,13 @@ mixin _HealthApi on _ApiServiceBase {
     _dio.close();
   }
 
+  /// [dispose], but a request still out fails at once instead of running to
+  /// completion: for a host shutting down, which must not wait on the server.
+  void closeNow() {
+    _disposed = true;
+    _dio.close(force: true);
+  }
+
   /// Verifies this is actually an OpenWebUI server by checking the /api/config
   /// endpoint for OpenWebUI-specific fields (version, status, features).
   ///

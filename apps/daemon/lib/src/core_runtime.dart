@@ -470,17 +470,56 @@ final class CoreRuntime {
   }
 
   Future<void> dispose() async {
-    // A LibreChat pull still out (a list refresh nobody waits on) writes the
-    // account database until it ends. Its engine is closed before the
-    // container goes, which force-closes the LibreChat client: a request
-    // still out fails at once rather than holding shutdown on the server,
-    // and what the pull writes after that lands before this returns.
-    final libreChatSyncIdle = _closeLibreChatSync();
+    // Sync work still out (a list refresh, an outbox drain nobody waits on)
+    // writes the account database until it ends. Both engines are closed and
+    // the Open WebUI client cut before the container goes, which
+    // force-closes the LibreChat client: a request still out fails at once
+    // rather than holding shutdown on the server, and what the work writes
+    // after that lands before this returns.
+    final syncIdle = Future.wait<void>([
+      _closeOpenWebUiSync(),
+      _closeLibreChatSync(),
+    ]);
+    _cutOpenWebUiRequests();
     container.dispose();
-    await libreChatSyncIdle;
+    await syncIdle;
     await _connectivity.dispose();
     for (final box in _boxes) {
       await box.close();
+    }
+  }
+
+  /// Stops the Open WebUI engine's new work; completes once its running work
+  /// has ended.
+  Future<void> _closeOpenWebUiSync() {
+    // Reading it when it is not there would start an engine.
+    if (!container.read(syncEngineProvider.exists)) {
+      return Future<void>.value();
+    }
+    try {
+      return container.read(syncEngineProvider.notifier).close();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'openwebui-sync-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
+      return Future<void>.value();
+    }
+  }
+
+  /// Fails the Open WebUI requests still out at once: the container's own
+  /// dispose lets them run to completion, as a rebuild needs.
+  void _cutOpenWebUiRequests() {
+    if (!container.read(apiServiceProvider.exists)) return;
+    try {
+      container.read(apiServiceProvider)?.closeNow();
+    } on Object catch (error) {
+      DebugLogger.error(
+        'openwebui-client-close-failed',
+        scope: 'daemon/runtime',
+        error: error,
+      );
     }
   }
 
