@@ -1017,6 +1017,35 @@ void main() {
     check(released).equals(1);
   });
 
+  test('close waits for a copy it is still storing', () async {
+    fake.addConversation(
+      'copy',
+      updatedAt: now,
+      messageList: _turn('copy', 'Pack a flask?', 'Yes, a small one.'),
+    );
+    final conversation = (await engine.api.conversation('copy'))!;
+    final messages = await engine.api.messages('copy');
+    // The test's own transaction keeps the store waiting on the database.
+    final holding = Completer<void>();
+    final release = Completer<void>();
+    final transaction = db.transaction(() async {
+      holding.complete();
+      await release.future;
+    });
+    await holding.future;
+    final ended = <String>[];
+
+    final stored = engine
+        .storeFetched(conversation, messages)
+        .then((_) => ended.add('stored'));
+    final closed = engine.close().then((_) => ended.add('closed'));
+    release.complete();
+    await Future.wait<void>([transaction, stored, closed]);
+
+    check(ended).deepEquals(['stored', 'closed']);
+    check(await storedIds()).contains('copy');
+  });
+
   test('an edit queued while a drain lets its database go still drains',
       () async {
     fake.addConversation('c1', title: 'Old', updatedAt: now);

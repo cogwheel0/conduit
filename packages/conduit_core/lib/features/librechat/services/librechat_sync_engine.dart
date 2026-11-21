@@ -446,11 +446,12 @@ final class LibreChatSyncEngine {
   }
 
   /// Stores a conversation the caller already holds, with its [messages],
-  /// as the server has it now (after a reply finished, say).
+  /// as the server has it now (after a reply finished, say). [close] waits
+  /// for it; the caller holds the database.
   Future<void> storeFetched(
     LibreChatConversation conversation,
     List<LibreChatMessage> messages,
-  ) => _adapter.store(conversation, messages);
+  ) => _tracked(() => _adapter.store(conversation, messages));
 
   Future<void> _reconcilePins() async {
     final Set<String> pinned;
