@@ -12087,6 +12087,62 @@ void main() {
       check(group.contents).deepEquals({a: 'A so far', b: 'B so far'});
     });
 
+    test('a whole-turn Stop the server never takes keeps the stopped answers '
+        'here, queues nothing over its copy, and its finished answers replace '
+        'them on a later pull', () async {
+      final (:api, :socket, :client, :container, :serverId, :a, :b) =
+          await startComparison();
+      socket.deliver(a, 'chat:completion', {'content': 'A so far'});
+      socket.deliver(b, 'chat:completion', {'content': 'B so far'});
+      // As when conduitd has cut its client at shutdown, or the server cannot
+      // be reached: the stop never reaches the server, which runs on.
+      api.stopFailure = StateError('client closed');
+
+      check(await container.read(stopGenerationSettledProvider)()).isFalse();
+
+      for (final (id, content, slot) in [
+        (a, 'A so far', 0),
+        (b, 'B so far', 1),
+      ]) {
+        await expectStoppedAnswer(
+          serverId,
+          id: id,
+          content: content,
+          slot: slot,
+          taskId: 'task-$slot',
+        );
+      }
+      check(
+        await db.outboxDao.hasUnconfirmedUpdate(serverId),
+        because: 'nothing may carry the stopped answers over the server\'s',
+      ).isFalse();
+
+      // The server finishes the answers it was never told to stop.
+      final server = client.server;
+      final chat =
+          server.getChatById(serverId)!['chat'] as Map<String, dynamic>;
+      final messages =
+          (chat['history'] as Map<String, dynamic>)['messages']
+              as Map<String, dynamic>;
+      for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
+        messages[id] = <String, dynamic>{
+          ...messages[id] as Map<String, dynamic>,
+          'content': content,
+          'done': true,
+        };
+      }
+      server
+        ..tick()
+        ..updateChat(serverId, chat);
+      await container.read(syncEngineProvider.notifier).pullChatNow(serverId);
+
+      for (final (id, content) in [(a, 'A in full'), (b, 'B in full')]) {
+        final stored = await storedAnswer(serverId, id);
+        check(stored['content']).equals(content);
+        check(stored['done']).equals(true);
+      }
+    });
+
     test('an administrator stopping one answer has it stored as finished at '
         'once, and it stays so when its sibling and the next turn complete',
         () async {
@@ -14414,8 +14470,11 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   Object? stopFailure;
 
   @override
-  Future<void> stopTasksByChat(String chatId) async =>
-      stoppedChats.add(chatId);
+  Future<void> stopTasksByChat(String chatId) async {
+    stoppedChats.add(chatId);
+    final failure = stopFailure;
+    if (failure != null) throw failure;
+  }
 
   @override
   Future<MoaCompletion> generateMoaCompletion({
