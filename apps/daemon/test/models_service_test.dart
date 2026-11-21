@@ -18,6 +18,8 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show terminalAgentModelFromJson;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
@@ -1824,6 +1826,36 @@ void main() {
     addTearDown(container.dispose);
     final list = await ModelsService(container).list();
     expect(list.models.map((m) => m.id), <String>['odd-model']);
+  });
+
+  test('a coding agent on Open WebUI 0.13.4 goes by its own model, not the '
+      'slug in its id', () async {
+    const id = 'agent:north:codex:gpt-5-1-e7ee8b01';
+    final agent = terminalAgentModelFromJson(<String, dynamic>{
+      'id': id,
+      'name': 'codex/gpt-5.1',
+      'owned_by': 'terminal',
+      'agent': <String, dynamic>{
+        'terminal_id': 'north',
+        'provider': 'codex',
+        'model': 'gpt-5.1',
+      },
+    }, terminalName: 'North bench')!;
+    final container = ProviderContainer(
+      overrides: [
+        modelsProvider.overrideWith(() => _These([agent])),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+    final list = await ModelsService(container).list();
+    final listed = [...list.models, ...list.agents].single;
+    expect(listed.id, id);
+    expect(listed.name, 'Codex · gpt-5.1');
+    expect(listed.agent?.model, 'gpt-5.1');
+    expect(listed.agent?.terminalName, 'North bench');
+    // Known by its id alone, it keeps the slug without the hash.
+    expect(terminalAgentDto(id)?.model, 'gpt-5-1');
   });
 
   test('with no list at all, the failure is the answer', () async {

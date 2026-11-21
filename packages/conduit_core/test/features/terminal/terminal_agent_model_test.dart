@@ -57,6 +57,15 @@ class _Adapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// The same agent as Open WebUI 0.13.4 lists it: the model part of the id
+/// is a slug, with the first 8 hex digits of the model's SHA-256 when the
+/// slug changed it (`utils/agents/session.py`), and the model itself is
+/// under `agent`.
+Map<String, dynamic> _agent0134(String id, String model) {
+  final ref = parseTerminalAgentModelId(id)!;
+  return {..._agent(ref.terminalId, ref.provider, model), 'id': id};
+}
+
 ApiService _api(_Adapter adapter) {
   final service = ApiService(
     serverConfig: const ServerConfig(
@@ -126,6 +135,37 @@ void main() {
     test('is null for an ordinary model', () {
       check(terminalAgentModelFromJson({'id': 'gpt-5.1', 'name': 'GPT-5.1'}))
           .isNull();
+    });
+
+    test('0.13.4: the model is named as the server lists it, not by the '
+        'slug in its id', () {
+      final model = terminalAgentModelFromJson(
+        _agent0134('agent:t1:codex:gpt-5-1-e7ee8b01', 'gpt-5.1'),
+      )!;
+      check(model.id).equals('agent:t1:codex:gpt-5-1-e7ee8b01');
+      check(model.name).equals('Codex · gpt-5.1');
+      check(terminalAgentPickerSubtitle(model)).equals('codex/gpt-5.1');
+    });
+  });
+
+  group('terminalAgentDisplayName', () {
+    test('names the agent and its model', () {
+      check(terminalAgentDisplayName('agent:t1:codex:gpt-5.1'))
+          .equals('Codex · gpt-5.1');
+      check(terminalAgentDisplayName('gpt-5.1')).isNull();
+    });
+
+    test("0.13.4: with only the id, the slug's hash is left out", () {
+      check(terminalAgentDisplayName('agent:t1:codex:gpt-5-1-e7ee8b01'))
+          .equals('Codex · gpt-5-1');
+      check(terminalAgentDisplayName('agent:t1:pi:nova-lite-2-0-3dfb57dc'))
+          .equals('Pi · nova-lite-2-0');
+    });
+
+    test('a model whose own name ends in a date keeps it', () {
+      // Slugging leaves such a name as it is, so it carries no hash.
+      check(terminalAgentDisplayName('agent:t1:claude-code:nova-4-20260101'))
+          .equals('Claude Code · nova-4-20260101');
     });
   });
 

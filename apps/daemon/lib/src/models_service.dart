@@ -65,8 +65,14 @@ const _listSettingsWait = Duration(milliseconds: 1500);
 const _agentsSection = (label: '\u0000agents', order: 1 << 20);
 
 /// A coding agent's place on the wire, from its model id; null when [id] is
-/// not an agent's.
-TerminalAgentDto? terminalAgentDto(String? id, {String? terminalName}) {
+/// not an agent's. [model] is the agent's own model as the server listed it;
+/// without it, the id names the model (Open WebUI 0.13.4's id holds only a
+/// slug of it).
+TerminalAgentDto? terminalAgentDto(
+  String? id, {
+  String? terminalName,
+  String? model,
+}) {
   final agent = parseTerminalAgentModelId(id);
   if (agent == null) return null;
   final name = terminalName?.trim();
@@ -75,7 +81,7 @@ TerminalAgentDto? terminalAgentDto(String? id, {String? terminalName}) {
     terminalName: name == null || name.isEmpty ? null : name,
     agent: agent.provider,
     agentName: terminalAgentName(agent.provider),
-    model: agent.model,
+    model: model ?? terminalAgentModelNameOfId(id)!,
   );
 }
 
@@ -1200,6 +1206,7 @@ final class ModelsService {
         final String name => name,
         _ => null,
       },
+      model: terminalAgentModelName(model),
     ),
   );
 
