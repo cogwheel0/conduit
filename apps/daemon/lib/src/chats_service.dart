@@ -880,6 +880,7 @@ final class ChatsService {
       await pinConversation(_container, _libreChatScoped(id), value);
     } else {
       await _api.pinConversation(id, value);
+      _noteEnvelopeChanged(id);
     }
     return _refresh();
   }
@@ -891,15 +892,22 @@ final class ChatsService {
 
   /// Direct's local chats and LibreChat's are archived where they are kept;
   /// the rest on the server.
-  Future<void> _archive(String id, bool value) {
+  Future<void> _archive(String id, bool value) async {
     if (_isDirectLocal(id)) {
       return mutations.archiveConversation(_container, id, value);
     }
     if (_isLibreChat(id)) {
       return archiveConversation(_container, _libreChatScoped(id), value);
     }
-    return _api.archiveConversation(id, value);
+    await _api.archiveConversation(id, value);
+    _noteEnvelopeChanged(id);
   }
+
+  /// A pin or archive this daemon made on the server, which it does not
+  /// write to the chat's row: a pull that read the server before it takes
+  /// nothing for the chat.
+  void _noteEnvelopeChanged(String id) =>
+      _container.read(appDatabaseProvider)?.chatsDao.noteEnvelopeChanged(id);
 
   /// Whether chat [id] is one of the LibreChat account's: its changes go
   /// through the core's LibreChat mutations, which write the account's own

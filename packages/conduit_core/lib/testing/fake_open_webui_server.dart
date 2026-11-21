@@ -68,6 +68,7 @@ class _ChatRecord {
     this.pinned = false,
     this.archived = false,
     this.lastReadAt,
+    this.ownerId,
   });
 
   final String id;
@@ -79,6 +80,10 @@ class _ChatRecord {
   bool pinned;
   bool archived;
   int? lastReadAt;
+
+  /// Another user's id for a chat they shared with this account through a
+  /// folder; null for the account's own. Only its own reach its lists.
+  final String? ownerId;
 }
 
 /// Internal mutable note row, shaped like the vendored `Note` table
@@ -206,7 +211,7 @@ class FakeOpenWebUiServer {
   }) {
     var records = _chats.values
         // include_archived defaults to false on this route.
-        .where((c) => !c.archived)
+        .where((c) => !c.archived && c.ownerId == null)
         // `filter_by(folder_id=None)` unless include_folders.
         .where((c) => includeFolders || c.folderId == null)
         // `or_(pinned == False, pinned == None)` unless include_pinned.
@@ -254,7 +259,9 @@ class FakeOpenWebUiServer {
   /// selects no `last_read_at`, so the validated model carries its `null`
   /// default.
   List<Map<String, dynamic>> getArchivedChatList({int? page}) {
-    var records = _chats.values.where((c) => c.archived).toList();
+    var records = _chats.values
+        .where((c) => c.archived && c.ownerId == null)
+        .toList();
 
     // `order_by(Chat.updated_at.desc(), Chat.id)`.
     records.sort((a, b) {
@@ -426,12 +433,14 @@ class FakeOpenWebUiServer {
   /// ids of pinned chats that are not archived.
   List<String> getPinnedChatIds() => [
     for (final record in _chats.values)
-      if (record.pinned && !record.archived) record.id,
+      if (record.pinned && !record.archived && record.ownerId == null)
+        record.id,
   ];
 
   /// Mirrors `GET /api/v1/chats/archived/count`
   /// (`count_archived_chats_by_user_id`).
-  int getArchivedChatCount() => _chats.values.where((c) => c.archived).length;
+  int getArchivedChatCount() =>
+      _chats.values.where((c) => c.archived && c.ownerId == null).length;
 
   /// Mirrors `GET /api/v1/chats/{id}/pinned`
   /// (`get_pinned_status_by_id`): the chat's `pinned` flag; throws 401 when
@@ -1056,6 +1065,7 @@ class FakeOpenWebUiServer {
     bool pinned = false,
     bool archived = false,
     int? lastReadAt,
+    String? ownerId,
   }) {
     if (folderId != null) {
       seedFolder(folderId);
@@ -1071,6 +1081,7 @@ class FakeOpenWebUiServer {
       pinned: pinned,
       archived: archived,
       lastReadAt: lastReadAt,
+      ownerId: ownerId,
     );
   }
 
@@ -1210,7 +1221,7 @@ class FakeOpenWebUiServer {
   /// `ChatResponse` shape from the vendored `models/chats.py`.
   Map<String, dynamic> _toChatResponse(_ChatRecord record) => <String, dynamic>{
     'id': record.id,
-    'user_id': userId,
+    'user_id': record.ownerId ?? userId,
     'title': record.title,
     'chat': _deepCopy(record.chat),
     'updated_at': record.updatedAt,

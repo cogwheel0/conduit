@@ -230,17 +230,24 @@ class PullFetchMemo {
 
   ({int server, int local})? _unsettledArchivedCounts;
 
-  /// Whether a full read of the archived list last left the server's
-  /// archived count at [server] and this device's at [local]: reading it
-  /// again would find the same, such as a chat deleted while archived, which
-  /// only the deletion reconcile removes here.
-  bool archivedCountsUnsettled(int server, int local) =>
-      _unsettledArchivedCounts == (server: server, local: local);
+  /// Whether a complete reading of the archived list left the server's
+  /// archived count at [server] and this device's at [local], and every
+  /// cycle since saw the same: reading it again would find what it did, such
+  /// as a chat deleted while archived, which only the deletion reconcile
+  /// removes here. Counts seen to differ, or not seen ([server] null), forget
+  /// it, so each cycle asks.
+  bool archivedCountsUnsettled(int? server, int local) {
+    final same =
+        server != null &&
+        _unsettledArchivedCounts == (server: server, local: local);
+    if (!same) _unsettledArchivedCounts = null;
+    return same;
+  }
 
-  /// Records the counts a full read of the archived list left apart, or
-  /// clears them with null.
-  void noteArchivedCountsUnsettled(({int server, int local})? counts) {
-    _unsettledArchivedCounts = counts;
+  /// Records counts a complete reading of the archived list could not bring
+  /// together.
+  void noteArchivedCountsUnsettled(int server, int local) {
+    _unsettledArchivedCounts = (server: server, local: local);
   }
 }
 

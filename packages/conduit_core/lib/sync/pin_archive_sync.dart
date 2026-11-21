@@ -9,31 +9,30 @@ import 'package:conduit_core/sync/pull_sync.dart'
 import 'package:conduit_core/sync/sync_api_client.dart';
 
 /// Brings the pins and archives of the account's chats held here in line
-/// with Open WebUI's pinned and archived lists.
+/// with Open WebUI's.
 ///
 /// Open WebUI 0.13.4 pins and archives a chat without moving its
 /// `updated_at` (`toggle_chat_pinned_by_id`, `toggle_chat_archive_by_id`),
-/// so the watermark pull never reads the chat again for either. The server's
-/// lists hold the truth for every chat of [accountId]: Conduit pins and
-/// archives an Open WebUI chat on the server first and never queues either.
-/// Another user's chat, reached through a shared folder, is on neither list
-/// and keeps its owner's pin.
+/// so the watermark pull never reads the chat again for either. The server
+/// holds the truth for every chat of [accountId]: Conduit pins and archives
+/// an Open WebUI chat on the server first and never queues either.
 ///
 /// Each cycle reads the pinned list, which comes whole, and the number of
 /// archived chats. The archived list is read, to its last page, only when
-/// that number differs from the archived chats held here. A chat this device
-/// holds as archived that the list no longer names was unarchived or deleted
-/// elsewhere: it is read once to tell which. Counts a full read could not
-/// bring together are not read for again until either changes
-/// ([PullFetchMemo.archivedCountsUnsettled]).
+/// that number differs from the archived chats held here. A chat the lists
+/// leave in doubt is read itself, and takes that copy's pin, archive, folder
+/// and owner: one held as archived that the archived list no longer names
+/// (unarchived or deleted elsewhere), and one held as pinned that the pinned
+/// list leaves out (unpinned or archived elsewhere, or another user's chat,
+/// which keeps its owner's pin). Counts a complete reading could not bring
+/// together are not read for again while every cycle sees them unchanged
+/// ([PullFetchMemo.archivedCountsUnsettled]); a read that failed or a write
+/// held back leaves them to the next cycle.
 ///
-/// The rows are read before any list is requested, and a list is applied
-/// only to a row it contradicted then. A pin or archive made here while the
-/// lists load is therefore kept: it leaves its row agreeing with the list,
-/// which then writes nothing. [generation] is [ConversationLocks.generation]
-/// when the cycle began: after an account-wide change that ended since,
-/// nothing is written. Best effort: a failure leaves rows as they are.
-/// Returns how many chats changed.
+/// Nothing read is written over a chat changed here after the first request
+/// ([ChatsDao.envelopeChangedSince], checked under the chat's lock), or after
+/// an account-wide change that ended since [generation]. Best effort: a
+/// failure leaves rows as they are. Returns how many chats changed.
 Future<int> syncServerPinsAndArchives({
   required SyncApiClient client,
   required AppDatabase db,
@@ -42,33 +41,45 @@ Future<int> syncServerPinsAndArchives({
   required int generation,
   PullFetchMemo? memo,
 }) async {
+  final since = db.chatsDao.localEnvelopeClock;
   final local = await db.chatsDao.serverChatPinsAndArchives();
-  bool owned(String id) {
+  bool othersChat(String id) {
     final owner = local[id]?.userId;
-    return owner == null || owner == accountId;
+    return owner != null && owner != accountId;
   }
 
   int archivedHere() => local.entries
-      .where((entry) => entry.value.archived && owned(entry.key))
+      .where((entry) => entry.value.archived && !othersChat(entry.key))
       .length;
 
   int? archivedOnServer;
-  Set<String>? archived;
   try {
     archivedOnServer = await client.getArchivedChatCount();
-    final here = archivedHere();
-    if (archivedOnServer != null &&
-        archivedOnServer != here &&
-        !(memo?.archivedCountsUnsettled(archivedOnServer, here) ?? false)) {
-      archived = await _archivedChatIds(client);
-    }
   } catch (error, stackTrace) {
     DebugLogger.error(
-      'archived-state-failed',
+      'archived-count-failed',
       scope: 'sync/pull',
       error: error,
       stackTrace: stackTrace,
     );
+  }
+  final countedHere = archivedHere();
+  final unsettled =
+      memo?.archivedCountsUnsettled(archivedOnServer, countedHere) ?? false;
+  Set<String>? archived;
+  if (archivedOnServer != null &&
+      archivedOnServer != countedHere &&
+      !unsettled) {
+    try {
+      archived = await _archivedChatIds(client);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'archived-list-failed',
+        scope: 'sync/pull',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   Set<String>? pinned;
@@ -84,30 +95,41 @@ Future<int> syncServerPinsAndArchives({
   }
 
   var changed = 0;
-  Future<void> apply(
+
+  /// False when the write failed or was held back, so a later cycle tries
+  /// again.
+  Future<bool> apply(
     String id, {
     bool? pinned,
     bool? archived,
     Value<String?> folderId = const Value.absent(),
+    String? ownerId,
   }) async {
     try {
       final stored = await locks.runExclusive(id, () async {
-        if (locks.generation != generation) return false;
+        if (locks.generation != generation ||
+            db.chatsDao.envelopeChangedSince(id, since)) {
+          return null;
+        }
         return db.chatsDao.applyServerPinAndArchive(
           id,
           pinned: pinned,
           archived: archived,
           folderId: folderId,
+          ownerId: ownerId,
         );
       });
-      if (!stored) return;
-      changed++;
-      final row = local[id]!;
-      local[id] = (
-        pinned: pinned ?? row.pinned,
-        archived: archived ?? row.archived,
-        userId: row.userId,
-      );
+      if (stored == null) return false;
+      if (stored) {
+        changed++;
+        final row = local[id]!;
+        local[id] = (
+          pinned: pinned ?? row.pinned,
+          archived: archived ?? row.archived,
+          userId: row.userId ?? ownerId,
+        );
+      }
+      return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
         'pin-archive-failed',
@@ -116,58 +138,80 @@ Future<int> syncServerPinsAndArchives({
         stackTrace: stackTrace,
         data: {'chatId': id},
       );
+      return false;
     }
   }
 
-  if (archived != null && archivedOnServer != null) {
+  /// Reads chat [id] and takes its copy. False when the read failed and may
+  /// not next time; a chat the server no longer has leaves nothing to do.
+  Future<bool> adopt(String id) async {
+    final Map<String, dynamic>? raw;
+    try {
+      raw = await client.getChatRaw(id);
+    } catch (error) {
+      // Open WebUI answers 401 for a chat it no longer has.
+      bool gone;
+      try {
+        gone = !await client.probeChatExists(id);
+      } catch (_) {
+        gone = false;
+      }
+      DebugLogger.log(
+        'pin-archive-read-failed',
+        scope: 'sync/pull',
+        data: {'chatId': id, 'gone': gone},
+      );
+      return gone;
+    }
+    if (raw == null) return true;
+    final folderId = raw['folder_id'];
+    final ownerId = raw['user_id'];
+    return apply(
+      id,
+      pinned: raw['pinned'] == true,
+      archived: raw['archived'] == true,
+      folderId: Value(folderId is String ? folderId : null),
+      ownerId: ownerId is String && ownerId.isNotEmpty ? ownerId : null,
+    );
+  }
+
+  if (archived != null) {
+    var settled = true;
     for (final id in archived) {
       final row = local[id];
       // A chat not held here comes from the archived loop, as a stub.
       if (row == null || row.archived) continue;
       // The server takes an archived chat out of its folder.
-      await apply(id, archived: true, folderId: const Value(null));
-    }
-    final gone = [
-      for (final MapEntry(key: id, value: row) in local.entries)
-        if (row.archived && owned(id) && !archived.contains(id)) id,
-    ];
-    for (final id in gone) {
-      final Map<String, dynamic>? raw;
-      try {
-        raw = await client.getChatRaw(id);
-      } catch (error) {
-        // Deleted elsewhere, most likely (Open WebUI answers 401): the
-        // deletion reconcile removes it.
-        DebugLogger.log(
-          'unarchived-read-failed',
-          scope: 'sync/pull',
-          data: {'chatId': id, 'error': error.runtimeType.toString()},
-        );
-        continue;
+      if (!await apply(id, archived: true, folderId: const Value(null))) {
+        settled = false;
       }
-      if (raw == null) continue;
-      final folderId = raw['folder_id'];
-      await apply(
-        id,
-        pinned: raw['pinned'] == true,
-        archived: raw['archived'] == true,
-        folderId: Value(folderId is String ? folderId : null),
-      );
+    }
+    final unlisted = [
+      for (final MapEntry(key: id, value: row) in local.entries)
+        if (row.archived && !othersChat(id) && !archived.contains(id)) id,
+    ];
+    for (final id in unlisted) {
+      if (!await adopt(id)) settled = false;
     }
     final here = archivedHere();
-    memo?.noteArchivedCountsUnsettled(
-      here == archivedOnServer ? null : (server: archivedOnServer, local: here),
-    );
+    if (settled && here != archivedOnServer) {
+      memo?.noteArchivedCountsUnsettled(archivedOnServer!, here);
+    }
   }
 
   if (pinned != null) {
     for (final MapEntry(key: id, value: row) in local.entries.toList()) {
       // The pinned list leaves archived chats out, pinned or not.
       if (row.archived || (archived?.contains(id) ?? false)) continue;
-      final serverPinned = pinned.contains(id);
-      if (row.pinned == serverPinned) continue;
-      if (!serverPinned && !owned(id)) continue;
-      await apply(id, pinned: serverPinned);
+      final listed = pinned.contains(id);
+      if (row.pinned == listed) continue;
+      if (listed) {
+        await apply(id, pinned: true);
+      } else if (!othersChat(id)) {
+        // Unpinned, or archived, elsewhere, or another user's chat stored
+        // before rows kept their owner: its own copy says which.
+        await adopt(id);
+      }
     }
   }
   return changed;

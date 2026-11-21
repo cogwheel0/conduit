@@ -64,6 +64,9 @@ class FakeSyncApiClient implements SyncApiClient {
   /// before the caller sees the answer, like a change made meanwhile.
   Future<void> Function()? whilePinnedListLoads;
 
+  /// [whilePinnedListLoads] for [getArchivedChatCount].
+  Future<void> Function()? whileArchivedCountLoads;
+
   /// When set, [getFoldersRaw] throws.
   bool failFolders = false;
 
@@ -127,7 +130,11 @@ class FakeSyncApiClient implements SyncApiClient {
   Future<int?> getArchivedChatCount() async {
     archivedCountRequests++;
     if (failArchivedCount) throw StateError('injected archived count failure');
-    return server.getArchivedChatCount();
+    final count = server.getArchivedChatCount();
+    final hook = whileArchivedCountLoads;
+    whileArchivedCountLoads = null;
+    await hook?.call();
+    return count;
   }
 
   @override
