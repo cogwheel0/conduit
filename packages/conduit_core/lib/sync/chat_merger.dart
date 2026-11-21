@@ -207,7 +207,7 @@ ChatMergeResult _threeWay({
       // Clean and present on server: server wins.
       survivors.add(
         _keepsAnswerFinishedHere(localMsg, serverMsg)
-            ? _keptAt(localMsg, serverMsg)
+            ? answerAt(localMsg, serverMsg)
             : serverMsg,
       );
     }
@@ -253,7 +253,7 @@ ChatMergeResult _threeWay({
   // round-trips payload verbatim, so a stale childrenIds inside a surviving
   // payload would otherwise be wrong after an add/drop.
   final merged = <MessageRowData>[
-    for (final m in reindexed) _withDerivedChildren(m, reindexed),
+    for (final m in reindexed) withDerivedChildren(m, reindexed),
   ];
 
   // (c) currentMessageId — local if any local message is dirty or the user
@@ -351,7 +351,7 @@ ChatRows withAnswersFinishedHere(
   for (final message in server.messages) {
     final mine = localById[message.id];
     if (mine != null && _keepsAnswerFinishedHere(mine, message)) {
-      messages.add(_keptAt(mine, message));
+      messages.add(answerAt(mine, message));
       kept = true;
     } else {
       messages.add(message);
@@ -388,26 +388,35 @@ bool _keepsAnswerFinishedHere(MessageRowData local, MessageRowData server) =>
     server.payload['done'] != true &&
     server.content.isEmpty;
 
-/// The payload keys that place a message in the graph. A kept answer takes
-/// them from the server's copy, a key it leaves out included.
+/// The payload keys that place a message in the graph.
 const _graphKeys = {'parentId', 'childrenIds', 'timestamp'};
 
-/// [local]'s answer where [server] has it in the graph.
-MessageRowData _keptAt(MessageRowData local, MessageRowData server) =>
+/// [copy]'s answer, its text and state, where [place] has it in the graph:
+/// [place]'s parent, children and order, a graph key [place] leaves out
+/// included.
+///
+/// When one copy of an answer is taken over another, the tree being written
+/// decides where it sits. A pull writes the server's tree, so an answer kept
+/// from this device goes where the server has it; a push writes this device's
+/// tree, so the server's answer goes where this device has it, with a
+/// follow-up sent here since under it. The other side's children are never
+/// added: they are not in the tree being written, so naming them would leave
+/// an id that points nowhere.
+MessageRowData answerAt(MessageRowData copy, MessageRowData place) =>
     MessageRowData(
-      id: server.id,
-      chatId: server.chatId,
-      parentId: server.parentId,
-      role: local.role,
-      content: local.content,
-      model: local.model ?? server.model,
-      createdAt: server.createdAt,
-      orderIndex: server.orderIndex,
+      id: place.id,
+      chatId: place.chatId,
+      parentId: place.parentId,
+      role: copy.role,
+      content: copy.content,
+      model: copy.model ?? place.model,
+      createdAt: place.createdAt,
+      orderIndex: place.orderIndex,
       payload: <String, dynamic>{
-        for (final entry in local.payload.entries)
+        for (final entry in copy.payload.entries)
           if (!_graphKeys.contains(entry.key)) entry.key: entry.value,
         for (final key in _graphKeys)
-          if (server.payload.containsKey(key)) key: server.payload[key],
+          if (place.payload.containsKey(key)) key: place.payload[key],
       },
     );
 
@@ -465,7 +474,7 @@ MessageRowData _withOrderIndex(MessageRowData message, int orderIndex) {
 /// Returns [message] with `payload['childrenIds']` rewritten to the derived
 /// child id list among [all] (§7.4). The payload map is copied so the input
 /// rows are never mutated (purity).
-MessageRowData _withDerivedChildren(
+MessageRowData withDerivedChildren(
   MessageRowData message,
   List<MessageRowData> all,
 ) {

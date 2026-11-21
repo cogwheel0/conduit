@@ -13,6 +13,8 @@ import 'package:conduit_core/models/chat_comparison.dart'
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/chat_merger.dart'
+    show answerAt, withDerivedChildren;
 
 import 'package:conduit_core/sync/clock.dart';
 
@@ -398,8 +400,9 @@ class PushSync {
   }
 
   /// [rows] with each answer kept on this device for a Stop the server has
-  /// not accepted ([kStoppedHereMetadataKey]) as the server has it now, read
-  /// under this push's lock with the [client] it sends with.
+  /// not accepted ([kStoppedHereMetadataKey]) as the server has it now, where
+  /// this device has it in the graph ([answerAt]), read under this push's lock
+  /// with the [client] it sends with.
   ///
   /// The push replaces the chat's whole history, so neither a guess at the
   /// server's copy nor this device's text may go in its place: the one could
@@ -442,22 +445,16 @@ class PushSync {
         messages.add(message);
         continue;
       }
-      if (server.payload['done'] == true || server.content.isNotEmpty) {
-        await _db.messagesDao.upsertLocalEcho(server);
-      }
-      messages.add(
-        MessageRowData(
-          id: server.id,
-          chatId: server.chatId,
-          parentId: server.parentId,
-          role: server.role,
-          content: server.content,
-          model: server.model,
-          createdAt: server.createdAt,
-          orderIndex: message.orderIndex,
-          payload: server.payload,
-        ),
+      // A follow-up's echo points it at this answer without listing it among
+      // the answer's children, so they come from the rows being sent.
+      final taken = withDerivedChildren(
+        answerAt(server, message),
+        rows.messages,
       );
+      if (server.payload['done'] == true || server.content.isNotEmpty) {
+        await _db.messagesDao.upsertLocalEcho(taken);
+      }
+      messages.add(taken);
     }
     return ChatRows(
       chat: rows.chat,
