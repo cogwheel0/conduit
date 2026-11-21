@@ -123,6 +123,9 @@ struct AnswerPin {
     fits: bool,
     /// The list has been laid out from the answer's start at least once.
     applied: bool,
+    /// The window is over with the view resting at the answer's start:
+    /// the pin stays only until a layout since has measured the answer.
+    settled: bool,
 }
 
 pub struct Transcript {
@@ -581,6 +584,7 @@ impl Transcript {
             until: None,
             fits: false,
             applied: false,
+            settled: false,
         });
     }
 
@@ -598,15 +602,24 @@ impl Transcript {
     /// the list follows as it would. Then the pin holds only an answer no
     /// taller than the view, in a view still following the end; any other
     /// is let go, following its end. While it holds, an answer that still
-    /// outgrows the view (its last text laid out late) is let go too.
+    /// outgrows the view (its last text laid out late) is let go too, also
+    /// once a layout after the window has measured it while the view rests
+    /// at its start (drawing may pause past the window).
     fn step_pin(&mut self, now: std::time::Instant, window: &mut Window, cx: &App) {
         let Some(pin) = &self.answer_pin else {
             return;
         };
         let viewport = self.list.viewport_bounds().size.height;
         if !pin.fits {
-            let text_out = self.rows.get(&pin.key).is_some_and(|row| row.text_out(cx));
-            let (Some(answer), true) = (self.answer_height(&pin.key, cx), text_out) else {
+            let text_out = self.rows.get(&pin.key).map(|row| row.text_out(cx));
+            let (Some(answer), Some(true)) = (self.answer_height(&pin.key, cx), text_out) else {
+                // Not drawn yet, or not measured since its text was all
+                // out: ask for the frame after the layout that measures it,
+                // which nothing else may draw (Reduce Motion animates
+                // nothing). Text still being released draws its own frames.
+                if text_out != Some(false) {
+                    window.request_animation_frame();
+                }
                 return;
             };
             // One no taller than the view, while the view follows the end,
@@ -629,21 +642,41 @@ impl Transcript {
         let Some(pin) = &self.answer_pin else {
             return;
         };
-        let (until, applied) = (pin.until.unwrap_or(now), pin.applied);
-        let Some(ix) = self.keys.iter().position(|k| *k == pin.key) else {
+        let (until, applied, settled) = (pin.until.unwrap_or(now), pin.applied, pin.settled);
+        let key = pin.key.clone();
+        let Some(ix) = self.keys.iter().position(|k| *k == key) else {
             self.answer_pin = None;
             return;
         };
-        if now >= until {
-            self.answer_pin = None;
+        if now >= until && !settled {
+            if !applied || self.list.is_following_tail() {
+                self.answer_pin = None;
+                return;
+            }
+            // Over with the view resting at the answer's start. Drawing may
+            // have paused through the window, the answer's last text laid
+            // out only now: a layout from here measures it once more.
+            *self.newest_height.borrow_mut() = None;
+            if let Some(pin) = &mut self.answer_pin {
+                pin.settled = true;
+            }
+            window.request_animation_frame();
             return;
         }
-        if self
-            .answer_height(&pin.key, cx)
-            .is_some_and(|answer| answer > viewport)
-        {
-            self.release_pin(now, window, cx);
-            return;
+        match self.answer_height(&key, cx) {
+            Some(answer) if answer > viewport => {
+                self.release_pin(now, window, cx);
+                return;
+            }
+            Some(_) if settled => {
+                self.answer_pin = None;
+                return;
+            }
+            None if settled => {
+                window.request_animation_frame();
+                return;
+            }
+            _ => {}
         }
         if self.list.is_following_tail() {
             self.list.scroll_to(gpui_kit::ListOffset {
@@ -3134,6 +3167,97 @@ mod tests {
         assert!(end - start > QUICK_ASK_VIEWPORT, "it fits: {start}..{end}");
         assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
         assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A held answer whose last text is laid out only after drawing paused
+    /// past the pin's window (its parse landing meanwhile) is let go once
+    /// drawing resumes, and follows its end.
+    #[gpui_kit::test]
+    fn an_answer_that_outgrows_the_view_after_a_pause_is_let_go(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) = open_with(vec![question.clone()], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+
+        // A turn that starts and ends before its row is drawn: one long
+        // paragraph (parsed off the main thread), and suggestions, which a
+        // row first drawn done shows at once.
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnStarted(conduit_protocol::TurnStarted {
+                    companion_ids: vec![],
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            )
+        });
+        let long = "A long paragraph about the tides and the moon. ".repeat(100);
+        let done = ChatMessageDto {
+            blocks: vec![
+                MessageBlockDto {
+                    markdown: Some(long.clone()),
+                    ..empty_block(MessageBlockKind::Text)
+                },
+                MessageBlockDto {
+                    follow_ups: Some(vec!["Why?".into(), "How?".into(), "When?".into()]),
+                    ..empty_block(MessageBlockKind::FollowUps)
+                },
+            ],
+            ..message("a1", "assistant", &long)
+        };
+        complete_turn_with(&store, &daemon, &question, done, cx);
+        // Drawn, then held at its start, before its text is parsed.
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        assert!(
+            transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied))
+                && !list.is_following_tail(),
+            "not held at its start"
+        );
+
+        // Drawing pauses past the pin's window; the parse lands meanwhile.
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(2));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        quick_ask_frames(&transcript, cx);
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(end - start > QUICK_ASK_VIEWPORT, "it fits: {start}..{end}");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// Under Reduce Motion nothing animates, so nothing else draws the frame
+    /// that applies a pending pin (an answer done with no suggestions has
+    /// nothing to fade in): the pin asks for it once its answer's row has
+    /// been laid out.
+    #[gpui_kit::test]
+    fn under_reduce_motion_a_pending_pin_asks_for_the_frame_that_applies_it(
+        cx: &mut TestAppContext,
+    ) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        cx.update(|_, cx| cx.set_reduce_motion(true));
+        quick_ask_frames(&transcript, cx);
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        complete_turn_with(&store, &daemon, &question, answer("a1", 1, &[]), cx);
+        cx.update(|window, cx| window.simulate_next_frame(cx));
+        // The store's change draws one frame; the next is the pin's to ask
+        // for.
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        let asked = cx.update(|window, cx| window.simulate_next_frame(cx));
+        assert!(asked > 0, "no frame was asked for");
+        paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+        assert!(
+            transcript.read_with(cx, |t, _| t.answer_pin.as_ref().is_some_and(|p| p.applied)),
+            "the pin did not apply in that frame"
+        );
     }
 
     /// A short answer beside a longer comparison column whose text is
