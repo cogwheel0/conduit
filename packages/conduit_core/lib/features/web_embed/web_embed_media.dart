@@ -9,6 +9,7 @@
 /// loads as it always has.
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -383,6 +384,10 @@ const Duration kWebEmbedMediaReceiveTimeout = Duration(seconds: 30);
 /// account's credentials, sent only to [server] and with its TLS settings,
 /// following no redirect.
 ///
+/// A reply that is not audio or video, such as a proxy's sign-in page, fails
+/// with [WebEmbedMediaRefused] as its error as soon as its headers arrive, so
+/// a download never writes it.
+///
 /// It is kept apart from the account's API client, whose interceptors take a
 /// refusal, a sign-in page or a gateway error as the session or the route
 /// failing; an address a page names says neither.
@@ -413,9 +418,35 @@ Dio webEmbedMediaClient(ServerConfig server, Map<String, String> headers) {
           );
         }
       },
+      onResponse: (response, handler) {
+        final type = _mediaType(response.headers);
+        if (_isPlayableType(type)) {
+          handler.next(response);
+          return;
+        }
+        final data = response.data;
+        if (data is ResponseBody) unawaited(data.stream.listen(null).cancel());
+        handler.reject(
+          DioException(
+            requestOptions: response.requestOptions,
+            response: response,
+            error: WebEmbedMediaRefused(type),
+          ),
+        );
+      },
     ),
   );
   return dio;
+}
+
+String? _mediaType(Headers headers) {
+  final type = headers
+      .value(Headers.contentTypeHeader)
+      ?.split(';')
+      .first
+      .trim()
+      .toLowerCase();
+  return type == null || type.isEmpty ? null : type;
 }
 
 /// A server reply that is not audio or video, such as a page or data.
@@ -458,25 +489,25 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
   CancelToken? cancelToken,
 }) async {
   final from = start ?? 0;
-  final response = await client.getUri<ResponseBody>(
-    url,
-    cancelToken: cancelToken,
-    options: Options(
-      responseType: ResponseType.stream,
-      headers: {
-        'Range': 'bytes=$from-${end == null ? '' : end - 1}',
-        'Accept': 'audio/*, video/*, */*;q=0.1',
-      },
-    ),
-  );
+  final Response<ResponseBody> response;
+  try {
+    response = await client.getUri<ResponseBody>(
+      url,
+      cancelToken: cancelToken,
+      options: Options(
+        responseType: ResponseType.stream,
+        headers: {
+          'Range': 'bytes=$from-${end == null ? '' : end - 1}',
+          'Accept': 'audio/*, video/*, */*;q=0.1',
+        },
+      ),
+    );
+  } on DioException catch (error) {
+    if (error.error case final WebEmbedMediaRefused refused) throw refused;
+    rethrow;
+  }
   final body = response.data!;
-  final contentType = response.headers
-      .value(Headers.contentTypeHeader)
-      ?.split(';')
-      .first
-      .trim()
-      .toLowerCase();
-  final type = contentType == null || contentType.isEmpty ? null : contentType;
+  final type = _mediaType(response.headers);
   if (!_isPlayableType(type)) {
     await body.stream.listen(null).cancel();
     throw WebEmbedMediaRefused(type);

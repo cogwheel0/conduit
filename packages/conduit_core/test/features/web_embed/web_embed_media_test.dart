@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -276,6 +277,26 @@ void main() {
           Uri.parse('https://chat.example.test/a.mp3'),
         ),
       ).throws<WebEmbedMediaRefused>();
+    });
+
+    test('refuses a page before a download writes any of it', () async {
+      adapter.reply = (_) => ResponseBody.fromString(
+        '<html>Sign in</html>',
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+        },
+      );
+      final dir = Directory.systemTemp.createTempSync('web_embed_media_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/clip.part';
+
+      await check(client.download('https://chat.example.test/v.mp4', path))
+          .throws<DioException>(
+            (it) =>
+                it.has((it) => it.error, 'error').isA<WebEmbedMediaRefused>(),
+          );
+      check(File(path).existsSync()).isFalse();
     });
   });
 
