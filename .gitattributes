@@ -1,0 +1,8 @@
+# Files the desktop app embeds or its tests compare byte for byte: checked
+# out exactly as committed, so a Windows checkout (core.autocrlf) changes
+# neither what a build ships nor a pinned hash.
+assets/chartjs.min.js -text
+assets/computer/viewer.js -text
+desktop/crates/app/assets/** -text
+desktop/crates/components/assets/** -text
+desktop/packaging/macos/widget/Fixtures/** -text

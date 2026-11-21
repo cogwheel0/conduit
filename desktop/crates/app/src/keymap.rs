@@ -1074,20 +1074,31 @@ mod tests {
 
     #[test]
     fn gpui_keystroke_syntax() {
+        // The primary modifier is ⌘ on the Mac and Ctrl elsewhere.
+        let primary = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
         assert_eq!(
             to_gpui(&KeyStroke::new("o").primary().shift()),
-            "cmd-shift-o"
+            format!("{primary}-shift-o")
         );
         assert_eq!(
             to_gpui(&KeyStroke::new("enter").primary().alt()),
-            "cmd-alt-enter"
+            format!("{primary}-alt-enter")
         );
         assert_eq!(to_gpui(&KeyStroke::new("escape").shift()), "shift-escape");
         for s in default_shortcuts() {
             // `Keystroke::parse` wants a 'static source (its error borrows it).
             let source: &'static str = Box::leak(to_gpui(&s.stroke).into_boxed_str());
             let parsed = gpui_kit::Keystroke::parse(source).unwrap();
-            assert_eq!(from_gpui(&parsed), Some(s.stroke.clone()), "{:?}", s.stroke);
+            // Off the Mac a ⌃⌘ chord is the Ctrl one: Ctrl is the primary.
+            let read_back = KeyStroke {
+                ctrl: s.stroke.ctrl && cfg!(target_os = "macos"),
+                ..s.stroke.clone()
+            };
+            assert_eq!(from_gpui(&parsed), Some(read_back), "{:?}", s.stroke);
         }
     }
 
