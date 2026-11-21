@@ -40,6 +40,7 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
+    String Function(String? mediaType)? extensionForReply,
   }) {
     fetches.add(url);
     return Completer<File>().future;

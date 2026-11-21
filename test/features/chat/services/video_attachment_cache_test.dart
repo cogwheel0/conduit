@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/services/video_attachment_cache.dart';
+import 'package:conduit_core/features/web_embed/web_embed_media.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -325,4 +327,148 @@ void main() {
       check(export.file.existsSync()).isFalse();
     });
   });
+
+  group("a web embed's video", () {
+    const clip = 'https://chat.example.test/api/v1/files/v1/content';
+    late _ReplyAdapter replies;
+
+    VideoTransport embedTransport(String url) => (
+      client: webEmbedMediaClient(
+        const ServerConfig(
+          id: 'synthetic',
+          name: 'Synthetic',
+          url: 'https://chat.example.test',
+        ),
+        const {},
+      )..httpClientAdapter = replies,
+      headers: const <String, String>{},
+      ownsClient: true,
+    );
+
+    setUp(() {
+      replies = _ReplyAdapter([
+        ResponseBody.fromString(
+          '<html>Sign in</html>',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/html; charset=utf-8'],
+          },
+        ),
+        ResponseBody.fromBytes(
+          _bytes,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['video/mp4'],
+          },
+        ),
+      ]);
+    });
+
+    test(
+      'a sign-in page never reaches the cache, and a later video plays',
+      () async {
+        final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+        Future<File> play() => cache.fetchForPlayback(
+          claim: VideoDownloadClaim(),
+          url: clip,
+          cacheIdentity: clip,
+          extension: 'mp4',
+          transport: embedTransport,
+          isCurrent: () => true,
+        );
+
+        await check(play()).throws<DioException>();
+        check(dir.listSync()).isEmpty();
+
+        check((await play()).readAsBytesSync()).deepEquals(_bytes);
+        check(replies.requests).deepEquals([clip, clip]);
+      },
+    );
+
+    test('Save never exports a sign-in page as the video', () async {
+      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+
+      await check(
+        cache.openForExport(
+          cachedPath: null,
+          url: clip,
+          extension: 'mp4',
+          transport: embedTransport,
+          token: CancelToken(),
+          isCurrent: () => true,
+        ),
+      ).throws<DioException>(
+        (it) => it.has((e) => e.error, 'error').isA<WebEmbedMediaRefused>(),
+      );
+      check(replies.requests).deepEquals([clip]);
+      check(dir.listSync()).isEmpty();
+    });
+  });
+
+  group("a web embed's audio", () {
+    const note = 'https://chat.example.test/api/v1/files/a1/content';
+
+    test('its reply names the file, and the next Play finds it', () async {
+      final replies = _ReplyAdapter([
+        ResponseBody.fromBytes(
+          _bytes,
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['audio/mpeg'],
+          },
+        ),
+      ]);
+      final cache = VideoAttachmentCache(cacheDirectory: () async => dir);
+      Future<File> play() => cache.fetchForPlayback(
+        claim: VideoDownloadClaim(),
+        url: note,
+        cacheIdentity: note,
+        extension: 'audio',
+        extensionForReply: (type) =>
+            webEmbedAudioExtension(Uri.parse(note), mediaType: type),
+        transport: (url) => (
+          client: webEmbedMediaClient(
+            const ServerConfig(
+              id: 'synthetic',
+              name: 'Synthetic',
+              url: 'https://chat.example.test',
+            ),
+            const {},
+          )..httpClientAdapter = replies,
+          headers: const <String, String>{},
+          ownsClient: true,
+        ),
+        isCurrent: () => true,
+      );
+
+      final first = await play();
+      check(first.path).endsWith('.mp3');
+      check(await first.readAsBytes()).deepEquals(_bytes);
+      check(dir.listSync().map((it) => it.path)).deepEquals([first.path]);
+
+      check((await play()).path).equals(first.path);
+      check(replies.requests).deepEquals([note]);
+    });
+  });
+}
+
+/// Answers each request with the next of [replies].
+final class _ReplyAdapter implements HttpClientAdapter {
+  _ReplyAdapter(this.replies);
+
+  final List<ResponseBody> replies;
+  final List<String> requests = <String>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options.uri.toString());
+    return replies[requests.length - 1];
+  }
+
+  @override
+  void close({bool force = false}) {}
 }

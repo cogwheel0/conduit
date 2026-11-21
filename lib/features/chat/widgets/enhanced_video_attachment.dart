@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart' as dio;
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,6 +45,8 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
     this.filenameHint,
     this.contentType,
     this.sizeBytes,
+    this.transport,
+    this.alternativeSources = const <String>[],
   });
 
   final String attachmentId;
@@ -55,6 +57,14 @@ class EnhancedVideoAttachment extends ConsumerStatefulWidget {
 
   /// Shown on the placeholder card when known.
   final int? sizeBytes;
+
+  /// Fetches the video in place of the account's API client, for an address
+  /// that client must not answer for.
+  final VideoTransport Function(String url)? transport;
+
+  /// Addresses tried in turn, as a browser tries an element's sources, when
+  /// [attachmentId] and those before can't be fetched or played.
+  final List<String> alternativeSources;
 
   @override
   ConsumerState<EnhancedVideoAttachment> createState() =>
@@ -94,7 +104,8 @@ class _EnhancedVideoAttachmentState
   void didUpdateWidget(covariant EnhancedVideoAttachment oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.attachmentId == widget.attachmentId &&
-        mapEquals(oldWidget.httpHeaders, widget.httpHeaders)) {
+        mapEquals(oldWidget.httpHeaders, widget.httpHeaders) &&
+        listEquals(oldWidget.alternativeSources, widget.alternativeSources)) {
       return;
     }
     // A replaced message can change the source under this state. Drop the
@@ -194,94 +205,114 @@ class _EnhancedVideoAttachmentState
 
   Future<void> _openVideo() async {
     final requestId = ++_openRequestId;
-    final idOrUrl = widget.attachmentId.trim();
-    VideoPlayerController? controller;
-    String? openUrl;
-    String? downloadedPath;
+    bool isCurrent() => mounted && requestId == _openRequestId;
+    final api = ref.read(apiServiceProvider);
+    // What the failure card offers when no source plays: the first source
+    // that downloaded, so Save reuses its copy, or else the first source.
+    String? failedUrl;
+    String? failedPath;
 
-    try {
-      if (idOrUrl.isEmpty) {
-        throw StateError('Empty video attachment id');
-      }
+    for (final source in [widget.attachmentId, ...widget.alternativeSources]) {
+      VideoPlayerController? controller;
+      String? openUrl;
+      String? downloadedPath;
+      try {
+        openUrl = _resolveVideoUrl(api, source.trim());
 
-      final api = ref.read(apiServiceProvider);
-      if (idOrUrl.startsWith('http://') || idOrUrl.startsWith('https://')) {
-        openUrl = idOrUrl;
-      } else {
-        // A server-relative path, or a bare file id resolved through the
-        // Files API content endpoint.
-        final path = idOrUrl.startsWith('/')
-            ? idOrUrl
-            : '/api/v1/files/$idOrUrl/content';
-        final resolved = resolveServerRelativeImageUrl(api?.baseUrl, path);
-        if (resolved == path) {
-          throw StateError('No server origin for video path');
+        // Fetch through the server-configured client and play a local copy:
+        // VideoPlayerController.networkUrl would bypass the TLS settings
+        // (self-signed / client certs) that ApiService.dio already applies,
+        // and streamed playback would leak the whole fetch into memory.
+        // No fixed total-download deadline: large videos are fine as long as
+        // data keeps arriving (a stall watchdog inside the transfer handles
+        // dead connections).
+        final file = await _fetchVideo(api, openUrl, requestId);
+        downloadedPath = file.path;
+        controller = VideoPlayerController.file(file);
+
+        await controller.initialize().timeout(const Duration(seconds: 30));
+
+        if (!isCurrent()) {
+          // Nobody will hold these paths: give the reservations back to the
+          // prune.
+          _cache.releaseCachePath(file.path);
+          _cache.releaseCachePath(failedPath);
+          unawaited(controller.dispose());
+          return;
         }
-        openUrl = resolved;
-      }
 
-      // Fetch through the server-configured client and play a local copy:
-      // VideoPlayerController.networkUrl would bypass the TLS settings
-      // (self-signed / client certs) that ApiService.dio already applies,
-      // and streamed playback would leak the whole fetch into memory.
-      // No fixed total-download deadline: large videos are fine as long as
-      // data keeps arriving (a stall watchdog inside the transfer handles
-      // dead connections).
-      final file = await _fetchVideo(api, openUrl, requestId);
-      downloadedPath = file.path;
-      controller = VideoPlayerController.file(file);
-
-      await controller.initialize().timeout(const Duration(seconds: 30));
-
-      if (!mounted || requestId != _openRequestId) {
-        // Nobody will hold this path: give the reservation back to the prune.
-        _cache.releaseCachePath(file.path);
-        unawaited(controller.dispose());
+        _cache.releaseCachePath(failedPath);
+        controller.setVolume(0);
+        // Reserved by fetchForPlayback; dispose() releases this handle.
+        _tempCacheKey = file.path;
+        _lastPositionSeconds = -1;
+        _lastPlayed = false;
+        _attachController(controller);
+        setState(() {
+          _initializing = false;
+          _playbackFailed = false;
+          _openUrl = openUrl;
+        });
+        // The user pressed Play to get here, but the app may have left the
+        // foreground while the video loaded; it then waits for another tap.
+        final appState = WidgetsBinding.instance.lifecycleState;
+        if (appState == null || appState == AppLifecycleState.resumed) {
+          controller.play();
+        }
         return;
-      }
-
-      controller.setVolume(0);
-      // Reserved by fetchForPlayback; dispose() releases this handle.
-      _tempCacheKey = file.path;
-      _lastPositionSeconds = -1;
-      _lastPlayed = false;
-      _attachController(controller);
-      setState(() {
-        _initializing = false;
-        _playbackFailed = false;
-        _openUrl = openUrl;
-      });
-      // The user pressed Play to get here, but the app may have left the
-      // foreground while the video loaded; it then waits for another tap.
-      final appState = WidgetsBinding.instance.lifecycleState;
-      if (appState == null || appState == AppLifecycleState.resumed) {
-        controller.play();
-      }
-    } catch (error) {
-      if (controller != null) {
-        unawaited(controller.dispose());
-      }
-      // A full download can succeed while the player still fails to
-      // initialize; keep the completed cache copy so the fallback export
-      // reuses it instead of fetching the same video again.
-      if (downloadedPath != null) {
-        if (mounted && requestId == _openRequestId) {
-          // fetchForPlayback already reserved the path; keep the handle so
-          // the fallback export reuses the completed cache copy.
-          _tempCacheKey = downloadedPath;
-        } else {
-          // Disposed mid-initialize: dispose() had no handle to release, so
-          // drop the reservation here instead of leaking it forever.
+      } catch (error) {
+        if (controller != null) {
+          unawaited(controller.dispose());
+        }
+        if (!isCurrent()) {
+          // Disposed mid-open: dispose() had no handle to release, so drop
+          // the reservations here instead of leaking them forever.
           _cache.releaseCachePath(downloadedPath);
+          _cache.releaseCachePath(failedPath);
+          return;
+        }
+        // A full download can succeed while the player still fails to
+        // initialize; keep the completed cache copy so the fallback export
+        // reuses it instead of fetching the same video again.
+        if (downloadedPath != null && failedPath == null) {
+          failedPath = downloadedPath;
+          failedUrl = openUrl;
+        } else {
+          _cache.releaseCachePath(downloadedPath);
+          failedUrl ??= openUrl;
         }
       }
-      if (!mounted || requestId != _openRequestId) return;
-      setState(() {
-        _initializing = false;
-        _playbackFailed = true;
-        _openUrl = openUrl;
-      });
     }
+
+    // fetchForPlayback already reserved the path; keep the handle so the
+    // fallback export reuses the completed cache copy.
+    _tempCacheKey = failedPath;
+    setState(() {
+      _initializing = false;
+      _playbackFailed = true;
+      _openUrl = failedUrl;
+    });
+  }
+
+  /// The address to fetch for [idOrUrl]: a full URL as given, or a
+  /// server-relative path or bare file id on the account's server.
+  String _resolveVideoUrl(ApiService? api, String idOrUrl) {
+    if (idOrUrl.isEmpty) {
+      throw StateError('Empty video attachment id');
+    }
+    if (idOrUrl.startsWith('http://') || idOrUrl.startsWith('https://')) {
+      return idOrUrl;
+    }
+    // A server-relative path, or a bare file id resolved through the Files
+    // API content endpoint.
+    final path = idOrUrl.startsWith('/')
+        ? idOrUrl
+        : '/api/v1/files/$idOrUrl/content';
+    final resolved = resolveServerRelativeImageUrl(api?.baseUrl, path);
+    if (resolved == path) {
+      throw StateError('No server origin for video path');
+    }
+    return resolved;
   }
 
   Future<File> _fetchVideo(ApiService? api, String url, int requestId) {
@@ -298,7 +329,7 @@ class _EnhancedVideoAttachmentState
       claim: _downloadClaim,
       url: url,
       cacheIdentity: cacheIdentity,
-      extension: _videoExtension(),
+      extension: _videoExtension(url),
       transport: (source) => _transportFor(api, source),
       isCurrent: () => mounted && requestId == _openRequestId,
     );
@@ -309,6 +340,8 @@ class _EnhancedVideoAttachmentState
   /// self-signed certificates and client certificates) apply; foreign URLs
   /// get a throwaway client carrying the eligible image headers.
   VideoTransport _transportFor(ApiService? api, String url) {
+    final transport = widget.transport;
+    if (transport != null) return transport(url);
     final baseUrl = api?.baseUrl;
     final sameOrigin =
         api != null && baseUrl != null && imageUrlIsServerOrigin(baseUrl, url);
@@ -374,13 +407,16 @@ class _EnhancedVideoAttachmentState
     return declared.startsWith('video/') ? declared : '';
   }
 
-  String _videoExtension() {
+  /// The container of [url], by default the source that opened. The address
+  /// names it first, since a fallback source can differ from the first and
+  /// an embed's title is only a label; without one, the file name does.
+  String _videoExtension([String? url]) {
     final fromMime = _videoExtensionByMime[_declaredContentType()];
     if (fromMime != null) return fromMime;
     final candidates = <String>[
+      url ?? _openUrl ?? '',
       widget.filenameHint ?? '',
       widget.attachmentId,
-      _openUrl ?? '',
     ];
     final pattern = RegExp(r'\.([A-Za-z0-9]{2,5})(?=$|[?&#])');
     for (final candidate in candidates) {

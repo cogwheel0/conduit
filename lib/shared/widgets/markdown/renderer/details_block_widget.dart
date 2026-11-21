@@ -267,7 +267,11 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       context: context,
       isScrollControlled: true,
       constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width),
-      builder: _buildDetailsBottomSheet,
+      // The sheet's embeds came from the same chat as the block's.
+      builder: (sheetContext) => WebEmbedServerMediaScope.carry(
+        context,
+        _buildDetailsBottomSheet(sheetContext),
+      ),
     ).whenComplete(() {
       _isSheetOpen = false;
     });

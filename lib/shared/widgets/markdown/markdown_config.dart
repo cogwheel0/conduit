@@ -513,7 +513,7 @@ class ConduitMarkdown {
       context: context,
       builder: (sheetContext) {
         final markdownStyle = ConduitMarkdownStyle.fromTheme(sheetContext);
-        return SizedBox.expand(
+        final page = SizedBox.expand(
           child: ColoredBox(
             color: theme.surfaceBackground,
             child: Column(
@@ -547,6 +547,8 @@ class ConduitMarkdown {
             ),
           ),
         );
+        // The preview came from the same chat as the code block.
+        return WebEmbedServerMediaScope.carry(context, page);
       },
     );
   }

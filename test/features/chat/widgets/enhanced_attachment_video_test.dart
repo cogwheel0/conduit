@@ -51,6 +51,7 @@ class _NoFetchVideoCache extends VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
+    String Function(String? mediaType)? extensionForReply,
   }) => throw StateError('unexpected video fetch');
 }
 

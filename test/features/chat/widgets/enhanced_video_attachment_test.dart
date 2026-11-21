@@ -9,6 +9,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -20,6 +21,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 /// completes it.
 class _RecordingVideoCache extends VideoAttachmentCache {
   final List<String> fetches = <String>[];
+  final List<String> extensions = <String>[];
   final List<Completer<File>> pending = <Completer<File>>[];
 
   @override
@@ -30,8 +32,10 @@ class _RecordingVideoCache extends VideoAttachmentCache {
     required String extension,
     required VideoTransport Function(String url) transport,
     required bool Function() isCurrent,
+    String Function(String? mediaType)? extensionForReply,
   }) {
     fetches.add(url);
+    extensions.add(extension);
     final completer = Completer<File>();
     pending.add(completer);
     return completer.future;
@@ -44,6 +48,12 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform
   final List<int> played = <int>[];
   final Map<int, StreamController<VideoEvent>> _events = {};
   int _nextId = 0;
+
+  void failLoading(int playerId) {
+    _events[playerId]!.addError(
+      PlatformException(code: 'VideoError', message: 'unsupported format'),
+    );
+  }
 
   void finishLoading(int playerId) {
     _events[playerId]!.add(
@@ -148,6 +158,33 @@ void main() {
     check(cache.fetches).deepEquals([clip]);
   });
 
+  testWidgets("the address fetched names the file's format, then the title", (
+    tester,
+  ) async {
+    final cache = _RecordingVideoCache();
+    for (final (url, title) in [
+      // An embed's title is a label, whatever it ends with.
+      ('https://cdn.example.com/out/clip.webm', 'clip.mp4'),
+      // An address without a format leaves it to an attachment's file name.
+      ('https://cdn.example.com/files/f1/content', 'clip.mov'),
+    ]) {
+      await tester.pumpWidget(
+        _harness(
+          cache,
+          EnhancedVideoAttachment(
+            key: ValueKey(url),
+            attachmentId: url,
+            filenameHint: title,
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+    }
+
+    check(cache.extensions).deepEquals(['webm', 'mov']);
+  });
+
   testWidgets('tapping the card starts playback', (tester) async {
     final cache = _RecordingVideoCache();
     await tester.pumpWidget(
@@ -203,6 +240,41 @@ void main() {
     testWidgets('the video plays once it loads', (tester) async {
       await loadAfterTap(tester);
       check(platform.played).deepEquals([0]);
+      await unmount(tester);
+    });
+
+    testWidgets('a source that cannot load or play gives way to the next', (
+      tester,
+    ) async {
+      const missing = 'https://cdn.example.com/out/missing.mp4';
+      const unplayable = 'https://cdn.example.com/out/clip.webm';
+      final cache = _RecordingVideoCache();
+      await tester.pumpWidget(
+        _harness(
+          cache,
+          const EnhancedVideoAttachment(
+            attachmentId: missing,
+            alternativeSources: [unplayable, clip],
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+
+      cache.pending[0].completeError(const HttpException('404'));
+      await tester.pump();
+      cache.pending[1].complete(File('${Directory.systemTemp.path}/c.webm'));
+      await tester.pump();
+      platform.failLoading(0);
+      await tester.pump();
+      cache.pending[2].complete(File('${Directory.systemTemp.path}/c.mp4'));
+      await tester.pump();
+      platform.finishLoading(1);
+      await tester.pump();
+
+      check(cache.fetches).deepEquals([missing, unplayable, clip]);
+      expect(find.byType(VideoPlayer), findsOneWidget);
+      check(platform.played).deepEquals([1]);
       await unmount(tester);
     });
 

@@ -112,6 +112,8 @@ import 'chat_comparison_widgets.dart';
 
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+import 'package:conduit_core/features/web_embed/web_embed_media_account.dart'
+    show webEmbedCameFromOpenWebUiChat;
 
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
@@ -1344,7 +1346,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   @override
   Widget build(BuildContext context) {
-    return _buildDocumentationMessage();
+    final message = widget.message;
+    final openWebUi = ref.watch(
+      activeConversationProvider.select(
+        (conversation) => webEmbedCameFromOpenWebUiChat(
+          conversation,
+          message: message is ChatMessage ? message : null,
+        ),
+      ),
+    );
+    return WebEmbedServerMediaScope(
+      enabled: openWebUi,
+      child: _buildDocumentationMessage(),
+    );
   }
 
   Widget _buildDocumentationMessage() {
