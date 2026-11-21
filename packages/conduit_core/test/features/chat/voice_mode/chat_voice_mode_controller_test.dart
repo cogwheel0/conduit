@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:clock/clock.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -1488,6 +1489,261 @@ void main() {
       await controller.stop();
     },
   );
+
+  test(
+    'barge-in ignores the assistant reply heard back through the microphone',
+    () async {
+      final input = _FakeVoiceInputService()..nativeLocalStt = true;
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      var stopGenerationCalls = 0;
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            const AppSettings(voiceBargeInEnabled: true),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          stopGenerationProvider.overrideWithValue(() {
+            stopGenerationCalls += 1;
+          }),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent('first assistant turn', close: false);
+      await _until(() => tts.finishedTexts.isNotEmpty);
+      tts.emitChunkStarted(0);
+      await _until(
+        () => container
+            .read(chatVoiceModeControllerProvider)
+            .spokenResponse
+            .trim()
+            .isNotEmpty,
+      );
+
+      // On a loudspeaker without echo cancellation, the recognizer hears the
+      // reply and returns it as a transcript: lower case, no punctuation, and
+      // sometimes a word misheard (#900).
+      final spoken = RegExp(r"[\w']+")
+          .allMatches(
+            container
+                .read(chatVoiceModeControllerProvider)
+                .spokenResponse
+                .toLowerCase(),
+          )
+          .map((match) => match[0]!)
+          .toList();
+      check(spoken.length).isGreaterOrEqual(4);
+      await input.completeCurrent(spoken.join(' '), close: false);
+      await input.completeCurrent(
+        [...spoken.take(spoken.length - 1), 'penguin'].join(' '),
+        close: false,
+      );
+      await input.completeCurrent('wait, what about penguins', close: false);
+      await _until(
+        () =>
+            container
+                .read(chatMessagesProvider)
+                .where((message) => message.role == 'user')
+                .length ==
+            2,
+      );
+
+      final userMessages = container
+          .read(chatMessagesProvider)
+          .where((message) => message.role == 'user')
+          .map((message) => message.content)
+          .toList();
+      check(userMessages).deepEquals(<String>[
+        'first assistant turn',
+        'wait, what about penguins',
+      ]);
+      check(stopGenerationCalls).equals(1);
+      await controller.stop();
+    },
+  );
+
+  for (final (:after, :sent) in const [
+    (after: Duration(milliseconds: 1500), sent: false),
+    (after: Duration(seconds: 4), sent: true),
+  ]) {
+    test('barge-in ${sent ? 'sends' : 'ignores'} the reply\'s last sentence '
+        'heard ${after.inMilliseconds} ms after it played out', () async {
+      var now = DateTime.utc(2026, 1, 1, 9);
+      await withClock(Clock(() => now), () async {
+        final call = await _startBargeInCall();
+        final chunks = call.replyChunks;
+        for (var i = 0; i < chunks.length; i++) {
+          call.tts.emitChunkStarted(i);
+        }
+        call.tts.emitCompleted();
+        await _until(() => call.state.phase == ChatVoiceModePhase.listening);
+
+        // The recognizer listened through playback, and finalizes the last
+        // sentence it heard after the silence that follows (#900). Only a
+        // recent echo is ignored: later, the caller may say it themselves.
+        final lastSentence = _words(chunks.last).join(' ');
+        now = now.add(after);
+        await call.input.completeCurrent(lastSentence, close: false);
+        if (sent) {
+          await _until(() => call.userMessages.length == 2);
+          check(call.userMessages.last).equals(lastSentence);
+        } else {
+          await call.input.completeCurrent(
+            'and what about tomorrow',
+            close: false,
+          );
+          await _until(() => call.userMessages.length == 2);
+          check(call.userMessages).deepEquals(<String>[
+            'first assistant turn',
+            'and what about tomorrow',
+          ]);
+        }
+        await call.controller.stop();
+      });
+    });
+  }
+
+  test('barge-in sends a short interruption that repeats words from the middle '
+      'of the reply', () async {
+    final call = await _startBargeInCall();
+    final chunks = call.replyChunks;
+    final index = chunks.indexWhere((chunk) => _words(chunk).length >= 5);
+    check(index).isGreaterOrEqual(0);
+    for (var i = 0; i <= index; i++) {
+      call.tts.emitChunkStarted(i);
+    }
+    await _until(() => call.state.spokenResponse == chunks[index]);
+
+    // Two words from inside the sentence being spoken, which no sentence
+    // just spoken ends with: the caller saying them, not their echo.
+    final words = _words(chunks[index]);
+    final previous = index > 0 ? _words(chunks[index - 1]) : <String>[];
+    final repeat = [
+      for (var start = 1; start + 2 < words.length; start++)
+        words.sublist(start, start + 2),
+    ].firstWhere((pair) => !_endsWith(previous, pair)).join(' ');
+    await call.input.completeCurrent(repeat, close: false);
+    await _until(() => call.userMessages.length == 2);
+
+    check(call.userMessages.last).equals(repeat);
+    check(call.stopGenerationCalls).equals(1);
+    await call.controller.stop();
+  });
+
+  test(
+    'barge-in ignores the last words of the sentence that just played',
+    () async {
+      final call = await _startBargeInCall();
+      final chunks = call.replyChunks;
+      check(chunks.length).isGreaterOrEqual(2);
+      call.tts
+        ..emitChunkStarted(0)
+        ..emitChunkStarted(1);
+      await _until(() => call.state.spokenResponse == chunks[1]);
+
+      // The recognizer finalizes the end of a sentence after the pause that
+      // follows it, while the next one plays.
+      final words = _words(chunks[0]);
+      final echo = words.sublist(words.length < 2 ? 0 : words.length - 2);
+      await call.input.completeCurrent(echo.join(' '), close: false);
+      await call.input.completeCurrent(
+        'wait, what about penguins',
+        close: false,
+      );
+      await _until(() => call.userMessages.length == 2);
+
+      check(call.userMessages).deepEquals(<String>[
+        'first assistant turn',
+        'wait, what about penguins',
+      ]);
+      check(call.stopGenerationCalls).equals(1);
+      await call.controller.stop();
+    },
+  );
+
+  for (final (:bargeIn, :serverRecorder, :voiceChat) in const [
+    (bargeIn: false, serverRecorder: false, voiceChat: false),
+    (bargeIn: true, serverRecorder: false, voiceChat: true),
+    (bargeIn: false, serverRecorder: true, voiceChat: true),
+  ]) {
+    test('iOS speaks ${voiceChat ? 'in voice chat' : 'at media loudness'} with '
+        'barge-in ${bargeIn ? 'on' : 'off'}'
+        '${serverRecorder ? ' and the server recorder held' : ''}', () async {
+      final input = _FakeVoiceInputService()..nativeLocalStt = !serverRecorder;
+      if (serverRecorder) {
+        input
+          ..localSttAvailable = false
+          ..serverSttAvailable = true
+          ..sttPreference = SttPreference.serverOnly
+          ..holdServerRecorderOnComplete = true;
+      }
+      final tts = _FakeTextToSpeechService()..holdCompletion = true;
+      final audioSession = _FakeChatVoiceAudioSessionCoordinator();
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(),
+          authNavigationStateProvider.overrideWithValue(
+            AuthNavigationState.authenticated,
+          ),
+          selectedModelProvider.overrideWithValue(_model),
+          appSettingsProvider.overrideWithValue(
+            AppSettings(
+              voiceBargeInEnabled: bargeIn,
+              sttPreference: serverRecorder
+                  ? SttPreference.serverOnly
+                  : SttPreference.deviceOnly,
+            ),
+          ),
+          reviewerModeProvider.overrideWithValue(true),
+          voiceModeInputProvider.overrideWithValue(input),
+          voiceModeSpeechProvider.overrideWithValue(tts),
+          voiceModePlatformProvider.overrideWithValue(
+            const _IosVoiceModePlatform(),
+          ),
+          voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+          chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+            _FakeChatVoiceBackgroundCoordinator(),
+          ),
+          voiceAudioSessionProvider.overrideWithValue(audioSession),
+        ],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      );
+
+      await controller.start(startNewConversation: false);
+      await input.completeCurrent(
+        'how loud is the reply',
+        close: serverRecorder,
+      );
+      await _until(() => tts.finishedTexts.isNotEmpty);
+
+      // Voice chat's processing plays the reply far quieter than media
+      // (#912), so it is kept for when something still listens through it.
+      check(audioSession.speakingCalls).equals(1);
+      check(audioSession.bargeInSpeakingCalls).equals(voiceChat ? 1 : 0);
+      await controller.stop();
+    });
+  }
 
   test('tracks the spoken assistant chunk and word progress', () async {
     final input = _FakeVoiceInputService();
@@ -3659,9 +3915,24 @@ class _FakeChatVoiceBackgroundCoordinator implements VoiceBackgroundPort {
   }
 }
 
+class _IosVoiceModePlatform implements VoiceModePlatformPort {
+  const _IosVoiceModePlatform();
+
+  @override
+  bool get isIOS => true;
+  @override
+  bool get isAndroid => false;
+  @override
+  Future<void> requestCallRoutingPermission() async {}
+}
+
 class _FakeChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   int listeningCalls = 0;
   int speakingCalls = 0;
+
+  /// The speaking passes that asked for voice chat, which [speakingCalls]
+  /// counts too.
+  int bargeInSpeakingCalls = 0;
   int deactivateCalls = 0;
   int defaultRouteCalls = 0;
   bool throwOnDeactivate = false;
@@ -3720,6 +3991,7 @@ class _FakeChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
   @override
   Future<void> configureForBargeInSpeaking() async {
     speakingCalls += 1;
+    bargeInSpeakingCalls += 1;
   }
 
   @override
@@ -3825,6 +4097,83 @@ class _VoiceSocketTestController extends Notifier<SocketService?> {
 ChatMessage _lastAssistant(ProviderContainer container) => container
     .read(chatMessagesProvider)
     .lastWhere((message) => message.role == 'assistant');
+
+/// A barge-in call on the reviewer model whose first reply has finished
+/// streaming. Playback is left to the test.
+Future<_BargeInCall> _startBargeInCall() async {
+  final input = _FakeVoiceInputService()..nativeLocalStt = true;
+  final tts = _FakeTextToSpeechService()..holdCompletion = true;
+  late final _BargeInCall call;
+  final container = ProviderContainer(
+    overrides: [
+      ...openWebUiStorageOpenOverrides(),
+      authNavigationStateProvider.overrideWithValue(
+        AuthNavigationState.authenticated,
+      ),
+      selectedModelProvider.overrideWithValue(_model),
+      appSettingsProvider.overrideWithValue(
+        const AppSettings(voiceBargeInEnabled: true),
+      ),
+      reviewerModeProvider.overrideWithValue(true),
+      voiceModeInputProvider.overrideWithValue(input),
+      voiceModeSpeechProvider.overrideWithValue(tts),
+      stopGenerationProvider.overrideWithValue(() {
+        call.stopGenerationCalls += 1;
+      }),
+      voiceCallKitProvider.overrideWithValue(_UnavailableCallKitService()),
+      chatVoiceModeBackgroundCoordinatorProvider.overrideWithValue(
+        _FakeChatVoiceBackgroundCoordinator(),
+      ),
+      voiceAudioSessionProvider.overrideWithValue(
+        _FakeChatVoiceAudioSessionCoordinator(),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+  call = _BargeInCall(container, input, tts);
+
+  await call.controller.start(startNewConversation: false);
+  await input.completeCurrent('first assistant turn', close: false);
+  await _until(() => tts.finishedTexts.isNotEmpty);
+  return call;
+}
+
+final class _BargeInCall {
+  _BargeInCall(this.container, this.input, this.tts);
+
+  final ProviderContainer container;
+  final _FakeVoiceInputService input;
+  final _FakeTextToSpeechService tts;
+  int stopGenerationCalls = 0;
+
+  ChatVoiceModeController get controller =>
+      container.read(chatVoiceModeControllerProvider.notifier);
+
+  ChatVoiceModeSnapshot get state =>
+      container.read(chatVoiceModeControllerProvider);
+
+  List<String> get userMessages => container
+      .read(chatMessagesProvider)
+      .where((message) => message.role == 'user')
+      .map((message) => message.content)
+      .toList();
+
+  /// The reply's sentences, as speech plays them.
+  List<String> get replyChunks =>
+      tts.splitTextForSpeech(state.assistantPreview);
+}
+
+/// [text]'s words as a recognizer writes them: lower case, no punctuation.
+List<String> _words(String text) =>
+    RegExp(r"[\w']+")
+        .allMatches(text.toLowerCase())
+        .map((match) => match[0]!)
+        .toList();
+
+bool _endsWith(List<String> words, List<String> tail) =>
+    words.length >= tail.length &&
+    Iterable<int>.generate(tail.length)
+        .every((i) => words[words.length - tail.length + i] == tail[i]);
 
 Future<void> _until(bool Function() condition) async {
   for (var i = 0; i < 300; i++) {

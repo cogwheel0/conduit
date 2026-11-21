@@ -553,12 +553,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
     // in or pulled out during the scan above arrives as the first event and
     // corrects this snapshot.
     _watchAudioDevices();
-    if (attached != false) {
-      // A failed scan says nothing about what is plugged in, and playing an
-      // answer out of the loudspeaker over someone's headset is worse than
-      // leaving the route alone.
-      return;
-    }
+    // A failed scan starts on the loudspeaker too: a call on the earpiece is
+    // one nobody holding the phone out can hear (#912), and the device watch
+    // above moves the call to a headset it finds.
+    if (attached == true) return;
     _speakerphoneEnabled = true;
     _defaultRouteAwaitingConfirmation = true;
   }
@@ -1189,6 +1187,43 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
       _previousAndroidSpeakerphone ??= owner._previousAndroidSpeakerphone;
     }
     _androidRouteOwner = this;
+    _androidTelecomCallChannel.setMethodCallHandler(_handleAndroidTelecomCall);
+  }
+
+  Future<Object?> _handleAndroidTelecomCall(MethodCall call) async {
+    if (call.method != 'routeLanded') {
+      throw MissingPluginException('Unknown Telecom call callback');
+    }
+    final arguments = call.arguments;
+    final callId = _androidCallKitCallId;
+    if (arguments is! Map || callId == null || arguments['callId'] != callId) {
+      return null;
+    }
+    final loudspeaker = arguments['loudspeaker'];
+    if (loudspeaker is bool) await _adoptLandedAndroidRoute(loudspeaker);
+    return null;
+  }
+
+  /// Takes on a route the Telecom bridge's hold reached after it had answered.
+  ///
+  /// The answer said the call was elsewhere, so the button shows that route,
+  /// and a refused default or press was put back to it, which the next pass
+  /// would ask Telecom for (#1064). The route is read again in the queue: a
+  /// pass that ran since may have moved the call on, and that pass has
+  /// reported its own route.
+  Future<void> _adoptLandedAndroidRoute(bool loudspeaker) {
+    final generation = _callGeneration;
+    return _serializeRouteChange(() async {
+      if (_routeChangesStopped || generation != _callGeneration) return;
+      final current = await _readLoudspeakerRoute(phase: 'telecom-landed');
+      if (current != loudspeaker ||
+          _routeChangesStopped ||
+          generation != _callGeneration) {
+        return;
+      }
+      _speakerphoneEnabled = loudspeaker;
+      _publishRoute(loudspeaker);
+    });
   }
 
   Future<void> _restoreAndroidVoiceRoute() async {
@@ -1243,7 +1278,10 @@ class ChatVoiceAudioSessionCoordinator implements VoiceAudioSessionPort {
         );
       }
     } finally {
-      if (ownsRoute()) _androidRouteOwner = null;
+      if (ownsRoute()) {
+        _androidRouteOwner = null;
+        _androidTelecomCallChannel.setMethodCallHandler(null);
+      }
       _previousAndroidMode = null;
       _previousAndroidSpeakerphone = null;
     }

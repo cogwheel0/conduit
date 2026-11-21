@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+group = "com.example.flutter_callkit_incoming"
+version = "1.0-SNAPSHOT"
+
+android {
+    namespace "com.hiennv.flutter_callkit_incoming"
+    compileSdk = 35
+
+    defaultConfig {
+        minSdk = 16
+        targetSdk = 35
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+dependencies {
+
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'de.hdodenhof:circleimageview:3.1.0'
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.11.1'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.11.1'
+    //noinspection GradleDependency
+    implementation "io.coil-kt:coil:1.4.0"
+}

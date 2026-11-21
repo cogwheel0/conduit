@@ -3,16 +3,23 @@ package app.cogwheel.conduit
 import android.content.Intent
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.AudioEffect
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.speech.RecognitionService
 import android.speech.RecognitionSupport
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.system.ErrnoException
+import android.system.OsConstants
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.time.Duration
 import java.util.Locale
+import java.util.concurrent.Semaphore
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +34,9 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowAudioEffect
+import org.robolectric.shadows.ShadowAudioRecord
+import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadows.ShadowSpeechRecognizer
 
@@ -36,6 +46,9 @@ class NativeSttBridgeTest {
     private lateinit var bridge: NativeSttBridge
     private lateinit var previousLocale: Locale
     private val events = mutableListOf<Map<*, *>>()
+    private var pipeFactory: () -> NativePcmPipe = { NativePcmPipe.create() }
+    private val pipes = mutableListOf<NativePcmPipe>()
+    private var gate: ChunkGate? = null
 
     @Before
     fun setUp() {
@@ -50,7 +63,9 @@ class NativeSttBridgeTest {
                 }
             }
         )
-        bridge = NativeSttBridge(Robolectric.buildActivity(MainActivity::class.java).get())
+        bridge = NativeSttBridge(Robolectric.buildActivity(MainActivity::class.java).get()) {
+            pipeFactory().also(pipes::add)
+        }
         bridge.onListen(null, object : EventChannel.EventSink {
             override fun success(event: Any?) { events.add(event as Map<*, *>) }
             override fun error(code: String, message: String?, details: Any?) {
@@ -62,8 +77,11 @@ class NativeSttBridgeTest {
 
     @After
     fun tearDown() {
+        // A held microphone read would keep the source from stopping.
+        gate?.open()
         bridge.dispose()
         ShadowLooper.idleMainLooper()
+        ShadowAudioRecord.clearSource()
         Locale.setDefault(previousLocale)
     }
 
@@ -163,11 +181,151 @@ class NativeSttBridgeTest {
         assertFalse(events.any { it["type"] == "error" })
     }
 
-    private fun start(localeId: String?, support: RecognitionSupport? = null): SpeechRecognizer {
+    @Test
+    @Config(sdk = [33])
+    fun aCallFeedsTheRecognizerItsOwnMicrophone() {
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start("en-US", inCall = true))
+
+        // The platform recognizer's own microphone has no echo canceller, so
+        // on the loudspeaker it hears the assistant and barges in on it (#900).
+        assertTrue(shadow.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+        // Nothing asked to keep the audio, so none of it goes to Dart.
+        ShadowLooper.idleMainLooper()
+        assertFalse(events.any { it["type"] == "audio" })
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun aCallRecognizerThatLeavesItsAudioUnreadListensThroughItsOwnMicrophone() {
+        // Android lets a recognition service ignore EXTRA_AUDIO_SOURCE and
+        // open its own microphone, so nothing reads the call's pipe.
+        val unread = UnreadPipe(capacity = 4 * CHUNK_BYTES)
+        pipeFactory = { unread }
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start("en-US", inCall = true))
+        assertTrue(shadow.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+
+        // The call stops feeding the pipe instead of failing recognition.
+        idleUntil { unread.outputClosed }
+        assertFalse(events.any { it["type"] == "error" || it["type"] == "done" })
+        assertTrue(FELL_BACK in bridgeLogs())
+
+        // The next request, after this utterance, opens the recognizer's own
+        // microphone, and the call carries on.
+        shadow.triggerOnResults(recognized("hello there"))
+        ShadowLooper.getShadowMainLooper().idleFor(Duration.ofMillis(250))
+        assertFalse(shadow.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+        assertEquals("hello there", events.last { it["type"] == "result" }["text"])
+        assertFalse(events.any { it["type"] == "error" || it["type"] == "done" })
+
+        // A later call goes straight to the recognizer's microphone.
+        val next = Shadow.extract<ShadowSpeechRecognizer>(start("en-US", inCall = true))
+        assertFalse(next.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+        assertEquals(1, pipes.size)
+        assertTrue("Call microphone: the recognizer's own, since it left the call microphone unread" in bridgeLogs())
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun aCallRecognizerThatPausesBetweenUtterancesKeepsTheCallMicrophone() {
+        val gate = ChunkGate().also { source -> gate = source; ShadowAudioRecord.setSourceProvider { source } }
+        val unread = UnreadPipe(capacity = 4 * CHUNK_BYTES)
+        pipeFactory = { unread }
+        val shadow = Shadow.extract<ShadowSpeechRecognizer>(start("en-US", inCall = true))
+
+        // The recognizer stops reading at its endpoint. The pipe fills, and
+        // all but the last chunk of the unread allowance is dropped.
+        val gap = 4 + NativeDictationAudioSource.UNREAD_LIMIT_BYTES / CHUNK_BYTES - 1
+        gate.release(gap)
+        idleUntil { unread.writes == gap }
+        shadow.triggerOnResults(recognized("first answer"))
+        ShadowLooper.getShadowMainLooper().idleFor(Duration.ofMillis(250))
+
+        // Its next request reads the backlog, then pauses as long again.
+        unread.read()
+        gate.release(gap)
+        idleUntil { unread.writes == 2 * gap }
+
+        // The fallback logs on the main thread as soon as it is reported.
+        assertFalse(FELL_BACK in bridgeLogs())
+        assertTrue(shadow.lastRecognizerIntent.hasExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE))
+        assertFalse(events.any { it["type"] == "error" || it["type"] == "done" })
+    }
+
+    @Test
+    @Config(sdk = [33])
+    fun dictationThatKeepsItsRecordingStillFailsWhenTheRecognizerStopsReading() {
+        // Recovery needs every chunk, so a stalled recognizer is reported.
+        val unread = UnreadPipe(capacity = 4 * CHUNK_BYTES)
+        pipeFactory = { unread }
+        start("en-US", emitAudio = true)
+
+        idleUntil { events.any { it["type"] == "error" } }
+        assertEquals("AUDIO_PRESERVATION_FAILED", events.single { it["type"] == "error" }["code"])
+    }
+
+    // Robolectric only tracks audio effects up to Android 10.
+    @Test
+    @Config(sdk = [29])
+    fun aCallRecordsThroughTheEchoCanceller() = runBlocking {
+        ShadowAudioEffect.addEffect(
+            AudioEffect.Descriptor(
+                AudioEffect.EFFECT_TYPE_AEC.toString(),
+                "00000000-0000-0000-0000-00000000ec00",
+                AudioEffect.EFFECT_INSERT,
+                "Echo canceller",
+                "Test",
+            )
+        )
+
+        val call = NativeDictationAudioSource.create(voiceCall = true, onAudio = null, onFailure = {})
+        val effect = ShadowAudioEffect.getAudioEffects().single()
+        assertTrue(effect is AcousticEchoCanceler && effect.enabled)
+        call.stop()
+        call.closeDescriptor()
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+
+        val dictation = NativeDictationAudioSource.create(voiceCall = false, onAudio = null, onFailure = {})
+        assertTrue(ShadowAudioEffect.getAudioEffects().isEmpty())
+        dictation.stop()
+        dictation.closeDescriptor()
+
+        // A device report says whether the call got the echo canceller.
+        assertEquals(
+            listOf("Call microphone: VOICE_COMMUNICATION, echo canceller enabled"),
+            callMicrophoneLogs(),
+        )
+    }
+
+    @Test
+    @Config(sdk = [29])
+    fun aCallOnAPhoneWithoutAnEchoCancellerLogsIt() = runBlocking {
+        val call = NativeDictationAudioSource.create(voiceCall = true, onAudio = null, onFailure = {})
+        call.stop()
+        call.closeDescriptor()
+
+        assertEquals(
+            listOf("Call microphone: VOICE_COMMUNICATION, no echo canceller on this device"),
+            callMicrophoneLogs(),
+        )
+    }
+
+    private fun bridgeLogs() = ShadowLog.getLogsForTag("NativeSttBridge").map { it.msg }
+
+    private fun callMicrophoneLogs() =
+        ShadowLog.getLogsForTag("NativeDictationAudio").map { it.msg }.filter { it.startsWith("Call microphone") }
+
+    private fun start(
+        localeId: String?,
+        support: RecognitionSupport? = null,
+        inCall: Boolean = false,
+        emitAudio: Boolean = false,
+    ): SpeechRecognizer {
         val result = IgnoreResult()
         bridge.onMethodCall(MethodCall("start", mapOf(
             "localeId" to localeId,
-            "allowOnlineFallback" to false
+            "allowOnlineFallback" to false,
+            "preserveAudioSession" to inCall,
+            "emitAudio" to emitAudio,
         )), result)
         // Startup briefly crosses Dispatchers.IO before binding the system
         // recognizer. Drain the main looper until that callback returns.
@@ -220,6 +378,77 @@ class NativeSttBridgeTest {
             putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("four tiles"))
         })
         assertEquals("four tiles", events.last { it["type"] == "result" }["text"])
+    }
+
+    /** Drains the main looper while background capture catches up. */
+    private fun idleUntil(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+        while (!condition() && System.nanoTime() < deadline) {
+            ShadowLooper.idleMainLooper()
+            Thread.sleep(1)
+        }
+        ShadowLooper.idleMainLooper()
+        assertTrue("Timed out waiting for capture", condition())
+    }
+
+    private fun recognized(text: String) = Bundle().apply {
+        putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(text))
+    }
+
+    /** Hands the recorder one chunk per permit. */
+    private class ChunkGate : ShadowAudioRecord.AudioRecordSource {
+        private val permits = Semaphore(0)
+        private var opened = false
+
+        fun release(chunks: Int) = permits.release(chunks)
+
+        @Synchronized
+        fun open() {
+            if (!opened) permits.release(Int.MAX_VALUE / 2)
+            opened = true
+        }
+
+        override fun readInByteArray(
+            audioData: ByteArray,
+            offsetInBytes: Int,
+            sizeInBytes: Int,
+            isBlocking: Boolean,
+        ): Int {
+            permits.acquireUninterruptibly()
+            return sizeInBytes
+        }
+    }
+
+    /** A recognizer's pipe that holds [capacity] bytes and is read only on [read]. */
+    private class UnreadPipe(private val capacity: Int) : NativePcmPipe {
+        private val pipe = ParcelFileDescriptor.createPipe()
+        override val input: ParcelFileDescriptor = pipe[0]
+        private var queued = 0
+        @Volatile var writes = 0
+            private set
+        @Volatile var outputClosed = false
+            private set
+
+        @Synchronized
+        override fun write(bytes: ByteArray, offset: Int, count: Int): Int {
+            writes += 1
+            if (queued + count > capacity) throw ErrnoException("write", OsConstants.EAGAIN)
+            queued += count
+            return count
+        }
+
+        @Synchronized
+        fun read() { queued = 0 }
+
+        override fun closeOutput() {
+            outputClosed = true
+            runCatching { pipe[1].close() }
+        }
+    }
+
+    private companion object {
+        const val CHUNK_BYTES = 640 // 20 ms of mono PCM16 at 16 kHz.
+        const val FELL_BACK = "Call microphone: the recognizer left it unread, so it listens through its own"
     }
 
     private class RecordingResult : MethodChannel.Result {

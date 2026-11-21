@@ -37,7 +37,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.isActive
 
-class NativeSttBridge(private val activity: MainActivity) : MethodChannel.MethodCallHandler,
+class NativeSttBridge internal constructor(
+    private val activity: MainActivity,
+    // Tests supply a pipe whose recognizer never reads.
+    private val createPcmPipe: () -> NativePcmPipe = { NativePcmPipe.create() },
+) : MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var eventSink: EventChannel.EventSink? = null
@@ -59,6 +63,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pcmSource: NativeDictationAudioSource? = null
     private var pcmGeneration: Int? = null
+    // Platform recognizers, by whether they run on the device, that left a
+    // call's microphone unread. They listen through their own from then on.
+    private val platformRecognizersIgnoringAudio = mutableSetOf<Boolean>()
     private var pendingStarts = 0
     private var recordingTranscriptionId: String? = null
     @Volatile
@@ -97,6 +104,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 val accumulateResults = call.argument<Boolean>("accumulateResults") ?: true
                 val allowOnlineFallback = call.argument<Boolean>("allowOnlineFallback") ?: true
                 val emitAudio = call.argument<Boolean>("emitAudio") ?: false
+                // Dart preserves the session for a voice call, whose
+                // coordinator owns the audio mode and route.
+                val voiceCall = call.argument<Boolean>("preserveAudioSession") ?: false
                 scope.launch {
                     pendingStarts += 1
                     try { start(
@@ -105,6 +115,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                         accumulateResults,
                         allowOnlineFallback,
                         emitAudio,
+                        voiceCall,
                         result
                     ) } finally { pendingStarts -= 1 }
                 }
@@ -224,8 +235,14 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         accumulateResults: Boolean,
         allowOnlineFallback: Boolean,
         emitAudio: Boolean,
+        voiceCall: Boolean,
         result: MethodChannel.Result
     ) {
+        // A call listens through its own echo-cancelled microphone, which
+        // recognizers only take as an input from Android 13 (ML Kit, which
+        // needs Android 12, always takes it). A call that keeps no recording
+        // lets the recognizer leave that audio unread.
+        val ownMicrophone = emitAudio || voiceCall
         val generation = recognitionGeneration + 1
         recognitionGeneration = generation
         stopInternal(emitDone = false, awaitCompletion = false)
@@ -258,8 +275,18 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         if (prepared == null) {
             if (platformRecognizerAvailable(allowOnlineFallback)) {
                 try {
-                    if (emitAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        val source = createPcmSource(generation)
+                    val onDevice = usesSystemOnDeviceRecognizer(allowOnlineFallback)
+                    val ignoresAudio = onDevice in platformRecognizersIgnoringAudio
+                    val takesAudio = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    if (takesAudio && (emitAudio || (voiceCall && !ignoresAudio))) {
+                        val source = createPcmSource(
+                            generation,
+                            voiceCall,
+                            emitAudio,
+                            onUnread = if (emitAudio) null else {
+                                { platformRecognizerLeftAudioUnread(generation, onDevice) }
+                            },
+                        )
                         if (!isCurrentGeneration(generation)) {
                             source.stop()
                             source.closeDescriptor()
@@ -268,6 +295,15 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                         }
                         pcmSource = source
                         pcmGeneration = generation
+                    } else if (voiceCall) {
+                        Log.i(
+                            TAG,
+                            if (takesAudio) {
+                                "Call microphone: the recognizer's own, since it left the call microphone unread"
+                            } else {
+                                "Call microphone: the recognizer's own, which takes no audio input before Android 13"
+                            },
+                        )
                     }
                     startPlatformRecognizer(
                         localeId,
@@ -282,7 +318,9 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                     } else {
                         "android_speech"
                     }
-                    result.success(available(engineName) + ("audioRecoverySupported" to (pcmSource != null)))
+                    result.success(
+                        available(engineName) + ("audioRecoverySupported" to (emitAudio && pcmSource != null))
+                    )
                 } catch (error: Throwable) {
                     retirePcmSource(pcmSource)
                     Log.w(TAG, "Android speech recognition startup failed", error)
@@ -301,7 +339,20 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
 
         val (recognizer, engineName) = prepared
         val source = try {
-            if (emitAudio) createPcmSource(generation) else null
+            if (ownMicrophone) {
+                createPcmSource(
+                    generation,
+                    voiceCall,
+                    emitAudio,
+                    // ML Kit reads its input in this process, so a gap is
+                    // only a pause: audio is dropped until it reads again.
+                    onUnread = if (emitAudio) null else {
+                        { Log.w(TAG, "ML Kit left the call microphone unread for a second; dropping audio until it reads") }
+                    },
+                )
+            } else {
+                null
+            }
         } catch (error: Exception) {
             recognizer.close()
             result.success(unavailable("Unable to preserve microphone audio"))
@@ -372,7 +423,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 }
             }
         }
-        result.success(available(engineName) + ("audioRecoverySupported" to (source != null)))
+        result.success(available(engineName) + ("audioRecoverySupported" to (emitAudio && source != null)))
     }
 
     /** Prefers advanced recognition; only a current generation receives ownership. */
@@ -1030,12 +1081,20 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
     }
 
     /** Allocates off-main, gates delivery by generation, and retires cancelled allocations. */
-    private suspend fun createPcmSource(generation: Int): NativeDictationAudioSource {
+    private suspend fun createPcmSource(
+        generation: Int,
+        voiceCall: Boolean,
+        emitAudio: Boolean,
+        onUnread: (() -> Unit)?,
+    ): NativeDictationAudioSource {
         var allocated: NativeDictationAudioSource? = null
         try {
             return withContext(Dispatchers.IO) {
                 NativeDictationAudioSource.create(
-                    onAudio = { bytes ->
+                    voiceCall = voiceCall,
+                    onUnread = onUnread,
+                    createPipe = createPcmPipe,
+                    onAudio = if (!emitAudio) null else { bytes ->
                         mainHandler.post {
                             if (pcmGeneration == generation) {
                                 eventSink?.success(mapOf("type" to "audio", "pcm" to bytes))
@@ -1061,6 +1120,27 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
                 allocated?.closeDescriptor()
             }
             throw error
+        }
+    }
+
+    /**
+     * Android lets a recognition service ignore EXTRA_AUDIO_SOURCE and open
+     * its own microphone. When a call's pipe goes unread, the call stops
+     * recording: the request already running keeps the service's own
+     * microphone, every later request asks for it, and so does every later
+     * call to this kind of recognizer.
+     */
+    private fun platformRecognizerLeftAudioUnread(generation: Int, onDevice: Boolean) {
+        scope.launch {
+            val source = pcmSource
+            if (source == null || pcmGeneration != generation) return@launch
+            platformRecognizersIgnoringAudio += onDevice
+            Log.w(TAG, "Call microphone: the recognizer left it unread, so it listens through its own")
+            // The next request asks for the recognizer's own microphone even
+            // if it starts before the recorder has stopped.
+            pcmSource = null
+            pcmGeneration = null
+            retirePcmSource(source)
         }
     }
 
