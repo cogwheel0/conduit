@@ -422,8 +422,9 @@ class FakeOpenWebUiServer {
   /// Mirrors `POST /api/tasks/chat/{id}/stop` (`main.py`,
   /// `stop_tasks_by_chat_id_endpoint`): each task running in [chatId] is
   /// stopped. With none running, each of the user's assistant messages
-  /// stored as not done is marked done, keeping the text it has stored, and
-  /// without moving the chat's `updated_at`.
+  /// stored as not done, on any branch, is marked done, keeping the text it
+  /// has stored, and without moving the chat's `updated_at`. A tool call it
+  /// waits on (`pending`, `queued` or `requires_approval`) is rejected.
   void stopTasksByChat(String chatId) {
     chatStops.add(chatId);
     final running = _tasks.remove(chatId);
@@ -440,6 +441,18 @@ class FakeOpenWebUiServer {
         continue;
       }
       message['done'] = true;
+      for (final item in [...?(message['output'] as List?)]) {
+        if (item is Map &&
+            item['type'] == 'function_call' &&
+            const {
+              'pending',
+              'queued',
+              'requires_approval',
+            }.contains(item['status'])) {
+          item['status'] = 'rejected';
+          item.remove('approved');
+        }
+      }
     }
   }
 

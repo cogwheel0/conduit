@@ -12343,9 +12343,7 @@ void main() {
       api
         ..stopFailure = null
         // The server is back, and its copy of the chat can be read.
-        ..serverCopy = parseFullConversationModel(
-          client.server.getChatById(serverId)!,
-        );
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
 
@@ -12390,9 +12388,7 @@ void main() {
       api
         ..stopFailure = null
         // The server is back, and its copy of the chat can be read.
-        ..serverCopy = parseFullConversationModel(
-          client.server.getChatById(serverId)!,
-        );
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       check(await container.read(stopOpenWebUiMainResponseProvider)()).isTrue();
 
@@ -12422,9 +12418,7 @@ void main() {
       api
         ..stopFailure = null
         // The server is back, and its copy of the chat can be read.
-        ..serverCopy = parseFullConversationModel(
-          client.server.getChatById(serverId)!,
-        );
+        ..serverChat = client.server.getChatById(serverId);
       holdPushes(client);
       final cancellation = container
           .read(chatMessagesProvider.notifier)
@@ -14996,6 +14990,19 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     onChatStopped?.call(chatId);
   }
 
+  // A Stop asked again goes by the raw routes, bound to its session.
+  @override
+  Future<void> stopChatTasksRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => stopTasksByChat(chatId);
+
+  @override
+  Future<List<String>> getChatTaskIdsRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) => getTaskIdsByChat(chatId);
+
   @override
   Future<MoaCompletion> generateMoaCompletion({
     required String model,
@@ -15034,6 +15041,15 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async => serverCopy ?? (throw StateError('offline'));
+
+  /// The server's stored chat, every branch of it, once it can be read.
+  Map<String, dynamic>? serverChat;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => serverChat ?? (throw StateError('offline'));
 
   @override
   Future<ChatCompletionSession> sendMessageSession({

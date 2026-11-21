@@ -93,8 +93,9 @@ ChatMessage? _trailingStreamingAssistant(
 
 /// The task ids of this account's answers still running at the end of
 /// [messages]: the ones a Stop ends, and whether those are all of them. An
-/// answer with no task id of its own, or one this account runs only among
-/// another answer's versions ([versionsOf]), leaves them unknown.
+/// answer with no task id of its own, or another unfinished answer of this
+/// account's beside one ([versionsOf], which may list the answer itself),
+/// leaves them unknown.
 ({Set<String> ids, bool known}) _tasksOfRunningAnswers(
   List<ChatMessage> messages,
   String? userId,
@@ -104,7 +105,7 @@ ChatMessage? _trailingStreamingAssistant(
   var known = true;
   for (final message in messages.reversed) {
     if (message.role != 'assistant') break;
-    if (versionsOf(message.id).isNotEmpty) known = false;
+    if (versionsOf(message.id).any((id) => id != message.id)) known = false;
     if (!message.isStreaming || !message.isWrittenBy(userId)) continue;
     final taskId = message.metadata?['taskId'];
     if (taskId is String && taskId.isNotEmpty) {
@@ -122,48 +123,37 @@ ChatMessage? _trailingStreamingAssistant(
 /// chat, and with none running finishes the account's unfinished answers,
 /// rejecting a tool call one waits on. Another device may answer there by
 /// now, so it is asked only while nothing but [own] runs, and with nothing
-/// running, while no answer of [userId]'s waits for a tool's approval.
+/// running, while no answer of [userId]'s waits for a tool's approval on any
+/// branch of the chat as the server stores it.
 /// With [own] gone and another's task running, nothing is left to stop, and
 /// the answers' stored update finishes them once the chat runs no task.
 /// Otherwise it stays owed.
+///
+/// Every request goes as the session the ask starts under, the one that owes
+/// the Stop: once another has replaced it, none is sent, and the Stop stays
+/// owed.
 Future<bool> _askStopAgain(
   ApiService api,
   String chatId,
   ({Set<String> ids, bool known}) own,
   String? userId,
 ) async {
-  final running = await api.getTaskIdsByChat(chatId);
-  if (running.isEmpty) {
-    if (await _answerWaitsForPrompt(api, chatId, userId)) return false;
-    await api.stopTasksByChat(chatId);
+  final session = api.captureAuthSnapshot();
+  Future<bool> stopChat() async {
+    if (!api.authSnapshotIsCurrent(session)) return false;
+    await api.stopChatTasksRaw(chatId, authSnapshot: session);
     return true;
+  }
+
+  final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
+  if (running.isEmpty) {
+    final chat = await api.getChatRaw(chatId, authSnapshot: session);
+    if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+    return stopChat();
   }
   if (!own.known) return false;
-  if (running.every(own.ids.contains)) {
-    await api.stopTasksByChat(chatId);
-    return true;
-  }
+  if (running.every(own.ids.contains)) return stopChat();
   return !running.any(own.ids.contains);
-}
-
-/// Whether the server holds an answer of [userId]'s in [chatId] unfinished
-/// while it waits for a tool's approval or an answer, as the chat takes it.
-/// An answer that names no author is the chat owner's.
-Future<bool> _answerWaitsForPrompt(
-  ApiService api,
-  String chatId,
-  String? userId,
-) async {
-  final chat = await api.getConversation(chatId);
-  return findPendingOpenWebUiToolPrompt([
-        for (final message in chat.messages)
-          if (message.role == 'assistant' &&
-              ChatMessagesNotifier._serverReportsRunning(message) &&
-              (userId == null ||
-                  (message.authorUserId ?? chat.userId ?? userId) == userId))
-            message,
-      ]) !=
-      null;
 }
 
 // Stop generation provider

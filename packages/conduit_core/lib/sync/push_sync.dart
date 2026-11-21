@@ -13,9 +13,8 @@ import 'package:conduit_core/models/chat_comparison.dart'
         kCompletionHeldMetadataKey,
         kSettledHereMetadataKey,
         kStoppedHereMetadataKey;
-import 'package:conduit_core/models/chat_message.dart' show ChatMessage;
 import 'package:conduit_core/models/openwebui_chat_prompt.dart'
-    show findPendingOpenWebUiToolPrompt;
+    show openWebUiChatStopRejectsPrompt;
 import 'package:conduit_core/services/answer_copies.dart'
     show storedAnswerHoldsMoreThan;
 
@@ -1197,16 +1196,15 @@ final class _ChatStop {
   /// again.
   Future<_StopOutcome> ask(Map<String, dynamic>? chat) =>
       _outcome ??= () async {
-        // The stop finishes only the account's answers: another person's
-        // waiting answer is left as it is, so it holds nothing back. Who the
-        // session is is asked only when some answer waits.
-        if (_waitingAnswers(chat).isNotEmpty) {
-          final userId = await _client.sessionUserId();
-          final owner = chat?['user_id'];
-          if (_waitingAnswers(chat)
-              .any((author) => userId == null || (author ?? owner) == userId)) {
-            return _StopOutcome.promptWaits;
-          }
+        // Another person's waiting answer is left as it is, so it holds
+        // nothing back. Who the session is is asked only when some answer
+        // waits.
+        if (openWebUiChatStopRejectsPrompt(chat) &&
+            openWebUiChatStopRejectsPrompt(
+              chat,
+              userId: await _client.sessionUserId(),
+            )) {
+          return _StopOutcome.promptWaits;
         }
         final List<String> running;
         try {
@@ -1219,34 +1217,6 @@ final class _ChatStop {
         onTaken();
         return _StopOutcome.taken;
       }();
-
-  /// The authors (null where an answer names none) of the answers in [chat]
-  /// the server holds as not done that wait for a tool's approval or an
-  /// answer, as the chat takes it ([findPendingOpenWebUiToolPrompt]): those
-  /// the stop would finish, rejecting the call.
-  static List<Object?> _waitingAnswers(Map<String, dynamic>? chat) {
-    final blob = chat?['chat'];
-    final history = blob is Map ? blob['history'] : null;
-    final messages = history is Map ? history['messages'] : null;
-    if (messages is! Map) return const [];
-    return [
-      for (final message in messages.values)
-        if (message is Map &&
-            message['role'] == 'assistant' &&
-            message['done'] == false &&
-            findPendingOpenWebUiToolPrompt([
-                  ChatMessage(
-                    id: '${message['id']}',
-                    role: 'assistant',
-                    content: '${message['content'] ?? ''}',
-                    timestamp: DateTime.fromMillisecondsSinceEpoch(0),
-                    output: _outputItems(message['output']),
-                  ),
-                ]) !=
-                null)
-          message['user_id'],
-    ];
-  }
 }
 
 /// A push whose answers the server still holds unfinished until the chat's
@@ -1287,10 +1257,8 @@ class _CreatePush {
   final List<String> capturedMessageIds;
 }
 
-List<Map<String, dynamic>>? _outputOf(MessageRowData message) =>
-    _outputItems(message.payload['output']);
-
-List<Map<String, dynamic>>? _outputItems(Object? output) {
+List<Map<String, dynamic>>? _outputOf(MessageRowData message) {
+  final output = message.payload['output'];
   return output is List
       ? <Map<String, dynamic>>[
           for (final item in output)

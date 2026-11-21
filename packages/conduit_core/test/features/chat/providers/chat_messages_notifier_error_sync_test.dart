@@ -12,7 +12,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart' show OutboxKind;
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kMessageServerUnfinishedMetadataKey, kStoppedHereMetadataKey;
+    show
+        kMessageServerUnfinishedMetadataKey,
+        kMessageUnfinishedAnswersMetadataKey,
+        kStoppedHereMetadataKey;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -131,7 +134,39 @@ class _FakeApiService extends ApiService {
     }
     final held = holdRead;
     if (held != null) await held.future;
-    return conversation;
+    final stored = server?.getChatById(id);
+    return stored == null ? conversation : parseFullConversationModel(stored);
+  }
+
+  /// Once set, the server's store: the chat it reads, whole or along its
+  /// selected branch, and the one its stop finishes.
+  FakeOpenWebUiServer? server;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    _send(authSnapshot);
+    return server?.getChatById(id) ??
+        <String, dynamic>{
+          'id': id,
+          'chat': <String, dynamic>{
+            'history': <String, dynamic>{'messages': <String, dynamic>{}},
+          },
+        };
+  }
+
+  /// The session each read of the chat or its tasks, and each stop, went out
+  /// as. One bound to a session replaced since never goes, as the client's
+  /// interceptor turns it away.
+  final List<String?> sentAs = <String?>[];
+
+  void _send(ApiAuthSnapshot? authSnapshot) {
+    if (authSnapshot != null && !authSnapshotIsCurrent(authSnapshot)) {
+      throw StateError('the session was replaced');
+    }
+    sentAs.add(authToken);
   }
 
   /// Reads of the chat that fail before one answers.
@@ -141,11 +176,24 @@ class _FakeApiService extends ApiService {
   Completer<void>? holdRead;
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async {
+  Future<List<String>> getTaskIdsByChat(String chatId) =>
+      getChatTaskIdsRaw(chatId);
+
+  @override
+  Future<List<String>> getChatTaskIdsRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    _send(authSnapshot);
     taskLookups++;
     if (away) throw StateError('the server is away');
-    return taskIds;
+    final listed = taskIds;
+    afterTaskList?.call();
+    return listed;
   }
+
+  /// Runs once the task list is read.
+  void Function()? afterTaskList;
 
   /// While set, the task list cannot be read, as while the server is away.
   bool away = false;
@@ -158,9 +206,17 @@ class _FakeApiService extends ApiService {
   final List<String> stoppedTasks = <String>[];
 
   @override
-  Future<void> stopTasksByChat(String chatId) async {
+  Future<void> stopTasksByChat(String chatId) => stopChatTasksRaw(chatId);
+
+  @override
+  Future<void> stopChatTasksRaw(
+    String chatId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    _send(authSnapshot);
     chatStops++;
     if (stopsRefused) throw StateError('the stop was refused');
+    server?.stopTasksByChat(chatId);
   }
 
   @override
@@ -462,9 +518,15 @@ void main() {
       List<Map<String, dynamic>>? output,
       AppDatabase? database,
       bool withTaskId = true,
+      bool listedUnfinished = false,
+      User? user,
     }) {
       api.taskIds = ['task-1'];
-      final container = _openChatContainer(api: api, database: database);
+      final container = _openChatContainer(
+        api: api,
+        database: database,
+        user: user,
+      );
       final notifier = container.read(chatMessagesProvider.notifier);
       final db = container.read(appDatabaseProvider)!;
       final placeholder = _message(answerId, 'assistant', '').copyWith(
@@ -474,6 +536,9 @@ void main() {
           'transport': 'taskSocket',
           if (withTaskId) 'taskId': 'task-1',
           'taskConversationId': 'chat-1',
+          // As the server's copy lists it once the chat is read again.
+          if (listedUnfinished)
+            kMessageUnfinishedAnswersMetadataKey: [answerId],
         },
       );
       unawaited(() async {
@@ -1584,50 +1649,89 @@ void main() {
     // A Stop the server did not take is asked again as the next turn is
     // admitted. The chat's stop ends every task the account runs there, and
     // with none running it finishes the account's answers that are not done,
-    // rejecting a tool call one waits on. Only an administrator may stop a
-    // single task.
-    for (final (label, running, ownKnown, waits, admits, chatStops)
-        in <(String, List<String>, bool, bool, bool, int)>[
-          (
+    // on every branch, rejecting a tool call one waits on. Only an
+    // administrator may stop a single task.
+    ({
+      String label,
+      List<String> running,
+      bool withTaskId,
+      bool listedUnfinished,
+      ({bool shown, String? author})? waiting,
+      bool admits,
+      int chatStops,
+    })
+    reAsk(
+      String label, {
+      List<String> running = const <String>[],
+      bool withTaskId = true,
+      bool listedUnfinished = false,
+      ({bool shown, String? author})? waiting,
+      bool admits = false,
+      int chatStops = 0,
+    }) => (
+      label: label,
+      running: running,
+      withTaskId: withTaskId,
+      listedUnfinished: listedUnfinished,
+      waiting: waiting,
+      admits: admits,
+      chatStops: chatStops,
+    );
+
+    for (final (
+          :label,
+          :running,
+          :withTaskId,
+          :listedUnfinished,
+          :waiting,
+          :admits,
+          :chatStops,
+        )
+        in [
+          reAsk(
             'another device answers in the chat, stops nothing',
-            ['task-elsewhere'],
-            true,
-            false,
-            true,
-            0,
+            running: ['task-elsewhere'],
+            admits: true,
           ),
-          (
+          reAsk(
             'its own task still runs, stops the chat, which runs only that',
-            ['task-1'],
-            true,
-            false,
-            true,
-            1,
+            running: ['task-1'],
+            admits: true,
+            chatStops: 1,
           ),
-          (
+          reAsk(
+            'its own task still runs, the answer listed unfinished under its '
+            'own id, stops the chat',
+            running: ['task-1'],
+            listedUnfinished: true,
+            admits: true,
+            chatStops: 1,
+          ),
+          reAsk(
             'its own task and another device\'s run, stays owed',
-            ['task-1', 'task-elsewhere'],
-            true,
-            false,
-            false,
-            0,
+            running: ['task-1', 'task-elsewhere'],
           ),
-          (
+          reAsk(
             'nothing runs but an answer waits for a tool\'s approval, stays '
-                'owed',
-            <String>[],
-            true,
-            true,
-            false,
-            0,
+            'owed',
+            waiting: (shown: true, author: null),
           ),
-          (
+          reAsk(
+            'nothing runs but an answer the account paused on another device '
+            'waits for a tool\'s approval on a branch not shown, stays owed',
+            waiting: (shown: false, author: FakeOpenWebUiServer.userId),
+          ),
+          reAsk(
+            'nothing runs but another person\'s answer waits for a tool\'s '
+            'approval, stops the chat, which leaves theirs',
+            waiting: (shown: false, author: 'user-b'),
+            admits: true,
+            chatStops: 1,
+          ),
+          reAsk(
             'a task runs that cannot be told to be its own, stays owed',
-            ['task-elsewhere'],
-            false,
-            false,
-            false,
-            0,
+            running: ['task-elsewhere'],
+            withTaskId: false,
           ),
         ]) {
       test('a Stop asked again as a next turn is admitted, while $label', () {
@@ -1637,7 +1741,14 @@ void main() {
             async,
             api,
             'Gales veer',
-            withTaskId: ownKnown,
+            withTaskId: withTaskId,
+            listedUnfinished: listedUnfinished,
+            user: const User(
+              id: FakeOpenWebUiServer.userId,
+              username: 'avery',
+              email: 'avery@example.test',
+              role: 'user',
+            ),
           );
           api
             ..away = true
@@ -1647,27 +1758,65 @@ void main() {
           async.flushMicrotasks();
           final chatStopsBefore = api.chatStops;
 
+          // The server is back. The stopped answer finished there, and an
+          // answer beside it may wait for a tool's approval.
+          const waitingId = 'assistant-2';
+          final server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000)
+            ..seedChat(
+              id: 'chat-1',
+              createdAt: 1,
+              updatedAt: 1,
+              blob: <String, dynamic>{
+                'title': 'Test Chat',
+                'history': <String, dynamic>{
+                  'messages': <String, dynamic>{
+                    question.id: <String, dynamic>{
+                      'id': question.id,
+                      'parentId': null,
+                      'childrenIds': [answerId, if (waiting != null) waitingId],
+                      'role': 'user',
+                      'content': question.content,
+                    },
+                    answerId: <String, dynamic>{
+                      'id': answerId,
+                      'parentId': question.id,
+                      'childrenIds': <String>[],
+                      'role': 'assistant',
+                      'content': 'Gales veer',
+                      'done': true,
+                    },
+                    if (waiting != null)
+                      waitingId: <String, dynamic>{
+                        'id': waitingId,
+                        'parentId': question.id,
+                        'childrenIds': <String>[],
+                        'role': 'assistant',
+                        'content': '',
+                        'done': false,
+                        'user_id': ?waiting.author,
+                        'output': [
+                          <String, dynamic>{
+                            'type': 'function_call',
+                            'call_id': 'call-1',
+                            'name': 'trail_weather',
+                            'arguments': '{}',
+                            'status': 'requires_approval',
+                          },
+                        ],
+                      },
+                  },
+                  'currentId': waiting?.shown ?? false ? waitingId : answerId,
+                },
+              },
+            );
+          for (final task in running) {
+            server.runTask('chat-1', task);
+          }
           api
             ..away = false
             ..stopsRefused = false
             ..taskIds = running
-            ..conversation = _chat([
-              question,
-              _message(answerId, 'assistant', 'Gales veer'),
-              if (waits)
-                _message('assistant-2', 'assistant', '').copyWith(
-                  metadata: unfinished,
-                  output: [
-                    <String, dynamic>{
-                      'type': 'function_call',
-                      'call_id': 'call-1',
-                      'name': 'trail_weather',
-                      'arguments': '{}',
-                      'status': 'requires_approval',
-                    },
-                  ],
-                ),
-            ]);
+            ..server = server;
           bool? admitted;
           unawaited(
             container
@@ -1687,9 +1836,65 @@ void main() {
           check(admitted).equals(admits);
           check(api.chatStops - chatStopsBefore).equals(chatStops);
           check(api.stoppedTasks).isEmpty();
+          if (waiting != null) {
+            final stored =
+                ((server.getChatById('chat-1')!['chat'] as Map)['history']
+                        as Map)['messages'][waitingId]
+                    as Map;
+            check(stored['done']).equals(false);
+            check((stored['output'] as List).single['status'])
+                .equals('requires_approval');
+          }
         });
       });
     }
+
+    test('a Stop asked again while another account signs in sends nothing '
+        'as that account, and stays owed', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]))
+          ..updateAuthToken('session-a');
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        api
+          ..away = true
+          ..readFailures = 1
+          ..stopsRefused = true;
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+        final chatStopsBefore = api.chatStops;
+
+        // The server is back, the answer's task still running there. Another
+        // account signs in once the retry has read the chat's tasks.
+        api
+          ..away = false
+          ..stopsRefused = false
+          ..taskIds = ['task-1']
+          ..afterTaskList = () => api.updateAuthToken('session-b');
+        bool? admitted;
+        unawaited(
+          container
+              .read(chatMessagesProvider.notifier)
+              .settlePendingCancellation(
+                chatId: 'chat-1',
+                database: db,
+                api: api,
+                authSessionEpoch: container.read(
+                  openWebUiAuthSessionEpochProvider,
+                ),
+              )!
+              .then((ok) => admitted = ok),
+        );
+        async.flushMicrotasks();
+
+        check(api.sentAs).not((it) => it.contains('session-b'));
+        check(api.chatStops - chatStopsBefore).equals(0);
+        check(admitted).equals(false);
+      });
+    });
 
     test('a Stop the server did not take asks for a drain of its store once '
         'its answer is stored here', () {
