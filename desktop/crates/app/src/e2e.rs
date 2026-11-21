@@ -959,15 +959,26 @@ async fn owui(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 500).await;
     shoot_setup(dir, "onboarding-chooser", cx).await;
     let chooser = ax(setup, "onboarding-chooser", dir, cx).await;
-    // As tall as its chooser: Try the Demo, at its end, is in view.
-    let size = cx.update(|cx| {
-        setup
-            .update(cx, |_, window, _| {
-                let b = window.bounds();
-                (f32::from(b.size.width), f32::from(b.size.height))
-            })
-            .ok()
-    });
+    // As tall as its chooser: Try the Demo, at its end, is in view. On a
+    // display with less room the window stops at its visible height and
+    // scrolls, and the link is then in the column below the edge.
+    let (size, room) = cx
+        .update(|cx| {
+            setup
+                .update(cx, |_, window, _| {
+                    let b = window.bounds();
+                    let room = crate::shell::macos::ns_window(window)
+                        .and_then(|ns| crate::shell::macos::visible_area(&ns))
+                        .map(|area| area.height as f32);
+                    (
+                        Some((f32::from(b.size.width), f32::from(b.size.height))),
+                        room,
+                    )
+                })
+                .ok()
+        })
+        .unwrap_or((None, None));
+    let capped = size.zip(room).is_some_and(|((_, h), room)| h >= room - 1.);
     let demo = cx.update(|cx| crate::l10n::ActiveL10n::l10n(cx).desktop_try_demo());
     let demo_bottom = crate::capture::drive::nodes(setup, cx)
         .await
@@ -976,11 +987,14 @@ async fn owui(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
         .and_then(|n| n.bounds)
         .map(|b| f32::from(b.origin.y + b.size.height));
     pass &= ok(
-        &format!("the setup window is 640 wide and shows Try the Demo ({size:?}, {demo_bottom:?})"),
+        &format!(
+            "the setup window is 640 wide and shows Try the Demo, or scrolls to it \
+             on a display with less room ({size:?}, {demo_bottom:?}, room {room:?})"
+        ),
         size.is_some_and(|(w, _)| w == crate::windows::SETUP_WIDTH)
             && size
                 .zip(demo_bottom)
-                .is_some_and(|((_, h), bottom)| bottom <= h),
+                .is_some_and(|((_, h), bottom)| capped || bottom <= h),
     );
     // The phone's chooser: a row per backend that goes straight to it.
     pass &= ok(
