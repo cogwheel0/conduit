@@ -811,7 +811,10 @@ void main() {
     row['title'] = 'Bread bin';
     row['updated_at'] = (row['updated_at'] as int) + 1;
 
-    final disposing = turns.dispose();
+    var disposed = false;
+    final disposing = turns.dispose().whenComplete(() => disposed = true);
+    await pumpEventQueue();
+    expect(disposed, isFalse);
     pullRead.complete();
     await clock.during(disposing);
 
