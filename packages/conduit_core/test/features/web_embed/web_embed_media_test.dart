@@ -358,6 +358,29 @@ void main() {
       check(body.sourceLength).equals(8);
       check(await _collect(body.stream)).deepEquals([5, 6, 7]);
     });
+
+    test(
+      'a whole file of unknown length is read from its first byte',
+      () async {
+        adapter.reply = (_) {
+          final media = _media(200, 'audio/mpeg', 8);
+          media.headers.remove(Headers.contentLengthHeader);
+          return media;
+        };
+
+        final body = await openWebEmbedServerMedia(
+          client,
+          Uri.parse('https://chat.example.test/a.mp3'),
+          start: 5,
+        );
+
+        check(adapter.requests.single.headers['Range']).equals('bytes=5-');
+        check(body.offset).equals(0);
+        check(body.contentLength).isNull();
+        check(body.sourceLength).isNull();
+        check(await _collect(body.stream)).deepEquals([0, 1, 2, 3, 4, 5, 6, 7]);
+      },
+    );
   });
 }
 

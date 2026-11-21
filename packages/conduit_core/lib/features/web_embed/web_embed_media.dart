@@ -461,7 +461,7 @@ final class WebEmbedMediaRefused implements Exception {
 
 /// Part of a media file: [stream] holds [contentLength] bytes from [offset]
 /// in a file [sourceLength] long; a null length is one the server did not
-/// give.
+/// give. A body of unknown [contentLength] always starts at byte zero.
 typedef WebEmbedMediaBody = ({
   Stream<List<int>> stream,
   int offset,
@@ -479,8 +479,9 @@ final RegExp _contentRange = RegExp(
 /// to [end], exclusive; null for the start or the end of the file.
 ///
 /// It asks for the range; a server that sends the whole file instead is read
-/// from [start]. Throws [WebEmbedMediaRefused] for a reply that is not audio
-/// or video.
+/// from [start] when it gives the file's length, and from byte zero when it
+/// doesn't. Throws [WebEmbedMediaRefused] for a reply that is not audio or
+/// video.
 Future<WebEmbedMediaBody> openWebEmbedServerMedia(
   Dio client,
   Uri url, {
@@ -534,11 +535,22 @@ Future<WebEmbedMediaBody> openWebEmbedServerMedia(
     );
   }
 
-  final available = length == null ? null : math.max(0, length - from);
-  final wanted = end == null ? null : math.max(0, end - from);
-  final take = available == null
-      ? wanted
-      : (wanted == null ? available : math.min(available, wanted));
+  if (length == null) {
+    // Without a length there are no valid range headers to describe a slice
+    // with, so the reply goes out as a whole file and its reader skips to the
+    // start itself, as HTTP readers do for a 200.
+    return (
+      stream: body.stream,
+      offset: 0,
+      contentLength: null,
+      sourceLength: null,
+      contentType: type,
+    );
+  }
+  final available = math.max(0, length - from);
+  final take = end == null
+      ? available
+      : math.min(available, math.max(0, end - from));
   return (
     stream: _slice(body.stream, skip: from, take: take),
     offset: from,

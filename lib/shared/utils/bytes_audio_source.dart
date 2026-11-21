@@ -74,7 +74,8 @@ class RangedAudioSource extends StreamAudioSource {
       rangeRequestsSupported: body.sourceLength != null,
       sourceLength: body.sourceLength,
       contentLength: length,
-      // just_audio answers a range only for a reply of a known length.
+      // A body of unknown length is the whole file from byte zero, which
+      // just_audio's proxy sends as a 200; its 206 needs the length.
       offset: length == null ? null : body.offset,
       stream: body.stream,
       contentType: body.contentType ?? 'audio/mpeg',
