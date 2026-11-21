@@ -78,9 +78,13 @@ struct Fit {
 }
 
 impl Fit {
+    /// A page drawn after another starts a new generation, and a height
+    /// asked for the one before no longer stands: a chooser that comes
+    /// back asks for its own.
     fn on_page(&self, page: Page, chooser: bool) {
         if self.page.replace(Some((page, chooser))) != Some((page, chooser)) {
             self.generation.set(self.generation.get() + 1);
+            self.requested.set(None);
         }
     }
 }
@@ -398,11 +402,8 @@ fn resize(height: f32, fit: Rc<Fit>, window: &Window, cx: &mut App) {
     let animate = shown && !cx.reduce_motion();
     cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
         // Another page was drawn since the chooser was measured: it keeps
-        // its height, and the chooser is measured again if it comes back.
+        // its height.
         if fit.generation.get() != generation {
-            if fit.requested.get() == Some(height) {
-                fit.requested.set(None);
-            }
             return;
         }
         fit.applied.set(Some(height));
@@ -691,7 +692,8 @@ mod fit_tests {
     }
 
     /// The chooser measured, then another page drawn before the resize it
-    /// asked for runs: that page keeps its own height.
+    /// asked for runs: that page keeps its own height, and a chooser that
+    /// comes back meanwhile still gets its own.
     #[gpui_kit::test]
     fn a_page_drawn_before_the_choosers_resize_keeps_its_height(cx: &mut TestAppContext) {
         let (_daemon, _session, fit, view, vcx) = bench(false, cx);
@@ -708,10 +710,15 @@ mod fit_tests {
         show(false, vcx);
         vcx.run_until_parked();
         assert_eq!(fit.applied.get(), None);
-        // Back on the chooser, it is measured and fitted again.
+        // Back on the chooser, then away and back again before that resize
+        // runs: the chooser still ends at its own height.
+        show(true, vcx);
+        let measured = fit.requested.get();
+        show(false, vcx);
         show(true, vcx);
         vcx.run_until_parked();
-        assert_eq!(fit.applied.get(), fit.requested.get());
+        assert!(measured.is_some());
+        assert_eq!(fit.applied.get(), measured);
     }
 
     /// The window asks for the chooser's height, and for the Apple
