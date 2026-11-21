@@ -148,11 +148,10 @@ final class ComputerSocketRelay {
     WebSocket target, {
     bool outgoing = false,
   }) async {
+    final rewrite = outgoing && (_injectAuth || _connection.modelId != null);
     try {
       await source.forEach(
-        outgoing && _injectAuth
-            ? (message) => target.add(_withToken(message))
-            : target.add,
+        rewrite ? (message) => target.add(_withContext(message)) : target.add,
       );
     } catch (_) {
       // Closing either side tears down its peer, including held remote input.
@@ -164,9 +163,10 @@ final class ComputerSocketRelay {
     }
   }
 
-  /// [message] with the connection's token, when it is the viewer's `auth`
+  /// [message] with the connection's token (when the host keeps it) and its
+  /// model ([ComputerConnection.modelId]), when it is the viewer's `auth`
   /// message; any other message as it is.
-  Object? _withToken(Object? message) {
+  Object? _withContext(Object? message) {
     if (message is! String || !message.contains('"auth"')) return message;
     final Object? decoded;
     try {
@@ -175,7 +175,11 @@ final class ComputerSocketRelay {
       return message;
     }
     if (decoded is! Map || decoded['type'] != 'auth') return message;
-    return jsonEncode({...decoded, 'token': _connection.token ?? ''});
+    return jsonEncode({
+      ...decoded,
+      if (_injectAuth) 'token': _connection.token ?? '',
+      'model_id': ?_connection.modelId,
+    });
   }
 
   /// Releases this viewer’s listener, sockets and pending native connections.

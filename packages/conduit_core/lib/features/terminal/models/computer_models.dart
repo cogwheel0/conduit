@@ -97,6 +97,7 @@ class ComputerConnection {
     this.transport = 'frames',
     this.token,
     this.chatId = '',
+    this.modelId,
     this.browserSession,
     this.audioAvailable = false,
     this.proxyCookies = const {},
@@ -109,6 +110,10 @@ class ComputerConnection {
   final String transport;
   final String? token;
   final String chatId;
+
+  /// The model a terminal made per model is used for, which its sockets'
+  /// auth messages name ([ComputerSocketRelay] puts it in).
+  final String? modelId;
   final ComputerBrowserSession? browserSession;
   final bool audioAvailable;
   // Only the sign-in proxy cookies for this server, never Open WebUI tokens.

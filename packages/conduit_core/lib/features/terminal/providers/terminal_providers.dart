@@ -83,7 +83,15 @@ Future<List<TerminalServerInfo>> _probeTerminalServers(
   String sessionScopeId,
   ListLoad load,
 ) async {
-  final servers = (await service.getAvailableServers())
+  final listed = await service.getAvailableServers();
+  // A terminal made per model is the chat's model's: offered once the chat
+  // has one, and read again for each model the chat changes to. Only then
+  // does a change of model touch the list.
+  final modelId = listed.any((server) => server.requiresModelContext)
+      ? ref.watch(selectedModelProvider.select((model) => model?.id))
+      : null;
+  final servers = listed
+      .map((server) => server.forModel(modelId))
       .where((server) => server.isAvailableForChatScope(sessionScopeId))
       .toList(growable: false);
   // A real probe succeeded for the current API/session: persist whether

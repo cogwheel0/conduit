@@ -258,6 +258,60 @@ void main() {
     });
   });
 
+  group('a terminal made per model (Open WebUI 0.13.4)', () {
+    test('opens for the chat with its model, which every call names', () async {
+      server.moreTerminals.add(_perModel);
+      final asked = <String?>[];
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async {
+          asked.add(chatId);
+          return chatId == 'chat-lighthouse' ? 'nova-chat' : 'nova-new';
+        },
+      );
+      addTearDown(terminals.dispose);
+
+      // Attaching reads its features and its working folder.
+      await terminals.attach(
+        const TerminalAttach(serverId: 'per-model', scopeId: 'chat-lighthouse'),
+      );
+      check(server.modelIds).deepEquals(['nova-chat', 'nova-chat']);
+      check(asked).contains('chat-lighthouse');
+
+      // The page opens it outside any chat, with New Chat's model.
+      server.modelIds.clear();
+      await terminals.attach(const TerminalAttach(serverId: 'per-model'));
+      check(server.modelIds).deepEquals(['nova-new', 'nova-new']);
+    });
+
+    test('is not offered where no model can run', () async {
+      server.moreTerminals.add(_perModel);
+      final terminals = TerminalsService(
+        container,
+        modelFor: (chatId) async => throw const RpcError(
+          code: ConduitErrorCodes.unsupported,
+          debugMessage: 'no model this chat can run with',
+        ),
+      );
+      addTearDown(terminals.dispose);
+
+      check(
+        (await terminals.servers('chat-lighthouse')).servers.map((s) => s.id),
+      ).not((it) => it.contains('per-model'));
+      await check(
+        terminals.attach(
+          const TerminalAttach(
+            serverId: 'per-model',
+            scopeId: 'chat-lighthouse',
+          ),
+        ),
+      ).throws<RpcError>(
+        (e) => e.has((e) => e.code, 'code').equals(ConduitErrorCodes.notFound),
+      );
+      check(server.modelIds).isEmpty();
+    });
+  });
+
   group('Computer views belong to the account they opened under', () {
     const chat = 'chat-lighthouse';
 
@@ -345,6 +399,14 @@ void main() {
   });
 }
 
+/// Open WebUI 0.13.4's template that makes a machine per model.
+const _perModel = <String, dynamic>{
+  'id': 'per-model',
+  'name': 'Model bench',
+  'template_id': 'bench-model',
+  'scope': 'model',
+};
+
 final class _Box extends SelectedTerminalId {
   @override
   String? build() => 'box';
@@ -377,6 +439,10 @@ final class _GatedServer {
 
   /// Terminals listed after the server's own ("box").
   final List<Map<String, dynamic>> moreTerminals = <Map<String, dynamic>>[];
+
+  /// The model each call to the per-model terminal named
+  /// (`X-Terminal-Model-Id`), in order.
+  final List<String?> modelIds = <String?>[];
 
   String get url => 'http://127.0.0.1:${_server.port}';
 
@@ -427,6 +493,22 @@ final class _GatedServer {
     if (socket && path.startsWith('/api/v1/terminals/box/api/terminals/')) {
       final ws = await WebSocketTransformer.upgrade(request);
       ws.listen((_) {});
+      return;
+    }
+    const perModel = '/api/v1/terminals/per-model/';
+    if (path.startsWith(perModel)) {
+      modelIds.add(request.headers.value('x-terminal-model-id'));
+      response.headers.contentType = ContentType.json;
+      response.write(
+        jsonEncode(switch (path.substring(perModel.length)) {
+          'api/config' => <String, dynamic>{
+            'features': <String, dynamic>{'terminal': true},
+          },
+          'files/cwd' => <String, dynamic>{'cwd': '/home/bench'},
+          _ => <String, dynamic>{},
+        }),
+      );
+      await response.close();
       return;
     }
     if (request.method != 'GET' &&

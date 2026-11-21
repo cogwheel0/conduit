@@ -22,6 +22,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'event_bus.dart';
 import 'log.dart';
+import 'terminal_model_scope.dart';
 
 /// The chat scope the terminal page uses when no chat is open, as mobile's
 /// sidebar terminal does.
@@ -77,9 +78,16 @@ final class _Handle {
 /// shell's socket -- whose first frame is the credential -- and port
 /// previews.
 final class TerminalsService {
-  TerminalsService(this._container, {DaemonLog? log, EventBus? events})
-    : _log = log,
-      _events = events {
+  /// [modelFor] is the model a turn in a chat (null: a new chat) runs with,
+  /// which a terminal made per model is used for.
+  TerminalsService(
+    this._container, {
+    DaemonLog? log,
+    EventBus? events,
+    Future<String> Function(String? chatId)? modelFor,
+  }) : _log = log,
+       _events = events,
+       _modelFor = modelFor {
     // A handle, and every preview and watch it opened, belongs to the
     // account it was attached under: a system terminal's base and its token
     // are that account's. When the account changes they go, so an old handle
@@ -94,6 +102,7 @@ final class TerminalsService {
   final ProviderContainer _container;
   final DaemonLog? _log;
   final EventBus? _events;
+  final Future<String> Function(String? chatId)? _modelFor;
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _Handle> _handles = <String, _Handle>{};
   final Random _random = Random.secure();
@@ -123,11 +132,21 @@ final class TerminalsService {
     return servers.where((s) => s.chatContextAvailable).toList(growable: false);
   });
 
-  /// The servers usable in [scopeId]: a chat, or the page with none.
-  Future<List<TerminalServerInfo>> _available(String scopeId) async => [
-    for (final server in await _chatServers())
-      if (server.isAvailableForChatScope(_scope(scopeId))) server,
-  ];
+  /// The servers usable in [scopeId]: a chat, or the page with none. One
+  /// made per model is used for the chat's model (the page's: New Chat's).
+  Future<List<TerminalServerInfo>> _available(String scopeId) async {
+    final scope = _scope(scopeId);
+    final servers = await _chatServers();
+    final modelId = servers.any((s) => s.requiresModelContext)
+        ? await terminalModelFor(_modelFor, scope)
+        : null;
+    return [
+      for (final server in servers)
+        if (server.forModel(modelId) case final usable
+            when usable.isAvailableForChatScope(scope))
+          usable,
+    ];
+  }
 
   /// The servers [scopeId]'s chat may use. With none, every one the
   /// account's chats may use: the window offers one that needs a saved chat
