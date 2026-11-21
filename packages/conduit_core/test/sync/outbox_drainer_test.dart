@@ -168,6 +168,10 @@ class RecordingSyncApiClient implements SyncApiClient {
   Future<List<Map<String, dynamic>>> getArchivedChatListPage(int page) async =>
       throw UnimplementedError();
   @override
+  Future<Set<String>> getPinnedChatIds() async => throw UnimplementedError();
+  @override
+  Future<int?> getArchivedChatCount() async => throw UnimplementedError();
+  @override
   Future<Map<String, dynamic>?> getChatRaw(String id) async =>
       throw UnimplementedError();
   @override

@@ -53,6 +53,20 @@ class FakeSyncApiClient implements SyncApiClient {
     ];
   }
 
+  /// When set, [getPinnedChatIds] throws.
+  bool failPinnedList = false;
+
+  /// When set, [getArchivedChatCount] throws, as on a server without the
+  /// route.
+  bool failArchivedCount = false;
+
+  /// When set, [getPinnedChatIds] runs it after the server answers and
+  /// before the caller sees the answer, like a change made meanwhile.
+  Future<void> Function()? whilePinnedListLoads;
+
+  /// [whilePinnedListLoads] for [getArchivedChatCount].
+  Future<void> Function()? whileArchivedCountLoads;
+
   /// When set, [getFoldersRaw] throws.
   bool failFolders = false;
 
@@ -69,6 +83,8 @@ class FakeSyncApiClient implements SyncApiClient {
   // ---- instrumentation ----
   int chatListPageRequests = 0;
   int archivedListPageRequests = 0;
+  int pinnedListRequests = 0;
+  int archivedCountRequests = 0;
   int foldersRequests = 0;
 
   /// Ids in the order [getChatRaw] calls STARTED.
@@ -98,6 +114,28 @@ class FakeSyncApiClient implements SyncApiClient {
 
   @override
   SyncApiClient? ownedBy(AppDatabase db) => this;
+
+  @override
+  Future<Set<String>> getPinnedChatIds() async {
+    pinnedListRequests++;
+    if (failPinnedList) throw StateError('injected pinned list failure');
+    final ids = server.getPinnedChatIds().toSet();
+    final hook = whilePinnedListLoads;
+    whilePinnedListLoads = null;
+    await hook?.call();
+    return ids;
+  }
+
+  @override
+  Future<int?> getArchivedChatCount() async {
+    archivedCountRequests++;
+    if (failArchivedCount) throw StateError('injected archived count failure');
+    final count = server.getArchivedChatCount();
+    final hook = whileArchivedCountLoads;
+    whileArchivedCountLoads = null;
+    await hook?.call();
+    return count;
+  }
 
   @override
   Future<Map<String, dynamic>?> getChatRaw(String id) async {

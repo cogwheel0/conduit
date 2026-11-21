@@ -115,13 +115,31 @@ class TerminalServerInfo {
   }
 }
 
+/// What Open WebUI's chat ids start with when no saved chat stands behind
+/// them (`utils/chat_id.py`).
+const _unsavedChatIdPrefixes = ['local:', 'temporary:', 'channel:'];
+
 bool isSavedTerminalChatScopeId(String value) {
   final id = value.trim();
   return id.isNotEmpty &&
       id != 'sidebar-terminal' &&
-      !id.startsWith('local:') &&
-      !id.startsWith('temporary:') &&
-      !id.startsWith('channel:');
+      !_unsavedChatIdPrefixes.any(id.startsWith);
+}
+
+/// [value] as Open WebUI's terminal proxy reads it in `X-Session-Id`.
+///
+/// Open WebUI 0.13.4 takes any id without one of [_unsavedChatIdPrefixes]
+/// for a saved chat, and refuses one it cannot find, as it would the
+/// `sidebar-terminal` scope of a terminal used outside any chat. Such a scope
+/// goes as a `local:` id, which no release reads as a chat.
+String terminalProxySessionId(String value) {
+  final id = value.trim();
+  if (id.isEmpty ||
+      isSavedTerminalChatScopeId(id) ||
+      _unsavedChatIdPrefixes.any(id.startsWith)) {
+    return id;
+  }
+  return 'local:$id';
 }
 
 class TerminalFileEntry {

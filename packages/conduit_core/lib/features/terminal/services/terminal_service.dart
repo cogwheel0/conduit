@@ -1062,7 +1062,11 @@ class TerminalService {
         method: method,
         responseType: responseType,
         headers: {
-          ..._sessionScopeHeaders(sessionScopeId),
+          ..._sessionScopeHeaders(
+            sessionScopeId == null
+                ? null
+                : terminalProxySessionId(sessionScopeId),
+          ),
           // Open WebUI answers 409 without it for a terminal made per model.
           'X-Terminal-Model-Id': ?server.modelId,
         },

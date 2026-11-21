@@ -409,6 +409,11 @@ final class FakeOwuiChats {
   Completer<void>? holdChatReads;
   Completer<void> chatReadAsked = Completer<void>();
 
+  /// While set, the first page of the chat list (`GET /api/v1/chats/`)
+  /// waits for it: a sync cycle, which starts there, reads no chat until it
+  /// completes, while a pull of one chat reads it as before.
+  Completer<void>? holdChatLists;
+
   /// While set, saves of a chat it keeps (`POST /api/v1/chats/{id}`) wait
   /// for it; [chatSaveAsked] completes as one reaches it.
   Completer<void>? holdChatSaves;
@@ -917,6 +922,7 @@ final class FakeOwuiChats {
         (path == '/api/v1/chats/' || path == '/api/v1/chats/list') &&
         (request.uri.queryParameters['page'] ?? '1') == '1') {
       await request.drain<void>();
+      await holdChatLists?.future;
       return json(<Object>[
         for (final row in stored.values.toList().reversed)
           <String, dynamic>{
@@ -930,6 +936,29 @@ final class FakeOwuiChats {
             'archived': false,
           },
       ]);
+    }
+    // The pinned list leaves archived chats out; neither list is paged here.
+    if (!post &&
+        (path == '/api/v1/chats/pinned' || path == '/api/v1/chats/archived')) {
+      await request.drain<void>();
+      final archived = path.endsWith('/archived');
+      return json(<Object>[
+        for (final row in stored.values)
+          if (archived
+              ? row['archived'] == true
+              : row['pinned'] == true && row['archived'] != true)
+            <String, dynamic>{
+              'id': row['id'],
+              'title': row['title'],
+              'updated_at': row['updated_at'],
+              'created_at': row['created_at'],
+              'last_read_at': null,
+            },
+      ]);
+    }
+    if (!post && path == '/api/v1/chats/archived/count') {
+      await request.drain<void>();
+      return json(stored.values.where((row) => row['archived'] == true).length);
     }
     final deleted = RegExp(r'^/api/v1/chats/([^/]+)/messages/([^/]+)$')
         .firstMatch(path);

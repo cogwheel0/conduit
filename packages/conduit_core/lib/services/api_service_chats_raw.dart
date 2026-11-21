@@ -55,6 +55,22 @@ mixin _ChatsRawApi on _ApiServiceBase {
     return _coerceRawMapList(response.data);
   }
 
+  /// GET `/api/v1/chats/pinned` — every chat the account has pinned and not
+  /// archived, as raw `ChatTitleIdResponse` maps, in one unpaged answer
+  /// (`get_pinned_chats_by_user_id`).
+  Future<List<Map<String, dynamic>>> getPinnedChatListRaw() async {
+    final response = await _dio.get('/api/v1/chats/pinned');
+    return _coerceRawMapList(response.data);
+  }
+
+  /// GET `/api/v1/chats/archived/count` — how many chats the account has
+  /// archived; null when the answer is not a number.
+  Future<int?> getArchivedChatCountRaw() async {
+    final response = await _dio.get('/api/v1/chats/archived/count');
+    final data = response.data;
+    return data is num ? data.toInt() : null;
+  }
+
   /// GET `/api/v1/chats/{id}` — the raw `ChatResponse` map (id, user_id,
   /// title, chat, updated_at, created_at, share_id, archived, pinned, meta,
   /// folder_id).

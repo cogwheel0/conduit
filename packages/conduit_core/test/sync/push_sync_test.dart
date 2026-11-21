@@ -129,6 +129,33 @@ class _RevertArchiveToggleClient extends FakeSyncApiClient {
   }
 }
 
+/// Runs [beforeTogglePin] before a pin toggle reaches the server, and loses
+/// the answer of the check that confirms a toggle once it has landed.
+class _PinConfirmLostClient extends FakeSyncApiClient {
+  _PinConfirmLostClient(super.server);
+
+  Future<void> Function()? beforeTogglePin;
+  var _toggled = false;
+
+  @override
+  Future<Map<String, dynamic>?> togglePin(String id) async {
+    final hook = beforeTogglePin;
+    beforeTogglePin = null;
+    await hook?.call();
+    _toggled = true;
+    return super.togglePin(id);
+  }
+
+  @override
+  Future<bool> getChatPinned(String id) async {
+    if (_toggled) {
+      _toggled = false;
+      throw StateError('pin confirmation lost');
+    }
+    return super.getChatPinned(id);
+  }
+}
+
 class _RevertPinToggleClient extends FakeSyncApiClient {
   _RevertPinToggleClient(super.server);
 
@@ -1630,6 +1657,93 @@ void main() {
         check(server.getChatById('srv-mv')!['folder_id']).equals('srv-folder');
       },
     );
+
+    // Pullfrog 4651854470: an unpin that landed before the push failed was
+    // put back by a pull that had read the pinned list before it, and the
+    // push's retry then pinned the server again.
+    test('an unpin that lands before its push fails is kept from a pull '
+        'that read the pins before it', () async {
+      server.seedChat(
+        id: 'srv-unpin',
+        blob: {
+          'title': 'p',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+        pinned: true,
+      );
+      // Unpinned here, waiting to be pushed.
+      await seedLocalChat(db, id: 'srv-unpin', messageCount: 0);
+      final racing = _PinConfirmLostClient(server);
+      push = PushSync(
+        client: racing,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      final pull = PullSync(
+        client: racing,
+        db: db,
+        locks: chatLocks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+      );
+      final listRead = Completer<void>();
+      racing.whilePinnedListLoads = () async => listRead.complete();
+      late final Future<PullResult> pulled;
+      racing.beforeTogglePin = () async {
+        pulled = pull.run();
+        await listRead.future;
+      };
+
+      await check(push.pushUpdateChat('srv-unpin')).throws<StateError>();
+      await pulled;
+      check((await db.chatsDao.getChat('srv-unpin'))!.pinned).isFalse();
+      await push.pushUpdateChat('srv-unpin');
+
+      check(server.getChatById('srv-unpin')!['pinned']).equals(false);
+    });
+
+    // CodeRabbit #1206 (review body): a chat pinned and then archived
+    // elsewhere was archived here unpinned, and the next push of an edit
+    // unpinned the server's copy.
+    test('a chat pinned and archived elsewhere stays pinned through an edit '
+        'pushed from here', () async {
+      server.seedChat(
+        id: 'srv-shelved',
+        blob: {
+          'title': 'p',
+          'history': {'messages': {}, 'currentId': null},
+        },
+        createdAt: 1,
+        updatedAt: 2,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+      );
+      await pull.run();
+      server
+        ..togglePin('srv-shelved')
+        ..toggleArchive('srv-shelved');
+      await pull.run();
+      check((await db.chatsDao.getChat('srv-shelved'))!.archived).isTrue();
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'srv-shelved',
+        title: const Value('Renamed here'),
+        enqueue: false,
+      );
+
+      await push.pushUpdateChat('srv-shelved');
+
+      final stored = server.getChatById('srv-shelved')!;
+      check(stored['pinned']).equals(true);
+      check(stored['archived']).equals(true);
+    });
 
     test('pin survives a folder move (move resets server pin; reconcile re-asserts)', () async {
       server.seedFolder('srv-folder');

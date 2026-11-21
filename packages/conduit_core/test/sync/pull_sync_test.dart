@@ -2242,6 +2242,351 @@ void main() {
       check(await db.chatsDao.getChat('y')).isNotNull();
     });
   });
+
+  // Open WebUI 0.13.4 pins and archives a chat without moving its
+  // `updated_at`, as the fake's toggles do, so no list page above the
+  // watermark shows either change.
+  group('pins and archives made elsewhere', () {
+    setUp(() {
+      pull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+      );
+    });
+
+    void keepAcrossPulls() {
+      pull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+        fetchMemo: PullFetchMemo(),
+      );
+    }
+
+    // 'older' sits below the watermark after the first cycle.
+    Future<void> seedOlderAndNewer({
+      bool olderArchived = false,
+      bool olderPinned = false,
+    }) async {
+      server.seedChat(
+        id: 'older',
+        blob: blobFor('older'),
+        createdAt: 100,
+        updatedAt: 100,
+        archived: olderArchived,
+        pinned: olderPinned,
+      );
+      server.seedChat(
+        id: 'newer',
+        blob: blobFor('newer'),
+        createdAt: 500,
+        updatedAt: 500,
+      );
+      await pull.run();
+      client.chatFetchStarts.clear();
+    }
+
+    Future<ChatRow> older() async => (await db.chatsDao.getChat('older'))!;
+
+    // Held here as archived after the first cycle, then deleted on the
+    // server, which answers 401 for it: the deletion reconcile removes it,
+    // and until then it keeps the archived counts apart.
+    void seedDeletedWhileArchived() => server.seedChat(
+      id: 'gone',
+      blob: blobFor('gone'),
+      createdAt: 100,
+      updatedAt: 100,
+      archived: true,
+    );
+    void deleteOnServer(String id) {
+      server.deleteChat(id);
+      client.failChatIds.add(id);
+    }
+
+    test('a chat pinned and then unpinned elsewhere follows', () async {
+      await seedOlderAndNewer();
+
+      server.togglePin('older');
+      final pinned = await pull.run();
+      check(pinned.success).isTrue();
+      check((await older()).pinned).isTrue();
+
+      server.togglePin('older');
+      await pull.run();
+      check((await older()).pinned).isFalse();
+    });
+
+    test('a chat archived elsewhere is archived, its body kept', () async {
+      await seedOlderAndNewer();
+
+      server.toggleArchive('older');
+      final result = await pull.run();
+
+      check(result.success).isTrue();
+      check((await older()).archived).isTrue();
+      check((await older()).bodySynced).isTrue();
+    });
+
+    test('a chat unarchived elsewhere comes back', () async {
+      await seedOlderAndNewer(olderArchived: true);
+      check((await older()).archived).isTrue();
+
+      server.toggleArchive('older');
+      await pull.run();
+
+      check((await older()).archived).isFalse();
+    });
+
+    test('a pin made here while the pinned list loads is kept', () async {
+      await seedOlderAndNewer();
+      // The list is answered before this device's pin reaches the server.
+      client.whilePinnedListLoads = () async {
+        server.togglePin('older');
+        await db.chatsDao.updateEnvelope('older', pinned: const Value(true));
+      };
+
+      await pull.run();
+
+      check((await older()).pinned).isTrue();
+    });
+
+    test('a chat deleted while archived is read for once, not on every '
+        'pull', () async {
+      pull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+        fetchMemo: PullFetchMemo(),
+      );
+      await seedOlderAndNewer(olderArchived: true);
+      server.deleteChat('older');
+      // Open WebUI answers 401 for a chat it no longer has.
+      client.failChatIds.add('older');
+
+      final first = await pull.run();
+      await pull.run();
+
+      check(first.success).isTrue();
+      check(client.chatFetchStarts.where((id) => id == 'older')).length
+          .equals(1);
+    });
+
+    // Qodo #1206: an older shared chat, stored with no owner, lost its pin.
+    test("another user's chat keeps its owner's pin, its owner stored or "
+        'not', () async {
+      await seedOlderAndNewer();
+      // Reached through folders their owner shared; 'theirs-older' was
+      // stored before rows kept their owner.
+      for (final id in ['theirs', 'theirs-older']) {
+        server.seedChat(
+          id: id,
+          blob: blobFor(id),
+          createdAt: 100,
+          updatedAt: 100,
+          pinned: true,
+          ownerId: 'another-user',
+        );
+        await db.chatsDao.upsertEnvelopeStub(
+          id: id,
+          title: 'Shared with this account',
+          createdAt: 100,
+          updatedAt: 100,
+          pinned: true,
+        );
+      }
+      await (db.update(db.chats)..where((t) => t.id.equals('theirs'))).write(
+        const ChatsCompanion(userId: Value('another-user')),
+      );
+
+      await pull.run();
+
+      check((await db.chatsDao.getChat('theirs'))!.pinned).isTrue();
+      check((await db.chatsDao.getChat('theirs-older'))!.pinned).isTrue();
+    });
+
+    // Qodo #1206: absent from the pinned list, a chat archived elsewhere
+    // was unpinned here when the archived counts happened to agree.
+    test('a pinned chat archived elsewhere keeps its pin while the counts '
+        'agree', () async {
+      seedDeletedWhileArchived();
+      await seedOlderAndNewer(olderPinned: true);
+      deleteOnServer('gone');
+      server.toggleArchive('older');
+
+      await pull.run();
+
+      check((await older()).pinned).isTrue();
+      check((await older()).archived).isTrue();
+    });
+
+    // Pullfrog 4651751894, Greptile 4651759665: a failed read left the
+    // counts apart, and the memo kept every later pull from trying again.
+    test('a chat unarchived elsewhere comes back after reads that failed '
+        'on the way', () async {
+      keepAcrossPulls();
+      await seedOlderAndNewer(olderArchived: true);
+      server.toggleArchive('older');
+
+      client.failArchivedListPages.add(1);
+      await pull.run();
+      client.failArchivedListPages.clear();
+      // A timeout: the server still has the chat.
+      client.failChatIds.add('older');
+      await pull.run();
+      client.failChatIds.clear();
+      await pull.run();
+
+      check((await older()).archived).isFalse();
+    });
+
+    // Pullfrog 4651751894: an archive held back for a change made here
+    // meanwhile is taken on the next pull.
+    test('an archive held back for a change made here meanwhile is taken on '
+        'the next pull', () async {
+      keepAcrossPulls();
+      await seedOlderAndNewer();
+      server.toggleArchive('older');
+      client.whilePinnedListLoads = () => db.chatsDao.updateEnvelope(
+        'older',
+        title: const Value('Renamed here'),
+      );
+
+      await pull.run();
+      await pull.run();
+
+      check((await older()).archived).isTrue();
+    });
+
+    // Qodo #1206, CodeRabbit 4651783253: counts that moved and came back to
+    // a pair a full read had left apart were never read for again.
+    test('archived counts that move and come back are read again', () async {
+      keepAcrossPulls();
+      seedDeletedWhileArchived();
+      await seedOlderAndNewer();
+      deleteOnServer('gone');
+      // Server 0, here 1: the read leaves them apart.
+      await pull.run();
+      // The deletion reconcile removes 'gone': 0 and 0.
+      await db.chatsDao.purgeReconciledChat('gone');
+      await pull.run();
+      // 'older' archived here: 1 and 1.
+      server.toggleArchive('older');
+      await db.chatsDao.updateEnvelope('older', archived: const Value(true));
+      await pull.run();
+      // Unarchived elsewhere: 0 and 1 again.
+      server.toggleArchive('older');
+
+      await pull.run();
+
+      check((await older()).archived).isFalse();
+    });
+
+    // Qodo #1206: a push that landed after the pinned list was read had its
+    // pin put back to the list's.
+    test('a pin pushed while the pinned list loads is kept', () async {
+      await seedOlderAndNewer();
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'older',
+        pinned: const Value(true),
+        enqueue: false,
+      );
+      client.whilePinnedListLoads = () async {
+        server.togglePin('older');
+        db.chatsDao.notePushLanded('older');
+      };
+
+      await pull.run();
+
+      check((await older()).pinned).isTrue();
+    });
+
+    // Macroscope 4651754450: pinned here before the list was read and
+    // unpinned after, the chat was pinned again from the list.
+    test('a pin and an unpin made here around the pinned list are '
+        'kept', () async {
+      await seedOlderAndNewer();
+      client
+        ..whileArchivedCountLoads = () async {
+          server.togglePin('older');
+          await db.chatsDao.updateEnvelope('older', pinned: const Value(true));
+        }
+        ..whilePinnedListLoads = () async {
+          server.togglePin('older');
+          await db.chatsDao.updateEnvelope('older', pinned: const Value(false));
+        };
+
+      await pull.run();
+
+      check((await older()).pinned).isFalse();
+    });
+
+    // Greptile 4651759666: archived here after the count was read, the chat
+    // was missing from the pinned list and lost its pin.
+    test('a pinned chat archived here while the lists load keeps its '
+        'pin', () async {
+      await seedOlderAndNewer(olderPinned: true);
+      client.whileArchivedCountLoads = () async {
+        server.toggleArchive('older');
+        await db.chatsDao.updateEnvelope('older', archived: const Value(true));
+      };
+
+      await pull.run();
+
+      check((await older()).pinned).isTrue();
+      check((await older()).archived).isTrue();
+    });
+
+    // Pullfrog 4651760471: the read of a chat unarchived elsewhere, answered
+    // before a pin made here, put the pin back.
+    test('a pin made here while an unarchived chat is read is kept', () async {
+      final hooked = _ChatHookClient(server);
+      client = hooked;
+      pull = PullSync(
+        client: client,
+        db: db,
+        locks: locks,
+        readerAccountId: () => FakeOpenWebUiServer.userId,
+      );
+      await seedOlderAndNewer(olderArchived: true);
+      server.toggleArchive('older');
+      hooked.whileChatLoads = (id) async {
+        if (id != 'older') return;
+        hooked.whileChatLoads = null;
+        server.togglePin('older');
+        await db.chatsDao.updateEnvelope('older', pinned: const Value(true));
+      };
+
+      await pull.run();
+      check((await older()).pinned).isTrue();
+      await pull.run();
+
+      check((await older()).pinned).isTrue();
+      check((await older()).archived).isFalse();
+    });
+
+    test('a server that lists neither pulls as before', () async {
+      await seedOlderAndNewer();
+      client
+        ..failPinnedList = true
+        ..failArchivedCount = true;
+      server.seedChat(
+        id: 'newest',
+        blob: blobFor('newest'),
+        createdAt: 600,
+        updatedAt: 600,
+      );
+
+      final result = await pull.run();
+
+      check(result.success).isTrue();
+      check(result.watermarkAdvanced).isTrue();
+      check(await db.chatsDao.getChat('newest')).isNotNull();
+    });
+  });
 }
 
 /// A client whose answers are taken at once and delivered late, as a slow

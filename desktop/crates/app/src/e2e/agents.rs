@@ -31,7 +31,13 @@ use crate::AppState;
 use crate::stores::composer::{ComposerStore, PickerRow, picker_rows};
 
 const TERMINAL: &str = "buildbox";
-const CODEX: &str = "agent:buildbox:codex:gpt-5.1";
+/// Codex's id. Open WebUI 0.13.4 keeps an agent's model to letters, digits,
+/// `_` and `-` in it, adding a hash of the name when that changed it
+/// (`utils/agents/session.py`); older releases use the name as is.
+const CODEX_IDS: [&str; 2] = [
+    "agent:buildbox:codex:gpt-5.1",
+    "agent:buildbox:codex:gpt-5-1-e7ee8b01",
+];
 const CLAUDE: &str = "agent:buildbox:claude-code:sonnet";
 
 fn composer(cx: &mut App) -> Option<Entity<ComposerStore>> {
@@ -122,9 +128,8 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let listed = wait_until(cx, Duration::from_secs(30), |cx| {
         composer(cx).is_some_and(|c| {
             c.read(cx).models.as_ref().is_some_and(|l| {
-                [CODEX, CLAUDE]
-                    .iter()
-                    .all(|id| l.agents.iter().any(|a| a.id == *id))
+                l.agents.iter().any(|a| CODEX_IDS.contains(&a.id.as_str()))
+                    && l.agents.iter().any(|a| a.id == CLAUDE)
             })
         })
     })
@@ -138,7 +143,13 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
             composer(cx).and_then(|c| c.read(cx).models.as_ref().map(|l| l.agents.clone()))
         })
         .unwrap_or_default();
-    let codex = agents.iter().find(|a| a.id == CODEX).cloned();
+    let codex = agents
+        .iter()
+        .find(|a| CODEX_IDS.contains(&a.id.as_str()))
+        .cloned();
+    let codex_id = codex
+        .as_ref()
+        .map_or_else(|| CODEX_IDS[0].to_string(), |a| a.id.clone());
     pass &= ok(
         &format!(
             "Codex is named \"Agent · model\" and runs on the Build box ({:?})",
@@ -197,17 +208,17 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     // ── Picking an agent ───────────────────────────────────────────────
     in_pane(cx, |p, _, cx| {
         p.composer_store
-            .update(cx, |c, cx| c.select_model(CODEX, cx))
+            .update(cx, |c, cx| c.select_model(&codex_id, cx))
     });
     let picked = wait_until(cx, Duration::from_secs(30), |cx| {
-        selected_id(cx).as_deref() == Some(CODEX)
+        selected_id(cx).as_deref() == Some(codex_id.as_str())
             && composer(cx).is_some_and(|c| {
                 let c = c.read(cx);
                 c.options.agent_chat
                     && c.options.own_effort_control
                     && !c.options.compare_models
                     && c.model_controls.as_ref().is_some_and(|m| {
-                        m.model_id.as_deref() == Some(CODEX) && m.controls.len() == 2
+                        m.model_id.as_deref() == Some(codex_id.as_str()) && m.controls.len() == 2
                     })
             })
     })
@@ -272,7 +283,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let rpc = cx.update(|cx| cx.global::<AppState>().stores.connection.read(cx).rpc());
     let saved = rpc
         .call::<methods::ModelsSetControl>(&SetModelControl {
-            model_id: Some(CODEX.into()),
+            model_id: Some(codex_id.clone()),
             chat_id: None,
             key: "reasoning_effort".into(),
             value: Some("high".into()),
@@ -288,7 +299,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     settle(cx, 800).await;
     let read = rpc
         .call::<methods::ModelsControls>(&ModelControlsQuery {
-            model_id: Some(CODEX.into()),
+            model_id: Some(codex_id.clone()),
             chat_id: None,
         })
         .await
@@ -308,7 +319,7 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     );
     let refused = rpc
         .call::<methods::ModelsSetControl>(&SetModelControl {
-            model_id: Some(CODEX.into()),
+            model_id: Some(codex_id.clone()),
             chat_id: None,
             key: "reasoning_effort".into(),
             value: Some("ludicrous".into()),
@@ -362,18 +373,18 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     // ── Turning the terminal off puts the default back ─────────────────
     in_pane(cx, |p, _, cx| {
         p.composer_store
-            .update(cx, |c, cx| c.select_model(CODEX, cx))
+            .update(cx, |c, cx| c.select_model(&codex_id, cx))
     });
     // The daemon's answer, not the picker's own mark: the composer asks for
     // its options once `models.select` is through.
     let again = wait_until(cx, Duration::from_secs(30), |cx| {
-        selected_id(cx).as_deref() == Some(CODEX)
+        selected_id(cx).as_deref() == Some(codex_id.as_str())
             && composer(cx).is_some_and(|c| {
                 let c = c.read(cx);
                 c.options.agent_chat
                     && c.model_controls
                         .as_ref()
-                        .is_some_and(|m| m.model_id.as_deref() == Some(CODEX))
+                        .is_some_and(|m| m.model_id.as_deref() == Some(codex_id.as_str()))
             })
     })
     .await;

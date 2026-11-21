@@ -59,6 +59,7 @@ import 'package:conduit_core/providers/host_ports.dart'
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/conversation_parsing.dart'
     show kMessageRatingMetadataKey;
+import 'package:conduit_core/sync/chat_locks.dart' show chatLocksProvider;
 import 'package:conduit_core/sync/id_remapper.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart'
     show PrimaryAccountKind, primaryAccountKindProvider;
@@ -879,7 +880,7 @@ final class ChatsService {
     } else if (_isLibreChat(id)) {
       await pinConversation(_container, _libreChatScoped(id), value);
     } else {
-      await _api.pinConversation(id, value);
+      await _onServer(id, (api) => api.pinConversation(id, value));
     }
     return _refresh();
   }
@@ -891,14 +892,47 @@ final class ChatsService {
 
   /// Direct's local chats and LibreChat's are archived where they are kept;
   /// the rest on the server.
-  Future<void> _archive(String id, bool value) {
+  Future<void> _archive(String id, bool value) async {
     if (_isDirectLocal(id)) {
       return mutations.archiveConversation(_container, id, value);
     }
     if (_isLibreChat(id)) {
       return archiveConversation(_container, _libreChatScoped(id), value);
     }
-    return _api.archiveConversation(id, value);
+    await _onServer(id, (api) => api.archiveConversation(id, value));
+  }
+
+  /// Makes [change], a pin or archive of Open WebUI chat [id] that this
+  /// daemon does not write to the chat's row, and notes it, under the
+  /// chat's lock: a pull that read the server before then writes nothing
+  /// over the chat. Noted even when the request fails, which may be after
+  /// the server took it.
+  ///
+  /// It goes as the account that asked, to its server and its database: one
+  /// that another account replaced while the chat was busy is refused.
+  Future<void> _onServer(
+    String id,
+    Future<void> Function(ApiService api) change,
+  ) async {
+    final session = _container.read(openWebUiAuthSessionEpochProvider);
+    final api = _api;
+    final database = _container.read(appDatabaseProvider);
+    await _container.read(chatLocksProvider).runExclusive(id, () async {
+      if (!identical(
+        session,
+        _container.read(openWebUiAuthSessionEpochProvider),
+      )) {
+        throw const RpcError(
+          code: ConduitErrorCodes.sessionExpired,
+          debugMessage: 'the account changed',
+        );
+      }
+      try {
+        await change(api);
+      } finally {
+        database?.chatsDao.noteEnvelopeChanged(id);
+      }
+    });
   }
 
   /// Whether chat [id] is one of the LibreChat account's: its changes go

@@ -424,7 +424,12 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
 }
 
 const TERMINAL: &str = "buildbox";
-const CODEX: &str = "agent:buildbox:codex:gpt-5.1";
+/// Codex's id, as the agents pass reads it (`agents::CODEX_IDS`): Open WebUI
+/// 0.13.4 hashes a model name it had to change; older releases do not.
+const CODEX_IDS: [&str; 2] = [
+    "agent:buildbox:codex:gpt-5.1",
+    "agent:buildbox:codex:gpt-5-1-e7ee8b01",
+];
 const FOLDER: &str = "/home/demo/sketches";
 
 /// A task on the Build box (the seeded server's fake Open Terminal) run by
@@ -465,8 +470,11 @@ async fn terminal_task(dir: &Path, cx: &mut AsyncApp) -> bool {
             !e.agents_loading
                 && e.editor.as_ref().is_some_and(|ed| {
                     ed.models.as_ref().is_some_and(|m| {
-                        m.iter()
-                            .any(|m| m.id == CODEX && m.agent && m.name == "Codex · gpt-5.1")
+                        m.iter().any(|m| {
+                            CODEX_IDS.contains(&m.id.as_str())
+                                && m.agent
+                                && m.name == "Codex · gpt-5.1"
+                        })
                     })
                 })
         })
@@ -476,12 +484,26 @@ async fn terminal_task(dir: &Path, cx: &mut AsyncApp) -> bool {
         "with the Build box chosen, its agents follow the models",
         agents,
     );
+    let codex_id = cx
+        .update(|cx| {
+            editor(cx).and_then(|e| {
+                e.read(cx)
+                    .editor
+                    .as_ref()?
+                    .models
+                    .as_ref()?
+                    .iter()
+                    .find(|m| CODEX_IDS.contains(&m.id.as_str()))
+                    .map(|m| m.id.clone())
+            })
+        })
+        .unwrap_or_else(|| CODEX_IDS[0].to_string());
     in_editor(cx, |e, window, cx| {
         e.type_folder(FOLDER, window, cx);
         e.on_choice(
             &SettingsChoice {
                 menu: "task-model".into(),
-                value: CODEX.into(),
+                value: codex_id.clone(),
             },
             cx,
         );
@@ -491,7 +513,7 @@ async fn terminal_task(dir: &Path, cx: &mut AsyncApp) -> bool {
             let e = e.read(cx);
             !e.agents_loading
                 && e.fields.as_ref().is_some_and(|f| {
-                    f.model_id == CODEX
+                    f.model_id == codex_id
                         && f.terminal_id.as_deref() == Some(TERMINAL)
                         && f.working_directory.as_deref() == Some(FOLDER)
                 })
@@ -558,7 +580,7 @@ async fn terminal_task(dir: &Path, cx: &mut AsyncApp) -> bool {
                 .as_ref()
                 .is_some_and(|ed| !ed.is_new && ed.agent_name.as_deref() == Some("Codex · gpt-5.1"))
                 && e.fields.as_ref().is_some_and(|f| {
-                    f.model_id == CODEX
+                    f.model_id == codex_id
                         && f.terminal_id.as_deref() == Some(TERMINAL)
                         && f.working_directory.as_deref() == Some(FOLDER)
                 })
