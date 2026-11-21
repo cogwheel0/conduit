@@ -41,7 +41,7 @@ CACHE=${CONDUIT_DEV_CACHE:-$HOME/Library/Caches/conduit-dev}
 HC=${CONDUIT_HC_DIR:-$CACHE/capture}
 OWUI_DIR=${CONDUIT_HC_OWUI_DIR:-$HC/owui}
 OWUI_PORT=${CONDUIT_HC_OWUI_PORT:-8350}
-VENV=${CONDUIT_OWUI_VENV:-$CACHE/owui-0.13.2}
+VENV=${CONDUIT_OWUI_VENV:-$CACHE/owui-0.13.4}
 PY="$VENV/bin/python"
 export PATH="$(brew --prefix rustup 2>/dev/null || echo /opt/homebrew/opt/rustup)/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 

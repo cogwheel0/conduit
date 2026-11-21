@@ -2,7 +2,7 @@
 
 The daemon's live tests (`apps/daemon/test/live_server_test.dart`), its
 signed-in smoke run (`apps/daemon/tool/smoke.dart`) and the desktop app's
-`--e2e` passes run against a throwaway Open WebUI 0.13.2 on this machine,
+`--e2e` passes run against a throwaway Open WebUI 0.13.4 on this machine,
 with a fake model and invented data. Nothing here talks to a real server
 or a real model, and CI never starts it: there, those tests skip.
 
@@ -16,7 +16,7 @@ tool/local_owui/owui.sh stop
 
 `setup` needs a CPython 3.11: uv's (`uv python install 3.11`), or
 `python3.11` on `PATH`, or `CONDUIT_OWUI_PYTHON`. The venv lives in
-`~/Library/Caches/conduit-dev/owui-0.13.2` (`CONDUIT_OWUI_VENV`), and the
+`~/Library/Caches/conduit-dev/owui-0.13.4` (`CONDUIT_OWUI_VENV`), and the
 instance (data, logs, pids and a generated secret key) in
 `~/Library/Caches/conduit-dev/local-owui` (`CONDUIT_OWUI_DIR`, or `--dir`).
 The daemon's tests find the instance through `CONDUIT_OWUI_DIR` (or

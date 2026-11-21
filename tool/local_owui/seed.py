@@ -1,4 +1,4 @@
-"""Seed a fresh local Open WebUI 0.13.2 with synthetic data.
+"""Seed a fresh local Open WebUI 0.13.4 with synthetic data.
 
 Usage (owui.sh seed runs it):
   python3 -I seed.py --url URL --state DIR --data DIR --env-file FILE \

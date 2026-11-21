@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A throwaway local Open WebUI 0.13.2 with a fake model and synthetic seed
+# A throwaway local Open WebUI 0.13.4 with a fake model and synthetic seed
 # data, for the daemon's live tests and the desktop app's E2E passes.
 #
 #   tool/local_owui/owui.sh setup          venv with open-webui (once, ~5 min)
@@ -55,7 +55,7 @@
 #
 #   CONDUIT_DEV_CACHE    the cache root (~/Library/Caches/conduit-dev on
 #                        macOS, ${XDG_CACHE_HOME:-~/.cache}/conduit-dev elsewhere)
-#   CONDUIT_OWUI_VENV    the venv (default $CONDUIT_DEV_CACHE/owui-0.13.2)
+#   CONDUIT_OWUI_VENV    the venv (default $CONDUIT_DEV_CACHE/owui-0.13.4)
 #   CONDUIT_OWUI_PYTHON  a CPython 3.11 for setup (default: uv's, then
 #                        python3.11 on PATH)
 #   CONDUIT_OWUI_ENV     the env file seed writes and the tests read
@@ -65,7 +65,7 @@
 # ever deleted: reset moves the old data into $CONDUIT_OWUI_DIR/old/.
 set -euo pipefail
 
-OWUI_VERSION=0.13.2
+OWUI_VERSION=0.13.4
 TOOL_DIR=$(cd "$(dirname "$0")" && pwd)
 
 if [ "$(uname -s)" = Darwin ]; then
@@ -329,6 +329,8 @@ start() {
     # DATABASE_TYPE and its parts), STORAGE_PROVIDER (s3, gcs, azure) or
     # OPENAI_API_BASE_URLS/KEYS would point this throwaway server at real
     # data, a real bucket or a real provider.
+    # ENABLE_DIRECT_CONNECTIONS and ENABLE_DIRECT_INTEGRATIONS only reach a
+    # CONDUIT_OWUI_VENV of 0.13.3 or older: 0.13.4 moved both into Tether.
     DATA_DIR="$DATA" STORAGE_PROVIDER=local \
       DATABASE_URL="sqlite:///$DATA/webui.db" DATABASE_TYPE= DATABASE_SCHEMA= \
       OPENAI_API_BASE_URLS="http://127.0.0.1:$MODEL_PORT/v1" OPENAI_API_KEYS=sk-local-fake \
