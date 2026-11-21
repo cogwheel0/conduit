@@ -997,7 +997,7 @@ pub fn fit_sheet(sheet: &objc2_app_kit::NSWindow, content_height: f64, margin: f
 
 /// The visible area of the display `window` is on (the main display for
 /// one not yet on screen), without the menu bar and the Dock.
-fn visible_area(window: &objc2_app_kit::NSWindow) -> Option<crate::shell::placement::Rect> {
+pub fn visible_area(window: &objc2_app_kit::NSWindow) -> Option<crate::shell::placement::Rect> {
     let mtm = MainThreadMarker::new()?;
     let screen = window
         .screen()
@@ -1012,18 +1012,44 @@ fn visible_area(window: &objc2_app_kit::NSWindow) -> Option<crate::shell::placem
 }
 
 /// Sizes the setup window for `content_height` points of content, as
-/// [`crate::shell::placement::setup_frame`] places it.
+/// [`crate::shell::placement::setup_frame`] places it. The visible area it
+/// was fitted to.
 pub fn fit_setup_window(
     window: &objc2_app_kit::NSWindow,
+    content_height: f64,
+    shown: bool,
+    animate: bool,
+) -> Option<crate::shell::placement::Rect> {
+    let visible = visible_area(window)?;
+    fit_setup_window_to(window, visible, content_height, shown, animate);
+    Some(visible)
+}
+
+/// Fits the setup window, on screen, to `content_height` again once its
+/// display's visible area is no longer `fitted_to`: it moved to another
+/// display, or the display changed. Moves within one display leave it be.
+/// The visible area it is fitted to now.
+pub fn refit_setup_window(
+    window: &objc2_app_kit::NSWindow,
+    content_height: f64,
+    fitted_to: Option<crate::shell::placement::Rect>,
+) -> Option<crate::shell::placement::Rect> {
+    let visible = visible_area(window)?;
+    if fitted_to != Some(visible) {
+        fit_setup_window_to(window, visible, content_height, true, false);
+    }
+    Some(visible)
+}
+
+fn fit_setup_window_to(
+    window: &objc2_app_kit::NSWindow,
+    visible: crate::shell::placement::Rect,
     content_height: f64,
     shown: bool,
     animate: bool,
 ) {
     use crate::shell::placement::{Rect, setup_frame};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
-    let Some(visible) = visible_area(window) else {
-        return;
-    };
     let frame = window.frame();
     let chrome = frame.size.height - window.contentRectForFrameRect(frame).size.height;
     let current = Rect::new(

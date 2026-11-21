@@ -66,7 +66,23 @@ struct Fit {
     /// The height last asked of the window, so a request never repeats
     /// while AppKit resizes it.
     requested: Cell<Option<f32>>,
+    /// The chooser's height the window was given.
+    applied: Cell<Option<f32>>,
+    /// The display's visible area the window was last fitted to.
+    area: Cell<Option<crate::shell::placement::Rect>>,
     shown: Cell<bool>,
+    /// The page drawn last, and whether it was the chooser.
+    page: Cell<Option<(Page, bool)>>,
+    /// Starts again with every page drawn after another.
+    generation: Cell<u64>,
+}
+
+impl Fit {
+    fn on_page(&self, page: Page, chooser: bool) {
+        if self.page.replace(Some((page, chooser))) != Some((page, chooser)) {
+            self.generation.set(self.generation.get() + 1);
+        }
+    }
 }
 
 /// What the window shows.
@@ -147,6 +163,17 @@ impl SetupWindow {
             cx.observe(&connection_issue, |_, _, cx| cx.notify()),
             cx.observe(&librechat, |_, _, cx| cx.notify()),
             cx.observe(&approvals, |_, _, cx| cx.notify()),
+            // Moved to another display, or its display changed: fitted
+            // to the one it is on.
+            cx.observe_window_bounds(window, |s, window, cx| s.refit(window, cx)),
+            {
+                let (handle, this) = (window.window_handle(), cx.entity().downgrade());
+                cx.observe_displays(move |_, cx| {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        let _ = this.update(cx, |s, cx| s.refit(window, cx));
+                    });
+                })
+            },
             // Keyboard Navigation may have been switched in System Settings.
             cx.observe_window_activation(window, |_, window, cx| {
                 if window.is_window_active() {
@@ -161,7 +188,11 @@ impl SetupWindow {
             window,
             async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
                 cx.background_executor().timer(REVEAL_AFTER).await;
-                let _ = this.update_in(cx, |s, window, _| reveal(&s.fit, window));
+                let _ = this.update_in(cx, |s, window, cx| {
+                    if reveal(&s.fit, window) {
+                        s.refit(window, cx);
+                    }
+                });
             },
         );
         Self {
@@ -184,6 +215,32 @@ impl SetupWindow {
     /// Whether the window is on screen: it shows itself once it is sized.
     pub fn shown(&self) -> bool {
         self.fit.shown.get()
+    }
+
+    /// Fits the window on screen again (its chooser's height, else the
+    /// height it opened at) once the display's visible area it is on is
+    /// another than the one it was fitted to, after this callback: AppKit
+    /// calls back into GPUI on a resize.
+    fn refit(&self, window: &Window, cx: &mut App) {
+        if !self.fit.shown.get() {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(ns) = crate::shell::macos::ns_window(window) {
+            let fit = self.fit.clone();
+            let height = fit
+                .applied
+                .get()
+                .unwrap_or(crate::windows::SETUP_FIRST_HEIGHT);
+            cx.spawn(async move |_: &mut gpui_kit::AsyncApp| {
+                let area =
+                    crate::shell::macos::refit_setup_window(&ns, f64::from(height), fit.area.get());
+                fit.area.set(area);
+            })
+            .detach();
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (window, cx, self.fit.applied.get(), self.fit.area.get());
     }
 
     fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -311,11 +368,13 @@ fn setup_frame(
         )
 }
 
-/// Puts the window on screen, once.
-fn reveal(fit: &Fit, window: &mut Window) {
-    if !fit.shown.replace(true) {
+/// Puts the window on screen, once: whether it did now.
+fn reveal(fit: &Fit, window: &mut Window) -> bool {
+    let now = !fit.shown.replace(true);
+    if now {
         window.activate_window();
     }
+    now
 }
 
 /// A hidden window draws no frames (AppKit stops its display link): lay it
@@ -332,14 +391,26 @@ fn lay_out(window: &Window, cx: &mut App) {
 fn resize(height: f32, fit: Rc<Fit>, window: &Window, cx: &mut App) {
     let handle = window.window_handle();
     let shown = fit.shown.get();
+    let generation = fit.generation.get();
     #[cfg(target_os = "macos")]
     let ns = crate::shell::macos::ns_window(window);
     #[cfg(target_os = "macos")]
     let animate = shown && !cx.reduce_motion();
     cx.spawn(async move |cx: &mut gpui_kit::AsyncApp| {
+        // Another page was drawn since the chooser was measured: it keeps
+        // its height, and the chooser is measured again if it comes back.
+        if fit.generation.get() != generation {
+            if fit.requested.get() == Some(height) {
+                fit.requested.set(None);
+            }
+            return;
+        }
+        fit.applied.set(Some(height));
         #[cfg(target_os = "macos")]
         if let Some(ns) = ns {
-            crate::shell::macos::fit_setup_window(&ns, f64::from(height), shown, animate);
+            let area =
+                crate::shell::macos::fit_setup_window(&ns, f64::from(height), shown, animate);
+            fit.area.set(area);
         }
         if !shown {
             let _ = handle.update(cx, |_, window, _| reveal(&fit, window));
@@ -386,6 +457,7 @@ impl Render for SetupWindow {
             _ => l10n.desktop_set_up_conduit().into(),
         };
         let chooser = page == Page::Onboarding && self.onboarding.read(cx).step == Step::Choose;
+        self.fit.on_page(page, chooser);
         // The chooser shows once the window is as tall (its probe); the
         // daemon's status card once it fails, or the wait is over; every
         // other page as it is.
@@ -394,8 +466,8 @@ impl Render for SetupWindow {
                 status,
                 Status::Failed { .. } | Status::StoreUnreadable | Status::VersionMismatch { .. }
             );
-        if !chooser && !starting {
-            reveal(&self.fit, window);
+        if !chooser && !starting && reveal(&self.fit, window) {
+            self.refit(window, cx);
         }
         let probe = chooser.then(|| chooser_probe(self.fit.clone()));
         let frame = |content: AnyElement, cx: &App| {
@@ -556,30 +628,42 @@ mod fit_tests {
 
     use super::*;
     use crate::stores::rpc::fake::FakeDaemon;
+    use crate::stores::session::SessionStore;
 
-    /// The chooser in the window's frame, measured as the window measures it.
+    /// The chooser in the window's frame, measured as the window measures
+    /// it, or (`chooser` off) another page in its place.
     struct Chooser {
         onboarding: Entity<OnboardingView>,
         fit: Rc<Fit>,
         scroll: ScrollHandle,
+        chooser: bool,
     }
 
     impl Render for Chooser {
         fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            setup_frame(
-                self.onboarding.clone().into_any_element(),
-                "Set Up Conduit".into(),
-                Some(chooser_probe(self.fit.clone())),
-                &self.scroll,
-                cx,
-            )
+            self.fit.on_page(Page::Onboarding, self.chooser);
+            let (content, probe) = if self.chooser {
+                (
+                    self.onboarding.clone().into_any_element(),
+                    Some(chooser_probe(self.fit.clone())),
+                )
+            } else {
+                (div().h(px(200.)).into_any_element(), None)
+            };
+            setup_frame(content, "Set Up Conduit".into(), probe, &self.scroll, cx)
         }
     }
 
-    /// The window asks for the chooser's height, and for the Apple
-    /// Intelligence section's too once this Mac offers Apple On-Device.
-    #[gpui_kit::test]
-    fn the_window_is_as_tall_as_its_chooser_apple_section_included(cx: &mut TestAppContext) {
+    fn bench(
+        chooser: bool,
+        cx: &mut TestAppContext,
+    ) -> (
+        FakeDaemon,
+        Entity<SessionStore>,
+        Rc<Fit>,
+        gpui_kit::Entity<Chooser>,
+        &mut VisualTestContext,
+    ) {
         let daemon = FakeDaemon::new();
         daemon.returns::<methods::SystemCapabilities>(Capabilities::default());
         let scratch =
@@ -593,16 +677,50 @@ mod fit_tests {
         cx.run_until_parked();
         let fit: Rc<Fit> = Rc::default();
         let shared = fit.clone();
-        let (_view, vcx) = cx.add_window_view(move |window, cx| Chooser {
+        let (view, vcx) = cx.add_window_view(move |window, cx| Chooser {
             onboarding: cx.new(|cx| OnboardingView::new(stores, window, cx)),
             fit: shared,
             scroll: ScrollHandle::new(),
+            chooser,
         });
-        let draw = |vcx: &mut VisualTestContext| {
-            vcx.update(|window, cx| window.draw(cx).clear(cx));
-            vcx.run_until_parked();
+        (daemon, session, fit, view, vcx)
+    }
+
+    fn draw(vcx: &mut VisualTestContext) {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    /// The chooser measured, then another page drawn before the resize it
+    /// asked for runs: that page keeps its own height.
+    #[gpui_kit::test]
+    fn a_page_drawn_before_the_choosers_resize_keeps_its_height(cx: &mut TestAppContext) {
+        let (_daemon, _session, fit, view, vcx) = bench(false, cx);
+        let show = |chooser: bool, vcx: &mut VisualTestContext| {
+            view.update(vcx, |b, cx| {
+                b.chooser = chooser;
+                cx.notify();
+            });
+            draw(vcx);
         };
+        // Measured; its resize waits for the next turn of the event loop.
+        show(true, vcx);
+        assert!(fit.requested.get().is_some(), "the chooser was measured");
+        show(false, vcx);
+        vcx.run_until_parked();
+        assert_eq!(fit.applied.get(), None);
+        // Back on the chooser, it is measured and fitted again.
+        show(true, vcx);
+        vcx.run_until_parked();
+        assert_eq!(fit.applied.get(), fit.requested.get());
+    }
+
+    /// The window asks for the chooser's height, and for the Apple
+    /// Intelligence section's too once this Mac offers Apple On-Device.
+    #[gpui_kit::test]
+    fn the_window_is_as_tall_as_its_chooser_apple_section_included(cx: &mut TestAppContext) {
+        let (daemon, session, fit, _view, vcx) = bench(true, cx);
         draw(vcx);
+        vcx.run_until_parked();
         let plain = fit.requested.get().expect("the chooser was measured");
 
         daemon.returns::<methods::SystemCapabilities>(Capabilities {
@@ -612,6 +730,7 @@ mod fit_tests {
         session.update(vcx, |s, cx| s.refresh_capabilities(cx));
         vcx.run_until_parked();
         draw(vcx);
+        vcx.run_until_parked();
         let apple = fit.requested.get().expect("measured again");
         // Its section title and its row.
         assert!(apple > plain + 60., "{plain} → {apple}");

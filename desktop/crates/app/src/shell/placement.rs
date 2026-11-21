@@ -141,6 +141,12 @@ mod tests {
         let high = Rect::new(436., 309., 640., 640.);
         let f = setup_frame(LAPTOP_VISIBLE, high, 600., true);
         assert_eq!(f.y + f.height, 949.);
+        // Moved onto a display with less room than it is tall: as tall as
+        // that display's visible area, and inside it.
+        let short = Rect::new(1512., 0., 1280., 560.);
+        let moved = Rect::new(1600., 100., 640., 747.);
+        let f = setup_frame(short, moved, 747., true);
+        assert_eq!((f.x, f.y, f.height), (1600., 0., 560.));
     }
 
     #[test]
