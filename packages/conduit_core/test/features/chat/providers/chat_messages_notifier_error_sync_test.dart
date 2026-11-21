@@ -463,10 +463,17 @@ void main() {
     });
 
     // Whichever copy holds more is kept, by its text without its reasoning
-    // or tool blocks, not by one being the other's beginning. The error is
-    // stored with it, so the chat opens on it, with Retry.
+    // or tool blocks, not by one being the other's beginning. Those blocks
+    // count only between copies with as much text. The error is stored with
+    // it, so the chat opens on it, with Retry.
     for (final (label, streamed, onServer, kept)
         in <(String, String, String, String)>[
+          (
+            'more text, without the reasoning that streamed here',
+            '$reasoning\nGales veer',
+            'Gales veer as the warm front passes',
+            'Gales veer as the warm front passes',
+          ),
           (
             'all of its text',
             'Gales veer as the front',
@@ -518,6 +525,53 @@ void main() {
         });
       });
     }
+
+    test('a cut-off answer stored late leaves a finished answer the store '
+        'got meanwhile as it is, with no error', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (:notifier, :db, container: _) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        // A pull stored the finished answer, before the cut-off copy is.
+        unawaited(
+          db.messagesDao.upsertLocalEchoTurn(
+            chatId: 'chat-1',
+            user: localEchoRowForMessage('chat-1', question),
+            assistant: localEchoRowForMessage(
+              'chat-1',
+              _message(
+                answerId,
+                'assistant',
+                'Gales veer as the warm front passes',
+              ),
+            ),
+          ),
+        );
+        async.flushMicrotasks();
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([
+            question,
+            _message(
+              answerId,
+              'assistant',
+              'Gales veer',
+            ).copyWith(metadata: unfinished),
+          ]);
+        pollTasks(async, notifier);
+
+        check(storedAnswer(async, db))
+          ..has(
+            (it) => it['content'],
+            'content',
+          ).equals('Gales veer as the warm front passes')
+          ..has((it) => it['done'], 'done').equals(true)
+          ..has((it) => it['error'], 'error').isNull();
+      });
+    });
 
     test('a cut-off answer keeps the text that streamed here together with '
         'its own output, not the server\'s older one', () {

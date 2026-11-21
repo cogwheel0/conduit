@@ -5102,11 +5102,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           final current = decoded is Map
               ? Map<String, dynamic>.from(decoded)
               : <String, dynamic>{};
-          // A result the store already has as finished is newer than this
-          // stop, unless it is still exactly what this stop stored here before
-          // the server accepted it, or it holds less or lacks the answer's
-          // error: Open WebUI finishes an answer that no task runs with the
-          // text it had stored, often none.
+          // A result the store already has as finished, holding as much, is
+          // newer than this stop or cut-off, and stays as it is, with no
+          // error added, unless it is still exactly what this stop stored here
+          // before the server accepted it. One that holds less is Open WebUI
+          // finishing an answer that no task runs with the text it had
+          // stored, often none.
           final storedByThisStop = _isStoredByThisStop(
             owed.storedHere[answer.id],
             stored,
@@ -5119,8 +5120,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                 answer.output,
                 stored.content,
                 storedOutput is List ? storedOutput : null,
-              ) &&
-              (answer.error == null || current['error'] != null)) {
+              )) {
             continue;
           }
           final settled = localEchoRowForMessage(chatId, answer).payload;
@@ -6602,21 +6602,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 }
 
-/// Whether an answer's [content] and [output] hold something another copy of
-/// it ([otherContent], [otherOutput]) lacks: more text, more output items, or
-/// a reasoning or tool block where the copy has none. Text is compared
-/// without those blocks, which two renders of one answer write differently.
+/// Whether an answer's [content] and [output] hold more than another copy of
+/// it ([otherContent], [otherOutput]): more text, or, with as much text, more
+/// output items or a reasoning or tool block where the copy has none. Text is
+/// compared without those blocks, which two renders of one answer write
+/// differently, and they never outweigh more text.
 bool _holdsMoreThan(
   String content,
   List<Object?>? output,
   String otherContent,
   List<Object?>? otherOutput,
-) =>
-    comparableAssistantBody(content).length >
-        comparableAssistantBody(otherContent).length ||
-    (output?.length ?? 0) > (otherOutput?.length ?? 0) ||
-    (containsRenderedSemanticDetails(content) &&
-        !containsRenderedSemanticDetails(otherContent));
+) {
+  final text = comparableAssistantBody(content).length;
+  final otherText = comparableAssistantBody(otherContent).length;
+  if (text != otherText) return text > otherText;
+  return (output?.length ?? 0) > (otherOutput?.length ?? 0) ||
+      (containsRenderedSemanticDetails(content) &&
+          !containsRenderedSemanticDetails(otherContent));
+}
 
 /// History-message shape for the local turn echo.
 ///
