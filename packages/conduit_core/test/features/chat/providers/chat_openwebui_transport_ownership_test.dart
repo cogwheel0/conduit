@@ -3171,111 +3171,6 @@ void main() {
     check(client.ownedBy(another)).isNull();
   });
 
-  group('a turn the server took, run again after a pull', () {
-    // The server took the request, and a pull while its answer ran replaced
-    // the stored answer with the server's copy, which carries none of this
-    // device's marks. A later run of the op (the app was closed meanwhile)
-    // must collect the answer, not send the question a second time.
-    const chatId = 'submitted-chat';
-    const userId = 'submitted-user';
-    const assistantId = 'submitted-assistant';
-
-    ChatRows serverCopy({required int updatedAt, required String answer}) =>
-        ChatBlobMapper.blobToRows(
-          chatId: chatId,
-          title: 'A',
-          createdAt: 1,
-          updatedAt: updatedAt,
-          blob: <String, dynamic>{
-            'title': 'A',
-            'history': <String, dynamic>{
-              'currentId': assistantId,
-              'messages': <String, dynamic>{
-                userId: <String, dynamic>{
-                  'id': userId,
-                  'parentId': null,
-                  'childrenIds': <String>[assistantId],
-                  'role': 'user',
-                  'content': 'Name a heron',
-                  'timestamp': 1,
-                },
-                assistantId: <String, dynamic>{
-                  'id': assistantId,
-                  'parentId': userId,
-                  'childrenIds': <String>[],
-                  'role': 'assistant',
-                  'content': answer,
-                  'model': 'model-1',
-                  'timestamp': 1,
-                  'done': false,
-                },
-              },
-            },
-          },
-        );
-
-    test('is collected by pull and never sent again', () async {
-      await db.chatsDao.upsertServerChat(
-        rows: serverCopy(updatedAt: 1, answer: ''),
-      );
-      final api = _GatedCompletionApi(Completer<void>()..complete())
-        ..assistantMessageId = assistantId;
-      final engine = _PersistingSyncEngine(db, api);
-      final container = _container(
-        db: db,
-        active: null,
-        messages: const <ChatMessage>[],
-        api: api,
-        syncEngine: engine,
-      );
-      addTearDown(container.dispose);
-      final seq = await db.outboxDao.enqueue(
-        kind: OutboxKind.requestCompletion,
-        chatId: chatId,
-        payload: const RequestCompletionPayload(
-          assistantMessageId: assistantId,
-          model: 'model-1',
-        ).toJson(),
-      );
-
-      await beginOpenWebUiCompletionSubmission(
-        container,
-        owner: captureOpenWebUiCompletionOwner(
-          container,
-          chatId: chatId,
-          api: api,
-        ),
-        assistantMessageId: assistantId,
-      );
-      await container
-          .read(chatLocksProvider)
-          .runExclusive(
-            chatId,
-            () => db.chatsDao.mergeServerChat(
-              server: serverCopy(updatedAt: 2, answer: 'The grey'),
-            ),
-          );
-      final runner = container.read(
-        Provider<RequestCompletionRunner>(
-          (ref) => ChatRequestCompletionRunner(
-            ref,
-            recoveryAttempts: 1,
-            recoveryDelay: Duration.zero,
-          ),
-        ),
-      );
-      await runner.run(
-        chatId: chatId,
-        payload: jsonDecode(
-          (await db.outboxDao.opBySeq(seq))!.payload,
-        ) as Map<String, dynamic>,
-      );
-
-      check(api.completionCalls).equals(0);
-      check(engine.pulls).equals(1);
-    });
-  });
-
   group('a queued completion the server holds behind a running reply', () {
     // Open WebUI 0.13.4 keeps a message sent while a reply in its chat is
     // still running ({queued: true}, no task), and answers it under new ids
@@ -5321,9 +5216,14 @@ void main() {
     check(api.completionCalls).equals(0);
   });
 
-  test(
-    'a recreated runner treats an accepted marker as pull-only recovery',
-    () async {
+  // A pull can rewrite the answer's row, mark and all: the op the server
+  // took still says so. An op queued before the op kept it has only the row.
+  for (final (label, pulledSince) in const [
+    ('its answer still marked', false),
+    ('a pull since replaced its answer', true),
+  ]) {
+    test('a recreated runner treats an accepted turn as pull-only recovery '
+        '($label)', () async {
       const chatId = 'crash-window-chat';
       const assistantId = 'crash-window-assistant';
       await _seedChat(db, chatId, assistantId: assistantId);
@@ -5342,6 +5242,17 @@ void main() {
         syncEngine: syncEngine,
       );
       addTearDown(container.dispose);
+      const queued = RequestCompletionPayload(
+        assistantMessageId: assistantId,
+        model: 'model-1',
+      );
+      final seq = pulledSince
+          ? await db.outboxDao.enqueue(
+              kind: OutboxKind.requestCompletion,
+              chatId: chatId,
+              payload: queued.toJson(),
+            )
+          : null;
       final owner = captureOpenWebUiCompletionOwner(
         container,
         chatId: chatId,
@@ -5353,6 +5264,40 @@ void main() {
         owner: owner,
         assistantMessageId: assistantId,
       );
+      if (pulledSince) {
+        // The server's copy of the answer, still running.
+        await container
+            .read(chatLocksProvider)
+            .runExclusive(
+              chatId,
+              () => db.chatsDao.mergeServerChat(
+                server: ChatBlobMapper.blobToRows(
+                  chatId: chatId,
+                  title: 'A',
+                  createdAt: 1,
+                  updatedAt: 2,
+                  blob: <String, dynamic>{
+                    'title': 'A',
+                    'history': <String, dynamic>{
+                      'currentId': assistantId,
+                      'messages': <String, dynamic>{
+                        assistantId: <String, dynamic>{
+                          'id': assistantId,
+                          'parentId': null,
+                          'childrenIds': <String>[],
+                          'role': 'assistant',
+                          'content': 'The grey',
+                          'model': 'model-1',
+                          'timestamp': 1,
+                          'done': false,
+                        },
+                      },
+                    },
+                  },
+                ),
+              ),
+            );
+      }
 
       final runnerProvider = Provider<RequestCompletionRunner>(
         (ref) => ChatRequestCompletionRunner(
@@ -5364,10 +5309,10 @@ void main() {
       final runner = container.read(runnerProvider);
       await runner.run(
         chatId: chatId,
-        payload: RequestCompletionPayload(
-          assistantMessageId: assistantId,
-          model: 'model-1',
-        ).toJson(),
+        payload: seq == null
+            ? queued.toJson()
+            : jsonDecode((await db.outboxDao.opBySeq(seq))!.payload)
+                  as Map<String, dynamic>,
       );
 
       check(api.completionCalls).equals(0);
@@ -5376,8 +5321,8 @@ void main() {
       final payload = jsonDecode(persisted!.payload) as Map<String, dynamic>;
       check(payload['done'] as bool).isTrue();
       check(payload['error']).isNotNull();
-    },
-  );
+    });
+  }
 
   test(
     'drain and pull failure settles the captured placeholder explicitly',
@@ -9437,81 +9382,53 @@ void main() {
       ).isFalse();
     });
 
-    test('a replay after acceptance never sends the group again, even when '
-        'only one answer shows it was accepted', () async {
-      final (:api, :socket, :container) = await open();
-      final handles = await durableCompareSend(
-        container,
-        'compare these',
-        null,
-        models: const [duplicate, duplicate],
-      );
-      await replay(container);
-      check(api.requests).length.equals(1);
-
-      await replay(container);
-      check(api.requests).length.equals(1);
-
-      // Only the FIRST answer carries any sign now: the second looks fresh.
-      final second = handles.last.assistantMessageId;
-      final row = (await db.messagesDao.getMessage(chatId, second))!;
-      final payload = jsonDecode(row.payload) as Map<String, dynamic>
-        ..remove('metadata');
-      await db.messagesDao.upsertLocalEcho(
-        MessageRowData(
-          id: row.id,
-          chatId: chatId,
-          parentId: row.parentId,
-          role: 'assistant',
-          content: '',
-          model: row.model,
-          createdAt: row.createdAt,
-          orderIndex: row.orderIndex,
-          payload: payload,
-        ),
-      );
-      await replay(container);
-      check(api.requests).length.equals(1);
-    });
-
-    test('a replay after acceptance never sends the group again once a pull '
-        'replaced every answer', () async {
-      final (:api, :socket, :container) = await open();
-      final handles = await durableCompareSend(
-        container,
-        'compare these',
-        null,
-        models: const [duplicate, duplicate],
-      );
-      await replay(container);
-      check(api.requests).length.equals(1);
-
-      // The server's copies of the running answers carry none of this
-      // device's marks.
-      for (final handle in handles) {
-        final row = (await db.messagesDao.getMessage(
-          chatId,
-          handle.assistantMessageId,
-        ))!;
-        final payload = jsonDecode(row.payload) as Map<String, dynamic>
-          ..remove('metadata');
-        await db.messagesDao.upsertLocalEcho(
-          MessageRowData(
-            id: row.id,
-            chatId: chatId,
-            parentId: row.parentId,
-            role: 'assistant',
-            content: '',
-            model: row.model,
-            createdAt: row.createdAt,
-            orderIndex: row.orderIndex,
-            payload: payload,
-          ),
+    // A pull rewrites the answers' rows, marks and all; the op still says the
+    // group was accepted.
+    for (final (label, unmarked) in const [
+      ('only one answer still shows it was accepted', 1),
+      ('a pull replaced every answer', 2),
+    ]) {
+      test('a replay after acceptance never sends the group again, even when '
+          '$label', () async {
+        final (:api, :socket, :container) = await open();
+        final handles = await durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: const [duplicate, duplicate],
         );
-      }
-      await replay(container);
-      check(api.requests).length.equals(1);
-    });
+        await replay(container);
+        check(api.requests).length.equals(1);
+
+        await replay(container);
+        check(api.requests).length.equals(1);
+
+        // The last [unmarked] answers carry no sign now: they look fresh.
+        for (final handle in handles.reversed.take(unmarked)) {
+          final row = (await db.messagesDao.getMessage(
+            chatId,
+            handle.assistantMessageId,
+          ))!;
+          final payload = jsonDecode(row.payload) as Map<String, dynamic>
+            ..remove('metadata');
+          await db.messagesDao.upsertLocalEcho(
+            MessageRowData(
+              id: row.id,
+              chatId: chatId,
+              parentId: row.parentId,
+              role: 'assistant',
+              content: '',
+              model: row.model,
+              createdAt: row.createdAt,
+              orderIndex: row.orderIndex,
+              payload: payload,
+            ),
+          );
+        }
+        await replay(container);
+        check(api.requests).length.equals(1);
+      });
+    }
 
     test('an answer that landed first does not complete the group', () async {
       final (:api, :socket, :container) = await open();
