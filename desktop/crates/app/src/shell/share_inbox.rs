@@ -338,14 +338,15 @@ mod tests {
         let manifest = format!(
             r#"{{"version": 1, "files": [
                 {{"name": "a", "path": "../outside.txt"}},
-                {{"name": "b", "path": "{}"}},
+                {{"name": "b", "path": {}}},
                 {{"name": "c", "path": "files/0/link.txt"}},
                 {{"name": "d", "path": ""}},
                 {{"name": "e", "path": "files/1/kept.txt"}},
                 {{"name": "f", "path": "files/9/missing.txt"}},
                 {{"name": "g", "path": "files/2/notes.txt"}}
             ]}}"#,
-            outside.display()
+            // As JSON, escaped: a Windows path has backslashes.
+            serde_json::to_string(&outside).unwrap()
         );
         let entry = s.share(ID, &manifest, &[]);
         std::fs::create_dir_all(entry.join("files/0")).unwrap();
