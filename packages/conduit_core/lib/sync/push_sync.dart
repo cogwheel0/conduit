@@ -282,7 +282,7 @@ class PushSync {
       final recovered = {...settled, ...kept};
       if (kept.isNotEmpty && !stop.asked) {
         final before = _serverMessages(chatId, resp['chat']);
-        final outcome = await stop.ask(before);
+        final outcome = await stop.ask(resp);
         if (outcome != _StopOutcome.taken) {
           throw _AnswersOwed(chatId, outcome.name);
         }
@@ -503,17 +503,18 @@ class PushSync {
     _ChatStop stop,
   ) async {
     if (settled.isEmpty) return rows;
-    final server = _serverMessages(
-      chatId,
-      (await client.getChatRaw(chatId))?['chat'],
-    );
-    final stopOwed = rows.messages.any(
-      (message) =>
-          _isStoppedHere(message) &&
-          server[message.id]?.payload['done'] == false,
-    );
+    final raw = await client.getChatRaw(chatId);
+    final server = _serverMessages(chatId, raw?['chat']);
+    // One the server holds not finished, `done: false` or a copy saved
+    // while it streamed: its Stop is still owed.
+    final stopOwed = rows.messages.any((message) {
+      final copy = server[message.id];
+      return _isStoppedHere(message) &&
+          copy != null &&
+          copy.payload['done'] != true;
+    });
     if (stopOwed) {
-      if (await stop.ask(server) == _StopOutcome.taken) {
+      if (await stop.ask(raw) == _StopOutcome.taken) {
         return _afterStop(
           client,
           chatId,
@@ -1189,14 +1190,23 @@ final class _ChatStop {
 
   bool get asked => _outcome != null;
 
-  /// Asks the stop of the chat whose messages the server holds as [server],
-  /// unless something above says not to. A task list the server does not
-  /// answer as one says nothing either way: the push stays owed. Any other
-  /// failed request throws as it is, and the push is tried again.
-  Future<_StopOutcome> ask(Map<String, MessageRowData> server) =>
+  /// Asks the stop of the chat as the server holds it, [chat] (a
+  /// `ChatResponse`), unless something above says not to. A task list the
+  /// server does not answer as one says nothing either way: the push stays
+  /// owed. Any other failed request throws as it is, and the push is tried
+  /// again.
+  Future<_StopOutcome> ask(Map<String, dynamic>? chat) =>
       _outcome ??= () async {
-        if (server.values.any(_waitsForApproval)) {
-          return _StopOutcome.promptWaits;
+        // The stop finishes only the account's answers: another person's
+        // waiting answer is left as it is, so it holds nothing back. Who the
+        // session is is asked only when some answer waits.
+        if (_waitingAnswers(chat).isNotEmpty) {
+          final userId = await _client.sessionUserId();
+          final owner = chat?['user_id'];
+          if (_waitingAnswers(chat)
+              .any((author) => userId == null || (author ?? owner) == userId)) {
+            return _StopOutcome.promptWaits;
+          }
         }
         final List<String> running;
         try {
@@ -1210,21 +1220,33 @@ final class _ChatStop {
         return _StopOutcome.taken;
       }();
 
-  /// An unfinished answer waiting for a tool's approval or an answer, as the
-  /// chat takes it ([findPendingOpenWebUiToolPrompt]).
-  static bool _waitsForApproval(MessageRowData message) =>
-      message.role == 'assistant' &&
-      message.payload['done'] == false &&
-      findPendingOpenWebUiToolPrompt([
-            ChatMessage(
-              id: message.id,
-              role: message.role,
-              content: message.content,
-              timestamp: DateTime.fromMillisecondsSinceEpoch(0),
-              output: _outputOf(message),
-            ),
-          ]) !=
-          null;
+  /// The authors (null where an answer names none) of the answers in [chat]
+  /// the server holds as not done that wait for a tool's approval or an
+  /// answer, as the chat takes it ([findPendingOpenWebUiToolPrompt]): those
+  /// the stop would finish, rejecting the call.
+  static List<Object?> _waitingAnswers(Map<String, dynamic>? chat) {
+    final blob = chat?['chat'];
+    final history = blob is Map ? blob['history'] : null;
+    final messages = history is Map ? history['messages'] : null;
+    if (messages is! Map) return const [];
+    return [
+      for (final message in messages.values)
+        if (message is Map &&
+            message['role'] == 'assistant' &&
+            message['done'] == false &&
+            findPendingOpenWebUiToolPrompt([
+                  ChatMessage(
+                    id: '${message['id']}',
+                    role: 'assistant',
+                    content: '${message['content'] ?? ''}',
+                    timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+                    output: _outputItems(message['output']),
+                  ),
+                ]) !=
+                null)
+          message['user_id'],
+    ];
+  }
 }
 
 /// A push whose answers the server still holds unfinished until the chat's
@@ -1265,8 +1287,10 @@ class _CreatePush {
   final List<String> capturedMessageIds;
 }
 
-List<Map<String, dynamic>>? _outputOf(MessageRowData message) {
-  final output = message.payload['output'];
+List<Map<String, dynamic>>? _outputOf(MessageRowData message) =>
+    _outputItems(message.payload['output']);
+
+List<Map<String, dynamic>>? _outputItems(Object? output) {
   return output is List
       ? <Map<String, dynamic>>[
           for (final item in output)

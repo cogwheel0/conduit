@@ -158,6 +158,10 @@ abstract interface class SyncApiClient {
   /// chat [chatId]. Another device of the account answering there has one.
   Future<List<String>> getChatTaskIds(String chatId);
 
+  /// The id of the user the session this client sends as signs in, as the
+  /// server answers it; null when it does not say.
+  Future<String?> sessionUserId();
+
   /// POST `/api/tasks/chat/{id}/stop`. It stops every task the account runs
   /// in chat [chatId]. With none running, Open WebUI marks each of the
   /// account's answers there that it holds as not done as done, keeping the
@@ -433,6 +437,15 @@ class ApiSyncApiClient implements SyncApiClient, ChatOwnershipProbe {
   @override
   Future<void> stopChatTasks(String chatId) =>
       api.stopChatTasksRaw(chatId, authSnapshot: _session);
+
+  @override
+  Future<String?> sessionUserId() async {
+    final user = await api.getCurrentUser(
+      authSnapshot: _session ?? api.captureAuthSnapshot(),
+      suppressAuthFailureNotification: true,
+    );
+    return user.id.isEmpty ? null : user.id;
+  }
 
   @override
   Future<bool> deleteChat(String id) =>

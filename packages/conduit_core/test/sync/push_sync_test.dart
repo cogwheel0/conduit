@@ -1856,11 +1856,12 @@ void main() {
     /// no task.
     Future<void> seed({
       String stored = '',
-      bool done = false,
+      bool? done = false,
       List<Map<String, dynamic>>? output,
       bool elsewhere = false,
       bool elsewhereRuns = true,
       bool approval = false,
+      String? elsewhereAuthor,
     }) async {
       server.seedChat(
         id: chatId,
@@ -1883,7 +1884,7 @@ void main() {
                 'role': 'assistant',
                 'content': stored,
                 'model': 'kettle-model',
-                'done': done,
+                'done': ?done,
                 'output': ?output,
               },
               if (elsewhere) ...{
@@ -1902,6 +1903,7 @@ void main() {
                   'content': 'Eggs,',
                   'model': 'kettle-model',
                   'done': false,
+                  'user_id': ?elsewhereAuthor,
                   if (approval)
                     'output': [
                       {
@@ -1973,6 +1975,7 @@ void main() {
         'content': text,
         'done': true,
         'error': {'content': lost},
+        'metadata': {kSettledHereMetadataKey: true},
       });
       answer.payload.remove('output');
       await db.chatsDao.appendMessagesWithUpdateOp(
@@ -1991,7 +1994,10 @@ void main() {
         await answerWith({
           'content': text,
           'done': true,
-          'metadata': {kStoppedHereMetadataKey: true},
+          'metadata': {
+            kStoppedHereMetadataKey: true,
+            kSettledHereMetadataKey: true,
+          },
         }),
         keepDirty: true,
       );
@@ -2273,7 +2279,11 @@ void main() {
           readBeforeStop = db.chatsDao.pushVersion(chatId);
         };
 
-      await check(pushWith(client).pushUpdateChat(chatId)).throws<StateError>();
+      await check(pushWith(client).pushUpdateChat(chatId)).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .equals('connection reset after the stop'),
+      );
 
       check(db.chatsDao.pushVersion(chatId)).isGreaterThan(readBeforeStop);
     });
@@ -2327,6 +2337,62 @@ void main() {
             .equals('Gales veer as the front passes');
       });
     }
+
+    // A copy the server saved while the answer streamed carries no `done`.
+    // Open WebUI's guard does not keep it, and its stop leaves it as it is.
+    for (final running in [false, true]) {
+      test(
+        'an answer stopped here whose server copy says neither done nor '
+        'not done ${running ? 'stays owed while a task runs' : 'is sent, once no task runs'}',
+        () async {
+          await seed(stored: 'Gales', done: null, elsewhere: running);
+          await stopHere('Gales veer as the warm front passes');
+
+          if (running) {
+            await check(push.pushUpdateChat(chatId))
+                .throws<OutboxDeferralException>();
+            check(onServer('a1'))
+                .has((it) => it['content'], 'content')
+                .equals('Gales');
+            check(
+              (jsonDecode((await answerHere()).payload)
+                  as Map)['metadata']?[kStoppedHereMetadataKey],
+            ).equals(true);
+          } else {
+            await push.pushUpdateChat(chatId);
+            check(onServer('a1'))
+              ..has((it) => it['done'], 'done').equals(true)
+              ..has(
+                (it) => it['content'],
+                'content',
+              ).equals('Gales veer as the warm front passes');
+          }
+        },
+      );
+    }
+
+    test('another person\'s answer waiting for a tool\'s approval does not '
+        'hold this account\'s answer back: the stop leaves theirs', () async {
+      await seed(
+        elsewhere: true,
+        approval: true,
+        elsewhereAuthor: 'user-other',
+      );
+      await settleCutOff();
+
+      await push.pushUpdateChat(chatId);
+
+      check(server.chatStops).deepEquals([chatId]);
+      check(onServer('a1'))
+        ..has((it) => it['done'], 'done').equals(true)
+        ..has((it) => it['content'], 'content').equals(kept);
+      check(onServer('a2'))
+        ..has((it) => it['done'], 'done').equals(false)
+        ..has(
+          (it) => ((it['output'] as List).single as Map)['status'],
+          'status',
+        ).equals('requires_approval');
+    });
 
     test('a stop that fails leaves the push owed, and the next push asks it '
         'again', () async {

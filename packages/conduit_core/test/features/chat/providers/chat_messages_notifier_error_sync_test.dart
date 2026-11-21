@@ -461,6 +461,7 @@ void main() {
       String streamed, {
       List<Map<String, dynamic>>? output,
       AppDatabase? database,
+      bool withTaskId = true,
     }) {
       api.taskIds = ['task-1'];
       final container = _openChatContainer(api: api, database: database);
@@ -469,9 +470,9 @@ void main() {
       final placeholder = _message(answerId, 'assistant', '').copyWith(
         isStreaming: true,
         output: output,
-        metadata: const <String, dynamic>{
+        metadata: <String, dynamic>{
           'transport': 'taskSocket',
-          'taskId': 'task-1',
+          if (withTaskId) 'taskId': 'task-1',
           'taskConversationId': 'chat-1',
         },
       );
@@ -1581,17 +1582,62 @@ void main() {
     }
 
     // A Stop the server did not take is asked again as the next turn is
-    // admitted. The chat's stop ends every task the account runs there.
-    for (final mineRuns in [false, true]) {
-      test('a Stop asked again as a next turn is admitted, while '
-          '${mineRuns ? 'its own task still runs' : 'another device answers in the chat'}, '
-          'stops ${mineRuns ? 'that task alone' : 'nothing'}', () {
+    // admitted. The chat's stop ends every task the account runs there, and
+    // with none running it finishes the account's answers that are not done,
+    // rejecting a tool call one waits on. Only an administrator may stop a
+    // single task.
+    for (final (label, running, ownKnown, waits, admits, chatStops)
+        in <(String, List<String>, bool, bool, bool, int)>[
+          (
+            'another device answers in the chat, stops nothing',
+            ['task-elsewhere'],
+            true,
+            false,
+            true,
+            0,
+          ),
+          (
+            'its own task still runs, stops the chat, which runs only that',
+            ['task-1'],
+            true,
+            false,
+            true,
+            1,
+          ),
+          (
+            'its own task and another device\'s run, stays owed',
+            ['task-1', 'task-elsewhere'],
+            true,
+            false,
+            false,
+            0,
+          ),
+          (
+            'nothing runs but an answer waits for a tool\'s approval, stays '
+                'owed',
+            <String>[],
+            true,
+            true,
+            false,
+            0,
+          ),
+          (
+            'a task runs that cannot be told to be its own, stays owed',
+            ['task-elsewhere'],
+            false,
+            false,
+            false,
+            0,
+          ),
+        ]) {
+      test('a Stop asked again as a next turn is admitted, while $label', () {
         fakeAsync((async) {
           final api = _FakeApiService(_chat([question]));
           final (notifier: _, :db, :container) = streamHere(
             async,
             api,
             'Gales veer',
+            withTaskId: ownKnown,
           );
           api
             ..away = true
@@ -1604,7 +1650,24 @@ void main() {
           api
             ..away = false
             ..stopsRefused = false
-            ..taskIds = [mineRuns ? 'task-1' : 'task-elsewhere'];
+            ..taskIds = running
+            ..conversation = _chat([
+              question,
+              _message(answerId, 'assistant', 'Gales veer'),
+              if (waits)
+                _message('assistant-2', 'assistant', '').copyWith(
+                  metadata: unfinished,
+                  output: [
+                    <String, dynamic>{
+                      'type': 'function_call',
+                      'call_id': 'call-1',
+                      'name': 'trail_weather',
+                      'arguments': '{}',
+                      'status': 'requires_approval',
+                    },
+                  ],
+                ),
+            ]);
           bool? admitted;
           unawaited(
             container
@@ -1621,12 +1684,40 @@ void main() {
           );
           async.flushMicrotasks();
 
-          check(admitted).equals(true);
-          check(api.chatStops).equals(chatStopsBefore);
-          check(api.stoppedTasks).deepEquals([if (mineRuns) 'task-1']);
+          check(admitted).equals(admits);
+          check(api.chatStops - chatStopsBefore).equals(chatStops);
+          check(api.stoppedTasks).isEmpty();
         });
       });
     }
+
+    test('a Stop the server did not take asks for a drain of its store once '
+        'its answer is stored here', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        final engine = container.read(
+          syncEngineProvider.notifier,
+        ) as _DrainRecordingSyncEngine;
+        api
+          ..away = true
+          ..readFailures = 1
+          ..stopsRefused = true;
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+
+        check(
+          (storedAnswer(async, db)['metadata']
+              as Map?)?[kStoppedHereMetadataKey],
+        ).equals(true);
+        check(engine.drained).isNotEmpty();
+        check(engine.drained.every((it) => identical(it, db))).isTrue();
+      });
+    });
 
     test('a Stop the server did not take stores its answer and queues its '
         "chat's update together, or neither", () {
@@ -1652,6 +1743,7 @@ void main() {
           return queued;
         }
 
+        final before = storedAnswer(async, db);
         // The store takes the answer but nothing for its outbox.
         unawaited(
           db.customStatement(
@@ -1667,10 +1759,7 @@ void main() {
         unawaited(container.read(stopGenerationSettledProvider)());
         async.flushMicrotasks();
 
-        check(
-          (storedAnswer(async, db)['metadata']
-              as Map?)?[kStoppedHereMetadataKey],
-        ).isNull();
+        check(storedAnswer(async, db)).deepEquals(before);
         check(updateQueued()).isFalse();
 
         unawaited(db.customStatement('DROP TRIGGER outbox_refused'));
@@ -1692,10 +1781,12 @@ void main() {
         async.flushMicrotasks();
 
         check(stored).equals(true);
-        check(
-          (storedAnswer(async, db)['metadata']
-              as Map?)?[kStoppedHereMetadataKey],
-        ).equals(true);
+        check(storedAnswer(async, db))
+          ..has((it) => it['content'], 'content').equals('Gales veer')
+          ..has(
+            (it) => (it['metadata'] as Map?)?[kStoppedHereMetadataKey],
+            'stopped here',
+          ).equals(true);
         check(updateQueued()).isTrue();
       });
     });

@@ -92,46 +92,78 @@ ChatMessage? _trailingStreamingAssistant(
 }
 
 /// The task ids of this account's answers still running at the end of
-/// [messages]: the ones a Stop ends.
-Set<String> _tasksOfRunningAnswers(List<ChatMessage> messages, String? userId) {
-  final tasks = <String>{};
+/// [messages]: the ones a Stop ends, and whether those are all of them. An
+/// answer with no task id of its own, or one this account runs only among
+/// another answer's versions ([versionsOf]), leaves them unknown.
+({Set<String> ids, bool known}) _tasksOfRunningAnswers(
+  List<ChatMessage> messages,
+  String? userId,
+  List<String> Function(String messageId) versionsOf,
+) {
+  final ids = <String>{};
+  var known = true;
   for (final message in messages.reversed) {
     if (message.role != 'assistant') break;
+    if (versionsOf(message.id).isNotEmpty) known = false;
+    if (!message.isStreaming || !message.isWrittenBy(userId)) continue;
     final taskId = message.metadata?['taskId'];
-    if (message.isStreaming &&
-        message.isWrittenBy(userId) &&
-        taskId is String &&
-        taskId.isNotEmpty) {
-      tasks.add(taskId);
+    if (taskId is String && taskId.isNotEmpty) {
+      ids.add(taskId);
+    } else {
+      known = false;
     }
   }
-  return tasks;
+  return (ids: ids, known: known && ids.isNotEmpty);
 }
 
-/// A Stop the server refused, or never answered, asked again. The chat's stop
-/// ends every task the account runs in the chat, so it is asked only while
-/// none runs: another device may answer there by now. A task of [own] still
-/// running is stopped alone. With only another's running, none of [own] is
-/// left to stop, and the answers' stored update finishes them on the server
-/// once the chat runs no task.
+/// A Stop the server refused, or never answered, asked again; whether it is
+/// done with. Only an administrator may stop a single task, so it is asked
+/// through the chat's stop, which ends every task the account runs in the
+/// chat, and with none running finishes the account's unfinished answers,
+/// rejecting a tool call one waits on. Another device may answer there by
+/// now, so it is asked only while nothing but [own] runs, and with nothing
+/// running, while no answer of [userId]'s waits for a tool's approval.
+/// With [own] gone and another's task running, nothing is left to stop, and
+/// the answers' stored update finishes them once the chat runs no task.
+/// Otherwise it stays owed.
 Future<bool> _askStopAgain(
   ApiService api,
   String chatId,
-  Set<String> own,
+  ({Set<String> ids, bool known}) own,
+  String? userId,
 ) async {
   final running = await api.getTaskIdsByChat(chatId);
   if (running.isEmpty) {
+    if (await _answerWaitsForPrompt(api, chatId, userId)) return false;
     await api.stopTasksByChat(chatId);
     return true;
   }
-  for (final task in running.where(own.contains)) {
-    try {
-      await api.stopTask(task);
-    } on TaskStopNotAcknowledged {
-      // It ended meanwhile.
-    }
+  if (!own.known) return false;
+  if (running.every(own.ids.contains)) {
+    await api.stopTasksByChat(chatId);
+    return true;
   }
-  return true;
+  return !running.any(own.ids.contains);
+}
+
+/// Whether the server holds an answer of [userId]'s in [chatId] unfinished
+/// while it waits for a tool's approval or an answer, as the chat takes it.
+/// An answer that names no author is the chat owner's.
+Future<bool> _answerWaitsForPrompt(
+  ApiService api,
+  String chatId,
+  String? userId,
+) async {
+  final chat = await api.getConversation(chatId);
+  return findPendingOpenWebUiToolPrompt([
+        for (final message in chat.messages)
+          if (message.role == 'assistant' &&
+              ChatMessagesNotifier._serverReportsRunning(message) &&
+              (userId == null ||
+                  (message.authorUserId ?? chat.userId ?? userId) == userId))
+            message,
+      ]) !=
+      null;
 }
 
 // Stop generation provider
@@ -284,9 +316,11 @@ Future<bool> _stopGeneration(Ref ref) {
 
   // The tasks of the answers this Stop ends, and one ask again for every step
   // of it at a time.
+  final stopping = ref.read(chatMessagesProvider.notifier);
   final ownTasks = _tasksOfRunningAnswers(
     ref.read(chatMessagesProvider),
     userId,
+    (messageId) => stopping._answersThisAccountRuns(inMessage: messageId),
   );
   Future<bool>? askingAgain;
   Future<bool> Function(String chatId)? askAgainWith(ApiService? api) =>
@@ -296,6 +330,7 @@ Future<bool> _stopGeneration(Ref ref) {
           api,
           chatId,
           ownTasks,
+          userId,
         ).whenComplete(() => askingAgain = null);
 
   try {

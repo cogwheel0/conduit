@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
@@ -148,6 +150,19 @@ class _Api extends ApiService {
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async => chatTaskIds;
+
+  /// The server's copy, read before a refused Stop is asked again with no
+  /// task running: no answer in it waits for a tool's approval.
+  @override
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async => Conversation(
+    id: id,
+    title: id,
+    createdAt: DateTime.utc(2026, 10, 6),
+    updatedAt: DateTime.utc(2026, 10, 6),
+  );
 }
 
 /// The outbox drain and the remap announcements, which belong to the sync

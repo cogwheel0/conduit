@@ -5268,7 +5268,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           enqueueCompletion: false,
         );
       });
-      if (asEdits) _drainStoredAnswers(db);
+      _drainStoredAnswers(db);
       return true;
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -5282,11 +5282,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
-  /// Sends what a stopped or cut-off answer's edits queued in [db] now: on
+  /// Sends what a stopped or cut-off answer's write queued in [db] now: on
   /// the desktop nothing else drains the outbox until a send, a reconnect or
-  /// a list-prompted pull. Only while [db] is still the store the sync
-  /// engine serves. Answers stored here alone wait for those: their stop was
-  /// refused, and a reconnect or a launch drains their update.
+  /// a list-prompted pull, and a reconnect's drain may have run before this
+  /// write. Only while [db] is still the store the sync engine serves.
   void _drainStoredAnswers(AppDatabase db) {
     try {
       unawaited(

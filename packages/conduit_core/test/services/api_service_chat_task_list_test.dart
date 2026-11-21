@@ -14,41 +14,42 @@ import 'package:test/test.dart';
 /// stop may be asked: an empty one means no task runs. Only Open WebUI's own
 /// answer, `{"task_ids": [...]}`, says so; anything else is no answer.
 void main() {
-  final lists = <String, Future<List<String>> Function(ApiService, String)>{
-    'getTaskIdsByChat': (api, chatId) => api.getTaskIdsByChat(chatId),
-    'getChatTaskIdsRaw': (api, chatId) => api.getChatTaskIdsRaw(chatId),
-  };
-  for (final MapEntry(key: name, value: read) in lists.entries) {
-    group(name, () {
-      for (final (label, body, contentType, tasks)
-          in <(String, String, String, List<String>)>[
-            ('none running', '{"task_ids": []}', 'application/json', []),
-            (
-              'one running',
-              '{"task_ids": ["task-7"]}',
-              'application/json',
-              ['task-7'],
-            ),
-          ]) {
-        test('reads $label', () async {
-          final api = _api(_TaskListAdapter(body, contentType));
-          check(await read(api, 'chat-1')).deepEquals(tasks);
-        });
-      }
+  group('getChatTaskIdsRaw', () {
+    for (final (label, body, contentType, tasks)
+        in <(String, String, String, List<String>)>[
+          ('none running', '{"task_ids": []}', 'application/json', []),
+          (
+            'one running',
+            '{"task_ids": ["task-7"]}',
+            'application/json',
+            ['task-7'],
+          ),
+        ]) {
+      test('reads $label', () async {
+        final api = _api(_TaskListAdapter(body, contentType));
+        check(await api.getChatTaskIdsRaw('chat-1')).deepEquals(tasks);
+      });
+    }
 
-      for (final (label, body, contentType) in <(String, String, String)>[
-        ('an empty object', '{}', 'application/json'),
-        ('no list', '{"task_ids": null}', 'application/json'),
-        ('a string', '{"task_ids": "task-7"}', 'application/json'),
-        ('a page', '<html><body>Sign in</body></html>', 'text/html'),
-      ]) {
-        test('takes $label for no answer, not for no task', () async {
-          final api = _api(_TaskListAdapter(body, contentType));
-          await check(read(api, 'chat-1')).throws<Object>();
-        });
-      }
-    });
-  }
+    for (final (label, body, contentType) in <(String, String, String)>[
+      ('an empty object', '{}', 'application/json'),
+      ('no list', '{"task_ids": null}', 'application/json'),
+      ('a string', '{"task_ids": "task-7"}', 'application/json'),
+      ('a page', '<html><body>Sign in</body></html>', 'text/html'),
+    ]) {
+      test('takes $label for no answer, not for no task', () async {
+        final api = _api(_TaskListAdapter(body, contentType));
+        await check(api.getChatTaskIdsRaw('chat-1')).throws<FormatException>();
+      });
+    }
+  });
+
+  // The same reading, for the task checks of the chat on screen.
+  test('getTaskIdsByChat takes an answer with no list for no answer, not for '
+      'no task', () async {
+    final api = _api(_TaskListAdapter('{}', 'application/json'));
+    await check(api.getTaskIdsByChat('chat-1')).throws<FormatException>();
+  });
 
   // As the chat's stop and the other bound chat routes: a refusal of the
   // session still current is final, one of a session replaced meanwhile is

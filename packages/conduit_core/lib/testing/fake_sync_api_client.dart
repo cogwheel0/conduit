@@ -277,6 +277,9 @@ class FakeSyncApiClient implements SyncApiClient {
   }
 
   @override
+  Future<String?> sessionUserId() async => FakeOpenWebUiServer.userId;
+
+  @override
   Future<void> stopChatTasks(String chatId) async {
     await Future<void>.delayed(Duration.zero);
     if (failChatStopIds.contains(chatId)) {

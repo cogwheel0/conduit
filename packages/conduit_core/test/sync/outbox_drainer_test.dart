@@ -115,6 +115,9 @@ class RecordingSyncApiClient implements SyncApiClient {
       server.stopTasksByChat(chatId);
 
   @override
+  Future<String?> sessionUserId() async => FakeOpenWebUiServer.userId;
+
+  @override
   Future<bool> deleteChat(String id) {
     calls.add('deleteChat:$id');
     events.add('deleteChat:$id');
