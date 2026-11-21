@@ -107,10 +107,49 @@ fn checked(key: String) -> Result<String, SecretError> {
     }
 }
 
+/// A store whose write replaces what is there (Credential Manager, the
+/// Secret Service), which [`LockedStore`] makes create-only.
+pub trait ReplacingStore {
+    fn load(&self) -> Result<Option<String>, SecretError>;
+    fn replace(&self, key: &str) -> Result<(), SecretError>;
+}
+
+/// A [`ReplacingStore`] made create-only: it looks and writes holding
+/// `lock`, which every launch using the same service shares whatever its
+/// profile ([`crate::paths::master_key_lock`]). The key is the service's,
+/// as the Keychain item is on the Mac.
+pub struct LockedStore<S> {
+    pub store: S,
+    pub lock: std::path::PathBuf,
+}
+
+impl<S> LockedStore<S> {
+    pub fn new(store: S, lock: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            store,
+            lock: lock.into(),
+        }
+    }
+}
+
+impl<S: ReplacingStore> MasterKeyStore for LockedStore<S> {
+    fn load(&self) -> Result<Option<String>, SecretError> {
+        self.store.load()
+    }
+
+    fn add(&self, key: &str) -> Result<bool, SecretError> {
+        exclusively(&self.lock, || {
+            if self.store.load()?.is_some() {
+                return Ok(false);
+            }
+            self.store.replace(key)?;
+            Ok(true)
+        })
+    }
+}
+
 /// Runs `f` holding an exclusive lock on the file at `path` (made if
-/// missing), for a store with no create-only write: every launch that
-/// shares the data folder takes its turn to look and write.
-#[cfg(any(windows, target_os = "linux"))]
+/// missing).
 fn exclusively<T>(
     path: &std::path::Path,
     f: impl FnOnce() -> Result<T, SecretError>,
@@ -220,7 +259,7 @@ pub use credential_manager::CredentialManager;
 
 #[cfg(windows)]
 mod credential_manager {
-    use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
+    use super::{MASTER_KEY_ACCOUNT, ReplacingStore, SecretError};
     use windows::Win32::Foundation::ERROR_NOT_FOUND;
     use windows::Win32::Security::Credentials::{
         CRED_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredFree,
@@ -229,19 +268,16 @@ mod credential_manager {
     use windows::core::{PCWSTR, PWSTR};
 
     /// A generic credential in the user's Credential Manager (DPAPI, this
-    /// machine only, never roaming): target `<service>:masterKey`. It has
-    /// no create-only write, so a new key is written holding `lock` (a
-    /// file in the data folder).
+    /// machine only, never roaming): target `<service>:masterKey`. A write
+    /// replaces it, so the app stores through a [`super::LockedStore`].
     pub struct CredentialManager {
         pub service: String,
-        pub lock: std::path::PathBuf,
     }
 
     impl CredentialManager {
-        pub fn new(service: impl Into<String>, lock: impl Into<std::path::PathBuf>) -> Self {
+        pub fn new(service: impl Into<String>) -> Self {
             Self {
                 service: service.into(),
-                lock: lock.into(),
             }
         }
 
@@ -254,7 +290,7 @@ mod credential_manager {
         s.encode_utf16().chain(Some(0)).collect()
     }
 
-    impl MasterKeyStore for CredentialManager {
+    impl ReplacingStore for CredentialManager {
         fn load(&self) -> Result<Option<String>, SecretError> {
             let target = self.target();
             let mut credential: *mut CREDENTIALW = std::ptr::null_mut();
@@ -295,19 +331,7 @@ mod credential_manager {
                 .map_err(|_| SecretError::Corrupt)
         }
 
-        fn add(&self, key: &str) -> Result<bool, SecretError> {
-            super::exclusively(&self.lock, || {
-                if self.load()?.is_some() {
-                    return Ok(false);
-                }
-                self.write(key)?;
-                Ok(true)
-            })
-        }
-    }
-
-    impl CredentialManager {
-        fn write(&self, key: &str) -> Result<(), SecretError> {
+        fn replace(&self, key: &str) -> Result<(), SecretError> {
             let mut target = self.target();
             let mut account = wide(MASTER_KEY_ACCOUNT);
             let blob = key.as_bytes();
@@ -329,7 +353,9 @@ mod credential_manager {
 
     #[cfg(test)]
     mod tests {
-        use super::super::{is_valid_master_key, load_or_create_master_key};
+        use super::super::{
+            LockedStore, MasterKeyStore as _, is_valid_master_key, load_or_create_master_key,
+        };
         use super::*;
         use windows::Win32::Security::Credentials::CredDeleteW;
 
@@ -353,11 +379,14 @@ mod credential_manager {
                 .expect("a temporary folder");
             // A service of this run's own: never a credential an earlier
             // run (or another test process) left.
-            let store = CredentialManager::new(
-                format!("app.example.conduit-test.{:016x}", rand::random::<u64>()),
+            let store = LockedStore::new(
+                CredentialManager::new(format!(
+                    "app.example.conduit-test.{:016x}",
+                    rand::random::<u64>()
+                )),
                 folder.path().join("master-key.lock"),
             );
-            let cleanup = Cleanup(store.target());
+            let cleanup = Cleanup(store.store.target());
             assert_eq!(store.load(), Ok(None));
             let key = load_or_create_master_key(&store).unwrap();
             assert!(is_valid_master_key(&key));
@@ -376,25 +405,23 @@ pub use secret_service::SecretService;
 
 #[cfg(target_os = "linux")]
 mod secret_service {
-    use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
+    use super::{MASTER_KEY_ACCOUNT, ReplacingStore, SecretError};
 
     /// An item in the user's Secret Service (GNOME Keyring, KWallet), or in
     /// a Flatpak the portal's keyring file, labelled with the service and
     /// found by its `service` and `account` attributes. Unlocking can show
     /// the desktop's own prompt. With no Secret Service at all this fails,
     /// and the app says so: the key is never written to a plain file. A
-    /// create-only item would be a second one beside it, so a new key is
-    /// written holding `lock` (a file in the data folder).
+    /// create-only item would be a second one beside it, so the app stores
+    /// through a [`super::LockedStore`].
     pub struct SecretService {
         pub service: String,
-        pub lock: std::path::PathBuf,
     }
 
     impl SecretService {
-        pub fn new(service: impl Into<String>, lock: impl Into<std::path::PathBuf>) -> Self {
+        pub fn new(service: impl Into<String>) -> Self {
             Self {
                 service: service.into(),
-                lock: lock.into(),
             }
         }
 
@@ -407,7 +434,7 @@ mod secret_service {
         SecretError::Store(e.to_string())
     }
 
-    impl MasterKeyStore for SecretService {
+    impl ReplacingStore for SecretService {
         fn load(&self) -> Result<Option<String>, SecretError> {
             futures_lite::future::block_on(async {
                 let keyring = oo7::Keyring::new().await.map_err(store_error)?;
@@ -427,20 +454,14 @@ mod secret_service {
             })
         }
 
-        fn add(&self, key: &str) -> Result<bool, SecretError> {
-            super::exclusively(&self.lock, || {
-                if self.load()?.is_some() {
-                    return Ok(false);
-                }
-                futures_lite::future::block_on(async {
-                    let keyring = oo7::Keyring::new().await.map_err(store_error)?;
-                    keyring.unlock().await.map_err(store_error)?;
-                    keyring
-                        .create_item(&self.service, &self.attributes(), key, true)
-                        .await
-                        .map_err(store_error)
-                })?;
-                Ok(true)
+        fn replace(&self, key: &str) -> Result<(), SecretError> {
+            futures_lite::future::block_on(async {
+                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                keyring.unlock().await.map_err(store_error)?;
+                keyring
+                    .create_item(&self.service, &self.attributes(), key, true)
+                    .await
+                    .map_err(store_error)
             })
         }
     }
@@ -677,6 +698,66 @@ mod tests {
         });
         assert_eq!(a, b, "both launches use one key");
         assert_eq!(store.inner.load().unwrap(), Some(a));
+    }
+
+    /// Two first launches on one service with different profiles: the key
+    /// is the service's (as the Keychain item is on the Mac), so the second
+    /// launch's lock is held while the first writes, and both use one key.
+    #[test]
+    fn launches_with_different_profiles_take_turns_on_the_services_key() {
+        use crate::paths::{Os, master_key_lock};
+        struct Shared {
+            key: std::sync::Mutex<Option<String>>,
+            other_lock: std::path::PathBuf,
+            other_held_while_writing: std::sync::Mutex<Option<bool>>,
+        }
+        struct View<'a>(&'a Shared);
+        impl ReplacingStore for View<'_> {
+            fn load(&self) -> Result<Option<String>, SecretError> {
+                Ok(self.0.key.lock().unwrap().clone())
+            }
+            fn replace(&self, key: &str) -> Result<(), SecretError> {
+                let held = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(false)
+                    .open(&self.0.other_lock)
+                    .is_ok_and(|file| file.try_lock().is_err());
+                *self.0.other_held_while_writing.lock().unwrap() = Some(held);
+                *self.0.key.lock().unwrap() = Some(key.to_string());
+                Ok(())
+            }
+        }
+        let home = tempfile::Builder::new()
+            .prefix("conduit-home-")
+            .tempdir()
+            .expect("a temporary folder");
+        let (profile_a, profile_b) = (home.path().join("a"), home.path().join("b"));
+        std::fs::create_dir_all(&profile_a).unwrap();
+        std::fs::create_dir_all(&profile_b).unwrap();
+        // One user's environment; each launch names its own profile.
+        let lock = |profile: &std::path::Path| {
+            let (home, profile) = (home.path().to_path_buf(), profile.to_path_buf());
+            master_key_lock(Os::CURRENT, "app.example.conduit", &move |key| match key {
+                "HOME" | "LOCALAPPDATA" | "XDG_RUNTIME_DIR" => Some(home.clone().into()),
+                "CONDUIT_USER_DATA" => Some(profile.clone().into()),
+                _ => None,
+            })
+        };
+        let shared = Shared {
+            key: Default::default(),
+            other_lock: lock(&profile_b),
+            other_held_while_writing: Default::default(),
+        };
+        let first = LockedStore::new(View(&shared), lock(&profile_a));
+        let second = LockedStore::new(View(&shared), lock(&profile_b));
+        let key = load_or_create_master_key(&first).unwrap();
+        assert_eq!(
+            *shared.other_held_while_writing.lock().unwrap(),
+            Some(true),
+            "the other profile's launch waits for this write"
+        );
+        assert_eq!(load_or_create_master_key(&second).unwrap(), key);
     }
 
     #[test]
