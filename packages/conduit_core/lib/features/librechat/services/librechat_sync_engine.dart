@@ -114,6 +114,10 @@ final class LibreChatSyncEngine {
   bool _drainAgain = false;
   bool _closed = false;
 
+  /// The pulls, drains and single-chat fetches running now; [close] waits
+  /// for them.
+  final Set<Future<void>> _running = <Future<void>>{};
+
   static bool _alwaysOnline() => true;
   static bool _neverGenerating(String _) => false;
 
@@ -132,8 +136,28 @@ final class LibreChatSyncEngine {
       'librechat_archived_pull_watermark';
   static const String deferredKey = 'librechat_deferred_ids';
 
-  /// Stops new work; work already running finishes.
-  void close() => _closed = true;
+  /// Stops new pulls and drains, and completes once none of this engine's
+  /// work is running: nothing it began writes [db] after that. A request
+  /// still out is not cut off here; closing [api]'s client does that.
+  Future<void> close() async {
+    _closed = true;
+    // A fetch asked of a closed engine still runs ([pullChat]).
+    while (_running.isNotEmpty) {
+      await Future.wait<void>(_running.toList());
+    }
+  }
+
+  /// Runs [work] as work [close] waits for.
+  Future<T> _tracked<T>(Future<T> Function() work) async {
+    final done = Completer<void>();
+    _running.add(done.future);
+    try {
+      return await work();
+    } finally {
+      _running.remove(done.future);
+      done.complete();
+    }
+  }
 
   static const PullResult _notPulled = PullResult(
     success: false,
@@ -155,7 +179,7 @@ final class LibreChatSyncEngine {
     // hold that fails) clears it then, and must not be stored after that.
     final run = Completer<PullResult>();
     _pull = run.future;
-    run.complete(_runPulls(forceReconcile));
+    run.complete(_tracked(() => _runPulls(forceReconcile)));
     return run.future;
   }
 
@@ -352,15 +376,16 @@ final class LibreChatSyncEngine {
   });
 
   /// Runs [work] with [db] held open, so leaving the account meanwhile
-  /// cannot close it under a write.
-  Future<T> _holdingDatabase<T>(Future<T> Function() work) async {
-    final release = _holdDatabase?.call();
-    try {
-      return await work();
-    } finally {
-      await release?.call();
-    }
-  }
+  /// cannot close it under a write; [close] waits for it.
+  Future<T> _holdingDatabase<T>(Future<T> Function() work) =>
+      _tracked(() async {
+        final release = _holdDatabase?.call();
+        try {
+          return await work();
+        } finally {
+          await release?.call();
+        }
+      });
 
   /// Connectivity is back: queued changes waiting out a retry delay are due
   /// now, then the outbox runs.
@@ -388,7 +413,7 @@ final class LibreChatSyncEngine {
     // Set before the run starts, as a pull's.
     final run = Completer<void>();
     _drain = run.future;
-    run.complete(_runDrains());
+    run.complete(_tracked(_runDrains));
     return run.future;
   }
 
@@ -421,11 +446,12 @@ final class LibreChatSyncEngine {
   }
 
   /// Stores a conversation the caller already holds, with its [messages],
-  /// as the server has it now (after a reply finished, say).
+  /// as the server has it now (after a reply finished, say). [close] waits
+  /// for it; the caller holds the database.
   Future<void> storeFetched(
     LibreChatConversation conversation,
     List<LibreChatMessage> messages,
-  ) => _adapter.store(conversation, messages);
+  ) => _tracked(() => _adapter.store(conversation, messages));
 
   Future<void> _reconcilePins() async {
     final Set<String> pinned;
