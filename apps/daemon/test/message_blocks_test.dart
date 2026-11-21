@@ -259,6 +259,24 @@ void main() {
       expect(file?.id, 'file-9');
     });
 
+    test('a video keeps its name, under whichever key it was saved', () {
+      // As Conduit saved a reply's video before, and as tools name one.
+      final file = chatFileDto(<String, dynamic>{
+        'type': 'video',
+        'url': '/api/v1/files/file-otter/content',
+        'content_type': 'video/mp4',
+        'filename': 'generated-video.mp4',
+      });
+      expect(
+        file,
+        const ChatFileDto(
+          id: 'file-otter',
+          name: 'generated-video.mp4',
+          contentType: 'video/mp4',
+        ),
+      );
+    });
+
     test('a refused tool definition is flagged for the window\'s advice', () {
       final dtos = MessageBlocks().forMessage(
         answer(content: '').copyWith(

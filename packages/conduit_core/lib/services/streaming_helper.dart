@@ -5057,6 +5057,15 @@ Map<String, dynamic> _fileEntryFromUrl(
   if (contentType.isNotEmpty) {
     entry['content_type'] = contentType;
   }
+  // The reply is saved back to the server with its files, so a file the
+  // server saved on the message (a generated video, say) keeps its id and
+  // name, as the server and the web client read them.
+  for (final key in const ['id', 'name']) {
+    final value = sourceEntry?[key]?.toString() ?? '';
+    if (value.isNotEmpty) {
+      entry[key] = value;
+    }
+  }
   // Keep the declared name so players/exporters pick the right container
   // even when the delivery URL has no extension (e.g. Files API URLs).
   if (declaredName.isNotEmpty) {

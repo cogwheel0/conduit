@@ -409,7 +409,8 @@ ChatFileDto? chatFileDto(Map<String, dynamic> file) {
   final image =
       file['type'] == 'image' || (contentType?.startsWith('image/') ?? false);
   final name =
-      (file['name'] ?? meta['name'] ?? nested['filename'])?.toString() ??
+      (file['name'] ?? file['filename'] ?? meta['name'] ?? nested['filename'])
+          ?.toString() ??
       (image ? 'image' : 'file');
   return ChatFileDto(
     id: dataUrl == null ? id : null,
