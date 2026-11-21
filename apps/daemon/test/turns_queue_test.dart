@@ -831,6 +831,13 @@ void main() {
       'out once dispose returns', () async {
     const chatId = 'chat-pantry';
     owui.chats.seed(chatId, userId: 'user-ada');
+    // The engine's own sync cycles, which the end of a turn asks for on a
+    // timer of the wall clock, wait at the chat list until the count is
+    // taken: they read the chat whenever that timer lets them.
+    final lists = owui.chats.holdChatLists = Completer<void>();
+    addTearDown(() {
+      if (!lists.isCompleted) lists.complete();
+    });
     bool chatRead(String request) => request == 'GET /api/v1/chats/$chatId';
     var readsBefore = 0;
     var finished = false;
