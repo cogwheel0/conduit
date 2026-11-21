@@ -3729,13 +3729,17 @@ void main() {
             parentId: userId,
             childrenIds: ['question-2'],
           ),
-          'question-2': _historyEntry(
-            'question-2',
-            'user',
-            'Another one',
-            parentId: 'answer-1',
-            childrenIds: ['empty-answer-2'],
-          ),
+          'question-2': {
+            ..._historyEntry(
+              'question-2',
+              'user',
+              'Another one',
+              parentId: 'answer-1',
+              childrenIds: ['empty-answer-2'],
+            ),
+            // Open WebUI keeps the question pending until it answers it.
+            'meta': {'status': 'pending'},
+          },
           'empty-answer-2': _historyEntry(
             'empty-answer-2',
             'assistant',
@@ -3789,6 +3793,7 @@ void main() {
 
         check(refreshed!.messages.skip(earlier).map((m) => m.id).toList())
             .deepEquals([userId, 'answer-1', 'question-2']);
+        check(refreshed.messages.last.isHeldByServer).isTrue();
       });
     }
 
