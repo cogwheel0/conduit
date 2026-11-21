@@ -19,11 +19,15 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/conversation_parsing.dart'
+    show parseFullConversationModel;
 import 'package:conduit_core/services/socket_service.dart';
+import 'package:conduit_core/services/structured_output.dart'
+    show parseOpenWebUIStructuredOutput;
+import 'package:conduit_core/services/structured_output_renderer.dart'
+    show renderStructuredOutputBlocks;
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/testing.dart';
-import 'package:conduit_core/utils/persisted_message_content.dart'
-    show outputItemsMessageText;
 import 'package:fake_async/fake_async.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -432,6 +436,32 @@ void main() {
       };
     }
 
+    /// The answer as the chat opens again from the store: its stored copy,
+    /// read by the chat's parser.
+    ChatMessage reopened(FakeAsync async, AppDatabase db) {
+      final answer = storedAnswer(async, db);
+      return parseFullConversationModel(<String, dynamic>{
+        'id': 'chat-1',
+        'title': 'Test Chat',
+        'created_at': 1,
+        'updated_at': 1,
+        'chat': <String, dynamic>{
+          'history': <String, dynamic>{
+            'messages': <String, dynamic>{answerId: answer},
+            'currentId': answerId,
+          },
+        },
+      }).messages.last;
+    }
+
+    /// A Responses reasoning item with [text], as an output snapshot has it.
+    Map<String, dynamic> reasoningItem(String text) => <String, dynamic>{
+      'type': 'reasoning',
+      'summary': [
+        <String, dynamic>{'type': 'summary_text', 'text': text},
+      ],
+    };
+
     /// Polls the server's task list until the reply settles, past the
     /// socket's own end, which is waited for first.
     void pollTasks(FakeAsync async, ChatMessagesNotifier notifier) {
@@ -579,60 +609,201 @@ void main() {
     // them that only the text takes: the stored text is read from the
     // output, which must hold all of what was shown.
     for (final ended in ['cut off', 'stopped']) {
-      test('an answer $ended after text that streamed past its last output '
-          'snapshot opens again with all of that text', () {
-        fakeAsync((async) {
-          final api = _FakeApiService(_chat([question]));
-          final (:notifier, :db, :container) = streamHere(
-            async,
-            api,
-            'Gales veer as the warm front passes',
-            output: const [
-              <String, dynamic>{
-                'type': 'message',
-                'role': 'assistant',
-                'content': [
-                  <String, dynamic>{
-                    'type': 'output_text',
-                    'text': 'Gales veer',
-                  },
-                ],
-              },
-            ],
-          );
-          api.taskIds = const <String>[];
-          if (ended == 'cut off') {
-            api.conversation = _chat([
-              question,
-              _message(
-                answerId,
-                'assistant',
-                '',
-              ).copyWith(metadata: unfinished),
-            ]);
-            pollTasks(async, notifier);
-          } else {
-            api.conversation = _chat([
-              question,
-              _message(answerId, 'assistant', ''),
-            ]);
-            unawaited(container.read(stopGenerationSettledProvider)());
-            async.flushMicrotasks();
-          }
+      for (final (label, snapshotText, shown) in <(String, String, String)>[
+        (
+          'streamed past its last output snapshot',
+          'Gales veer',
+          'Gales veer as the warm front passes',
+        ),
+        ('differs from its last output snapshot', 'Gales back', 'Gales veer'),
+      ]) {
+        test('an answer $ended after text that $label opens again with all '
+            'of that text', () {
+          fakeAsync((async) {
+            final api = _FakeApiService(_chat([question]));
+            final (:notifier, :db, :container) = streamHere(
+              async,
+              api,
+              shown,
+              output: [
+                <String, dynamic>{
+                  'type': 'message',
+                  'role': 'assistant',
+                  'content': [
+                    <String, dynamic>{
+                      'type': 'output_text',
+                      'text': snapshotText,
+                    },
+                  ],
+                },
+              ],
+            );
+            api.taskIds = const <String>[];
+            if (ended == 'cut off') {
+              api.conversation = _chat([
+                question,
+                _message(
+                  answerId,
+                  'assistant',
+                  '',
+                ).copyWith(metadata: unfinished),
+              ]);
+              pollTasks(async, notifier);
+            } else {
+              api.conversation = _chat([
+                question,
+                _message(answerId, 'assistant', ''),
+              ]);
+              unawaited(container.read(stopGenerationSettledProvider)());
+              async.flushMicrotasks();
+            }
 
-          final stored = storedAnswer(async, db);
-          check(stored)
-            ..has(
-              (it) => it['content'],
-              'content',
-            ).equals('Gales veer as the warm front passes')
-            ..has(
-              (it) => outputItemsMessageText(it['output'] as List),
-              'output text',
-            ).equals('Gales veer as the warm front passes');
+            check(storedAnswer(async, db))
+                .has((it) => it['content'], 'content')
+                .equals(shown);
+            check(reopened(async, db).content).equals(shown);
+          });
         });
-      });
+      }
     }
+
+    // Reasoning deltas reach the shown reasoning too, and not the output's
+    // reasoning item: what opens again is all the reasoning shown, prose or
+    // none. An output in step with the text shown is stored as it is.
+    for (final ended in ['cut off', 'stopped']) {
+      for (final (label, snapshot, streamed, opensWith, outputKept)
+          in <(String, List<Map<String, dynamic>>, String, String, bool)>[
+            (
+              'reasoning past its last output snapshot',
+              [reasoningItem('Fronts turn the wind.')],
+              moreReasoning,
+              'and the wind backs behind them',
+              false,
+            ),
+            (
+              'reasoning past its last output snapshot, then text',
+              [
+                reasoningItem('Fronts turn the wind.'),
+                <String, dynamic>{
+                  'type': 'message',
+                  'content': [
+                    <String, dynamic>{
+                      'type': 'output_text',
+                      'text': 'Gales veer',
+                    },
+                  ],
+                },
+              ],
+              '$moreReasoning\nGales veer',
+              'and the wind backs behind them',
+              false,
+            ),
+            (
+              'reasoning and text in step with its output',
+              [
+                reasoningItem(
+                  'Fronts turn the wind, and the wind backs behind them.',
+                ),
+                <String, dynamic>{
+                  'type': 'message',
+                  'content': [
+                    <String, dynamic>{
+                      'type': 'output_text',
+                      'text': 'Gales veer',
+                    },
+                  ],
+                },
+              ],
+              '',
+              'and the wind backs behind them',
+              true,
+            ),
+          ]) {
+        test('an answer $ended after $label opens again with all the '
+            'reasoning shown', () {
+          fakeAsync((async) {
+            final api = _FakeApiService(_chat([question]));
+            final shown = streamed.isEmpty
+                ? renderStructuredOutputBlocks(
+                    parseOpenWebUIStructuredOutput(snapshot),
+                  )
+                : streamed;
+            final (:notifier, :db, :container) = streamHere(
+              async,
+              api,
+              shown,
+              output: snapshot,
+            );
+            api.taskIds = const <String>[];
+            if (ended == 'cut off') {
+              api.conversation = _chat([
+                question,
+                _message(
+                  answerId,
+                  'assistant',
+                  '',
+                ).copyWith(metadata: unfinished),
+              ]);
+              pollTasks(async, notifier);
+            } else {
+              api.conversation = _chat([
+                question,
+                _message(answerId, 'assistant', ''),
+              ]);
+              unawaited(container.read(stopGenerationSettledProvider)());
+              async.flushMicrotasks();
+            }
+
+            check(reopened(async, db).content).contains(opensWith);
+            check(storedAnswer(async, db)['output'])
+                .has((it) => it != null, 'output kept')
+                .equals(outputKept);
+          });
+        });
+      }
+    }
+
+    test('a cut-off answer stored over an unfinished answer with more '
+        'reasoning in its output keeps that reasoning', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (:notifier, :db, container: _) = streamHere(
+          async,
+          api,
+          reasoning,
+        );
+        // A pull stored the server's checkpoint, its reasoning in its
+        // output, further on than what streamed here.
+        unawaited(
+          db.messagesDao.upsertLocalEchoTurn(
+            chatId: 'chat-1',
+            user: localEchoRowForMessage('chat-1', question),
+            assistant: localEchoRowForMessage(
+              'chat-1',
+              _message(answerId, 'assistant', '').copyWith(
+                isStreaming: true,
+                output: [
+                  reasoningItem(
+                    'Fronts turn the wind, and the wind backs behind them.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        async.flushMicrotasks();
+        api
+          ..taskIds = const <String>[]
+          ..conversation = _chat([
+            question,
+            _message(answerId, 'assistant', '').copyWith(metadata: unfinished),
+          ]);
+        pollTasks(async, notifier);
+
+        check(reopened(async, db).content)
+            .contains('and the wind backs behind them');
+      });
+    });
 
     test('a cut-off answer keeps the text that streamed here together with '
         'its own output, not the server\'s older one', () {
@@ -671,6 +842,69 @@ void main() {
             'content',
           ).equals('Gales veer as the warm front passes')
           ..has((it) => it['output'], 'output').isNull();
+      });
+    });
+
+    test('a chat opened again on an answer the server stopped in the middle '
+        'of, not shown running, settles with the fuller copy and the '
+        'connection lost', () {
+      fakeAsync((async) {
+        // This device stored an earlier copy of the answer; the server's,
+        // not done, has more, and no task runs for it.
+        final stale = _message(
+          answerId,
+          'assistant',
+          'Gales veer',
+        ).copyWith(metadata: unfinished);
+        final api = _FakeApiService(
+          _chat([
+            question,
+            _message(
+              answerId,
+              'assistant',
+              'Gales veer as the front',
+            ).copyWith(metadata: unfinished),
+          ]),
+        );
+        final container = _openChatContainer(api: api);
+        final db = container.read(appDatabaseProvider)!;
+        unawaited(() async {
+          await db.chatsDao.upsertEnvelopeStub(
+            id: 'chat-1',
+            title: 'Test Chat',
+            createdAt: 1,
+            updatedAt: 1,
+          );
+          await db.messagesDao.upsertLocalEchoTurn(
+            chatId: 'chat-1',
+            user: localEchoRowForMessage('chat-1', question),
+            assistant: localEchoRowForMessage(
+              'chat-1',
+              stale.copyWith(isStreaming: true),
+            ),
+          );
+        }());
+        async.flushMicrotasks();
+        container.read(chatMessagesProvider);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(_chat([question, stale]));
+        async.flushMicrotasks();
+
+        final answer = container.read(chatMessagesProvider).last;
+        check(answer.content).equals('Gales veer as the front');
+        check(answer.error?.content)
+            .equals(TemporaryChatResume.connectionLostMessage);
+        check(storedAnswer(async, db))
+          ..has(
+            (it) => it['content'],
+            'content',
+          ).equals('Gales veer as the front')
+          ..has((it) => it['done'], 'done').equals(true)
+          ..has(
+            (it) => (it['error'] as Map?)?['content'],
+            'error',
+          ).equals(TemporaryChatResume.connectionLostMessage);
       });
     });
 

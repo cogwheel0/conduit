@@ -124,6 +124,8 @@ import 'package:conduit_core/services/streaming_response_controller.dart';
 
 import 'package:conduit_core/services/streaming_helper.dart';
 import 'package:conduit_core/services/structured_output.dart';
+import 'package:conduit_core/services/direct_replay_output.dart'
+    show parseConduitDirectReplayOutput;
 import 'package:conduit_core/services/structured_output_renderer.dart';
 import 'package:conduit_core/services/openwebui_outlet.dart';
 

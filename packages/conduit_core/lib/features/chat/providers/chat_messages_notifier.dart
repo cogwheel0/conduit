@@ -3264,15 +3264,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
+      // An answer of this account's that the server keeps not done, with no
+      // task, shown finished because nothing marked it running: the server
+      // stopped in the middle of it, and the final fetch below settles it as
+      // cut off. One waiting on a saved prompt is not.
+      final cutOffAsOpened =
+          !openedAsStreaming &&
+          openedTail.isWrittenBy(ref.read(currentUserProvider2)?.id) &&
+          openedTail.metadata?[kMessageServerUnfinishedMetadataKey] == true &&
+          findPendingOpenWebUiToolPrompt([openedTail]) == null;
+      final settlesThroughFetch = openedAsStreaming || cutOffAsOpened;
       // A restored streaming tail settles through the final fetch below:
       // finished first, it would leave nothing to retry that fetch should it
       // fail. Its answers are finished once the fetch succeeds.
       _finishAnswersWithoutTask(
-        openedAsStreaming
+        settlesThroughFetch
             ? eligible.where((id) => id != openedMessageId)
             : eligible,
       );
-      if (!openedAsStreaming) {
+      if (!settlesThroughFetch) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
         return;
@@ -5109,11 +5119,19 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                     if (item is Map) Map<String, dynamic>.from(item),
                 ]
               : null;
-          final storedHoldsMore = _holdsMoreThan(
-            stored.content,
-            storedOutput,
+          // Each copy as it shows when read again, its reasoning and tool
+          // blocks rendered with it, so their output items are not counted
+          // again: an answer whose output was dropped has its items rendered.
+          final shownNow = _storedShows(
             persistedMessageContent(shown),
             shown.output,
+          );
+          final storedNow = _storedShows(stored.content, storedOutput);
+          final storedHoldsMore = _holdsMoreThan(
+            storedNow,
+            null,
+            shownNow,
+            null,
           );
           // A result the store already has as finished, holding as much, is
           // newer than this stop or cut-off, and stays as it is, with no
@@ -5127,12 +5145,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           );
           if (current['done'] == true &&
               !storedByThisStop &&
-              !_holdsMoreThan(
-                persistedMessageContent(shown),
-                shown.output,
-                stored.content,
-                storedOutput,
-              )) {
+              !_holdsMoreThan(shownNow, null, storedNow, null)) {
             continue;
           }
           // Never cut a stored answer short: an unfinished one that holds
@@ -6658,23 +6671,39 @@ int _detailsTextLength(String content) =>
     content.replaceAll(_detailsMarkup, '').replaceAll(_whitespace, '').length -
     comparableAssistantBody(content).replaceAll(_whitespace, '').length;
 
-/// [answer] with an `output` that holds all the text it shows, for storing:
-/// a stored answer's text is read from its output, and a Responses stream
-/// gives the text the deltas between output snapshots, which the output
-/// lacks until the next one.
+/// [answer] with an `output` that shows what [answer] showed, for storing: a
+/// stored answer is read again from its output when it has one. A Responses
+/// stream gives the shown text and reasoning the deltas between output
+/// snapshots, which the output lacks until the next one.
 ///
-/// When the output's text is where the shown text begins, the rest continues
-/// its last message, or follows it as one of its own after a tool call or
-/// reasoning item, and every structured item stays. Otherwise the output is
-/// dropped, and the text is stored as shown, its reasoning and tool blocks
-/// rendered into it.
+/// The output is kept, with every structured item, when its reasoning and
+/// tool blocks hold as much as those shown and its text is the text shown, or
+/// where it begins: text past it continues its last message, or follows as a
+/// message of its own after a tool call or reasoning item. Otherwise (blocks
+/// behind, or text that differs) it is dropped, and the answer is stored as
+/// shown, its blocks rendered into its text: their items cannot be rebuilt
+/// from that rendering.
 ChatMessage _withOutputAsShown(ChatMessage answer) {
   final output = answer.output;
-  if (output == null || output.isEmpty) return answer;
+  if (output == null ||
+      output.isEmpty ||
+      parseConduitDirectReplayOutput(output) != null) {
+    return answer;
+  }
+  final rendered = _storedShows(answer.content, output);
+  if (_detailsTextLength(answer.content) > _detailsTextLength(rendered)) {
+    return answer.copyWith(output: null);
+  }
   final shown = comparableAssistantBody(answer.content);
-  final stored = outputItemsMessageText(output).trimLeft();
-  if (stored.trimRight().length >= shown.length) return answer;
-  if (!shown.startsWith(stored)) return answer.copyWith(output: null);
+  final stored = outputItemsMessageText(output).trim();
+  // Compared with whitespace evened out: the text between blocks keeps the
+  // blank lines that set them apart.
+  final shownWords = shown.replaceAll(_whitespace, ' ');
+  final storedWords = stored.replaceAll(_whitespace, ' ');
+  if (storedWords.startsWith(shownWords)) return answer;
+  if (!shownWords.startsWith(storedWords) || !shown.startsWith(stored)) {
+    return answer.copyWith(output: null);
+  }
   final rest = shown.substring(stored.length);
   final last = output.last;
   final parts = last['content'];
@@ -6711,11 +6740,20 @@ ChatMessage _withOutputAsShown(ChatMessage answer) {
       },
     ];
   }
-  final kept = answer.copyWith(output: extended);
   return outputItemsMessageText(extended).trim().length >= shown.length
-      ? kept
+      ? answer.copyWith(output: extended)
       : answer.copyWith(output: null);
 }
+
+/// What a stored answer with [content] and [output] shows when it is read
+/// again: its output rendered, as the chat's parser and Open WebUI's web
+/// client take it, or [content] when it has none.
+String _storedShows(String content, List<Map<String, dynamic>>? output) =>
+    output == null ||
+        output.isEmpty ||
+        parseConduitDirectReplayOutput(output) != null
+    ? content
+    : renderStructuredOutputBlocks(parseOpenWebUIStructuredOutput(output));
 
 /// History-message shape for the local turn echo.
 ///
