@@ -3042,16 +3042,22 @@ void main() {
           // token; the viewer's own auth carries none.
           final computer = ComputerRpcService(runtime.container);
           addTearDown(computer.dispose);
-          const chatId = 'live-computer-chat';
+          // A chat the server holds: Open WebUI 0.13.4 refuses a terminal
+          // request naming a saved chat it cannot find.
+          final computerChat = await runtime.container
+              .read(apiServiceProvider)!
+              .createConversation(
+                title: 'live-computer-chat',
+                messages: const <ChatMessage>[],
+              );
+          created.add(computerChat.id);
+          final chatId = computerChat.id;
           final status = await computer.status(chatId);
           expect(status.enabled, isTrue);
           expect(status.desktop, isTrue);
           expect((await computer.status('')).desktop, isFalse);
           final view = await computer.open(
-            const ComputerOpen(
-              chatId: chatId,
-              surface: ComputerSurfaceKind.desktop,
-            ),
+            ComputerOpen(chatId: chatId, surface: ComputerSurfaceKind.desktop),
           );
           expect(view.state, ComputerViewState.live);
           expect(view.transport, 'frames');
