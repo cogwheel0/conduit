@@ -55,7 +55,7 @@ use gpui_kit::{
 use super::CitationTarget;
 use super::rows::{RowFlags, RowHost, RowView};
 use crate::l10n::ActiveL10n as _;
-use crate::stores::chat::{ChatStore, Row};
+use crate::stores::chat::{ChatStore, Role as ChatRole, Row};
 
 struct Citation {
     key: String,
@@ -98,6 +98,27 @@ pub fn show_row_popover(kind: RowPopoverKind, key: String, position: Point<Pixel
     });
 }
 
+/// The newest row, as far as an answer pin goes.
+#[derive(Debug, PartialEq)]
+enum NewestAnswer {
+    /// Not an answer (a question last, or no rows).
+    Other,
+    /// An answer being written, or a turn on its way.
+    Writing,
+    /// A done answer: its row key, and whether its suggestions are in.
+    Done { key: String, suggestions: bool },
+}
+
+/// See [`Transcript::step_pin`].
+struct AnswerPin {
+    key: String,
+    /// When the wait for the answer's actions and suggestions, and their
+    /// reveal, is over.
+    until: std::time::Instant,
+    /// The list has been laid out from the answer's start at least once.
+    applied: bool,
+}
+
 pub struct Transcript {
     store: Entity<ChatStore>,
     host: RowHost,
@@ -121,9 +142,15 @@ pub struct Transcript {
     chase_fresh: bool,
     /// Frames in a row the chase has sat at the end.
     chase_quiet: u8,
-    /// The done answer whose start stays in view ([`Self::step_pin`]), by
-    /// row key.
-    answer_pin: Option<String>,
+    /// A done answer's start held in view while what comes under it
+    /// settles ([`Self::step_pin`]).
+    answer_pin: Option<AnswerPin>,
+    /// The view rests at a done answer's start, the end below it: the next
+    /// growth is followed from here, as if the list still followed.
+    parked: bool,
+    /// The newest answer as the last sync saw it: a pin arms only when it
+    /// finishes or its suggestions come.
+    newest: NewestAnswer,
     focus: FocusHandle,
     /// What had focus when last drawn: Tab moving onto a row's buttons
     /// scrolls that row into view.
@@ -309,10 +336,8 @@ impl Transcript {
         list.set_scroll_handler(move |event, _, cx| {
             let at_top = event.visible_range.start == 0;
             let _ = weak.update(cx, |t, cx| {
-                // The user took the wheel: stop easing toward the end, and
-                // holding an answer's start.
-                t.chase = None;
-                t.answer_pin = None;
+                // The user took the wheel.
+                t.let_go();
                 t.scrolled(at_top, cx)
             });
         });
@@ -351,6 +376,8 @@ impl Transcript {
             chase_fresh: false,
             chase_quiet: 0,
             answer_pin: None,
+            parked: false,
+            newest: NewestAnswer::Other,
             focus: cx.focus_handle(),
             last_focus: None,
             painted_fades: true,
@@ -430,8 +457,7 @@ impl Transcript {
 
     /// Follows the end again (after sending).
     pub fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
-        self.chase = None;
-        self.answer_pin = None;
+        self.let_go();
         self.list.set_follow_mode(FollowMode::Tail);
         self.list.scroll_to_end();
         cx.notify();
@@ -440,16 +466,14 @@ impl Transcript {
     /// Stops following the end (and easing toward it) until the view is
     /// sent back to the end: for a caller that scrolls the list itself.
     pub fn stop_following(&mut self) {
-        self.chase = None;
-        self.answer_pin = None;
+        self.let_go();
         self.list.set_follow_mode(FollowMode::Normal);
     }
 
     /// Scrolls by `delta` (negative is up), pausing tail-following first so
     /// the list does not snap back.
     pub fn scroll_by(&mut self, delta: Pixels, cx: &mut Context<Self>) {
-        self.chase = None;
-        self.answer_pin = None;
+        self.let_go();
         self.list.pause_following_tail();
         self.list.scroll_by(delta);
         cx.notify();
@@ -462,11 +486,11 @@ impl Transcript {
         let revisions = store.revisions();
         let live_ix = store.rows().iter().position(|r| *r == Row::Live);
         let mut grows = false;
-        let same_rows = keys == self.keys;
-        if !same_rows || store.is_streaming() {
+        let newest = newest_answer(store);
+        if keys != self.keys || store.is_streaming() {
             self.answer_pin = None;
         }
-        if !same_rows {
+        if keys != self.keys {
             let old = &self.keys;
             let prefix = old.iter().zip(&keys).take_while(|(a, b)| a == b).count();
             let max_suffix = old.len().min(keys.len()) - prefix;
@@ -503,9 +527,6 @@ impl Transcript {
         }
         if revisions.0 != self.seen.0 {
             self.list.remeasure();
-            if same_rows {
-                self.pin_answer_start(cx);
-            }
         } else if revisions.1 != self.seen.1
             && let Some(ix) = live_ix
         {
@@ -513,68 +534,111 @@ impl Transcript {
             grows = true;
         }
         self.seen = revisions;
-        if grows {
+        let was = std::mem::replace(&mut self.newest, newest);
+        let pinned = match (&was, &self.newest) {
+            (NewestAnswer::Writing, NewestAnswer::Done { .. }) => self.arm_pin(cx),
+            (
+                NewestAnswer::Done {
+                    key: before,
+                    suggestions: false,
+                },
+                NewestAnswer::Done {
+                    key,
+                    suggestions: true,
+                },
+            ) if before == key => self.arm_pin(cx),
+            _ => false,
+        };
+        if grows && !pinned {
             self.ease_to_end(cx);
         }
         self.find_rows_changed();
         cx.notify();
     }
 
-    /// The stored copy changed under a done answer whose first line is in
-    /// view (its suggestions came, say): from here the view follows the
-    /// end only as far as that line ([`Self::step_pin`]). An answer already
-    /// scrolled past its start keeps following its end.
-    fn pin_answer_start(&mut self, cx: &App) {
-        let store = self.store.read(cx);
-        let Some(ix) = store.rows().len().checked_sub(1) else {
-            return;
+    /// The newest answer just finished, or its suggestions just came, with
+    /// its first line in view while the view follows the end: from here
+    /// the view follows the end only as far as that line
+    /// ([`Self::step_pin`]). An answer already scrolled past its start
+    /// keeps following its end. Whether it pinned.
+    fn arm_pin(&mut self, cx: &App) -> bool {
+        let NewestAnswer::Done { key, .. } = &self.newest else {
+            return false;
         };
-        let answer = match store.rows()[ix] {
-            Row::Stored(i) => store
-                .messages()
-                .get(i)
-                .is_some_and(|m| m.role == "assistant"),
-            _ => false,
+        let Some(ix) = self.keys.iter().position(|k| k == key) else {
+            return false;
         };
-        if !answer || store.is_streaming() || !self.follows_end() {
-            return;
-        }
         let top = self.list.logical_scroll_top();
-        if top.item_ix < ix || (top.item_ix == ix && top.offset_in_item <= px(0.)) {
-            self.chase = None;
-            self.answer_pin = self.keys.get(ix).cloned();
+        let start_in_view = top.item_ix < ix || (top.item_ix == ix && top.offset_in_item <= px(0.));
+        if !self.follows_end() || !start_in_view {
+            return false;
         }
+        // The eased follow holds the list's own following paused, and the
+        // pin lays the list out only while it follows.
+        if self.chase.take().is_some() {
+            self.list.set_follow_mode(FollowMode::Tail);
+        }
+        self.answer_pin = Some(AnswerPin {
+            key: key.clone(),
+            until: cx.background_executor().now()
+                + motion::SETTLE_WAIT
+                + specs::REVEAL.duration
+                + motion::FRAME * 3,
+            applied: false,
+        });
+        true
     }
 
     /// Before each layout, while the list would follow its end: lay it out
     /// from the pinned answer's start instead, which fills the view upward
-    /// to the end when what is below fits. The row grows a frame or more
-    /// after the store's change (its suggestions fade in), so this holds
-    /// until a layout no longer finds the end: the answer and what came
-    /// under it are taller than the view, which shows the answer's start.
-    fn step_pin(&mut self) {
-        let Some(ix) = self
-            .answer_pin
-            .as_ref()
-            .and_then(|key| self.keys.iter().position(|k| k == key))
-        else {
-            self.answer_pin = None;
+    /// to the end when what is below fits. The row grows some frames after
+    /// the store's change (its actions wait for its suggestions, then fade
+    /// in), so this holds until a layout no longer finds the end (the view
+    /// then rests at the answer's start, and the next growth is followed
+    /// again) or until that wait is over with everything fitting.
+    fn step_pin(&mut self, now: std::time::Instant) {
+        let Some(pin) = &self.answer_pin else {
             return;
         };
-        if self.list.is_following_tail() {
-            self.list.scroll_to(gpui_kit::ListOffset {
-                item_ix: ix,
-                offset_in_item: px(0.),
-            });
-        } else {
-            self.answer_pin = None;
+        let ix = self.keys.iter().position(|k| *k == pin.key);
+        let (until, applied) = (pin.until, pin.applied);
+        match ix {
+            Some(ix) if self.list.is_following_tail() && now < until => {
+                self.list.scroll_to(gpui_kit::ListOffset {
+                    item_ix: ix,
+                    offset_in_item: px(0.),
+                });
+                if let Some(pin) = &mut self.answer_pin {
+                    pin.applied = true;
+                }
+            }
+            Some(_) if !self.list.is_following_tail() => {
+                self.parked = applied;
+                self.answer_pin = None;
+            }
+            _ => self.answer_pin = None,
         }
+    }
+
+    /// Something else moves the view now: easing toward the end, holding an
+    /// answer's start and following on from one all end.
+    fn let_go(&mut self) {
+        self.chase = None;
+        self.answer_pin = None;
+        self.parked = false;
     }
 
     /// The end is about to move: keep what is on screen still this frame
     /// and ease after it (when following, and motion is welcome).
     fn ease_to_end(&mut self, cx: &mut Context<Self>) {
-        if cx.reduce_motion() || (self.chase.is_none() && !self.list.is_following_tail()) {
+        let parked = std::mem::take(&mut self.parked);
+        if cx.reduce_motion() {
+            if parked {
+                self.list.set_follow_mode(FollowMode::Tail);
+            }
+            return;
+        }
+        if self.chase.is_none() && !self.list.is_following_tail() && !parked {
             return;
         }
         self.list.pause_following_tail();
@@ -1247,7 +1311,7 @@ impl Transcript {
         let Some(ix) = self.keys.iter().position(|k| *k == key) else {
             return;
         };
-        self.chase = None;
+        self.let_go();
         self.list.pause_following_tail();
         if self.list.bounds_for_item(ix).is_none() && ix < self.list.logical_scroll_top().item_ix {
             self.list.scroll_to(gpui_kit::ListOffset {
@@ -1336,7 +1400,7 @@ impl Transcript {
             return true;
         };
         window.blur(cx);
-        self.chase = None;
+        self.let_go();
         self.list.set_follow_mode(FollowMode::Normal);
         let above = self.list.item_is_above_viewport(target) != Some(false);
         if back && !above {
@@ -1407,6 +1471,30 @@ impl Transcript {
     }
 }
 
+/// The newest row, as far as an answer pin goes.
+fn newest_answer(store: &ChatStore) -> NewestAnswer {
+    let Some(&row) = store.rows().last() else {
+        return NewestAnswer::Other;
+    };
+    if store.is_streaming() {
+        return NewestAnswer::Writing;
+    }
+    let Row::Stored(_) = row else {
+        return NewestAnswer::Writing;
+    };
+    match store.item(row) {
+        Some(item) if item.role == ChatRole::Assistant && !item.streaming => NewestAnswer::Done {
+            key: store.row_key(row),
+            suggestions: item.blocks.iter().any(|b| {
+                b.kind == conduit_protocol::MessageBlockKind::FollowUps
+                    && b.follow_ups.as_ref().is_some_and(|f| !f.is_empty())
+            }),
+        },
+        Some(item) if item.role == ChatRole::Assistant => NewestAnswer::Writing,
+        _ => NewestAnswer::Other,
+    }
+}
+
 impl Render for Transcript {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         cx.set_global(CitationTarget(cx.entity().downgrade()));
@@ -1415,7 +1503,7 @@ impl Render for Transcript {
         self.refresh_reading(cx);
         self.step_chase(window, cx);
         self.reveal_focused(window, cx);
-        self.step_pin();
+        self.step_pin(cx.background_executor().now());
         let t = cx.conduit().clone();
         let l10n = cx.l10n().clone();
         let r = t.roles;
@@ -2369,6 +2457,264 @@ mod tests {
         assert!(start < top, "the answer fits: it starts at {start}");
 
         suggestions_come(&store, &daemon, 12, cx);
+        quick_ask_frames(&transcript, cx);
+        let (_, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// Streams the answer `a1`, already streaming, on to `lines`
+    /// paragraphs, then ends its turn while the eased follow is still under
+    /// way: the stored copy comes with its suggestions.
+    fn finish_mid_follow(
+        store: &Entity<ChatStore>,
+        transcript: &Entity<Transcript>,
+        daemon: &FakeDaemon,
+        question: &ChatMessageDto,
+        lines: usize,
+        cx: &mut VisualTestContext,
+    ) {
+        stream(store, lines, cx);
+        // Frames until the easing is under way with the answer's new lines
+        // laid out: the view short of the end, the list's own following
+        // paused.
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        let mut under_way = false;
+        for _ in 0..20 {
+            paint_in(transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.run_until_parked();
+            paint_in(transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+            under_way =
+                transcript.read_with(cx, |t, _| t.chase.is_some()) && !list.is_following_tail();
+            if under_way {
+                break;
+            }
+        }
+        assert!(under_way, "the eased follow is not under way");
+        let done = answer("a1", lines, &["Why?", "How?", "When?"]);
+        let text = done.content.clone();
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![question.clone(), done]));
+        store.update(cx, |s, cx| {
+            s.on_event(
+                &Event::TurnCompleted(conduit_protocol::TurnCompleted {
+                    chat_id: "c1".into(),
+                    message_id: "a1".into(),
+                    text,
+                    reasoning: None,
+                    usage: None,
+                }),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+    }
+
+    /// A short answer done while the view still eases after it shows from
+    /// its first line, as one done at rest does, not where the easing
+    /// stopped.
+    #[gpui_kit::test]
+    fn a_short_answer_done_mid_follow_shows_from_its_start(cx: &mut TestAppContext) {
+        // A question of four paragraphs: the streaming answer outgrows the
+        // view, so the easing is truly under way when the turn ends.
+        let question = message(
+            "u1",
+            "user",
+            "First part of the question.\n\nSecond part.\n\nThird part.\n\nFourth part.",
+        );
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        stream(&store, 1, cx);
+        quick_ask_frames(&transcript, cx);
+        finish_mid_follow(&store, &transcript, &daemon, &question, 2, cx);
+        quick_ask_frames(&transcript, cx);
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            end - start > QUICK_ASK_VIEWPORT,
+            "the suggestions fit after all: {}",
+            end - start
+        );
+        assert!(
+            start >= top - 0.5 && start <= top + TOP_INSET + 0.5,
+            "the answer starts at {start}, not at the view's top {top}"
+        );
+    }
+
+    /// A short answer in Quick Ask's area, its suggestions come: held at
+    /// its start, the rest below.
+    fn hold_short_answer(
+        store: &Entity<ChatStore>,
+        transcript: &Entity<Transcript>,
+        daemon: &FakeDaemon,
+        cx: &mut VisualTestContext,
+    ) {
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(transcript, cx);
+        suggestions_come(store, daemon, 1, cx);
+        quick_ask_frames(transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            start >= top - 0.5 && end > top + QUICK_ASK_VIEWPORT,
+            "not held: {start}..{end}"
+        );
+    }
+
+    /// After a short answer is held at its start, what comes after it (here
+    /// another device's turn) is followed to its end, as before.
+    #[gpui_kit::test]
+    fn a_turn_after_a_held_answer_is_followed(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), answer("a1", 1, &[])], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        hold_short_answer(&store, &transcript, &daemon, cx);
+
+        daemon.returns::<methods::ChatsGet>(chat_result(vec![
+            question,
+            answer("a1", 1, &["Why?", "How?", "When?"]),
+            message("u2", "user", "And the sun?"),
+            answer("a2", 6, &[]),
+        ]));
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let (_, end) = painted(&list, 3).expect("the new answer is on screen");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// After a short answer is held at its start, a regenerated answer
+    /// streaming in its place is followed, as before.
+    #[gpui_kit::test]
+    fn a_regenerate_after_a_held_answer_is_followed(cx: &mut TestAppContext) {
+        let (store, transcript, cx, daemon) = open_with(
+            vec![
+                message("u1", "user", "How far is the moon?"),
+                answer("a1", 1, &[]),
+            ],
+            cx,
+        );
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        hold_short_answer(&store, &transcript, &daemon, cx);
+
+        daemon.returns::<methods::TurnsRegenerate>(conduit_protocol::SendTurnAccepted {
+            chat_id: "c1".into(),
+            user_message_id: "u1".into(),
+            assistant_message_id: "a2".into(),
+        });
+        store.update(cx, |s, cx| {
+            s.regenerate("a1", None, cx);
+            s.on_event(
+                &Event::TurnStarted(conduit_protocol::TurnStarted {
+                    companion_ids: vec![],
+                    chat_id: "c1".into(),
+                    message_id: "a2".into(),
+                    model: "m".into(),
+                }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        for n in 1..=12 {
+            let text = (1..=n)
+                .map(|i| format!("Line {i} of the new answer."))
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            store.update(cx, |s, cx| {
+                s.on_event(
+                    &Event::TurnBlocks(TurnBlocks {
+                        chat_id: "c1".into(),
+                        message_id: "a2".into(),
+                        blocks: vec![MessageBlockDto {
+                            markdown: Some(text),
+                            ..empty_block(MessageBlockKind::Text)
+                        }],
+                        tasks: None,
+                    }),
+                    cx,
+                )
+            });
+            cx.run_until_parked();
+            paint_in(&transcript, QUICK_ASK_VIEWPORT, cx);
+            cx.executor()
+                .advance_clock(std::time::Duration::from_millis(16));
+        }
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let (start, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!(
+            start < top,
+            "the new answer was not followed: {start}..{end}"
+        );
+        assert!(
+            end <= top + QUICK_ASK_VIEWPORT,
+            "its end is below the view: {end}"
+        );
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A done chat fetched again with only its title changed holds no
+    /// answer: the view stays as it was and follows its end, as the window
+    /// grows shorter after.
+    #[gpui_kit::test]
+    fn a_refetch_that_changes_no_answer_leaves_the_view_following(cx: &mut TestAppContext) {
+        let messages = vec![
+            message("u1", "user", "How far is the moon?"),
+            answer("a1", 1, &["Why?", "How?", "When?"]),
+        ];
+        let (store, transcript, cx, daemon) = open_with(messages.clone(), cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        for _ in 0..10 {
+            frame(&transcript, 16, cx);
+        }
+        let (before, _) = painted(&list, 0).expect("the question is on screen");
+
+        let mut renamed = chat_result(messages);
+        if let Some(chat) = renamed.chat.as_mut() {
+            chat.summary.title = "Moon distance".into();
+        }
+        daemon.returns::<methods::ChatsGet>(renamed);
+        store.update(cx, |s, cx| s.fetch(cx));
+        cx.run_until_parked();
+        for _ in 0..10 {
+            frame(&transcript, 16, cx);
+        }
+        let (after, _) = painted(&list, 0).expect("the question is on screen");
+        assert!((after - before).abs() < 0.5, "moved: {before} to {after}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        let (_, end) = painted(&list, 1).expect("the answer is on screen");
+        assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
+        assert!(transcript.read_with(cx, |t, _| t.follows_end()));
+    }
+
+    /// A tall answer, followed past its start while it streamed, still
+    /// follows its end when it is done mid-follow (the main window's long
+    /// answers).
+    #[gpui_kit::test]
+    fn a_tall_answer_done_mid_follow_follows_its_end(cx: &mut TestAppContext) {
+        let question = message("u1", "user", "How far is the moon?");
+        let (store, transcript, cx, daemon) =
+            open_with(vec![question.clone(), message("a1", "assistant", "")], cx);
+        let list = transcript.read_with(cx, |t, _| t.list_state().clone());
+        quick_ask_frames(&transcript, cx);
+        let top = f32::from(list.viewport_bounds().top());
+        let bottom = top + QUICK_ASK_VIEWPORT - BOTTOM_INSET;
+        stream(&store, 12, cx);
+        quick_ask_frames(&transcript, cx);
+        let (start, _) = painted(&list, 1).expect("the answer is on screen");
+        assert!(start < top, "the answer fits: it starts at {start}");
+        finish_mid_follow(&store, &transcript, &daemon, &question, 13, cx);
         quick_ask_frames(&transcript, cx);
         let (_, end) = painted(&list, 1).expect("the answer is on screen");
         assert!((end - bottom).abs() < 0.5, "end {end}, bottom {bottom}");
