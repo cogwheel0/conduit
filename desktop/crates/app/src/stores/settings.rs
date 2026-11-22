@@ -559,8 +559,14 @@ mod tests {
             let t = cx.global::<ConduitTheme>();
             assert_eq!(t.palette_id.as_ref(), "conduit");
             assert!(!t.dark);
-            // The locked design, with the default settings.
-            assert_eq!(t.prefs.sidebar, SidebarStyle::Material);
+            // The locked design, with the default settings; off the Mac
+            // nothing shows through a material sidebar, so it is solid.
+            let sidebar = if cfg!(target_os = "macos") {
+                SidebarStyle::Material
+            } else {
+                SidebarStyle::Surface
+            };
+            assert_eq!(t.prefs.sidebar, sidebar);
             assert_eq!(t.prefs.density, Density::Compact);
             assert_eq!(t.prefs.user_message, UserMessageStyle::Bubble);
             assert_eq!(t.prefs.toolbar, ToolbarLayout::Pill);
@@ -901,15 +907,16 @@ mod tests {
             assert_eq!(s.recording, None);
             assert!(s.prefs.shortcuts.is_empty());
         });
-        // Quick Ask can't take ⌘Q.
+        // Quick Ask can't take ⌘W (Close Window's on every OS; Windows
+        // binds no Quit).
         settings.update(cx, |s, cx| s.record_quick_ask(true, cx));
-        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-q"), cx)));
+        assert!(settings.update(cx, |s, cx| s.record(&key("secondary-w"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
                 s.quick_ask_message,
                 Some(RecordMessage::ConflictFixed {
-                    stroke: KeyStroke::new("q").primary(),
-                    command: FixedCommand::Quit
+                    stroke: KeyStroke::new("w").primary(),
+                    command: FixedCommand::CloseWindow
                 })
             );
         });

@@ -102,7 +102,9 @@ fn text_pairs_meet_wcag_aa() {
                     sidebar,
                     ..Default::default()
                 };
-                let t = ConduitTheme::new(&p.id, dark, prefs, system_accent);
+                // The Mac's: only it draws a material sidebar (elsewhere the
+                // Surface rows cover the solid one).
+                let t = ConduitTheme::new_on(&p.id, dark, prefs, system_accent, true);
                 let c = &t.colors;
                 let s = &t.surfaces;
                 let r = &t.roles;
@@ -322,8 +324,11 @@ fn accent_policy_only_moves_selection_and_focus() {
 
 #[test]
 fn sidebar_style_controls_the_sidebar_fill() {
-    let material = ConduitTheme::new("conduit", true, DesignPrefs::default(), accent());
+    let material = ConduitTheme::new_on("conduit", true, DesignPrefs::default(), accent(), true);
     assert_eq!(material.roles.sidebar.a, 0.);
+    // Off the Mac nothing shows through a material sidebar: it is solid.
+    let elsewhere = ConduitTheme::new_on("conduit", true, DesignPrefs::default(), accent(), false);
+    assert_eq!(elsewhere.roles.sidebar, elsewhere.colors.sidebar_background);
     let surface = ConduitTheme::new(
         "conduit",
         true,
@@ -575,7 +580,7 @@ fn fonts_come_from_what_is_installed() {
     );
     assert_eq!(
         fonts_for(&odd, &[]),
-        (UI_FONT.to_string(), "DejaVu Sans Mono".to_string())
+        (UI_FONT.to_string(), UI_FONT.to_string())
     );
     // Until resolved (the Mac), the system aliases.
     assert_eq!(mono_font(), MONO_FONT);

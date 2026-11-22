@@ -5618,6 +5618,11 @@ mod tests {
         );
     }
 
+    /// ⌘↩ on the Mac, Ctrl+Enter elsewhere, as the shortcut table binds it.
+    fn primary_enter() -> String {
+        crate::keymap::to_gpui(&crate::keymap::KeyStroke::new("enter").primary())
+    }
+
     #[gpui_kit::test]
     fn nothing_sends_while_an_input_method_composes(cx: &mut TestAppContext) {
         let (view, cx, seen) = composer(cx);
@@ -5630,7 +5635,7 @@ mod tests {
         assert!(cx.update(|window, cx| {
             input.update(cx, |s, cx| s.marked_text_range(window, cx).is_some())
         }));
-        cx.simulate_keystrokes("cmd-enter");
+        cx.simulate_keystrokes(&primary_enter());
         assert!(seen.borrow().is_empty(), "⌘↩ while composing does not send");
         cx.simulate_keystrokes("enter");
         assert!(
@@ -6024,7 +6029,7 @@ mod tests {
         cx.simulate_input("two");
         assert!(seen.borrow().is_empty());
         assert_eq!(value(&view, cx), "one\ntwo");
-        cx.simulate_keystrokes("cmd-enter");
+        cx.simulate_keystrokes(&primary_enter());
         assert_eq!(
             *seen.borrow(),
             vec![ChatComposerEvent::Submit {
