@@ -936,12 +936,19 @@ impl SettingsView {
             settings_section(
                 l10n.desktop_appearance_layout(),
                 Some(l10n.desktop_ui_font_size_hint().into()),
-                vec![
-                    setting_row(l10n.desktop_sidebar(), None, sidebar, cx).into_any_element(),
-                    setting_row(l10n.desktop_density(), None, density, cx).into_any_element(),
-                    setting_row(l10n.desktop_ui_font_size(), None, text_size, cx)
-                        .into_any_element(),
-                ],
+                // Off the Mac nothing shows through a translucent sidebar
+                // (`DesignPrefs::for_os`): it is always solid, so no choice.
+                cfg!(target_os = "macos")
+                    .then(|| {
+                        setting_row(l10n.desktop_sidebar(), None, sidebar, cx).into_any_element()
+                    })
+                    .into_iter()
+                    .chain([
+                        setting_row(l10n.desktop_density(), None, density, cx).into_any_element(),
+                        setting_row(l10n.desktop_ui_font_size(), None, text_size, cx)
+                            .into_any_element(),
+                    ])
+                    .collect(),
                 cx,
             )
             .into_any_element(),

@@ -48,12 +48,16 @@ pub fn posix_languages(var: impl Fn(&str) -> Option<String>) -> Vec<String> {
     let locale = posix_category(&var, "LC_MESSAGES");
     let mut out: Vec<String> = vec![];
     if locale.is_some() {
-        out.extend(
-            var("LANGUAGE")
-                .unwrap_or_default()
-                .split(':')
-                .filter_map(posix_to_bcp47),
-        );
+        for entry in var("LANGUAGE").unwrap_or_default().split(':') {
+            // gettext stops at C: untranslated, which is English here.
+            let base = entry.split(['.', '@']).next().unwrap_or("");
+            if base == "C" || base == "POSIX" {
+                out.push("en".into());
+                out.dedup();
+                return out;
+            }
+            out.extend(posix_to_bcp47(entry));
+        }
     }
     out.extend(locale);
     out.dedup();
@@ -262,6 +266,18 @@ mod tests {
         assert_eq!(
             posix_languages(env(&[("LC_ALL", "C.UTF-8"), ("LANG", "de_DE")])),
             Vec::<String>::new()
+        );
+        // C in LANGUAGE is English, as gettext ends there untranslated.
+        assert_eq!(
+            resolve(&posix_languages(env(&[
+                ("LANGUAGE", "C"),
+                ("LANG", "de_DE.UTF-8")
+            ]))),
+            "en"
+        );
+        assert_eq!(
+            posix_languages(env(&[("LANGUAGE", "fr:C:de"), ("LANG", "de_DE.UTF-8")])),
+            vec!["fr", "en"]
         );
         assert_eq!(posix_to_bcp47("sr_RS@latin").as_deref(), Some("sr-Latn-RS"));
         assert_eq!(posix_to_bcp47("POSIX"), None);

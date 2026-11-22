@@ -104,10 +104,33 @@ pub fn fonts_for(system: &FontSystem, installed: &[String]) -> (String, String) 
                     ])
                     .collect(),
             );
-            (
-                ui.unwrap_or_else(|| UI_FONT.into()),
-                code.unwrap_or_else(|| "DejaVu Sans Mono".into()),
-            )
+            // Else any installed family named as monospaced, then the UI
+            // font: never a family that isn't installed (GPUI would fall
+            // back to a proportional face on its own).
+            let named_mono = || {
+                installed
+                    .iter()
+                    .find(|f| {
+                        let f = f.to_ascii_lowercase();
+                        [
+                            "mono",
+                            "code",
+                            "courier",
+                            "console",
+                            "terminal",
+                            "fixed",
+                            "iosevka",
+                            "hack",
+                            "inconsolata",
+                        ]
+                        .iter()
+                        .any(|word| f.contains(word))
+                    })
+                    .cloned()
+            };
+            let ui = ui.unwrap_or_else(|| UI_FONT.into());
+            let code = code.or_else(named_mono).unwrap_or_else(|| ui.clone());
+            (ui, code)
         }
     }
 }
@@ -229,7 +252,25 @@ impl Global for ConduitTheme {}
 impl ConduitTheme {
     /// Resolves `palette_id` (falling back to Conduit's own) in one mode.
     pub fn new(palette_id: &str, dark: bool, prefs: DesignPrefs, system_accent: Hsla) -> Self {
-        let prefs = prefs.for_os(cfg!(target_os = "macos"));
+        Self::new_on(
+            palette_id,
+            dark,
+            prefs,
+            system_accent,
+            cfg!(target_os = "macos"),
+        )
+    }
+
+    /// [`Self::new`] as the Mac (`mac`) or another OS draws it
+    /// ([`DesignPrefs::for_os`]).
+    pub fn new_on(
+        palette_id: &str,
+        dark: bool,
+        prefs: DesignPrefs,
+        system_accent: Hsla,
+        mac: bool,
+    ) -> Self {
+        let prefs = prefs.for_os(mac);
         let palette = palettes().get(palette_id);
         let variant = palette.variant(dark);
         let roles = Self::roles(variant, dark, &prefs, system_accent);
@@ -462,7 +503,7 @@ impl ConduitTheme {
         let hover = |x: Hsla| mix(x, c.foreground, if self.dark { 0.10 } else { 0.08 });
         let active = |x: Hsla| mix(x, c.foreground, if self.dark { 0.18 } else { 0.14 });
 
-        t.font_family = UI_FONT.into();
+        t.font_family = ui_font().into();
         t.font_size = px(self.metrics.body);
         t.mono_font_family = mono_font().into();
         t.mono_font_size = px(self.metrics.code);

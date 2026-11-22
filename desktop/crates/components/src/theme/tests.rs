@@ -559,7 +559,20 @@ fn fonts_come_from_what_is_installed() {
         fonts_for(&odd, &installed(&["Noto Sans", "DejaVu Sans Mono"])),
         ("Noto Sans".to_string(), "DejaVu Sans Mono".to_string())
     );
-    // Nothing known: GPUI's own fallbacks for the UI, a monospaced name.
+    // No family on the lists: an installed one named as monospaced, else
+    // the UI's; never one that isn't installed.
+    assert_eq!(
+        fonts_for(&odd, &installed(&["Noto Sans", "Fira Code"])).1,
+        "Fira Code"
+    );
+    assert_eq!(
+        fonts_for(&odd, &installed(&["Noto Sans", "Iosevka"])).1,
+        "Iosevka"
+    );
+    assert_eq!(
+        fonts_for(&odd, &installed(&["Noto Sans"])),
+        ("Noto Sans".to_string(), "Noto Sans".to_string())
+    );
     assert_eq!(
         fonts_for(&odd, &[]),
         (UI_FONT.to_string(), "DejaVu Sans Mono".to_string())
