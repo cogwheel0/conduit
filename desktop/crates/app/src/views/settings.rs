@@ -2451,6 +2451,7 @@ impl Render for SettingsView {
             .on_action(cx.listener(|this, a: &SettingsChoice, window, cx| {
                 this.choose(&a.menu, &a.value, window, cx);
             }))
+            .map(|d| crate::menus::app_commands(d, &self.settings, &self.stores.speech, cx))
             .relative()
             .size_full()
             .child(frame)
@@ -2706,5 +2707,80 @@ mod language_tests {
         vcx.simulate_keystrokes("down");
         vcx.run_until_parked();
         assert_eq!(*chosen.borrow(), vec![Some(LOCALES[0].to_string())]);
+    }
+
+    /// In front, Settings takes View › Zoom In and the rest (Appearance shows
+    /// the text size change) and Chat › Stop Speaking (Audio's preview), each
+    /// only while it would act, as AppKit asks (the app's own handlers too).
+    #[gpui_kit::test]
+    fn settings_takes_the_zoom_items_and_stop_speaking_only_while_they_act(
+        cx: &mut TestAppContext,
+    ) {
+        use conduit_protocol::{SpeechProgress, SpeechState, SpeechStatus, methods};
+
+        use crate::actions::{ActualSize, StopSpeaking, ZoomIn, ZoomOut};
+        use crate::menus::appkit_enables;
+        use crate::prefs::TEXT_SIZE_MAX;
+        let daemon = FakeDaemon::new();
+        let scratch =
+            std::env::temp_dir().join(format!("conduit-settings-menus-{}", std::process::id()));
+        let stores = cx.update(|cx| {
+            crate::views::test_globals(cx);
+            crate::register_actions(cx);
+            Stores::for_test(daemon.rpc(), &scratch, cx)
+        });
+        let settings =
+            cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
+        let (s, prefs) = (stores.clone(), settings.clone());
+        let (_view, vcx) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(prefs, s, Tab::Appearance, window, cx)
+        });
+        settings.update(vcx, |s, cx| {
+            s.set_appearance(|a| a.text_size = Some(TEXT_SIZE_MAX), cx)
+        });
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &ZoomIn),
+            "Zoom In is on at the largest size"
+        );
+        assert!(appkit_enables(vcx, &ZoomOut), "Zoom Out is off");
+        assert!(appkit_enables(vcx, &ActualSize), "Actual Size is off");
+        vcx.dispatch_action(ZoomOut);
+        vcx.run_until_parked();
+        assert_eq!(
+            settings.read_with(vcx, |s, _| s.prefs.appearance.text_size),
+            Some(TEXT_SIZE_MAX - 1.),
+            "⌘− in Settings did not step the text size"
+        );
+
+        // A reading started and ended elsewhere (the main window), with
+        // Audio's pane closed: followed at once.
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is on with nothing read"
+        );
+        let state = |status, message: Option<&str>| SpeechState {
+            progress: SpeechProgress {
+                status,
+                reading: 1,
+                message_id: message.map(String::from),
+                ..Default::default()
+            },
+            sentences: vec![],
+        };
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Speaking, Some("answer-1")));
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is off while a reading started elsewhere"
+        );
+        daemon.returns::<methods::SpeechGet>(state(SpeechStatus::Idle, None));
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is on after the reading ended elsewhere"
+        );
     }
 }

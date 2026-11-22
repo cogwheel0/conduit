@@ -2819,7 +2819,7 @@ impl SidebarView {
         // Its settings: the owner's name and icon, a writer's project
         // defaults (as mobile's folder page); sharing for the owner (the
         // sheet says when the server allows none).
-        if own || folder.can_write {
+        if offers_folder_settings(folder) {
             items.push(Some((
                 l.desktop_folder_settings_menu(),
                 FolderCommand::Settings,
@@ -3026,6 +3026,17 @@ impl SidebarView {
             Some(KeyRow::Folder(id)) => Some(id.clone()),
             _ => None,
         }
+    }
+
+    /// The folder the keyboard is on, when its menu offers its settings.
+    fn settings_folder(&self, window: &Window, cx: &App) -> Option<String> {
+        self.focused_folder(window).filter(|id| {
+            self.stores
+                .chat_list
+                .read(cx)
+                .folder(id)
+                .is_some_and(offers_folder_settings)
+        })
     }
 
     /// Whether chats are chosen, by rows or checkboxes: the Chat menu's
@@ -4157,6 +4168,12 @@ impl SidebarView {
 /// open (Finder waits about as long).
 pub const SPRING_LOAD_DELAY: Duration = Duration::from_millis(700);
 
+/// A folder's menu offers Folder Settings… (and ⌘I opens them): its owner's
+/// folder, or one shared with a write grant.
+fn offers_folder_settings(folder: &FolderSummary) -> bool {
+    !folder.shared || folder.can_write
+}
+
 /// Whether folder `folder_id` takes the dragged chats: several always, one
 /// unless it is already there.
 fn accepts(d: &DraggedChat, folder_id: &str) -> bool {
@@ -4533,21 +4550,24 @@ impl Render for SidebarView {
             .aria_label(SharedString::from(l.desktop_chats_label()))
             .key_context(SIDEBAR_LIST_CONTEXT)
             .track_focus(&self.list_focus)
-            // ⌘I (Get Info) on a folder: its settings. On anything else the
-            // chat's settings, as from anywhere.
-            .on_action(
-                cx.listener(|this, _: &crate::actions::ChatSettings, window, cx| {
-                    match this.focused_folder(window) {
-                        Some(id) => crate::views::folder_settings::open(
-                            this.stores.clone(),
-                            &id,
-                            window,
-                            cx,
-                        ),
-                        None => cx.propagate(),
-                    }
-                }),
-            )
+            // ⌘I (Get Info) on a folder with settings: they open. Anywhere
+            // else no handler here, so Chat › Chat Settings… is the open
+            // chat's, greyed while it offers none.
+            .when(self.settings_folder(window, cx).is_some(), |d| {
+                d.on_action(
+                    cx.listener(|this, _: &crate::actions::ChatSettings, window, cx| {
+                        match this.settings_folder(window, cx) {
+                            Some(id) => crate::views::folder_settings::open(
+                                this.stores.clone(),
+                                &id,
+                                window,
+                                cx,
+                            ),
+                            None => cx.propagate(),
+                        }
+                    }),
+                )
+            })
             // A click opens a row without taking focus from the composer;
             // Tab is the way in, as in a source list.
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())

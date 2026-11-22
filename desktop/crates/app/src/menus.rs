@@ -14,12 +14,19 @@
 //! Items whose action has no handler where focus is show disabled: GPUI's
 //! macOS menus validate each item against the actions available, and an
 //! item's own `disabled` never reaches AppKit (only a submenu's is applied,
-//! in [`install`]). Each item
+//! in [`install`]). So an item that greys out has no handler on the app
+//! (`App::on_action` answers always): a window takes it only while it acts,
+//! by the rule the item is built with ([`app_commands`] for the zoom items
+//! and Stop Speaking). Each item
 //! shows the first chord bound to its action, so New Chat reads ⌘N while
 //! ⇧⌘O keeps working.
 
 use gpui_kit::component::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
-use gpui_kit::{App, Global, KeyBinding, Menu, MenuItem, OsAction, SharedString, SystemMenuType};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    App, Entity, Global, InteractiveElement, KeyBinding, Menu, MenuItem, OsAction, SharedString,
+    SystemMenuType,
+};
 
 use conduit_components::views::focus::ShortcutHints;
 
@@ -32,6 +39,8 @@ use crate::keymap::{
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
 use crate::stores::navigation::Area;
+use crate::stores::settings::SettingsStore;
+use crate::stores::speech::SpeechStore;
 use crate::views::sidebar::ChatCommand;
 
 /// GPUI Kit's own key bindings, captured after `gpui_kit::init` so a
@@ -193,6 +202,49 @@ impl Default for ZoomState {
             can_reset: false,
         }
     }
+}
+
+/// View › Actual Size, Zoom In and Zoom Out (the message text size) and
+/// Chat › Stop Speaking (the reading), on the root of a window that shows
+/// chat text: the main window, Settings (Appearance shows the size change,
+/// Audio's preview reads) and Quick Ask. Each only while it would act, by
+/// the rule its item is built with ([`ZoomState`], `SpeechStore::is_active`
+/// in [`menu_state`]), so AppKit greys it otherwise.
+pub fn app_commands<E: InteractiveElement + FluentBuilder>(
+    el: E,
+    settings: &Entity<SettingsStore>,
+    speech: &Entity<SpeechStore>,
+    cx: &App,
+) -> E {
+    let zoom = ZoomState::of(&settings.read(cx).prefs.appearance);
+    el.when(zoom.can_reset, |el| {
+        let settings = settings.clone();
+        el.on_action(move |_: &ActualSize, _, cx| zoom_text(&settings, ZoomStep::Actual, cx))
+    })
+    .when(zoom.can_zoom_in, |el| {
+        let settings = settings.clone();
+        el.on_action(move |_: &ZoomIn, _, cx| zoom_text(&settings, ZoomStep::In, cx))
+    })
+    .when(zoom.can_zoom_out, |el| {
+        let settings = settings.clone();
+        el.on_action(move |_: &ZoomOut, _, cx| zoom_text(&settings, ZoomStep::Out, cx))
+    })
+    .when(speech.read(cx).is_active(), |el| {
+        let speech = speech.clone();
+        el.on_action(move |_: &StopSpeaking, _, cx| speech.update(cx, |s, cx| s.stop(cx)))
+    })
+}
+
+/// Steps Settings › Appearance › Text Size (View › Zoom In and the rest).
+fn zoom_text(settings: &Entity<SettingsStore>, step: ZoomStep, cx: &mut App) {
+    settings.update(cx, |s, cx| {
+        s.set_appearance(
+            |a| {
+                zoom(a, step);
+            },
+            cx,
+        )
+    });
 }
 
 /// Rebuilds every key binding: Kit's, the fixed macOS ones, and the live
@@ -438,6 +490,10 @@ pub struct MenuState {
     pub hermes_context: bool,
     /// The composer is dictating: Chat › Stop Dictation.
     pub dictating: bool,
+    /// The main window shows a chat whose composer takes Chat › Ask
+    /// Conduit's selection: a temporary or Hermes chat too, not a read-only
+    /// one (`ChatPane::can_ask_conduit`).
+    pub ask_conduit: bool,
     /// The main window shows a chat to read from (Chat › Read Aloud): a
     /// read-only, temporary or Hermes chat too.
     pub read_aloud: bool,
@@ -468,6 +524,7 @@ impl Default for MenuState {
             save_chat: false,
             hermes_context: false,
             dictating: false,
+            ask_conduit: false,
             read_aloud: false,
             speaking: false,
             in_call: false,
@@ -591,7 +648,11 @@ pub fn menu_state(cx: &App) -> MenuState {
         choosing,
         folders,
         zoom,
-        chat_settings: offer.chat_settings,
+        chat_settings: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_open_chat_settings(cx)),
         tool_settings: !offer.tool_targets.is_empty(),
         save_chat,
         hermes_context: state
@@ -600,6 +661,11 @@ pub fn menu_state(cx: &App) -> MenuState {
             .filter(|_| main)
             .is_some_and(|v| v.read(cx).chat_pane.read(cx).hermes_context(cx)),
         dictating,
+        ask_conduit: state
+            .main_view
+            .as_ref()
+            .filter(|_| main)
+            .is_some_and(|v| v.read(cx).chat_pane.read(cx).can_ask_conduit(cx)),
         read_aloud: state
             .main_view
             .as_ref()
@@ -1082,7 +1148,8 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
             },
             crate::actions::Dictate,
         ),
-        MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit).disabled(no_chat),
+        MenuItem::action(l10n.ask_conduit_action(), crate::actions::AskConduit)
+            .disabled(!state.ask_conduit),
         MenuItem::separator(),
         MenuItem::action(l10n.regenerate(), RegenerateLastAnswer).disabled(no_chat),
         MenuItem::action(l10n.desktop_stop_generating(), StopGenerating),
@@ -1105,6 +1172,18 @@ fn chat_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
         MenuItem::action(l10n.desktop_menu_copy_last_code_block(), CopyLastCodeBlock),
     ]);
     items
+}
+
+/// Whether AppKit enables the menu item for `action` with `vcx`'s window in
+/// front: its validation asks `App::is_action_available` (the key window's
+/// focus path, then the app's own handlers), outside any window update.
+#[cfg(test)]
+pub(crate) fn appkit_enables(
+    vcx: &mut gpui_kit::VisualTestContext,
+    action: &dyn gpui_kit::Action,
+) -> bool {
+    vcx.update(|window, _| window.activate_window());
+    vcx.cx.update(|cx| cx.is_action_available(action))
 }
 
 #[cfg(test)]
@@ -1190,6 +1269,25 @@ mod tests {
         // No chat shown: nothing to read.
         let none = build_menus(&l, &MenuState::default());
         assert!(disabled(menu(&none, "Chat"), "Read Aloud"));
+    }
+
+    /// Chat › Ask Conduit follows a shown chat with a composer, not the
+    /// chat commands: a temporary chat and a Hermes session's take it, as
+    /// their answers' own Ask Conduit does, with no chat commands.
+    #[test]
+    fn ask_conduit_follows_a_chat_with_a_composer_not_the_chat_commands() {
+        let l = L10n::new("en");
+        let temporary = build_menus(
+            &l,
+            &MenuState {
+                ask_conduit: true,
+                ..MenuState::default()
+            },
+        );
+        assert!(!disabled(menu(&temporary, "Chat"), "Ask Conduit"));
+        assert!(disabled(menu(&temporary, "Chat"), "Rename…"));
+        let no_composer = build_menus(&l, &open_chat(None));
+        assert!(disabled(menu(&no_composer, "Chat"), "Ask Conduit"));
     }
 
     #[test]

@@ -38,11 +38,11 @@ use gpui_kit::{
 };
 
 use crate::actions::{
-    AllowRequest, ArchiveChat, CloseWindow, DeleteChat, DenyRequest, DuplicateChat, ExportChatAs,
-    FindChats, FindInChat, FindNext, FindPrevious, GenerateChatTitle, GoBack, GoForward,
-    GoToSection, MarkChatUnread, MoveChatTo, NewChat, NewFolder, NewTemporaryChat, NextChat,
-    OpenPalette, PreviousChat, RegenerateLastAnswer, RenameChat, SaveTemporaryChat, ShareChat,
-    ShowBranches, TogglePinChat,
+    AllowRequest, ArchiveChat, AskConduit, ChatSettings, CloseWindow, DeleteChat, DenyRequest,
+    DuplicateChat, ExportChatAs, FindChats, FindInChat, FindNext, FindPrevious, GenerateChatTitle,
+    GoBack, GoForward, GoToSection, MarkChatUnread, MoveChatTo, NewChat, NewFolder,
+    NewTemporaryChat, NextChat, OpenPalette, PreviousChat, ReadAloud, RegenerateLastAnswer,
+    RenameChat, SaveTemporaryChat, ShareChat, ShowBranches, TogglePinChat, ToolSettings, VoiceCall,
 };
 use crate::l10n::ActiveL10n as _;
 use crate::stores::Stores;
@@ -88,6 +88,7 @@ enum Page {
 
 pub struct MainWindow {
     pub stores: Stores,
+    settings: Entity<SettingsStore>,
     layout: Entity<LayoutStore>,
     pub chat_pane: Entity<ChatPane>,
     /// What an item of another area opens in.
@@ -192,18 +193,22 @@ impl MainWindow {
                     crate::sync_keyboard_access(cx);
                 }
             }),
-            cx.observe_window_appearance(window, move |_, window, cx| {
-                let dark = matches!(
-                    window.appearance(),
-                    gpui_kit::WindowAppearance::Dark | gpui_kit::WindowAppearance::VibrantDark
-                );
-                settings.update(cx, |s, cx| s.set_system_dark(dark, cx));
+            cx.observe_window_appearance(window, {
+                let settings = settings.clone();
+                move |_, window, cx| {
+                    let dark = matches!(
+                        window.appearance(),
+                        gpui_kit::WindowAppearance::Dark | gpui_kit::WindowAppearance::VibrantDark
+                    );
+                    settings.update(cx, |s, cx| s.set_system_dark(dark, cx));
+                }
             }),
         ];
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         Self {
             stores,
+            settings,
             layout,
             chat_pane,
             area_pane,
@@ -679,6 +684,15 @@ impl Render for MainWindow {
         let makes_folders = shows_main && self.sidebar.read(cx).can_make_folders(cx);
         let makes_channels = shows_main && self.stores.areas.read(cx).channels_can_create;
         let makes_rooms = shows_main && self.stores.hermes_rooms.read(cx).can_create();
+        // The chat pane's commands, as `menus::menu_state` reads them.
+        let pane = self.chat_pane.read(cx);
+        let asks_conduit = shows_main && pane.can_ask_conduit(cx);
+        let reads_aloud = shows_main && pane.can_read_aloud(cx);
+        let calls =
+            self.stores.call.read(cx).is_active() || (shows_main && pane.call_startable(cx));
+        let chat_settings = shows_main && pane.can_open_chat_settings(cx);
+        let tool_settings = shows_main && !pane.settings_offer.tool_targets.is_empty();
+        let (settings, speech) = (self.settings.clone(), self.stores.speech.clone());
 
         // A click on no control focuses the window itself (closing the model
         // picker, Stop): named, so VoiceOver says where focus went.
@@ -999,6 +1013,37 @@ impl Render for MainWindow {
                         .update(cx, |p, cx| p.save_temporary(window, cx));
                 }))
             })
+            .when(asks_conduit, |d| {
+                d.on_action(cx.listener(|this, _: &AskConduit, window, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.ask_conduit(window, cx));
+                }))
+            })
+            .when(reads_aloud, |d| {
+                d.on_action(cx.listener(|this, _: &ReadAloud, _, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.read_aloud_last(cx));
+                }))
+            })
+            // Start Voice Call, or End Voice Call while one is on.
+            .when(calls, |d| {
+                d.on_action(cx.listener(|this, _: &VoiceCall, _, cx| {
+                    this.chat_pane.update(cx, |p, cx| p.toggle_call(cx));
+                }))
+            })
+            // ⌘I is Get Info: the chat's settings (the sidebar's list takes
+            // it first for a folder its keyboard is on).
+            .when(chat_settings, |d| {
+                d.on_action(cx.listener(|this, _: &ChatSettings, window, cx| {
+                    this.chat_pane
+                        .update(cx, |p, cx| p.open_chat_settings(window, cx));
+                }))
+            })
+            .when(tool_settings, |d| {
+                d.on_action(cx.listener(|this, _: &ToolSettings, window, cx| {
+                    this.chat_pane
+                        .update(cx, |p, cx| p.open_tool_settings(window, cx));
+                }))
+            })
+            .map(|d| crate::menus::app_commands(d, &settings, &speech, cx))
             .relative()
             .size_full()
             // Inline web views drawn this frame (embeds in the transcript)
@@ -1078,7 +1123,8 @@ mod chat_menu_tests {
     use crate::views::sidebar_keys::Pick;
 
     /// Two chats whose menus offer everything, one whose menu offers
-    /// nothing, an archived one, and a folder. Only A has branches.
+    /// nothing, an archived one, another user's (read-only), and a folder.
+    /// Only A has branches.
     fn chats() -> FakeDaemon {
         use conduit_protocol::methods;
         let now = Local::now().timestamp_millis();
@@ -1091,6 +1137,7 @@ mod chat_menu_tests {
             {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1, "menu": all},
             {"id": "chat-c", "title": "Kiln notes", "updatedAtMs": now - 2},
             {"id": "chat-d", "title": "Old maps", "updatedAtMs": now - 3, "archived": true, "menu": all},
+            {"id": "chat-e", "title": "Shared survey", "updatedAtMs": now - 4, "readOnly": true},
         ]);
         let list: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
             "chats": chats,
@@ -1118,6 +1165,19 @@ mod chat_menu_tests {
         daemon: &FakeDaemon,
         cx: &'a mut TestAppContext,
     ) -> (Stores, Entity<MainWindow>, &'a mut VisualTestContext) {
+        let (stores, _, view, vcx) = bench_with_settings(daemon, cx);
+        (stores, view, vcx)
+    }
+
+    fn bench_with_settings<'a>(
+        daemon: &FakeDaemon,
+        cx: &'a mut TestAppContext,
+    ) -> (
+        Stores,
+        Entity<SettingsStore>,
+        Entity<MainWindow>,
+        &'a mut VisualTestContext,
+    ) {
         let scratch =
             std::env::temp_dir().join(format!("conduit-main-window-{}", std::process::id()));
         let stores = cx.update(|cx| {
@@ -1136,12 +1196,54 @@ mod chat_menu_tests {
         let settings =
             cx.new(|_| SettingsStore::load(scratch.join("prefs.json"), false, vec!["en".into()]));
         let layout = cx.new(|_| LayoutStore::load(scratch.join("window-state.json")));
-        let s = stores.clone();
+        let (s, prefs) = (stores.clone(), settings.clone());
         let (view, vcx) =
-            cx.add_window_view(move |window, cx| MainWindow::new(s, settings, layout, window, cx));
+            cx.add_window_view(move |window, cx| MainWindow::new(s, prefs, layout, window, cx));
         stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
         vcx.run_until_parked();
-        (stores, view, vcx)
+        (stores, settings, view, vcx)
+    }
+
+    /// The chat's model takes calls, has settings to show and a tool with
+    /// personal settings.
+    fn offer_everything(daemon: &FakeDaemon) {
+        use conduit_protocol::methods;
+        daemon.returns::<methods::ModelsList>(
+            serde_json::from_value(serde_json::json!({
+                "models": [{"id": "m", "name": "M"}], "selectedId": "m"
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::ComposerOptions>(
+            serde_json::from_value(serde_json::json!({"voiceCall": true})).unwrap(),
+        );
+        daemon.returns::<methods::ChatSettingsGet>(
+            serde_json::from_value(serde_json::json!({
+                "entry": "editor",
+                "systemPrompt": {"key": "system", "kind": "text"}
+            }))
+            .unwrap(),
+        );
+        daemon.returns::<methods::ValvesTargets>(
+            serde_json::from_value(serde_json::json!({
+                "advanced": true,
+                "targets": [{"kind": "tool", "id": "tool-tides", "label": "Tides"}]
+            }))
+            .unwrap(),
+        );
+    }
+
+    /// The composer lists the models, online.
+    fn list_models_online(pane: &Entity<ChatPane>, vcx: &mut VisualTestContext) {
+        pane.update(vcx, |p, cx| {
+            p.composer_store.update(cx, |c, cx| c.refresh_models(cx));
+            // The bench has no connection to say it is online.
+            p.composer.update(cx, |c, cx| {
+                c.offline = false;
+                cx.notify()
+            });
+        });
+        vcx.run_until_parked();
     }
 
     fn available(vcx: &mut VisualTestContext, action: &dyn Action) -> bool {
@@ -1291,5 +1393,304 @@ mod chat_menu_tests {
         );
         assert!(!available(vcx, &GoBack), "Back at the first step");
         assert!(available(vcx, &GoForward), "Forward is off after Back");
+    }
+
+    /// View › Actual Size, Zoom In and Zoom Out, as AppKit asks (the app's
+    /// own handlers too): each only while its step would change the text
+    /// size. ⌘− still steps it in the main window.
+    #[gpui_kit::test]
+    fn zoom_items_are_available_only_while_the_text_size_can_change(cx: &mut TestAppContext) {
+        use crate::actions::{ActualSize, ZoomIn, ZoomOut};
+        use crate::menus::appkit_enables;
+        use crate::prefs::{TEXT_SIZE_MAX, TEXT_SIZE_MIN};
+        let daemon = chats();
+        let (_, settings, _, vcx) = bench_with_settings(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let size = |size: Option<f32>, vcx: &mut VisualTestContext| {
+            settings.update(vcx, |s, cx| s.set_appearance(|a| a.text_size = size, cx));
+            vcx.run_until_parked();
+        };
+        size(None, vcx);
+        assert!(
+            !appkit_enables(vcx, &ActualSize),
+            "Actual Size is on at the actual size"
+        );
+        assert!(appkit_enables(vcx, &ZoomIn), "Zoom In is off");
+        assert!(appkit_enables(vcx, &ZoomOut), "Zoom Out is off");
+        size(Some(TEXT_SIZE_MAX), vcx);
+        assert!(
+            !appkit_enables(vcx, &ZoomIn),
+            "Zoom In is on at the largest size"
+        );
+        assert!(appkit_enables(vcx, &ActualSize), "Actual Size is off");
+        assert!(appkit_enables(vcx, &ZoomOut), "Zoom Out is off");
+        size(Some(TEXT_SIZE_MIN), vcx);
+        assert!(
+            !appkit_enables(vcx, &ZoomOut),
+            "Zoom Out is on at the smallest size"
+        );
+        assert!(appkit_enables(vcx, &ZoomIn), "Zoom In is off");
+
+        size(Some(TEXT_SIZE_MAX), vcx);
+        vcx.dispatch_action(ZoomOut);
+        vcx.run_until_parked();
+        assert_eq!(
+            settings.read_with(vcx, |s, _| s.prefs.appearance.text_size),
+            Some(TEXT_SIZE_MAX - 1.),
+            "⌘− did not step the text size"
+        );
+    }
+
+    /// Chat › Stop Speaking only while something is read (Settings' preview
+    /// too), and ⌘. stops it from the main window.
+    #[gpui_kit::test]
+    fn stop_speaking_is_available_only_while_something_is_read(cx: &mut TestAppContext) {
+        use conduit_protocol::{SpeechProgress, SpeechState, SpeechStatus, methods};
+
+        use crate::actions::StopSpeaking;
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        let (stores, _, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is on with nothing read"
+        );
+        daemon.returns::<methods::SpeechGet>(SpeechState {
+            progress: SpeechProgress {
+                status: SpeechStatus::Speaking,
+                reading: 1,
+                message_id: Some("preview".into()),
+                ..Default::default()
+            },
+            sentences: vec![],
+        });
+        daemon.returns::<methods::SpeechStop>(SpeechState {
+            progress: SpeechProgress {
+                reading: 1,
+                ..Default::default()
+            },
+            sentences: vec![],
+        });
+        stores.speech.update(vcx, |s, cx| s.refresh(cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is off while reading"
+        );
+        vcx.dispatch_action(StopSpeaking);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::SpeechStop>().len(),
+            1,
+            "⌘. ended nothing"
+        );
+        assert!(
+            !appkit_enables(vcx, &StopSpeaking),
+            "Stop Speaking is on after the reading ended"
+        );
+    }
+
+    /// Chat › Ask Conduit, Read Aloud, Start Voice Call, Chat Settings… and
+    /// Tool Settings… only where the menu offers them, as AppKit asks (the
+    /// app answered them all, so every one was on with no chat open).
+    #[gpui_kit::test]
+    fn the_open_chats_commands_are_available_only_where_they_act(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let in_chat: [(&str, Box<dyn Action>); 2] = [
+            ("Ask Conduit", Box::new(AskConduit)),
+            ("Read Aloud", Box::new(ReadAloud)),
+        ];
+        let offered: [(&str, Box<dyn Action>); 3] = [
+            ("Start Voice Call", Box::new(VoiceCall)),
+            ("Chat Settings…", Box::new(ChatSettings)),
+            ("Tool Settings…", Box::new(ToolSettings)),
+        ];
+        for (name, action) in in_chat.iter().chain(&offered) {
+            assert!(
+                !appkit_enables(vcx, action.as_ref()),
+                "{name} is on with no chat open"
+            );
+        }
+
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        for (name, action) in &in_chat {
+            assert!(
+                appkit_enables(vcx, action.as_ref()),
+                "{name} is off in an open chat"
+            );
+        }
+        for (name, action) in &offered {
+            assert!(
+                !appkit_enables(vcx, action.as_ref()),
+                "{name} is on, not offered"
+            );
+        }
+        // Another user's chat is read, but has no composer to ask in.
+        stores.navigation.update(vcx, |n, cx| n.open("chat-e", cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &ReadAloud),
+            "Read Aloud is off, read-only"
+        );
+        assert!(
+            !appkit_enables(vcx, &AskConduit),
+            "Ask Conduit is on with no composer"
+        );
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+
+        offer_everything(&daemon);
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        list_models_online(&pane, vcx);
+        for (name, action) in &offered {
+            assert!(
+                appkit_enables(vcx, action.as_ref()),
+                "{name} is off, offered"
+            );
+        }
+        // ⌥⌘V still starts the call from the main window.
+        vcx.dispatch_action(VoiceCall);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::CallsStart>().len(),
+            1,
+            "Start Voice Call started nothing"
+        );
+    }
+
+    /// ⌘I (Chat › Chat Settings…) with the sidebar's keyboard on a row:
+    /// a folder whose menu offers its settings opens them; on a chat row
+    /// it is the open chat's, so it is off when that chat offers none.
+    #[gpui_kit::test]
+    fn chat_settings_in_the_sidebar_is_available_only_where_it_acts(cx: &mut TestAppContext) {
+        use crate::menus::appkit_enables;
+        use crate::views::folder_settings::FolderSettingsSheet;
+        use crate::views::sidebar_keys::{KeyRow, ListKey};
+        let daemon = chats();
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        stores.navigation.update(vcx, |n, cx| n.open("chat-c", cx));
+        vcx.run_until_parked();
+        let sidebar = main.read_with(vcx, |m, _| m.sidebar.clone());
+        sidebar.update_in(vcx, |s, window, cx| s.focus_list(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            sidebar.read_with(vcx, |s, _| s.cursor().cloned()),
+            Some(KeyRow::Chat("chat-c".into()))
+        );
+        assert!(
+            !appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is on, on a chat that offers none"
+        );
+
+        let folder = KeyRow::Folder("recipes".into());
+        let rows = sidebar.read_with(vcx, |s, _| s.rows().len());
+        for _ in 0..rows {
+            if sidebar.read_with(vcx, |s, _| s.cursor() == Some(&folder)) {
+                break;
+            }
+            sidebar.update(vcx, |s, cx| s.key(ListKey::Up, cx));
+            vcx.run_until_parked();
+        }
+        assert_eq!(
+            sidebar.read_with(vcx, |s, _| s.cursor().cloned()),
+            Some(folder)
+        );
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off on a folder with settings"
+        );
+        vcx.dispatch_action(ChatSettings);
+        vcx.run_until_parked();
+        assert!(
+            vcx.update(|_, cx| crate::views::sheet::current::<FolderSettingsSheet>(cx))
+                .is_some(),
+            "⌘I did not open the folder's settings"
+        );
+    }
+
+    /// Start Voice Call is the composer's call button: never in a chat with
+    /// no composer (another user's), whatever its model takes. A chat with
+    /// one takes it.
+    #[gpui_kit::test]
+    fn start_voice_call_is_off_in_a_chat_with_no_composer(cx: &mut TestAppContext) {
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        offer_everything(&daemon);
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        stores.navigation.update(vcx, |n, cx| n.open("chat-e", cx));
+        vcx.run_until_parked();
+        list_models_online(&pane, vcx);
+        assert!(
+            pane.read_with(vcx, |p, cx| p.composer_store.read(cx).call_ready()),
+            "the model takes no calls"
+        );
+        assert!(
+            !appkit_enables(vcx, &VoiceCall),
+            "Start Voice Call is on in a chat with no composer"
+        );
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        assert!(
+            appkit_enables(vcx, &VoiceCall),
+            "Start Voice Call is off in a chat with a composer"
+        );
+    }
+
+    /// Chat Settings… is off while a new chat's first message is on its way
+    /// (its settings went with it, and the chat it makes is not open yet):
+    /// on before the send, and again once the chat opens.
+    #[gpui_kit::test]
+    fn chat_settings_waits_for_a_new_chats_first_message(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+
+        use crate::menus::appkit_enables;
+        let daemon = chats();
+        offer_everything(&daemon);
+        daemon.returns::<methods::TurnsSend>(
+            serde_json::from_value(serde_json::json!({
+                "chatId": "chat-a", "userMessageId": "m1", "assistantMessageId": "a1"
+            }))
+            .unwrap(),
+        );
+        let (stores, main, vcx) = bench(&daemon, cx);
+        vcx.cx.update(crate::register_actions);
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        list_models_online(&pane, vcx);
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off before the first message"
+        );
+        let held = daemon.hold::<methods::TurnsSend>();
+        pane.update_in(vcx, |p, window, cx| {
+            p.send_text("Plan the trip".into(), vec![], window, cx)
+        });
+        vcx.run_until_parked();
+        assert!(
+            !appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is on while the first message is on its way"
+        );
+        drop(held);
+        vcx.run_until_parked();
+        assert_eq!(
+            stores
+                .navigation
+                .read_with(vcx, |n, _| n.selected_chat().map(String::from)),
+            Some("chat-a".into()),
+            "the chat did not open"
+        );
+        assert!(
+            appkit_enables(vcx, &ChatSettings),
+            "Chat Settings… is off once the chat opened"
+        );
     }
 }
