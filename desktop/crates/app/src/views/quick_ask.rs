@@ -1471,7 +1471,7 @@ mod tests {
         daemon.returns::<methods::ChatsMarkUnread>(listed);
         stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
         let reads = || daemon.calls::<methods::ChatsMarkUnread>();
-        let read_q = serde_json::json!({"chatId": "chat-q", "unread": false});
+        let read_q = serde_json::json!({"chatId": "chat-q", "unread": false, "explicit": false});
 
         view.update_in(vcx, |v, window, cx| {
             v.set_shown(true, cx);
@@ -1516,7 +1516,7 @@ mod tests {
         assert!(vcx.foreground_executor().block_test(read).is_ok());
         assert_eq!(
             reads().last(),
-            Some(&serde_json::json!({"chatId": "chat-r", "unread": false}))
+            Some(&serde_json::json!({"chatId": "chat-r", "unread": false, "explicit": false}))
         );
     }
 

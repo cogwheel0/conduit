@@ -3321,6 +3321,34 @@
   "@desktopResetFailed": {
     "description": "Shown on the status screen when Reset Local Data could not move the old data aside (the reason goes to the log)."
   },
+  "desktopKeychainPromptTitle": "Conduit Needs Your Keychain Password",
+  "@desktopKeychainPromptTitle": {
+    "description": "Title of the card shown before Conduit starts when reading its key from the macOS keychain would make macOS ask for the login keychain password (an earlier, differently signed version saved the key)."
+  },
+  "desktopKeychainPromptBody": "The key to Conduit's data on this Mac was saved by an earlier version. To use it, macOS asks for your login keychain password; click “Always Allow” so it asks only once. Or click “Start Fresh”: you sign in again. Chats on your servers stay there; chats kept only on this Mac move aside with the old data, not deleted.",
+  "@desktopKeychainPromptBody": {
+    "description": "Body of the keychain card: Continue lets macOS ask for the login keychain password (“Always Allow” is the button in macOS's dialog); Start Fresh makes a new key and moves this Mac's old data aside, including chats kept only on this Mac (Direct and on-device models), which are not deleted."
+  },
+  "desktopKeychainPromptStartFresh": "Start Fresh",
+  "@desktopKeychainPromptStartFresh": {
+    "description": "Button on the keychain card: make a new key instead of reading the old one, and move this Mac's old data aside; the user signs in again."
+  },
+  "desktopKeychainPromptFailed": "macOS didn't give Conduit the key. Try again, or click “Start Fresh”.",
+  "@desktopKeychainPromptFailed": {
+    "description": "Shown on the keychain card after Continue did not get the key (for example, the user clicked Deny in macOS's dialog)."
+  },
+  "desktopKeychainPromptFreshFailed": "Conduit couldn't make a new key. Try again, or click “Show Logs” for details.",
+  "@desktopKeychainPromptFreshFailed": {
+    "description": "Shown on the keychain card when Start Fresh moved the old data aside but couldn't store or record a new key."
+  },
+  "desktopKeychainMissingTitle": "Conduit Can't Find Its Key",
+  "@desktopKeychainMissingTitle": {
+    "description": "Title of the keychain card when the key this profile records is gone from the login keychain."
+  },
+  "desktopKeychainMissingBody": "The key to Conduit's data on this Mac is no longer in your login keychain. Click “Start Fresh”: you sign in again. Chats on your servers stay there; chats kept only on this Mac move aside with the old data, not deleted.",
+  "@desktopKeychainMissingBody": {
+    "description": "Body of that card."
+  },
   "desktopExportDiagnosticsHint": "Saves the logs and a redacted configuration to a zip file and shows it in Finder. Nothing is uploaded.",
   "@desktopExportDiagnosticsHint": {
     "description": "Explains Export diagnostics in Settings › About."

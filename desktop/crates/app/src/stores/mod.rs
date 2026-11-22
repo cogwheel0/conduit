@@ -145,7 +145,7 @@ impl Stores {
                     logs: scratch.join("logs"),
                 },
                 binary: std::path::PathBuf::from("/nonexistent/conduitd"),
-                master_key: Err("test".into()),
+                master_key: connection::MasterKey::Failed("test".into()),
                 locale: "en".into(),
                 client_version: "0".into(),
             },

@@ -99,6 +99,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_mcp_pr
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import 'package:conduit_core/models/socket_transport_availability.dart';
 

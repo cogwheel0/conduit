@@ -119,10 +119,19 @@ final class LibreChatApiService {
     ];
   }
 
-  Future<void> renameConversation(String id, String title) =>
-      _post('/api/convos/update', {
+  /// Renames conversation [id]. Returns the conversation as the server saved
+  /// it, with the `updatedAt` the rename gave it and a `messages` list of
+  /// every message's database id; null when the answer holds none.
+  Future<LibreChatConversation?> renameConversation(
+    String id,
+    String title,
+  ) async => LibreChatConversation.fromJson(
+    _map(
+      await _post('/api/convos/update', {
         'arg': {'conversationId': id, 'title': title},
-      });
+      }),
+    ),
+  );
 
   Future<void> setArchived(String id, bool archived) =>
       _post('/api/convos/archive', {
@@ -563,7 +572,8 @@ final class LibreChatApiService {
     }
   }
 
-  Future<void> _post(String path, Object data) async {
+  /// Returns the answer's body.
+  Future<Object?> _post(String path, Object data) async {
     final Response<dynamic> response;
     try {
       response = await _dio.post<dynamic>(path, data: data);
@@ -581,6 +591,7 @@ final class LibreChatApiService {
         statusCode: response.statusCode,
       );
     }
+    return body;
   }
 
   static const String _saveFailed = 'Error saving conversation';
