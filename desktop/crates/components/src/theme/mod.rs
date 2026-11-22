@@ -107,38 +107,47 @@ pub fn fonts_for(system: &FontSystem, installed: &[String]) -> (String, String) 
             // Else any installed family named as monospaced, then the UI
             // font: never a family that isn't installed (GPUI would fall
             // back to a proportional face on its own).
-            let named_mono = || {
-                installed
-                    .iter()
-                    .find(|f| {
-                        // Whole words of the name: "Monotype Corsiva" is no
-                        // monospaced face.
-                        let f = f.to_ascii_lowercase();
-                        let words: &[&str] = &[
-                            "mono",
-                            "monospace",
-                            "monospaced",
-                            "code",
-                            "courier",
-                            "console",
-                            "consolas",
-                            "terminal",
-                            "fixed",
-                            "iosevka",
-                            "hack",
-                            "inconsolata",
-                        ];
-                        f.split(|c: char| !c.is_ascii_alphanumeric())
-                            .any(|part| words.contains(&part))
-                    })
-                    .cloned()
-            };
+            let named_mono = || installed.iter().find(|f| named_monospaced(f)).cloned();
             let ui = ui.unwrap_or_else(|| UI_FONT.into());
             let code = code.or_else(named_mono).unwrap_or_else(|| ui.clone());
             (ui, code)
         }
     }
 }
+/// Whether a family's name says it is monospaced, word by word: a word
+/// counts when it is one of [`MONO_WORDS`], ends in "Mono"
+/// ("JetBrainsMono"), or starts with one of them before a capital
+/// ("IosevkaTerm"). "Monotype Corsiva" is a script face.
+fn named_monospaced(family: &str) -> bool {
+    family
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| {
+            let lower = word.to_ascii_lowercase();
+            MONO_WORDS.contains(&lower.as_str())
+                || (word.len() > 4 && word.ends_with("Mono"))
+                || MONO_WORDS.iter().any(|w| {
+                    lower.starts_with(w)
+                        && word[w.len()..].starts_with(|c: char| c.is_ascii_uppercase())
+                })
+        })
+}
+
+/// Words in the names of monospaced families.
+const MONO_WORDS: &[&str] = &[
+    "mono",
+    "monospace",
+    "monospaced",
+    "code",
+    "courier",
+    "console",
+    "consolas",
+    "terminal",
+    "fixed",
+    "iosevka",
+    "hack",
+    "inconsolata",
+];
+
 /// macOS's default accent (blue), used when the system colour can't be read.
 pub const DEFAULT_SYSTEM_ACCENT: u32 = 0x007AFF;
 /// How far raised content moves from the column toward the text colour in

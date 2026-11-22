@@ -583,6 +583,14 @@ fn fonts_come_from_what_is_installed() {
         .1,
         "Fira Code"
     );
+    // A joined word counts when it ends in Mono or starts with a code
+    // family's name.
+    for family in ["JetBrainsMono Nerd Font", "IosevkaTerm Nerd Font"] {
+        assert_eq!(
+            fonts_for(&odd, &installed(&["Noto Sans", family])).1,
+            family
+        );
+    }
     assert_eq!(
         fonts_for(&odd, &installed(&["Noto Sans"])),
         ("Noto Sans".to_string(), "Noto Sans".to_string())
