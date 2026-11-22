@@ -1125,6 +1125,8 @@
   "desktopKeychainPromptStartFresh": "Начать заново",
   "desktopKeychainPromptFailed": "macOS не передала ключ Conduit. Попробуйте ещё раз или нажмите «Начать заново».",
   "desktopKeychainPromptFreshFailed": "Conduit не удалось создать новый ключ. Попробуйте ещё раз или нажмите «Показать журналы», чтобы узнать подробности.",
+  "desktopKeychainMissingTitle": "Conduit не может найти свой ключ",
+  "desktopKeychainMissingBody": "Ключа к данным Conduit на этом Mac больше нет в связке ключей «вход». Нажмите «Начать заново»: вы войдёте снова. Чаты на ваших серверах останутся там; чаты, хранящиеся только на этом Mac, будут перемещены вместе со старыми данными, а не удалены.",
   "desktopExportDiagnosticsHint": "Сохраняет журналы и очищенную от секретов конфигурацию в zip-файл и показывает его в Finder. Ничего не отправляется.",
   "desktopExporting": "Экспорт…",
   "desktopDiagnosticsSaved": "Сохранено: {name}",

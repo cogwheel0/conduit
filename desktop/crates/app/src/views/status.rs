@@ -41,6 +41,35 @@ pub fn send_waits(status: &Status, l10n: &L10n) -> String {
     }
 }
 
+/// The keychain card's title and body: its own for a key that is gone.
+pub fn keychain_card_text(missing: bool, l10n: &L10n) -> (String, String) {
+    if missing {
+        (
+            l10n.desktop_keychain_missing_title(),
+            l10n.desktop_keychain_missing_body(),
+        )
+    } else {
+        (
+            l10n.desktop_keychain_prompt_title(),
+            l10n.desktop_keychain_prompt_body(),
+        )
+    }
+}
+
+/// Whether the keychain card offers Continue: not for a key that is gone,
+/// nor after Start Fresh moved the profile aside (Continue would open an
+/// empty one at its place).
+pub fn keychain_card_offers_continue(status: &Status) -> bool {
+    matches!(
+        status,
+        Status::KeychainPrompt {
+            moved: false,
+            missing: false,
+            ..
+        }
+    )
+}
+
 /// The keychain card's line for the choice that failed.
 pub fn keychain_failure_line(failure: KeychainFailure, l10n: &L10n) -> String {
     match failure {
@@ -84,12 +113,10 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             false,
             Some(r.warning),
         ),
-        Status::KeychainPrompt { busy, .. } => (
-            l10n.desktop_keychain_prompt_title().into(),
-            Some(l10n.desktop_keychain_prompt_body().into()),
-            *busy,
-            Some(r.warning),
-        ),
+        Status::KeychainPrompt { busy, missing, .. } => {
+            let (title, body) = keychain_card_text(*missing, &l10n);
+            (title.into(), Some(body.into()), *busy, Some(r.warning))
+        }
         Status::VersionMismatch { .. } => (
             l10n.desktop_core_version_mismatch().into(),
             None,
@@ -142,26 +169,34 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             buttons.push(show_logs.into_any_element());
         }
         Status::KeychainPrompt { busy, .. } => {
+            let offers_continue = keychain_card_offers_continue(status);
+            if offers_continue {
+                let s = store.clone();
+                buttons.push(
+                    Button::new("status-keychain-continue", l10n.continue_action())
+                        .primary()
+                        .disabled(*busy)
+                        .on_click(handler(move |cx| {
+                            s.update(cx, |s, cx| s.keychain_continue(cx))
+                        }))
+                        .into_any_element(),
+                );
+            }
             let s = store.clone();
+            let start_fresh = Button::new(
+                "status-keychain-start-fresh",
+                l10n.desktop_keychain_prompt_start_fresh(),
+            )
+            .disabled(*busy)
+            .on_click(handler(move |cx| {
+                s.update(cx, |s, cx| s.keychain_start_fresh(cx))
+            }));
             buttons.push(
-                Button::new("status-keychain-continue", l10n.continue_action())
-                    .primary()
-                    .disabled(*busy)
-                    .on_click(handler(move |cx| {
-                        s.update(cx, |s, cx| s.keychain_continue(cx))
-                    }))
-                    .into_any_element(),
-            );
-            let s = store.clone();
-            buttons.push(
-                Button::new(
-                    "status-keychain-start-fresh",
-                    l10n.desktop_keychain_prompt_start_fresh(),
-                )
-                .disabled(*busy)
-                .on_click(handler(move |cx| {
-                    s.update(cx, |s, cx| s.keychain_start_fresh(cx))
-                }))
+                if offers_continue {
+                    start_fresh
+                } else {
+                    start_fresh.primary()
+                }
                 .into_any_element(),
             );
             // Start Fresh's failures say why in the log.
@@ -201,6 +236,7 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             busy: false,
             failures,
             failure: Some(failure),
+            ..
         } => Some((
             SharedString::from(keychain_failure_line(*failure, &l10n)),
             *failures,
@@ -394,6 +430,32 @@ pub fn diagnostics_state(diagnostics: &Diagnostics, cx: &App) -> Option<SharedSt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key the profile records that went has a card of its own, which goes
+    /// on by Start Fresh alone, as a card after Start Fresh moved the
+    /// profile does; a key that would prompt keeps the usual card.
+    #[test]
+    fn a_missing_key_has_its_own_card_with_start_fresh_alone() {
+        let l10n = L10n::new("en");
+        let card = |moved, missing| Status::KeychainPrompt {
+            busy: false,
+            failures: 0,
+            failure: None,
+            moved,
+            missing,
+        };
+        assert_eq!(
+            keychain_card_text(true, &l10n).0,
+            "Conduit Can't Find Its Key"
+        );
+        assert_eq!(
+            keychain_card_text(false, &l10n).0,
+            "Conduit Needs Your Keychain Password"
+        );
+        assert!(!keychain_card_offers_continue(&card(false, true)));
+        assert!(!keychain_card_offers_continue(&card(true, false)));
+        assert!(keychain_card_offers_continue(&card(false, false)));
+    }
 
     /// Each failed choice gets its own line: a key Continue didn't get, a
     /// profile that wouldn't move, and a key Start Fresh couldn't make.

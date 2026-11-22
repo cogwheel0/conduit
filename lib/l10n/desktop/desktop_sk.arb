@@ -1125,6 +1125,8 @@
   "desktopKeychainPromptStartFresh": "Začať odznova",
   "desktopKeychainPromptFailed": "macOS Conduitu kľúč neodovzdal. Skúste to znova alebo kliknite na „Začať odznova“.",
   "desktopKeychainPromptFreshFailed": "Conduit nedokázal vytvoriť nový kľúč. Skúste to znova alebo kliknite na „Zobraziť denníky“ a pozrite si podrobnosti.",
+  "desktopKeychainMissingTitle": "Conduit nemôže nájsť svoj kľúč",
+  "desktopKeychainMissingBody": "Kľúč k údajom Conduitu na tomto Macu už vo vašej prihlasovacej kľúčenke nie je. Kliknite na „Začať odznova“: znova sa prihlásite. Chaty na vašich serveroch tam zostanú; chaty uložené len na tomto Macu sa presunú nabok so starými údajmi, nevymažú sa.",
   "desktopExportDiagnosticsHint": "Uloží denníky a anonymizovanú konfiguráciu do súboru zip a zobrazí ho vo Finderi. Nič sa neodosiela.",
   "desktopExporting": "Exportuje sa…",
   "desktopDiagnosticsSaved": "Uložené: {name}",

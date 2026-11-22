@@ -3341,6 +3341,14 @@
   "@desktopKeychainPromptFreshFailed": {
     "description": "Shown on the keychain card when Start Fresh moved the old data aside but couldn't store or record a new key."
   },
+  "desktopKeychainMissingTitle": "Conduit Can't Find Its Key",
+  "@desktopKeychainMissingTitle": {
+    "description": "Title of the keychain card when the key this profile records is gone from the login keychain."
+  },
+  "desktopKeychainMissingBody": "The key to Conduit's data on this Mac is no longer in your login keychain. Click “Start Fresh”: you sign in again. Chats on your servers stay there; chats kept only on this Mac move aside with the old data, not deleted.",
+  "@desktopKeychainMissingBody": {
+    "description": "Body of that card."
+  },
   "desktopExportDiagnosticsHint": "Saves the logs and a redacted configuration to a zip file and shows it in Finder. Nothing is uploaded.",
   "@desktopExportDiagnosticsHint": {
     "description": "Explains Export diagnostics in Settings › About."

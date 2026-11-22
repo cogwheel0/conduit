@@ -316,7 +316,13 @@ fn fresh_holding_the_lock(
     };
     if let Some(recorded) = recorded.as_deref().filter(|a| *a != asked) {
         let error = match read_without_asking(items.item(recorded).as_ref()) {
-            Ok(Some(key)) => match checked(key) {
+            // Taken up only once its record is on disk.
+            Ok(Some(key)) => match checked(key).and_then(|key| {
+                let dir = parent_dir(&key_account_file(user_data)).to_path_buf();
+                sync_dir(&dir)
+                    .map(|()| key)
+                    .map_err(|e| SecretError::Store(format!("{}: {e}", dir.display())))
+            }) {
                 Ok(key) => return FreshStart::AlreadyFresh(key),
                 Err(e) => e,
             },
@@ -342,27 +348,42 @@ fn fresh_holding_the_lock(
     }
 }
 
-/// Moves the profile aside, its account recorded beside the archive so the
-/// archive opens with its own key again (a profile without a record needs
-/// none: the default). If that record can't be written, the folder moves
-/// back.
+/// Moves a profile's folder aside as Reset and Clear Local Data do, its
+/// account recorded beside the archive when it has one, so the archive
+/// still opens with its own key; the profile's record stays for the fresh
+/// folder.
+pub fn move_profile_aside(
+    user_data: &std::path::Path,
+    now: std::time::SystemTime,
+) -> Result<std::path::PathBuf, String> {
+    let recorded = recorded_account(user_data).map_err(|e| e.to_string())?;
+    move_with_its_account(user_data, recorded.as_deref(), now)
+}
+
+/// Moves the profile aside, its account recorded beside the archive first
+/// so the archive opens with its own key again (a profile without a record
+/// needs none: the default). Recording first means a crash can't leave the
+/// archive without its account; a record left beside a path that never got
+/// its folder is harmless, since nothing opens it. If the move fails, the
+/// record written ahead goes again.
 fn move_with_its_account(
     user_data: &std::path::Path,
     recorded: Option<&str>,
     now: std::time::SystemTime,
 ) -> Result<std::path::PathBuf, String> {
-    let moved_to = crate::paths::move_aside(user_data, now).map_err(|e| e.to_string())?;
-    let Some(account) = recorded else {
-        return Ok(moved_to);
-    };
-    let Err(e) = record_durably(&key_account_file(&moved_to), account) else {
-        return Ok(moved_to);
-    };
-    let kept = format!("recording {account} beside {}: {e}", moved_to.display());
-    Err(match std::fs::rename(&moved_to, user_data) {
-        Ok(()) => kept,
-        Err(back) => format!("{kept}; moving it back: {back}"),
-    })
+    let archive = crate::paths::aside_path(user_data, now);
+    let record = key_account_file(&archive);
+    if let Some(account) = recorded {
+        record_durably(&record, account)
+            .map_err(|e| format!("recording {account} beside {}: {e}", archive.display()))?;
+    }
+    if let Err(e) = std::fs::rename(user_data, &archive) {
+        if recorded.is_some() {
+            let _ = std::fs::remove_file(&record);
+        }
+        return Err(format!("{}: {e}", user_data.display()));
+    }
+    Ok(archive)
 }
 
 /// The record's folders are made before the key is stored, so where the
@@ -380,7 +401,11 @@ fn new_profile_key(
     ));
     make_record_folders(dir).map_err(failed)?;
     let account = match std::fs::read_to_string(&pending) {
-        Ok(text) if is_account(text.trim()) => text.trim().to_string(),
+        // Reused only once its entry is on disk, before any key is stored.
+        Ok(text) if is_account(text.trim()) => {
+            sync_dir(dir).map_err(failed)?;
+            text.trim().to_string()
+        }
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e)),
         _ => {
             let account = new_account();
@@ -1796,6 +1821,113 @@ mod tests {
         assert!(matches!(fresh, FreshStart::MoveFailed(_)), "{fresh:?}");
         assert_eq!(keychain.accounts(), [MASTER_KEY_ACCOUNT]);
         assert!(user_data.join("db/secure.sqlite").exists());
+    }
+
+    /// Reset and Clear Local Data move the folder as Start fresh does: the
+    /// archive keeps the account its data was sealed with, and the fresh
+    /// folder keeps the profile's. A profile on the default account leaves
+    /// no record.
+    #[test]
+    fn both_resets_keep_the_account_beside_the_archive() {
+        let root = tempfile::tempdir().unwrap();
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        let user_data = profile(root.path(), "Conduit");
+        record(&user_data, "masterKey.2");
+        let recorded = ProfileKey {
+            account: "masterKey.2".into(),
+            recorded: true,
+        };
+        let archive = move_profile_aside(&user_data, now).unwrap();
+        assert_eq!(profile_key(&archive), Ok(recorded.clone()));
+        assert_eq!(profile_key(&user_data), Ok(recorded), "the fresh folder's");
+        let legacy = profile(root.path(), "Legacy");
+        let archive = move_profile_aside(&legacy, now).unwrap();
+        assert_eq!(profile_key(&archive), Ok(default_profile()));
+        assert!(!key_account_file(&archive).exists());
+    }
+
+    /// A move that fails (here the folder is immutable, so it can't be
+    /// renamed) leaves no record beside the archive path it would have
+    /// taken, and the profile where it was.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_move_that_fails_leaves_no_record_beside_the_archive() {
+        let root = tempfile::tempdir().unwrap();
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        let user_data = profile(root.path(), "Conduit");
+        record(&user_data, "masterKey.2");
+        let flag = |f: &str| {
+            let set = std::process::Command::new("/usr/bin/chflags")
+                .arg(f)
+                .arg(&user_data)
+                .status()
+                .unwrap();
+            assert!(set.success());
+        };
+        flag("uchg");
+        let moved = move_profile_aside(&user_data, now);
+        flag("nouchg");
+        assert!(moved.is_err(), "{moved:?}");
+        let records: Vec<_> = std::fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().to_string()))
+            .filter(|n| n.ends_with(".master-key-account"))
+            .collect();
+        assert_eq!(records, ["Conduit.master-key-account"]);
+        assert!(user_data.join("db/secure.sqlite").exists());
+    }
+
+    /// A pending account from an attempt that failed is reused only once its
+    /// folder is on disk: where that sync fails (a folder that can't be
+    /// read), no key is stored.
+    #[cfg(unix)]
+    #[test]
+    fn a_pending_account_is_reused_only_once_its_folder_is_synced() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let shut = root.path().join("shut");
+        std::fs::create_dir(&shut).unwrap();
+        let user_data = shut.join("Conduit");
+        std::fs::write(
+            shut.join("Conduit.master-key-account.pending"),
+            "masterKey.0123456789abcdef",
+        )
+        .unwrap();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o300)).unwrap();
+        let fresh = fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path());
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(fresh, FreshStart::KeyFailed { .. }), "{fresh:?}");
+        assert_eq!(keychain.accounts(), [MASTER_KEY_ACCOUNT], "no key stored");
+    }
+
+    /// A profile another launch started fresh is taken up only once its
+    /// record's folder is on disk; until then conduitd stays stopped, and a
+    /// later try takes the same key.
+    #[cfg(unix)]
+    #[test]
+    fn an_already_fresh_profile_is_taken_up_only_once_its_record_is_synced() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let shut = root.path().join("shut");
+        let user_data = profile(&shut, "Conduit");
+        record(&user_data, "masterKey.2");
+        let key = a_key();
+        let keychain = FakeKeychain::with(&[
+            (MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt),
+            ("masterKey.2", &key, Reads::Freely),
+        ]);
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o300)).unwrap();
+        let fresh_while_shut = fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path());
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(fresh_while_shut, FreshStart::KeyFailed { .. }),
+            "{fresh_while_shut:?}"
+        );
+        assert_eq!(
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path()),
+            FreshStart::AlreadyFresh(key)
+        );
     }
 
     /// A new profile (`CONDUIT_USER_DATA` naming a folder whose parent isn't

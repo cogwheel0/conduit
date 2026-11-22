@@ -1125,6 +1125,8 @@
   "desktopKeychainPromptStartFresh": "Ricomincia da capo",
   "desktopKeychainPromptFailed": "macOS non ha dato la chiave a Conduit. Riprova, oppure fai clic su «Ricomincia da capo».",
   "desktopKeychainPromptFreshFailed": "Conduit non è riuscito a creare una nuova chiave. Riprova, oppure fai clic su «Mostra log» per i dettagli.",
+  "desktopKeychainMissingTitle": "Conduit non trova la sua chiave",
+  "desktopKeychainMissingBody": "La chiave dei dati di Conduit su questo Mac non è più nel portachiavi login. Fai clic su «Ricomincia da capo»: accedi di nuovo. Le chat sui tuoi server restano lì; le chat salvate solo su questo Mac vengono spostate da parte con i vecchi dati, non eliminate.",
   "desktopExportDiagnosticsHint": "Salva i log e una configurazione anonimizzata in un file zip e lo mostra nel Finder. Non viene caricato nulla.",
   "desktopExporting": "Esportazione…",
   "desktopDiagnosticsSaved": "Salvato {name}",
