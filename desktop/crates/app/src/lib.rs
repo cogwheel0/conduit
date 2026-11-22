@@ -303,8 +303,10 @@ pub fn launch_urls(args: &[String], cwd: &std::path::Path) -> Option<Vec<String>
 }
 
 /// This profile's single instance: the listener when this launch is the
-/// app; ends the process when another launch is, after handing it `urls`.
-/// A failure leaves this launch running on its own.
+/// app; ends the process when another launch is, after handing it `urls`,
+/// and also when this user's app holds the profile but doesn't take the
+/// launch (two apps on one profile would share its data). Any other
+/// failure (another user holds the name) leaves this launch on its own.
 #[cfg(not(target_os = "macos"))]
 fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
     use conduit_daemon::instance::{Claim, claim};
@@ -322,6 +324,13 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
                 urls.len()
             );
             std::process::exit(0);
+        }
+        Ok(Claim::Busy) => {
+            let why = "Conduit is already running for this profile but isn't responding; \
+                       this launch quits rather than open the profile twice";
+            log::error!("{why}");
+            eprintln!("conduit-desktop: {why}");
+            std::process::exit(1);
         }
         Err(e) => {
             log::warn!("single instance: {e}; this launch runs on its own");
@@ -487,9 +496,7 @@ pub fn run() {
         }
         if let Some(instance) = instance {
             let urls_tx = urls_tx.clone();
-            instance.serve(move |urls| {
-                let _ = urls_tx.unbounded_send(urls);
-            });
+            instance.serve(move |urls| urls_tx.unbounded_send(urls).is_ok());
         }
     }
     app.on_open_urls(move |urls| {

@@ -6,24 +6,35 @@
 //!   service, the profile and the user's id. A peer running as another user
 //!   is refused, whichever end it is.
 //! * Windows: a named pipe named for the service, the profile and the
-//!   session, refused to remote clients. The pipe's default access lets
-//!   other users only read it, and each end checks the other's session.
+//!   session. Only this user may open it (its security descriptor), remote
+//!   clients are refused, and each end checks the other's account and
+//!   session before a launch's arguments, which can carry tokens, cross.
 //!
-//! The message is one line of JSON, `{"args":[…]}`, answered `ok`. An empty
-//! list is a plain second launch: the app comes forward.
+//! The message is one line of JSON, `{"args":[…]}`, answered `ok` once the
+//! app has queued the launch. An empty list is a plain second launch: the
+//! app comes forward. Each handoff has one deadline, whichever end waits.
 
-use std::io::{self, BufRead as _, Read, Write};
+use std::io;
 use std::path::Path;
-#[cfg(any(target_os = "linux", windows))]
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _,
+};
+use tokio::time::Instant;
 
 /// The longest message a launch may send.
 const MAX_MESSAGE: u64 = 1 << 20;
-/// How long either end waits for the other.
+/// How long a whole handoff may take, at either end.
+pub const HANDOFF_TIMEOUT: Duration = Duration::from_secs(5);
+/// Launches the app takes at once; more are refused until one ends.
 #[cfg(any(target_os = "linux", windows))]
-const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_WORKERS: usize = 4;
+
+/// What the app does with a launch's arguments: whether it queued them.
+#[cfg(any(target_os = "linux", windows))]
+type OnLaunch = std::sync::Arc<dyn Fn(Vec<String>) -> bool + Send + Sync>;
 
 #[derive(Serialize, Deserialize)]
 struct Message {
@@ -47,40 +58,68 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
-/// Sends `args` and waits for the app's answer.
-pub fn send(stream: &mut (impl Read + Write), args: &[String]) -> io::Result<()> {
-    let mut line = serde_json::to_vec(&Message {
-        args: args.to_vec(),
-    })?;
-    line.push(b'\n');
-    stream.write_all(&line)?;
-    stream.flush()?;
-    let mut answer = String::new();
-    io::BufReader::new(stream.take(16)).read_line(&mut answer)?;
-    if answer.trim_end() == "ok" {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the running app did not take the launch",
-        ))
-    }
+fn timed_out() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "the handoff ran out of time")
 }
 
-/// Reads one launch's arguments and answers it.
-pub fn receive(stream: &mut (impl Read + Write)) -> io::Result<Vec<String>> {
-    let mut line = Vec::new();
-    io::BufReader::new((&mut *stream).take(MAX_MESSAGE)).read_until(b'\n', &mut line)?;
-    if line.last() != Some(&b'\n') {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "a launch's message was cut short or too long",
-        ));
-    }
-    let message: Message = serde_json::from_slice(&line)?;
-    stream.write_all(b"ok\n")?;
-    stream.flush()?;
-    Ok(message.args)
+/// Hands `args` over `stream` and waits for the app's `ok`, all by
+/// `deadline`.
+pub async fn hand_over<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    args: &[String],
+    deadline: Instant,
+) -> io::Result<()> {
+    tokio::time::timeout_at(deadline, async {
+        let mut line = serde_json::to_vec(&Message {
+            args: args.to_vec(),
+        })?;
+        line.push(b'\n');
+        stream.write_all(&line).await?;
+        stream.flush().await?;
+        let mut answer = String::new();
+        tokio::io::BufReader::new((&mut *stream).take(16))
+            .read_line(&mut answer)
+            .await?;
+        if answer.trim_end() == "ok" {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "the running app did not take the launch",
+            ))
+        }
+    })
+    .await
+    .map_err(|_| timed_out())?
+}
+
+/// Takes one launch from `stream` by `deadline`: its arguments go to
+/// `on_launch`, and the launch hears `ok` only if `on_launch` queued them.
+pub async fn take_launch<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    deadline: Instant,
+    on_launch: &(dyn Fn(Vec<String>) -> bool + Send + Sync),
+) -> io::Result<()> {
+    tokio::time::timeout_at(deadline, async {
+        let mut line = Vec::new();
+        tokio::io::BufReader::new((&mut *stream).take(MAX_MESSAGE))
+            .read_until(b'\n', &mut line)
+            .await?;
+        if line.last() != Some(&b'\n') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a launch's message was cut short or too long",
+            ));
+        }
+        let message: Message = serde_json::from_slice(&line)?;
+        if !on_launch(message.args) {
+            return Err(io::Error::other("the app could not take the launch"));
+        }
+        stream.write_all(b"ok\n").await?;
+        stream.flush().await
+    })
+    .await
+    .map_err(|_| timed_out())?
 }
 
 /// What a launch is.
@@ -90,6 +129,10 @@ pub enum Claim {
     First(Listener),
     /// The running app took this launch's arguments; this one exits.
     Forwarded,
+    /// This user's app holds the profile but did not take the launch in
+    /// time (hung, or its queue full). Another app on the same profile must
+    /// not start, so this launch ends.
+    Busy,
 }
 
 /// The first launch's end, until it serves.
@@ -99,22 +142,23 @@ pub struct Listener(std::os::unix::net::UnixListener);
 #[cfg(windows)]
 pub struct Listener {
     name: String,
-    first: pipe::Pipe,
+    first: tokio::net::windows::named_pipe::NamedPipeServer,
+    access: pipe::OwnerOnly,
 }
 
 /// Claims `service`'s instance for `profile`, or hands `args` to the
-/// launch that has it.
+/// launch that has it. An error (another user holds the name, the system
+/// refused) leaves the caller to run on its own: it is not this user's app.
 #[cfg(any(target_os = "linux", windows))]
 pub fn claim(service: &str, profile: &Path, args: &[String]) -> io::Result<Claim> {
+    let runtime = crate::runtime::shared();
     #[cfg(target_os = "linux")]
     {
         let name = instance_name(service, profile, crate::abstract_socket::this_uid());
         match crate::abstract_socket::bind(&name) {
             Ok(listener) => Ok(Claim::First(Listener(listener))),
             Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-                let stream = connect_linux(&name)?;
-                exchange(stream, args)?;
-                Ok(Claim::Forwarded)
+                runtime.block_on(forward_linux(&name, args, Instant::now() + HANDOFF_TIMEOUT))
             }
             Err(e) => Err(e),
         }
@@ -122,32 +166,40 @@ pub fn claim(service: &str, profile: &Path, args: &[String]) -> io::Result<Claim
     #[cfg(windows)]
     {
         let name = pipe::path(&instance_name(service, profile, pipe::this_session()?));
-        match pipe::Pipe::create(&name, true) {
-            Ok(first) => Ok(Claim::First(Listener { name, first })),
-            Err(e) if e.raw_os_error() == Some(pipe::ERROR_ACCESS_DENIED) => {
-                let client = pipe::open(&name)?;
-                exchange(client, args)?;
-                Ok(Claim::Forwarded)
-            }
+        let access = pipe::OwnerOnly::new()?;
+        let created = {
+            let _in_runtime = runtime.enter();
+            pipe::create(&name, true, &access)
+        };
+        match created {
+            Ok(first) => Ok(Claim::First(Listener {
+                name,
+                first,
+                access,
+            })),
+            Err(e) if e.raw_os_error() == Some(pipe::ERROR_ACCESS_DENIED) => runtime.block_on(
+                forward_windows(&name, args, Instant::now() + HANDOFF_TIMEOUT),
+            ),
             Err(e) => Err(e),
         }
     }
 }
 
-/// The running app may be between binding and listening: a refused
-/// connection is tried again for a moment.
+/// Hands `args` to the launch bound to `name`, by `deadline`. It may be
+/// between binding and listening, so a refused connection is tried again
+/// until then; a full queue is no answer at once.
 #[cfg(target_os = "linux")]
-fn connect_linux(name: &str) -> io::Result<std::os::unix::net::UnixStream> {
+async fn forward_linux(name: &str, args: &[String], deadline: Instant) -> io::Result<Claim> {
     use crate::abstract_socket::{connect, peer_uid, this_uid};
-    let deadline = std::time::Instant::now() + EXCHANGE_TIMEOUT;
     let stream = loop {
         match connect(name) {
             Ok(stream) => break stream,
-            Err(e)
-                if e.kind() == io::ErrorKind::ConnectionRefused
-                    && std::time::Instant::now() < deadline =>
-            {
-                std::thread::sleep(Duration::from_millis(20));
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Claim::Busy),
+            Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
+                if Instant::now() >= deadline {
+                    return Ok(Claim::Busy);
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
             }
             Err(e) => return Err(e),
         }
@@ -158,116 +210,160 @@ fn connect_linux(name: &str) -> io::Result<std::os::unix::net::UnixStream> {
             "another user holds this app's instance name",
         ));
     }
-    stream.set_read_timeout(Some(EXCHANGE_TIMEOUT))?;
-    stream.set_write_timeout(Some(EXCHANGE_TIMEOUT))?;
-    Ok(stream)
+    stream.set_nonblocking(true)?;
+    let mut stream = tokio::net::UnixStream::from_std(stream)?;
+    Ok(match hand_over(&mut stream, args, deadline).await {
+        Ok(()) => Claim::Forwarded,
+        Err(e) => {
+            log::warn!("single instance: the running app did not take the launch: {e}");
+            Claim::Busy
+        }
+    })
 }
 
-/// [`send`] on its own thread, given [`EXCHANGE_TIMEOUT`]: a running app
-/// that hangs never hangs the launch.
-#[cfg(any(target_os = "linux", windows))]
-fn exchange(mut stream: impl Read + Write + Send + 'static, args: &[String]) -> io::Result<()> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let args = args.to_vec();
-    std::thread::spawn(move || {
-        let _ = tx.send(send(&mut stream, &args));
-    });
-    rx.recv_timeout(EXCHANGE_TIMEOUT).unwrap_or_else(|_| {
-        Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "the running app did not answer",
-        ))
+#[cfg(windows)]
+async fn forward_windows(name: &str, args: &[String], deadline: Instant) -> io::Result<Claim> {
+    use tokio::net::windows::named_pipe::ClientOptions;
+    let mut client = loop {
+        match ClientOptions::new().open(name) {
+            Ok(client) => break client,
+            Err(e) if e.raw_os_error() == Some(pipe::ERROR_PIPE_BUSY) => {
+                if Instant::now() >= deadline {
+                    return Ok(Claim::Busy);
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    };
+    pipe::check_server(&client)?;
+    Ok(match hand_over(&mut client, args, deadline).await {
+        Ok(()) => Claim::Forwarded,
+        Err(e) => {
+            log::warn!("single instance: the running app did not take the launch: {e}");
+            Claim::Busy
+        }
     })
 }
 
 #[cfg(any(target_os = "linux", windows))]
 impl Listener {
-    /// Hands each later launch's arguments to `on_launch`, on a thread of
-    /// its own, for as long as the process runs.
-    pub fn serve(self, on_launch: impl Fn(Vec<String>) + Send + Sync + 'static) {
-        let on_launch = std::sync::Arc::new(on_launch);
-        let spawned = std::thread::Builder::new()
-            .name("conduit-instance".into())
-            .spawn(move || self.accept_forever(on_launch));
-        if let Err(e) = spawned {
-            log::error!("single instance: no listener thread: {e}");
-        }
+    /// Hands each later launch's arguments to `on_launch`, which answers
+    /// whether the app queued them, for as long as the process runs.
+    pub fn serve(self, on_launch: impl Fn(Vec<String>) -> bool + Send + Sync + 'static) {
+        let on_launch: OnLaunch = std::sync::Arc::new(on_launch);
+        crate::runtime::shared().spawn(self.accept_forever(on_launch));
     }
 
     #[cfg(target_os = "linux")]
-    fn accept_forever(self, on_launch: std::sync::Arc<dyn Fn(Vec<String>) + Send + Sync>) {
+    async fn accept_forever(self, on_launch: OnLaunch) {
         use crate::abstract_socket::{peer_uid, this_uid};
-        for stream in self.0.incoming() {
-            let Ok(mut stream) = stream else { continue };
+        let listener = match self
+            .0
+            .set_nonblocking(true)
+            .and_then(|()| tokio::net::UnixListener::from_std(self.0))
+        {
+            Ok(listener) => listener,
+            Err(e) => {
+                log::error!("single instance: not listening: {e}");
+                return;
+            }
+        };
+        let workers = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_WORKERS));
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
             if !matches!(peer_uid(&stream), Ok(uid) if uid == this_uid()) {
                 log::warn!("single instance: refused a launch from another user");
                 continue;
             }
-            let on_launch = on_launch.clone();
-            std::thread::spawn(move || {
-                let _ = stream.set_read_timeout(Some(EXCHANGE_TIMEOUT));
-                let _ = stream.set_write_timeout(Some(EXCHANGE_TIMEOUT));
-                match receive(&mut stream) {
-                    Ok(args) => on_launch(args),
-                    Err(e) => log::warn!("single instance: {e}"),
-                }
-            });
+            spawn_worker(stream, &workers, &on_launch);
         }
     }
 
     #[cfg(windows)]
-    fn accept_forever(self, on_launch: std::sync::Arc<dyn Fn(Vec<String>) + Send + Sync>) {
+    async fn accept_forever(self, on_launch: OnLaunch) {
+        let workers = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_WORKERS));
         let mut waiting = self.first;
         loop {
-            if let Err(e) = waiting.wait_for_client() {
-                log::warn!("single instance: {e}");
-            }
+            let connected = waiting.connect().await;
             // The next end is made before this one is used: there is never
             // a moment with no pipe, when a launch could take the name.
-            let next = match pipe::Pipe::create(&self.name, false) {
+            let next = match pipe::create(&self.name, false, &self.access) {
                 Ok(next) => next,
                 Err(e) => {
                     log::error!("single instance: stopped listening: {e}");
                     return;
                 }
             };
-            let connected = std::mem::replace(&mut waiting, next);
-            if !connected.client_is_this_session() {
-                log::warn!("single instance: refused a launch from another session");
+            let pipe = std::mem::replace(&mut waiting, next);
+            if let Err(e) = connected {
+                log::warn!("single instance: {e}");
                 continue;
             }
-            let on_launch = on_launch.clone();
-            std::thread::spawn(move || {
-                let mut file = connected.into_file();
-                match receive(&mut file) {
-                    Ok(args) => on_launch(args),
-                    Err(e) => log::warn!("single instance: {e}"),
-                }
-            });
+            if let Err(e) = pipe::check_client(&pipe) {
+                log::warn!("single instance: refused a launch: {e}");
+                continue;
+            }
+            spawn_worker(pipe, &workers, &on_launch);
         }
     }
+}
+
+/// Takes one launch on its own task, by its deadline; with every worker
+/// busy, the launch is dropped (it hears nothing, and says the app is busy).
+#[cfg(any(target_os = "linux", windows))]
+fn spawn_worker<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    mut stream: S,
+    workers: &std::sync::Arc<tokio::sync::Semaphore>,
+    on_launch: &OnLaunch,
+) {
+    let Ok(permit) = workers.clone().try_acquire_owned() else {
+        log::warn!("single instance: too many launches at once; dropped one");
+        return;
+    };
+    let on_launch = on_launch.clone();
+    tokio::spawn(async move {
+        let _permit = permit;
+        let deadline = Instant::now() + HANDOFF_TIMEOUT;
+        if let Err(e) = take_launch(&mut stream, deadline, &*on_launch).await {
+            log::warn!("single instance: {e}");
+        }
+    });
 }
 
 #[cfg(windows)]
 mod pipe {
     use std::io;
-    use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+    use std::os::windows::io::AsRawHandle as _;
 
-    use windows::Win32::Foundation::{ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, HANDLE};
-    use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
+    use tokio::net::windows::named_pipe::{NamedPipeClient, NamedPipeServer, ServerOptions};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        SDDL_REVISION_1,
+    };
+    use windows::Win32::Security::{
+        EqualSid, GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
+        TOKEN_USER, TokenUser,
+    };
     use windows::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientSessionId,
-        GetNamedPipeServerProcessId, GetNamedPipeServerSessionId, PIPE_READMODE_BYTE,
-        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        GetNamedPipeClientProcessId, GetNamedPipeClientSessionId, GetNamedPipeServerProcessId,
+        GetNamedPipeServerSessionId,
     };
     use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
-    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, GetCurrentProcessId, OpenProcess, OpenProcessToken,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
     use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
-    use windows::core::PCWSTR;
+    use windows::core::{PCWSTR, PWSTR};
 
     /// What `CreateNamedPipeW` says when the first instance is someone
-    /// else's.
+    /// else's, and what opening one says while every end is busy.
     pub const ERROR_ACCESS_DENIED: i32 = 5;
+    pub const ERROR_PIPE_BUSY: i32 = 231;
 
     pub fn path(name: &str) -> String {
         format!(r"\\.\pipe\{name}")
@@ -281,102 +377,148 @@ mod pipe {
         Ok(session)
     }
 
-    /// One server end of the pipe.
-    pub struct Pipe(OwnedHandle);
+    /// A security descriptor that lets only this user open the pipe.
+    pub struct OwnerOnly(PSECURITY_DESCRIPTOR);
 
-    impl Pipe {
-        /// A new end; `first` refuses when the pipe exists already.
-        pub fn create(name: &str, first: bool) -> io::Result<Self> {
-            let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
-            let mut mode = PIPE_ACCESS_DUPLEX;
-            if first {
-                mode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
-            }
-            // SAFETY: `wide` is NUL-terminated and outlives the call; a
-            // failed call returns INVALID_HANDLE_VALUE, checked below.
-            let handle = unsafe {
-                CreateNamedPipeW(
-                    PCWSTR::from_raw(wide.as_ptr()),
-                    mode,
-                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                    PIPE_UNLIMITED_INSTANCES,
-                    4096,
-                    4096,
-                    0,
+    // SAFETY: the descriptor is plain memory this value owns, only read.
+    unsafe impl Send for OwnerOnly {}
+    // SAFETY: as above.
+    unsafe impl Sync for OwnerOnly {}
+
+    impl OwnerOnly {
+        pub fn new() -> io::Result<Self> {
+            let user = token_user(unsafe { GetCurrentProcess() })?;
+            let mut sid_text = PWSTR::null();
+            // SAFETY: the SID lives in `user`; the string is freed below.
+            unsafe { ConvertSidToStringSidW(sid_of(&user), &mut sid_text) }
+                .map_err(io::Error::other)?;
+            // SAFETY: a NUL-terminated string from the call above.
+            let sid = unsafe { sid_text.to_string() };
+            // SAFETY: allocated by ConvertSidToStringSidW.
+            unsafe { LocalFree(Some(HLOCAL(sid_text.0.cast()))) };
+            let sid = sid.map_err(io::Error::other)?;
+            // A protected DACL: full access for this user, nobody else.
+            let sddl: Vec<u16> = format!("D:P(A;;GA;;;{sid})")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            // SAFETY: `sddl` is NUL-terminated; the descriptor is freed on drop.
+            unsafe {
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    PCWSTR::from_raw(sddl.as_ptr()),
+                    SDDL_REVISION_1,
+                    &mut descriptor,
                     None,
                 )
-            };
-            if handle.is_invalid() {
-                return Err(io::Error::last_os_error());
             }
-            // SAFETY: a valid handle this end now owns.
-            Ok(Self(unsafe { OwnedHandle::from_raw_handle(handle.0) }))
-        }
-
-        fn handle(&self) -> HANDLE {
-            HANDLE(self.0.as_raw_handle())
-        }
-
-        /// Blocks until a launch connects.
-        pub fn wait_for_client(&self) -> io::Result<()> {
-            // SAFETY: a valid pipe handle; no overlapped I/O.
-            match unsafe { ConnectNamedPipe(self.handle(), None) } {
-                Ok(()) => Ok(()),
-                Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => Ok(()),
-                Err(e) => Err(io::Error::other(e)),
-            }
-        }
-
-        pub fn client_is_this_session(&self) -> bool {
-            let mut session = 0;
-            // SAFETY: a connected pipe handle; `session` is valid for the write.
-            let theirs = unsafe { GetNamedPipeClientSessionId(self.handle(), &mut session) };
-            theirs.is_ok() && this_session().is_ok_and(|mine| mine == session)
-        }
-
-        pub fn into_file(self) -> std::fs::File {
-            std::fs::File::from(self.0)
+            .map_err(io::Error::other)?;
+            Ok(Self(descriptor))
         }
     }
 
-    /// Opens the running app's pipe, checks it is this session's, and lets
-    /// that app take the foreground (Windows gives it to this launch, which
-    /// the user just started).
-    pub fn open(name: &str) -> io::Result<std::fs::File> {
-        let deadline = std::time::Instant::now() + super::EXCHANGE_TIMEOUT;
-        let file = loop {
-            match std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(name)
-            {
-                Ok(file) => break file,
-                Err(e)
-                    if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32)
-                        && std::time::Instant::now() < deadline =>
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                }
-                Err(e) => return Err(e),
-            }
+    impl Drop for OwnerOnly {
+        fn drop(&mut self) {
+            // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+            unsafe { LocalFree(Some(HLOCAL(self.0.0))) };
+        }
+    }
+
+    /// One server end; `first` refuses when the pipe exists already.
+    pub fn create(name: &str, first: bool, access: &OwnerOnly) -> io::Result<NamedPipeServer> {
+        let mut attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: access.0.0,
+            bInheritHandle: false.into(),
         };
-        let handle = HANDLE(file.as_raw_handle());
-        let mut session = 0;
-        // SAFETY: a connected pipe handle; `session` is valid for the write.
+        // SAFETY: `attributes` and the descriptor it points to outlive the
+        // call, which only reads them.
+        unsafe {
+            ServerOptions::new()
+                .first_pipe_instance(first)
+                .reject_remote_clients(true)
+                .create_with_security_attributes_raw(name, (&raw mut attributes).cast())
+        }
+    }
+
+    /// A process's token user (a `TOKEN_USER` and the SID after it).
+    fn token_user(process: HANDLE) -> io::Result<Vec<u64>> {
+        let mut token = HANDLE::default();
+        // SAFETY: `process` is a process handle with query access.
+        unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) }.map_err(io::Error::other)?;
+        let mut len = 0u32;
+        // SAFETY: the first call only asks for the size.
+        let _ = unsafe { GetTokenInformation(token, TokenUser, None, 0, &mut len) };
+        // u64 words keep the TOKEN_USER aligned.
+        let mut buffer = vec![0u64; (len as usize).div_ceil(8)];
+        // SAFETY: `buffer` holds `len` bytes.
+        let read = unsafe {
+            GetTokenInformation(
+                token,
+                TokenUser,
+                Some(buffer.as_mut_ptr().cast()),
+                len,
+                &mut len,
+            )
+        };
+        // SAFETY: the token handle this function opened.
+        let _ = unsafe { CloseHandle(token) };
+        read.map_err(io::Error::other)?;
+        Ok(buffer)
+    }
+
+    fn sid_of(user: &[u64]) -> windows::Win32::Security::PSID {
+        // SAFETY: `user` holds a TOKEN_USER (token_user).
+        unsafe { (*user.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+    }
+
+    /// Whether process `pid` runs as this user.
+    fn is_this_user(pid: u32) -> io::Result<bool> {
+        // SAFETY: plain process query; the handle is closed below.
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }
+            .map_err(io::Error::other)?;
+        let theirs = token_user(process);
+        // SAFETY: the handle this function opened.
+        let _ = unsafe { CloseHandle(process) };
+        let theirs = theirs?;
+        let mine = token_user(unsafe { GetCurrentProcess() })?;
+        // SAFETY: both SIDs live in their buffers.
+        Ok(unsafe { EqualSid(sid_of(&theirs), sid_of(&mine)) }.is_ok())
+    }
+
+    fn refused(what: &str) -> io::Error {
+        io::Error::new(io::ErrorKind::PermissionDenied, what.to_string())
+    }
+
+    /// The running app's end is this user's, in this session; then it may
+    /// take the foreground (Windows gives it to this launch).
+    pub fn check_server(client: &NamedPipeClient) -> io::Result<()> {
+        let handle = HANDLE(client.as_raw_handle());
+        let (mut session, mut pid) = (0, 0);
+        // SAFETY: a connected pipe handle; the outputs are valid for writes.
         unsafe { GetNamedPipeServerSessionId(handle, &mut session) }.map_err(io::Error::other)?;
-        if session != this_session()? {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "another session holds this app's instance name",
-            ));
-        }
-        let mut pid = 0;
         // SAFETY: as above.
-        if unsafe { GetNamedPipeServerProcessId(handle, &mut pid) }.is_ok() {
-            // SAFETY: no preconditions; failing only means no foreground.
-            let _ = unsafe { AllowSetForegroundWindow(pid) };
+        unsafe { GetNamedPipeServerProcessId(handle, &mut pid) }.map_err(io::Error::other)?;
+        if session != this_session()? || !is_this_user(pid)? {
+            return Err(refused("another account holds this app's instance name"));
         }
-        Ok(file)
+        // SAFETY: no preconditions; failing only means no foreground.
+        let _ = unsafe { AllowSetForegroundWindow(pid) };
+        Ok(())
+    }
+
+    /// A launch that connected is this user's, in this session.
+    pub fn check_client(server: &NamedPipeServer) -> io::Result<()> {
+        let handle = HANDLE(server.as_raw_handle());
+        let (mut session, mut pid) = (0, 0);
+        // SAFETY: a connected pipe handle; the outputs are valid for writes.
+        unsafe { GetNamedPipeClientSessionId(handle, &mut session) }.map_err(io::Error::other)?;
+        // SAFETY: as above.
+        unsafe { GetNamedPipeClientProcessId(handle, &mut pid) }.map_err(io::Error::other)?;
+        if session != this_session()? || !is_this_user(pid)? {
+            return Err(refused("a launch from another account or session"));
+        }
+        Ok(())
     }
 }
 
@@ -400,53 +542,144 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_second_launch_hands_its_links_and_files_to_the_first() {
-        let (mut app, mut launch) = std::os::unix::net::UnixStream::pair().unwrap();
+    /// Each launch's arguments the app was handed.
+    type Handed = std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>;
+
+    /// What the app was handed, and whether it queues launches.
+    fn app(queues: bool) -> (Handed, impl Fn(Vec<String>) -> bool + Send + Sync) {
+        let got = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let seen = got.clone();
+        (got, move |args| {
+            seen.lock().unwrap().push(args);
+            queues
+        })
+    }
+
+    fn deadline() -> Instant {
+        Instant::now() + HANDOFF_TIMEOUT
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_second_launch_hands_its_links_and_files_to_the_first() {
+        let (mut launch, mut first) = tokio::io::duplex(4096);
         let args = vec![
             "conduit://chat/7b0c".to_string(),
             "file:///home/avery/notes%20v2.md".to_string(),
         ];
-        let served = std::thread::spawn(move || receive(&mut app));
-        send(&mut launch, &args).expect("the app answers");
-        assert_eq!(served.join().unwrap().unwrap(), args);
+        let (got, on_launch) = app(true);
+        let (sent, taken) = tokio::join!(
+            hand_over(&mut launch, &args, deadline()),
+            take_launch(&mut first, deadline(), &on_launch)
+        );
+        sent.expect("the app answers");
+        taken.expect("the app takes it");
+        assert_eq!(*got.lock().unwrap(), vec![args]);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_plain_second_launch_arrives_with_nothing_to_open() {
-        let (mut app, mut launch) = std::os::unix::net::UnixStream::pair().unwrap();
-        let served = std::thread::spawn(move || receive(&mut app));
-        send(&mut launch, &[]).expect("the app answers");
-        assert_eq!(served.join().unwrap().unwrap(), Vec::<String>::new());
+    #[tokio::test(start_paused = true)]
+    async fn a_plain_second_launch_arrives_with_nothing_to_open() {
+        let (mut launch, mut first) = tokio::io::duplex(4096);
+        let (got, on_launch) = app(true);
+        let (sent, taken) = tokio::join!(
+            hand_over(&mut launch, &[], deadline()),
+            take_launch(&mut first, deadline(), &on_launch)
+        );
+        sent.unwrap();
+        taken.unwrap();
+        assert_eq!(*got.lock().unwrap(), vec![Vec::<String>::new()]);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_message_that_is_not_a_launch_is_refused() {
+    #[tokio::test(start_paused = true)]
+    async fn a_message_that_is_not_a_launch_is_refused() {
         for bytes in [
             &b"GET / HTTP/1.1\r\n\r\n"[..],
             b"{\"args\":[1]}\n",
             b"{\"args\":[\"x\"]}",
         ] {
-            let (mut app, mut other) = std::os::unix::net::UnixStream::pair().unwrap();
-            other.write_all(bytes).unwrap();
-            other.shutdown(std::net::Shutdown::Write).unwrap();
+            let (mut other, mut first) = tokio::io::duplex(4096);
+            other.write_all(bytes).await.unwrap();
+            other.shutdown().await.unwrap();
+            let (got, on_launch) = app(true);
             assert!(
-                receive(&mut app).is_err(),
+                take_launch(&mut first, deadline(), &on_launch)
+                    .await
+                    .is_err(),
                 "{:?}",
                 String::from_utf8_lossy(bytes)
             );
+            assert!(got.lock().unwrap().is_empty());
         }
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn a_launch_the_app_never_answers_is_not_taken() {
-        let (app, mut launch) = std::os::unix::net::UnixStream::pair().unwrap();
-        drop(app);
-        assert!(send(&mut launch, &["conduit://new".into()]).is_err());
+    /// The app hears a launch but can't queue it (it is quitting): the
+    /// launch is not told it was taken.
+    #[tokio::test(start_paused = true)]
+    async fn a_launch_the_app_could_not_queue_is_not_acknowledged() {
+        let (mut launch, mut first) = tokio::io::duplex(4096);
+        let (_, on_launch) = app(false);
+        let (sent, taken) = tokio::join!(
+            async {
+                let sent = hand_over(&mut launch, &["conduit://new".into()], deadline()).await;
+                drop(launch);
+                sent
+            },
+            take_launch(&mut first, deadline(), &on_launch)
+        );
+        assert!(taken.is_err());
+        assert!(sent.is_err(), "no ok for a launch the app dropped");
+    }
+
+    /// A launch that never finishes its line frees the app's worker at the
+    /// deadline, and no later.
+    #[tokio::test(start_paused = true)]
+    async fn a_stalled_launch_frees_its_worker_by_the_deadline() {
+        let (mut stalled, mut first) = tokio::io::duplex(4096);
+        stalled
+            .write_all(b"{\"args\":[\"conduit://new\"")
+            .await
+            .unwrap();
+        let (got, on_launch) = app(true);
+        let started = Instant::now();
+        tokio::select! {
+            taken = take_launch(&mut first, deadline(), &on_launch) => {
+                assert_eq!(taken.unwrap_err().kind(), io::ErrorKind::TimedOut);
+            }
+            () = tokio::time::sleep(HANDOFF_TIMEOUT * 3) => {
+                panic!("a stalled launch held its worker past its deadline");
+            }
+        }
+        assert_eq!(Instant::now() - started, HANDOFF_TIMEOUT);
+        assert!(got.lock().unwrap().is_empty());
+        drop(stalled);
+    }
+
+    /// The handoff has one deadline: an app that drains the message slowly
+    /// and then never answers costs the launch that one wait, not one wait
+    /// for the message and another for the answer.
+    #[tokio::test(start_paused = true)]
+    async fn the_handoff_has_one_deadline() {
+        let (mut launch, mut first) = tokio::io::duplex(8);
+        let slow_app = async move {
+            let mut buf = [0u8; 8];
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                if matches!(first.read(&mut buf).await, Ok(0) | Err(_)) {
+                    return;
+                }
+            }
+        };
+        let args = ["conduit://settings".to_string()];
+        let started = Instant::now();
+        tokio::select! {
+            sent = hand_over(&mut launch, &args, deadline()) => {
+                assert_eq!(sent.unwrap_err().kind(), io::ErrorKind::TimedOut);
+            }
+            () = slow_app => panic!("the app's end closed"),
+            () = tokio::time::sleep(HANDOFF_TIMEOUT * 3) => {
+                panic!("the handoff waited past its deadline");
+            }
+        }
+        assert_eq!(Instant::now() - started, HANDOFF_TIMEOUT);
     }
 
     /// Two launches of one profile in this process: the second finds the
@@ -460,9 +693,7 @@ mod tests {
             panic!("the first launch is the app");
         };
         let (tx, rx) = std::sync::mpsc::channel();
-        listener.serve(move |args| {
-            let _ = tx.send(args);
-        });
+        listener.serve(move |args| tx.send(args).is_ok());
         let args = vec!["conduit://settings".to_string()];
         assert!(matches!(
             claim(&service, profile, &args).unwrap(),
@@ -473,6 +704,22 @@ mod tests {
         assert!(matches!(
             claim(&service, Path::new("/srv/conduit-test/other"), &[]).unwrap(),
             Claim::First(_)
+        ));
+    }
+
+    /// The profile's app holds the name but its queue is full: the launch
+    /// is busy at once, never a second app on the profile, and never a
+    /// wait for an accept.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_full_queue_on_the_profiles_app_is_busy_at_once() {
+        let service = format!("app.example.conduit-test.{:016x}", rand::random::<u64>());
+        let profile = Path::new("/srv/conduit-test/profile");
+        let name = instance_name(&service, profile, crate::abstract_socket::this_uid());
+        let (_listener, _queued) = crate::abstract_socket::tests::full_listener(&name);
+        assert!(matches!(
+            claim(&service, profile, &["conduit://new".into()]).unwrap(),
+            Claim::Busy
         ));
     }
 }
