@@ -106,6 +106,23 @@ fn sample_and_send(
     send(sample());
 }
 
+/// Reports each availability reading: the first, then one per change,
+/// until the changes end. A reading that fails ends it with that error, so
+/// the worker falls back (online) and asks again after its wait, rather than
+/// report a guess and never read again while no change comes.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+async fn follow_readings<E>(
+    mut changed: impl AsyncFnMut() -> bool,
+    mut available: impl AsyncFnMut() -> Result<bool, E>,
+    report: &impl Fn(bool),
+) -> Result<(), E> {
+    report(available().await?);
+    while changed().await {
+        report(available().await?);
+    }
+    Ok(())
+}
+
 impl Drop for NetworkMonitor {
     fn drop(&mut self) {
         self.stop.stop();
@@ -196,7 +213,7 @@ mod linux_monitor {
                             // so a missing portal never stops the app (nor
                             // leaves the last state it gave standing).
                             if !said_online {
-                                log::info!("no network portal ({e}): reading as online");
+                                log::info!("network portal: {e}; reading as online");
                                 report(true);
                                 said_online = true;
                             }
@@ -217,10 +234,12 @@ mod linux_monitor {
     async fn follow(report: &impl Fn(bool)) -> Result<(), ashpd::Error> {
         let monitor = NetworkMonitor::new().await?;
         let mut changes = monitor.receive_changed().await?;
-        report(monitor.is_available().await.unwrap_or(true));
-        while changes.next().await.is_some() {
-            report(monitor.is_available().await.unwrap_or(true));
-        }
+        super::follow_readings(
+            async || changes.next().await.is_some(),
+            async || monitor.is_available().await,
+            report,
+        )
+        .await?;
         log::info!("network portal: its subscription ended; asking again");
         Ok(())
     }
@@ -229,6 +248,28 @@ mod linux_monitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed availability reading ends the subscription with its error,
+    /// so the worker's fallback and wait run and it asks again, rather than
+    /// report a guess and never read again while no change comes.
+    #[tokio::test]
+    async fn a_failed_availability_reading_is_asked_again() {
+        let readings = std::cell::RefCell::new(vec![Err("the portal went"), Ok(false)]);
+        let changes = std::cell::Cell::new(2u32);
+        let reported = std::cell::RefCell::new(Vec::new());
+        let ended = follow_readings(
+            async || {
+                let left = changes.get();
+                changes.set(left.saturating_sub(1));
+                left > 0
+            },
+            async || readings.borrow_mut().pop().unwrap_or(Ok(true)),
+            &|online| reported.borrow_mut().push(online),
+        )
+        .await;
+        assert_eq!(ended, Err("the portal went"));
+        assert_eq!(*reported.borrow(), [false], "nothing reported for it");
+    }
 
     /// Dropping the monitor wakes its worker's wait (on the portal, or
     /// before asking it again), which then ends; a wait that starts once it
