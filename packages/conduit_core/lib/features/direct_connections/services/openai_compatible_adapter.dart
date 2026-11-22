@@ -473,6 +473,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
                 'completion-failed',
                 scope: 'direct-connections/openai',
                 error: safeMessage,
+                data: <String, Object?>{
+                  'errorType': error.runtimeType.toString(),
+                },
               );
             }
           }
@@ -724,7 +727,9 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
           ? choices.first
           : null;
       final message = firstChoice is Map ? firstChoice['message'] : null;
-      final text = message is Map ? _completionText(message['content']) : null;
+      final text = message is Map
+          ? _extractContentParts(message['content']).content
+          : null;
       final usage = payload['usage'];
       return (
         text: text,
@@ -783,7 +788,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
 
       final usage = payload['usage'];
       final normalized = _normalizeChatPayload(payload)..remove('usage');
-      final event = openai.ChatStreamEvent.fromJson(normalized);
+      final event = _decodeChatStreamEvent(normalized);
       final delta = event.firstChoice?.delta;
       if (delta != null) {
         final reasoning =
@@ -878,10 +883,18 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         emitter.done();
         return;
       }
+      final replayContent = result.thinkingChunks.isEmpty
+          ? result.content
+          : <Map<String, dynamic>>[
+              ...result.thinkingChunks,
+              if (result.content.isNotEmpty)
+                <String, dynamic>{'type': 'text', 'text': result.content},
+            ];
       conversation.add(<String, dynamic>{
         'role': 'assistant',
-        'content': result.content,
-        if (result.reasoning != null) 'reasoning_content': result.reasoning,
+        'content': replayContent,
+        if (result.thinkingChunks.isEmpty && result.reasoning != null)
+          'reasoning_content': result.reasoning,
         'tool_calls': [for (final call in result.calls) call.toJson()],
       });
       for (final call in result.calls) {
@@ -965,6 +978,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final calls = <int, _ChatToolCallBuilder>{};
     final content = StringBuffer();
     final reasoningContent = StringBuffer();
+    final thinkingChunks = <Map<String, dynamic>>[];
     Map<String, dynamic>? usage;
     var hasCompletion = false;
     var sawDone = false;
@@ -1006,17 +1020,31 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             : null;
         final delta = choice is Map ? _stringMap(choice['delta']) : null;
         if (delta != null) {
-          final reasoning = _rawChatReasoning(delta);
-          if (reasoning != null) {
-            emitter.reasoning(reasoning);
-            reasoningContent.write(reasoning);
-            hasCompletion = hasCompletion || reasoning.trim().isNotEmpty;
+          final extracted = _extractContentParts(delta['content']);
+          final topLevelReasoning = _rawChatReasoning(delta);
+          if (topLevelReasoning != null) {
+            emitter.reasoning(topLevelReasoning);
+            reasoningContent.write(topLevelReasoning);
+            hasCompletion =
+                hasCompletion || topLevelReasoning.trim().isNotEmpty;
+          } else {
+            if (extracted.thinkingChunks.isNotEmpty) {
+              _appendStreamedThinkingChunks(
+                thinkingChunks,
+                extracted.thinkingChunks,
+              );
+            }
+            if (extracted.reasoning != null) {
+              emitter.reasoning(extracted.reasoning!);
+              hasCompletion =
+                  hasCompletion || extracted.reasoning!.trim().isNotEmpty;
+            }
           }
-          final text = _completionText(delta['content']);
-          if (text != null) {
-            emitter.content(text);
-            content.write(text);
-            hasCompletion = hasCompletion || text.trim().isNotEmpty;
+          if (extracted.content != null) {
+            emitter.content(extracted.content!);
+            content.write(extracted.content!);
+            hasCompletion =
+                hasCompletion || extracted.content!.trim().isNotEmpty;
           }
           final refusal = _nonEmpty(delta['refusal']?.toString());
           if (refusal != null) {
@@ -1046,6 +1074,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
     final result = _ChatToolRound(
       content: content.toString(),
       reasoning: _nonEmpty(reasoningContent.toString()),
+      thinkingChunks: thinkingChunks,
       usage: usage,
       calls: _finishChatToolCalls(calls),
       hasCompletion: hasCompletion,
@@ -2010,12 +2039,28 @@ Map<String, dynamic> _normalizeChatChoice(Map<String, dynamic> choice) {
   final rawMessage = choice['message'] ?? choice['delta'];
   if (rawMessage is! Map) return normalized;
   final message = Map<String, dynamic>.from(rawMessage);
-  final reasoning = _completionText(
-    message['reasoning_content'] ?? message['reasoning'] ?? message['thinking'],
-  );
-  if (reasoning != null) message['reasoning_content'] = reasoning;
-  final content = _completionText(message['content']);
-  if (content != null) message['content'] = content;
+  final extracted = _extractContentParts(message['content']);
+  final topLevelReasoning =
+      _completionText(message['reasoning_content']) ??
+      _completionText(message['reasoning']) ??
+      _completionText(message['thinking']);
+  final reasoning = topLevelReasoning ?? extracted.reasoning;
+  if (reasoning != null) {
+    message['reasoning_content'] = reasoning;
+  } else if (message['reasoning_content'] is! String) {
+    message.remove('reasoning_content');
+  }
+  if (message['reasoning'] is! String) {
+    message.remove('reasoning');
+  }
+  if (message['thinking'] is! String) {
+    message.remove('thinking');
+  }
+  if (extracted.content != null) {
+    message['content'] = extracted.content;
+  } else if (message['content'] is! String) {
+    message.remove('content');
+  }
   if (choice['delta'] is Map) {
     normalized['delta'] = message;
   } else {
@@ -2049,7 +2094,7 @@ void _emitChatPayload(Map<String, dynamic> payload, _DirectEmitter emitter) {
   }
   final usage = payload['usage'];
   final normalized = _normalizeChatPayload(payload)..remove('usage');
-  final completion = openai.ChatCompletion.fromJson(normalized);
+  final completion = _decodeChatCompletion(normalized);
   final message = completion.firstChoice?.message;
   final reasoning = message == null
       ? null
@@ -2171,12 +2216,20 @@ _ChatToolRound _chatToolRoundFromPayload(
     );
   }
   var hasCompletion = false;
-  final reasoning = _rawChatReasoning(message);
-  if (reasoning != null) {
-    emitter.reasoning(reasoning);
-    hasCompletion = reasoning.trim().isNotEmpty;
+  final extracted = _extractContentParts(message['content']);
+  final topLevelReasoning = _rawChatReasoning(message);
+  var thinkingChunks = const <Map<String, dynamic>>[];
+  if (topLevelReasoning != null) {
+    emitter.reasoning(topLevelReasoning);
+    hasCompletion = topLevelReasoning.trim().isNotEmpty;
+  } else {
+    thinkingChunks = extracted.thinkingChunks;
+    if (extracted.reasoning != null) {
+      emitter.reasoning(extracted.reasoning!);
+      hasCompletion = extracted.reasoning!.trim().isNotEmpty;
+    }
   }
-  final content = _completionText(message['content']) ?? '';
+  final content = extracted.content ?? '';
   if (content.isNotEmpty) {
     emitter.content(content);
     hasCompletion = hasCompletion || content.trim().isNotEmpty;
@@ -2191,7 +2244,8 @@ _ChatToolRound _chatToolRoundFromPayload(
   final usage = payload['usage'];
   return _ChatToolRound(
     content: '$content${refusal ?? ''}',
-    reasoning: reasoning,
+    reasoning: topLevelReasoning,
+    thinkingChunks: thinkingChunks,
     usage: usage is Map ? usage.cast<String, dynamic>() : null,
     calls: _finishChatToolCalls(calls),
     hasCompletion: hasCompletion,
@@ -2333,6 +2387,7 @@ final class _ChatToolRound {
   const _ChatToolRound({
     required this.content,
     required this.reasoning,
+    required this.thinkingChunks,
     required this.usage,
     required this.calls,
     required this.hasCompletion,
@@ -2341,6 +2396,7 @@ final class _ChatToolRound {
 
   final String content;
   final String? reasoning;
+  final List<Map<String, dynamic>> thinkingChunks;
   final Map<String, dynamic>? usage;
   final List<_ChatToolCall> calls;
   final bool hasCompletion;
@@ -2349,6 +2405,7 @@ final class _ChatToolRound {
   _ChatToolRound withTransportCancel() => _ChatToolRound(
     content: content,
     reasoning: reasoning,
+    thinkingChunks: thinkingChunks,
     usage: usage,
     calls: calls,
     hasCompletion: hasCompletion,
@@ -2788,6 +2845,123 @@ void _emitAuthoritativeSuffix({
   final suffix = authoritative.substring(emitted.length);
   if (suffix.isNotEmpty) emit(suffix);
 }
+
+openai.ChatStreamEvent _decodeChatStreamEvent(Map<String, dynamic> json) {
+  try {
+    return openai.ChatStreamEvent.fromJson(json);
+  } catch (error) {
+    throw FormatException(
+      'Invalid OpenAI-compatible chat stream event.',
+      error,
+    );
+  }
+}
+
+openai.ChatCompletion _decodeChatCompletion(Map<String, dynamic> json) {
+  try {
+    return openai.ChatCompletion.fromJson(json);
+  } catch (error) {
+    throw FormatException('Invalid OpenAI-compatible chat completion.', error);
+  }
+}
+
+typedef _ExtractedContentParts = ({
+  String? content,
+  String? reasoning,
+  List<Map<String, dynamic>> thinkingChunks,
+});
+
+_ExtractedContentParts _extractContentParts(Object? value) {
+  if (value is String) {
+    return (
+      content: _nonEmpty(value),
+      reasoning: null,
+      thinkingChunks: const <Map<String, dynamic>>[],
+    );
+  }
+  if (value is! Iterable) {
+    return (
+      content: null,
+      reasoning: null,
+      thinkingChunks: const <Map<String, dynamic>>[],
+    );
+  }
+  final contentBuffer = StringBuffer();
+  final reasoningBuffer = StringBuffer();
+  final thinkingChunks = <Map<String, dynamic>>[];
+  for (final part in value) {
+    if (part is! Map) continue;
+    final type = part['type']?.toString();
+    if (type == 'thinking' || part['thinking'] != null) {
+      thinkingChunks.add(normalizeJsonLikeMap(part));
+      final thinkingText =
+          _completionText(part['thinking']) ??
+          (type == 'thinking' ? _completionText(part['text']) : null);
+      if (thinkingText != null) reasoningBuffer.write(thinkingText);
+      continue;
+    }
+    final text = part['text'];
+    if (text is String) contentBuffer.write(text);
+  }
+  return (
+    content: _nonEmpty(contentBuffer.toString()),
+    reasoning: _nonEmpty(reasoningBuffer.toString()),
+    thinkingChunks: thinkingChunks,
+  );
+}
+
+void _appendStreamedThinkingChunks(
+  List<Map<String, dynamic>> accumulated,
+  List<Map<String, dynamic>> incomingChunks,
+) {
+  for (final incoming in incomingChunks) {
+    if (accumulated.isNotEmpty &&
+        _canMergeStreamedThinkingChunk(accumulated.last, incoming)) {
+      final previous = accumulated.last;
+      final previousItems = List<dynamic>.from(previous['thinking'] as List);
+      for (final item in incoming['thinking'] as List) {
+        if (_isPlainTextChunk(item) &&
+            previousItems.isNotEmpty &&
+            _isPlainTextChunk(previousItems.last)) {
+          final last = Map<String, dynamic>.from(previousItems.last as Map);
+          last['text'] =
+              '${last['text'] as String}${(item as Map)['text'] as String}';
+          previousItems[previousItems.length - 1] = last;
+        } else {
+          previousItems.add(item);
+        }
+      }
+      previous['thinking'] = previousItems;
+      if (incoming.containsKey('closed') && incoming['closed'] != null) {
+        previous['closed'] = incoming['closed'];
+      }
+    } else {
+      accumulated.add(incoming);
+    }
+  }
+}
+
+bool _canMergeStreamedThinkingChunk(
+  Map<String, dynamic> previous,
+  Map<String, dynamic> incoming,
+) {
+  if (previous['closed'] == true) return false;
+  if (previous['type'] != incoming['type']) return false;
+  if (previous['thinking'] is! List || incoming['thinking'] is! List) {
+    return false;
+  }
+  for (final key in {...previous.keys, ...incoming.keys}) {
+    if (key == 'type' || key == 'thinking' || key == 'closed') continue;
+    if (previous[key] != incoming[key]) return false;
+  }
+  return true;
+}
+
+bool _isPlainTextChunk(Object? value) =>
+    value is Map &&
+    value.length == 2 &&
+    value['type'] == 'text' &&
+    value['text'] is String;
 
 String? _completionText(Object? value) {
   if (value is String) return _nonEmpty(value);

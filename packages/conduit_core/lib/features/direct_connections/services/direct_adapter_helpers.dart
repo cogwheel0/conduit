@@ -919,12 +919,56 @@ String directErrorMessage(
         maxCharacters: maxCharacters,
       );
     }
+    if (current is List) {
+      final formatted = _formatDirectErrorList(current);
+      if (formatted != null) {
+        return sanitizeDirectProviderErrorMessage(
+          formatted,
+          sensitiveValues: sensitiveValues,
+          maxCharacters: maxCharacters,
+        );
+      }
+      break;
+    }
     if (current is! Map || !visited.add(current)) break;
     final nested = current['message'] ?? current['detail'] ?? current['error'];
     if (nested == null || identical(nested, current)) break;
     current = nested;
   }
   return _kDirectUnreportedError;
+}
+
+String? _formatDirectErrorList(List<dynamic> items) {
+  final parts = <String>[];
+  for (final item in items) {
+    if (parts.length >= 4) break;
+    if (item is String) {
+      final trimmed = item.trim();
+      if (trimmed.isNotEmpty) parts.add(trimmed);
+      continue;
+    }
+    if (item is! Map) continue;
+    final rawMessage = item['msg'] ?? item['message'] ?? item['detail'];
+    if (rawMessage is! String) continue;
+    final message = rawMessage.trim();
+    if (message.isEmpty) continue;
+    String? field;
+    final loc = item['loc'];
+    if (loc is List) {
+      for (var i = loc.length - 1; i >= 0; i--) {
+        final segment = loc[i];
+        if (segment is String) {
+          final trimmed = segment.trim();
+          if (trimmed.isNotEmpty && trimmed != 'body') {
+            field = trimmed;
+            break;
+          }
+        }
+      }
+    }
+    parts.add(field == null ? message : '$field: $message');
+  }
+  return parts.isEmpty ? null : parts.join('; ');
 }
 
 String sanitizeDirectProviderErrorMessage(
