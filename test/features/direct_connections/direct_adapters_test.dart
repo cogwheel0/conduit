@@ -7829,6 +7829,139 @@ void main() {
     ]);
   });
 
+  test('OpenAI Chat tool loop preserves interleaved text and ThinkChunk order on replay', () async {
+    final http = _QueuedAdapter([
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'First, '},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'check Paris.'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'looking it up.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'content': [
+                    {
+                      'type': 'thinking',
+                      'thinking': [
+                        {'type': 'text', 'text': 'Second thought.'},
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {
+                  'tool_calls': [
+                    {
+                      'index': 0,
+                      'id': 'call_1',
+                      'function': {'name': 'mcp_deadbeef_weather', 'arguments': '{"city":"Paris"}'},
+                    },
+                  ],
+                },
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+      _Reply.stream([
+        utf8.encode(
+          'data: ${jsonEncode({
+            'choices': [
+              {
+                'delta': {'content': 'Sunny.'},
+              },
+            ],
+          })}\n\n',
+        ),
+        utf8.encode('data: [DONE]\n\n'),
+      ], contentType: 'text/event-stream'),
+    ]);
+    final adapter = OpenAiCompatibleAdapter(
+      dioFactory: (_) => _dio(http),
+      closeClients: false,
+    );
+
+    final events = await adapter
+        .startCompletion(
+          _openAiProfile(),
+          DirectCompletionRequest(
+            remoteModelId: 'mistral-large-4',
+            messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+            tools: _localToolRuntime(
+              decision: DirectToolApprovalDecision.allowSession,
+              requiresUserDecision: false,
+            ),
+          ),
+        )
+        .events
+        .toList();
+
+    expect(events.whereType<DirectStreamDone>(), hasLength(1));
+    final secondRequest = http.requests.last.data as Map<String, dynamic>;
+    final messages = (secondRequest['messages'] as List)
+        .cast<Map<String, dynamic>>();
+    final assistant = messages.firstWhere((m) => m['role'] == 'assistant');
+    expect(assistant.containsKey('reasoning_content'), isFalse);
+    expect(assistant['content'], [
+      {'type': 'text', 'text': 'First, '},
+      {
+        'type': 'thinking',
+        'thinking': [
+          {'type': 'text', 'text': 'check Paris.'},
+        ],
+      },
+      {'type': 'text', 'text': 'looking it up.'},
+      {
+        'type': 'thinking',
+        'thinking': [
+          {'type': 'text', 'text': 'Second thought.'},
+        ],
+      },
+    ]);
+  });
+
   test('OpenAI Chat JSON tool round replays raw ThinkChunk blocks without text or reasoning_content', () async {
     final rawThinkChunk = {
       'type': 'thinking',
