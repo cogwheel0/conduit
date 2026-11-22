@@ -25,7 +25,10 @@ import 'dart:async';
 import 'package:conduit_core/features/chat/services/url_context.dart';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/ports/app_lifecycle.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/host_ports.dart'
+    show appLifecycleProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
@@ -651,6 +654,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<bool>? _conversationLoadingSub;
   ProviderSubscription<bool>? _reviewerModeSub;
   ProviderSubscription<String?>? _conversationIdSub;
+  // Each page has its own view, so a page leaving never takes back the chat
+  // of the page that replaced it.
+  static int _shownChatViews = 0;
+  final String _shownChatView = 'chatPage/${_shownChatViews++}';
+  late final ShownChats _shownChats;
+  StreamSubscription<AppLifecyclePhase>? _appLifecycleSub;
+  bool _appResumed = true;
+  bool _pageVisible = false;
   ProviderSubscription<Object>? _authEpochSub;
   ProviderSubscription<ApiService?>? _apiOwnerSub;
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
@@ -941,6 +952,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void initState() {
     super.initState();
     _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
+    _shownChats = ref.read(shownChatsProvider.notifier);
+    final appLifecycle = ref.read(appLifecycleProvider);
+    _appResumed = _isResumed(appLifecycle.current);
+    _appLifecycleSub = appLifecycle.changes.listen((phase) {
+      _appResumed = _isResumed(phase);
+      _reportShownChat();
+    });
 
     _screenContextSub = ref.listenManual(screenContextProvider, (_, next) {
       if (next == null || next.isEmpty) {
@@ -970,10 +988,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       (conversation) =>
           conversation == null ? null : conversationScopedId(conversation),
     );
-    _conversationIdSub = ref.listenManual(
-      conversationIdListenable,
-      (_, next) => _handleConversationChanged(next),
-    );
+    _conversationIdSub = ref.listenManual(conversationIdListenable, (_, next) {
+      _handleConversationChanged(next);
+      _reportShownChat();
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _handleConversationChanged(ref.read(conversationIdListenable));
@@ -1047,11 +1065,42 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _handleBottomInsetChange(MediaQuery.viewInsetsOf(context).bottom);
+    // A page pushed over this one, or another sidebar section, mutes its
+    // tickers. A dialog or sheet over it doesn't: the chat still shows.
+    final visible = TickerMode.valuesOf(context).enabled;
+    if (visible != _pageVisible) {
+      _pageVisible = visible;
+      // Providers can't change while the tree builds.
+      scheduleMicrotask(_reportShownChat);
+    }
+  }
+
+  /// Inactive counts as away: a call, the app switcher or Control Center is
+  /// over the chat. No phase yet is the foreground, as the core takes it.
+  static bool _isResumed(AppLifecyclePhase? phase) =>
+      (phase ?? AppLifecyclePhase.resumed) == AppLifecyclePhase.resumed;
+
+  /// Tells the core which chat this page shows, so it keeps that chat read
+  /// while it does: the open chat while the page is on screen and the app in
+  /// the foreground, none otherwise.
+  void _reportShownChat() {
+    if (!mounted) return;
+    final active = ref.read(activeConversationProvider);
+    _shownChats.show(
+      _shownChatView,
+      _pageVisible && _appResumed && active != null
+          ? conversationScopedId(active)
+          : null,
+    );
   }
 
   @override
   void dispose() {
     markConversationRead(ref, _lastConversationId);
+    _appLifecycleSub?.cancel();
+    // Providers can't change while the tree is torn down, and `ref` is gone
+    // here, so the notifier read in initState says it once the tree settles.
+    scheduleMicrotask(() => _shownChats.show(_shownChatView, null));
     _livePromptNotifier.cancel();
     _screenContextSub?.close();
     _conversationLoadingSub?.close();

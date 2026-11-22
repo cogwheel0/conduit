@@ -11,6 +11,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -29,7 +30,8 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/testing.dart';
-import 'package:drift/drift.dart' show Value, driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show DatabaseConnection, Value, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -190,6 +192,13 @@ Map<String, dynamic> _message(
   'timestamp': 1,
 };
 
+/// An in-memory database whose watches close at once. The core watches the
+/// stored chat on screen, and drift otherwise closes that watch on a timer the
+/// fake clock never runs. Closing the database waits for that timer.
+AppDatabase _memoryDatabase() => AppDatabase(
+  DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true),
+);
+
 void main() {
   late bool previousWarning;
   setUpAll(() {
@@ -206,7 +215,7 @@ void main() {
   Object epoch = Object();
 
   setUp(() async {
-    db = AppDatabase(NativeDatabase.memory());
+    db = _memoryDatabase();
     files = _Files();
     epoch = Object();
     // A chat with two answers to its first message and an edit the server has
@@ -257,6 +266,11 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         ...openWebUiStorageOpenOverrides(database: db),
+        directLocalDatabaseProvider.overrideWith((ref) {
+          final onDevice = _memoryDatabase();
+          ref.onDispose(() => unawaited(onDevice.close()));
+          return onDevice;
+        }),
         appSettingsProvider.overrideWith(() => _Settings(advanced)),
         apiServiceProvider.overrideWithValue(_api()),
         isAuthenticatedProvider2.overrideWithValue(false),
