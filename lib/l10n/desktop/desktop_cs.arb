@@ -1124,6 +1124,7 @@
   "desktopKeychainPromptBody": "Klíč k datům Conduitu na tomto Macu uložila starší verze. Aby ho bylo možné použít, macOS požádá o heslo k přihlašovací klíčence; klikněte na „Vždy povolit“, aby se zeptal jen jednou. Nebo klikněte na „Začít znovu“: znovu se přihlásíte. Chaty na vašich serverech tam zůstanou; chaty uložené jen na tomto Macu se přesunou stranou se starými daty, nesmažou se.",
   "desktopKeychainPromptStartFresh": "Začít znovu",
   "desktopKeychainPromptFailed": "macOS Conduitu klíč nepředal. Zkuste to znovu, nebo klikněte na „Začít znovu“.",
+  "desktopKeychainPromptFreshFailed": "Conduit nedokázal vytvořit nový klíč. Zkuste to znovu, nebo klikněte na „Zobrazit protokoly“ a zobrazte podrobnosti.",
   "desktopExportDiagnosticsHint": "Uloží protokoly a anonymizovanou konfiguraci do souboru zip a zobrazí ho ve Finderu. Nic se nenahrává.",
   "desktopExporting": "Exportování…",
   "desktopDiagnosticsSaved": "Uloženo: {name}",

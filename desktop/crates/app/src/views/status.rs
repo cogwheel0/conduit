@@ -41,6 +41,15 @@ pub fn send_waits(status: &Status, l10n: &L10n) -> String {
     }
 }
 
+/// The keychain card's line for the choice that failed.
+pub fn keychain_failure_line(failure: KeychainFailure, l10n: &L10n) -> String {
+    match failure {
+        KeychainFailure::NoKey => l10n.desktop_keychain_prompt_failed(),
+        KeychainFailure::Move => l10n.desktop_reset_failed(),
+        KeychainFailure::NewKey => l10n.desktop_keychain_prompt_fresh_failed(),
+    }
+}
+
 fn handler(f: impl Fn(&mut App) + 'static) -> ClickHandler {
     Rc::new(move |_, _, cx| f(cx))
 }
@@ -193,12 +202,7 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             failures,
             failure: Some(failure),
         } => Some((
-            SharedString::from(match failure {
-                KeychainFailure::Move => l10n.desktop_reset_failed(),
-                KeychainFailure::NoKey | KeychainFailure::NewKey => {
-                    l10n.desktop_keychain_prompt_failed()
-                }
-            }),
+            SharedString::from(keychain_failure_line(*failure, &l10n)),
             *failures,
         )),
         _ => None,
@@ -390,6 +394,25 @@ pub fn diagnostics_state(diagnostics: &Diagnostics, cx: &App) -> Option<SharedSt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each failed choice gets its own line: a key Continue didn't get, a
+    /// profile that wouldn't move, and a key Start Fresh couldn't make.
+    #[test]
+    fn the_keychain_card_says_which_choice_failed() {
+        let l10n = L10n::new("en");
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::NoKey, &l10n),
+            "macOS didn't give Conduit the key. Try again, or click \u{201c}Start Fresh\u{201d}."
+        );
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::Move, &l10n),
+            "Couldn't move the old data aside. Try again, or click \u{201c}Show Logs\u{201d} for details."
+        );
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::NewKey, &l10n),
+            "Conduit couldn't make a new key. Try again, or click \u{201c}Show Logs\u{201d} for details."
+        );
+    }
 
     #[test]
     fn the_composer_says_what_the_banner_says() {

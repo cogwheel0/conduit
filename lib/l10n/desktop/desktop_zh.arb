@@ -1124,6 +1124,7 @@
   "desktopKeychainPromptBody": "这台 Mac 上 Conduit 数据的密钥是由早期版本保存的。要使用它，macOS 会要求输入您的登录钥匙串密码；点按“始终允许”，这样只会询问一次。或者点按“重新开始”：您需要重新登录。服务器上的聊天会保留在那里；只保存在这台 Mac 上的聊天会随旧数据一起移到一旁，而不是删除。",
   "desktopKeychainPromptStartFresh": "重新开始",
   "desktopKeychainPromptFailed": "macOS 没有将密钥提供给 Conduit。请重试，或点按“重新开始”。",
+  "desktopKeychainPromptFreshFailed": "Conduit 无法创建新密钥。请重试，或点按“显示日志”查看详细信息。",
   "desktopExportDiagnosticsHint": "将日志和已脱敏的配置保存为 zip 文件，并在“访达”中显示。不会上传任何内容。",
   "desktopExporting": "正在导出…",
   "desktopDiagnosticsSaved": "已保存 {name}",

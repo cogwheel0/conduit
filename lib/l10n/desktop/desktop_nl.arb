@@ -1124,6 +1124,7 @@
   "desktopKeychainPromptBody": "De sleutel tot de gegevens van Conduit op deze Mac is door een eerdere versie bewaard. Om hem te gebruiken, vraagt macOS om het wachtwoord van je inlogsleutelhanger; klik op ‘Sta altijd toe’ zodat het maar één keer vraagt. Of klik op ‘Opnieuw beginnen’: je logt opnieuw in. Chats op je servers blijven daar; chats die alleen op deze Mac staan, worden met de oude gegevens apart gezet, niet verwijderd.",
   "desktopKeychainPromptStartFresh": "Opnieuw beginnen",
   "desktopKeychainPromptFailed": "macOS heeft Conduit de sleutel niet gegeven. Probeer het opnieuw, of klik op ‘Opnieuw beginnen’.",
+  "desktopKeychainPromptFreshFailed": "Conduit kon geen nieuwe sleutel maken. Probeer het opnieuw, of klik op ‘Logboeken tonen’ voor details.",
   "desktopExportDiagnosticsHint": "Bewaart de logboeken en een geanonimiseerde configuratie in een zip-bestand en toont het in de Finder. Er wordt niets geüpload.",
   "desktopExporting": "Exporteren…",
   "desktopDiagnosticsSaved": "{name} bewaard",

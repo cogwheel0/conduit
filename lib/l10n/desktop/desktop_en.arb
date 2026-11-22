@@ -3337,6 +3337,10 @@
   "@desktopKeychainPromptFailed": {
     "description": "Shown on the keychain card after Continue did not get the key (for example, the user clicked Deny in macOS's dialog)."
   },
+  "desktopKeychainPromptFreshFailed": "Conduit couldn't make a new key. Try again, or click “Show Logs” for details.",
+  "@desktopKeychainPromptFreshFailed": {
+    "description": "Shown on the keychain card when Start Fresh moved the old data aside but couldn't store or record a new key."
+  },
   "desktopExportDiagnosticsHint": "Saves the logs and a redacted configuration to a zip file and shows it in Finder. Nothing is uploaded.",
   "@desktopExportDiagnosticsHint": {
     "description": "Explains Export diagnostics in Settings › About."

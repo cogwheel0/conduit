@@ -1124,6 +1124,7 @@
   "desktopKeychainPromptBody": "Klucz do danych Conduit na tym Macu został zapisany przez wcześniejszą wersję. Aby go użyć, macOS poprosi o hasło pęku kluczy logowania; kliknij „Zawsze pozwalaj”, żeby zapytał tylko raz. Możesz też kliknąć „Zacznij od nowa”: zalogujesz się ponownie. Czaty na Twoich serwerach tam zostaną; czaty przechowywane tylko na tym Macu zostaną odłożone na bok razem ze starymi danymi, a nie usunięte.",
   "desktopKeychainPromptStartFresh": "Zacznij od nowa",
   "desktopKeychainPromptFailed": "macOS nie przekazał klucza aplikacji Conduit. Spróbuj ponownie lub kliknij „Zacznij od nowa”.",
+  "desktopKeychainPromptFreshFailed": "Conduit nie mógł utworzyć nowego klucza. Spróbuj ponownie lub kliknij „Pokaż dzienniki”, aby zobaczyć szczegóły.",
   "desktopExportDiagnosticsHint": "Zapisuje dzienniki i zanonimizowaną konfigurację w pliku zip i pokazuje go w Finderze. Nic nie jest wysyłane.",
   "desktopExporting": "Eksportowanie…",
   "desktopDiagnosticsSaved": "Zapisano {name}",
