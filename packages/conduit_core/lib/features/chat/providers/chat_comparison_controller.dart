@@ -1205,7 +1205,7 @@ Future<Set<String>> _markComparisonAcceptedOrAbort(
     await _abortQuietly(session);
     await _stopRequestTasksQuietly(
       api,
-      chatId: session.conversationId,
+      administrator: _maySingleTasksBeStopped(ref),
       taskIds: session.taskIds,
       session: owner.authSnapshot,
     );

@@ -139,12 +139,18 @@ Future<bool> _askStopAgain(
   String? userId,
 ) {
   final session = api.captureAuthSnapshot();
-  return _stopOwnOpenWebUiTasks(
-    api,
-    chatId,
-    own,
-    session: session,
-    whenNoneRun: (stopChat) async {
+  // The chat's stop ends every task the account runs there, one a request
+  // sent after the task list was read would start among them.
+  return api.holdingChatCompletions(chatId, () async {
+    Future<bool> stopChat() async {
+      if (!api.authSnapshotIsCurrent(session)) return false;
+      await api.stopChatTasksRaw(chatId, authSnapshot: session);
+      return true;
+    }
+
+    final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
+    if (!api.authSnapshotIsCurrent(session)) return false;
+    if (running.isEmpty) {
       // Open WebUI stores no temporary chat, and answers a read of one 401 as
       // it does a refused session; its stop there finishes no stored answer.
       if (!isTemporaryChat(chatId)) {
@@ -152,68 +158,52 @@ Future<bool> _askStopAgain(
         if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
       }
       return stopChat();
-    },
-  );
+    }
+    if (!own.known) return false;
+    if (running.every(own.ids.contains)) return stopChat();
+    return !running.any(own.ids.contains);
+  });
 }
 
-/// Ends [own], tasks of [session]'s account in [chatId], through the chat's
-/// stop: only an administrator may stop a single task. That stop ends every
-/// task the account runs in the chat, so it is asked only while nothing but
-/// [own] runs there. Whether none of [own] runs any more: false while a task
-/// that cannot be told to be one of them runs beside them, or [own] cannot be
-/// told apart ([own].known).
-///
-/// With nothing running, none of [own] does, unless [whenNoneRun] (given the
-/// chat's stop) says otherwise. Every request goes as [session]; once another
-/// has replaced it, none is sent and the answer is false. A completion
-/// request this device sends to the chat meanwhile waits until it ends
-/// ([ApiService.holdingChatCompletions]).
-Future<bool> _stopOwnOpenWebUiTasks(
-  ApiService api,
-  String chatId,
-  ({Set<String> ids, bool known}) own, {
-  required ApiAuthSnapshot session,
-  Future<bool> Function(Future<bool> Function() stopChat)? whenNoneRun,
-}) => api.holdingChatCompletions(chatId, () async {
-  Future<bool> stopChat() async {
-    if (!api.authSnapshotIsCurrent(session)) return false;
-    await api.stopChatTasksRaw(chatId, authSnapshot: session);
-    return true;
-  }
+/// Whether the signed-in account may stop a single Open WebUI task by its
+/// id: `POST /api/tasks/stop/{id}` is for administrators only.
+bool _maySingleTasksBeStopped(dynamic ref) =>
+    (ref.read(currentUserProvider2) as User?)?.role == 'admin';
 
-  final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
-  if (!api.authSnapshotIsCurrent(session)) return false;
-  if (running.isEmpty) return whenNoneRun?.call(stopChat) ?? true;
-  if (!own.known) return false;
-  if (running.every(own.ids.contains)) return stopChat();
-  return !running.any(own.ids.contains);
-});
-
-/// Stops the tasks one Open WebUI request started, [taskIds] in [chatId], as
-/// [session], when nothing else of the account runs in the chat
-/// ([_stopOwnOpenWebUiTasks]), and leaves them to run otherwise. For a
-/// request that ended badly here: it never fails, and reports nothing.
+/// Stops [taskIds], the tasks of one Open WebUI request that ended badly
+/// here, by their ids, as [session]. No one pressed Stop for them, so they
+/// are never stopped through the chat: that would end every task the account
+/// runs there and finish its other unfinished answers. Unless the account is
+/// an [administrator], they run on. It never fails, and reports nothing.
 Future<void> _stopRequestTasksQuietly(
   ApiService? api, {
-  required String? chatId,
+  required bool administrator,
   required Iterable<String> taskIds,
   required ApiAuthSnapshot? session,
 }) async {
   final ids = taskIds.where((id) => id.isNotEmpty).toSet();
-  if (api == null || chatId == null || chatId.isEmpty || ids.isEmpty) return;
-  try {
-    final ended = await _stopOwnOpenWebUiTasks(api, chatId, (
-      ids: ids,
-      known: true,
-    ), session: session ?? api.captureAuthSnapshot());
-    if (!ended) {
+  if (api == null || ids.isEmpty) return;
+  if (!administrator) {
+    DebugLogger.log(
+      'request-tasks-left-running',
+      scope: 'chat/stop',
+      data: {'tasks': ids.length},
+    );
+    return;
+  }
+  for (final id in ids) {
+    if (session != null && !api.authSnapshotIsCurrent(session)) return;
+    try {
+      await api.stopTask(id);
+    } catch (error) {
+      // A refusal is a task that could not be stopped, never one that was.
       DebugLogger.log(
-        'request-tasks-left-running',
+        'request-task-not-stopped',
         scope: 'chat/stop',
-        data: {'chatId': chatId, 'tasks': ids.length},
+        data: {'errorType': error.runtimeType.toString()},
       );
     }
-  } catch (_) {}
+  }
 }
 
 // Stop generation provider

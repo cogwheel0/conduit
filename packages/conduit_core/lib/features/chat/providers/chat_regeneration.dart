@@ -1101,8 +1101,8 @@ Future<void> regenerateMessage(
   void stopSubmittedTasks(ChatCompletionSession? session) => unawaited(
     _stopRequestTasksQuietly(
       api,
-      chatId: session?.conversationId,
-      taskIds: session?.taskIds ?? const [],
+      administrator: _maySingleTasksBeStopped(ref),
+      taskIds: [?session?.taskId],
       session: regenerationOwner.authSnapshot,
     ),
   );
@@ -1916,9 +1916,9 @@ void _settleFailedOpenWebUiRegeneration({
   );
   if (ownedAssistant == null) return;
 
-  // A newer generation can be active in this same conversation. Cancel only
-  // handles uniquely bound to this assistant/session, and the chat's stop
-  // only while nothing but this task runs there.
+  // Never use the chat-wide task fallback here: a newer generation can be
+  // active in this same conversation. Cancel only handles uniquely bound to
+  // this assistant/session and leave an unaddressable remote task alone.
   final metadata = ownedAssistant.metadata;
   if (metadata?['transport'] == 'httpStream' ||
       metadata?['hasActiveAbortHandle'] == true) {
@@ -1929,7 +1929,7 @@ void _settleFailedOpenWebUiRegeneration({
     unawaited(
       _stopRequestTasksQuietly(
         api,
-        chatId: metadata?['taskConversationId']?.toString(),
+        administrator: _maySingleTasksBeStopped(ref),
         taskIds: [metadataTaskId],
         session: authSnapshot,
       ),
