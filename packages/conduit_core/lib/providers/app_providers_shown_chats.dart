@@ -119,14 +119,15 @@ class ShownChats extends Notifier<Map<String, String>> {
       return;
     }
     if (!ref.mounted || !identical(_watches[chat], watch)) return;
+    if (db.chatsDao.isMarkingUnread(rawId)) {
+      // A refused mark puts the earlier read back without a new copy: read
+      // the copy then. Checked first, since the mark may already be stored.
+      watch.readCopy = null;
+      return;
+    }
     // As the chat is stored now: a mark of unread may have landed since
     // the copy was seen, and the read would raise it again.
     if (stored == null || stored.updatedAt != copy || !_unreadCopy(stored)) {
-      return;
-    }
-    if (db.chatsDao.isMarkingUnread(rawId)) {
-      // A refused mark puts the earlier read back: read the copy then.
-      watch.readCopy = null;
       return;
     }
     final conversations = ref.read(conversationsProvider.notifier);

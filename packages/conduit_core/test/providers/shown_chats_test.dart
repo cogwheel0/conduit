@@ -303,6 +303,38 @@ void main() {
     });
   }
 
+  test('a mark of unread the server refuses, written before the core looks '
+      'the chat up, leaves the chat on screen to be read', () async {
+    await seedRead(serverDb, 'chat-s');
+    final container = await signedIn();
+    final marking = Completer<int?>();
+    // Told of the change before the core's watch: drift calls a shared
+    // stream's listeners in order, so the mark is written before the core
+    // looks the chat up, and the lookup finds it marked unread.
+    final hook = serverDb.chatsDao.watchChatMeta('chat-s').listen((entry) {
+      if (entry?.updatedAt == 160 && !marking.isCompleted) {
+        marking.complete(serverDb.chatsDao.markUnread('chat-s'));
+      }
+    });
+    addTearDown(hook.cancel);
+    await storedAt(serverDb, 'chat-s', 100);
+    container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+
+    await serverSaved(serverDb, 'chat-s', 160);
+    final previous = await marking.future;
+    await settled(serverDb);
+    expect(await storedRead(serverDb, 'chat-s'), 0);
+    await serverDb.chatsDao.finishUnread(
+      'chat-s',
+      refused: true,
+      previous: previous,
+    );
+
+    // The earlier read is back, and the copy on screen is newer than it.
+    expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
+    expect(socket.reads, <String>['chat-s']);
+  });
+
   test('an archived chat on screen is read when its stored copy changes, '
       'once the list no longer holds it', () async {
     await seedRead(serverDb, 'chat-s', archived: true);
