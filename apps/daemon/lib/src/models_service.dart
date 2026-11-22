@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelSavedWithChat;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         agentTerminalGone,
@@ -459,6 +461,7 @@ final class ModelsService {
     // actually use is worse than showing none. The list only reports what
     // the terminal offers: it never decides the selection (the window keeps
     // each chat's own pick), so nothing is added to it for the selection.
+    final saved = await _savedModel(conversation);
     if (chatId == null) {
       await _checkNewChat(account, temporary: query.temporary);
     }
@@ -472,9 +475,10 @@ final class ModelsService {
     // wait: the account it was asked for, and the terminal its agents came
     // from, are still the ones in charge.
     account.require('the models are answered');
-    // The chat's own pick (kept here, the one record), else the account's
-    // default: an agent the account picked elsewhere is never this chat's,
-    // and a temporary chat runs no agent.
+    // The chat's own pick (kept here, the one record), else the model it
+    // was saved with, else the account's default: an agent the account
+    // picked elsewhere is never this chat's, and a temporary chat runs no
+    // agent.
     // Read with the answer's revision, after the last wait: the window
     // orders this answer against its others for the chat by it.
     final record = _picksOf(account)[_slotOf(
@@ -485,7 +489,7 @@ final class ModelsService {
     final agentPick = pick != null && isTerminalAgentModel(pick);
     final selected = pick != null && !(agentPick && query.temporary)
         ? pick
-        : fallback;
+        : saved ?? fallback;
     final selectedId = selected?.id;
     final found2 = _container.read(selectedTerminalIdProvider) == terminal
         ? found.agents
@@ -924,8 +928,8 @@ final class ModelsService {
   }
 
   /// The model a turn in [chatId] (null: a new chat) runs with when it
-  /// names none: that chat's own pick, else the coding agent it was saved
-  /// with, else a regular model (the account's selection when it is one,
+  /// names none: that chat's own pick, else the coding agent or the model it
+  /// was saved with, else a regular model (the account's selection when it is one,
   /// else its default, else the first). Never an agent picked for another
   /// chat: with no regular model left, the turn is refused.
   Future<String> modelFor(String? chatId, {bool temporary = false}) async {
@@ -936,8 +940,12 @@ final class ModelsService {
     )[_slotOf(chatId, temporary: temporary)]?.model;
     if (pick != null) return pick.id;
     if (chatId != null) {
-      final saved = (await _conversation(chatId, account))?.model;
+      final conversation = await _conversation(chatId, account);
+      final saved = conversation?.model;
       if (saved != null && isTerminalAgentModelId(saved)) return saved;
+      final model = await _savedModel(conversation);
+      account.require('the model in use is read');
+      if (model != null) return model.id;
     }
     final current = await currentModel(_container);
     account.require('the model in use is read');
@@ -953,6 +961,24 @@ final class ModelsService {
       );
     }
     return regular.id;
+  }
+
+  /// The model [conversation] was saved with, as a chat opened with no pick
+  /// runs on it ([modelSavedWithChat], as on mobile). Null for none, for a
+  /// coding agent (offered as Switch), and for one offered nowhere now.
+  Future<core.Model?> _savedModel(Conversation? conversation) async {
+    final id = conversation?.model?.trim();
+    if (id == null || id.isEmpty || isTerminalAgentModelId(id)) return null;
+    try {
+      return await modelSavedWithChat(_container.read, id);
+    } on Object catch (error) {
+      DebugLogger.warning(
+        'saved-model-unresolved',
+        scope: 'daemon/models',
+        data: <String, Object?>{'error': error.runtimeType.toString()},
+      );
+      return null;
+    }
   }
 
   /// The account's default model among [models]' regular ones, else the

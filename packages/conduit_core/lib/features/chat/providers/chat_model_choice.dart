@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directModelRegistryProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -22,6 +25,34 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+
+/// The model a stored chat that saved [modelId] runs on when it opens, so
+/// it keeps its own model even after an admin hid it from the picker. Open
+/// WebUI stores a direct model by its provider-facing id: the trusted direct
+/// model with that id wins over a server model of the same id. Null when no
+/// model of that id is offered, or once [isCurrent] says the answer is no
+/// longer wanted: the selection then stays as it is. Not for a coding agent,
+/// which its terminal offers.
+Future<Model?> modelSavedWithChat(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String modelId, {
+  bool Function()? isCurrent,
+}) async {
+  bool current() => isCurrent?.call() ?? true;
+  final registry = read(directModelRegistryProvider);
+  final api = read(apiServiceProvider);
+  final List<Model> visible = await read(modelsProvider.future);
+  if (!current()) return null;
+  final listed =
+      registry.resolveOpenWebUiWireModel(visible, modelId) ??
+      visible.where((model) => model.id == modelId).firstOrNull;
+  // A locally minted direct model lives only in the list and is never
+  // replaced by an untrusted server object with the same id.
+  if (listed != null || api == null) return listed;
+  final all = await api.getModels(includeHidden: true);
+  if (!current()) return null;
+  return all.where((model) => model.id == modelId).firstOrNull;
+}
 
 /// The model the user last picked in an open chat, with the ids of the
 /// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with

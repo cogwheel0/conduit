@@ -278,6 +278,15 @@ final class _AgentsApi extends ApiService {
 
   final asked = <String>[];
 
+  /// The server's models with the hidden ones: one more than it lists.
+  @override
+  Future<List<core.Model>> getModels({
+    bool includeHidden = false,
+    ApiAuthSnapshot? authSnapshot,
+  }) async => [
+    if (includeHidden) const core.Model(id: 'hidden-model', name: 'Hidden'),
+  ];
+
   /// North's answers wait for this while it is set; [northAsked] marks the
   /// question reaching it.
   Completer<void>? held;
@@ -372,7 +381,14 @@ Conversation _conversation(String id) => Conversation(
   title: 'Bench chat',
   createdAt: DateTime.utc(2026, 3, 1),
   updatedAt: DateTime.utc(2026, 3, 1),
-  model: id == 'agent-chat' ? _northAgent : 'first-model',
+  model: switch (id) {
+    'agent-chat' => _northAgent,
+    // Stored with the model its first turn ran on.
+    'preferred-chat' || 'preferred-new-chat' => 'preferred-model',
+    'hidden-chat' => 'hidden-model',
+    'retired-chat' => 'retired-model',
+    _ => 'first-model',
+  },
 );
 
 /// The session the agent tests' container reads; another sign-in replaces it.
@@ -969,11 +985,16 @@ void main() {
         service = models;
         return models.sending(null);
       }, (models, _) => models.select('preferred-model'));
-      service.sent(send, toChat: 'new-chat-1', model: 'preferred-model');
+      service.sent(
+        send,
+        toChat: 'preferred-new-chat',
+        model: 'preferred-model',
+      );
       // The chat runs with the model the turn did, not north's agent.
       check(
-        (await service.list(const ModelListQuery(chatId: 'new-chat-1')))
-            .selectedId,
+        (await service.list(
+          const ModelListQuery(chatId: 'preferred-new-chat'),
+        )).selectedId,
       ).equals('preferred-model');
       check((await service.list()).selectedId).equals('preferred-model');
     });
@@ -1391,6 +1412,24 @@ void main() {
         check(pinning.refusal).equals(ConduitErrorCodes.sessionExpired);
         check(_chatReads).not((it) => it.contains('plain-chat'));
       });
+    });
+
+    test('a chat with no pick shows and runs on the model it was saved with',
+        () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      for (final (chatId, model) in const [
+        ('preferred-chat', 'preferred-model'),
+        // Hidden from the picker since, but still the server's.
+        ('hidden-chat', 'hidden-model'),
+        // Offered nowhere now: the account's selection.
+        ('retired-chat', 'first-model'),
+      ]) {
+        check(
+          (await models.list(ModelListQuery(chatId: chatId))).selectedId,
+        ).equals(model);
+        check(await models.modelFor(chatId)).equals(model);
+      }
     });
 
     test("a turn naming no model in one chat never goes to another chat's "
