@@ -3005,7 +3005,7 @@ impl SidebarView {
         }
         let m = ev.modifiers();
         let how = if self.bulk_supported(cx) {
-            Pick::of(m.platform, m.shift)
+            Pick::of(crate::keymap::held(&m).primary, m.shift)
         } else {
             Pick::Only
         };

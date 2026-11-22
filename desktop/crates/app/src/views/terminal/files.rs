@@ -663,7 +663,7 @@ impl FilesView {
         let k = &e.keystroke;
         let m = k.modifiers;
         let selected = self.selected.clone();
-        match (k.key.as_str(), m.platform) {
+        match (k.key.as_str(), crate::keymap::held(&m).primary) {
             ("down", false) => self.move_selection(1, cx),
             ("up", false) => self.move_selection(-1, cx),
             ("down", true) | ("o", true) => {

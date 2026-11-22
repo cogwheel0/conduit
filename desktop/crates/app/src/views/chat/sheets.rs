@@ -126,7 +126,8 @@ pub fn frame(
             let mods = &k.modifiers;
             let esc =
                 k.key == "escape" && !(mods.platform || mods.alt || mods.control || mods.shift);
-            let cmd_period = k.key == "." && mods.platform && !(mods.alt || mods.control);
+            let h = crate::keymap::held(mods);
+            let cmd_period = k.key == "." && h.primary && !(h.alt || h.ctrl);
             if esc || cmd_period {
                 on_close(cx);
                 cx.stop_propagation();

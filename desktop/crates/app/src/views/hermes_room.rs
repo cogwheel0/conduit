@@ -405,7 +405,7 @@ impl HermesRoomPane {
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
+                if key == "enter" && crate::keymap::held(&m).only_primary() {
                     let handled = this.update(cx, |p, cx| {
                         let focused = p.input.read(cx).focus_handle(cx).is_focused(window);
                         if focused {

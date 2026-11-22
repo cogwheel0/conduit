@@ -724,7 +724,8 @@ impl<V: SheetBody> Render for SheetHost<V> {
                 let k = &e.keystroke;
                 let m = &k.modifiers;
                 let esc = k.key == "escape" && !(m.platform || m.alt || m.control || m.shift);
-                let cmd_period = k.key == "." && m.platform && !(m.alt || m.control);
+                let h = crate::keymap::held(m);
+                let cmd_period = k.key == "." && h.primary && !(h.alt || h.ctrl);
                 if esc || cmd_period {
                     body.update(cx, |b, cx| b.cancel(window, cx));
                     cx.stop_propagation();

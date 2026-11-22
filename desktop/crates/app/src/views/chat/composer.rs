@@ -460,7 +460,7 @@ impl ChatComposer {
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                if key == "enter" && m.platform && !m.shift && !m.alt && !m.control {
+                if key == "enter" && crate::keymap::held(&m).only_primary() {
                     let handled = this.update(cx, |c, cx| {
                         let focused = c.input.read(cx).focus_handle(cx).is_focused(window);
                         // An input method composing keeps its keys (as Enter).

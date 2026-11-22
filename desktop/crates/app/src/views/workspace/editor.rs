@@ -421,7 +421,7 @@ pub fn frame<V: 'static>(
         .on_key_down(move |e: &gpui_kit::KeyDownEvent, window, cx| {
             let k = &e.keystroke;
             let m = &k.modifiers;
-            if k.key == "s" && m.platform && !(m.alt || m.control || m.shift) {
+            if k.key == "s" && crate::keymap::held(m).only_primary() {
                 let f = save_key.clone();
                 let _ = key_view.update(cx, |v, cx| f(v, window, cx));
                 cx.stop_propagation();
