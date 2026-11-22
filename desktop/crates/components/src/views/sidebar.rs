@@ -1265,7 +1265,8 @@ impl RenderOnce for SidebarFrame {
                 .items_center()
                 .pl(px(c.rooms(true).start.max(chrome::layout::CHROME_EDGE)))
                 .pr(px(chrome::layout::CHROME_EDGE))
-                .child(new_chat)
+                // Not a press on the header bar (a drag, a double-click).
+                .child(div().occlude().child(new_chat))
                 .child(
                     div()
                         .flex_1()

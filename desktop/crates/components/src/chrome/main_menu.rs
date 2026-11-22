@@ -5,13 +5,14 @@
 //! takes the keyboard while open (Esc, arrows, Enter) before any binding
 //! does; and the chosen action goes to whatever had focus before it opened.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    Action, Anchor, AnyElement, App, Context, ElementId, Entity, FocusHandle, Hsla, MouseButton,
-    MouseDownEvent, Pixels, Point, Role, SharedString, Subscription, Window, anchored, deferred,
-    div, point, px,
+    Action, Anchor, AnyElement, App, Bounds, Context, ElementId, Entity, FocusHandle, Hsla,
+    MouseButton, MouseDownEvent, Pixels, Point, Role, ScrollHandle, SharedString, Subscription,
+    Window, anchored, canvas, deferred, div, point, px,
 };
 
 use super::ChromeStyle;
@@ -36,9 +37,13 @@ pub struct MainMenu {
     /// What had focus before it opened: it gets focus and the chosen action
     /// back.
     return_focus: Option<FocusHandle>,
-    /// A press outside closed it: the same press on ☰ must not open it again.
-    dismissed_at: Option<Point<Pixels>>,
+    /// Where ☰ was last drawn: a press there is ☰'s own, not one outside
+    /// the menu, and the menu fits itself to the window from there.
+    trigger: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Each open panel's scroll, for panels taller than the window.
+    scrolls: Vec<ScrollHandle>,
     _intercept: Subscription,
+    _focus_out: Subscription,
 }
 
 impl MainMenu {
@@ -66,6 +71,10 @@ impl MainMenu {
                 cx.stop_propagation();
             }
         });
+        let focus = cx.focus_handle();
+        // Focus taken elsewhere (a chord's command opened the palette)
+        // closes it, and leaves focus there.
+        let focus_out = cx.on_focus_out(&focus, window, |m, _, _, cx| m.let_go(cx));
         Self {
             style,
             label: label.into(),
@@ -73,10 +82,12 @@ impl MainMenu {
             items: vec![],
             open: false,
             cursor: Cursor::default(),
-            focus: cx.focus_handle(),
+            focus,
             return_focus: None,
-            dismissed_at: None,
+            trigger: Rc::default(),
+            scrolls: vec![],
             _intercept: intercept,
+            _focus_out: focus_out,
         }
     }
 
@@ -152,10 +163,20 @@ impl MainMenu {
         }
         self.open = false;
         self.cursor = Cursor::default();
-        if let Some(back) = self.return_focus.clone() {
-            window.focus(&back, cx);
+        match self.return_focus.clone() {
+            Some(back) => window.focus(&back, cx),
+            None => window.blur(cx),
         }
         cx.notify();
+    }
+
+    /// Focus left the menu for something else: it closes, leaving focus be.
+    fn let_go(&mut self, cx: &mut Context<Self>) {
+        if self.open {
+            self.open = false;
+            self.cursor = Cursor::default();
+            cx.notify();
+        }
     }
 
     /// One keystroke, closed or open; true when the menu used it.
@@ -177,11 +198,25 @@ impl MainMenu {
         };
         match self.cursor.key(&self.items, key) {
             Outcome::None => {}
-            Outcome::Moved => cx.notify(),
+            Outcome::Moved => {
+                // The keyboard keeps its row in view in a panel that scrolls.
+                if let Some(&row) = self.cursor.path.last() {
+                    let level = self.cursor.path.len() - 1;
+                    self.scroll(level).scroll_to_item(row);
+                }
+                cx.notify()
+            }
             Outcome::Activate { action, keep_open } => self.activate(action, keep_open, window, cx),
             Outcome::Close => self.close(window, cx),
         }
         true
+    }
+
+    fn scroll(&mut self, level: usize) -> ScrollHandle {
+        while self.scrolls.len() <= level {
+            self.scrolls.push(ScrollHandle::new());
+        }
+        self.scrolls[level].clone()
     }
 
     /// Runs `action` where focus was before the menu opened. The zoom row's
@@ -229,6 +264,14 @@ impl MainMenu {
         }
     }
 
+    fn hover_part(&mut self, level: usize, index: usize, part: usize, cx: &mut Context<Self>) {
+        let before = self.cursor.clone();
+        self.cursor.hover_part(&self.items, level, index, part);
+        if self.cursor != before {
+            cx.notify();
+        }
+    }
+
     fn click_row(
         &mut self,
         level: usize,
@@ -256,22 +299,44 @@ impl MainMenu {
         self.activate(action, true, window, cx);
     }
 
-    /// A press outside the open menu closes it.
+    /// A press outside the open menu closes it; one on ☰ is ☰'s to answer.
     fn dismiss(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.open {
-            self.dismissed_at = Some(at);
-            self.close(window, cx);
-        }
-    }
-
-    /// ☰ was pressed at `at`.
-    pub fn press(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.dismissed_at.take() == Some(at) {
+        if self.trigger.get().is_some_and(|b| b.contains(&at)) {
             return;
         }
-        self.toggle(false, window, cx);
+        self.close(window, cx);
+    }
+
+    /// The window around where the menu hangs from ☰, as `place` fits panels
+    /// into it.
+    fn room(&self, window: &Window, look: &Look) -> Room {
+        let viewport = window.viewport_size();
+        let (w, h) = (f32::from(viewport.width), f32::from(viewport.height));
+        let (x, y) = match self.trigger.get() {
+            Some(b) => {
+                let (left, top) = (f32::from(b.left()), f32::from(b.top()));
+                let size = f32::from(b.size.width);
+                match self.style {
+                    ChromeStyle::Windows => (left, top + size + DROP),
+                    ChromeStyle::Gnome => (left + size / 2. - look.width / 2., top + size + HANG),
+                }
+            }
+            None => (MARGIN, MARGIN),
+        };
+        Room {
+            left: MARGIN - x,
+            top: MARGIN - y,
+            right: w - MARGIN - x,
+            bottom: h - MARGIN - y,
+        }
     }
 }
+
+/// How far below ☰ Windows' menu drops, and GNOME's popover hangs.
+const DROP: f32 = 4.;
+const HANG: f32 = 6.;
+/// What the menu keeps clear of the window's edges.
+const MARGIN: f32 = 8.;
 
 /// How each style draws its menus: the platform's shape in the palette's
 /// colours.
@@ -329,49 +394,101 @@ impl Look {
     fn row_top(&self, rows: &[ChromeMenuItem], index: usize) -> f32 {
         self.padding + rows.iter().take(index).map(|r| self.height(r)).sum::<f32>()
     }
+
+    /// A panel holding `rows`, its padding and its hairline.
+    fn panel_height(&self, rows: &[ChromeMenuItem]) -> f32 {
+        self.row_top(rows, rows.len()) + self.padding + 2.
+    }
 }
 
 /// The open menu's panels: the menu, then each open submenu beside the row
-/// that opened it.
-fn panels(menu: &MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) -> AnyElement {
+/// that opened it, all inside the window. The menu's bounds hold every
+/// panel, so a press on one is inside; a press between them is outside.
+fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) -> AnyElement {
     let t = cx.conduit().clone();
     let look = Look::of(menu.style, &t);
     let levels = menu.cursor.open_levels(&menu.items);
-    let mut x = 0.;
-    let mut y = 0.;
-    let mut out = div().relative().w(px(look.width));
+    for level in 0..levels {
+        menu.scroll(level);
+    }
+    let mut sizes: Vec<PanelSize> = vec![];
     for level in 0..levels {
         let Some(rows) = menu.cursor.rows(&menu.items, level) else {
             break;
         };
-        let width = if level == 0 {
-            look.width
-        } else {
-            look.submenu_width
+        let below_parent = match level.checked_sub(1) {
+            None => 0.,
+            Some(parent) => {
+                let parent_rows = menu.cursor.rows(&menu.items, parent).unwrap_or_default();
+                let scrolled = f32::from(menu.scrolls[parent].offset().y);
+                look.row_top(parent_rows, menu.cursor.path[parent]) - look.padding + scrolled
+            }
         };
-        let label = if level == 0 {
-            menu.label.clone()
-        } else {
-            menu.cursor
-                .rows(&menu.items, level - 1)
-                .and_then(|parent| parent.get(menu.cursor.path[level - 1]))
+        sizes.push(PanelSize {
+            width: if level == 0 {
+                look.width
+            } else {
+                look.submenu_width
+            },
+            height: look.panel_height(rows),
+            below_parent,
+        });
+    }
+    let placed = place(&sizes, menu.room(window, &look));
+    let min_x = placed.iter().fold(0f32, |m, p| m.min(p.x));
+    let min_y = placed.iter().fold(0f32, |m, p| m.min(p.y));
+    let max_x = placed
+        .iter()
+        .zip(&sizes)
+        .fold(0f32, |m, (p, s)| m.max(p.x + s.width));
+    let max_y = placed.iter().fold(0f32, |m, p| m.max(p.y + p.height));
+    let outside = cx.entity().downgrade();
+    let gap = outside.clone();
+    let mut out = div()
+        .id("chrome-menu-outside")
+        .relative()
+        .left(px(min_x))
+        .top(px(min_y))
+        .w(px(max_x - min_x))
+        .h(px(max_y - min_y))
+        .on_mouse_down_out(move |e: &MouseDownEvent, window, cx| {
+            let _ = outside.update(cx, |m, cx| m.dismiss(e.position, window, cx));
+        })
+        // Between the panels: outside them, though inside these bounds.
+        .child(
+            div()
+                .id("chrome-menu-gaps")
+                .absolute()
+                .inset_0()
+                .on_any_mouse_down(move |e: &MouseDownEvent, window, cx| {
+                    let _ = gap.update(cx, |m, cx| m.dismiss(e.position, window, cx));
+                }),
+        );
+    for (level, (p, size)) in placed.iter().zip(&sizes).enumerate() {
+        let Some(rows) = menu.cursor.rows(&menu.items, level) else {
+            break;
+        };
+        let label = match level.checked_sub(1) {
+            None => menu.label.clone(),
+            Some(parent) => menu
+                .cursor
+                .rows(&menu.items, parent)
+                .and_then(|rows| rows.get(menu.cursor.path[parent]))
                 .and_then(|r| r.label().cloned())
-                .unwrap_or_default()
+                .unwrap_or_default(),
         };
-        let panel = panel(menu, level, rows, label, width, &look, &t, window, cx);
+        let scroll = menu.scrolls[level].clone();
+        let panel = panel(
+            menu, level, rows, label, size.width, p.height, scroll, &look, &t, cx,
+        );
         out = out.child(
             div()
                 .absolute()
-                .left(px(x))
-                .top(px(y))
-                .w(px(width))
+                .left(px(p.x - min_x))
+                .top(px(p.y - min_y))
+                .w(px(size.width))
                 .child(panel),
         );
-        // The next submenu opens beside its row, its first row level with it.
-        if let Some(&at) = menu.cursor.path.get(level) {
-            x += width - 4.;
-            y += look.row_top(rows, at) - look.padding;
-        }
     }
     out.into_any_element()
 }
@@ -383,9 +500,10 @@ fn panel(
     rows: &[ChromeMenuItem],
     label: SharedString,
     width: f32,
+    height: f32,
+    scroll: ScrollHandle,
     look: &Look,
     t: &ConduitTheme,
-    window: &mut Window,
     cx: &mut Context<MainMenu>,
 ) -> AnyElement {
     let r = t.roles;
@@ -401,6 +519,9 @@ fn panel(
         .aria_label(label)
         .when(level == 0, |d| d.track_focus(&menu.focus))
         .w(px(width))
+        .max_h(px(height))
+        .overflow_y_scroll()
+        .track_scroll(&scroll)
         .p(px(look.padding))
         .flex()
         .flex_col()
@@ -412,7 +533,7 @@ fn panel(
         .font_family(UI_FONT)
         .text_size(px(look.text))
         .text_color(r.text)
-        // A press in a submenu is not outside the menu.
+        // Not a press on what is under the menu.
         .on_mouse_down(MouseButton::Left, |_, window, cx| {
             window.prevent_default();
             cx.stop_propagation();
@@ -421,13 +542,14 @@ fn panel(
             let on = highlighted == Some(i);
             match row {
                 ChromeMenuItem::Separator => div()
+                    .flex_none()
                     .h(px(look.separator))
                     .flex()
                     .items_center()
                     .child(div().w_full().h(px(1.)).bg(r.divider))
                     .into_any_element(),
                 ChromeMenuItem::Zoom(zoom) => {
-                    zoom_row(menu, level, i, zoom, on, look, t, window, cx).into_any_element()
+                    zoom_row(menu, level, i, zoom, on, look, t, cx).into_any_element()
                 }
                 ChromeMenuItem::Action {
                     label,
@@ -476,12 +598,18 @@ fn panel(
                     label, disabled, ..
                 } => {
                     let entity = entity.clone();
+                    let entity_hover = entity.clone();
+                    let expanded = on && menu.cursor.open_levels(&menu.items) > level + 1;
                     row_box(level, i, look, on, *disabled, t)
                         .role(Role::MenuItem)
                         .aria_label(label.clone())
-                        .aria_expanded(on)
+                        .aria_expanded(expanded)
                         .when(on, |d| d.aria_active_descendant())
                         .on_mouse_move(move |_, _, cx| {
+                            let _ = entity_hover.update(cx, |m, cx| m.hover(level, i, cx));
+                        })
+                        // A click, or a screen reader's press, opens it.
+                        .on_click(move |_, _, cx| {
                             let _ = entity.update(cx, |m, cx| m.hover(level, i, cx));
                         })
                         .when(checks, |d| d.child(div().w(px(18.)).flex_none()))
@@ -507,6 +635,8 @@ fn row_box(
         .id(ElementId::Name(
             format!("chrome-menu-{level}-{index}").into(),
         ))
+        .debug_selector(|| format!("chrome-menu-{level}-{index}"))
+        .flex_none()
         .h(px(look.row))
         .px(px(8.))
         .flex()
@@ -525,7 +655,6 @@ fn zoom_row(
     on: bool,
     look: &Look,
     t: &ConduitTheme,
-    _window: &mut Window,
     cx: &mut Context<MainMenu>,
 ) -> impl IntoElement {
     let r = t.roles;
@@ -533,6 +662,7 @@ fn zoom_row(
     let part_on = |k: usize| on && menu.cursor.part == k;
     let button = |k: usize, part: &ZoomPart, body: AnyElement| {
         let entity = entity.clone();
+        let entity_hover = entity.clone();
         let action = part.action.boxed_clone();
         let disabled = part.disabled;
         div()
@@ -548,8 +678,11 @@ fn zoom_row(
             .justify_center()
             .rounded(px(look.row_radius))
             .when(part_on(k) && !disabled, |d| d.bg(r.overlay_hover))
-            .when(!disabled, |d| d.hover(|s| s.bg(r.overlay_hover)))
             .when(disabled, |d| d.opacity(0.38))
+            // The part under the pointer is the one Enter runs.
+            .on_mouse_move(move |_, _, cx| {
+                let _ = entity_hover.update(cx, |m, cx| m.hover_part(level, index, k, cx));
+            })
             .on_click(move |_, window, cx| {
                 if disabled {
                     return;
@@ -564,6 +697,7 @@ fn zoom_row(
             format!("chrome-menu-{level}-{index}").into(),
         ))
         .role(Role::Group)
+        .flex_none()
         .h(px(look.zoom_row))
         .px(px(4.))
         .flex()
@@ -591,14 +725,7 @@ impl Render for MainMenu {
         if !self.open {
             return div().into_any_element();
         }
-        let menu = cx.entity().downgrade();
-        div()
-            .id("chrome-menu-outside")
-            .on_mouse_down_out(move |e: &MouseDownEvent, window, cx| {
-                let _ = menu.update(cx, |m, cx| m.dismiss(e.position, window, cx));
-            })
-            .child(panels(self, window, cx))
-            .into_any_element()
+        panels(self, window, cx)
     }
 }
 
@@ -618,12 +745,12 @@ impl RenderOnce for MainMenuButton {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = cx.conduit().clone();
         let r = t.roles;
-        let (style, label, open) = {
+        let (style, label, open, trigger) = {
             let m = self.menu.read(cx);
-            (m.style, m.label.clone(), m.open)
+            (m.style, m.label.clone(), m.open, m.trigger.clone())
         };
         let size = super::layout::MENU_BUTTON;
-        let press = self.menu.clone();
+        let click = self.menu.clone();
         let opened = open.then(|| {
             let look = Look::of(style, &t);
             let anchor = match style {
@@ -633,17 +760,20 @@ impl RenderOnce for MainMenuButton {
             // Windows drops the menu from ☰'s leading edge; GNOME's popover
             // hangs centred under it, kept inside the window.
             let offset = match style {
-                ChromeStyle::Windows => point(px(0.), px(size + 4.)),
-                ChromeStyle::Gnome => point(px(look.width / 2. + size / 2.), px(size + 6.)),
+                ChromeStyle::Windows => point(px(0.), px(size + DROP)),
+                ChromeStyle::Gnome => point(px(look.width / 2. + size / 2.), px(size + HANG)),
             };
-            deferred(
-                anchored()
-                    .anchor(anchor)
-                    .offset(offset)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(self.menu.clone()),
+            // Hung from ☰'s top-left corner, out of the flow.
+            div().absolute().top_0().left_0().child(
+                deferred(
+                    anchored()
+                        .anchor(anchor)
+                        .offset(offset)
+                        .snap_to_window_with_margin(px(MARGIN))
+                        .child(self.menu.clone()),
+                )
+                .with_priority(1),
             )
-            .with_priority(1)
         });
         let hover = with_alpha(r.text, if t.dark { 0.10 } else { 0.07 });
         div()
@@ -652,10 +782,12 @@ impl RenderOnce for MainMenuButton {
             .child(
                 div()
                     .id("main-menu")
+                    .debug_selector(|| "main-menu".into())
                     .role(Role::Button)
                     .aria_label(label)
                     .aria_expanded(open)
                     .occlude()
+                    .relative()
                     .size(px(size))
                     .flex()
                     .items_center()
@@ -666,13 +798,25 @@ impl RenderOnce for MainMenuButton {
                     }))
                     .when(open, |d| d.bg(hover))
                     .hover(move |s| s.bg(hover))
-                    .on_mouse_down(MouseButton::Left, move |e, window, cx| {
+                    // Not a press on the header (a drag, a double-click).
+                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
                         window.prevent_default();
                         cx.stop_propagation();
-                        let at = e.position;
-                        press.update(cx, |m, cx| m.press(at, window, cx));
                     })
-                    .child(icon(IconName::Menu, 16., r.text)),
+                    // A click, or a screen reader's press.
+                    .on_click(move |_, window, cx| {
+                        click.update(cx, |m, cx| m.toggle(false, window, cx));
+                    })
+                    .child(icon(IconName::Menu, 16., r.text))
+                    // Where ☰ itself is drawn, not its row.
+                    .child(
+                        canvas(
+                            move |bounds, _, _| trigger.set(Some(bounds)),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .inset_0(),
+                    ),
             )
             .children(opened)
     }
@@ -681,4 +825,155 @@ impl RenderOnce for MainMenuButton {
 /// A colour a little off the header's, for flat header-bar buttons.
 pub fn flat_hover(t: &ConduitTheme) -> Hsla {
     with_alpha(t.roles.text, if t.dark { 0.10 } else { 0.07 })
+}
+
+/// A panel's size, and where the row that opened it puts its top: against
+/// its parent's top, the row's top less the panel's padding.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PanelSize {
+    width: f32,
+    height: f32,
+    below_parent: f32,
+}
+
+/// The window around the menu's origin: `left` and `top` are at most 0.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Room {
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+/// Where a panel goes, against the menu's origin, and how tall it is drawn
+/// (it scrolls when that is less than its rows).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Placed {
+    x: f32,
+    y: f32,
+    height: f32,
+}
+
+/// Places each open panel inside `room`. The menu hangs from its origin,
+/// cut at the window's bottom; a submenu opens beside its row, on the right
+/// while it fits, else on the side with more room, kept inside; a panel
+/// taller than the window takes its height and scrolls; one that would run
+/// off the bottom moves up to end there.
+fn place(panels: &[PanelSize], room: Room) -> Vec<Placed> {
+    let full = room.bottom - room.top;
+    let mut out: Vec<Placed> = vec![];
+    for (i, p) in panels.iter().enumerate() {
+        let Some(parent) = out.last().copied() else {
+            out.push(Placed {
+                x: 0.,
+                y: 0.,
+                height: p.height.min(room.bottom),
+            });
+            continue;
+        };
+        let right = parent.x + panels[i - 1].width - 4.;
+        let left = parent.x - p.width + 4.;
+        let x = if right + p.width <= room.right {
+            right
+        } else if left >= room.left {
+            left
+        } else if room.right - right >= parent.x - room.left {
+            right.min(room.right - p.width)
+        } else {
+            room.left
+        };
+        let height = p.height.min(full);
+        let y = (parent.y + p.below_parent)
+            .min(room.bottom - height)
+            .max(room.top);
+        out.push(Placed { x, y, height });
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ROOM: Room = Room {
+        left: -8.,
+        top: -46.,
+        right: 1272.,
+        bottom: 814.,
+    };
+
+    fn panel(width: f32, height: f32, below_parent: f32) -> PanelSize {
+        PanelSize {
+            width,
+            height,
+            below_parent,
+        }
+    }
+
+    #[test]
+    fn submenus_open_beside_their_row_while_they_fit() {
+        let placed = place(&[panel(280., 400., 0.), panel(300., 200., 120.)], ROOM);
+        assert_eq!(
+            placed,
+            [
+                Placed {
+                    x: 0.,
+                    y: 0.,
+                    height: 400.
+                },
+                Placed {
+                    x: 276.,
+                    y: 120.,
+                    height: 200.
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_submenu_with_no_room_on_the_right_opens_on_the_left() {
+        // A 720-point window: Edit, then its Find submenu.
+        let narrow = Room {
+            right: 712.,
+            ..ROOM
+        };
+        let placed = place(
+            &[
+                panel(280., 400., 0.),
+                panel(300., 300., 30.),
+                panel(300., 150., 240.),
+            ],
+            narrow,
+        );
+        assert_eq!(placed[1].x, 276.);
+        assert_eq!(
+            placed[2].x, -8.,
+            "Find opens on Edit's left, kept inside the window"
+        );
+        // With room on the left for all of it, it sits beside Edit.
+        let wider = place(
+            &[
+                panel(280., 400., 0.),
+                panel(300., 300., 30.),
+                panel(250., 150., 240.),
+            ],
+            narrow,
+        );
+        assert_eq!(wider[2].x, 276. - 250. + 4.);
+    }
+
+    #[test]
+    fn a_panel_taller_than_the_window_scrolls_and_one_below_moves_up() {
+        // The root is cut at the window's bottom, and scrolls.
+        let placed = place(&[panel(280., 1200., 0.)], ROOM);
+        assert_eq!(placed[0].height, 814.);
+        // A submenu taller than the window takes its whole height.
+        let placed = place(&[panel(280., 400., 0.), panel(300., 2000., 90.)], ROOM);
+        assert_eq!(placed[1].y, -46.);
+        assert_eq!(placed[1].height, 860.);
+        // A submenu that would run off the bottom moves up to end there.
+        let placed = place(&[panel(280., 700., 0.), panel(300., 500., 600.)], ROOM);
+        assert_eq!(placed[1].y, 814. - 500.);
+        assert_eq!(placed[1].height, 500.);
+    }
 }

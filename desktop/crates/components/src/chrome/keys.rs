@@ -1,7 +1,7 @@
 //! The keyboard's way into ☰ and around an open menu.
 //!
 //! None of this is a key binding: the menu reads keystrokes before the
-//! bindings do ([`super::menu::MainMenu`] intercepts them), so the app's
+//! bindings do ([`super::main_menu::MainMenu`] intercepts them), so the app's
 //! shortcut table stays as it is, and a binding without a context (Esc's
 //! Stop) can't take a key from an open menu.
 

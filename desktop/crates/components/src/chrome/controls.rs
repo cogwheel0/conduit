@@ -111,6 +111,7 @@ impl RenderOnce for WindowControls {
                         } else {
                             (with_alpha(r.text, if t.dark { 0.06 } else { 0.04 }), r.text)
                         };
+                        let on_close = on_close.clone();
                         base.w(px(CAPTION_BUTTON_WIDTH))
                             .h_full()
                             .window_control_area(match button {
@@ -120,6 +121,19 @@ impl RenderOnce for WindowControls {
                             })
                             .text_color(r.text)
                             .hover(move |s| s.bg(hover).text_color(hover_fg))
+                            // Windows answers a pointer's press itself; a
+                            // screen reader's press comes here. GPUI has no
+                            // call to restore a maximized window.
+                            .when(!(button == WindowButton::Maximize && maximized), |d| {
+                                d.on_click(move |e, window, cx| match button {
+                                    WindowButton::Minimize => window.minimize_window(),
+                                    WindowButton::Maximize => window.zoom_window(),
+                                    WindowButton::Close => match &on_close {
+                                        Some(f) => f(e, window, cx),
+                                        None => window.remove_window(),
+                                    },
+                                })
+                            })
                             .child(icon(glyph, 10., r.text))
                             .into_any_element()
                     }
@@ -335,17 +349,7 @@ impl RenderOnce for ClientFrame {
             .pr(px(insets.right))
             .pb(px(insets.bottom))
             .pl(px(insets.left))
-            .on_mouse_move(move |e, window, _| {
-                let size = window.window_bounds().get_bounds().size;
-                let at = point(f32::from(e.position.x), f32::from(e.position.y));
-                let size = Size {
-                    width: f32::from(size.width),
-                    height: f32::from(size.height),
-                };
-                if let Some(edge) = resize_edge(at, size, insets, tiling) {
-                    window.set_window_cursor_style(cursor(edge));
-                }
-            })
+            .relative()
             .on_mouse_down(MouseButton::Left, move |e, window, _| {
                 if !window.is_resizable() {
                     return;
@@ -401,8 +405,44 @@ impl RenderOnce for ClientFrame {
                             .border_color(edge_color),
                     ),
             )
+            .children(resize_bands(insets, tiling))
             .into_any_element()
     }
+}
+
+/// The resize cursor over each untiled edge and corner, out to the band
+/// inside the window; drawn over the content, so its cursor shows there.
+fn resize_bands(insets: gpui_kit::Edges<f32>, tiling: Tiling) -> impl Iterator<Item = AnyElement> {
+    let band = move |edge: ResizeEdge| {
+        let (top, left) = (insets.top + RESIZE_BAND, insets.left + RESIZE_BAND);
+        let (bottom, right) = (insets.bottom + RESIZE_BAND, insets.right + RESIZE_BAND);
+        let d = div().absolute().cursor(cursor(edge));
+        match edge {
+            ResizeEdge::Top => d.top_0().left_0().right_0().h(px(top)),
+            ResizeEdge::Bottom => d.bottom_0().left_0().right_0().h(px(bottom)),
+            ResizeEdge::Left => d.left_0().top_0().bottom_0().w(px(left)),
+            ResizeEdge::Right => d.right_0().top_0().bottom_0().w(px(right)),
+            ResizeEdge::TopLeft => d.top_0().left_0().w(px(left)).h(px(top)),
+            ResizeEdge::TopRight => d.top_0().right_0().w(px(right)).h(px(top)),
+            ResizeEdge::BottomLeft => d.bottom_0().left_0().w(px(left)).h(px(bottom)),
+            ResizeEdge::BottomRight => d.bottom_0().right_0().w(px(right)).h(px(bottom)),
+        }
+        .into_any_element()
+    };
+    let edges = [
+        (ResizeEdge::Top, !tiling.top),
+        (ResizeEdge::Bottom, !tiling.bottom),
+        (ResizeEdge::Left, !tiling.left),
+        (ResizeEdge::Right, !tiling.right),
+        (ResizeEdge::TopLeft, !tiling.top && !tiling.left),
+        (ResizeEdge::TopRight, !tiling.top && !tiling.right),
+        (ResizeEdge::BottomLeft, !tiling.bottom && !tiling.left),
+        (ResizeEdge::BottomRight, !tiling.bottom && !tiling.right),
+    ];
+    edges
+        .into_iter()
+        .filter(|(_, shown)| *shown)
+        .map(move |(edge, _)| band(edge))
 }
 
 #[cfg(test)]

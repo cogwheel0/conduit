@@ -232,10 +232,11 @@ fn gnome_items() -> Vec<ChromeMenuItem> {
                 action: Box::new(ZoomOut),
                 disabled: false,
             },
+            // Already the actual size.
             reset: ZoomPart {
                 label: "Actual Size".into(),
                 action: Box::new(ActualSize),
-                disabled: false,
+                disabled: true,
             },
             zoom_in: ZoomPart {
                 label: "Zoom In".into(),

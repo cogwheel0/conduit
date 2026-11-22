@@ -1,42 +1,81 @@
-//! ☰ in a window: how it opens, greys and hands its action back.
+//! ☰ in a window: how it opens, greys, takes the pointer and the keyboard,
+//! and hands its action back; and GNOME's frame under the pointer.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    Context, Entity, FocusHandle, KeyBinding, Modifiers, TestAppContext, VisualTestContext, Window,
-    actions, div,
+    Context, Decorations, Entity, FocusHandle, KeyBinding, Modifiers, MouseButton, Point,
+    TestAppContext, Tiling, VisualTestContext, Window, actions, div, point, px,
 };
 
 use super::ChromeStyle;
+use super::controls::ClientFrame;
 use super::main_menu::{MainMenu, MainMenuButton};
-use super::menu::ChromeMenuItem;
+use super::menu::{ChromeMenuItem, ZoomPart, ZoomRow};
 use crate::theme::{ConduitTheme, DesignPrefs};
 
-actions!(chrome_window_test, [Answered, Unanswered, Stop]);
+actions!(
+    chrome_window_test,
+    [
+        Answered,
+        AlsoAnswered,
+        Unanswered,
+        Stop,
+        Steal,
+        ZoomOut,
+        ZoomIn,
+        ActualSize
+    ]
+);
 
-/// A field with a handler for [`Answered`] only, and ☰.
+/// Which menu the host opens.
+#[derive(Clone, Copy)]
+enum Menu {
+    /// Answered, Unanswered, More ▸ (Unanswered), Also ▸ (AlsoAnswered).
+    Rows,
+    /// Answered, then a zoom row whose Actual Size acts once zoomed.
+    Zoom,
+}
+
+/// ☰ at the window's top left, a field, another field to take focus, and
+/// handlers for some of the menu's actions on the root (as the app's main
+/// window has its own).
 struct Host {
     field: FocusHandle,
+    other: FocusHandle,
     menu: Entity<MainMenu>,
     answered: usize,
+    also_answered: usize,
+    zoomed: Rc<Cell<bool>>,
 }
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let zoomed = self.zoomed.get();
         div()
             .size_full()
-            .child(
-                div()
-                    .track_focus(&self.field)
-                    .on_action(cx.listener(|h, _: &Answered, _, _| h.answered += 1))
-                    .size_full(),
-            )
+            .flex()
+            .flex_col()
+            .on_action(cx.listener(|h, _: &Answered, _, _| h.answered += 1))
+            .on_action(cx.listener(|h, _: &AlsoAnswered, _, _| h.also_answered += 1))
+            .on_action(cx.listener(|h, _: &Steal, window, cx| {
+                window.focus(&h.other, cx);
+            }))
+            .on_action(cx.listener(|h, _: &ZoomIn, _, cx| {
+                h.zoomed.set(true);
+                cx.notify();
+            }))
+            .on_action(|_: &ZoomOut, _, _| {})
+            .when(zoomed, |d| d.on_action(|_: &ActualSize, _, _| {}))
             .child(MainMenuButton::new(self.menu.clone()))
+            .child(div().track_focus(&self.field).size_full())
+            .child(div().track_focus(&self.other).size(px(10.)))
     }
 }
 
-fn items() -> Vec<ChromeMenuItem> {
+fn rows() -> Vec<ChromeMenuItem> {
     vec![
         ChromeMenuItem::action("Answered", Answered),
         ChromeMenuItem::action("Unanswered", Unanswered),
@@ -44,13 +83,41 @@ fn items() -> Vec<ChromeMenuItem> {
             "More",
             vec![ChromeMenuItem::action("Unanswered", Unanswered)],
         ),
+        ChromeMenuItem::submenu(
+            "Also",
+            vec![ChromeMenuItem::action("Also Answered", AlsoAnswered)],
+        ),
     ]
 }
 
+/// The zoom row as the app builds it: each part off by the same rule its
+/// handler follows.
+fn zoom_rows(zoomed: bool) -> Vec<ChromeMenuItem> {
+    let part = |label: &str, action: Box<dyn gpui_kit::Action>, disabled: bool| ZoomPart {
+        label: label.to_string().into(),
+        action,
+        disabled,
+    };
+    vec![
+        ChromeMenuItem::action("Answered", Answered),
+        ChromeMenuItem::Separator,
+        ChromeMenuItem::Zoom(ZoomRow {
+            level: if zoomed { "110%" } else { "100%" }.into(),
+            out: part("Zoom Out", Box::new(ZoomOut), false),
+            reset: part("Actual Size", Box::new(ActualSize), !zoomed),
+            zoom_in: part("Zoom In", Box::new(ZoomIn), false),
+        }),
+    ]
+}
+
+/// Opens the host; `stops` counts Esc's app-wide Stop.
 fn open_host(
     style: ChromeStyle,
+    menu: Menu,
+    focus_field: bool,
     cx: &mut TestAppContext,
-) -> (Entity<Host>, &mut VisualTestContext) {
+) -> (Entity<Host>, Rc<Cell<usize>>, &mut VisualTestContext) {
+    let stops = Rc::new(Cell::new(0));
     cx.update(|cx| {
         // The views read the Conduit theme only (no GPUI Kit theme needed).
         cx.set_global(ConduitTheme::new(
@@ -61,23 +128,44 @@ fn open_host(
         ));
         // Esc's Stop, bound without a context and answered app-wide, as the
         // app binds it: an open menu must still get Esc.
-        cx.bind_keys([KeyBinding::new("escape", Stop, None)]);
-        cx.on_action(|_: &Stop, _| {});
+        cx.bind_keys([
+            KeyBinding::new("escape", Stop, None),
+            KeyBinding::new("ctrl-k", Steal, None),
+        ]);
+        let stops = stops.clone();
+        cx.on_action(move |_: &Stop, _| stops.set(stops.get() + 1));
     });
     let (host, vcx) = cx.add_window_view(|window, cx| {
         let field = cx.focus_handle();
-        window.focus(&field, cx);
-        let menu =
-            cx.new(|cx| MainMenu::new(style, "Main Menu", Rc::new(|_, _| items()), window, cx));
+        if focus_field {
+            window.focus(&field, cx);
+        }
+        let zoomed = Rc::new(Cell::new(false));
+        let build: super::MenuItems = match menu {
+            Menu::Rows => Rc::new(|_, _| rows()),
+            Menu::Zoom => {
+                let zoomed = zoomed.clone();
+                Rc::new(move |_, _| zoom_rows(zoomed.get()))
+            }
+        };
+        let menu = cx.new(|cx| MainMenu::new(style, "Main Menu", build, window, cx));
         Host {
             field,
+            other: cx.focus_handle(),
             menu,
             answered: 0,
+            also_answered: 0,
+            zoomed,
         }
     });
     vcx.update(|window, _| window.activate_window());
+    draw(vcx);
+    (host, stops, vcx)
+}
+
+fn draw(vcx: &mut VisualTestContext) {
+    vcx.update(|window, cx| window.draw(cx).clear(cx));
     vcx.run_until_parked();
-    (host, vcx)
 }
 
 fn is_open(host: &Entity<Host>, vcx: &mut VisualTestContext) -> bool {
@@ -85,7 +173,7 @@ fn is_open(host: &Entity<Host>, vcx: &mut VisualTestContext) -> bool {
 }
 
 /// (label, greyed) for each row of the open menu's top level.
-fn rows(host: &Entity<Host>, vcx: &mut VisualTestContext) -> Vec<(String, bool)> {
+fn top_rows(host: &Entity<Host>, vcx: &mut VisualTestContext) -> Vec<(String, bool)> {
     vcx.update(|_, cx| {
         host.read(cx)
             .menu
@@ -106,54 +194,72 @@ fn field_focused(host: &Entity<Host>, vcx: &mut VisualTestContext) -> bool {
     vcx.update(|window, cx| host.read(cx).field.is_focused(window))
 }
 
+/// The centre of the element drawn with `selector`.
+fn centre(selector: &'static str, vcx: &mut VisualTestContext) -> Point<gpui_kit::Pixels> {
+    vcx.debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn"))
+        .center()
+}
+
+fn click(selector: &'static str, vcx: &mut VisualTestContext) {
+    let at = centre(selector, vcx);
+    vcx.simulate_click(at, Modifiers::none());
+    draw(vcx);
+}
+
 #[gpui_kit::test]
 fn f10_opens_the_menu_greyed_by_what_answers_where_focus_was(cx: &mut TestAppContext) {
-    let (host, vcx) = open_host(ChromeStyle::Gnome, cx);
+    let (host, stops, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
     assert!(!is_open(&host, vcx));
     vcx.simulate_keystrokes("f10");
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(is_open(&host, vcx));
     assert_eq!(
-        rows(&host, vcx),
+        top_rows(&host, vcx),
         [
             ("Answered".to_string(), false),
             ("Unanswered".to_string(), true),
             ("More".to_string(), true),
+            ("Also".to_string(), false),
         ],
         "AppKit's rule: an item is off when nothing where focus was answers it"
     );
     assert!(!field_focused(&host, vcx), "the open menu has the keyboard");
-    // Esc closes it, though a binding without a context wants Esc too.
+    // Esc closes it, and never reaches the app's Stop meanwhile.
     vcx.simulate_keystrokes("escape");
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(!is_open(&host, vcx));
+    assert_eq!(stops.get(), 0, "Esc was the menu's");
     assert!(field_focused(&host, vcx), "focus goes back where it was");
+    // With the menu shut, Esc is Stop's again.
+    vcx.simulate_keystrokes("escape");
+    assert_eq!(stops.get(), 1);
 }
 
 #[gpui_kit::test]
 fn a_lone_alt_opens_the_menu_on_windows_only(cx: &mut TestAppContext) {
-    let (host, vcx) = open_host(ChromeStyle::Windows, cx);
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
     vcx.simulate_modifiers_change(Modifiers::alt());
     vcx.simulate_modifiers_change(Modifiers::none());
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(is_open(&host, vcx));
     // Alt again closes it, as it leaves Windows' menu bar.
     vcx.simulate_modifiers_change(Modifiers::alt());
     vcx.simulate_modifiers_change(Modifiers::none());
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(!is_open(&host, vcx));
     // Alt with a key is a chord, not the menu.
     vcx.simulate_keystrokes("alt-x");
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(!is_open(&host, vcx));
 }
 
 #[gpui_kit::test]
 fn a_lone_alt_leaves_gnomes_menu_shut(cx: &mut TestAppContext) {
-    let (host, vcx) = open_host(ChromeStyle::Gnome, cx);
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
     vcx.simulate_modifiers_change(Modifiers::alt());
     vcx.simulate_modifiers_change(Modifiers::none());
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(
         !is_open(&host, vcx),
         "GNOME opens its primary menu on F10 only"
@@ -162,19 +268,162 @@ fn a_lone_alt_leaves_gnomes_menu_shut(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn enter_runs_the_highlighted_item_where_focus_was(cx: &mut TestAppContext) {
-    let (host, vcx) = open_host(ChromeStyle::Windows, cx);
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
     vcx.simulate_keystrokes("f10");
-    vcx.run_until_parked();
+    draw(vcx);
     // Opened from the keyboard: the first item is highlighted.
     vcx.simulate_keystrokes("enter");
-    vcx.run_until_parked();
+    draw(vcx);
     assert!(!is_open(&host, vcx));
     assert_eq!(vcx.update(|_, cx| host.read(cx).answered), 1);
     assert!(field_focused(&host, vcx));
-    // The greyed rows can't be reached: Down wraps back to the first.
+    // The greyed rows are skipped: Down reaches Also, Right opens it.
     vcx.simulate_keystrokes("f10");
-    vcx.run_until_parked();
-    vcx.simulate_keystrokes("down enter");
-    vcx.run_until_parked();
-    assert_eq!(vcx.update(|_, cx| host.read(cx).answered), 2);
+    draw(vcx);
+    vcx.simulate_keystrokes("down right enter");
+    draw(vcx);
+    assert_eq!(vcx.update(|_, cx| host.read(cx).also_answered), 1);
+}
+
+#[gpui_kit::test]
+fn clicking_a_row_runs_it_where_focus_was(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    click("main-menu", vcx);
+    assert!(is_open(&host, vcx));
+    click("chrome-menu-0-0", vcx);
+    assert!(!is_open(&host, vcx));
+    assert_eq!(vcx.update(|_, cx| host.read(cx).answered), 1);
+    assert!(field_focused(&host, vcx));
+}
+
+#[gpui_kit::test]
+fn clicking_a_submenu_row_opens_it_and_its_row_runs(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    click("main-menu", vcx);
+    click("chrome-menu-0-3", vcx);
+    assert!(is_open(&host, vcx), "a submenu row opens its submenu");
+    click("chrome-menu-1-0", vcx);
+    assert!(!is_open(&host, vcx));
+    assert_eq!(vcx.update(|_, cx| host.read(cx).also_answered), 1);
+}
+
+#[gpui_kit::test]
+fn the_menu_button_toggles_and_a_press_outside_closes(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
+    click("main-menu", vcx);
+    assert!(is_open(&host, vcx));
+    click("main-menu", vcx);
+    assert!(!is_open(&host, vcx), "☰ again closes it");
+    click("main-menu", vcx);
+    assert!(is_open(&host, vcx));
+    vcx.simulate_click(point(px(900.), px(700.)), Modifiers::none());
+    draw(vcx);
+    assert!(!is_open(&host, vcx), "a press outside closes it");
+}
+
+#[gpui_kit::test]
+fn a_right_click_on_the_menu_button_does_not_eat_a_later_click(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Rows, true, cx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    let at = centre("main-menu", vcx);
+    vcx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+    vcx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+    draw(vcx);
+    vcx.simulate_keystrokes("escape");
+    draw(vcx);
+    assert!(!is_open(&host, vcx));
+    click("main-menu", vcx);
+    assert!(is_open(&host, vcx), "the left click on ☰ opens it");
+}
+
+#[gpui_kit::test]
+fn focus_leaving_the_menu_closes_it(cx: &mut TestAppContext) {
+    let (host, stops, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    // A chord passes to the app, whose command takes focus elsewhere.
+    vcx.simulate_keystrokes("ctrl-k");
+    draw(vcx);
+    assert!(!is_open(&host, vcx), "the menu goes with its focus");
+    assert!(vcx.update(|window, cx| host.read(cx).other.is_focused(window)));
+    vcx.simulate_keystrokes("escape");
+    assert_eq!(stops.get(), 1, "Esc is the app's again");
+}
+
+#[gpui_kit::test]
+fn closing_with_nothing_focused_leaves_nothing_focused(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, false, cx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    assert!(is_open(&host, vcx));
+    vcx.simulate_keystrokes("escape");
+    draw(vcx);
+    assert!(!is_open(&host, vcx));
+    assert!(vcx.update(|window, cx| window.focused(cx).is_none()));
+}
+
+#[gpui_kit::test]
+fn a_keyboard_zoom_in_lets_actual_size_act(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Zoom, true, cx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    // Down to the zoom row, Right to Zoom In, Enter: the menu stays open.
+    vcx.simulate_keystrokes("down right enter");
+    draw(vcx);
+    assert!(vcx.update(|_, cx| host.read(cx).zoomed.get()));
+    assert!(is_open(&host, vcx));
+    let reset_off = vcx.update(|_, cx| {
+        host.read(cx)
+            .menu
+            .read(cx)
+            .items()
+            .iter()
+            .find_map(|i| match i {
+                ChromeMenuItem::Zoom(row) => Some(row.reset.disabled),
+                _ => None,
+            })
+            .unwrap()
+    });
+    assert!(!reset_off, "Actual Size acts once zoomed");
+}
+
+/// GNOME's frame alone, client-side decorated and floating.
+struct Framed;
+
+impl Render for Framed {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        ClientFrame::new(
+            ChromeStyle::Gnome,
+            Decorations::Client {
+                tiling: Tiling::default(),
+            },
+            false,
+            true,
+            div().size_full(),
+        )
+    }
+}
+
+#[gpui_kit::test]
+fn the_pointer_over_gnomes_resize_band_is_fine(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        cx.set_global(ConduitTheme::new(
+            "conduit",
+            false,
+            DesignPrefs::default(),
+            gpui_kit::blue(),
+        ))
+    });
+    let (_, vcx) = cx.add_window_view(|_, _| Framed);
+    draw(vcx);
+    // In the left shadow band, then just inside the window's edge.
+    vcx.simulate_mouse_move(point(px(6.), px(300.)), None, Modifiers::none());
+    draw(vcx);
+    vcx.simulate_mouse_move(
+        point(px(super::controls::SHADOW + 2.), px(300.)),
+        None,
+        Modifiers::none(),
+    );
+    draw(vcx);
 }

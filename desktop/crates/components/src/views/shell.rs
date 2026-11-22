@@ -531,9 +531,10 @@ impl RenderOnce for ChatToolbar {
         let m = t.metrics;
         let has_title = !self.title.is_empty();
         let style = chrome::style(cx);
-        // Windows takes presses on the toolbar as the title bar's, so each
-        // control in it blocks that; GNOME draws its header bar flat.
-        let windows = style == Some(ChromeStyle::Windows);
+        // Off the Mac the toolbar takes presses as the title bar's (Windows'
+        // caption; GNOME's drag and double-click), so each control in it
+        // blocks that. GNOME draws its header bar flat.
+        let blocks = style.is_some();
         let gnome = style == Some(ChromeStyle::Gnome);
         let sidebar_hidden = self.inset_for_traffic_lights || self.leading_reveal.is_some();
         let lead_room = leading_room(cx);
@@ -587,7 +588,7 @@ impl RenderOnce for ChatToolbar {
                     let opacity = self.leading_reveal.map_or(1., |(_, o)| o);
                     d.child(
                         header_capsule(&t, cx)
-                            .when(windows, |d| d.occlude())
+                            .when(blocks, |d| d.occlude())
                             .p(px(2.))
                             .opacity(opacity)
                             .child(leading),
@@ -606,7 +607,7 @@ impl RenderOnce for ChatToolbar {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(div().flex_none().when(windows, |d| d.occlude()).child(pill)),
+                        .child(div().flex_none().when(blocks, |d| d.occlude()).child(pill)),
                 )
                 .child(div().flex_1())
                 // A status, not a control: the glyph and words in the
@@ -631,7 +632,7 @@ impl RenderOnce for ChatToolbar {
                 .when(!trailing.is_empty(), |d| {
                     d.child(
                         header_capsule(&t, cx)
-                            .when(windows, |d| d.occlude())
+                            .when(blocks, |d| d.occlude())
                             .p(px(2.))
                             .gap(px(2.))
                             .children(trailing),
@@ -688,7 +689,7 @@ impl RenderOnce for ChatToolbar {
             .pr(px(12. + trailing_pad))
             .when(self.scrolled, |d| d.border_b_1().border_color(r.divider))
             .map(|d| {
-                if windows {
+                if blocks {
                     d.children(self.leading.map(|l| div().flex_none().occlude().child(l)))
                         .child(div().min_w_0().occlude().child(leading))
                 } else {
@@ -735,24 +736,25 @@ impl RenderOnce for ChatToolbar {
                 )
             })
             .when(!self.bare, |d| {
-                d.child(
+                let button = |b: IconButton| div().when(blocks, |d| d.occlude()).child(b);
+                d.child(button(
                     IconButton::new(
                         "temporary-chat",
                         IconName::ClockFading,
                         st.temporary_chat.clone(),
                     )
                     .active(self.temporary),
-                )
-                .child(IconButton::new(
+                ))
+                .child(button(IconButton::new(
                     "share-chat",
                     IconName::Share,
                     st.share_chat.clone(),
-                ))
-                .child(IconButton::new(
+                )))
+                .child(button(IconButton::new(
                     "chat-more",
                     IconName::Ellipsis,
                     st.more.clone(),
-                ))
+                )))
             })
             .into_any_element()
     }

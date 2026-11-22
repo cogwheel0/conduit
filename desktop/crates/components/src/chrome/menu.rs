@@ -231,6 +231,10 @@ pub fn tidy(items: Vec<ChromeMenuItem>) -> Vec<ChromeMenuItem> {
 /// off when `available` says nothing would answer it (the app asks
 /// `App::is_action_available`, as AppKit's validation does), as well as
 /// when it is built off; a submenu is off when none of its items is on.
+///
+/// The zoom row keeps the state it is built with, by the rule its handlers
+/// follow: it acts without closing, so it changes its own availability, and
+/// the window's handlers only catch up when it next draws.
 pub fn grey(
     items: Vec<ChromeMenuItem>,
     available: &mut dyn FnMut(&dyn Action) -> bool,
@@ -267,13 +271,7 @@ pub fn grey(
                     disabled,
                 }
             }
-            ChromeMenuItem::Zoom(mut row) => {
-                for part in [&mut row.out, &mut row.reset, &mut row.zoom_in] {
-                    part.disabled = part.disabled || !available(part.action.as_ref());
-                }
-                ChromeMenuItem::Zoom(row)
-            }
-            ChromeMenuItem::Separator => ChromeMenuItem::Separator,
+            other => other,
         })
         .collect()
 }
@@ -315,12 +313,15 @@ pub fn with_shortcuts(
 }
 
 /// The highlighted row in each open level: `path[0]` in the menu, then one
-/// for each submenu opened from the row before it. The zoom row's
-/// highlighted part is `part`.
+/// for each submenu opened from the row before it. The last highlighted
+/// row's own submenu shows only while `expanded` (the pointer rests on it);
+/// the keyboard opens it by moving into it. The zoom row's highlighted part
+/// is `part`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Cursor {
     pub path: Vec<usize>,
     pub part: usize,
+    pub expanded: bool,
 }
 
 /// What a key did.
@@ -344,6 +345,7 @@ impl Cursor {
         Self {
             path: first(items).into_iter().collect(),
             part: 1,
+            expanded: false,
         }
     }
 
@@ -366,14 +368,32 @@ impl Cursor {
         Some(rows)
     }
 
-    /// How many levels are open: the menu, and the submenu of each
-    /// highlighted submenu row.
+    /// How many levels are open: the menu, each submenu a highlight sits
+    /// in, and the last highlighted row's own while it is expanded.
     pub fn open_levels(&self, items: &[ChromeMenuItem]) -> usize {
         let mut levels = 1;
-        while self.rows(items, levels).is_some() {
+        while levels < self.path.len() && self.rows(items, levels).is_some() {
+            levels += 1;
+        }
+        if self.expanded && levels == self.path.len() && self.rows(items, levels).is_some() {
             levels += 1;
         }
         levels
+    }
+
+    /// The pointer is over part `part` of the zoom row at `index`, `level`:
+    /// Enter then runs that part.
+    pub fn hover_part(
+        &mut self,
+        items: &[ChromeMenuItem],
+        level: usize,
+        index: usize,
+        part: usize,
+    ) {
+        self.hover(items, level, index);
+        if self.path.len() == level + 1 && self.path.last() == Some(&index) {
+            self.part = part.min(2);
+        }
     }
 
     /// The pointer is over `index` at `level`: it is highlighted, and the
@@ -382,14 +402,18 @@ impl Cursor {
         let Some(rows) = self.rows(items, level) else {
             return;
         };
-        if !rows.get(index).is_some_and(ChromeMenuItem::is_selectable) {
+        let Some(row) = rows.get(index).filter(|r| r.is_selectable()) else {
+            return;
+        };
+        let submenu = matches!(row, ChromeMenuItem::Submenu { .. });
+        if self.path.len() == level + 1 && self.path[level] == index {
+            self.expanded = submenu;
             return;
         }
         self.path.truncate(level);
-        if self.path.len() == level {
-            self.path.push(index);
-            self.part = 1;
-        }
+        self.path.push(index);
+        self.part = 1;
+        self.expanded = submenu;
     }
 
     pub fn key(&mut self, items: &[ChromeMenuItem], key: MenuKey) -> Outcome {
@@ -407,6 +431,7 @@ impl Cursor {
                     *last = i;
                 }
                 cursor.part = 1;
+                cursor.expanded = false;
                 Outcome::Moved
             }
             None => Outcome::None,
@@ -435,6 +460,12 @@ impl Cursor {
                 }
                 _ if self.path.len() > 1 => {
                     self.path.pop();
+                    self.expanded = false;
+                    Outcome::Moved
+                }
+                // A submenu the pointer opened from the menu itself.
+                _ if self.expanded => {
+                    self.expanded = false;
                     Outcome::Moved
                 }
                 _ => Outcome::None,
@@ -464,6 +495,7 @@ impl Cursor {
             },
             MenuKey::Back if self.path.len() > 1 => {
                 self.path.pop();
+                self.expanded = false;
                 Outcome::Moved
             }
             MenuKey::Back | MenuKey::Close => Outcome::Close,
@@ -475,6 +507,7 @@ impl Cursor {
             Some(i) => {
                 self.path.push(i);
                 self.part = 1;
+                self.expanded = false;
                 Outcome::Moved
             }
             None => Outcome::None,
@@ -639,7 +672,9 @@ mod tests {
                 "Three (off)",
                 "Some ▸ Four",
                 "None (off) ▸ Two (off)",
-                "zoom 100%: on/off/on",
+                // The zoom row keeps the state it is built with: it acts
+                // without closing, so it changes its own availability.
+                "zoom 100%: on/on/on",
             ]
         );
     }
@@ -717,6 +752,7 @@ mod tests {
         let mut c = Cursor {
             path: vec![3],
             part: 1,
+            expanded: false,
         };
         assert!(matches!(c.key(&items, MenuKey::Right), Outcome::Moved));
         assert_eq!(c.path, [3, 0]);
@@ -739,10 +775,47 @@ mod tests {
         let mut top = Cursor {
             path: vec![0],
             part: 1,
+            expanded: false,
         };
         assert!(matches!(top.key(&items, MenuKey::Left), Outcome::None));
         assert!(matches!(top.key(&items, MenuKey::Right), Outcome::None));
         assert_eq!(top.path, [0]);
+    }
+
+    #[test]
+    fn left_and_esc_close_a_submenus_panel() {
+        let items = menu();
+        let mut c = Cursor::opened_by_keyboard(&items);
+        // Down onto a submenu row highlights it without opening it.
+        c.key(&items, MenuKey::Down);
+        assert_eq!(c.path, [3]);
+        assert_eq!(c.open_levels(&items), 1);
+        c.key(&items, MenuKey::Right);
+        assert_eq!(c.path, [3, 0]);
+        assert_eq!(c.open_levels(&items), 2);
+        c.key(&items, MenuKey::Left);
+        assert_eq!(c.path, [3]);
+        assert_eq!(c.open_levels(&items), 1, "Left closes the submenu's panel");
+        c.key(&items, MenuKey::Activate);
+        c.key(&items, MenuKey::Back);
+        assert_eq!(c.open_levels(&items), 1, "so does Esc");
+        // The pointer opens a submenu by resting on its row.
+        c.hover(&items, 0, 3);
+        assert_eq!(c.open_levels(&items), 2);
+        c.hover(&items, 0, 0);
+        assert_eq!(c.open_levels(&items), 1);
+    }
+
+    #[test]
+    fn hovering_a_zoom_part_selects_it_for_enter() {
+        let items = menu();
+        let mut c = Cursor::opened_by_keyboard(&items);
+        c.hover_part(&items, 0, 4, 2);
+        assert_eq!((c.path.clone(), c.part), (vec![4], 2));
+        assert_eq!(
+            activated(c.key(&items, MenuKey::Activate)),
+            Some(("chrome_menu_test::In".into(), true))
+        );
     }
 
     #[test]
@@ -751,6 +824,7 @@ mod tests {
         let mut c = Cursor {
             path: vec![4],
             part: 1,
+            expanded: false,
         };
         assert_eq!(
             activated(c.key(&items, MenuKey::Activate)),
@@ -776,6 +850,7 @@ mod tests {
         let mut c = Cursor {
             path: vec![0],
             part: 1,
+            expanded: false,
         };
         assert!(matches!(
             c.key(&at_actual, MenuKey::Activate),

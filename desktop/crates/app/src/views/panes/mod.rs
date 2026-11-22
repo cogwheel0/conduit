@@ -375,9 +375,9 @@ impl Render for AreaPane {
             10.
         };
         let style = chrome::style(cx);
-        // Windows takes presses on the toolbar as the title bar's: each
+        // Off the Mac the toolbar takes presses as the title bar's: each
         // control blocks that. GNOME leads with the toggle always.
-        let windows = style == Some(ChromeStyle::Windows);
+        let blocks = style.is_some();
         let gnome = style == Some(ChromeStyle::Gnome);
         let trailing_pad = trailing_room(reveal >= 1., cx);
         let keys = conduit_components::views::focus::hints(cx);
@@ -403,7 +403,7 @@ impl Render for AreaPane {
             .when(reveal < 1. || gnome, |d| {
                 d.child(
                     toolbar_capsule(&t)
-                        .when(windows, |d| d.occlude())
+                        .when(blocks, |d| d.occlude())
                         .p(px(2.))
                         .opacity(if gnome { 1. } else { shown })
                         .child(
@@ -439,9 +439,15 @@ impl Render for AreaPane {
                         .child(match &item {
                             // A room names itself with its bots' faces and who
                             // is at work; a click opens Room Info.
-                            AreaItem::HermesRoom(id) => {
-                                crate::views::hermes_room::toolbar_title(&self.stores, id, &t, cx)
-                            }
+                            AreaItem::HermesRoom(id) => div()
+                                .when(blocks, |d| d.occlude())
+                                .child(crate::views::hermes_room::toolbar_title(
+                                    &self.stores,
+                                    id,
+                                    &t,
+                                    cx,
+                                ))
+                                .into_any_element(),
                             _ => div()
                                 .id("area-pane-title")
                                 // The item's name, as VoiceOver's headings list
@@ -458,11 +464,11 @@ impl Render for AreaPane {
                         }),
                 )
                 .child(div().flex_1())
-                .children(trailing.map(|el| div().when(windows, |d| d.occlude()).child(el)))
+                .children(trailing.map(|el| div().when(blocks, |d| d.occlude()).child(el)))
                 .when_some(room_actions, |d, actions| {
                     d.child(
                         toolbar_capsule(&t)
-                            .when(windows, |d| d.occlude())
+                            .when(blocks, |d| d.occlude())
                             .p(px(2.))
                             .flex()
                             .gap(px(2.))
@@ -476,7 +482,7 @@ impl Render for AreaPane {
                 let subtitle = pane.read(cx).shell_title().map(str::to_string);
                 d.child(
                     div()
-                        .when(windows, |d| d.occlude())
+                        .when(blocks, |d| d.occlude())
                         .flex_1()
                         .min_w_0()
                         .pl(px(if reveal < 1. { 10. } else { 4. }))
@@ -533,8 +539,8 @@ impl Render for AreaPane {
                             )
                         }),
                 )
-                .child(crate::views::terminal::pane::TerminalPane::toolbar(
-                    pane, window, cx,
+                .child(div().when(blocks, |d| d.occlude()).child(
+                    crate::views::terminal::pane::TerminalPane::toolbar(pane, window, cx),
                 ))
             });
         div()
