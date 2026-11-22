@@ -52,6 +52,8 @@ wry = { package = "lb-wry", version = "=0.53.3" }
 # the same ICU4X release GPUI's segmenter comes from.
 icu_datetime = "2.4"
 icu_locale_core = "2.4"
+# The first day of a week, for the date picker's grid.
+icu_calendar = "2.4"
 
 [target.'cfg(windows)'.dependencies]
 # The display languages and the regional format (l10n::locale); the accent

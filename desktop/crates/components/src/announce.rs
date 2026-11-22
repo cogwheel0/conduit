@@ -23,7 +23,9 @@
 //! regions, which Narrator and NVDA (UIA) and Orca (AT-SPI) speak: each
 //! window's root draws the latest announcement made while it was in front
 //! as a new live node ([`LiveRegion`]), so the same words twice are heard
-//! twice. [`live_text`] speaks through [`announce`], so it follows.
+//! twice. Several made before a frame each get their node, spoken in order
+//! (the last [`LIVE_KEPT`] are kept). [`live_text`] speaks through
+//! [`announce`], so it follows.
 
 use gpui_kit::base::{Root, RootPlugin};
 use gpui_kit::prelude::*;
@@ -99,22 +101,31 @@ pub fn announce(text: impl Into<SharedString>, priority: Priority, cx: &mut App)
     macos::post(&text, priority);
     if cx.has_global::<LiveAnnouncements>() {
         let window = cx.active_window().or_else(|| cx.windows().first().copied());
-        let latest = cx.global_mut::<LiveAnnouncements>();
-        latest.serial += 1;
-        latest.latest = Some(LiveAnnouncement {
-            serial: latest.serial,
+        let live = cx.global_mut::<LiveAnnouncements>();
+        live.serial += 1;
+        let announcement = LiveAnnouncement {
+            serial: live.serial,
             window,
             text,
             priority,
-        });
+        };
+        if live.kept.len() == LIVE_KEPT {
+            live.kept.pop_front();
+        }
+        live.kept.push_back(announcement);
     }
 }
 
-/// The latest announcement, for the windows' live regions (off the Mac).
+/// How many announcements the live regions keep, newest last: enough for a
+/// burst made before the next frame (each node is spoken as it first
+/// appears; older ones then leave the tree).
+pub const LIVE_KEPT: usize = 8;
+
+/// The last announcements, for the windows' live regions (off the Mac).
 #[derive(Default)]
 pub struct LiveAnnouncements {
     serial: u64,
-    latest: Option<LiveAnnouncement>,
+    kept: std::collections::VecDeque<LiveAnnouncement>,
 }
 
 impl Global for LiveAnnouncements {}
@@ -140,13 +151,18 @@ pub fn install_live_regions(cx: &mut App) {
     Root::register_plugin::<LiveRegion>(cx, LiveRegion::new);
 }
 
-/// The announcement `window`'s live region shows: the latest, if it was
-/// made with `window` in front.
-pub fn live_announcement(window: AnyWindowHandle, cx: &App) -> Option<LiveAnnouncement> {
-    cx.try_global::<LiveAnnouncements>()?
-        .latest
-        .clone()
-        .filter(|a| a.window == Some(window))
+/// The announcements `window`'s live region shows, oldest first: those
+/// made with `window` in front, of the last [`LIVE_KEPT`].
+pub fn live_announcements(window: AnyWindowHandle, cx: &App) -> Vec<LiveAnnouncement> {
+    cx.try_global::<LiveAnnouncements>()
+        .map(|live| {
+            live.kept
+                .iter()
+                .filter(|a| a.window == Some(window))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// A window's live region: a zero-size node over the content, drawn again
@@ -167,20 +183,23 @@ impl RootPlugin for LiveRegion {}
 
 impl gpui_kit::Render for LiveRegion {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let shown = live_announcement(window.window_handle(), cx);
-        div().absolute().size_0().children(shown.map(|a| {
-            let (role, live) = match a.priority {
-                Priority::High => (Role::Alert, Live::Assertive),
-                Priority::Low | Priority::Medium => (Role::Status, Live::Polite),
-            };
-            div()
-                .id(("announcement", a.serial))
-                .role(role)
-                .aria_live(live)
-                .aria_label(a.text)
-                .absolute()
-                .size_0()
-        }))
+        let shown = live_announcements(window.window_handle(), cx);
+        div()
+            .absolute()
+            .size_0()
+            .children(shown.into_iter().map(|a| {
+                let (role, live) = match a.priority {
+                    Priority::High => (Role::Alert, Live::Assertive),
+                    Priority::Low | Priority::Medium => (Role::Status, Live::Polite),
+                };
+                div()
+                    .id(("announcement", a.serial))
+                    .role(role)
+                    .aria_live(live)
+                    .aria_label(a.text)
+                    .absolute()
+                    .size_0()
+            }))
     }
 }
 
@@ -430,13 +449,51 @@ mod tests {
         });
         cx.run_until_parked();
         cx.update(|cx| announce("Copied", Priority::Medium, cx));
-        let shown = cx.update(|cx| live_announcement(front, cx)).unwrap();
-        assert_eq!(shown.text, SharedString::from("Copied"));
-        assert_eq!(shown.priority, Priority::Medium);
-        assert_eq!(cx.update(|cx| live_announcement(back, cx)), None);
+        let shown = cx.update(|cx| live_announcements(front, cx));
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].text, SharedString::from("Copied"));
+        assert_eq!(shown[0].priority, Priority::Medium);
+        assert!(cx.update(|cx| live_announcements(back, cx)).is_empty());
         cx.update(|cx| announce("Copied", Priority::Medium, cx));
-        let again = cx.update(|cx| live_announcement(front, cx)).unwrap();
-        assert_ne!(again.serial, shown.serial, "the same words, a new node");
+        let again = cx.update(|cx| live_announcements(front, cx));
+        assert_ne!(
+            again[1].serial, again[0].serial,
+            "the same words, a new node"
+        );
+
+        // A burst before the next frame: each is kept, in order, so none is
+        // lost; only the last LIVE_KEPT stay.
+        cx.update(|cx| {
+            announce("Name is required.", Priority::High, cx);
+            announce("Server address is not valid.", Priority::High, cx);
+        });
+        let texts = |cx: &mut TestAppContext| -> Vec<SharedString> {
+            cx.update(|cx| live_announcements(front, cx))
+                .into_iter()
+                .map(|a| a.text)
+                .collect()
+        };
+        assert_eq!(
+            texts(cx),
+            [
+                "Copied",
+                "Copied",
+                "Name is required.",
+                "Server address is not valid."
+            ]
+            .map(SharedString::from)
+        );
+        cx.update(|cx| {
+            for n in 0..LIVE_KEPT + 3 {
+                announce(format!("Step {n}"), Priority::Low, cx);
+            }
+        });
+        let kept = texts(cx);
+        assert_eq!(kept.len(), LIVE_KEPT);
+        assert_eq!(
+            kept.last(),
+            Some(&SharedString::from(format!("Step {}", LIVE_KEPT + 2)))
+        );
         // Each window's root carries a live region.
         for window in [front, back] {
             let has_region = cx

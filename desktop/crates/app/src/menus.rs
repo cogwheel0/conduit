@@ -33,9 +33,9 @@ use conduit_components::views::focus::ShortcutHints;
 use crate::AppState;
 use crate::actions::*;
 use crate::keymap::{
-    AreaKey, FixedCommand, KeyOs, KeyStroke, Keymap, ShortcutAction, area_stroke, area_stroke_on,
-    console_app_chords, describe, fixed_shortcuts, fixed_stroke, new_chat_alias, shell_chords,
-    to_gpui, to_gpui_on,
+    AreaKey, FixedCommand, KeyOs, KeyStroke, Keymap, ShortcutAction, app_chords, area_stroke,
+    area_stroke_on, console_app_chords, describe, fixed_shortcuts, fixed_stroke, new_chat_alias,
+    shell_chords, to_gpui, to_gpui_on,
 };
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
@@ -383,6 +383,9 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     if !KeyOs::CURRENT.is_mac() {
         cx.bind_keys(crate::shell::app_prompt::bindings());
         cx.bind_keys(crate::shell::date_picker::bindings());
+        let chords = app_chords(keymap, quick_ask_stroke(cx).as_ref(), KeyOs::CURRENT);
+        let guard = crate::shell::app_prompt::guard_bindings(&chords, KeyOs::CURRENT, cx);
+        cx.bind_keys(guard);
     }
     cx.set_global(shortcut_hints(keymap, quick_ask_stroke(cx).as_ref()));
 }

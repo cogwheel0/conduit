@@ -15,7 +15,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyView, AnyWindowHandle, App, Context, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, Global, KeyBinding, PromptButton, PromptHandle, PromptLevel, PromptResponse,
-    RenderablePromptHandle, Role, SharedString, WeakEntity, Window, actions, div, px,
+    RenderablePromptHandle, Role, ScrollHandle, SharedString, WeakEntity, Window, actions, div, px,
 };
 
 use conduit_components::ActiveConduitTheme as _;
@@ -35,7 +35,12 @@ actions!(
         /// Answers Cancel, or a notice's only button.
         Cancel,
         NextButton,
-        PreviousButton
+        PreviousButton,
+        /// Scroll a long message (the buttons keep Tab and Return).
+        LineDown,
+        LineUp,
+        PageDown,
+        PageUp
     ]
 );
 
@@ -55,13 +60,61 @@ pub fn bindings() -> Vec<KeyBinding> {
         KeyBinding::new("right", NextButton, c),
         KeyBinding::new("shift-tab", PreviousButton, c),
         KeyBinding::new("left", PreviousButton, c),
+        KeyBinding::new("down", LineDown, c),
+        KeyBinding::new("up", LineUp, c),
+        KeyBinding::new("pagedown", PageDown, c),
+        KeyBinding::new("pageup", PageUp, c),
     ]
+}
+
+/// While a prompt is up, the app's own chords act on nothing behind it
+/// (Ctrl+Shift+Enter would allow a waiting tool request, Ctrl+N start a
+/// chat): each of `chords` but the prompt's own keys is bound to nothing in
+/// its context. Bound after the app's, which rank as deep as the focus.
+pub fn guard_bindings(chords: &[crate::keymap::KeyStroke], os: KeyOs, cx: &App) -> Vec<KeyBinding> {
+    let own: Vec<String> = bindings()
+        .iter()
+        .map(|b| {
+            b.keystrokes()[0]
+                .inner()
+                .unparse(gpui_kit::OperatingSystem::Linux)
+        })
+        .collect();
+    chords
+        .iter()
+        .map(|s| crate::keymap::to_gpui_on(s, os))
+        .filter(|chord| !own.contains(chord))
+        .filter_map(|chord| {
+            KeyBinding::load(
+                &chord,
+                Box::new(gpui_kit::NoAction),
+                Some(std::rc::Rc::new(
+                    gpui_kit::KeyBindingContextPredicate::parse(CONTEXT).ok()?,
+                )),
+                false,
+                None,
+                cx,
+            )
+            .ok()
+        })
+        .collect()
 }
 
 /// Draws every `window.prompt` with [`AppPrompt`] from now on.
 pub fn install(cx: &mut App) {
     cx.set_prompt_builder(build);
+    cx.set_global(Installed);
 }
+
+/// [`install`] ran: questions with an accessory (the date picker) can be
+/// asked in the window.
+pub fn installed(cx: &App) -> bool {
+    cx.has_global::<Installed>()
+}
+
+struct Installed;
+
+impl Global for Installed {}
 
 /// What a prompt shows between its message and its buttons (the date
 /// picker), with the stops Tab reaches in it, first to last.
@@ -136,6 +189,8 @@ pub struct AppPrompt {
     /// last, Windows first.
     os: KeyOs,
     accessory: Option<Accessory>,
+    /// The message's scroll, when it is taller than the window allows.
+    message_scroll: ScrollHandle,
     answered: bool,
 }
 
@@ -159,8 +214,19 @@ impl AppPrompt {
             container: cx.focus_handle(),
             os,
             accessory: None,
+            message_scroll: ScrollHandle::new(),
             answered: false,
         }
+    }
+
+    /// Scrolls the message `lines` lines on (back, when negative).
+    fn scroll_message(&mut self, lines: f32, cx: &mut Context<Self>) {
+        const LINE: f32 = 20.;
+        let max = self.message_scroll.max_offset().y;
+        let now = self.message_scroll.offset();
+        let y = (now.y - px(lines * LINE)).clamp(-max, px(0.));
+        self.message_scroll.set_offset(gpui_kit::point(now.x, y));
+        cx.notify();
     }
 
     /// Answers with the button at `index` (in the order the question gave
@@ -282,22 +348,18 @@ impl Render for AppPrompt {
                 .child(button.label().clone())
                 .when(focused, |d| d.child(ring_overlay(Ring::Outset(radius), &t)))
         });
-        let card = div()
-            .id("prompt")
-            .role(Role::AlertDialog)
-            .aria_label(self.title.clone())
-            .when_some(self.detail.clone(), |d, detail| d.aria_description(detail))
-            .w(px(360.))
-            .max_w_full()
-            .p(px(20.))
+        // The message scrolls inside a card no taller than the window, so
+        // the buttons stay in view however long it is.
+        let message = div()
+            .id("prompt-message")
+            .debug_selector(|| "prompt-message".into())
+            .track_scroll(&self.message_scroll)
+            .overflow_y_scroll()
+            .min_h(px(0.))
+            .flex_shrink(1.)
             .flex()
             .flex_col()
             .gap(px(8.))
-            .rounded(t.overlay_radius())
-            .bg(r.overlay)
-            .border_1()
-            .border_color(r.border)
-            .shadow(overlay_shadow(&t))
             .child(
                 div()
                     .text_size(px(t.metrics.control + 1.))
@@ -308,6 +370,7 @@ impl Render for AppPrompt {
             .when_some(self.detail.clone(), |d, detail| {
                 d.child(
                     div()
+                        .debug_selector(|| "prompt-detail".into())
                         .text_size(px(t.metrics.control))
                         .text_color(r.text_subtle)
                         .child(detail),
@@ -315,10 +378,29 @@ impl Render for AppPrompt {
             })
             .when_some(self.accessory.as_ref(), |d, a| {
                 d.child(div().pt(px(8.)).child(a.view.clone()))
-            })
+            });
+        let card = div()
+            .id("prompt")
+            .role(Role::AlertDialog)
+            .aria_label(self.title.clone())
+            .when_some(self.detail.clone(), |d, detail| d.aria_description(detail))
+            .w(px(360.))
+            .max_w_full()
+            .max_h(gpui_kit::relative(1.))
+            .p(px(20.))
+            .flex()
+            .flex_col()
+            .rounded(t.overlay_radius())
+            .bg(r.overlay)
+            .border_1()
+            .border_color(r.border)
+            .shadow(overlay_shadow(&t))
+            .child(message)
             .child(
                 div()
-                    .pt(px(12.))
+                    .debug_selector(|| "prompt-buttons".into())
+                    .flex_none()
+                    .pt(px(20.))
                     .flex()
                     .flex_row()
                     .justify_end()
@@ -344,6 +426,10 @@ impl Render for AppPrompt {
             .on_action(
                 cx.listener(|this, _: &PreviousButton, window, cx| this.step(-1, window, cx)),
             )
+            .on_action(cx.listener(|this, _: &LineDown, _, cx| this.scroll_message(1., cx)))
+            .on_action(cx.listener(|this, _: &LineUp, _, cx| this.scroll_message(-1., cx)))
+            .on_action(cx.listener(|this, _: &PageDown, _, cx| this.scroll_message(8., cx)))
+            .on_action(cx.listener(|this, _: &PageUp, _, cx| this.scroll_message(-8., cx)))
             .occlude()
             .size_full()
             .flex()

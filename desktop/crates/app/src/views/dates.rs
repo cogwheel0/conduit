@@ -115,6 +115,25 @@ pub fn format(ms: i64, form: Form, locale: &str) -> String {
     formatted.unwrap_or_else(|| fallback(ms, form, locale))
 }
 
+/// The day a week starts on where `locale` (an app locale) is written, in
+/// the system's region as [`format_tag`] picks it (Sunday in the US and
+/// India, Saturday in Egypt). The Mac's pickers are NSDatePicker's, so it
+/// has no grid to start: Monday.
+pub fn first_weekday(locale: &str) -> chrono::Weekday {
+    #[cfg(not(target_os = "macos"))]
+    {
+        icu::first_weekday(&format_tag(
+            locale,
+            crate::l10n::locale::system_format_locale().as_deref(),
+        ))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = locale;
+        chrono::Weekday::Mon
+    }
+}
+
 /// The locale dates are written in: the system's own (`de-AT`, `en-GB`)
 /// when it speaks the app's language, so its region's order and clock
 /// apply, else the app's language (`zh_Hant` as `zh-Hant`).
@@ -198,6 +217,25 @@ mod icu {
         DateTimeFormatter::try_new((&locale).into(), field_set(form))
             .map_err(|e| log::warn!("no {form:?} dates for {tag}: {e:?}"))
             .ok()
+    }
+
+    /// The first day of the week for the BCP-47 `tag` (Monday when its
+    /// data can't be read).
+    pub fn first_weekday(tag: &str) -> chrono::Weekday {
+        use icu_calendar::types::Weekday as W;
+        let first = Locale::try_from_str(tag)
+            .ok()
+            .and_then(|l| icu_calendar::week::WeekInformation::try_new((&l).into()).ok())
+            .map(|w| w.first_weekday);
+        match first {
+            Some(W::Sunday) => chrono::Weekday::Sun,
+            Some(W::Tuesday) => chrono::Weekday::Tue,
+            Some(W::Wednesday) => chrono::Weekday::Wed,
+            Some(W::Thursday) => chrono::Weekday::Thu,
+            Some(W::Friday) => chrono::Weekday::Fri,
+            Some(W::Saturday) => chrono::Weekday::Sat,
+            Some(W::Monday) | None => chrono::Weekday::Mon,
+        }
     }
 
     /// `ms` in `form` for the BCP-47 `tag`, in the local time zone.
@@ -379,6 +417,18 @@ mod icu_tests {
         assert_eq!(f("fr"), "4 juil.");
         assert_eq!(f("ja"), "7月4日");
         assert_eq!(f("en"), "Jul 4");
+    }
+
+    /// A week starts where the region's calendar starts it.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn a_week_starts_as_the_region_has_it() {
+        use chrono::Weekday as W;
+        assert_eq!(icu::first_weekday("en-US"), W::Sun);
+        assert_eq!(icu::first_weekday("en-IN"), W::Sun);
+        assert_eq!(icu::first_weekday("de-DE"), W::Mon);
+        assert_eq!(icu::first_weekday("en-GB"), W::Mon);
+        assert_eq!(icu::first_weekday("ar-EG"), W::Sat);
     }
 
     /// The system's region when it speaks the app's language, else the

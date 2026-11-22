@@ -91,6 +91,11 @@ pub fn pick(window: &Window, spec: PickerSpec, cx: &mut App) -> Task<Option<Wall
             None => None,
         });
     }
+    // The Mac draws no picker of its own in a window (its pickers are
+    // NSDatePicker sheets).
+    if !crate::shell::app_prompt::installed(cx) {
+        return Task::ready(None);
+    }
     pick_in_window(window.window_handle(), spec, cx)
 }
 
@@ -251,6 +256,19 @@ impl PickerState {
         true
     }
 
+    /// Picks which part of a time the keys change (a click on it).
+    pub fn select(&mut self, segment: Segment) {
+        self.segment = segment;
+        self.typed = None;
+    }
+
+    /// Steps `segment` by one, up or down (its arrows), wrapping as the keys
+    /// do.
+    pub fn step(&mut self, segment: Segment, by: i32) {
+        self.select(segment);
+        self.time_key(if by > 0 { "up" } else { "down" });
+    }
+
     fn time_key(&mut self, key: &str) -> bool {
         let modulus = match self.segment {
             Segment::Hour => 24,
@@ -372,6 +390,18 @@ impl PickerField {
         seconds_of(wall).unwrap_or(0) * 1000
     }
 
+    /// A time of day as an instant on a day every time exists on, so its
+    /// label shows the fields' hour even in a clock change's gap (02:30 on
+    /// the morning clocks skip it stays 02:30).
+    fn time_ms(wall: WallClock) -> i64 {
+        Self::ms(WallClock {
+            year: 2000,
+            month: 1,
+            day: 1,
+            ..wall
+        })
+    }
+
     fn render_month(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let t = cx.conduit().clone();
         let r = &t.roles;
@@ -380,14 +410,10 @@ impl PickerField {
             return div().into_any_element();
         };
         let first = selected.with_day(1).unwrap_or(selected);
-        // The grid starts on Monday, or on Sunday where the region's
-        // weeks do.
-        let sunday_first = sunday_starts_week(&self.locale);
-        let lead = if sunday_first {
-            first.weekday().num_days_from_sunday()
-        } else {
-            first.weekday().num_days_from_monday()
-        };
+        // The grid starts on the day the region's weeks do.
+        let week_start = dates::first_weekday(&self.locale);
+        let lead =
+            (first.weekday().num_days_from_monday() + 7 - week_start.num_days_from_monday()) % 7;
         let start = first - chrono::Days::new(u64::from(lead));
         let today = wall_of(chrono::Local::now().timestamp())
             .and_then(|w| NaiveDate::from_ymd_opt(w.year, w.month, w.day));
@@ -512,9 +538,68 @@ impl PickerField {
         let t = cx.conduit().clone();
         let r = &t.roles;
         let value = self.state.value;
-        let box_for = |segment: Segment, n: u32| {
+        let focus = self.focus.clone();
+        // A part of the time: a click picks it (the keys then change it),
+        // and the arrows above and below step it, for the pointer. The
+        // field as a whole is what screen readers and the keys reach.
+        let mut segment_for = |segment: Segment, n: u32, name: &'static str| {
             let active = self.state.segment == segment;
-            div()
+            let stepper = |id: &'static str, by: i32, icon: IconName, cx: &mut Context<Self>| {
+                div()
+                    .id(id)
+                    .debug_selector(move || id.into())
+                    .w(px(40.))
+                    .h(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(r.hover))
+                    .child(conduit_components::assets::icon(icon, 11., r.text_subtle))
+                    .map(|d| {
+                        let focus = focus.clone();
+                        d.on_click(cx.listener(move |this, _, window, cx| {
+                            window.focus(&focus, cx);
+                            this.state.step(segment, by);
+                            this.chosen.set(this.state.value);
+                            cx.notify();
+                        }))
+                    })
+            };
+            let up = stepper(
+                if name == "hour" {
+                    "hour-up"
+                } else {
+                    "minute-up"
+                },
+                1,
+                IconName::ChevronUp,
+                cx,
+            );
+            let down = stepper(
+                if name == "hour" {
+                    "hour-down"
+                } else {
+                    "minute-down"
+                },
+                -1,
+                IconName::ChevronDown,
+                cx,
+            );
+            // Each part is its own spin button, the focused field's active
+            // descendant while the keys change it, so moving between them
+            // is heard. Its name waits on a string of its own (proposed:
+            // "Hour", "Minute"); the picker's title stands in.
+            let field = div()
+                .id(name)
+                .debug_selector(move || name.into())
+                .role(Role::SpinButton)
+                .aria_label(SharedString::from(self.title.clone()))
+                .aria_numeric_value(f64::from(n))
+                .aria_min_numeric_value(0.)
+                .aria_max_numeric_value(if segment == Segment::Hour { 23. } else { 59. })
+                .when(active, |d| d.aria_active_descendant())
                 .w(px(40.))
                 .h(px(t.metrics.control_height))
                 .flex()
@@ -530,44 +615,47 @@ impl PickerField {
                 })
                 .text_color(r.text)
                 .text_size(px(t.metrics.control + 1.))
-                .child(format!("{n:02}"))
+                .cursor_pointer()
+                .map(|d| {
+                    let focus = focus.clone();
+                    d.on_click(cx.listener(move |this, _, window, cx| {
+                        window.focus(&focus, cx);
+                        this.state.select(segment);
+                        cx.notify();
+                    }))
+                })
+                .child(format!("{n:02}"));
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(2.))
+                .child(up)
+                .child(field)
+                .child(down)
         };
+        let hour = segment_for(Segment::Hour, value.hour, "hour");
+        let minute = segment_for(Segment::Minute, value.minute, "minute");
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap(px(6.))
-            .child(box_for(Segment::Hour, value.hour))
+            .child(hour)
             .child(div().text_color(r.text).child(":"))
-            .child(box_for(Segment::Minute, value.minute))
+            .child(minute)
             .child(
                 div()
                     .pl(px(8.))
                     .text_size(px(t.metrics.control))
                     .text_color(r.text_subtle)
-                    .child(dates::format(Self::ms(value), Form::Time, &self.locale)),
+                    .child(dates::format(
+                        Self::time_ms(value),
+                        Form::Time,
+                        &self.locale,
+                    )),
             )
             .into_any_element()
-    }
-}
-
-/// Weeks start on Sunday in this locale's region (the US, Canada, Japan,
-/// Taiwan, Hong Kong, Korea, Israel, Brazil and Mexico), else on Monday.
-fn sunday_starts_week(locale: &str) -> bool {
-    let tag = crate::views::dates::format_tag(
-        locale,
-        crate::l10n::locale::system_format_locale().as_deref(),
-    );
-    let region = tag
-        .split('-')
-        .skip(1)
-        .find(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_uppercase()));
-    match region {
-        Some(r) => matches!(
-            r,
-            "US" | "CA" | "JP" | "TW" | "HK" | "KR" | "IL" | "BR" | "MX"
-        ),
-        None => matches!(locale, "en" | "ja" | "ko" | "zh_Hant"),
     }
 }
 
@@ -582,16 +670,13 @@ impl Render for PickerField {
         };
         let spoken = match self.state.mode {
             PickerMode::Date => dates::format(Self::ms(value), Form::LongDate, &self.locale),
-            PickerMode::Time => dates::format(Self::ms(value), Form::Time, &self.locale),
+            PickerMode::Time => dates::format(Self::time_ms(value), Form::Time, &self.locale),
         };
         div()
             .id("picker")
             .key_context(PICKER_CONTEXT)
             .track_focus(&self.focus)
-            .role(match self.state.mode {
-                PickerMode::Date => Role::Group,
-                PickerMode::Time => Role::SpinButton,
-            })
+            .role(Role::Group)
             .aria_label(SharedString::from(self.title.clone()))
             .aria_value(SharedString::from(spoken))
             .p(px(6.))
@@ -806,6 +891,42 @@ mod tests {
         });
         vcx.run_until_parked();
         answer
+    }
+
+    /// Without the app's prompt (the Mac, in a window with no NSWindow)
+    /// there is no picker to show: it answers as cancelled, showing nothing.
+    #[gpui_kit::test]
+    fn without_the_apps_prompt_no_picker_is_shown(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(crate::views::test_globals);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let answer = ask(vcx, PickerMode::Date, wall(2026, 1, 31, 9, 30));
+        assert_eq!(answer.get(), Some(None));
+        assert!(!vcx.has_pending_prompt());
+    }
+
+    /// The time can be set with the pointer: a click picks the hour or the
+    /// minute (the keys then change it) and their arrows step them.
+    #[gpui_kit::test]
+    fn a_time_is_picked_with_the_pointer(cx: &mut gpui_kit::TestAppContext) {
+        app_pickers(cx);
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let answer = ask(vcx, PickerMode::Time, wall(2026, 1, 31, 9, 30));
+        let click = |vcx: &mut gpui_kit::VisualTestContext, selector: &'static str| {
+            let bounds = vcx
+                .debug_bounds(selector)
+                .unwrap_or_else(|| panic!("{selector} not drawn"));
+            vcx.simulate_click(bounds.center(), gpui_kit::Modifiers::none());
+            vcx.run_until_parked();
+        };
+        click(vcx, "minute");
+        vcx.simulate_keystrokes("up");
+        vcx.run_until_parked();
+        click(vcx, "hour-up");
+        click(vcx, "hour-up");
+        click(vcx, "minute-down");
+        vcx.simulate_keystrokes("enter");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(Some(wall(2026, 1, 31, 11, 30))));
     }
 
     /// Off the Mac the picker is the app's prompt: it has the keyboard as

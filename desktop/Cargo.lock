@@ -1212,6 +1212,7 @@ dependencies = [
  "global-hotkey",
  "gpui-kit",
  "gpui-webview",
+ "icu_calendar",
  "icu_datetime",
  "icu_locale_core",
  "image",
