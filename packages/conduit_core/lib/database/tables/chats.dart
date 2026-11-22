@@ -34,9 +34,10 @@ class Chats extends Table {
   /// unread (0). See `ChatsDao.mergeServerLastReadAt`.
   IntColumn get lastReadAt => integer().nullable()();
 
-  /// A push from this device sent text it took from the server's copy,
-  /// never shown here: the chat shows unread on this device until it is
-  /// read here ([ChatsDao.setLastReadAt]), whatever its dates say. Its dates
+  /// The chat holds text from the server's copy never shown here, taken
+  /// into a push from this device or returned by one: it shows unread on
+  /// this device until it is read here ([ChatsDao.setLastReadAt]), whatever
+  /// its dates say. Its dates
   /// alone can't hold that: a read in the second the push lands, or by a
   /// clock ahead of the server's, is no earlier than the push, and pulls
   /// take the server's `updated_at` and the newer `last_read_at`.

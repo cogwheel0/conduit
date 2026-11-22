@@ -408,9 +408,12 @@ class PushSync {
       // update leaves out (`merge_history`), and its own copy of an answer
       // it holds as not done, which a running task may have written on.
       final pushed = {for (final message in rows.messages) message.id: message};
+      final landed = resp['chat'] is Map
+          ? _serverMessages(chatId, resp['chat'])
+          : null;
       final ownSave =
-          resp['chat'] is Map &&
-          _serverMessages(chatId, resp['chat']).entries.every((stored) {
+          landed != null &&
+          landed.entries.every((stored) {
             final sent = pushed[stored.key];
             return sent != null && !_showsOther(stored.value, sent);
           });
@@ -440,6 +443,10 @@ class PushSync {
           );
         } else if (ownSave) {
           await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
+        } else if (landed != null) {
+          // The server's copy holds what this device never sent or showed:
+          // news, whatever the dates say once a pull stores it.
+          await _db.chatsDao.holdUnread(chatId);
         }
       });
     });
