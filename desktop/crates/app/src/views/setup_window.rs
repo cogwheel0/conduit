@@ -465,7 +465,10 @@ impl Render for SetupWindow {
         let starting = page == Page::Status
             && !matches!(
                 status,
-                Status::Failed { .. } | Status::StoreUnreadable | Status::VersionMismatch { .. }
+                Status::Failed { .. }
+                    | Status::StoreUnreadable
+                    | Status::NoSecretStore { .. }
+                    | Status::VersionMismatch { .. }
             );
         if !chooser && !starting && reveal(&self.fit, window) {
             self.refit(window, cx);

@@ -1,7 +1,8 @@
 //! The designed connection states: a centred status card in the first-run
 //! frame (connecting, core starting, failed with Retry, unreadable data with
-//! Reset local data, version mismatch), and the reconnect banner shown over
-//! content that is already routed.
+//! Reset local data, no keyring on Linux with Retry and the key file,
+//! version mismatch), and the reconnect banner shown over content that is
+//! already routed.
 
 use std::rc::Rc;
 
@@ -14,6 +15,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, Div, Entity, FontWeight, Role, SharedString, div, px, relative};
 
 use crate::l10n::{ActiveL10n as _, L10n};
+use crate::shell::sheet::{SheetSpec, present_sheet};
 use crate::stores::connection::{ConnectionStore, Diagnostics, Status};
 
 /// The word beside the composer's Send while it can't send: the state the
@@ -73,6 +75,12 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             false,
             Some(r.warning),
         ),
+        Status::NoSecretStore { .. } => (
+            l10n.desktop_no_secret_service_title().into(),
+            Some(l10n.desktop_no_secret_service_body().into()),
+            false,
+            Some(r.warning),
+        ),
         Status::VersionMismatch { .. } => (
             l10n.desktop_core_version_mismatch().into(),
             None,
@@ -81,7 +89,7 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
         ),
     };
     let detail: Option<SharedString> = match status {
-        Status::Failed { detail } => Some(detail.clone().into()),
+        Status::Failed { detail } | Status::NoSecretStore { detail } => Some(detail.clone().into()),
         Status::VersionMismatch { daemon, app } => {
             Some(format!("conduitd {daemon} · app {app}").into())
         }
@@ -93,24 +101,36 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
     let show_logs = Button::new("status-logs", l10n.desktop_show_logs())
         .icon(IconName::FolderOpen)
         .on_click(handler(move |cx| cx.reveal_path(&logs)));
+    let retry = {
+        let s = store.clone();
+        Button::new("status-retry", l10n.retry())
+            .primary()
+            .icon(IconName::RotateCcw)
+            .on_click(handler(move |cx| {
+                if s.update(cx, |s, cx| s.retry(cx))
+                    && let Some(state) = cx.try_global::<crate::AppState>()
+                {
+                    let session = state.stores.session.clone();
+                    session.update(cx, |s, cx| s.refresh(cx));
+                }
+            }))
+    };
     match status {
         Status::Failed { .. } => {
+            buttons.push(retry.into_any_element());
+            buttons.push(show_logs.into_any_element());
+        }
+        Status::NoSecretStore { .. } => {
+            buttons.push(retry.into_any_element());
             let s = store.clone();
             buttons.push(
-                Button::new("status-retry", l10n.retry())
-                    .primary()
-                    .icon(IconName::RotateCcw)
-                    .on_click(handler(move |cx| {
-                        if s.update(cx, |s, cx| s.retry(cx))
-                            && let Some(state) = cx.try_global::<crate::AppState>()
-                        {
-                            let session = state.stores.session.clone();
-                            session.update(cx, |s, cx| s.refresh(cx));
-                        }
+                Button::new("status-use-key-file", l10n.desktop_use_key_file())
+                    .icon(IconName::KeyRound)
+                    .on_click(Rc::new(move |_, window, cx| {
+                        choose_key_file(&s, window, cx)
                     }))
                     .into_any_element(),
             );
-            buttons.push(show_logs.into_any_element());
         }
         Status::StoreUnreadable => {
             let s = store.clone();
@@ -216,6 +236,28 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             d.child(div().pt(px(6.)).flex().gap(px(10.)).children(buttons))
         });
     first_run_frame(card, cx)
+}
+
+/// "Use a Key File…": the warning first; its confirm keeps the key in a file
+/// (`ConnectionStore::use_key_file`). Data saved with a keyring's key then
+/// fails to open, and the unreadable-data screen offers Reset Local Data.
+fn choose_key_file(store: &Entity<ConnectionStore>, window: &mut gpui_kit::Window, cx: &mut App) {
+    let l = cx.l10n().clone();
+    let spec = SheetSpec::new(
+        l.desktop_key_file_warning_title(),
+        l.desktop_key_file_warning_body(),
+        l.desktop_key_file_warning_confirm(),
+        l.cancel(),
+    )
+    .destructive();
+    let ask = present_sheet(window, spec, cx);
+    let store = store.clone();
+    cx.spawn(async move |cx| {
+        if ask.await {
+            store.update(cx, |s, cx| s.use_key_file(cx));
+        }
+    })
+    .detach();
 }
 
 /// A pill over routed content while the connection recovers.

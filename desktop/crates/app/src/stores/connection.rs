@@ -63,6 +63,11 @@ pub enum Status {
     },
     /// Exit 77: the secure store does not open. Offers "Reset local data".
     StoreUnreadable,
+    /// Linux with no Secret Service at all (D12): Retry once one runs, or
+    /// keep the key in a file. `detail` is the system's reason.
+    NoSecretStore {
+        detail: String,
+    },
     /// Fatal: the app and its daemon speak different protocol versions.
     VersionMismatch {
         daemon: String,
@@ -76,7 +81,10 @@ impl Status {
     /// knows where the window goes.
     pub fn blocks(&self, routed: bool) -> bool {
         match self {
-            Self::Failed { .. } | Self::StoreUnreadable | Self::VersionMismatch { .. } => true,
+            Self::Failed { .. }
+            | Self::StoreUnreadable
+            | Self::NoSecretStore { .. }
+            | Self::VersionMismatch { .. } => true,
             Self::Connecting | Self::CoreStarting | Self::Reconnecting { .. } => !routed,
             Self::Connected => false,
         }
@@ -362,6 +370,11 @@ impl ConnectionStore {
     /// The window's status. `routed` and `session_error` come from the
     /// session store.
     pub fn status(&self, routed: bool, session_error: Option<&str>) -> Status {
+        if self.offers_key_file() {
+            return Status::NoSecretStore {
+                detail: self.startup_error.clone().unwrap_or_default(),
+            };
+        }
         derive_status(
             self.startup_error.as_deref(),
             &self.daemon,
@@ -1077,6 +1090,39 @@ mod tests {
         let none = SecretError::Unavailable("no session bus".into());
         let (connection, _, _scratch) = over_store(vec![Err(none)], None, cx);
         connection.read_with(cx, |c, _| assert!(!c.offers_key_file()));
+    }
+
+    /// The key-file screen shows only for "no Secret Service" where the
+    /// platform has a key file (Linux), replaces the window's content, and
+    /// gives way to connecting once the file is chosen. A locked keyring,
+    /// or no key file here, stays a failure with Retry.
+    #[gpui_kit::test]
+    fn the_key_file_screen_shows_only_without_a_secret_service(cx: &mut gpui_kit::TestAppContext) {
+        let file: MasterKeySource = Arc::new(|| Ok(secrets::new_master_key()));
+        let none = SecretError::Unavailable("no session bus".into());
+        let (connection, _, _scratch) = over_store(vec![Err(none.clone())], Some(file.clone()), cx);
+        connection.read_with(cx, |c, _| {
+            let status = c.status(false, None);
+            assert_eq!(
+                status,
+                Status::NoSecretStore {
+                    detail: none.to_string()
+                }
+            );
+            assert!(status.blocks(true));
+        });
+        connection.update(cx, |c, cx| c.use_key_file(cx));
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), Status::Connecting)
+        });
+
+        let locked = SecretError::Store("the keyring is locked".into());
+        let (connection, _, _scratch) = over_store(vec![Err(locked.clone())], Some(file), cx);
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), failed(&locked))
+        });
+        let (connection, _, _scratch) = over_store(vec![Err(none.clone())], None, cx);
+        connection.read_with(cx, |c, _| assert_eq!(c.status(false, None), failed(&none)));
     }
 
     /// Choosing the key file starts the daemon with its key.
