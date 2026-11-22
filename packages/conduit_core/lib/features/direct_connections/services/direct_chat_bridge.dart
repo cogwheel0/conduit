@@ -1242,6 +1242,7 @@ final class DirectStreamingAccumulator {
             !_generatedImageUrls.add(event.dataUrl)) {
           return false;
         }
+        finishProgress();
         _generatedImageFiles.add(<String, dynamic>{
           'type': 'image',
           'source': 'direct_openrouter_image',

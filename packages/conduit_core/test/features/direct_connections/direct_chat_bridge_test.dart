@@ -116,6 +116,33 @@ void main() {
     }
   });
 
+  test('only accepted generated images settle loading progress', () {
+    final accumulator = DirectStreamingAccumulator();
+    const progress = DirectProgressUpdate(DirectProgressPhase.modelLoad);
+    for (var index = 0; index < 10; index++) {
+      final image = DirectGeneratedImage(
+        dataUrl: 'data:image/png;base64,${base64Encode([index])}',
+        mediaType: 'image/png',
+      );
+      accumulator.apply(progress);
+      expect(accumulator.apply(image), isTrue);
+      expect(accumulator.statusHistory.single.done, isTrue);
+      accumulator.apply(progress);
+      expect(accumulator.apply(image), isFalse);
+      expect(accumulator.statusHistory.single.done, isFalse);
+    }
+    expect(
+      accumulator.apply(
+        DirectGeneratedImage(
+          dataUrl: 'data:image/png;base64,${base64Encode([10])}',
+          mediaType: 'image/png',
+        ),
+      ),
+      isFalse,
+    );
+    expect(accumulator.statusHistory.single.done, isFalse);
+  });
+
   group('normalizeDirectUsageMetadata', () {
     test('creates a detached deeply immutable JSON value', () {
       final shared = <Object?>[1, 'yes'];
