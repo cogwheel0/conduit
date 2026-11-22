@@ -83,6 +83,11 @@ void main() {
       accumulator.apply(
         const DirectProgressUpdate(DirectProgressPhase.promptProcessing),
       );
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.modelLoad),
+      );
+      expect(accumulator.statusHistory.last.action, 'model_load');
+      expect(accumulator.statusHistory.last.done, isFalse);
       accumulator.apply(const DirectReasoningDelta('Planning'));
       expect(accumulator.statusHistory, hasLength(2));
       expect(accumulator.statusHistory.every((s) => s.done == true), isTrue);

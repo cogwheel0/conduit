@@ -1192,6 +1192,7 @@ final class DirectStreamingAccumulator {
         final label = resolveStatusDescription(
           ChatStatusUpdate(action: action),
         );
+        _progress.remove(event.phase);
         _progress[event.phase] = ChatStatusUpdate(
           action: action,
           description: percent == null ? label : '$label · $percent%',
