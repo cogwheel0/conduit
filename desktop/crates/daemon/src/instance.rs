@@ -336,15 +336,10 @@ impl Listener {
         let mut waiting = self.first;
         loop {
             let connected = waiting.connect().await;
-            // The next end is made before this one is used: there is never
-            // a moment with no pipe, when a launch could take the name.
-            let next = match pipe::create(&self.name, false, &self.access) {
-                Ok(next) => next,
-                Err(e) => {
-                    log::error!("single instance: stopped listening: {e}");
-                    return;
-                }
-            };
+            // The next end is made before this one is let go: there is never
+            // a moment with no pipe, when a launch could take the name. Until
+            // it can be made, this end is held, and making it is tried again.
+            let next = retry_until_made(|| pipe::create(&self.name, false, &self.access)).await;
             let pipe = std::mem::replace(&mut waiting, next);
             if let Err(e) = connected {
                 log::warn!("single instance: {e}");
@@ -355,6 +350,28 @@ impl Listener {
                 continue;
             }
             spawn_worker(pipe, &workers, &on_launch);
+        }
+    }
+}
+
+/// The longest wait before the pipe's next end is tried again.
+#[cfg(any(windows, test))]
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(60);
+
+/// What `make` makes, tried again after a wait that doubles up to a minute
+/// until it is made: the pipe's next end, which the app must have before it
+/// lets the connected one go.
+#[cfg(any(windows, test))]
+async fn retry_until_made<T>(mut make: impl FnMut() -> io::Result<T>) -> T {
+    let mut wait = Duration::from_secs(1);
+    loop {
+        match make() {
+            Ok(made) => return made,
+            Err(e) => {
+                log::warn!("single instance: the pipe's next end failed ({e}); again in {wait:?}");
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(MAX_RETRY_WAIT);
+            }
         }
     }
 }
@@ -749,6 +766,26 @@ mod tests {
         ] {
             assert_eq!(holder(reached, me, out_of_time), expected, "{reached:?}");
         }
+    }
+
+    /// The pipe's next end that fails to be made is tried again, waiting
+    /// longer each time, until it is made: the app never stops listening
+    /// (which would let a later launch become a second app).
+    #[tokio::test(start_paused = true)]
+    async fn the_pipes_next_end_is_tried_until_it_is_made() {
+        let mut tries = 0;
+        let started = Instant::now();
+        let made = retry_until_made(|| {
+            tries += 1;
+            if tries < 4 {
+                Err(io::Error::other("no pipe"))
+            } else {
+                Ok(7)
+            }
+        })
+        .await;
+        assert_eq!((made, tries), (7, 4));
+        assert_eq!(Instant::now() - started, Duration::from_secs(1 + 2 + 4));
     }
 
     /// Two launches of one profile in this process: the second finds the
