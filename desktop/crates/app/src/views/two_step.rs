@@ -376,14 +376,21 @@ impl TwoStepView {
         let Some(uri) = self.setup.as_ref().map(|s| s.authenticator_uri.clone()) else {
             return;
         };
-        if crate::shell::open_url::has_handler(&uri) {
-            cx.open_url(&uri);
-        } else {
-            let text = cx.l10n().two_step_no_authenticator_app();
-            self.stores.toasts.update(cx, |t, cx| {
-                t.show(conduit_protocol::NoticeLevel::Warning, text, cx)
+        let asked = crate::shell::open_url::ask_handler(uri.clone(), cx);
+        cx.spawn(async move |this, cx| {
+            let answer = asked.await;
+            let _ = this.update(cx, |this, cx| {
+                if crate::shell::open_url::opens(answer) {
+                    cx.open_url(&uri);
+                } else {
+                    let text = cx.l10n().two_step_no_authenticator_app();
+                    this.stores.toasts.update(cx, |t, cx| {
+                        t.show(conduit_protocol::NoticeLevel::Warning, text, cx)
+                    });
+                }
             });
-        }
+        })
+        .detach();
     }
 }
 
