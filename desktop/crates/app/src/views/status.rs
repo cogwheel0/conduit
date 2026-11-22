@@ -16,7 +16,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, Div, Entity, FontWeight, Role, SharedString, div, px, relative};
 
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::stores::connection::{ConnectionStore, Diagnostics, Status};
+use crate::stores::connection::{ConnectionStore, Diagnostics, KeychainFailure, Status};
 
 /// The word beside the composer's Send while it can't send: the state the
 /// window's banner shows for the same connection ("Reconnecting…",
@@ -155,8 +155,15 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
                 }))
                 .into_any_element(),
             );
-            // The move's failure line points at the logs.
-            if conn.reset_error.is_some() {
+            // Start Fresh's failures say why in the log.
+            if matches!(
+                status,
+                Status::KeychainPrompt {
+                    busy: false,
+                    failure: Some(KeychainFailure::Move | KeychainFailure::NewKey),
+                    ..
+                }
+            ) {
                 buttons.push(show_logs.into_any_element());
             }
         }
@@ -184,11 +191,13 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
         Status::KeychainPrompt {
             busy: false,
             failures,
-        } if *failures > 0 => Some((
-            SharedString::from(if conn.reset_error.is_some() {
-                l10n.desktop_reset_failed()
-            } else {
-                l10n.desktop_keychain_prompt_failed()
+            failure: Some(failure),
+        } => Some((
+            SharedString::from(match failure {
+                KeychainFailure::Move => l10n.desktop_reset_failed(),
+                KeychainFailure::NoKey | KeychainFailure::NewKey => {
+                    l10n.desktop_keychain_prompt_failed()
+                }
             }),
             *failures,
         )),

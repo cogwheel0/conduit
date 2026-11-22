@@ -191,7 +191,7 @@ fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
         use crate::stores::connection::KeychainChoice;
         use conduit_daemon::secrets::{
             Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
-            check_master_key, profile_key_account,
+            check_master_key, profile_key,
         };
         match paths.flavor {
             // Dev builds go through /usr/bin/security so a rebuilt
@@ -205,14 +205,21 @@ fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
                     std::env::var_os(key)
                 });
                 let items = KeychainItems::new(service);
-                let account = profile_key_account(&paths.user_data);
-                return match check_master_key(&items, &account) {
+                let profile = match profile_key(&paths.user_data) {
+                    Ok(profile) => profile,
+                    Err(e) => return MasterKey::Failed(e.to_string()),
+                };
+                let check = check_master_key(&items, &profile);
+                let choice = |missing| KeychainChoice {
+                    items: std::sync::Arc::new(items),
+                    account: profile.account.clone(),
+                    lock,
+                    missing,
+                };
+                return match check {
                     Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
-                    Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(KeychainChoice {
-                        items: std::sync::Arc::new(items),
-                        account,
-                        lock,
-                    }),
+                    Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(choice(false)),
+                    Ok(MasterKeyCheck::Missing) => MasterKey::WouldPrompt(choice(true)),
                     Err(e) => MasterKey::Failed(e.to_string()),
                 };
             }
