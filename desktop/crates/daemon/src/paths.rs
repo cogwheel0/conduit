@@ -81,31 +81,29 @@ impl AppPaths {
     /// The standard locations for `flavor` on this OS. `CONDUIT_USER_DATA`
     /// and `CONDUIT_LOGS` override them (tests, smoke runs).
     pub fn for_flavor(flavor: Flavor) -> Self {
-        let env = |key: &str| std::env::var_os(key);
-        let mut paths = Self::standard(Os::CURRENT, flavor, &env);
-        if let Some(dir) = env("CONDUIT_USER_DATA") {
+        let mut paths = Self::standard(Os::CURRENT, flavor, &System);
+        if let Some(dir) = System.var("CONDUIT_USER_DATA") {
             paths.user_data = PathBuf::from(dir);
         }
-        if let Some(dir) = env("CONDUIT_LOGS") {
+        if let Some(dir) = System.var("CONDUIT_LOGS") {
             paths.logs = PathBuf::from(dir);
         }
         paths
     }
 
-    /// `os`'s standard locations for `flavor`, reading the environment
-    /// through `vars`:
+    /// `os`'s standard locations for `flavor` on `host`:
     ///
     /// * macOS: `~/Library/Application Support/<name>` and
     ///   `~/Library/Logs/<name>`.
-    /// * Windows: `%LOCALAPPDATA%\<name>\User Data` and `…\<name>\Logs`
-    ///   (local, not roaming). Reset renames the data folder, and Windows
-    ///   cannot rename a folder holding the open app log, so the two are
-    ///   siblings as on the Mac.
+    /// * Windows: `<Local AppData>\<name>\User Data` and `…\<name>\Logs`
+    ///   (local, not roaming; the known folder, [`local_app_data`]). Reset
+    ///   renames the data folder, and Windows cannot rename a folder holding
+    ///   the open app log, so the two are siblings as on the Mac.
     /// * Linux: `$XDG_DATA_HOME/<name>` and `$XDG_STATE_HOME/<name>/logs`.
-    pub fn standard(os: Os, flavor: Flavor, vars: &dyn Fn(&str) -> Option<OsString>) -> Self {
+    pub fn standard(os: Os, flavor: Flavor, host: &dyn Host) -> Self {
         let (user_data, logs) = match os {
             Os::MacOs => {
-                let home = home(vars);
+                let home = home(host);
                 (
                     home.join("Library/Application Support")
                         .join(flavor.app_name()),
@@ -113,14 +111,14 @@ impl AppPaths {
                 )
             }
             Os::Windows => {
-                let root = local_app_data(vars).join(flavor.app_name());
+                let root = local_app_data(host).join(flavor.app_name());
                 (root.join("User Data"), root.join("Logs"))
             }
             Os::Linux => {
                 let name = flavor.unix_name();
                 (
-                    xdg(vars, "XDG_DATA_HOME", ".local/share").join(name),
-                    xdg(vars, "XDG_STATE_HOME", ".local/state")
+                    xdg(host, "XDG_DATA_HOME", ".local/share").join(name),
+                    xdg(host, "XDG_STATE_HOME", ".local/state")
                         .join(name)
                         .join("logs"),
                 )
@@ -177,50 +175,228 @@ impl Os {
     }
 }
 
-/// The lock file launches take turns on to create `service`'s master key
-/// where the secret store's write replaces
-/// ([`crate::secrets::LockedStore`]). The key is the service's, whatever the
-/// profile (as the Keychain item is on the Mac), so the lock is one per
-/// user and service, outside every profile:
-///
-/// * Windows: `%LOCALAPPDATA%\<service>.master-key.lock`. Windows sets
-///   `LOCALAPPDATA` whenever a user profile is loaded; with a stripped
-///   environment it is `%USERPROFILE%\AppData\Local`, the same folder.
-/// * Linux: `~/.local/state/<service>.master-key.lock`, from `HOME` alone:
-///   `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` can differ between a desktop
-///   session's launch and an ssh or cron one, which would split the lock.
-/// * macOS (its stores need none): under `~/Library/Caches`.
-pub fn master_key_lock(os: Os, service: &str, vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
-    let folder = match os {
-        Os::MacOs => home(vars).join("Library/Caches"),
-        Os::Windows => local_app_data(vars),
-        Os::Linux => home(vars).join(".local/state"),
-    };
-    folder.join(format!("{service}.master-key.lock"))
+/// A folder Windows keeps for the user (`SHGetKnownFolderPath`), which
+/// follows a redirected profile folder whatever the environment says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KnownFolder {
+    /// `FOLDERID_LocalAppData`.
+    LocalAppData,
+    /// `FOLDERID_Downloads`.
+    Downloads,
+    /// `FOLDERID_Profile`.
+    Profile,
 }
 
-fn home(vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
-    vars("HOME")
+/// What the app's paths are worked out from: the environment, Windows'
+/// known folders, small settings files and the user's id. [`System`] reads
+/// this computer's.
+pub trait Host {
+    fn var(&self, key: &str) -> Option<OsString>;
+    /// The known folder on Windows; `None` on other systems.
+    fn known_folder(&self, folder: KnownFolder) -> Option<PathBuf>;
+    /// A small text file's contents (Linux's `user-dirs.dirs`).
+    fn read_text(&self, path: &Path) -> Option<String>;
+    /// The user's id on Linux and macOS; 0 on Windows.
+    fn uid(&self) -> u32;
+}
+
+/// This computer.
+pub struct System;
+
+impl Host for System {
+    fn var(&self, key: &str) -> Option<OsString> {
+        std::env::var_os(key)
+    }
+
+    fn known_folder(&self, folder: KnownFolder) -> Option<PathBuf> {
+        #[cfg(windows)]
+        {
+            windows_known_folder(folder)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = folder;
+            None
+        }
+    }
+
+    fn read_text(&self, path: &Path) -> Option<String> {
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn uid(&self) -> u32 {
+        #[cfg(unix)]
+        {
+            // SAFETY: getuid has no preconditions and cannot fail.
+            unsafe { libc::getuid() }
+        }
+        #[cfg(not(unix))]
+        {
+            0
+        }
+    }
+}
+
+#[cfg(windows)]
+fn windows_known_folder(folder: KnownFolder) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt as _;
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{
+        FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_Profile, KF_FLAG_DEFAULT,
+        SHGetKnownFolderPath,
+    };
+    let id = match folder {
+        KnownFolder::LocalAppData => &FOLDERID_LocalAppData,
+        KnownFolder::Downloads => &FOLDERID_Downloads,
+        KnownFolder::Profile => &FOLDERID_Profile,
+    };
+    // SAFETY: `id` is a valid known-folder id; the returned string is the
+    // caller's to free with CoTaskMemFree, after it is copied.
+    unsafe {
+        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok()?;
+        let path = PathBuf::from(std::ffi::OsString::from_wide(raw.as_wide()));
+        CoTaskMemFree(Some(raw.0 as *const _));
+        Some(path).filter(|p| p.has_root())
+    }
+}
+
+/// What launches take turns on to create `service`'s master key where the
+/// secret store's write replaces ([`crate::secrets::LockedStore`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyLock {
+    /// A lock file.
+    File(PathBuf),
+    /// A Linux abstract socket name: held while it is bound, by one process
+    /// at a time, and gone with the process. No file, so nothing in it comes
+    /// from `HOME`.
+    Abstract(String),
+}
+
+/// The lock for `service`'s master key. The key is the service's, whatever
+/// the profile (as the Keychain item is on the Mac), so the lock is one per
+/// user and service, outside every profile:
+///
+/// * Windows: `<Local AppData>\<service>.master-key.lock`, in the known
+///   folder ([`local_app_data`]): a redirected Local AppData and a stripped
+///   environment still meet in one folder.
+/// * Linux: the abstract socket `<service>.master-key.<uid>`, from the
+///   user's id alone. `HOME`, `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` can
+///   differ between a desktop session's launch and an ssh, cron or `env -i`
+///   one, which would split a lock file.
+/// * macOS (its stores need none): under `~/Library/Caches`.
+pub fn master_key_lock(os: Os, service: &str, host: &dyn Host) -> KeyLock {
+    match os {
+        Os::MacOs => KeyLock::File(
+            home(host)
+                .join("Library/Caches")
+                .join(format!("{service}.master-key.lock")),
+        ),
+        Os::Windows => {
+            KeyLock::File(local_app_data(host).join(format!("{service}.master-key.lock")))
+        }
+        Os::Linux => KeyLock::Abstract(format!("{service}.master-key.{}", host.uid())),
+    }
+}
+
+/// Where D12's opt-in key file keeps `service`'s master key on Linux:
+/// `$XDG_DATA_HOME/<service>.master-key`, beside the profiles rather than in
+/// one, as the key is the service's.
+pub fn master_key_file(service: &str, host: &dyn Host) -> PathBuf {
+    xdg(host, "XDG_DATA_HOME", ".local/share").join(format!("{service}.master-key"))
+}
+
+/// The folder save panels open in: the user's Downloads folder when it is
+/// there ([`standard_downloads`]), else the home folder, else the temporary
+/// folder.
+pub fn downloads() -> PathBuf {
+    let host = System;
+    standard_downloads(Os::CURRENT, &host)
+        .filter(|d| d.is_dir())
+        .or_else(|| user_home(Os::CURRENT, &host).filter(|h| h.is_dir()))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// `os`'s Downloads folder on `host`:
+///
+/// * macOS: `~/Downloads`.
+/// * Windows: the Downloads known folder (it moves with the user's choice
+///   in its Properties), else `%USERPROFILE%\Downloads`.
+/// * Linux: `XDG_DOWNLOAD_DIR` in `$XDG_CONFIG_HOME/user-dirs.dirs` (it
+///   carries the folder's name in the user's language), else `~/Downloads`.
+pub fn standard_downloads(os: Os, host: &dyn Host) -> Option<PathBuf> {
+    match os {
+        Os::MacOs => user_home(os, host).map(|h| h.join("Downloads")),
+        Os::Windows => host
+            .known_folder(KnownFolder::Downloads)
+            .or_else(|| user_home(os, host).map(|p| p.join("Downloads"))),
+        Os::Linux => {
+            let home = user_home(os, host)?;
+            let dirs = xdg(host, "XDG_CONFIG_HOME", ".config").join("user-dirs.dirs");
+            host.read_text(&dirs)
+                .and_then(|text| user_dir(&text, "XDG_DOWNLOAD_DIR", &home))
+                .or_else(|| Some(home.join("Downloads")))
+        }
+    }
+}
+
+/// `key`'s folder in a `user-dirs.dirs` file: `"$HOME/<path>"` or an
+/// absolute `"/<path>"`, as xdg-user-dirs writes them. Anything else is
+/// ignored.
+fn user_dir(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
+    let value = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+        .next_back()?
+        .trim()
+        .trim_matches('"');
+    if value == "$HOME" {
+        return Some(home.to_path_buf());
+    }
+    if let Some(rest) = value.strip_prefix("$HOME/") {
+        return Some(home.join(rest));
+    }
+    value.starts_with('/').then(|| PathBuf::from(value))
+}
+
+/// The user's home folder: `HOME` on macOS and Linux; the profile known
+/// folder on Windows, else `%USERPROFILE%`.
+fn user_home(os: Os, host: &dyn Host) -> Option<PathBuf> {
+    match os {
+        Os::MacOs | Os::Linux => host.var("HOME").map(PathBuf::from),
+        Os::Windows => host
+            .known_folder(KnownFolder::Profile)
+            .or_else(|| host.var("USERPROFILE").map(PathBuf::from)),
+    }
+}
+
+fn home(host: &dyn Host) -> PathBuf {
+    host.var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
 }
 
-/// `%LOCALAPPDATA%` (local, not roaming), never a `HOME`.
-fn local_app_data(vars: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
-    vars("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .or_else(|| vars("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
+/// Windows' Local AppData (local, not roaming): the known folder, else
+/// `%LOCALAPPDATA%`, else the profile's own copy. Never a `HOME`.
+pub fn local_app_data(host: &dyn Host) -> PathBuf {
+    host.known_folder(KnownFolder::LocalAppData)
+        .or_else(|| host.var("LOCALAPPDATA").map(PathBuf::from))
+        .or_else(|| {
+            host.var("USERPROFILE")
+                .map(|p| PathBuf::from(p).join("AppData").join("Local"))
+        })
         .unwrap_or_else(std::env::temp_dir)
 }
 
 /// An XDG base folder from `key`, else `fallback` under `HOME`. The spec
 /// says to ignore a relative path in these. (A rooted one: Linux's absolute
 /// paths, read on any host.)
-fn xdg(vars: &dyn Fn(&str) -> Option<OsString>, key: &str, fallback: &str) -> PathBuf {
-    vars(key)
+fn xdg(host: &dyn Host, key: &str, fallback: &str) -> PathBuf {
+    host.var(key)
         .map(PathBuf::from)
         .filter(|p| p.has_root())
-        .unwrap_or_else(|| home(vars).join(fallback))
+        .unwrap_or_else(|| home(host).join(fallback))
 }
 
 /// The packaged daemon for an executable at `exe`, if it exists.
@@ -337,15 +513,203 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
-        let pairs: Vec<(String, OsString)> = pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), OsString::from(v)))
-            .collect();
-        move |key| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    /// A computer for tests: its environment, known folders, files and user.
+    #[derive(Clone, Default)]
+    pub(crate) struct Fake {
+        vars: Vec<(String, OsString)>,
+        known: Vec<(KnownFolder, PathBuf)>,
+        files: Vec<(PathBuf, String)>,
+        uid: u32,
+    }
+
+    impl Fake {
+        pub(crate) fn known(mut self, folder: KnownFolder, path: impl Into<PathBuf>) -> Self {
+            self.known.push((folder, path.into()));
+            self
+        }
+
+        pub(crate) fn file(mut self, path: impl Into<PathBuf>, text: &str) -> Self {
+            self.files.push((path.into(), text.into()));
+            self
+        }
+
+        pub(crate) fn uid(mut self, uid: u32) -> Self {
+            self.uid = uid;
+            self
+        }
+    }
+
+    impl Host for Fake {
+        fn var(&self, key: &str) -> Option<OsString> {
+            self.vars
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        }
+        fn known_folder(&self, folder: KnownFolder) -> Option<PathBuf> {
+            self.known
+                .iter()
+                .find(|(f, _)| *f == folder)
+                .map(|(_, p)| p.clone())
+        }
+        fn read_text(&self, path: &Path) -> Option<String> {
+            self.files
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, t)| t.clone())
+        }
+        fn uid(&self) -> u32 {
+            self.uid
+        }
+    }
+
+    /// A computer whose environment is `pairs`, and nothing else.
+    pub(crate) fn vars(pairs: &[(&str, &str)]) -> Fake {
+        Fake {
+            vars: pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), OsString::from(v)))
+                .collect(),
+            ..Fake::default()
+        }
+    }
+
+    #[test]
+    fn windows_takes_local_app_data_from_the_known_folder_never_the_environment() {
+        // Local AppData redirected (a roaming-profile policy, a moved
+        // folder): the known folder says where it is, and a launch whose
+        // environment still names the old place, or none, agrees.
+        let known = Path::new(r"D:\Profiles\avery\AppData\Local");
+        let service = "app.example.conduit";
+        let expected_lock = KeyLock::File(known.join("app.example.conduit.master-key.lock"));
+        for env in [
+            &[("LOCALAPPDATA", r"C:\Users\avery\AppData\Local")][..],
+            &[("USERPROFILE", r"C:\Users\avery")],
+            &[],
+        ] {
+            let host = vars(env).known(KnownFolder::LocalAppData, known);
+            let paths = AppPaths::standard(Os::Windows, Flavor::Production, &host);
+            assert_eq!(
+                paths.user_data,
+                known.join("Conduit").join("User Data"),
+                "{env:?}"
+            );
+            assert_eq!(paths.logs, known.join("Conduit").join("Logs"), "{env:?}");
+            assert_eq!(
+                master_key_lock(Os::Windows, service, &host),
+                expected_lock,
+                "{env:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_linux_master_key_lock_comes_from_the_user_id_never_home() {
+        let service = "app.example.conduit";
+        // One user, launched from a desktop session, over ssh, from cron,
+        // with another HOME, and with none at all: one lock.
+        let expected = KeyLock::Abstract("app.example.conduit.master-key.1000".into());
+        for env in [
+            &[
+                ("HOME", "/home/avery"),
+                ("XDG_RUNTIME_DIR", "/run/user/1000"),
+            ][..],
+            &[("HOME", "/home/avery")],
+            &[("HOME", "/srv/elsewhere"), ("XDG_STATE_HOME", "/srv/state")],
+            &[],
+        ] {
+            assert_eq!(
+                master_key_lock(Os::Linux, service, &vars(env).uid(1000)),
+                expected,
+                "{env:?}"
+            );
+        }
+        // Another user, or another service: another lock.
+        let home = vars(&[("HOME", "/home/avery")]);
+        assert_ne!(
+            master_key_lock(Os::Linux, service, &home.clone().uid(1001)),
+            expected
+        );
+        assert_ne!(
+            master_key_lock(Os::Linux, "app.example.conduit.dev", &home.uid(1000)),
+            expected
+        );
+    }
+
+    #[test]
+    fn the_key_file_sits_beside_the_profiles_never_in_one() {
+        let host = vars(&[("HOME", "/home/avery")]);
+        assert_eq!(
+            master_key_file("app.example.conduit", &host),
+            Path::new("/home/avery/.local/share/app.example.conduit.master-key")
+        );
+        let profile = AppPaths::standard(Os::Linux, Flavor::Production, &host).user_data;
+        assert!(!master_key_file("app.example.conduit", &host).starts_with(&profile));
+        let host = vars(&[("HOME", "/home/avery"), ("XDG_DATA_HOME", "/srv/data")]);
+        assert_eq!(
+            master_key_file("app.example.conduit", &host),
+            Path::new("/srv/data/app.example.conduit.master-key")
+        );
+    }
+
+    #[test]
+    fn downloads_is_each_systems_own_folder() {
+        // macOS: ~/Downloads.
+        assert_eq!(
+            standard_downloads(Os::MacOs, &vars(&[("HOME", "/Users/avery")])),
+            Some(PathBuf::from("/Users/avery/Downloads"))
+        );
+        // Windows: the known folder, wherever the user moved it.
+        let host = vars(&[("USERPROFILE", r"C:\Users\avery"), ("HOME", "/home/x")])
+            .known(KnownFolder::Downloads, r"E:\Downloads");
+        assert_eq!(
+            standard_downloads(Os::Windows, &host),
+            Some(PathBuf::from(r"E:\Downloads"))
+        );
+        // Linux: user-dirs.dirs names it, in the user's language.
+        let home = [("HOME", "/home/avery")];
+        let dirs = "# written by xdg-user-dirs-update\n\
+                    XDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\n\
+                    XDG_DOWNLOAD_DIR=\"$HOME/Downloads-de\"\n";
+        let host = vars(&home).file("/home/avery/.config/user-dirs.dirs", dirs);
+        assert_eq!(
+            standard_downloads(Os::Linux, &host),
+            Some(PathBuf::from("/home/avery/Downloads-de"))
+        );
+        // In XDG_CONFIG_HOME, and an absolute folder.
+        let host = vars(&[("HOME", "/home/avery"), ("XDG_CONFIG_HOME", "/srv/config")]).file(
+            "/srv/config/user-dirs.dirs",
+            "XDG_DOWNLOAD_DIR=\"/data/incoming\"\n",
+        );
+        assert_eq!(
+            standard_downloads(Os::Linux, &host),
+            Some(PathBuf::from("/data/incoming"))
+        );
+        // Set to home itself (the folder turned off): home.
+        let host = vars(&home).file(
+            "/home/avery/.config/user-dirs.dirs",
+            "XDG_DOWNLOAD_DIR=\"$HOME\"\n",
+        );
+        assert_eq!(
+            standard_downloads(Os::Linux, &host),
+            Some(PathBuf::from("/home/avery"))
+        );
+        // No file, or nothing usable in it: ~/Downloads.
+        for host in [
+            vars(&home),
+            vars(&home).file(
+                "/home/avery/.config/user-dirs.dirs",
+                "XDG_DOWNLOAD_DIR=\"relative/place\"\n",
+            ),
+        ] {
+            assert_eq!(
+                standard_downloads(Os::Linux, &host),
+                Some(PathBuf::from("/home/avery/Downloads"))
+            );
+        }
     }
 
     #[test]
@@ -453,7 +817,7 @@ mod tests {
         let profile = Path::new(r"C:\Users\avery");
         let local = profile.join("AppData").join("Local");
         let windows = |pairs: &[(&str, &str)]| master_key_lock(Os::Windows, service, &vars(pairs));
-        let expected = local.join("app.example.conduit.master-key.lock");
+        let expected = KeyLock::File(local.join("app.example.conduit.master-key.lock"));
         assert_eq!(
             windows(&[
                 ("LOCALAPPDATA", local.to_str().unwrap()),
@@ -468,22 +832,15 @@ mod tests {
             ]),
             expected
         );
-        // Linux: from HOME alone. A desktop session's launch (with
-        // XDG_RUNTIME_DIR), an ssh or cron one (without), and a shell that
-        // sets XDG_STATE_HOME all take the one lock.
-        let linux = |pairs: &[(&str, &str)]| master_key_lock(Os::Linux, service, &vars(pairs));
-        let expected = Path::new("/home/avery/.local/state/app.example.conduit.master-key.lock");
-        for launch in [
-            &[
-                ("HOME", "/home/avery"),
-                ("XDG_RUNTIME_DIR", "/run/user/1000"),
-                ("CONDUIT_USER_DATA", "/srv/one"),
-            ][..],
-            &[("HOME", "/home/avery"), ("CONDUIT_USER_DATA", "/srv/two")],
-            &[("HOME", "/home/avery"), ("XDG_STATE_HOME", "/srv/state")],
-        ] {
-            assert_eq!(linux(launch), expected, "{launch:?}");
-        }
+        // Linux: the user's, whatever the profile.
+        let linux = |profile: &str| {
+            master_key_lock(
+                Os::Linux,
+                service,
+                &vars(&[("HOME", "/home/avery"), ("CONDUIT_USER_DATA", profile)]).uid(1000),
+            )
+        };
+        assert_eq!(linux("/srv/one"), linux("/srv/two"));
         // Each service has its own.
         let home = vars(&[("HOME", "/home/avery")]);
         assert_ne!(

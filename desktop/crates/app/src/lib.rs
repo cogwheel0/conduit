@@ -60,6 +60,7 @@ use std::path::PathBuf;
 
 use conduit_components::window as cw;
 use conduit_daemon::paths::{self, AppPaths, Flavor};
+use conduit_daemon::secrets::SecretError;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, WindowAppearance, px, size,
 };
@@ -160,7 +161,7 @@ fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
 /// The app's own profile for `flavor` (`~/Library/Application Support/
 /// Conduit Dev`, or `Conduit`, on the Mac), which no scripted run may use.
 pub fn app_profile(flavor: Flavor) -> PathBuf {
-    AppPaths::standard(paths::Os::CURRENT, flavor, &|key| std::env::var_os(key)).user_data
+    AppPaths::standard(paths::Os::CURRENT, flavor, &paths::System).user_data
 }
 
 /// Whether a scripted pass (E2E, capture) may reset the profile at
@@ -175,15 +176,21 @@ fn harness_service(flavor: Flavor) -> String {
     format!("{}.harness", flavor.keychain_service())
 }
 
-/// The master key from the Keychain (Credential Manager on Windows, the
-/// Secret Service on Linux), created on first run.
-fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
-    use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
-    let service = if scripted {
+/// The service a run's master key is stored under.
+fn key_service(paths: &AppPaths, scripted: bool) -> String {
+    if scripted {
         harness_service(paths.flavor)
     } else {
         paths.flavor.keychain_service()
-    };
+    }
+}
+
+/// The master key from the Keychain (Credential Manager on Windows, the
+/// Secret Service on Linux, or there the key file the user chose), created
+/// on first run.
+fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
+    use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
+    let service = key_service(paths, scripted);
     #[cfg(target_os = "macos")]
     let store: Box<dyn MasterKeyStore> = {
         use conduit_daemon::secrets::{Keychain, SecurityCli};
@@ -197,18 +204,35 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     // Off the Mac a first key is written holding the service's lock, so two
     // first launches, whatever their profiles, never both store theirs.
     #[cfg(any(windows, target_os = "linux"))]
-    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &|key| std::env::var_os(key));
+    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
     #[cfg(windows)]
     let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::LockedStore::new(
         conduit_daemon::secrets::CredentialManager::new(service),
         lock,
     ));
     #[cfg(target_os = "linux")]
-    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::LockedStore::new(
-        conduit_daemon::secrets::SecretService::new(service),
-        lock,
-    ));
-    load_or_create_master_key(store.as_ref()).map_err(|e| e.to_string())
+    let store: Box<dyn MasterKeyStore> = {
+        let file = paths::master_key_file(&service, &paths::System);
+        // Once chosen (D12), the key file stays the key's home.
+        if file.exists() {
+            log::warn!("the master key is in a key file: {}", file.display());
+            Box::new(conduit_daemon::secrets::KeyFile::new(file))
+        } else {
+            Box::new(conduit_daemon::secrets::LockedStore::new(
+                conduit_daemon::secrets::SecretService::new(service),
+                lock,
+            ))
+        }
+    };
+    load_or_create_master_key(store.as_ref())
+}
+
+/// D12: the master key from its key file, made there if missing, once the
+/// user chose that over the Secret Service they don't have.
+#[cfg(target_os = "linux")]
+fn key_file_master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
+    let file = paths::master_key_file(&key_service(paths, scripted), &paths::System);
+    conduit_daemon::secrets::load_or_create_master_key(&conduit_daemon::secrets::KeyFile::new(file))
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts
@@ -409,7 +433,19 @@ pub fn run() {
             ConnectionOptions {
                 paths: app_paths.clone(),
                 binary: paths::locate_daemon(),
-                master_key: master_key(&app_paths, scripted_run),
+                master_key: {
+                    let paths = app_paths.clone();
+                    std::sync::Arc::new(move || master_key(&paths, scripted_run))
+                },
+                #[cfg(target_os = "linux")]
+                key_file: {
+                    let paths = app_paths.clone();
+                    Some(std::sync::Arc::new(move || {
+                        key_file_master_key(&paths, scripted_run)
+                    }))
+                },
+                #[cfg(not(target_os = "linux"))]
+                key_file: None,
                 locale: locale::bcp47(settings.read(cx).locale()),
                 client_version: VERSION.into(),
             },

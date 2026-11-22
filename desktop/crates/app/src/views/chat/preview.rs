@@ -587,7 +587,7 @@ mod macos {
                 .clone()
                 .unwrap_or_else(|| self.opened.title.clone());
             let name = save_name(self.opened.kind, &stem);
-            let dir = dirs_downloads();
+            let dir = conduit_daemon::paths::downloads();
             let asked = cx.prompt_for_new_path(&dir, Some(&name));
             let code = self.opened.code.clone();
             cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -631,16 +631,6 @@ mod macos {
                 Err(e) => log::warn!("preview: open in browser: {e}"),
             }
         }
-    }
-
-    /// The user's Downloads folder (the save panel's first place), else
-    /// home.
-    fn dirs_downloads() -> std::path::PathBuf {
-        let home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("/"));
-        let downloads = home.join("Downloads");
-        if downloads.is_dir() { downloads } else { home }
     }
 
     impl Render for PreviewWindow {

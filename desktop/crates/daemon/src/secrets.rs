@@ -21,6 +21,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use rand::RngCore as _;
 
+use crate::paths::KeyLock;
+
 /// The Keychain account the master key is stored under.
 pub const MASTER_KEY_ACCOUNT: &str = "masterKey";
 
@@ -54,6 +56,10 @@ pub fn is_valid_master_key(key: &str) -> bool {
 pub enum SecretError {
     /// The store refused or failed (OSStatus and message on macOS).
     Store(String),
+    /// There is no store to ask: a Linux session with no Secret Service
+    /// (nothing answers for it on D-Bus). D12's opt-in key file is offered
+    /// for this, never for a store that is only locked or refused.
+    Unavailable(String),
     /// A stored key is not base64 of 32 bytes. It is never overwritten: the
     /// secure store it protects would become unreadable for good.
     Corrupt,
@@ -64,6 +70,7 @@ impl std::fmt::Display for SecretError {
         match self {
             Self::Store(e) if cfg!(target_os = "macos") => write!(f, "keychain: {e}"),
             Self::Store(e) => write!(f, "secret store: {e}"),
+            Self::Unavailable(e) => write!(f, "no secret store: {e}"),
             Self::Corrupt => f.write_str("the stored master key is not 32 bytes of base64"),
         }
     }
@@ -120,15 +127,12 @@ pub trait ReplacingStore {
 /// as the Keychain item is on the Mac.
 pub struct LockedStore<S> {
     pub store: S,
-    pub lock: std::path::PathBuf,
+    pub lock: KeyLock,
 }
 
 impl<S> LockedStore<S> {
-    pub fn new(store: S, lock: impl Into<std::path::PathBuf>) -> Self {
-        Self {
-            store,
-            lock: lock.into(),
-        }
+    pub fn new(store: S, lock: KeyLock) -> Self {
+        Self { store, lock }
     }
 }
 
@@ -138,35 +142,114 @@ impl<S: ReplacingStore> MasterKeyStore for LockedStore<S> {
     }
 
     fn add(&self, key: &str) -> Result<bool, SecretError> {
-        exclusively(&self.lock, || {
-            if self.store.load()?.is_some() {
-                return Ok(false);
-            }
-            self.store.replace(key)?;
-            Ok(true)
-        })
+        let _held = self.lock.hold()?;
+        if self.store.load()?.is_some() {
+            return Ok(false);
+        }
+        self.store.replace(key)?;
+        Ok(true)
     }
 }
 
-/// Runs `f` holding an exclusive lock on the file at `path` (made if
-/// missing).
-fn exclusively<T>(
-    path: &std::path::Path,
-    f: impl FnOnce() -> Result<T, SecretError>,
-) -> Result<T, SecretError> {
+/// A [`KeyLock`] while it is held; dropping it lets the next launch in.
+pub enum HeldLock {
+    File(std::fs::File),
+    #[cfg(target_os = "linux")]
+    Socket(std::os::unix::net::UnixListener),
+}
+
+/// How long a launch waits for another one to finish creating the key (it
+/// may be waiting on the desktop's keyring prompt).
+#[cfg(target_os = "linux")]
+const KEY_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+
+impl KeyLock {
+    /// Waits for the lock and holds it.
+    pub fn hold(&self) -> Result<HeldLock, SecretError> {
+        match self {
+            Self::File(path) => {
+                let file = open_lock_file(path)?;
+                file.lock().map_err(|e| lock_error(self, e))?;
+                Ok(HeldLock::File(file))
+            }
+            #[cfg(target_os = "linux")]
+            Self::Abstract(name) => {
+                let deadline = std::time::Instant::now() + KEY_LOCK_WAIT;
+                let mut checked = false;
+                loop {
+                    if let Some(held) = self.try_hold()? {
+                        return Ok(held);
+                    }
+                    // Any user can bind any name: a lock another user took
+                    // first would never let this one in, so say so rather
+                    // than wait. Once: each look queues a connection.
+                    if !checked {
+                        checked = true;
+                        if crate::abstract_socket::holder_is_this_user(name) == Some(false) {
+                            return Err(SecretError::Store(format!(
+                                "the master key's lock ({name}) is held by another user"
+                            )));
+                        }
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(SecretError::Store(
+                            "another launch is still creating the master key".into(),
+                        ));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            Self::Abstract(_) => Err(abstract_elsewhere()),
+        }
+    }
+
+    /// Holds the lock if nobody else does; `None` while it is held.
+    pub fn try_hold(&self) -> Result<Option<HeldLock>, SecretError> {
+        match self {
+            Self::File(path) => {
+                let file = open_lock_file(path)?;
+                match file.try_lock() {
+                    Ok(()) => Ok(Some(HeldLock::File(file))),
+                    Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+                    Err(std::fs::TryLockError::Error(e)) => Err(lock_error(self, e)),
+                }
+            }
+            #[cfg(target_os = "linux")]
+            Self::Abstract(name) => match crate::abstract_socket::bind(name) {
+                Ok(listener) => Ok(Some(HeldLock::Socket(listener))),
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => Ok(None),
+                Err(e) => Err(lock_error(self, e)),
+            },
+            #[cfg(not(target_os = "linux"))]
+            Self::Abstract(_) => Err(abstract_elsewhere()),
+        }
+    }
+}
+
+fn open_lock_file(path: &std::path::Path) -> Result<std::fs::File, SecretError> {
     let locked = |e: std::io::Error| SecretError::Store(format!("{}: {e}", path.display()));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(locked)?;
     }
-    let file = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
         .open(path)
-        .map_err(locked)?;
-    // Released when `file` closes.
-    file.lock().map_err(locked)?;
-    f()
+        .map_err(locked)
+}
+
+fn lock_error(lock: &KeyLock, e: std::io::Error) -> SecretError {
+    match lock {
+        KeyLock::File(path) => SecretError::Store(format!("{}: {e}", path.display())),
+        KeyLock::Abstract(name) => SecretError::Store(format!("{name}: {e}")),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn abstract_elsewhere() -> SecretError {
+    SecretError::Store("abstract socket locks exist only on Linux".into())
 }
 
 /// An in-memory store, for tests.
@@ -384,7 +467,7 @@ mod credential_manager {
                     "app.example.conduit-test.{:016x}",
                     rand::random::<u64>()
                 )),
-                folder.path().join("master-key.lock"),
+                crate::paths::KeyLock::File(folder.path().join("master-key.lock")),
             );
             let cleanup = Cleanup(store.store.target());
             assert_eq!(store.load(), Ok(None));
@@ -410,10 +493,11 @@ mod secret_service {
     /// An item in the user's Secret Service (GNOME Keyring, KWallet), or in
     /// a Flatpak the portal's keyring file, labelled with the service and
     /// found by its `service` and `account` attributes. Unlocking can show
-    /// the desktop's own prompt. With no Secret Service at all this fails,
-    /// and the app says so: the key is never written to a plain file. A
-    /// create-only item would be a second one beside it, so the app stores
-    /// through a [`super::LockedStore`].
+    /// the desktop's own prompt. With no Secret Service at all this fails
+    /// as [`SecretError::Unavailable`], and the key goes to a file only if
+    /// the user chooses that ([`super::KeyFile`]). A create-only item would
+    /// be a second one beside it, so the app stores through a
+    /// [`super::LockedStore`].
     pub struct SecretService {
         pub service: String,
     }
@@ -434,10 +518,16 @@ mod secret_service {
         SecretError::Store(e.to_string())
     }
 
+    /// The keyring can't even be reached: no session bus, or nothing
+    /// provides the Secret Service on it.
+    fn unavailable(e: oo7::Error) -> SecretError {
+        SecretError::Unavailable(e.to_string())
+    }
+
     impl ReplacingStore for SecretService {
         fn load(&self) -> Result<Option<String>, SecretError> {
             futures_lite::future::block_on(async {
-                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
                 keyring.unlock().await.map_err(store_error)?;
                 let items = keyring
                     .search_items(&self.attributes())
@@ -456,13 +546,86 @@ mod secret_service {
 
         fn replace(&self, key: &str) -> Result<(), SecretError> {
             futures_lite::future::block_on(async {
-                let keyring = oo7::Keyring::new().await.map_err(store_error)?;
+                let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
                 keyring.unlock().await.map_err(store_error)?;
                 keyring
                     .create_item(&self.service, &self.attributes(), key, true)
                     .await
                     .map_err(store_error)
             })
+        }
+    }
+}
+
+/// The master key in a file only its user can read (mode 0600), for a Linux
+/// desktop with no Secret Service, and only once the user chose it over
+/// the warning that any program running as them can read it (D12).
+/// Create-only, as every store is: a second key never replaces the first.
+#[cfg(unix)]
+pub struct KeyFile {
+    pub path: std::path::PathBuf,
+}
+
+#[cfg(unix)]
+impl KeyFile {
+    pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+}
+
+#[cfg(unix)]
+impl MasterKeyStore for KeyFile {
+    fn load(&self) -> Result<Option<String>, SecretError> {
+        use std::os::unix::fs::PermissionsExt as _;
+        let failed =
+            |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
+        let metadata = match std::fs::metadata(&self.path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(failed(e)),
+        };
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(SecretError::Store(format!(
+                "{} can be read by other users",
+                self.path.display()
+            )));
+        }
+        std::fs::read_to_string(&self.path)
+            .map(Some)
+            .map_err(failed)
+    }
+
+    /// The key goes to a file of its own first and is linked into place, so
+    /// a crash never leaves a half-written key, and the link refuses a file
+    /// that is already there.
+    fn add(&self, key: &str) -> Result<bool, SecretError> {
+        use std::io::Write as _;
+        use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+        let failed =
+            |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
+        let dir = self.path.parent().unwrap_or(std::path::Path::new("."));
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(failed)?;
+        let name = self.path.file_name().unwrap_or_default().to_string_lossy();
+        let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
+        let written = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&staged)
+            .and_then(|mut file| {
+                file.write_all(key.as_bytes())?;
+                file.sync_all()
+            })
+            .and_then(|()| std::fs::hard_link(&staged, &self.path));
+        let _ = std::fs::remove_file(&staged);
+        match written {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(failed(e)),
         }
     }
 }
@@ -705,10 +868,11 @@ mod tests {
     /// launch's lock is held while the first writes, and both use one key.
     #[test]
     fn launches_with_different_profiles_take_turns_on_the_services_key() {
-        use crate::paths::{Os, master_key_lock};
+        use crate::paths::tests::vars;
+        use crate::paths::{Host as _, KnownFolder, Os, System, master_key_lock};
         struct Shared {
             key: std::sync::Mutex<Option<String>>,
-            other_lock: std::path::PathBuf,
+            other_lock: KeyLock,
             other_held_while_writing: std::sync::Mutex<Option<bool>>,
         }
         struct View<'a>(&'a Shared);
@@ -717,14 +881,8 @@ mod tests {
                 Ok(self.0.key.lock().unwrap().clone())
             }
             fn replace(&self, key: &str) -> Result<(), SecretError> {
-                let held = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(false)
-                    .open(&self.0.other_lock)
-                    .is_ok_and(|file| {
-                        matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
-                    });
+                // Held: the other launch's try finds it taken (not an error).
+                let held = matches!(self.0.other_lock.try_hold(), Ok(None));
                 *self.0.other_held_while_writing.lock().unwrap() = Some(held);
                 *self.0.key.lock().unwrap() = Some(key.to_string());
                 Ok(())
@@ -737,14 +895,20 @@ mod tests {
         let (profile_a, profile_b) = (home.path().join("a"), home.path().join("b"));
         std::fs::create_dir_all(&profile_a).unwrap();
         std::fs::create_dir_all(&profile_b).unwrap();
+        // A service of this run's own: on Linux the lock is a name every
+        // process of this user shares.
+        let service = format!("app.example.conduit-test.{:016x}", rand::random::<u64>());
         // One user's environment; each launch names its own profile.
         let lock = |profile: &std::path::Path| {
-            let (home, profile) = (home.path().to_path_buf(), profile.to_path_buf());
-            master_key_lock(Os::CURRENT, "app.example.conduit", &move |key| match key {
-                "HOME" | "LOCALAPPDATA" | "XDG_RUNTIME_DIR" => Some(home.clone().into()),
-                "CONDUIT_USER_DATA" => Some(profile.clone().into()),
-                _ => None,
-            })
+            let home = home.path().to_str().unwrap();
+            let host = vars(&[
+                ("HOME", home),
+                ("LOCALAPPDATA", home),
+                ("CONDUIT_USER_DATA", profile.to_str().unwrap()),
+            ])
+            .known(KnownFolder::LocalAppData, home)
+            .uid(System.uid());
+            master_key_lock(Os::CURRENT, &service, &host)
         };
         let shared = Shared {
             key: Default::default(),
@@ -760,6 +924,58 @@ mod tests {
             "the other profile's launch waits for this write"
         );
         assert_eq!(load_or_create_master_key(&second).unwrap(), key);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_key_file_is_this_users_alone_and_never_replaced() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let path = dir
+            .path()
+            .join("data")
+            .join("app.example.conduit.master-key");
+        let store = KeyFile::new(&path);
+        assert_eq!(store.load(), Ok(None));
+        let key = load_or_create_master_key(&store).unwrap();
+        assert!(is_valid_master_key(&key));
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "only its user reads it");
+        assert_eq!(load_or_create_master_key(&store).unwrap(), key);
+        // Another launch's key is refused, never written over this one.
+        assert_eq!(store.add(&new_master_key()), Ok(false));
+        assert_eq!(store.load(), Ok(Some(key)));
+        // Nothing but the key is left beside it.
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            names,
+            [std::ffi::OsString::from("app.example.conduit.master-key")]
+        );
+    }
+
+    /// A key file others can read (copied, restored from a backup, chmod
+    /// by hand) is refused, never read: it is no longer the user's alone.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_file_others_can_read_is_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let path = dir.path().join("app.example.conduit.master-key");
+        std::fs::write(&path, new_master_key()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            KeyFile::new(&path).load(),
+            Err(SecretError::Store(_))
+        ));
     }
 
     #[test]

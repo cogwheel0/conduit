@@ -19,11 +19,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::paths::{AppPaths, move_aside};
 use conduit_daemon::rpc::{ClientEvent, ConnectionState, Handshake, RpcClient, RpcConfig};
+use conduit_daemon::secrets::SecretError;
 use conduit_daemon::supervisor::{FatalReason, Supervisor, SupervisorConfig, SupervisorEvent};
 use conduit_daemon::{runtime, secrets};
 use conduit_protocol::{Event, HandshakeRequest, NetworkReport, NoParams, events, methods};
@@ -172,6 +174,16 @@ pub struct ConnectionStore {
     paths: AppPaths,
     token: String,
     master_key: Option<String>,
+    key_source: MasterKeySource,
+    /// D12's opt-in key file, where the platform has one (Linux).
+    key_file: Option<MasterKeySource>,
+    /// The last ask found no secret store at all (not a locked one).
+    no_secret_store: bool,
+    /// The secret store is being asked again (Retry, or the key file).
+    resolving_key: bool,
+    /// Whether the client's and the supervisor's events reach the store
+    /// (never in tests: see [`Self::start`]).
+    follow: bool,
     binary: PathBuf,
     rpc_config: RpcConfig,
     supervisor: Option<Supervisor>,
@@ -199,21 +211,30 @@ pub struct ConnectionStore {
 
 impl EventEmitter<ConnectionEvent> for ConnectionStore {}
 
+/// Asks the system's secret store for the master key (made on first run):
+/// at start, and again when Retry follows a failure to get one (a locked or
+/// stopped Secret Service). `Err` says why there is none.
+pub type MasterKeySource = Arc<dyn Fn() -> Result<String, SecretError> + Send + Sync>;
+
 /// Starting parameters.
 pub struct ConnectionOptions {
     pub paths: AppPaths,
     pub binary: PathBuf,
-    /// `Err` when the Keychain could not give a master key.
-    pub master_key: Result<String, String>,
+    pub master_key: MasterKeySource,
+    /// Linux without a Secret Service (D12): the key in a file of the
+    /// user's alone, made only when they choose it
+    /// ([`ConnectionStore::use_key_file`]). `None` where there is none.
+    pub key_file: Option<MasterKeySource>,
     pub locale: String,
     pub client_version: String,
 }
 
 impl ConnectionStore {
-    /// Starts the daemon and the connection. In tests the client's events
-    /// are never followed, whoever starts it (a view test's stores or a
-    /// fixture's): nothing on the daemon's I/O thread may wake a test's
-    /// tasks, which the test scheduler refuses as not deterministic.
+    /// Starts the daemon and the connection. In tests the client's and the
+    /// supervisor's events are never followed, whoever starts it (a view
+    /// test's stores or a fixture's): nothing on the daemon's I/O thread may
+    /// wake a test's tasks, which the test scheduler refuses as not
+    /// deterministic.
     pub fn start(options: ConnectionOptions, cx: &mut App) -> Entity<Self> {
         cx.new(|cx| Self::new(options, !cfg!(test), cx))
     }
@@ -226,11 +247,12 @@ impl ConnectionStore {
         let (client, client_events) = RpcClient::start(rpc_config.clone(), &rt);
         client.subscribe(WINDOW_EVENTS, &[]);
 
-        let (master_key, startup_error) = match options.master_key {
-            Ok(key) => (Some(key), None),
+        let (master_key, startup_error, no_secret_store) = match (options.master_key)() {
+            Ok(key) => (Some(key), None, false),
             Err(e) => {
                 log::error!("no master key: {e}");
-                (None, Some(e))
+                let unavailable = matches!(e, SecretError::Unavailable(_));
+                (None, Some(e.to_string()), unavailable)
             }
         };
         if follow {
@@ -241,6 +263,11 @@ impl ConnectionStore {
             paths: options.paths,
             token,
             master_key,
+            key_source: options.master_key,
+            key_file: options.key_file,
+            no_secret_store,
+            resolving_key: false,
+            follow,
             binary: options.binary,
             rpc_config,
             supervisor: None,
@@ -286,7 +313,9 @@ impl ConnectionStore {
                 .push(("CONDUIT_MODEL_LOGOS".into(), catalog.into()));
         }
         let (supervisor, events) = Supervisor::spawn(config, &runtime::shared());
-        pump(cx, events, |s, e, cx| s.on_supervisor(e, cx));
+        if self.follow {
+            pump(cx, events, |s, e, cx| s.on_supervisor(e, cx));
+        }
         self.supervisor = Some(supervisor);
     }
 
@@ -497,6 +526,13 @@ impl ConnectionStore {
     /// connection is fine).
     pub fn retry(&mut self, cx: &mut Context<Self>) -> bool {
         self.reset_error = None;
+        // No daemon was started for want of a master key: ask the secret
+        // store again, and start it once there is one.
+        if self.master_key.is_none() {
+            self.resolve_master_key(self.key_source.clone(), cx);
+            cx.notify();
+            return false;
+        }
         let refetch = match (&self.daemon, &self.rpc) {
             (DaemonPhase::Fatal(_), _) => {
                 if let Some(s) = &self.supervisor {
@@ -513,6 +549,60 @@ impl ConnectionStore {
         };
         cx.notify();
         refetch
+    }
+
+    /// Whether the window may offer D12's key file: there is no secret store
+    /// at all (never for one that is locked or refused, whose key would be
+    /// left behind) and no key yet.
+    pub fn offers_key_file(&self) -> bool {
+        self.key_file.is_some()
+            && self.no_secret_store
+            && self.master_key.is_none()
+            && !self.resolving_key
+    }
+
+    /// The user chose the key file over its warning: the key is read from
+    /// it, or made in it, and the daemon starts.
+    pub fn use_key_file(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.key_file.clone().filter(|_| self.offers_key_file()) else {
+            return;
+        };
+        log::warn!("the master key goes to a key file (no Secret Service)");
+        self.resolve_master_key(source, cx);
+        cx.notify();
+    }
+
+    /// Asks `source` for the master key off the UI thread (it may wait on
+    /// the desktop's unlock prompt), then starts the daemon with it. The
+    /// window reads as connecting meanwhile.
+    fn resolve_master_key(&mut self, source: MasterKeySource, cx: &mut Context<Self>) {
+        if self.resolving_key {
+            return;
+        }
+        self.resolving_key = true;
+        self.startup_error = None;
+        let asked = cx.background_spawn(async move { source() });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let answer = asked.await;
+            let _ = this.update(cx, |s, cx| {
+                s.resolving_key = false;
+                match answer {
+                    Ok(key) => {
+                        log::info!("master key found on retry");
+                        s.master_key = Some(key);
+                        s.no_secret_store = false;
+                        s.spawn_supervisor(cx);
+                    }
+                    Err(e) => {
+                        log::error!("no master key: {e}");
+                        s.no_secret_store = matches!(e, SecretError::Unavailable(_));
+                        s.startup_error = Some(e.to_string());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// "Reset local data" (after exit 77): moves userData aside with a
@@ -842,6 +932,150 @@ mod tests {
         assert!(!Status::Connected.blocks(false));
     }
 
+    /// The connection over a secret store that answers with `answers`, in
+    /// turn (the last one again once they run out), and how often it was
+    /// asked; `key_file` is D12's.
+    fn over_store(
+        answers: Vec<Result<String, SecretError>>,
+        key_file: Option<MasterKeySource>,
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> (
+        Entity<ConnectionStore>,
+        Arc<std::sync::atomic::AtomicUsize>,
+        tempfile::TempDir,
+    ) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let scratch = tempfile::Builder::new()
+            .prefix("conduit-connection-key-")
+            .tempdir()
+            .expect("a temporary folder");
+        let asked = Arc::new(AtomicUsize::new(0));
+        let source: MasterKeySource = {
+            let asked = asked.clone();
+            Arc::new(move || {
+                let n = asked.fetch_add(1, Ordering::SeqCst);
+                answers[n.min(answers.len() - 1)].clone()
+            })
+        };
+        let paths = AppPaths {
+            flavor: conduit_daemon::paths::Flavor::Dev,
+            user_data: scratch.path().join("user-data"),
+            logs: scratch.path().join("logs"),
+        };
+        let connection = cx.update(|cx| {
+            ConnectionStore::start(
+                ConnectionOptions {
+                    paths,
+                    binary: PathBuf::from("/nonexistent/conduitd"),
+                    master_key: source,
+                    key_file,
+                    locale: "en".into(),
+                    client_version: "0".into(),
+                },
+                cx,
+            )
+        });
+        (connection, asked, scratch)
+    }
+
+    fn failed(e: &SecretError) -> Status {
+        Status::Failed {
+            detail: e.to_string(),
+        }
+    }
+
+    /// Linux: the Secret Service is locked or not running at launch, so
+    /// there is no master key. Once it is back, Retry asks it again and
+    /// starts the daemon, with no relaunch.
+    #[gpui_kit::test]
+    fn retry_asks_the_secret_store_again_before_starting_the_daemon(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use std::sync::atomic::Ordering;
+        let key = secrets::new_master_key();
+        let locked = SecretError::Store("the keyring is locked".into());
+        let (connection, asked, _scratch) =
+            over_store(vec![Err(locked.clone()), Ok(key.clone())], None, cx);
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), failed(&locked));
+            assert!(c.supervisor.is_none());
+        });
+        connection.update(cx, |c, cx| c.retry(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "Retry asks the store again"
+        );
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.master_key.as_deref(), Some(key.as_str()));
+            assert!(c.supervisor.is_some(), "the daemon starts with the key");
+            assert_eq!(c.status(false, None), Status::Connecting);
+        });
+    }
+
+    /// A Retry that still finds no key says the newer reason, starts
+    /// nothing, and can be tried again.
+    #[gpui_kit::test]
+    fn a_retry_that_still_finds_no_key_shows_why(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::atomic::Ordering;
+        let gone = SecretError::Unavailable("org.freedesktop.secrets was not provided".into());
+        let (connection, asked, _scratch) = over_store(
+            vec![
+                Err(SecretError::Store("the keyring is locked".into())),
+                Err(gone.clone()),
+            ],
+            None,
+            cx,
+        );
+        connection.update(cx, |c, cx| c.retry(cx));
+        cx.run_until_parked();
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), failed(&gone));
+            assert!(c.supervisor.is_none());
+        });
+        connection.update(cx, |c, cx| c.retry(cx));
+        cx.run_until_parked();
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+    }
+
+    /// D12: the key file is offered only when there is no Secret Service at
+    /// all. A locked or refused one has the key already, which a new key in
+    /// a file would leave behind.
+    #[gpui_kit::test]
+    fn the_key_file_is_offered_only_without_a_secret_service(cx: &mut gpui_kit::TestAppContext) {
+        let file: MasterKeySource = Arc::new(|| Ok(secrets::new_master_key()));
+        let none = SecretError::Unavailable("no session bus".into());
+        let (connection, _, _scratch) = over_store(vec![Err(none)], Some(file.clone()), cx);
+        connection.read_with(cx, |c, _| assert!(c.offers_key_file()));
+        let locked = SecretError::Store("the keyring is locked".into());
+        let (connection, _, _scratch) = over_store(vec![Err(locked)], Some(file), cx);
+        connection.read_with(cx, |c, _| assert!(!c.offers_key_file()));
+        // And never where the platform has no key file.
+        let none = SecretError::Unavailable("no session bus".into());
+        let (connection, _, _scratch) = over_store(vec![Err(none)], None, cx);
+        connection.read_with(cx, |c, _| assert!(!c.offers_key_file()));
+    }
+
+    /// Choosing the key file starts the daemon with its key.
+    #[gpui_kit::test]
+    fn choosing_the_key_file_starts_the_daemon(cx: &mut gpui_kit::TestAppContext) {
+        let key = secrets::new_master_key();
+        let file: MasterKeySource = {
+            let key = key.clone();
+            Arc::new(move || Ok(key.clone()))
+        };
+        let none = SecretError::Unavailable("no session bus".into());
+        let (connection, _, _scratch) = over_store(vec![Err(none)], Some(file), cx);
+        connection.update(cx, |c, cx| c.use_key_file(cx));
+        cx.run_until_parked();
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.master_key.as_deref(), Some(key.as_str()));
+            assert!(c.supervisor.is_some());
+            assert!(!c.offers_key_file());
+        });
+    }
+
     /// A follower leaves by subscribing its key to nothing (Computer does when
     /// its window closes): the key goes, so the follower can come back later
     /// with its events, as Computer does when it opens again.
@@ -858,7 +1092,8 @@ mod tests {
                         logs: scratch.join("logs"),
                     },
                     binary: PathBuf::from("/nonexistent/conduitd"),
-                    master_key: Err("test".into()),
+                    master_key: Arc::new(|| Err(SecretError::Store("test".into()))),
+                    key_file: None,
                     locale: "en".into(),
                     client_version: "0".into(),
                 },

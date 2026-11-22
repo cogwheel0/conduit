@@ -377,6 +377,58 @@ jobs:
           binary=$(ls build/cli/*/bundle/bin/conduitd)
           dart run tool/smoke.dart "$binary"
 
+  # The same build and smoke test on Windows and Linux, where Conduit
+  # Desktop is coming (phase 1). Not required yet: their first runs may need
+  # triage.
+  daemon-other-os:
+    name: Desktop daemon (${{ matrix.name }} build + smoke)
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.full == 'true' || needs.changes.outputs.daemon != 'false') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      # Only the third_party/ submodules, as in the mobile job.
+      - parallel:
+          - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+            with:
+              channel: 'stable'
+              cache: true
+          - name: Fetch third_party submodules
+            run: git submodule update --init --recursive --depth 1 third_party/katex third_party/mermaid
+      - run: flutter pub get
+      # The daemon compiles against the core's and the protocol's generated
+      # code; the app's is not needed.
+      - name: Generate code
+        shell: bash
+        run: |
+          for dir in packages/* apps/*; do
+            if [ -f "$dir/pubspec.yaml" ] && grep -q '^  build_runner:' "$dir/pubspec.yaml"; then
+              echo "::group::build_runner in $dir"
+              (cd "$dir" && dart run build_runner build)
+              echo "::endgroup::"
+            fi
+          done
+      - name: Build conduitd
+        working-directory: apps/daemon
+        run: dart build cli
+      # conduitd.exe on Windows.
+      - name: Smoke-test conduitd
+        working-directory: apps/daemon
+        shell: bash
+        run: |
+          binary=$(ls build/cli/*/bundle/bin/conduitd*)
+          dart run tool/smoke.dart "$binary"
+
   # The web-safe packages must survive dart2js, and must not be
   # able to reach dio, drift or conduit_core. Both are cheap to check and
   # expensive to discover late.
