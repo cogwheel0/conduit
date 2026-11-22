@@ -972,6 +972,7 @@ pub fn closes_to_menu_bar(cx: &App) -> bool {
 /// AppKit call waits for the current update to end: it calls back into
 /// GPUI.
 pub fn hide_main(cx: &mut App) {
+    main_window_leaving(cx);
     // Deferred, as in `show_main`: ⌘W and the close button run inside the
     // window's update, where looking the window up again fails quietly.
     #[cfg(target_os = "macos")]
@@ -984,6 +985,67 @@ pub fn hide_main(cx: &mut App) {
     });
     #[cfg(not(target_os = "macos"))]
     let _ = cx;
+}
+
+/// The main window leaves the screen: hidden to the menu bar or closed,
+/// by its close button, ⌘W or Window › Close Window. Every one of those
+/// comes here, so the chat it shows is left once and nothing reads it
+/// while the window is away.
+pub fn main_window_leaving(cx: &mut App) {
+    if let Some(view) = cx
+        .try_global::<AppState>()
+        .and_then(|s| s.main_view.clone())
+    {
+        cx.defer(move |cx| view.update(cx, |m, cx| m.leaving_screen(cx)));
+    }
+}
+
+fn main_chat_pane(cx: &App) -> Option<Entity<crate::views::chat_pane::ChatPane>> {
+    let view = cx.try_global::<AppState>()?.main_view.clone()?;
+    Some(view.read(cx).chat_pane.clone())
+}
+
+/// How long a quit waits for the daemon to store the reads below.
+const QUIT_READ_LIMIT: Duration = Duration::from_secs(2);
+
+/// As the app quits, the chats on screen (the main window's, Quick Ask's)
+/// are left, and read up to now. The daemon stops right after, so the
+/// reads are waited for, and one that failed or was not answered in time
+/// is logged by its chat's id.
+pub fn read_shown_chats_on_quit(cx: &mut App) {
+    let mut reads = Vec::new();
+    if let Some(pane) = main_chat_pane(cx) {
+        reads.extend(pane.update(cx, |p, cx| p.leave_on_quit(cx)));
+    }
+    if let Some((_, view)) = cx.try_global::<Desktop>().and_then(|d| d.quick_ask.clone()) {
+        reads.extend(view.update(cx, |v, cx| v.leave_on_quit(cx)));
+    }
+    if reads.is_empty() {
+        return;
+    }
+    let waiting = std::rc::Rc::new(std::cell::RefCell::new(
+        reads.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+    ));
+    let reads = futures::future::join_all(reads.into_iter().map(|(id, read)| {
+        let waiting = waiting.clone();
+        async move {
+            let result = read.await;
+            waiting.borrow_mut().retain(|w| *w != id);
+            if let Err(error) = result {
+                log::warn!("quit: chat {id} was not read ({:?})", error.code);
+            }
+        }
+    }));
+    if cx
+        .foreground_executor()
+        .block_with_timeout(QUIT_READ_LIMIT, reads)
+        .is_err()
+    {
+        log::warn!(
+            "quit: chats {:?} were not read within {QUIT_READ_LIMIT:?}",
+            waiting.borrow()
+        );
+    }
 }
 
 /// The main window's should-close hook: with "Close to menu bar" on, the
@@ -1001,6 +1063,7 @@ pub fn main_should_close(cx: &mut App) -> bool {
         hide_main(cx);
         return false;
     }
+    main_window_leaving(cx);
     true
 }
 
@@ -1877,7 +1940,10 @@ pub fn show_quick_ask(cx: &mut App) {
         }
     }
     let _ = handle.update(cx, |_, window, cx| {
-        view.update(cx, |v, cx| v.focus_composer(window, cx))
+        view.update(cx, |v, cx| {
+            v.set_shown(true, cx);
+            v.focus_composer(window, cx);
+        })
     });
     if let Some(shell) = shell(cx) {
         shell.update(cx, |s, cx| s.set_quick_ask_visible(true, cx));
@@ -1900,6 +1966,9 @@ pub fn hide_quick_ask(cx: &mut App) {
     });
     if let Some(shell) = shell(cx) {
         shell.update(cx, |s, cx| s.set_quick_ask_visible(false, cx));
+    }
+    if let Some((_, view)) = cx.try_global::<Desktop>().and_then(|d| d.quick_ask.clone()) {
+        cx.defer(move |cx| view.update(cx, |v, cx| v.set_shown(false, cx)));
     }
 }
 

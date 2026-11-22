@@ -4,6 +4,8 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/search_dao.dart';
 import 'package:conduit_core/database/fts/fts_ddl.dart';
+import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
@@ -156,6 +158,21 @@ void main() {
       );
       final hits = await db.searchDao.search('quantum');
       check(hits.map((h) => h.chatId).toList()).deepEquals(['c1']);
+    });
+
+    test('a chat held unread here is found unread, until it is read '
+        'here', () async {
+      await _insertChat(db, id: 'c1', title: 'Tide tables', updatedAt: 100);
+      await db.chatsDao.setLastReadAt('c1', 100);
+      // Text taken from the server's copy in that same second, never shown.
+      await db.chatsDao.holdUnread('c1');
+      Future<bool> foundUnread() async => isConversationUnread(
+        conversationFromSearchHit((await db.searchDao.search('tide')).single),
+      );
+
+      check(await foundUnread()).isTrue();
+      await db.chatsDao.setLastReadAt('c1', 100);
+      check(await foundUnread()).isFalse();
     });
 
     test('empty / punctuation query short-circuits to []', () async {

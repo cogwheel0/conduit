@@ -521,6 +521,7 @@ pub fn run() {
         })
         .detach();
         cx.on_app_quit(|cx| {
+            desktop::read_shown_chats_on_quit(cx);
             if let Some(state) = cx.try_global::<AppState>() {
                 let (connection, settings, layout) = (
                     state.connection.clone(),
@@ -664,6 +665,9 @@ fn register_actions(cx: &mut App) {
         if desktop::is_quick_ask_window(w, cx) {
             desktop::hide_quick_ask(cx);
             return;
+        }
+        if main == Some(w) {
+            desktop::main_window_leaving(cx);
         }
         let _ = w.update(cx, |_, window, _| window.remove_window());
     });

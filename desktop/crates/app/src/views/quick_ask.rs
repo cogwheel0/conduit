@@ -81,6 +81,8 @@ pub struct QuickAskView {
     pub composer_store: Entity<ComposerStore>,
     pub composer: Entity<ChatComposer>,
     pub chat: Option<QuickChat>,
+    /// The panel is on screen ([`Self::set_shown`]).
+    shown: bool,
     /// The first message is on its way.
     starting: bool,
     /// Bumped by New Chat and by another account: a first message sent
@@ -228,6 +230,7 @@ impl QuickAskView {
             composer_store,
             composer,
             chat: None,
+            shown: false,
             starting: false,
             generation: 0,
             scope,
@@ -277,9 +280,53 @@ impl QuickAskView {
         cx.notify();
     }
 
-    /// New chat: drops this exchange (the chat stays in the sidebar), the
-    /// draft and its attachments.
+    /// The panel comes on screen, or goes: going, it leaves its chat, which
+    /// is read up to now; coming back, its chat is shown again.
+    pub fn set_shown(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if !shown {
+            self.leave_chat(cx);
+        } else if !self.shown
+            && let Some(id) = self.chat_id(cx)
+        {
+            self.stores
+                .chat_list
+                .update(cx, |c, cx| c.mark_read(&id, cx));
+        }
+        self.shown = shown;
+    }
+
+    /// The app quits: the chat the panel shows is left, by a read the quit
+    /// waits for.
+    pub fn leave_on_quit(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, crate::stores::chat_list::QuitRead)> {
+        if !std::mem::take(&mut self.shown) {
+            return None;
+        }
+        let left = self.chat_id(cx)?;
+        let read = self
+            .stores
+            .chat_list
+            .update(cx, |c, _| c.mark_left_on_quit(&left))?;
+        Some((left, read))
+    }
+
+    fn leave_chat(&mut self, cx: &mut Context<Self>) {
+        if !self.shown {
+            return;
+        }
+        if let Some(left) = self.chat_id(cx) {
+            self.stores
+                .chat_list
+                .update(cx, |c, cx| c.mark_left(&left, cx));
+        }
+    }
+
+    /// New chat: drops this exchange (the chat stays in the sidebar, read
+    /// up to now), the draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_chat(cx);
         self.clear(window, cx);
         self.composer_store.update(cx, |c, cx| {
             c.start_over(cx);
@@ -289,7 +336,8 @@ impl QuickAskView {
     }
 
     /// Another account: drops everything of the last one's, the composer's
-    /// models, options and attachments included.
+    /// models, options and attachments included. Its chat is not read:
+    /// the daemon now answers for the new account.
     fn forget(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
         self.composer_store.update(cx, |c, cx| c.reset(cx));
@@ -453,6 +501,12 @@ impl QuickAskView {
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
                 let streaming = store.read(cx).is_streaming();
+                if streaming {
+                    let id = store.read(cx).chat_id().to_string();
+                    this.stores
+                        .chat_list
+                        .update(cx, |c, _| c.note_answered(&id));
+                }
                 this.composer.update(cx, |c, cx| {
                     if c.streaming != streaming {
                         c.streaming = streaming;
@@ -1331,6 +1385,107 @@ mod tests {
             assert!(v.chat.is_none(), "the late reply opened its chat");
             assert!(v.composer_store.read(cx).attachments.is_empty());
         });
+    }
+
+    /// Another account while the panel shows a chat: that chat goes with
+    /// the account it belongs to, and nothing of it is read in the new one.
+    #[gpui_kit::test]
+    fn another_account_reads_nothing_of_the_last_ones_chat(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        let listed: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
+            "chats": [{"id": "chat-q", "title": "Tide times", "updatedAtMs": 1, "unread": true}],
+        }))
+        .unwrap();
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::ChatsMarkUnread>().is_empty(),
+            "the last account's chat was read in the new one"
+        );
+    }
+
+    /// An answer read in the panel leaves its chat read: the panel reads
+    /// the chat it shows as it hides, as it is shown again, as it starts a
+    /// new chat, and as the app quits. Hidden, it reads nothing.
+    #[gpui_kit::test]
+    fn the_panel_reads_its_chat_as_it_stops_showing_it(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        // Their answers finished in the panel: the sidebar has their dots.
+        let listed: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
+            "chats": [
+                {"id": "chat-q", "title": "Tide times", "updatedAtMs": 1, "unread": true},
+                {"id": "chat-r", "title": "Moon phases", "updatedAtMs": 1, "unread": true},
+            ],
+        }))
+        .unwrap();
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        let reads = || daemon.calls::<methods::ChatsMarkUnread>();
+        let read_q = serde_json::json!({"chatId": "chat-q", "unread": false});
+
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| v.set_shown(false, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            reads(),
+            vec![read_q.clone()],
+            "hiding did not read the chat"
+        );
+        view.update(vcx, |v, cx| v.set_shown(false, cx));
+        assert!(view.update(vcx, |v, cx| v.leave_on_quit(cx)).is_none());
+        vcx.run_until_parked();
+        assert_eq!(reads().len(), 1, "the hidden panel read its chat");
+
+        // Its next answer finishes while the panel is hidden: shown again,
+        // the chat is read as an opened one is.
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| v.set_shown(true, cx));
+        vcx.run_until_parked();
+        assert_eq!(reads().len(), 2, "the chat shown again was not read");
+
+        // Another finishes while it shows, then a new chat starts there.
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.new_chat(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(reads().len(), 3, "a new chat did not read the chat left");
+
+        view.update_in(vcx, |v, window, cx| {
+            v.open_chat("chat-r".into(), window, cx)
+        });
+        vcx.run_until_parked();
+        let (id, read) = view
+            .update(vcx, |v, cx| v.leave_on_quit(cx))
+            .expect("quitting did not read the chat on screen");
+        assert_eq!(id, "chat-r");
+        assert!(vcx.foreground_executor().block_test(read).is_ok());
+        assert_eq!(
+            reads().last(),
+            Some(&serde_json::json!({"chatId": "chat-r", "unread": false}))
+        );
     }
     /// A Services selection never takes the place of what the user left in
     /// Quick Ask, and never joins it: words, files (sent up or still on

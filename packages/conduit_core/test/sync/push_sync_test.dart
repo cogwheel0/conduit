@@ -6,8 +6,13 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kSettledHereMetadataKey, kStoppedHereMetadataKey;
+    show
+        kSettledHereMetadataKey,
+        kStoppedHereMetadataKey,
+        kTakenFromServerMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -72,6 +77,24 @@ class _HeldChatReadClient extends FakeSyncApiClient {
 
 /// Fails the pin that follows an update: the update has reached the server,
 /// and the push has not finished.
+/// Holds each chat update, once sent ([sent]), until [release].
+class _HeldUpdateClient extends FakeSyncApiClient {
+  _HeldUpdateClient(super.server);
+
+  final Completer<void> sent = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    if (!sent.isCompleted) sent.complete();
+    await release.future;
+    return super.updateChat(id, fullBlob);
+  }
+}
+
 class _PinFailsClient extends FakeSyncApiClient {
   _PinFailsClient(super.server);
 
@@ -231,6 +254,61 @@ class _StopHookClient extends FakeSyncApiClient {
   }
 }
 
+/// Keeps the messages an update leaves out, as Open WebUI's `merge_history`
+/// does (`models/chats.py`, 0.13.4): another device's, saved since this
+/// device last read the chat.
+/// Loses the first chat update's connection before the server takes it, as
+/// a dropped network does; every later one goes through.
+class _FirstUpdateFailsClient extends FakeSyncApiClient {
+  _FirstUpdateFailsClient(super.server);
+
+  var _failed = false;
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    if (!_failed) {
+      _failed = true;
+      throw StateError('connection reset before the update reached $id');
+    }
+    return super.updateChat(id, fullBlob);
+  }
+}
+
+class _MergingHistoryClient extends FakeSyncApiClient {
+  _MergingHistoryClient(super.server);
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    final before = server.getChatById(id)?['chat'] as Map?;
+    final response = await super.updateChat(id, fullBlob);
+    final stored = (before?['history'] as Map?)?['messages'] as Map? ?? {};
+    if (response == null) return null;
+    final blob = Map<String, dynamic>.from(response['chat'] as Map);
+    final history = Map<String, dynamic>.from(blob['history'] as Map);
+    final messages = Map<String, dynamic>.from(history['messages'] as Map);
+    for (final MapEntry(:key, :value) in stored.entries) {
+      if (messages.containsKey(key)) continue;
+      messages[key] = value;
+      final parent = messages[(value as Map)['parentId']];
+      if (parent is Map) {
+        messages[value['parentId'] as String] = {
+          ...parent,
+          'childrenIds': [...parent['childrenIds'] as List, key],
+        };
+      }
+    }
+    history['messages'] = messages;
+    blob['history'] = history;
+    return server.saveFromTask(id, blob);
+  }
+}
+
 /// Seeds a local (`local:`) chat + messages directly, dirty by default.
 Future<void> seedLocalChat(
   AppDatabase db, {
@@ -317,13 +395,34 @@ Future<void> seedParkedFolderOp(
       );
 }
 
+/// Fails each statement holding [failing], while it is set.
+final class _FailingStatements extends QueryInterceptor {
+  String? failing;
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final failing = this.failing;
+    if (failing != null && statement.contains(failing)) {
+      throw StateError('database or disk is full');
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
 Future<List<OutboxOp>> outboxOpsForChat(AppDatabase db, String chatId) {
   return (db.select(db.outboxOps)..where((t) => t.chatId.equals(chatId))).get();
 }
 
 void main() {
   late FakeOpenWebUiServer server;
+  // The server's clock: 7000 unless a test moves it on.
+  late int serverNow;
   late FakeSyncApiClient client;
+  late _FailingStatements statements;
   late AppDatabase db;
   late ConversationLocks chatLocks;
   late FolderLocks folderLocks;
@@ -332,9 +431,11 @@ void main() {
   late PushSync push;
 
   setUp(() {
-    server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000);
+    serverNow = 7000;
+    server = FakeOpenWebUiServer(nowEpochSeconds: () => serverNow);
     client = FakeSyncApiClient(server);
-    db = AppDatabase(NativeDatabase.memory());
+    statements = _FailingStatements();
+    db = AppDatabase(NativeDatabase.memory().interceptWith(statements));
     chatLocks = ConversationLocks();
     folderLocks = FolderLocks();
     remapper = IdRemapper(db);
@@ -810,6 +911,146 @@ void main() {
   });
 
   group('pushUpdateChat', () {
+    Map<String, dynamic> beanRows() => {
+      'title': 'Bean rows',
+      'history': {
+        'messages': {
+          'q1': {
+            'id': 'q1',
+            'parentId': null,
+            'childrenIds': ['a1'],
+            'role': 'user',
+            'content': 'How far apart do bean rows go?',
+          },
+          'a1': {
+            'id': 'a1',
+            'parentId': 'q1',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': 'About 45 cm.',
+            'done': true,
+          },
+        },
+        'currentId': 'a1',
+      },
+    };
+
+    test('a chat read here stays read when a save made here lands on the '
+        'server later', () async {
+      var now = 7000;
+      final server = FakeOpenWebUiServer(nowEpochSeconds: () => now);
+      final client = FakeSyncApiClient(server);
+      final push = PushSync(
+        client: client,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      server.seedChat(
+        id: 'srv-read',
+        blob: beanRows(),
+        createdAt: 100,
+        updatedAt: 7000,
+      );
+      await pull.pullChat('srv-read');
+      await db.chatsDao.setLastReadAt('srv-read', 7000);
+
+      // Saved here, and pushed once the server can be reached: the server
+      // dates the chat to the push.
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'srv-read',
+        title: const Value('Bean spacing'),
+        enqueue: true,
+      );
+      now = 7300;
+      await push.pushUpdateChat('srv-read');
+
+      final pulled = await pull.pullChat('srv-read');
+      check(pulled!.updatedAt.millisecondsSinceEpoch).equals(7300 * 1000);
+      check(isConversationUnread(pulled)).isFalse();
+    });
+
+    test('a save made here leaves a chat unread when the server keeps '
+        "another device's message beside it, or the chat was marked unread "
+        'here', () async {
+      var now = 7000;
+      final server = FakeOpenWebUiServer(nowEpochSeconds: () => now);
+      final client = _MergingHistoryClient(server);
+      final push = PushSync(
+        client: client,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+      final pull = PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      );
+      for (final id in ['srv-elsewhere', 'srv-marked']) {
+        server.seedChat(
+          id: id,
+          blob: beanRows(),
+          createdAt: 100,
+          updatedAt: 7000,
+        );
+        await pull.pullChat(id);
+        await db.chatsDao.setLastReadAt(id, 7000);
+      }
+      final previous = await db.chatsDao.markUnread('srv-marked');
+      await db.chatsDao.finishUnread(
+        'srv-marked',
+        refused: false,
+        previous: previous,
+      );
+
+      // Another device asks in the first chat; this one has not pulled it.
+      now = 7200;
+      final blob =
+          server.getChatById('srv-elsewhere')!['chat'] as Map<String, dynamic>;
+      final history = blob['history'] as Map<String, dynamic>;
+      final messages = history['messages'] as Map<String, dynamic>;
+      messages['q2'] = {
+        'id': 'q2',
+        'parentId': 'a1',
+        'childrenIds': <String>[],
+        'role': 'user',
+        'content': 'And for runner beans?',
+      };
+      (messages['a1'] as Map<String, dynamic>)['childrenIds'] = ['q2'];
+      history['currentId'] = 'q2';
+      server.saveFromTask('srv-elsewhere', blob);
+
+      now = 7300;
+      for (final id in ['srv-elsewhere', 'srv-marked']) {
+        await db.chatsDao.updateEnvelopeWithOutbox(
+          id,
+          title: const Value('Bean spacing'),
+          enqueue: true,
+        );
+        await push.pushUpdateChat(id);
+      }
+
+      final elsewhere = await pull.pullChat('srv-elsewhere');
+      check([
+        for (final m in await db.messagesDao.getForChat('srv-elsewhere')) m.id,
+      ]).contains('q2');
+      check(isConversationUnread(elsewhere!)).isTrue();
+      check(isConversationUnread((await pull.pullChat('srv-marked'))!))
+          .isTrue();
+    });
+
     test('a copy read before a send was pushed, in the same second, does not '
         'take the sent message and its placeholder back out', () async {
       // Open WebUI stamps whole seconds: the stored chat, the push below
@@ -2020,11 +2261,27 @@ void main() {
                 as Map)['messages'][id]
             as Map<String, dynamic>;
 
+    /// A later pull of the chat, read here before the server's clock moved
+    /// on and the push landed.
+    Future<Conversation> pulled() async => (await PullSync(
+      client: client,
+      db: db,
+      locks: chatLocks,
+      remapper: remapper,
+    ).pullChat(chatId))!;
+
+    /// Reads the chat here, then lets the server's clock move on.
+    Future<void> readHere() async {
+      await db.chatsDao.setLastReadAt(chatId, 7000);
+      serverNow = 7300;
+    }
+
     test('a cut-off answer reaches the server finished, with the text kept '
         'here and its error, the chat stopped first while no task '
-        'runs', () async {
+        'runs; read here, it stays read, the text its own', () async {
       await seed();
       await settleCutOff();
+      await readHere();
 
       await push.pushUpdateChat(chatId);
 
@@ -2034,13 +2291,15 @@ void main() {
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check(server.chatStops).deepEquals([chatId]);
       check((await answerHere()).dirty).isFalse();
+      check(isConversationUnread(await pulled())).isFalse();
     });
 
     test('a cut-off answer whose unfinished copy on the server holds more '
-        'text is finished with the server\'s text and the error '
-        'here', () async {
+        'text is finished with the server\'s text and the error here; that '
+        'text was never shown here, so the chat goes unread', () async {
       await seed(stored: kept);
       await settleCutOff('Gales veer');
+      await readHere();
 
       await push.pushUpdateChat(chatId);
 
@@ -2049,7 +2308,179 @@ void main() {
         ..has((it) => it['content'], 'content').equals(kept)
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check((await answerHere()).content).equals(kept);
+      check((await db.chatsDao.getChat(chatId))!.heldUnread).isTrue();
+      check(isConversationUnread(await pulled())).isTrue();
     });
+
+    test('the server\'s text a push took, read here while the push is on its '
+        'way, stays read once it lands', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+      final holding = _HeldUpdateClient(server);
+      final pushing = PushSync(
+        client: holding,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+
+      final landing = pushing.pushUpdateChat(chatId);
+      await holding.sent.future;
+      check((await answerHere()).content).equals(kept);
+      await db.chatsDao.setLastReadAt(chatId, 7100);
+      holding.release.complete();
+      await landing;
+
+      check((await db.chatsDao.getChat(chatId))!.heldUnread).isFalse();
+      check(isConversationUnread(await pulled())).isFalse();
+    });
+
+    test('a finished answer whose copy on the server shows the same text and '
+        'a reasoning block more goes as the server\'s; that reasoning was '
+        'never shown here, so the chat goes unread', () async {
+      await seed(
+        stored: kept,
+        done: true,
+        output: [
+          {
+            'type': 'reasoning',
+            'id': 'r1',
+            'summary': [
+              {'type': 'summary_text', 'text': 'Warm air rides up first'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'm1',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': kept},
+            ],
+          },
+        ],
+      );
+      await settleCutOff(kept);
+      await readHere();
+
+      await push.pushUpdateChat(chatId);
+
+      check((await answerHere()).content).equals(kept);
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    test('the server\'s text a failed push took stays news when the push is '
+        'sent again and lands', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+      final dropping = PushSync(
+        client: _FirstUpdateFailsClient(server),
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+
+      await check(dropping.pushUpdateChat(chatId)).throws<StateError>();
+      // The fuller answer is stored here now, as if it were this device's.
+      check((await answerHere()).content).equals(kept);
+      await dropping.pushUpdateChat(chatId);
+
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    test('the server\'s text a landed push took stays news through a later '
+        'save made here, pushed before any pull', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+      await push.pushUpdateChat(chatId);
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        chatId,
+        title: const Value('Gale notes'),
+        enqueue: true,
+      );
+      serverNow = 7600;
+      await push.pushUpdateChat(chatId);
+
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    for (final (moment, readAt) in [
+      ('in the very second it lands', 7000),
+      ('by a clock ahead of the server\'s', 7100),
+    ]) {
+      test('the server\'s text a push took is news when the chat was read '
+          'here $moment, until it is read here again', () async {
+        await seed(stored: kept);
+        await settleCutOff('Gales veer');
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+
+        await push.pushUpdateChat(chatId);
+
+        check(isConversationUnread(await pulled())).isTrue();
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+        check(isConversationUnread(await pulled())).isFalse();
+      });
+    }
+
+    test('a push that took the server\'s text, whose landing could not be '
+        'stored, keeps its marks: sent again, it leaves the chat '
+        'unread', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+
+      statements.failing = 'chats SET updated_at';
+      await check(push.pushUpdateChat(chatId)).throws<StateError>();
+      statements.failing = null;
+      final metadata =
+          (jsonDecode((await answerHere()).payload) as Map)['metadata'] as Map?;
+      check(metadata?[kTakenFromServerMetadataKey]).equals(true);
+
+      await push.pushUpdateChat(chatId);
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    // The push lands at 7300 by the server's clock.
+    for (final (moment, readAt) in [
+      ('before the push', 7000),
+      ('in the very second it lands', 7300),
+      ('by a clock ahead of the server\'s', 7400),
+    ]) {
+      test('an unfinished answer the server goes on writing comes back fuller '
+          'from a save made here, the chat read here $moment; that text was '
+          'never shown here, so the chat goes unread', () async {
+        await seed(stored: 'Gales veer');
+        // Its task writes on after this device last pulled the chat.
+        final blob =
+            server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+        (((blob['history'] as Map)['messages'] as Map)['a1']
+                as Map)['content'] =
+            kept;
+        server.saveFromTask(chatId, blob);
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+        serverNow = 7300;
+
+        await db.chatsDao.updateEnvelopeWithOutbox(
+          chatId,
+          title: const Value('Gale notes'),
+          enqueue: true,
+        );
+        await push.pushUpdateChat(chatId);
+
+        check(onServer('a1'))
+            .has((it) => it['content'], 'content')
+            .equals(kept);
+        check(isConversationUnread(await pulled())).isTrue();
+      });
+    }
 
     test('with a task running in the chat (another device answering), no '
         'stop is asked, neither answer the server holds is touched, and the '

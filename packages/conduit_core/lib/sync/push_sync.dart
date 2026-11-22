@@ -12,11 +12,12 @@ import 'package:conduit_core/models/chat_comparison.dart'
     show
         kCompletionHeldMetadataKey,
         kSettledHereMetadataKey,
+        kTakenFromServerMetadataKey,
         kStoppedHereMetadataKey;
 import 'package:conduit_core/models/openwebui_chat_prompt.dart'
     show openWebUiChatStopRejectsPrompt;
 import 'package:conduit_core/services/answer_copies.dart'
-    show storedAnswerHoldsMoreThan;
+    show storedAnswerHoldsMoreThan, storedAnswerShows;
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -398,12 +399,56 @@ class PushSync {
         for (final id in capturedMessageIds)
           if (!stop.unsent.contains(id) && !kept.contains(id)) id,
       ];
-      await _clearSettledMarks(chatId, sent.where(recovered.contains));
-      await _clearDirty(
-        chatId: chatId,
-        messageIds: sent,
-        serverUpdatedAt: serverUpdatedAt,
-      );
+      final taken = {
+        for (final message in rows.messages)
+          if (_isTakenFromServer(message)) message.id,
+      };
+      // The push moved the server's date. It is this device's own save only
+      // when the server holds nothing else: Open WebUI keeps the messages an
+      // update leaves out (`merge_history`), and its own copy of an answer
+      // it holds as not done, which a running task may have written on.
+      final pushed = {for (final message in rows.messages) message.id: message};
+      final landed = resp['chat'] is Map
+          ? _serverMessages(chatId, resp['chat'])
+          : null;
+      final ownSave =
+          landed != null &&
+          landed.entries.every((stored) {
+            final sent = pushed[stored.key];
+            return sent != null && !_showsOther(stored.value, sent);
+          });
+      // At once, so the marks go only with the landing that settles them.
+      await _db.transaction(() async {
+        await _clearSettledMarks(chatId, sent.where(recovered.contains));
+        await _clearMarks(
+          chatId,
+          sent.where(taken.contains),
+          kTakenFromServerMetadataKey,
+        );
+        await _clearDirty(
+          chatId: chatId,
+          messageIds: sent,
+          serverUpdatedAt: serverUpdatedAt,
+        );
+        // Text it took from the server's copy (marked, so a failed attempt's
+        // take still counts) is news while the chat is still held unread
+        // from when that text was stored: no read here since.
+        final unseen =
+            taken.isNotEmpty &&
+            ((await _db.chatsDao.getChat(chatId))?.heldUnread ?? false);
+        if (unseen) {
+          await _db.chatsDao.dateThroughPushOfServerText(
+            chatId,
+            serverUpdatedAt,
+          );
+        } else if (ownSave) {
+          await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
+        } else if (landed != null) {
+          // The server's copy holds what this device never sent or showed:
+          // news, whatever the dates say once a pull stores it.
+          await _db.chatsDao.holdUnread(chatId);
+        }
+      });
     });
   }
 
@@ -618,11 +663,15 @@ class PushSync {
     List<MessageRowData> all, {
     bool serverFinished = true,
   }) async {
-    final finished = withDerivedChildren(
+    var finished = withDerivedChildren(
       _finishedOver(local, server, serverFinished: serverFinished),
       all,
     );
-    if (_differs(finished, local)) await _storeFinished(finished);
+    final news = _showsOther(finished, local);
+    if (news || _isTakenFromServer(local)) {
+      finished = _marked(finished, kTakenFromServerMetadataKey);
+    }
+    if (_differs(finished, local)) await _storeFinished(finished, news: news);
     return finished;
   }
 
@@ -642,11 +691,14 @@ class PushSync {
       );
 
   /// [rows] as the server is sent them: without the marks this device keeps
-  /// on the answers it settled.
+  /// on the answers it settled, or took from the server's copy.
   static ChatRows _forServer(ChatRows rows) => _withRows(rows, [
     for (final message in rows.messages)
-      _isSettledHere(message)
-          ? _withoutMark(message, kSettledHereMetadataKey)
+      _isSettledHere(message) || _isTakenFromServer(message)
+          ? _withoutMark(
+              _withoutMark(message, kSettledHereMetadataKey),
+              kTakenFromServerMetadataKey,
+            )
           : message,
   ]);
 
@@ -655,6 +707,9 @@ class PushSync {
 
   static bool _isSettledHere(MessageRowData message) =>
       _metadataOf(message.payload)?[kSettledHereMetadataKey] == true;
+
+  static bool _isTakenFromServer(MessageRowData message) =>
+      _metadataOf(message.payload)?[kTakenFromServerMetadataKey] == true;
 
   static Map<dynamic, dynamic>? _metadataOf(Map<String, dynamic> payload) {
     final metadata = payload['metadata'];
@@ -677,7 +732,11 @@ class PushSync {
       ..addAll({if (rest.isNotEmpty) 'metadata': rest});
   }
 
-  static MessageRowData _settledMarked(MessageRowData message) {
+  static MessageRowData _settledMarked(MessageRowData message) =>
+      _marked(message, kSettledHereMetadataKey);
+
+  /// [message] with the metadata mark [key].
+  static MessageRowData _marked(MessageRowData message, String key) {
     final metadata = _metadataOf(message.payload);
     return _rowWith(
       message,
@@ -687,7 +746,7 @@ class PushSync {
         'metadata': <String, dynamic>{
           if (metadata != null)
             for (final entry in metadata.entries) '${entry.key}': entry.value,
-          kSettledHereMetadataKey: true,
+          key: true,
         },
       },
     );
@@ -733,14 +792,27 @@ class PushSync {
         copy.payload['done'] != true) {
       return message;
     }
-    final taken = withDerivedChildren(answerAt(copy, message), rows);
+    var taken = withDerivedChildren(answerAt(copy, message), rows);
+    final news = _showsOther(taken, message);
+    if (news || _isTakenFromServer(message)) {
+      taken = _marked(taken, kTakenFromServerMetadataKey);
+    }
     if (_differs(taken, message)) {
-      await _db.messagesDao.upsertLocalEcho(taken);
+      await _db.transaction(() async {
+        await _db.messagesDao.upsertLocalEcho(taken);
+        if (news) await _db.chatsDao.holdUnread(taken.chatId);
+      });
     }
     return taken;
   }
 
   static const DeepCollectionEquality _deepEquality = DeepCollectionEquality();
+
+  /// Whether answer [a] reads otherwise than [b]: its text, reasoning or
+  /// tool calls.
+  static bool _showsOther(MessageRowData a, MessageRowData b) =>
+      storedAnswerShows(a.content, _outputOf(a)) !=
+      storedAnswerShows(b.content, _outputOf(b));
 
   static bool _differs(MessageRowData a, MessageRowData b) =>
       a.content != b.content || !_deepEquality.equals(a.payload, b.payload);
@@ -830,34 +902,41 @@ class PushSync {
   /// Stores [answer] as an edit still to push: a pull keeps it over the
   /// server's copy, which the stop finished with the text it had, until the
   /// push lands.
-  Future<void> _storeFinished(MessageRowData answer) =>
+  /// Stores [answer] finished here; with [news], text taken from the
+  /// server's copy that was never shown here, its chat is held unread with
+  /// it, until it is read here.
+  Future<void> _storeFinished(MessageRowData answer, {required bool news}) =>
       _db.transaction(() async {
         await _db.messagesDao.upsertLocalEcho(answer, keepDirty: true);
         await (_db.update(_db.messages)..where(
               (t) => t.chatId.equals(answer.chatId) & t.id.equals(answer.id),
             ))
             .write(const MessagesCompanion(dirty: Value(true)));
+        if (news) await _db.chatsDao.holdUnread(answer.chatId);
       });
 
   /// Drops the mark of each answer [ids] of [chatId] settled here, sent and
   /// landed now: it holds what the server holds, and a later edit of it goes
   /// as made.
   Future<void> _clearSettledMarks(String chatId, Iterable<String> ids) =>
+      _clearMarks(chatId, ids, kSettledHereMetadataKey);
+
+  /// Drops the metadata mark [key] from the messages [ids] of chat [chatId]
+  /// that carry it, in one transaction.
+  Future<void> _clearMarks(String chatId, Iterable<String> ids, String key) =>
       _db.transaction(() async {
         for (final id in ids) {
           final row = await _db.messagesDao.getMessage(chatId, id);
           final payload = row == null ? null : jsonDecode(row.payload);
           if (payload is! Map<String, dynamic> ||
-              _metadataOf(payload)?[kSettledHereMetadataKey] != true) {
+              _metadataOf(payload)?[key] != true) {
             continue;
           }
           await (_db.update(
             _db.messages,
           )..where((t) => t.chatId.equals(chatId) & t.id.equals(id))).write(
             MessagesCompanion(
-              payload: Value(
-                jsonEncode(_payloadWithout(payload, kSettledHereMetadataKey)),
-              ),
+              payload: Value(jsonEncode(_payloadWithout(payload, key))),
             ),
           );
         }

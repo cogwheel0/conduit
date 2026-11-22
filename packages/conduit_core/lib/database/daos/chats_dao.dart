@@ -23,7 +23,7 @@ part 'chats_dao.g.dart';
 
 const _chatListColumns =
     'id, title, created_at, updated_at, pinned, archived, folder_id, '
-    'last_read_at';
+    'last_read_at, held_unread';
 
 const _archivedChatCountSql = '''
 SELECT COUNT(id) AS archived_count
@@ -107,7 +107,7 @@ class ChatListEntry {
   final bool archived;
   final String? folderId;
 
-  /// Epoch seconds.
+  /// Epoch seconds: the read shown ([shownLastReadAt]).
   final int? lastReadAt;
 }
 
@@ -2669,13 +2669,61 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
-  /// never lowered.
+  /// never lowered. A read here ends [Chats.heldUnread].
   Future<void> setLastReadAt(String chatId, int epochSeconds) {
     _touchReadState(chatId);
     return customUpdate(
-      'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?) '
-      'WHERE id = ?',
+      'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?), '
+      'held_unread = 0 WHERE id = ?',
       variables: [Variable.withInt(epochSeconds), Variable.withString(chatId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// A push of chat [chatId] from this device left the server's copy dated
+  /// [serverUpdatedAt], holding nothing from elsewhere: a chat that was read
+  /// stays read through that date. An unread chat, one marked unread or
+  /// held unread here included, is left as it is.
+  Future<void> keepReadThroughOwnPush(String chatId, int serverUpdatedAt) {
+    return customUpdate(
+      'UPDATE chats SET last_read_at = ? '
+      'WHERE id = ? AND held_unread = 0 AND last_read_at >= updated_at '
+      'AND last_read_at < ?',
+      variables: [
+        Variable.withInt(serverUpdatedAt),
+        Variable.withString(chatId),
+        Variable.withInt(serverUpdatedAt),
+      ],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// Chat [chatId] holds text never shown here, from the server's copy
+  /// (taken into a push, or returned by one for a pull to bring): it is
+  /// held unread ([Chats.heldUnread]) until it is read here, whatever a
+  /// later push of this device's own sends.
+  Future<void> holdUnread(String chatId) {
+    return customUpdate(
+      'UPDATE chats SET held_unread = 1 WHERE id = ?',
+      variables: [Variable.withString(chatId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// A push of chat [chatId] from this device sent text it took from the
+  /// server's copy, still unseen here, which left that copy dated
+  /// [serverUpdatedAt]: the chat is dated so here at once, as a pull would
+  /// date it.
+  Future<void> dateThroughPushOfServerText(String chatId, int serverUpdatedAt) {
+    return customUpdate(
+      'UPDATE chats SET updated_at = max(updated_at, ?) WHERE id = ?',
+      variables: [
+        Variable.withInt(serverUpdatedAt),
+        Variable.withString(chatId),
+      ],
       updates: {chats},
       updateKind: UpdateKind.update,
     );
@@ -2921,6 +2969,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       chats.archived,
       chats.folderId,
       chats.lastReadAt,
+      chats.heldUnread,
     ]);
   }
 
@@ -2933,7 +2982,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       pinned: row.read(chats.pinned)!,
       archived: row.read(chats.archived)!,
       folderId: row.read(chats.folderId),
-      lastReadAt: row.read(chats.lastReadAt),
+      lastReadAt: shownLastReadAt(
+        row.read(chats.lastReadAt),
+        row.read(chats.updatedAt)!,
+        heldUnread: row.read(chats.heldUnread)!,
+      ),
     );
   }
 
@@ -2946,7 +2999,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       pinned: row.read<bool>('pinned'),
       archived: row.read<bool>('archived'),
       folderId: row.readNullable<String>('folder_id'),
-      lastReadAt: row.readNullable<int>('last_read_at'),
+      lastReadAt: shownLastReadAt(
+        row.readNullable<int>('last_read_at'),
+        row.read<int>('updated_at'),
+        heldUnread: row.read<bool>('held_unread'),
+      ),
     );
   }
 }

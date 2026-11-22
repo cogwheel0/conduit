@@ -497,55 +497,131 @@ class Conversations extends _$Conversations {
     );
   }
 
-  void markConversationRead(String id, DateTime readAt) {
-    if (id.isEmpty) return;
+  /// Each chat's reads still being written, by its database and raw id (two
+  /// accounts, or an account and this device, may hold the same id).
+  final Map<(AppDatabase, String), _ReadWrites> _readWrites =
+      <(AppDatabase, String), _ReadWrites>{};
+
+  /// Completes once the read is stored, with an error when it could not be
+  /// (no database holds the chat, or the write failed, which takes the read
+  /// shown back); throws at once when the chat cannot be looked up. A read
+  /// no later than the one shown completes with the write still storing
+  /// that one.
+  Future<void> markConversationRead(String id, DateTime readAt) {
+    if (id.isEmpty) return Future<void>.value();
     final identity = ChatStorageIdentity.parse(id);
+    final rawId = identity.rawId;
     final current = state.asData?.value;
     final index = current == null
         ? -1
         : _conversationIndexForSelection(current, id);
-    Conversation? target = index >= 0 ? current![index] : null;
-    if (current != null) {
-      if (index >= 0) {
-        final conversation = current[index];
-        final existing = conversation.lastReadAt;
-        if (existing != null && !readAt.isAfter(existing)) {
-          return;
-        }
-        target = conversation.copyWith(lastReadAt: readAt);
-        final updated = <Conversation>[...current]..[index] = target;
-        _replaceState(updated);
+    final listed = index >= 0 ? current![index] : null;
+    final db = _readDatabase(listed, identity);
+    final temporary = isTemporaryChat(rawId);
+    if (db == null && !temporary) {
+      return Future<void>.error(StateError('no database holds chat $rawId'));
+    }
+    if (listed != null) {
+      final existing = listed.lastReadAt;
+      if (existing != null && !readAt.isAfter(existing)) {
+        return (db == null ? null : _readWrites[(db, rawId)])?.newest ??
+            Future<void>.value();
+      }
+      final updated = <Conversation>[...current!]
+        ..[index] = listed.copyWith(lastReadAt: readAt);
+      _replaceState(updated);
+    }
+    if (db == null || temporary) return Future<void>.value();
+    // Pre-existing UI-only read marks come from the device clock; the DAO's
+    // max() rule means the column is never lowered and the value never enters
+    // watermark logic.
+    final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
+    final key = (db, rawId);
+    final writes = _readWrites.putIfAbsent(key, _ReadWrites.new);
+    if (listed != null && !writes.seeded) {
+      // Nothing optimistic is shown yet: the list holds what is stored.
+      writes
+        ..seeded = true
+        ..stored = _latestDateTime(writes.stored, listed.lastReadAt);
+    }
+    final entry = (readAt, write);
+    writes.pending.add(entry);
+    void settled() {
+      writes.pending.remove(entry);
+      if (writes.pending.isEmpty && identical(_readWrites[key], writes)) {
+        _readWrites.remove(key);
       }
     }
+
+    write.then(
+      (_) {
+        writes.stored = _latestDateTime(writes.stored, readAt);
+        settled();
+      },
+      onError: (Object _) {
+        settled();
+        if (listed != null) {
+          _takeBackRead(id, readAt, writes.goingBackTo, db);
+        }
+      },
+    );
+    return write;
+  }
+
+  /// The database that stores chat [listed]'s reads, or, while it is not
+  /// listed, that of the storage [identity] names.
+  AppDatabase? _readDatabase(
+    Conversation? listed,
+    ChatStorageIdentity identity,
+  ) {
     final directLocal =
-        isDirectLocalConversation(target) ||
-        (target == null && identity.storage == ChatStorageKind.directLocal);
+        isDirectLocalConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.directLocal);
     final libreChat =
-        isLibreChatConversation(target) ||
-        (target == null && identity.storage == ChatStorageKind.libreChat);
-    final db = directLocal
+        isLibreChatConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.libreChat);
+    return directLocal
         ? ref.read(directLocalDatabaseProvider)
         : libreChat
         ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
-    final rawId = identity.rawId;
-    if (db == null || isTemporaryChat(rawId)) return;
-    // Pre-existing UI-only read marks come from the device clock; the DAO's
-    // max() rule means the column is never lowered and the value never enters
-    // watermark logic.
-    unawaited(
-      db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt)).catchError((
-        Object error,
-        StackTrace stackTrace,
-      ) {
-        DebugLogger.error(
-          'read-mark-failed',
-          scope: 'conversations',
-          error: error,
-          stackTrace: stackTrace,
-          data: {'id': rawId},
-        );
-      }),
+  }
+
+  /// A read that could not be stored in [db] goes from the list too, unless
+  /// a later one replaced it, so asking again writes it: back to [before],
+  /// or to the newer read [db] last published for the chat. Only while the
+  /// list still shows [db]'s chat: another account's may share the id, and
+  /// even the read time.
+  void _takeBackRead(
+    String id,
+    DateTime readAt,
+    DateTime? before,
+    AppDatabase db,
+  ) {
+    if (!ref.mounted) return;
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    if (index < 0 || current![index].lastReadAt != readAt) return;
+    var back = before;
+    try {
+      final identity = ChatStorageIdentity.parse(id);
+      if (!identical(_readDatabase(current[index], identity), db)) return;
+      final published = _lastSuccessfulDatabaseProjection;
+      final at = published == null
+          ? -1
+          : _conversationIndexForSelection(published, id);
+      if (at >= 0 && identical(_readDatabase(published![at], identity), db)) {
+        back = _latestDateTime(back, published[at].lastReadAt);
+      }
+    } catch (_) {
+      // Storage that cannot be read now cannot tell which chat is listed.
+      return;
+    }
+    _replaceState(
+      <Conversation>[...current]
+        ..[index] = current[index].copyWith(lastReadAt: back),
     );
   }
 
@@ -897,6 +973,26 @@ class Conversations extends _$Conversations {
   ];
 }
 
+/// A chat's reads still being written, and the read last stored.
+final class _ReadWrites {
+  /// The newest read known stored: the one listed before these writes, or
+  /// one a write stored since.
+  DateTime? stored;
+
+  /// Whether [stored] holds what the list showed.
+  bool seeded = false;
+
+  /// Reads being written, with their writes, oldest first.
+  final List<(DateTime, Future<void>)> pending = <(DateTime, Future<void>)>[];
+
+  Future<void>? get newest => pending.lastOrNull?.$2;
+
+  /// What a read whose write failed goes back to: the newest still being
+  /// written, which goes back in turn if it fails, or else the one stored.
+  DateTime? get goingBackTo =>
+      pending.fold(stored, (newest, read) => _latestDateTime(newest, read.$1));
+}
+
 final _folderConversationRefreshTickProvider =
     NotifierProvider<_FolderConversationRefreshTick, int>(
       _FolderConversationRefreshTick.new,
@@ -1049,24 +1145,30 @@ class TemporaryChatEnabled extends _$TemporaryChatEnabled {
 /// Returns true if the given conversation ID represents a temporary chat.
 bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 
-void markConversationRead(
+/// Marks [conversationId] read up to [readAt] (or now). Completes once the
+/// read is stored on this device: true, or false when it could not be
+/// (logged). Never throws, so a caller may leave it unawaited.
+Future<bool> markConversationRead(
   dynamic ref,
   String? conversationId, {
   DateTime? readAt,
-}) {
+}) async {
   final scopedId = conversationId?.trim();
   if (scopedId == null || scopedId.isEmpty) {
-    return;
+    return true;
   }
   final identity = ChatStorageIdentity.parse(scopedId);
   final id = identity.rawId;
   if (isTemporaryChat(id)) {
-    return;
+    return true;
   }
 
   final timestamp = readAt ?? DateTime.now();
   Conversation? targetConversation;
   var resolvedSelectionId = scopedId;
+  Future<void>? stored;
+  Object? failure;
+  StackTrace? failureStack;
   try {
     final conversations = (ref.read(
       conversationsProvider,
@@ -1078,10 +1180,15 @@ void markConversationRead(
         resolvedSelectionId = conversationScopedId(targetConversation);
       }
     }
-    ref
-        .read(conversationsProvider.notifier)
-        .markConversationRead(resolvedSelectionId, timestamp);
-  } catch (_) {}
+    stored =
+        ref
+                .read(conversationsProvider.notifier)
+                .markConversationRead(resolvedSelectionId, timestamp)
+            as Future<void>;
+  } catch (error, stackTrace) {
+    failure = error;
+    failureStack = stackTrace;
+  }
 
   try {
     final active = ref.read(activeConversationProvider) as Conversation?;
@@ -1099,18 +1206,35 @@ void markConversationRead(
     }
   } catch (_) {}
 
-  if (isDirectLocalConversation(targetConversation) ||
-      isLibreChatConversation(targetConversation) ||
-      identity.storage == ChatStorageKind.directLocal ||
-      identity.storage == ChatStorageKind.libreChat ||
-      (identity.storage == null && id.startsWith('direct-local:'))) {
-    return;
+  final onServer =
+      !isDirectLocalConversation(targetConversation) &&
+      !isLibreChatConversation(targetConversation) &&
+      identity.storage != ChatStorageKind.directLocal &&
+      identity.storage != ChatStorageKind.libreChat &&
+      !(identity.storage == null && id.startsWith('direct-local:'));
+  if (onServer) {
+    try {
+      ref.read(socketServiceProvider)?.emit('events:chat', {
+        'chat_id': id,
+        'data': {'type': 'last_read_at'},
+      });
+    } catch (_) {}
   }
-
-  try {
-    ref.read(socketServiceProvider)?.emit('events:chat', {
-      'chat_id': id,
-      'data': {'type': 'last_read_at'},
-    });
-  } catch (_) {}
+  if (stored != null) {
+    try {
+      await stored;
+    } catch (error, stackTrace) {
+      failure = error;
+      failureStack = stackTrace;
+    }
+  }
+  if (failure == null) return true;
+  DebugLogger.error(
+    'read-mark-failed',
+    scope: 'conversations',
+    error: failure,
+    stackTrace: failureStack,
+    data: {'id': id},
+  );
+  return false;
 }

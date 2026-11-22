@@ -1364,8 +1364,13 @@ final class ChatsService {
           debugMessage: 'the chat could not be marked unread: $error',
         );
       }
-    } else {
-      markConversationRead(_container, request.chatId);
+    } else if (!await markConversationRead(_container, request.chatId)) {
+      // Stored before the answer, or answered as a failure: an app that
+      // quits waits for the answer, and then stops the daemon.
+      throw const RpcError(
+        code: ConduitErrorCodes.serverError,
+        debugMessage: 'the chat could not be marked read',
+      );
     }
     _events?.emit(
       ConduitEventSpecs.chatsChanged,

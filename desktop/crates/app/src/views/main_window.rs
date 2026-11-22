@@ -142,6 +142,13 @@ impl MaterialHold {
 }
 
 impl MainWindow {
+    /// The window leaves the screen, hidden to the menu bar or closed,
+    /// however that was asked for ([`crate::desktop::main_window_leaving`]):
+    /// the chat it shows is left.
+    pub fn leaving_screen(&mut self, cx: &mut Context<Self>) {
+        self.chat_pane.update(cx, |p, cx| p.window_closing(cx));
+    }
+
     pub fn new(
         stores: Stores,
         settings: Entity<SettingsStore>,
@@ -717,11 +724,12 @@ impl Render for MainWindow {
                 }),
             )
             // ⌘W: with "Close to the menu bar" on, the window only hides.
-            .on_action(cx.listener(|_, _: &CloseWindow, window, cx| {
+            .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
                 if crate::desktop::closes_to_menu_bar(cx) {
                     log::info!("close window: hiding the main window");
                     crate::desktop::hide_main(cx);
                 } else {
+                    this.leaving_screen(cx);
                     window.remove_window();
                 }
             }))
@@ -1691,6 +1699,40 @@ mod chat_menu_tests {
         assert!(
             appkit_enables(vcx, &ChatSettings),
             "Chat Settings… is off once the chat opened"
+        );
+    }
+
+    /// ⌘W (Window › Close Window) takes the main window off the screen:
+    /// the chat it shows is read then, and an answer that finishes after
+    /// it is not read when the app quits.
+    #[gpui_kit::test]
+    fn close_window_reads_the_chat_it_shows_and_nothing_after(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let daemon = chats();
+        daemon.on::<methods::ChatsMarkUnread>(|_| Ok(serde_json::json!({"chats": []})));
+        let (stores, main, vcx) = bench(&daemon, cx);
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        let pane = main.read_with(vcx, |m, _| m.chat_pane.clone());
+        // Its answer finished while it was open.
+        daemon.on::<methods::ChatsList>(|_| {
+            Ok(serde_json::json!({"chats": [
+                {"id": "chat-a", "title": "Tide tables", "updatedAtMs": 1, "unread": true},
+            ]}))
+        });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+
+        vcx.dispatch_action(CloseWindow);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsMarkUnread>(),
+            vec![serde_json::json!({"chatId": "chat-a", "unread": false})],
+            "closing the window did not read its chat"
+        );
+        assert!(
+            pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_none(),
+            "quitting read the chat of a closed window"
         );
     }
 }
