@@ -7,7 +7,11 @@
 //!   does.
 //! * Linux: the desktop portal's NetworkMonitor (in a Flatpak too), whose
 //!   `available` is the same test: a default route. With no portal the
-//!   computer reads as online, so a missing portal never stops the app.
+//!   computer reads as online, so a missing portal never stops the app; a
+//!   subscription that ends is made again.
+//!
+//! Both subscribe before they read the first state, so a change between the
+//! two is never missed.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,7 +42,7 @@ impl NetworkMonitor {
         }
         #[cfg(target_os = "linux")]
         {
-            linux_monitor::start(report).then_some(Self { stopped })
+            linux_monitor::start(report, stopped.clone()).then_some(Self { stopped })
         }
         #[cfg(not(any(windows, target_os = "linux")))]
         {
@@ -99,33 +103,61 @@ mod windows_monitor {
 
 #[cfg(target_os = "linux")]
 mod linux_monitor {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
     use ashpd::desktop::network_monitor::NetworkMonitor;
     use futures_lite::StreamExt as _;
 
-    /// Follows the portal on a thread of its own, for the process's life.
-    pub fn start(report: impl Fn(bool) + Send + Sync + 'static) -> bool {
+    /// The longest wait before the portal is asked again.
+    const MAX_BACKOFF: Duration = Duration::from_secs(60);
+
+    /// Follows the portal on a thread of its own until `stopped`. Whenever
+    /// its subscription ends (the portal restarted, or was never there) it
+    /// is asked again, after a wait that doubles up to a minute and starts
+    /// over once a subscription holds.
+    pub fn start(report: impl Fn(bool) + Send + Sync + 'static, stopped: Arc<AtomicBool>) -> bool {
         std::thread::Builder::new()
             .name("conduit-network".into())
-            .spawn(move || futures_lite::future::block_on(follow(report)))
+            .spawn(move || {
+                let mut backoff = Duration::from_secs(1);
+                let mut said_online = false;
+                while !stopped.load(Ordering::SeqCst) {
+                    match futures_lite::future::block_on(follow(&report)) {
+                        Ok(()) => {
+                            backoff = Duration::from_secs(1);
+                            said_online = false;
+                        }
+                        Err(e) => {
+                            // With no portal the computer reads as online,
+                            // so a missing portal never stops the app (nor
+                            // leaves the last state it gave standing).
+                            if !said_online {
+                                log::info!("no network portal ({e}): reading as online");
+                                report(true);
+                                said_online = true;
+                            }
+                        }
+                    }
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                }
+            })
             .inspect_err(|e| log::warn!("network monitor: {e}"))
             .is_ok()
     }
 
-    async fn follow(report: impl Fn(bool)) {
-        let monitor = match NetworkMonitor::new().await {
-            Ok(monitor) => monitor,
-            Err(e) => {
-                log::info!("no network portal ({e}): reading as online");
-                report(true);
-                return;
-            }
-        };
+    /// One subscription: made before the first read, so a change between
+    /// the two is never missed. Ends when the portal's stream does.
+    async fn follow(report: &impl Fn(bool)) -> Result<(), ashpd::Error> {
+        let monitor = NetworkMonitor::new().await?;
+        let mut changes = monitor.receive_changed().await?;
         report(monitor.is_available().await.unwrap_or(true));
-        let Ok(mut changes) = monitor.receive_changed().await else {
-            return;
-        };
         while changes.next().await.is_some() {
             report(monitor.is_available().await.unwrap_or(true));
         }
+        log::info!("network portal: its subscription ended; asking again");
+        Ok(())
     }
 }
