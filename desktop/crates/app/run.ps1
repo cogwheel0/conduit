@@ -28,10 +28,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 # File arguments are the caller's: made absolute before Set-Location below,
-# so `run.ps1 notes.md` and `run.ps1 C:notes.md` still name that file
-# (IsPathRooted counts a drive-relative `C:notes.md` as rooted, but it
-# depends on the folder). Flags, links and the value after each of the app's
-# flags that takes one (`--e2e chat`) stay as they are.
+# there or not, so `run.ps1 notes.md` and `run.ps1 C:notes.md` still name
+# that file, never one in the checkout (IsPathRooted counts a drive-relative
+# `C:notes.md` as rooted, but it depends on the folder). Flags, links and the
+# value after each of the app's flags that takes one (`--e2e chat`) stay as
+# they are.
 $caller = (Get-Location).ProviderPath
 $valueFlags = @(
   '--cwd', '--shots', '--e2e', '--e2e-env', '--capture', '--capture-env',
@@ -50,7 +51,7 @@ $AppArgs = @(foreach ($arg in $args) {
     $arg
   } else {
     $full = try { [System.IO.Path]::GetFullPath($arg, $caller) } catch { $null }
-    if ($full -and (Test-Path -LiteralPath $full)) { $full } else { $arg }
+    if ($full) { $full } else { $arg }
   }
 })
 Set-Location -LiteralPath (Join-Path $PSScriptRoot '..\..')

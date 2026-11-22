@@ -45,9 +45,10 @@
 #
 # Windows has crates/app/run.ps1.
 set -eu
-# File arguments are the caller's: made absolute before the cd below, so
-# `run.sh notes.md` still names that file. Flags, links and the value after
-# each of the app's flags that takes one (`--e2e chat`) stay as they are.
+# File arguments are the caller's: made absolute before the cd below, there
+# or not, so `run.sh notes.md` still names that file, never one in the
+# checkout. Flags, links and the value after each of the app's flags that
+# takes one (`--e2e chat`) stay as they are.
 caller="$PWD"
 value_next=0
 for arg in "$@"; do
@@ -60,7 +61,7 @@ for arg in "$@"; do
         --fixture | --chat-fixture | --channel-fixture | --calendar-fixture | --tasks-fixture | --workspace-fixture | --preview-route)
         value_next=1 ;;
       -* | /* | *://*) ;;
-      *) if [ -e "$caller/$arg" ]; then arg="$caller/$arg"; fi ;;
+      *) arg="$caller/$arg" ;;
     esac
   fi
   set -- "$@" "$arg"
