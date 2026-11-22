@@ -18,6 +18,7 @@ pub mod announce;
 pub mod assets;
 #[cfg(target_os = "macos")]
 pub mod capture;
+pub mod chrome;
 pub mod motion;
 pub mod strings;
 pub mod theme;

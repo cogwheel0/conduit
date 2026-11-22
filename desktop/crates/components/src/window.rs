@@ -20,6 +20,22 @@ pub const TOOLBAR_HEIGHT: f32 = 52.;
 pub const TRAFFIC_LIGHTS: (f32, f32) = (14., (TOOLBAR_HEIGHT - 14.) / 2.);
 /// Room the traffic lights take at the toolbar's leading edge.
 pub const TRAFFIC_LIGHTS_WIDTH: f32 = 78.;
+/// Room the window's own controls take at the leading edge of the main
+/// window's content header while no sidebar is beside it: the traffic
+/// lights' on the Mac, the chrome's off it.
+pub fn leading_room(cx: &App) -> f32 {
+    match crate::chrome::active(cx) {
+        Some(chrome) => chrome.rooms(false).start,
+        None => TRAFFIC_LIGHTS_WIDTH,
+    }
+}
+
+/// Room the window's own controls take at the trailing edge of the main
+/// window's content header (none on the Mac).
+pub fn trailing_room(sidebar_shown: bool, cx: &App) -> f32 {
+    crate::chrome::active(cx).map_or(0., |chrome| chrome.rooms(sidebar_shown).end)
+}
+
 /// The main window's default and minimum size.
 pub const MAIN_WINDOW_SIZE: (f32, f32) = (1280., 860.);
 pub const MAIN_WINDOW_MIN: (f32, f32) = (720., 480.);

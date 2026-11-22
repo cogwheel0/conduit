@@ -14,6 +14,7 @@ use gpui_kit::{
 };
 
 use crate::assets::{IconName, icon};
+use crate::chrome::{self, ChromeStyle, MainMenuButton};
 use crate::strings::{ActiveStrings as _, Strings, fill};
 use crate::theme::{ActiveConduitTheme, ConduitTheme, with_alpha};
 use crate::views::focus::{
@@ -1220,6 +1221,69 @@ impl RenderOnce for SidebarFrame {
         if let Some(h) = self.on_settings {
             settings = settings.on_click(h);
         }
+        let chrome = chrome::active(cx).cloned();
+        let corners = chrome
+            .as_ref()
+            .map(chrome::Chrome::corners)
+            .unwrap_or_default();
+        let header = match &chrome {
+            // Traffic lights at the leading edge; drag anywhere.
+            None => drag_region("sidebar-titlebar")
+                .h(px(TOOLBAR_HEIGHT))
+                .flex_none()
+                .flex()
+                .items_center()
+                .pl(px(TRAFFIC_LIGHTS_WIDTH))
+                .pr(px(10.))
+                .gap(px(2.))
+                .child(div().flex_1())
+                .child(toggle)
+                .child(new_chat)
+                .into_any_element(),
+            // ☰ (drawn over the window's corner) in the traffic lights'
+            // place, the toggle after it, New Chat at the end.
+            Some(c) if c.style == ChromeStyle::Windows => {
+                chrome::header_drag("sidebar-titlebar", Some(c.style), window, cx)
+                    .h(px(TOOLBAR_HEIGHT))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .pl(px(c.rooms(true).start + 2.))
+                    .pr(px(10.))
+                    .child(div().occlude().child(toggle))
+                    .child(div().flex_1())
+                    .child(div().occlude().child(new_chat))
+                    .into_any_element()
+            }
+            // libadwaita's sidebar header bar: New Chat, the app's name,
+            // the primary menu; the toggle is the content's.
+            Some(c) => chrome::header_drag("sidebar-titlebar", Some(c.style), window, cx)
+                .relative()
+                .h(px(TOOLBAR_HEIGHT))
+                .flex_none()
+                .flex()
+                .items_center()
+                .pl(px(c.rooms(true).start.max(chrome::layout::CHROME_EDGE)))
+                .pr(px(chrome::layout::CHROME_EDGE))
+                .child(new_chat)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .px(px(6.))
+                        .truncate()
+                        .text_center()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(r.sidebar_text)
+                        .child(c.title.clone()),
+                )
+                .child(MainMenuButton::new(c.menu.clone()))
+                .into_any_element(),
+        };
+        // GNOME keeps Preferences in its primary menu, with no gear.
+        let gear = chrome
+            .as_ref()
+            .is_none_or(|c| c.style != ChromeStyle::Gnome);
 
         div()
             .id("sidebar")
@@ -1231,20 +1295,9 @@ impl RenderOnce for SidebarFrame {
             .flex()
             .flex_col()
             .bg(r.sidebar)
-            // Header: traffic lights live at the leading edge; drag anywhere.
-            .child(
-                drag_region("sidebar-titlebar")
-                    .h(px(TOOLBAR_HEIGHT))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .pl(px(TRAFFIC_LIGHTS_WIDTH))
-                    .pr(px(10.))
-                    .gap(px(2.))
-                    .child(div().flex_1())
-                    .child(toggle)
-                    .child(new_chat),
-            )
+            .rounded_tl(px(corners.top_left))
+            .rounded_bl(px(corners.bottom_left))
+            .child(header)
             .child(div().flex_none().px(px(10.)).pb(px(6.)).child(search))
             .children(self.banner)
             .child(
@@ -1365,7 +1418,7 @@ impl RenderOnce for SidebarFrame {
                                 cx,
                             ),
                     )
-                    .child(settings),
+                    .when(gear, |d| d.child(settings)),
             )
     }
 }
