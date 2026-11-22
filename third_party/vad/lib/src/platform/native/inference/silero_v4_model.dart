@@ -66,7 +66,8 @@ class SileroV4Model implements VadModel {
     OrtValueTensor? srOrt;
     OrtPreparedRun? preparedRun;
     try {
-      sessionOptions = OrtSessionOptions()
+      sessionOptions = OrtSessionOptions();
+      sessionOptions
         ..setInterOpNumThreads(config.interOpNumThreads)
         ..setIntraOpNumThreads(config.intraOpNumThreads)
         ..setSessionGraphOptimizationLevel(GraphOptimizationLevel.ortEnableAll);

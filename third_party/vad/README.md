@@ -32,9 +32,9 @@ Smaller changes:
   `SileroV5Model`/`SileroV4Model` reuse flat `Float32List` state tensors,
   the sample-rate tensor, and `OrtPreparedRun` (`OrtRunOptions` and native
   UTF-8 name arrays) across frames (cogwheel0/conduit#895).
-- `VadIterator.withInference` exposes dependency injection of `VadInference`
-  so pure-Dart unit tests can exercise framing and lifecycle without loading
-  native ONNX Runtime.
+- `VadIterator.withInference` (and exporting `VadInference`/`VadModel` from
+  `lib/vad.dart`) exposes dependency injection so pure-Dart unit tests can
+  exercise framing and lifecycle without loading native ONNX Runtime.
 - `VadIterator._combineFrames` and `VadHandler`'s speech-end and chunk
   events convert audio straight into typed lists (`Int16List`,
   `Float64List`) instead of through boxed lists, which for a ten-minute

@@ -2,17 +2,7 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:flutter_test/flutter_test.dart';
-// The fix lives in the vendored package (third_party/vad); its native model
-// needs onnxruntime, which tests cannot load, so VadIterator is tested with a
-// fake VadInference/VadModel.
-// ignore: implementation_imports
-import 'package:vad/src/core/vad_event.dart';
-// ignore: implementation_imports
-import 'package:vad/src/core/vad_inference.dart';
-// ignore: implementation_imports
-import 'package:vad/src/core/vad_iterator.dart';
-// ignore: implementation_imports
-import 'package:vad/src/core/vad_model.dart';
+import 'package:vad/vad.dart';
 
 class _FakeVadModel implements VadModel {
   final List<Float32List> seenFrames = [];
