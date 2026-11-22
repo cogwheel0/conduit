@@ -53,7 +53,7 @@ $AppArgs = @(foreach ($arg in $args) {
     if ($full -and (Test-Path -LiteralPath $full)) { $full } else { $arg }
   }
 })
-Set-Location (Join-Path $PSScriptRoot '..\..')
+Set-Location -LiteralPath (Join-Path $PSScriptRoot '..\..')
 $bin = Join-Path (Get-Location) 'target\debug\conduit-desktop.exe'
 $key = 'HKCU:\Software\Classes\conduit'
 $command = "`"$bin`" `"%1`""
