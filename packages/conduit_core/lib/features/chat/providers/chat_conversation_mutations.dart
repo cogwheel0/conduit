@@ -145,18 +145,20 @@ Future<void> _writeLibreChatEnvelope(
     conversationId,
     (conversation) {
       final read = conversation.lastReadAt;
-      // Read through the rename's own date, as the database keeps it.
+      // Dated and read through as the database keeps it.
+      final dated = title != null && now.isAfter(conversation.updatedAt)
+          ? now
+          : conversation.updatedAt;
       final readThrough =
-          title != null &&
           read != null &&
           !conversation.updatedAt.isAfter(read) &&
-          read.isBefore(now);
+          read.isBefore(dated);
       return conversation.copyWith(
         title: title ?? conversation.title,
         pinned: pinned ?? conversation.pinned,
         archived: archived ?? conversation.archived,
-        updatedAt: title == null ? conversation.updatedAt : now,
-        lastReadAt: readThrough ? now : read,
+        updatedAt: dated,
+        lastReadAt: readThrough ? dated : read,
       );
     },
   );

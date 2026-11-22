@@ -1477,7 +1477,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// non-enqueuing server-confirmed path stays on bare [updateEnvelope].
   ///
   /// An edit that dates the chat ([updatedAt]) adds nothing to read: a chat
-  /// that was read stays read through that date ([keepReadThroughOwnPush]).
+  /// that was read before it stays read through that date
+  /// ([keepReadThroughOwnPush]). It never dates the chat back, as a device
+  /// clock behind the chat's date would, which could put an unread chat's
+  /// date before its read.
   Future<void> updateEnvelopeWithOutbox(
     String chatId, {
     Value<String> title = const Value.absent(),
@@ -1498,10 +1501,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           folderId: folderId,
           pinned: pinned,
           archived: archived,
-          updatedAt: updatedAt,
           dirty: const Value(true),
         ),
       );
+      if (updatedAt.present) {
+        await customUpdate(
+          'UPDATE chats SET updated_at = max(updated_at, ?) WHERE id = ?',
+          variables: [
+            Variable.withInt(updatedAt.value),
+            Variable.withString(chatId),
+          ],
+          updates: {chats},
+          updateKind: UpdateKind.update,
+        );
+      }
       if (enqueue) {
         await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
       }

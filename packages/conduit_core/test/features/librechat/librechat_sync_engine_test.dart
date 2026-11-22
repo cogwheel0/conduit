@@ -82,6 +82,15 @@ void main() {
       if (!row.deleted) row.id,
   ];
 
+  int seconds(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;
+
+  /// Whether chat [id] shows as unread in the chats list.
+  Future<bool> unread(String id) async {
+    final entry = (await db.chatsDao.getChatMeta(id))!;
+    final read = entry.lastReadAt;
+    return read == null || entry.updatedAt > read;
+  }
+
   test('the fake server lists newest first, whatever the precision', () async {
     fake
       ..addConversation('older', updatedAt: now)
@@ -284,8 +293,8 @@ void main() {
     check((await db.chatsDao.getChat('c1'))!.pinned).isTrue();
   });
 
-  test('a chat with a rename still queued takes the server\'s messages and '
-      'keeps its title', () async {
+  test('a chat with a rename still queued takes the server\'s messages, '
+      'keeps its title and shows them unread', () async {
     fake.addConversation(
       'c1',
       title: 'Old',
@@ -293,6 +302,7 @@ void main() {
       messageList: _turn('c1', 'Q', 'A'),
     );
     await engine.pull();
+    check(await unread('c1')).isFalse();
     // Answered further elsewhere, while a rename here waits to go out.
     fake.addConversation(
       'c1',
@@ -307,9 +317,12 @@ void main() {
         ),
       ],
     );
+    // Dated by a clock ahead of the server's: dates alone would read the
+    // answer as seen.
     await db.chatsDao.updateEnvelopeWithOutbox(
       'c1',
       title: const Value('New title'),
+      updatedAt: Value(seconds(now.add(const Duration(minutes: 5)))),
       enqueue: true,
     );
 
@@ -318,9 +331,14 @@ void main() {
     final row = (await db.chatsDao.getChat('c1'))!;
     check(row.title).equals('New title');
     check(row.dirty).isTrue();
+    check(await unread('c1')).isTrue();
 
+    now = now.add(const Duration(minutes: 2));
     await engine.drain();
     check(fake.conversations['c1']!['title']).equals('New title');
+    check(await unread('c1')).isTrue();
+    await engine.pull();
+    check(await unread('c1')).isTrue();
   });
 
   test('a pin still queued keeps a rename made elsewhere', () async {
@@ -1223,15 +1241,6 @@ void main() {
   });
 
   group('a rename made here', () {
-    int seconds(DateTime time) => time.millisecondsSinceEpoch ~/ 1000;
-
-    /// Whether chat [id] shows as unread in the chats list.
-    Future<bool> unread(String id) async {
-      final entry = (await db.chatsDao.getChatMeta(id))!;
-      final read = entry.lastReadAt;
-      return read == null || entry.updatedAt > read;
-    }
-
     /// Renames chat [id] as the app does, dated [at] by this device's clock.
     Future<void> rename(String id, String title, DateTime at) =>
         db.chatsDao.updateEnvelopeWithOutbox(
@@ -1330,52 +1339,35 @@ void main() {
       check(await unread('c1')).isFalse();
     });
 
-    test('a message another device sends while the rename waits to go out '
-        'leaves the chat unread', () async {
-      await storedAndRead('c1');
-      // Offline, by a clock ahead of the server's.
-      await rename('c1', 'New', now.add(const Duration(minutes: 5)));
+    for (final (clock, renamedAt) in const [
+      ('the server\'s clock', Duration(minutes: 1)),
+      ('a clock behind its latest message', Duration(seconds: -10)),
+    ]) {
+      test('a chat unread here stays unread through its rename, made by '
+          '$clock', () async {
+        await storedAndRead('c1');
+        now = now.add(const Duration(minutes: 1));
+        fake.addConversation(
+          'c1',
+          title: 'Old',
+          updatedAt: now,
+          messageList: answeredAgain('c1'),
+        );
+        await engine.pull();
+        // Read here since, but not up to its latest message.
+        await db.chatsDao.setLastReadAt('c1', seconds(now) - 5);
+        check(await unread('c1')).isTrue();
 
-      now = now.add(const Duration(minutes: 1));
-      fake.addConversation(
-        'c1',
-        title: 'Old',
-        updatedAt: now,
-        messageList: answeredAgain('c1'),
-      );
-      await engine.pull();
-      check((await db.chatsDao.getChat('c1'))!.title).equals('New');
-      check(await db.messagesDao.getForChat('c1')).length.equals(4);
-      check(await unread('c1')).isTrue();
-
-      now = now.add(const Duration(minutes: 1));
-      await engine.drain();
-      check(fake.conversations['c1']!['title']).equals('New');
-      check(await unread('c1')).isTrue();
-      await engine.pull();
-      check(await unread('c1')).isTrue();
-    });
-
-    test('a chat unread here stays unread through its rename', () async {
-      await storedAndRead('c1');
-      now = now.add(const Duration(minutes: 1));
-      fake.addConversation(
-        'c1',
-        title: 'Old',
-        updatedAt: now,
-        messageList: answeredAgain('c1'),
-      );
-      await engine.pull();
-      check(await unread('c1')).isTrue();
-
-      now = now.add(const Duration(minutes: 1));
-      await rename('c1', 'New', now);
-      check(await unread('c1')).isTrue();
-      await engine.drain();
-      check(await unread('c1')).isTrue();
-      await engine.pull();
-      check(await unread('c1')).isTrue();
-    });
+        await rename('c1', 'New', now.add(renamedAt));
+        check(await unread('c1')).isTrue();
+        now = now.add(const Duration(minutes: 2));
+        await engine.drain();
+        check(fake.conversations['c1']!['title']).equals('New');
+        check(await unread('c1')).isTrue();
+        await engine.pull();
+        check(await unread('c1')).isTrue();
+      });
+    }
   });
 
   test('a queued send without a runner is kept, not counted sent', () async {

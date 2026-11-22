@@ -338,13 +338,24 @@ void main() {
     check(workerPort.runs).equals(1);
   });
 
-  test('rename, pin and archive change the chat and reach the server', () async {
+  test('rename, pin and archive change the chat and reach the server, and a '
+      'read chat stays read', () async {
     await pull();
+    // The list on screen.
+    container.listen(conversationsProvider, (_, _) {});
+    Conversation shown() => container
+        .read(conversationsProvider)
+        .requireValue
+        .firstWhere((conversation) => conversation.id == 'lc-1');
+    await listed();
+    check(isConversationUnread(shown())).isFalse();
     final scoped = const ChatStorageIdentity(
       rawId: 'lc-1',
       storage: ChatStorageKind.libreChat,
     ).scopedId;
     await renameLibreChatConversation(container, scoped, 'Weather in Paris');
+    check(shown().title).equals('Weather in Paris');
+    check(isConversationUnread(shown())).isFalse();
     await pinConversation(container, scoped, true);
     await archiveConversation(container, scoped, true);
 
@@ -361,34 +372,11 @@ void main() {
     check((await libreChatDb.chatsDao.getChat('lc-1'))!.dirty).isFalse();
     // Open WebUI's API was never asked.
     check(owuiSync.pulls).isEmpty();
-  });
 
-  test('a read chat renamed here stays read in the list', () async {
     await pull();
-    // The list on screen.
-    container.listen(conversationsProvider, (_, _) {});
-    Conversation shown() => container
-        .read(conversationsProvider)
-        .requireValue
-        .firstWhere((conversation) => conversation.id == 'lc-1');
-    await listed();
-    check(isConversationUnread(shown())).isFalse();
-
-    final scoped = const ChatStorageIdentity(
-      rawId: 'lc-1',
-      storage: ChatStorageKind.libreChat,
-    ).scopedId;
-    await renameLibreChatConversation(container, scoped, 'Weather in Paris');
-    check(shown().title).equals('Weather in Paris');
-    check(isConversationUnread(shown())).isFalse();
-
-    await container.read(libreChatSyncEngineProvider)!.drain();
-    await pull();
-    final renamed = (await listed()).firstWhere(
-      (conversation) => conversation.id == 'lc-1',
-    );
-    check(renamed.title).equals('Weather in Paris');
-    check(isConversationUnread(renamed)).isFalse();
+    // Archived, so out of the list: as its row shows it.
+    final stored = (await libreChatDb.chatsDao.getChatMeta('lc-1'))!;
+    check(stored.lastReadAt).isNotNull().isGreaterOrEqual(stored.updatedAt);
   });
 
   test('pinning the open chat keeps the messages it shows', () async {
