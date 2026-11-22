@@ -104,18 +104,48 @@ pub fn load_or_create_master_key(store: &dyn MasterKeyStore) -> Result<String, S
     }
 }
 
-/// D12's key once the user chose the key file: still the Secret Service's
-/// whenever one answers (made there on first run), and the key file's only
-/// when there is none at all. A keyring that is locked or refuses keeps its
-/// answer: a new key in a file beside a keyring that holds the key would
-/// leave the data that key protects behind.
-pub fn key_file_master_key(
-    secret_service: &dyn MasterKeyStore,
-    key_file: &dyn MasterKeyStore,
+/// The master key on Linux, chosen the same way at start-up
+/// (`make_file: false`) and when the user picks the key file (D12,
+/// `make_file: true`): a key file that exists wins, as the user chose it;
+/// else the Secret Service's key; and a new key goes to the keyring
+/// whenever one answers, to the file only when there is none at all and
+/// the user asked for it. A keyring that is locked or refuses keeps its
+/// answer. The whole choice, and a new key, happen under the service's
+/// lock, so two profiles (or launches) never end up with one key each.
+#[cfg(unix)]
+pub fn linux_master_key<S: ReplacingStore>(
+    secret_service: &S,
+    key_file: &KeyFile,
+    lock: &KeyLock,
+    make_file: bool,
 ) -> Result<String, SecretError> {
-    match load_or_create_master_key(secret_service) {
-        Err(SecretError::Unavailable(_)) => load_or_create_master_key(key_file),
-        answered => answered,
+    // One lock per service around the whole choice: a launch looks at the
+    // key file and the keyring, and makes a key, only while no other launch
+    // of the service can, so none makes a key after another made one.
+    let _held = lock.hold()?;
+    if key_file.chosen()? {
+        return file_key(key_file);
+    }
+    match secret_service.load() {
+        Ok(Some(key)) => checked(key),
+        Ok(None) => {
+            let key = new_master_key();
+            secret_service.replace(&key)?;
+            Ok(key)
+        }
+        Err(SecretError::Unavailable(_)) if make_file => load_or_create_master_key(key_file),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(unix)]
+fn file_key(key_file: &KeyFile) -> Result<String, SecretError> {
+    match key_file.load()? {
+        Some(key) => checked(key),
+        None => Err(SecretError::Store(format!(
+            "{} went away",
+            key_file.path.display()
+        ))),
     }
 }
 
@@ -134,6 +164,15 @@ fn checked(key: String) -> Result<String, SecretError> {
 pub trait ReplacingStore {
     fn load(&self) -> Result<Option<String>, SecretError>;
     fn replace(&self, key: &str) -> Result<(), SecretError>;
+}
+
+impl<S: ReplacingStore> ReplacingStore for &S {
+    fn load(&self) -> Result<Option<String>, SecretError> {
+        (**self).load()
+    }
+    fn replace(&self, key: &str) -> Result<(), SecretError> {
+        (**self).replace(key)
+    }
 }
 
 /// A [`ReplacingStore`] made create-only: it looks and writes holding
@@ -740,9 +779,14 @@ impl MasterKeyStore for KeyFile {
                 self.path.display()
             )));
         }
-        std::fs::read_to_string(&self.path)
-            .map(Some)
-            .map_err(failed)
+        let key = std::fs::read_to_string(&self.path).map_err(failed)?;
+        // Before the key is used, its name and the folders above it are on
+        // disk, however it was found: the launch that made it may have
+        // failed its sync, or still be syncing, or a folder it made may not
+        // have reached its parent. A sync of an entry already on disk is
+        // cheap.
+        sync_folders_above(&self.path).map_err(failed)?;
+        Ok(Some(key))
     }
 
     /// The key goes to a file of its own first and is linked into place, so
@@ -792,6 +836,28 @@ fn make_folders_durably(dir: &std::path::Path) -> std::io::Result<()> {
             Err(e) => return Err(e),
         }
         sync_folder(parent_or_here(folder))?;
+    }
+    Ok(())
+}
+
+/// Writes the entries of every folder above `path` to disk, from its own
+/// folder up. A folder this user can't open holds nothing made here, and a
+/// filesystem that can't sync folders (EINVAL) is taken as it is.
+#[cfg(unix)]
+fn sync_folders_above(path: &std::path::Path) -> std::io::Result<()> {
+    for folder in path.ancestors().skip(1) {
+        if folder.as_os_str().is_empty() {
+            break;
+        }
+        let dir = match std::fs::File::open(folder) {
+            Ok(dir) => dir,
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => continue,
+            Err(e) => return Err(e),
+        };
+        match dir.sync_all() {
+            Err(e) if e.raw_os_error() != Some(libc::EINVAL) => return Err(e),
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -1183,47 +1249,174 @@ mod tests {
         ));
     }
 
-    /// A store that always fails with `error`.
-    struct Failing(SecretError);
+    /// Something that happens in the middle of a launch's first look at
+    /// the keyring (another launch, the keyring coming back).
+    #[cfg(unix)]
+    type Meanwhile = Box<dyn FnOnce(&Keyring) + Send>;
 
-    impl MasterKeyStore for Failing {
-        fn load(&self) -> Result<Option<String>, SecretError> {
-            Err(self.0.clone())
+    /// A Secret Service that is there or not, for tests.
+    #[cfg(unix)]
+    #[derive(Default)]
+    struct Keyring {
+        up: std::sync::atomic::AtomicBool,
+        locked: bool,
+        key: std::sync::Mutex<Option<String>>,
+        meanwhile: std::sync::Mutex<Option<Meanwhile>>,
+    }
+
+    #[cfg(unix)]
+    impl Keyring {
+        fn up(up: bool) -> Self {
+            let keyring = Self::default();
+            keyring.set_up(up);
+            keyring
         }
-        fn add(&self, _: &str) -> Result<bool, SecretError> {
-            Err(self.0.clone())
+        fn set_up(&self, up: bool) {
+            self.up.store(up, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn answer(&self) -> Result<(), SecretError> {
+            if !self.up.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(SecretError::Unavailable("no session bus".into()));
+            }
+            if self.locked {
+                return Err(SecretError::Store("the keyring is locked".into()));
+            }
+            Ok(())
         }
     }
 
-    /// The key file is used only when there is no Secret Service at all:
-    /// a keyring that holds the key, has room for one, or is locked keeps it.
+    #[cfg(unix)]
+    impl ReplacingStore for Keyring {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            let meanwhile = self.meanwhile.lock().unwrap().take();
+            if let Some(meanwhile) = meanwhile {
+                meanwhile(self);
+            }
+            self.answer()?;
+            Ok(self.key.lock().unwrap().clone())
+        }
+        fn replace(&self, key: &str) -> Result<(), SecretError> {
+            self.answer()?;
+            *self.key.lock().unwrap() = Some(key.to_string());
+            Ok(())
+        }
+    }
+
+    /// A key file and its lock in a folder of their own.
+    #[cfg(unix)]
+    fn key_file_and_lock() -> (tempfile::TempDir, KeyFile, KeyLock) {
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keychoice-")
+            .tempdir()
+            .expect("a temporary folder");
+        let file = KeyFile::new(
+            dir.path()
+                .join("share")
+                .join("app.example.conduit.master-key"),
+        );
+        let lock = KeyLock::File(dir.path().join("app.example.conduit.master-key.lock"));
+        (dir, file, lock)
+    }
+
+    /// The key file is made only when there is no Secret Service at all: a
+    /// keyring that holds the key, has room for one, or is locked keeps it.
+    #[cfg(unix)]
     #[test]
     fn the_key_file_never_replaces_a_secret_service_that_answers() {
+        let (_dir, file, lock) = key_file_and_lock();
+        let holding = Keyring::up(true);
         let keyring_key = new_master_key();
-        let holding = MemoryStore(std::sync::Mutex::new(Some(keyring_key.clone())));
-        let file = MemoryStore::default();
-        assert_eq!(key_file_master_key(&holding, &file), Ok(keyring_key));
+        *holding.key.lock().unwrap() = Some(keyring_key.clone());
         assert_eq!(
-            file.load(),
-            Ok(None),
+            linux_master_key(&holding, &file, &lock, true),
+            Ok(keyring_key)
+        );
+        assert_eq!(
+            file.chosen(),
+            Ok(false),
             "no key file beside the keyring's key"
         );
 
-        let empty = MemoryStore::default();
-        let made = key_file_master_key(&empty, &file).unwrap();
-        assert_eq!(empty.load(), Ok(Some(made)), "made in the keyring");
-        assert_eq!(file.load(), Ok(None));
-
-        let locked = Failing(SecretError::Store("the keyring is locked".into()));
+        let empty = Keyring::up(true);
+        let made = linux_master_key(&empty, &file, &lock, true).unwrap();
         assert_eq!(
-            key_file_master_key(&locked, &file),
+            *empty.key.lock().unwrap(),
+            Some(made),
+            "made in the keyring"
+        );
+        assert_eq!(file.chosen(), Ok(false));
+
+        let locked = Keyring {
+            locked: true,
+            ..Keyring::up(true)
+        };
+        assert_eq!(
+            linux_master_key(&locked, &file, &lock, true),
             Err(SecretError::Store("the keyring is locked".into()))
         );
-        assert_eq!(file.load(), Ok(None));
+        assert_eq!(file.chosen(), Ok(false));
 
-        let none = Failing(SecretError::Unavailable("no session bus".into()));
-        let from_file = key_file_master_key(&none, &file).unwrap();
+        // No keyring: an error at start-up, the file once the user chose it.
+        let none = Keyring::up(false);
+        assert!(matches!(
+            linux_master_key(&none, &file, &lock, false),
+            Err(SecretError::Unavailable(_))
+        ));
+        let from_file = linux_master_key(&none, &file, &lock, true).unwrap();
         assert_eq!(file.load(), Ok(Some(from_file)));
+    }
+
+    /// Two profiles of one user, both on the key-file screen with no
+    /// keyring. The first chooses the key file; the keyring then starts and
+    /// the second confirms its still-open warning. Both take the key the
+    /// first saved, and both open with it at their next launch.
+    #[cfg(unix)]
+    #[test]
+    fn two_profiles_that_choose_the_key_file_meet_on_one_key() {
+        let (_dir, file, lock) = key_file_and_lock();
+        let keyring = Keyring::up(false);
+        assert!(linux_master_key(&keyring, &file, &lock, false).is_err());
+        let first = linux_master_key(&keyring, &file, &lock, true).unwrap();
+        keyring.set_up(true);
+        let second = linux_master_key(&keyring, &file, &lock, true).unwrap();
+        assert_eq!(second, first, "the second profile takes the key file's key");
+        for profile in ["first", "second"] {
+            assert_eq!(
+                linux_master_key(&keyring, &file, &lock, false),
+                Ok(first.clone()),
+                "the {profile} profile's next launch"
+            );
+        }
+        assert_eq!(
+            *keyring.key.lock().unwrap(),
+            None,
+            "no second key in the keyring"
+        );
+    }
+
+    /// A launch looks at the key file and the keyring, and makes its key,
+    /// as one step under the service's lock. So no other launch can publish
+    /// a key between this one finding none and making its own (the
+    /// interleaving that left two first launches with one key each).
+    #[cfg(unix)]
+    #[test]
+    fn no_launch_makes_a_key_while_another_is_choosing() {
+        let (_dir, file, lock) = key_file_and_lock();
+        let keyring = Keyring::up(true);
+        let held_meanwhile = std::sync::Arc::new(std::sync::Mutex::new(None));
+        {
+            let (lock, held) = (lock.clone(), held_meanwhile.clone());
+            *keyring.meanwhile.lock().unwrap() = Some(Box::new(move |_: &Keyring| {
+                *held.lock().unwrap() = Some(matches!(lock.try_hold(), Ok(None)));
+            }));
+        }
+        let key = linux_master_key(&keyring, &file, &lock, false).unwrap();
+        assert_eq!(
+            *held_meanwhile.lock().unwrap(),
+            Some(true),
+            "another launch could publish a key while this one chose"
+        );
+        assert_eq!(*keyring.key.lock().unwrap(), Some(key));
     }
 
     #[test]

@@ -189,58 +189,68 @@ fn key_service(paths: &AppPaths, scripted: bool) -> String {
 /// Secret Service on Linux, or there the key file the user chose), created
 /// on first run.
 fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
-    use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
-    let service = key_service(paths, scripted);
-    #[cfg(target_os = "macos")]
-    let store: Box<dyn MasterKeyStore> = {
-        use conduit_daemon::secrets::{Keychain, SecurityCli};
-        // Dev builds go through /usr/bin/security so a rebuilt (re-hashed)
-        // binary never meets a Keychain prompt; see conduit_daemon::secrets.
-        match paths.flavor {
-            Flavor::Dev => Box::new(SecurityCli::new(service)),
-            Flavor::Production => Box::new(Keychain::new(service)),
-        }
-    };
-    // Off the Mac a first key is written holding the service's lock, so two
-    // first launches, whatever their profiles, never both store theirs.
-    #[cfg(any(windows, target_os = "linux"))]
-    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
-    #[cfg(windows)]
-    let store: Box<dyn MasterKeyStore> = Box::new(conduit_daemon::secrets::LockedStore::new(
-        conduit_daemon::secrets::CredentialManager::new(service),
-        lock,
-    ));
     #[cfg(target_os = "linux")]
-    let store: Box<dyn MasterKeyStore> = {
-        let file =
-            conduit_daemon::secrets::KeyFile::new(paths::master_key_file(&service, &paths::System));
-        // Once chosen (D12), the key file stays the key's home.
-        if file.chosen()? {
-            log::warn!("the master key is in a key file: {}", file.path.display());
-            Box::new(file)
-        } else {
+    {
+        linux_master_key(paths, scripted, false)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
+        let service = key_service(paths, scripted);
+        #[cfg(target_os = "macos")]
+        let store: Box<dyn MasterKeyStore> = {
+            use conduit_daemon::secrets::{Keychain, SecurityCli};
+            // Dev builds go through /usr/bin/security so a rebuilt
+            // (re-hashed) binary never meets a Keychain prompt; see
+            // conduit_daemon::secrets.
+            match paths.flavor {
+                Flavor::Dev => Box::new(SecurityCli::new(service)),
+                Flavor::Production => Box::new(Keychain::new(service)),
+            }
+        };
+        // A first key is written holding the service's lock, so two first
+        // launches, whatever their profiles, never both store theirs.
+        #[cfg(windows)]
+        let store: Box<dyn MasterKeyStore> = {
+            let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
             Box::new(conduit_daemon::secrets::LockedStore::new(
-                conduit_daemon::secrets::SecretService::new(service),
+                conduit_daemon::secrets::CredentialManager::new(service),
                 lock,
             ))
-        }
-    };
-    load_or_create_master_key(store.as_ref())
+        };
+        load_or_create_master_key(store.as_ref())
+    }
 }
 
-/// D12: once the user chose the key file, the key is still the Secret
-/// Service's whenever one answers; only with none at all is it read from
-/// the key file, or made there.
+/// D12: the master key once the user chose the key file. It is chosen as
+/// at start-up (`conduit_daemon::secrets::linux_master_key`): a key file
+/// already there wins, a keyring that answers keeps the key, and only with
+/// no keyring at all is the key file made.
 #[cfg(target_os = "linux")]
 fn key_file_master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
-    use conduit_daemon::secrets::{KeyFile, LockedStore, SecretService};
+    linux_master_key(paths, scripted, true)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_master_key(
+    paths: &AppPaths,
+    scripted: bool,
+    make_file: bool,
+) -> Result<String, SecretError> {
+    use conduit_daemon::secrets::{KeyFile, SecretService};
     let service = key_service(paths, scripted);
     let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
     let file = KeyFile::new(paths::master_key_file(&service, &paths::System));
-    conduit_daemon::secrets::key_file_master_key(
-        &LockedStore::new(SecretService::new(service), lock),
+    let key = conduit_daemon::secrets::linux_master_key(
+        &SecretService::new(service),
         &file,
-    )
+        &lock,
+        make_file,
+    );
+    if key.is_ok() && file.chosen() == Ok(true) {
+        log::warn!("the master key is in a key file: {}", file.path.display());
+    }
+    key
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts
