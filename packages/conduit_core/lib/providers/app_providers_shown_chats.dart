@@ -42,8 +42,10 @@ class ShownChats extends Notifier<Map<String, String>> {
     return const <String, String>{};
   }
 
-  /// [view] shows chat [chatId] now, or no chat (null).
+  /// [view] shows chat [chatId] now, or no chat (null). A report that comes
+  /// once the core is gone, as a page's last one can, changes nothing.
   void show(String view, String? chatId) {
+    if (!ref.mounted) return;
     final id = chatId?.trim() ?? '';
     final rawId = ChatStorageIdentity.parse(id).rawId;
     final shows = id.isNotEmpty && !isTemporaryChat(rawId);

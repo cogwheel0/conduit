@@ -391,6 +391,20 @@ void main() {
     expect(socket.reads, isEmpty);
   });
 
+  // A page clears its report a microtask after it is disposed, which can be
+  // after the container that held the core went away (the app's scope torn
+  // down, a test's teardown).
+  test('a report that comes after the core is gone changes nothing', () async {
+    await seedRead(serverDb, 'chat-s');
+    final container = await signedIn();
+    final shown = container.read(shownChatsProvider.notifier);
+    shown.show('chatPage/0', 'chat-s');
+    container.dispose();
+
+    expect(() => shown.show('chatPage/0', null), returnsNormally);
+    expect(() => shown.show('chatPage/1', 'chat-s'), returnsNormally);
+  });
+
   test('no read goes to another account, even for the same chat id', () async {
     await seedRead(serverDb, 'chat-s');
     final otherDb = AppDatabase(NativeDatabase.memory());
