@@ -682,6 +682,44 @@ void main() {
   // -----------------------------------------------------------------------
   // 1. taskSocket classification from JSON with task_id
   // -----------------------------------------------------------------------
+  group('a chat\'s stops under way', () {
+    // A stop decided on the chat's task list ends every task the account runs
+    // there: a request for the chat goes only once none is under way.
+    test('a completion for the chat waits until every stop under way there '
+        'has ended, though a later one ends first', () {
+      fakeAsync((async) {
+        final adapter = _FakeAdapter.json({
+          'status': true,
+          'task_ids': ['task-next'],
+        });
+        final api = _buildApiServiceForTest(adapter);
+        final first = Completer<void>();
+        final second = Completer<void>();
+        unawaited(api.holdingChatCompletions('chat-1', () => first.future));
+        unawaited(api.holdingChatCompletions('chat-1', () => second.future));
+        second.complete();
+        async.flushMicrotasks();
+
+        unawaited(
+          api.sendMessageSession(
+            messages: const [
+              {'role': 'user', 'content': 'And the ebb?'},
+            ],
+            model: 'tide-model',
+            conversationId: 'chat-1',
+            responseMessageId: 'answer-next',
+          ),
+        );
+        async.elapse(Duration.zero);
+        check(adapter.lastRequest).isNull();
+
+        first.complete();
+        async.elapse(Duration.zero);
+        check(adapter.lastRequest?.path).equals('/api/chat/completions');
+      });
+    });
+  });
+
   group('stopTask', () {
     test('posts to the task route and resolves only when the server reports '
         'the task stopped', () async {

@@ -1,7 +1,17 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
-import 'package:dio/dio.dart' show DioException, RequestOptions, Response;
+import 'package:dio/dio.dart'
+    show
+        DioException,
+        Headers,
+        HttpClientAdapter,
+        InterceptorsWrapper,
+        RequestOptions,
+        Response,
+        ResponseBody;
+import 'package:fake_async/fake_async.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show currentUserProvider2;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
@@ -175,6 +185,7 @@ class _RecordingCompletionApi extends ApiService {
     this.sendFailure,
     this.returnedTaskId,
     this.standardAccount = false,
+    this.realTaskStops = false,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test',
@@ -192,6 +203,9 @@ class _RecordingCompletionApi extends ApiService {
   /// Whether the account is not an administrator: Open WebUI stops a single
   /// task (`POST /api/tasks/stop/{id}`) only for one, and refuses it 401.
   final bool standardAccount;
+
+  /// Whether a task stop goes the service's own route, to [dio]'s adapter.
+  final bool realTaskStops;
 
   /// The tasks the server runs for the account in the chat: one starts as its
   /// completion request is answered, and ends once it is stopped.
@@ -237,7 +251,14 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      realTaskStops
+      ? super.stopTaskRaw(taskId, authSnapshot: authSnapshot)
+      : stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
+    if (realTaskStops) return super.stopTask(taskId);
     targetedStopCalls += 1;
     if (runningTasks.contains(taskId) && !runningTaskStopAsked.isCompleted) {
       runningTaskStopAsked.complete();
@@ -404,6 +425,32 @@ const _standardAccount = User(
   email: 'member@example.test',
   role: 'user',
 );
+
+/// Answers every request, and records the session each task stop went as.
+final class _TaskStopRecorder implements HttpClientAdapter {
+  final List<Object?> stoppedAs = <Object?>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.path.startsWith('/api/tasks/stop/')) {
+      stoppedAs.add(options.headers['Authorization']);
+    }
+    return ResponseBody.fromString(
+      '{"status": true}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 ChatMessage _userMessage({required String id, required String content}) {
   return ChatMessage(
@@ -870,6 +917,64 @@ void main() {
         ).isFalse();
       });
     }
+
+    test('an administrator\'s cleanup stop goes as the account that sent the '
+        'request, never as one signed in since', () {
+      fakeAsync((async) {
+        final sendGate = Completer<void>();
+        final api = _RecordingCompletionApi(
+          sendGate: sendGate,
+          returnedTaskId: 'task-regeneration',
+          realTaskStops: true,
+        )..updateAuthToken('token-admin');
+        final server = _TaskStopRecorder();
+        api.dio.httpClientAdapter = server;
+        // Another account signs in as the stop is on its way, before the
+        // session's interceptor reads the token.
+        var signedInMeanwhile = false;
+        api.dio.interceptors.insert(
+          0,
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              if (options.path.startsWith('/api/tasks/stop/')) {
+                api.updateAuthToken('token-other');
+                signedInMeanwhile = true;
+              }
+              handler.next(options);
+            },
+          ),
+        );
+        final initialMessages = [
+          _userMessage(id: 'u1', content: 'First prompt'),
+          _assistantMessage(id: 'a1', content: 'First answer'),
+        ];
+        final container = _container(
+          initialMessages: initialMessages,
+          activeConversation: _conversation(
+            id: 'conv-admin-stop',
+            messages: initialMessages,
+          ),
+          apiService: api,
+          user: _administrator,
+        );
+        addTearDown(container.dispose);
+
+        unawaited(
+          regenerateHistoricalMessageById(
+            container,
+            'a1',
+          ).catchError((Object _) {}),
+        );
+        async.flushMicrotasks();
+        check(api.sendStarted.isCompleted).isTrue();
+        container.read(stopGenerationProvider)();
+        sendGate.complete();
+        async.elapse(Duration.zero);
+
+        check(signedInMeanwhile).isTrue();
+        check(server.stoppedAs).not((it) => it.contains('Bearer token-other'));
+      });
+    });
 
     test('a Stop while the answer\'s task waits for the socket is taken, '
         'and stops that task, for a standard account', () async {

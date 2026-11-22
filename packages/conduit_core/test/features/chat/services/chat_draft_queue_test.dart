@@ -144,6 +144,10 @@ class _Api extends ApiService {
   }
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
     stoppedTasks.add(taskId);
   }

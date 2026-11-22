@@ -191,10 +191,11 @@ Future<void> _stopRequestTasksQuietly(
     );
     return;
   }
+  final asked = session ?? api.captureAuthSnapshot();
   for (final id in ids) {
-    if (session != null && !api.authSnapshotIsCurrent(session)) return;
+    if (!api.authSnapshotIsCurrent(asked)) return;
     try {
-      await api.stopTask(id);
+      await api.stopTaskRaw(id, authSnapshot: asked);
     } catch (error) {
       // A refusal is a task that could not be stopped, never one that was.
       DebugLogger.log(

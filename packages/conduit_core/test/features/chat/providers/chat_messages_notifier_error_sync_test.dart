@@ -256,6 +256,10 @@ class _FakeApiService extends ApiService {
   bool chatStopHeld = false;
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
     stoppedTasks.add(taskId);
     if (stopsRefused) throw StateError('the stop was refused');

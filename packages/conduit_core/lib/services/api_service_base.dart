@@ -1612,7 +1612,7 @@ abstract class _ApiServiceBase {
 
   // The stops of a chat's tasks under way, by chat id
   // ([holdingChatCompletions]).
-  final Map<String, Future<void>> _chatStopsUnderWay = {};
+  final Map<String, Set<Future<void>>> _chatStopsUnderWay = {};
   // -----------------------------------------------------------------------
   // Payload construction (shared by legacy and new transport-aware path)
   // -----------------------------------------------------------------------

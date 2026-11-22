@@ -15033,6 +15033,10 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   }
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
     stoppedTasks.add(taskId);
     await holdStop?.future;
