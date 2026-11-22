@@ -10,6 +10,7 @@
 pub mod components;
 pub mod icu;
 pub mod locale;
+pub mod pending;
 
 use std::sync::Arc;
 

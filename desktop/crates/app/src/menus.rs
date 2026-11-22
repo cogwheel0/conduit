@@ -28,13 +28,15 @@ use gpui_kit::{
     SystemMenuType,
 };
 
+use conduit_components::chrome::ChromeStyle;
+use conduit_components::chrome::menu::{ChromeMenuItem, ZoomPart, ZoomRow};
 use conduit_components::views::focus::ShortcutHints;
 
 use crate::AppState;
 use crate::actions::*;
 use crate::keymap::{
-    FixedCommand, KeyStroke, Keymap, ShortcutAction, describe, fixed_stroke, new_chat_alias,
-    to_gpui,
+    FixedCommand, KeyStroke, Keymap, ShortcutAction, describe, fixed_stroke, from_gpui,
+    new_chat_alias, to_gpui,
 };
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
@@ -758,7 +760,6 @@ pub fn move_to_disabled(state: &MenuState) -> bool {
 
 /// The menu bar for `state`, in `l`'s words.
 pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
-    let zoom = state.zoom;
     let notes = state.areas.contains(&Area::Notes);
     let mut menus = vec![
         Menu::new("Conduit").items([
@@ -775,86 +776,9 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action(l10n.desktop_menu_quit(), Quit),
         ]),
-        Menu::new(l10n.file()).items(
-            [
-                MenuItem::action(l10n.new_chat(), NewChat),
-                MenuItem::action(l10n.desktop_new_temporary_chat(), NewTemporaryChat),
-                // Finder's and Notes' New Folder: greyed where folders cannot
-                // be made (no handler answers it then).
-                MenuItem::action(l10n.desktop_new_folder(), NewFolder),
-                // New Channel… likewise, for an account that may make one.
-                MenuItem::action(
-                    l10n.desktop_new_channel(),
-                    crate::views::channels::NewChannel,
-                ),
-            ]
-            .into_iter()
-            // With Hermes on: New Room…, greyed where no room can be made.
-            .chain(state.areas.contains(&Area::Hermes).then(|| {
-                MenuItem::action(
-                    l10n.desktop_hermes_new_room_menu(),
-                    crate::views::hermes_rooms::NewRoom,
-                )
-            }))
-            .chain([
-                MenuItem::separator(),
-                MenuItem::action(l10n.desktop_menu_close_window(), CloseWindow),
-            ]),
-        ),
-        Menu::new(l10n.edit()).items([
-            MenuItem::os_action(l10n.desktop_menu_undo(), Undo, OsAction::Undo),
-            MenuItem::os_action(l10n.desktop_menu_redo(), Redo, OsAction::Redo),
-            MenuItem::separator(),
-            MenuItem::os_action(l10n.desktop_menu_cut(), Cut, OsAction::Cut),
-            MenuItem::os_action(l10n.copy(), Copy, OsAction::Copy),
-            MenuItem::os_action(l10n.desktop_menu_paste(), Paste, OsAction::Paste),
-            MenuItem::os_action(
-                l10n.desktop_menu_select_all(),
-                SelectAll,
-                OsAction::SelectAll,
-            ),
-            // Terminal's Clear Scrollback, greyed where no console has the
-            // keys (no handler answers it then).
-            MenuItem::action(
-                l10n.desktop_terminal_clear_scrollback(),
-                crate::views::terminal::console::ClearScrollback,
-            ),
-            MenuItem::separator(),
-            // Mail's Find submenu: find in what is open, then search the
-            // whole list.
-            MenuItem::submenu(Menu::new(l10n.desktop_menu_find_submenu()).items([
-                MenuItem::action(l10n.desktop_menu_find(), FindInChat),
-                MenuItem::action(l10n.desktop_find_next(), FindNext),
-                MenuItem::action(l10n.desktop_find_previous(), FindPrevious),
-                MenuItem::separator(),
-                MenuItem::action(l10n.desktop_menu_search_chats(), FindChats),
-            ])),
-        ]),
-        Menu::new(l10n.desktop_menu_view()).items([
-            MenuItem::action(
-                if state.sidebar_visible {
-                    l10n.desktop_menu_hide_sidebar()
-                } else {
-                    l10n.desktop_menu_show_sidebar()
-                },
-                ToggleSidebar,
-            ),
-            MenuItem::separator(),
-            MenuItem::action(l10n.desktop_menu_search_chats_and_commands(), OpenPalette),
-            MenuItem::separator(),
-            MenuItem::action(l10n.desktop_menu_actual_size(), ActualSize).disabled(!zoom.can_reset),
-            MenuItem::action(l10n.desktop_menu_zoom_in(), ZoomIn).disabled(!zoom.can_zoom_in),
-            MenuItem::action(l10n.desktop_menu_zoom_out(), ZoomOut).disabled(!zoom.can_zoom_out),
-            MenuItem::separator(),
-            MenuItem::action(
-                if state.full_screen {
-                    l10n.desktop_menu_exit_full_screen()
-                } else {
-                    l10n.desktop_menu_enter_full_screen()
-                },
-                ToggleFullScreen,
-            ),
-        ]),
+        Menu::new(l10n.file()).items(file_menu_items(l10n, state)),
+        Menu::new(l10n.edit()).items(edit_menu_items(l10n)),
+        Menu::new(l10n.desktop_menu_view()).items(view_menu_items(l10n, state)),
         Menu::new(l10n.desktop_menu_go()).items(go_menu_items(l10n, state)),
         Menu::new(l10n.desktop_menu_chat()).items(chat_menu_items(l10n, state)),
         Menu::new(l10n.desktop_menu_window()).items([
@@ -865,25 +789,253 @@ pub fn build_menus(l10n: &L10n, state: &MenuState) -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action(l10n.desktop_menu_bring_all_to_front(), BringAllToFront),
         ]),
-        Menu::new(l10n.desktop_menu_help()).items([
-            MenuItem::action(l10n.desktop_menu_conduit_help(), OpenHelp),
-            MenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
-        ]),
+        Menu::new(l10n.desktop_menu_help()).items(help_menu_items(l10n)),
     ];
     if notes {
-        // File › New Note, after New Temporary Chat (⌘N while the Notes
-        // section is shown, as Notes' own).
-        if let Some(file) = menus.get_mut(1) {
-            file.items.insert(
-                2,
-                MenuItem::action(l10n.desktop_new_note(), crate::views::notes::NewNote),
-            );
-        }
         // Format, after Edit, as Notes' and TextEdit's: greyed unless a
         // note is being edited (the editor answers its actions).
         menus.insert(3, format_menu(l10n));
     }
     menus
+}
+
+/// File: the new items, then Close Window.
+fn file_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
+    let mut items: Vec<MenuItem> = [
+        MenuItem::action(l10n.new_chat(), NewChat),
+        MenuItem::action(l10n.desktop_new_temporary_chat(), NewTemporaryChat),
+        // Finder's and Notes' New Folder: greyed where folders cannot
+        // be made (no handler answers it then).
+        MenuItem::action(l10n.desktop_new_folder(), NewFolder),
+        // New Channel… likewise, for an account that may make one.
+        MenuItem::action(
+            l10n.desktop_new_channel(),
+            crate::views::channels::NewChannel,
+        ),
+    ]
+    .into_iter()
+    // With Hermes on: New Room…, greyed where no room can be made.
+    .chain(state.areas.contains(&Area::Hermes).then(|| {
+        MenuItem::action(
+            l10n.desktop_hermes_new_room_menu(),
+            crate::views::hermes_rooms::NewRoom,
+        )
+    }))
+    .chain([
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_menu_close_window(), CloseWindow),
+    ])
+    .collect();
+    if state.areas.contains(&Area::Notes) {
+        // New Note, after New Temporary Chat (⌘N while the Notes section
+        // is shown, as Notes' own).
+        items.insert(
+            2,
+            MenuItem::action(l10n.desktop_new_note(), crate::views::notes::NewNote),
+        );
+    }
+    items
+}
+
+fn edit_menu_items(l10n: &L10n) -> Vec<MenuItem> {
+    vec![
+        MenuItem::os_action(l10n.desktop_menu_undo(), Undo, OsAction::Undo),
+        MenuItem::os_action(l10n.desktop_menu_redo(), Redo, OsAction::Redo),
+        MenuItem::separator(),
+        MenuItem::os_action(l10n.desktop_menu_cut(), Cut, OsAction::Cut),
+        MenuItem::os_action(l10n.copy(), Copy, OsAction::Copy),
+        MenuItem::os_action(l10n.desktop_menu_paste(), Paste, OsAction::Paste),
+        MenuItem::os_action(
+            l10n.desktop_menu_select_all(),
+            SelectAll,
+            OsAction::SelectAll,
+        ),
+        // Terminal's Clear Scrollback, greyed where no console has the
+        // keys (no handler answers it then).
+        MenuItem::action(
+            l10n.desktop_terminal_clear_scrollback(),
+            crate::views::terminal::console::ClearScrollback,
+        ),
+        MenuItem::separator(),
+        // Mail's Find submenu: find in what is open, then search the
+        // whole list.
+        MenuItem::submenu(Menu::new(l10n.desktop_menu_find_submenu()).items([
+            MenuItem::action(l10n.desktop_menu_find(), FindInChat),
+            MenuItem::action(l10n.desktop_find_next(), FindNext),
+            MenuItem::action(l10n.desktop_find_previous(), FindPrevious),
+            MenuItem::separator(),
+            MenuItem::action(l10n.desktop_menu_search_chats(), FindChats),
+        ])),
+    ]
+}
+
+fn view_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
+    let zoom = state.zoom;
+    vec![
+        MenuItem::action(
+            if state.sidebar_visible {
+                l10n.desktop_menu_hide_sidebar()
+            } else {
+                l10n.desktop_menu_show_sidebar()
+            },
+            ToggleSidebar,
+        ),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_menu_search_chats_and_commands(), OpenPalette),
+        MenuItem::separator(),
+        MenuItem::action(l10n.desktop_menu_actual_size(), ActualSize).disabled(!zoom.can_reset),
+        MenuItem::action(l10n.desktop_menu_zoom_in(), ZoomIn).disabled(!zoom.can_zoom_in),
+        MenuItem::action(l10n.desktop_menu_zoom_out(), ZoomOut).disabled(!zoom.can_zoom_out),
+        MenuItem::separator(),
+        MenuItem::action(
+            if state.full_screen {
+                l10n.desktop_menu_exit_full_screen()
+            } else {
+                l10n.desktop_menu_enter_full_screen()
+            },
+            ToggleFullScreen,
+        ),
+    ]
+}
+
+fn help_menu_items(l10n: &L10n) -> Vec<MenuItem> {
+    vec![
+        MenuItem::action(l10n.desktop_menu_conduit_help(), OpenHelp),
+        MenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
+    ]
+}
+
+/// ☰ off the Mac, in place of the menu bar (`zoom_percent`: the message
+/// text size against the density's own, for GNOME's zoom row).
+/// * Windows: File's items, then Edit, View, Go and Chat as submenus, then
+///   Quick Ask, Settings…, Help (with the Conduit menu's About and Check for
+///   Updates…) and Exit.
+/// * GNOME's primary menu: the new items but New Chat (its header bar has
+///   the button), a zoom row, Preferences, Keyboard Shortcuts, Help and
+///   About; no Quit, as GNOME apps leave it to Ctrl+Q.
+pub fn primary_menu(
+    l10n: &L10n,
+    state: &MenuState,
+    style: ChromeStyle,
+    zoom_percent: u32,
+) -> Vec<ChromeMenuItem> {
+    use conduit_components::chrome::menu::{from_gpui, tidy};
+    let submenu =
+        |name: String, items: Vec<MenuItem>| ChromeMenuItem::submenu(name, from_gpui(items));
+    let items = match style {
+        ChromeStyle::Windows => {
+            let mut items = from_gpui(file_menu_items(l10n, state));
+            items.extend([
+                ChromeMenuItem::Separator,
+                submenu(l10n.edit(), edit_menu_items(l10n)),
+            ]);
+            if state.areas.contains(&Area::Notes) {
+                let format = format_menu(l10n);
+                items.push(submenu(format.name.to_string(), format.items));
+            }
+            items.extend([
+                submenu(l10n.desktop_menu_view(), view_menu_items(l10n, state)),
+                submenu(l10n.desktop_menu_go(), go_menu_items(l10n, state)),
+                submenu(l10n.desktop_menu_chat(), chat_menu_items(l10n, state)),
+                ChromeMenuItem::Separator,
+                ChromeMenuItem::action(l10n.desktop_tray_quick_ask(), ToggleQuickAsk),
+                ChromeMenuItem::action(l10n.desktop_menu_settings(), OpenSettings),
+                submenu(
+                    l10n.desktop_menu_help(),
+                    help_menu_items(l10n)
+                        .into_iter()
+                        .chain([
+                            MenuItem::separator(),
+                            MenuItem::action(l10n.desktop_check_for_updates(), CheckForUpdates),
+                            MenuItem::action(l10n.about_conduit(), About),
+                        ])
+                        .collect(),
+                ),
+                ChromeMenuItem::Separator,
+                ChromeMenuItem::action(crate::l10n::pending::exit(), Quit),
+            ]);
+            items
+        }
+        ChromeStyle::Gnome => {
+            // File's new items; New Chat is the header bar's button, and
+            // Close Window the window controls'.
+            let mut items: Vec<ChromeMenuItem> = from_gpui(file_menu_items(l10n, state))
+                .into_iter()
+                .filter(|i| match i {
+                    ChromeMenuItem::Action { action, .. } => {
+                        !action.partial_eq(&NewChat) && !action.partial_eq(&CloseWindow)
+                    }
+                    _ => true,
+                })
+                .collect();
+            let zoom = state.zoom;
+            items.extend([
+                ChromeMenuItem::Separator,
+                ChromeMenuItem::Zoom(ZoomRow {
+                    level: format!("{zoom_percent}%").into(),
+                    out: ZoomPart {
+                        label: l10n.desktop_menu_zoom_out().into(),
+                        action: Box::new(ZoomOut),
+                        disabled: !zoom.can_zoom_out,
+                    },
+                    reset: ZoomPart {
+                        label: l10n.desktop_menu_actual_size().into(),
+                        action: Box::new(ActualSize),
+                        disabled: !zoom.can_reset,
+                    },
+                    zoom_in: ZoomPart {
+                        label: l10n.desktop_menu_zoom_in().into(),
+                        action: Box::new(ZoomIn),
+                        disabled: !zoom.can_zoom_in,
+                    },
+                }),
+                ChromeMenuItem::Separator,
+                ChromeMenuItem::action(crate::l10n::pending::preferences(), OpenSettings),
+                ChromeMenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
+                ChromeMenuItem::action(l10n.desktop_menu_help(), OpenHelp),
+                ChromeMenuItem::action(l10n.about_conduit(), About),
+            ]);
+            items
+        }
+    };
+    tidy(items)
+}
+
+/// ☰'s items as they stand, each with the chord the app writes for the
+/// first binding of its action (as GPUI's Mac menus show the first).
+pub fn chrome_menu_items(style: ChromeStyle, cx: &mut App) -> Vec<ChromeMenuItem> {
+    let l = cx.l10n().clone();
+    let state = menu_state(cx);
+    let percent = cx
+        .try_global::<AppState>()
+        .map_or(100, |s| zoom_percent(&s.settings.read(cx).prefs.appearance));
+    let items = primary_menu(&l, &state, style, percent);
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    conduit_components::chrome::menu::with_shortcuts(items, &mut |action| {
+        let binding = keymap
+            .bindings_for_action(action)
+            .find(|b| b.predicate().is_none())
+            .or_else(|| keymap.bindings_for_action(action).next())?;
+        let [stroke] = binding.keystrokes() else {
+            return None;
+        };
+        // The keys as the OS writes them (Windows shows Ctrl+Shift+= for a
+        // binding of Ctrl++ on a US layout).
+        let shown = gpui_kit::Keystroke {
+            modifiers: *stroke.modifiers(),
+            key: stroke.key().to_string(),
+            key_char: None,
+        };
+        from_gpui(&shown).map(|s| describe(&s, cfg!(target_os = "macos")).into())
+    })
+}
+
+/// GNOME's zoom row's size: the message text size against the density's
+/// own, as a percentage.
+pub fn zoom_percent(appearance: &Appearance) -> u32 {
+    let own = conduit_components::theme::Metrics::for_density(appearance.density.into()).body;
+    (appearance.effective_text_size() / own * 100.).round() as u32
 }
 
 /// The Format menu: a note's paragraph styles, text styles, lists and
@@ -1249,6 +1401,144 @@ mod tests {
             folders: vec![("f1".into(), "Garden".into()), ("f2".into(), "Work".into())],
             ..MenuState::default()
         }
+    }
+
+    /// A drawn menu's rows, as `titles` writes the Mac's (submenus with
+    /// their rows, greyed rows marked).
+    fn drawn(items: &[ChromeMenuItem]) -> Vec<String> {
+        items
+            .iter()
+            .map(|i| match i {
+                ChromeMenuItem::Action {
+                    label, disabled, ..
+                } => format!("{label}{}", if *disabled { " (off)" } else { "" }),
+                ChromeMenuItem::Submenu { label, items, .. } => {
+                    format!("{label} ▸ [{}]", drawn(items).join(", "))
+                }
+                ChromeMenuItem::Separator => "—".into(),
+                ChromeMenuItem::Zoom(row) => format!(
+                    "[{} | {} | {}]",
+                    row.out.label, row.level, row.zoom_in.label
+                ),
+            })
+            .collect()
+    }
+
+    /// The Mac's `name` menu for `state`, its rows as ☰ draws them.
+    fn mac_drawn(l: &L10n, state: &MenuState, name: &str) -> Vec<String> {
+        let menu = build_menus(l, state)
+            .into_iter()
+            .find(|m| m.name.as_ref() == name)
+            .unwrap();
+        drawn(&conduit_components::chrome::menu::from_gpui(menu.items))
+    }
+
+    #[test]
+    fn windows_main_menu_holds_file_then_the_menus_as_submenus() {
+        let l = L10n::new("en");
+        let state = open_chat(None);
+        let rows = drawn(&primary_menu(&l, &state, ChromeStyle::Windows, 100));
+        let sub = |name: &str| format!("{name} ▸ [{}]", mac_drawn(&l, &state, name).join(", "));
+        let mut expected = mac_drawn(&l, &state, "File");
+        expected.extend([
+            "—".to_string(),
+            sub("Edit"),
+            sub("View"),
+            sub("Go"),
+            sub("Chat"),
+            "—".into(),
+            "Quick Ask".into(),
+            "Settings…".into(),
+            "Help ▸ [Conduit Help, Keyboard Shortcuts, —, Check for Updates…, About Conduit]"
+                .into(),
+            "—".into(),
+            "Exit".into(),
+        ]);
+        assert_eq!(rows, expected);
+        // File's own items lead it, as the design pass mocked.
+        assert_eq!(
+            rows[..4],
+            [
+                "New Chat",
+                "New Temporary Chat",
+                "New Folder",
+                "New Channel…"
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_main_menu_takes_notes_format_menu_after_edit() {
+        let l = L10n::new("en");
+        let state = MenuState {
+            areas: vec![Area::Chats, Area::Notes],
+            ..MenuState::default()
+        };
+        let rows = drawn(&primary_menu(&l, &state, ChromeStyle::Windows, 100));
+        assert_eq!(rows[2], "New Note");
+        let edit = rows.iter().position(|r| r.starts_with("Edit ▸")).unwrap();
+        assert!(rows[edit + 1].starts_with("Format ▸"), "{rows:?}");
+    }
+
+    #[test]
+    fn gnome_primary_menu_has_the_new_items_a_zoom_row_and_the_app_items() {
+        let l = L10n::new("en");
+        let state = MenuState {
+            areas: vec![Area::Chats, Area::Hermes],
+            ..MenuState::default()
+        };
+        let rows = drawn(&primary_menu(&l, &state, ChromeStyle::Gnome, 115));
+        assert_eq!(
+            rows,
+            [
+                // No New Chat: the header bar has the button.
+                "New Temporary Chat",
+                "New Folder",
+                "New Channel…",
+                "New Room…",
+                "—",
+                "[Zoom Out | 115% | Zoom In]",
+                "—",
+                "Preferences",
+                "Keyboard Shortcuts",
+                "Help",
+                "About Conduit",
+            ]
+        );
+    }
+
+    #[test]
+    fn gnome_zoom_row_follows_the_text_size_bounds() {
+        let l = L10n::new("en");
+        let at = |zoom: ZoomState| {
+            let items = primary_menu(
+                &l,
+                &MenuState {
+                    zoom,
+                    ..MenuState::default()
+                },
+                ChromeStyle::Gnome,
+                100,
+            );
+            items
+                .into_iter()
+                .find_map(|i| match i {
+                    ChromeMenuItem::Zoom(row) => {
+                        Some([row.out.disabled, row.reset.disabled, row.zoom_in.disabled])
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(at(ZoomState::default()), [false, true, false]);
+        assert_eq!(
+            at(ZoomState {
+                can_zoom_in: false,
+                can_zoom_out: true,
+                can_reset: true,
+            }),
+            [false, false, true]
+        );
     }
 
     /// Chat › Read Aloud follows the main window showing a chat, not the
