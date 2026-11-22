@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
+import 'package:conduit_core/testing.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
@@ -28,7 +31,8 @@ CREATE TABLE chats (
   deleted INTEGER NOT NULL DEFAULT 0,
   pinned INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  server_updated_at INTEGER
 )
 ''');
       await customStatement('''
@@ -86,7 +90,8 @@ CREATE TABLE chats (
   deleted INTEGER NOT NULL DEFAULT 0,
   pinned INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  server_updated_at INTEGER
 )
 ''');
       await customStatement('''
@@ -170,44 +175,143 @@ void main() {
     }
   });
 
-  test(
-    'v8 upgrade adds the branch index and unread hold, idempotently',
-    () async {
-      final directory = Directory.systemTemp.createTempSync(
-        'conduit_message_branch_index_migration',
+  for (final (version, lacks) in [
+    (
+      8,
+      [
+        'DROP INDEX IF EXISTS idx_messages_chat_parent_role',
+        'ALTER TABLE chats DROP COLUMN held_unread',
+        'DROP INDEX IF EXISTS idx_chats_held_text',
+        'ALTER TABLE chats DROP COLUMN held_text_at',
+      ],
+    ),
+    (
+      14,
+      [
+        'DROP INDEX IF EXISTS idx_chats_held_text',
+        'ALTER TABLE chats DROP COLUMN held_text_at',
+      ],
+    ),
+  ]) {
+    test(
+      'v$version upgrade adds the branch index and unread hold, idempotently',
+      () async {
+        final directory = Directory.systemTemp.createTempSync(
+          'conduit_message_branch_index_migration',
+        );
+        final databaseFile = File(p.join(directory.path, 'migration.sqlite'));
+        AppDatabase? database;
+        try {
+          database = AppDatabase(NativeDatabase(databaseFile));
+          await database.customSelect('SELECT 1').get();
+          for (final statement in lacks) {
+            await database.customStatement(statement);
+          }
+          await database.customStatement('PRAGMA user_version = $version');
+          await database.close();
+          database = null;
+
+          database = AppDatabase(NativeDatabase(databaseFile));
+          await _expectChatListIndex(database);
+          await database.close();
+          database = null;
+
+          database = AppDatabase(NativeDatabase(databaseFile));
+          await _expectChatListIndex(database);
+        } finally {
+          await database?.close();
+          if (directory.existsSync()) directory.deleteSync(recursive: true);
+        }
+      },
+    );
+  }
+
+  test('a chat held unread at schema 14 for the server\'s text stays held '
+      'through a read until the next cycle stores that text', () async {
+    final directory = Directory.systemTemp.createTempSync(
+      'conduit_held_text_migration',
+    );
+    final databaseFile = File(p.join(directory.path, 'migration.sqlite'));
+    var now = 7000;
+    final server = FakeOpenWebUiServer(nowEpochSeconds: () => now);
+    Map<String, dynamic> weatherLog(String answer) => {
+      'title': 'Weather log',
+      'history': {
+        'messages': {
+          'q1': {
+            'id': 'q1',
+            'parentId': null,
+            'childrenIds': ['a1'],
+            'role': 'user',
+            'content': 'Why do gales veer?',
+          },
+          'a1': {
+            'id': 'a1',
+            'parentId': 'q1',
+            'childrenIds': <String>[],
+            'role': 'assistant',
+            'content': answer,
+            'done': true,
+          },
+        },
+        'currentId': 'a1',
+      },
+    };
+    const fuller = 'Gales veer as the warm front passes';
+    server.seedChat(
+      id: 'srv-gale',
+      blob: weatherLog('Gales veer'),
+      createdAt: 100,
+      updatedAt: 7000,
+    );
+    final locks = ConversationLocks();
+    Future<void> cycle(AppDatabase db) =>
+        PullSync(client: FakeSyncApiClient(server), db: db, locks: locks).run();
+    Future<ChatRow> chat(AppDatabase db) async =>
+        (await db.chatsDao.getChat('srv-gale'))!;
+    AppDatabase? database;
+    try {
+      database = AppDatabase(NativeDatabase(databaseFile));
+      await cycle(database);
+      // At schema 14, a push of this device's landed at 7300 and left the
+      // server's fuller answer unstored here: held unread, with no date.
+      now = 7300;
+      server.saveFromTask('srv-gale', weatherLog(fuller));
+      await database.customStatement(
+        'UPDATE chats SET server_updated_at = 7300, held_unread = 1, '
+        "last_read_at = 7000 WHERE id = 'srv-gale'",
       );
-      final databaseFile = File(p.join(directory.path, 'migration.sqlite'));
-      AppDatabase? database;
-      try {
-        database = AppDatabase(NativeDatabase(databaseFile));
-        await database.customSelect('SELECT 1').get();
-        await database.customStatement(
-          'DROP INDEX IF EXISTS idx_messages_chat_parent_role',
-        );
-        await database.customStatement(
-          'ALTER TABLE chats DROP COLUMN held_unread',
-        );
-        await database.customStatement('PRAGMA user_version = 8');
-        await database.close();
-        database = null;
+      // Cycles since moved the watermark past the push.
+      await database.syncMetaDao.setPullWatermark(7400);
+      await database.customStatement(
+        'DROP INDEX IF EXISTS idx_chats_held_text',
+      );
+      await database.customStatement(
+        'ALTER TABLE chats DROP COLUMN held_text_at',
+      );
+      await database.customStatement('PRAGMA user_version = 14');
+      await database.close();
+      database = null;
 
-        database = AppDatabase(NativeDatabase(databaseFile));
-        await _expectChatListIndex(database);
-        await database.close();
-        database = null;
+      database = AppDatabase(NativeDatabase(databaseFile));
+      await database.chatsDao.setLastReadAt('srv-gale', 7300);
+      check((await chat(database)).heldUnread).isTrue();
 
-        database = AppDatabase(NativeDatabase(databaseFile));
-        await _expectChatListIndex(database);
-      } finally {
-        await database?.close();
-        if (directory.existsSync()) directory.deleteSync(recursive: true);
-      }
-    },
-  );
+      await cycle(database);
+      check((await database.messagesDao.getMessage('srv-gale', 'a1'))?.content)
+          .equals(fuller);
+      check((await chat(database)).heldTextAt).isNull();
+      await database.chatsDao.setLastReadAt('srv-gale', 7300);
+      check((await chat(database)).heldUnread).isFalse();
+    } finally {
+      await database?.close();
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    }
+  });
 }
 
 Future<void> _expectChatListIndex(AppDatabase database) async {
-  check(database.schemaVersion).equals(14);
+  check(database.schemaVersion).equals(15);
   final indexRow = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "
@@ -232,7 +336,8 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
       .get();
   check(chatColumns.map((row) => row.read<String>('name')).toSet())
     ..contains('user_id')
-    ..contains('held_unread');
+    ..contains('held_unread')
+    ..contains('held_text_at');
   final receiptIndex = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "
@@ -240,6 +345,14 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
       )
       .getSingle();
   check(receiptIndex.read<String>('sql')).contains('durable_key');
+  final heldTextIndex = await database
+      .customSelect(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' "
+        "AND name = 'idx_chats_held_text'",
+      )
+      .getSingle();
+  check(heldTextIndex.read<String>('sql'))
+      .contains('WHERE held_text_at IS NOT NULL');
   final messageIndex = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "

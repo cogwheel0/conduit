@@ -443,10 +443,12 @@ class PushSync {
           );
         } else if (ownSave) {
           await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
-        } else if (landed != null) {
-          // The server's copy holds what this device never sent or showed:
-          // news, whatever the dates say once a pull stores it.
-          await _db.chatsDao.holdUnread(chatId);
+        }
+        if (!ownSave && landed != null) {
+          // The server's copy holds what this device never sent or showed,
+          // and isn't stored here: news, whatever the dates say once a pull
+          // stores it.
+          await _db.chatsDao.holdUnreadUntilPulled(chatId, serverUpdatedAt);
         }
       });
     });
