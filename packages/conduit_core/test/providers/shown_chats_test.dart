@@ -352,7 +352,8 @@ void main() {
     expect(socket.reads, <String>['chat-s']);
   });
 
-  test('a chat on screen past the list\'s loaded page is read too', () async {
+  test('a chat on screen past the list\'s loaded page is read too, and read '
+      'again when held unread at the date of a copy already read', () async {
     for (var i = 0; i < 201; i++) {
       await seedRead(serverDb, 'newer-$i', at: 1000 + i);
     }
@@ -363,24 +364,11 @@ void main() {
       isNot(contains('chat-s')),
     );
     container.read(shownChatsProvider.notifier).show('main', 'chat-s');
-
-    // A push of this device's that took the server's text holds the chat
-    // unread, as its date stays.
-    await serverDb.chatsDao.holdUnread('chat-s');
-    expect(await storedReadThrough(serverDb, 'chat-s', 100), greaterThan(99));
-    expect(socket.reads, <String>['chat-s']);
-  });
-
-  test('a chat on screen held unread at the date of a copy already read is '
-      'read again', () async {
-    await seedRead(serverDb, 'chat-s');
-    final container = await signedIn();
-    container.read(shownChatsProvider.notifier).show('main', 'chat-s');
     await serverSaved(serverDb, 'chat-s', 160);
     expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
 
-    // Then the server's text, taken by a push of this device's and stored
-    // in the same second, holds the chat unread at that date.
+    // Then a push of this device's that took the server's text, stored in
+    // the same second, holds the chat unread at that date.
     await serverDb.chatsDao.holdUnread('chat-s');
     expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
     expect(socket.reads, <String>['chat-s', 'chat-s']);
