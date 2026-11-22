@@ -129,9 +129,9 @@ its logs and crash files in `<Local AppData>\Conduit Dev\Logs` and
 `$XDG_STATE_HOME/conduit-dev/logs`, and its master key in Credential
 Manager or the Secret Service. A second launch of a profile hands its
 `conduit://` links and files to the app that runs it and exits. On Linux,
-`run.sh` starts it on XWayland when the session has it (the web views
-embed only in X11 windows); `CONDUIT_WAYLAND=1` keeps Wayland's own
-windows. Windows and Linux results come from CI (`Workspace (Windows)`,
+the app runs on XWayland when the session has it, however it's started (the
+web views embed only in X11 windows); `CONDUIT_WAYLAND=1` keeps Wayland's
+own windows. Windows and Linux results come from CI (`Workspace (Windows)`,
 `Workspace (Linux)`, `Desktop daemon (Windows|Linux build + smoke)`); a Mac
 only type-checks them (`cargo clippy --target x86_64-pc-windows-msvc` or
 `x86_64-unknown-linux-gnu`, with no-op C tool shims, since no cross linker

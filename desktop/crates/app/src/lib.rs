@@ -312,6 +312,18 @@ fn options(args: &[String]) -> impl Iterator<Item = &str> {
     })
 }
 
+/// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
+/// and `WAYLAND_DISPLAY` set), and `CONDUIT_WAYLAND` isn't `1`.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn prefer_xwayland(
+    display: Option<&std::ffi::OsStr>,
+    wayland: Option<&std::ffi::OsStr>,
+    keep_wayland: Option<&std::ffi::OsStr>,
+) -> bool {
+    let set = |value: Option<&std::ffi::OsStr>| value.is_some_and(|v| !v.is_empty());
+    set(display) && set(wayland) && keep_wayland != Some(std::ffi::OsStr::new("1"))
+}
+
 /// What a launch's arguments ask to open (Windows, Linux), or `None` for a
 /// scripted launch: it runs on a profile of its own ([`is_scripted`], the
 /// same test that gives it one), so it claims no instance, and its
@@ -396,6 +408,20 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
 pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
 
 pub fn run() {
+    // D2: the web views embed only in X11 windows, so on Linux the app runs
+    // on XWayland where the session has it, however it was started (a run
+    // script, a registered `conduit://` link, the desktop entry), before
+    // GPUI picks its backend. `CONDUIT_WAYLAND=1` keeps Wayland's windows.
+    #[cfg(target_os = "linux")]
+    if prefer_xwayland(
+        std::env::var_os("DISPLAY").as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        std::env::var_os("CONDUIT_WAYLAND").as_deref(),
+    ) {
+        // SAFETY: the process's first step, before any thread that could
+        // read the environment starts.
+        unsafe { std::env::remove_var("WAYLAND_DISPLAY") };
+    }
     // Read natively: a file's name need not be UTF-8 (std::env::args
     // would panic on it). Options are read as text.
     let args_os: Vec<std::ffi::OsString> = std::env::args_os().collect();
@@ -1265,6 +1291,19 @@ mod harness_profile_tests {
 
     /// `--probe` drives the Mac's shell only: elsewhere it is refused before
     /// anything opens, never a launch on the real profile beside the app.
+    /// Linux runs on XWayland where the session has both (D2), whoever
+    /// starts the app, unless `CONDUIT_WAYLAND=1` keeps Wayland.
+    #[test]
+    fn linux_prefers_xwayland_unless_asked_not_to() {
+        let os = |v: &'static str| Some(std::ffi::OsStr::new(v));
+        assert!(prefer_xwayland(os(":0"), os("wayland-0"), None));
+        assert!(prefer_xwayland(os(":0"), os("wayland-0"), os("0")));
+        assert!(!prefer_xwayland(os(":0"), os("wayland-0"), os("1")));
+        assert!(!prefer_xwayland(None, os("wayland-0"), None), "no X server");
+        assert!(!prefer_xwayland(os(""), os("wayland-0"), None));
+        assert!(!prefer_xwayland(os(":0"), None, None), "X11 already");
+    }
+
     #[test]
     fn the_probe_is_refused_off_the_mac() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();

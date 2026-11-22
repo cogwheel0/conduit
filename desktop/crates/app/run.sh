@@ -27,9 +27,9 @@
 # (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
 # the app's own; without one it starts on a fresh profile in $TMPDIR.
 #
-# On Linux it runs the binary itself (no bundle), on XWayland when the
-# session has it (D2: the web views embed only in X11 windows;
-# CONDUIT_WAYLAND=1 keeps Wayland's own windows):
+# On Linux it runs the binary itself (no bundle); the app runs on XWayland
+# when the session has it, however it's started (D2: the web views embed
+# only in X11 windows; CONDUIT_WAYLAND=1 keeps Wayland's own windows):
 #
 #   crates/app/run.sh                              # run the app
 #   crates/app/run.sh --build-only                 # build, print the binary
@@ -171,9 +171,6 @@ if [ "$(uname -s)" = Linux ]; then
   case " $* " in
     *" --e2e "*) export CONDUIT_SPEECH_OUTPUT="${CONDUIT_SPEECH_OUTPUT:-null}" ;;
   esac
-  if [ -n "${DISPLAY:-}" ] && [ "${CONDUIT_WAYLAND:-}" != 1 ]; then
-    unset WAYLAND_DISPLAY
-  fi
   # The app's exit code, past tee (sh has no pipefail), in a file of this
   # run's own.
   status_file="$(mktemp target/app/last-run.status.XXXXXX)"
