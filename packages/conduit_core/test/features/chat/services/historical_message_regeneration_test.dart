@@ -228,9 +228,17 @@ class _RecordingCompletionApi extends ApiService {
   int targetedStopCalls = 0;
   int abortCalls = 0;
 
+  final Map<int, Completer<void>> _settingsCallsReached = {};
+
+  /// Completes once the account's settings have been read [count] times.
+  Future<void> settingsCallsReach(int count) => settingsCalls >= count
+      ? Future<void>.value()
+      : (_settingsCallsReached[count] ??= Completer<void>()).future;
+
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     settingsCalls += 1;
+    _settingsCallsReached.remove(settingsCalls)?.complete();
     if (!settingsStarted.isCompleted) settingsStarted.complete();
     final gate = settingsGate;
     if (gate != null) await gate.future;
@@ -493,9 +501,20 @@ Conversation _conversation({
   );
 }
 
-Future<void> _flushAsyncWork() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
+/// Completes once [container]'s transcript satisfies [done].
+Future<void> _untilMessages(
+  ProviderContainer container,
+  bool Function(List<ChatMessage> messages) done,
+) {
+  if (done(container.read(chatMessagesProvider))) return Future.value();
+  final reached = Completer<void>();
+  final subscription = container.listen<List<ChatMessage>>(
+    chatMessagesProvider,
+    (_, next) {
+      if (done(next) && !reached.isCompleted) reached.complete();
+    },
+  );
+  return reached.future.whenComplete(subscription.close);
 }
 
 void main() {
@@ -720,7 +739,10 @@ void main() {
         // JSON completions are intentionally applied in a microtask after the
         // transport has been attached. Wait for that terminal delivery rather
         // than assuming the dispatch future represents stream completion.
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         final messages = container.read(chatMessagesProvider);
@@ -778,13 +800,16 @@ void main() {
         // Direct-route resolution is asynchronous even when no direct binding
         // exists, so admission precedes the observable settings request by a
         // microtask.
-        await _flushAsyncWork();
+        await api.settingsCallsReach(2);
         check(api.settingsCalls).equals(2);
 
         settingsGate.complete();
         await Future.wait([regeneration, replacementRegeneration])
             .timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         // Only the replacement operation can submit. The stale operation was
         // displaced before its await resumed and cannot reacquire A by id.
@@ -1059,7 +1084,7 @@ void main() {
 
         sendGate.complete();
         await regeneration.timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await api.runningTaskStopAsked.future;
 
         check(api.completionCalls).equals(1);
         check(api.abortCalls).equals(1);
@@ -1196,7 +1221,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         check(api.lastChatParams)
@@ -1356,7 +1384,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         check(api.lastMessages.map((message) => message['role']).toList())
@@ -1384,7 +1415,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         var messages = container.read(chatMessagesProvider);
         final firstReplay = messages.last;
@@ -1392,7 +1426,12 @@ void main() {
             .deepEquals(['a1']);
 
         await regenerateHistoricalMessageById(container, firstReplay.id);
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) =>
+              messages.last.id != firstReplay.id &&
+              messages.last.content == 'Regenerated answer',
+        );
 
         messages = container.read(chatMessagesProvider);
         final secondReplay = messages.last;

@@ -325,6 +325,7 @@ Future<bool> _stopGeneration(Ref ref) {
   // a task for the chat as Stop was pressed, and the asks that stop it on
   // the server: the answer is kept once they are answered.
   String? stoppedAnswerId;
+  String? stoppedTaskChatId;
   var taskRan = Future<bool?>.value();
   final serverStops = <Future<bool>>[];
   // The server-side effects of this stop, kept so that a refusal can be asked
@@ -494,6 +495,7 @@ Future<bool> _stopGeneration(Ref ref) {
         // both).
         stoppedOpenWebUiRun = true;
         stoppedAnswerId = last.id;
+        stoppedTaskChatId = last.metadata?['taskConversationId']?.toString();
         // Asked before the server is told to stop: only a task running then
         // saves the stopped answer itself.
         final lookup = taskRan = _openWebUiTaskRuns(api, stoppedChatId, last);
@@ -567,6 +569,13 @@ Future<bool> _stopGeneration(Ref ref) {
       );
       serverStops.add(chatStop);
       settled.add(chatStop);
+      // Its stops of the chat end every task the account runs there: a
+      // request sent there before they are answered waits for them.
+      final asked = Future.wait(serverStops);
+      for (final chatId in {activeConv.id, ?stoppedTaskChatId}) {
+        if (chatId.isEmpty) continue;
+        unawaited(api.holdingChatCompletions(chatId, () => asked));
+      }
       final stopped = stoppedAnswerId;
       if (stopped != null) {
         settled.add(

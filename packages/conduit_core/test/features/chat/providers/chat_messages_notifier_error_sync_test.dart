@@ -1938,6 +1938,47 @@ void main() {
       });
     }
 
+    // A pressed Stop's stop of the chat ends every task the account runs
+    // there, one a request sent before it is answered would start.
+    test('a request to the chat while a pressed Stop\'s stop of it is on its '
+        'way waits until that stop is answered, and its own task runs on', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, db: _, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        final stop = Completer<void>();
+        final requested = <String>[];
+        api
+          ..holdChatStop = stop
+          ..dio.interceptors.clear()
+          ..dio.httpClientAdapter = _CompletionRoute(api, requested);
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+        check(api.chatStopHeld).isTrue();
+
+        unawaited(
+          api.sendMessageSession(
+            messages: const [
+              {'role': 'user', 'content': 'And the squall?'},
+            ],
+            model: 'gale-model',
+            conversationId: 'chat-1',
+            responseMessageId: 'assistant-next',
+          ),
+        );
+        async.elapse(Duration.zero);
+        check(requested).isEmpty();
+        stop.complete();
+        async.elapse(Duration.zero);
+
+        check(requested).deepEquals(['chat-1']);
+        check(api.taskIds).deepEquals(['task-next']);
+      });
+    });
+
     // The chat's stop ends every task the account runs there, one a request
     // sent between the task read and the stop would start among them.
     test('a request to the chat while a Stop is asked again waits until that '
