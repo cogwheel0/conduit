@@ -60,6 +60,7 @@ use std::path::PathBuf;
 
 use conduit_components::window as cw;
 use conduit_daemon::paths::{self, AppPaths, Flavor};
+#[cfg(target_os = "linux")]
 use conduit_daemon::secrets::SecretError;
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Bounds, Entity, Global, WindowAppearance, px, size,
@@ -68,7 +69,7 @@ use gpui_kit::{
 use crate::actions::*;
 use crate::l10n::{ActiveL10n as _, L10n, locale};
 use crate::stores::Stores;
-use crate::stores::connection::{ConnectionEvent, ConnectionOptions, ConnectionStore};
+use crate::stores::connection::{ConnectionEvent, ConnectionOptions, ConnectionStore, MasterKey};
 use crate::stores::layout::LayoutStore;
 use crate::stores::settings::{SettingsEvent, SettingsStore};
 use crate::views::main_window::MainWindow;
@@ -190,11 +191,13 @@ fn key_service(paths: &AppPaths, scripted: bool) -> String {
 
 /// The master key from the Keychain (Credential Manager on Windows, the
 /// Secret Service on Linux, or there the key file the user chose), created
-/// on first run.
-fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
+/// on first run. The packaged Mac app first finds out, without a prompt,
+/// whether reading it would make macOS ask for the login keychain
+/// password, and then the window asks first. Retry asks again.
+fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
     #[cfg(target_os = "linux")]
     {
-        linux_master_key(paths, scripted, false)
+        linux_master_key(paths, scripted, false).into()
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -202,13 +205,41 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
         let service = key_service(paths, scripted);
         #[cfg(target_os = "macos")]
         let store: Box<dyn MasterKeyStore> = {
-            use conduit_daemon::secrets::{Keychain, SecurityCli};
-            // Dev builds go through /usr/bin/security so a rebuilt
-            // (re-hashed) binary never meets a Keychain prompt; see
-            // conduit_daemon::secrets.
+            use crate::stores::connection::KeychainChoice;
+            use conduit_daemon::secrets::{
+                Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
+                check_master_key, profile_key,
+            };
             match paths.flavor {
+                // Dev builds go through /usr/bin/security so a rebuilt
+                // (re-hashed) binary never meets a Keychain prompt; see
+                // conduit_daemon::secrets.
                 Flavor::Dev => Box::new(SecurityCli::new(service)),
-                Flavor::Production => Box::new(Keychain::new(service)),
+                // A scripted run never shows the keychain card.
+                Flavor::Production if scripted => {
+                    Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT))
+                }
+                Flavor::Production => {
+                    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
+                    let items = KeychainItems::new(service);
+                    let profile = match profile_key(&paths.user_data) {
+                        Ok(profile) => profile,
+                        Err(e) => return MasterKey::Failed(e),
+                    };
+                    let check = check_master_key(&items, &profile);
+                    let choice = |missing| KeychainChoice {
+                        items: std::sync::Arc::new(items),
+                        account: profile.account.clone(),
+                        lock,
+                        missing,
+                    };
+                    return match check {
+                        Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
+                        Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(choice(false)),
+                        Ok(MasterKeyCheck::Missing) => MasterKey::WouldPrompt(choice(true)),
+                        Err(e) => MasterKey::Failed(e),
+                    };
+                }
             }
         };
         // A first key is written holding the service's lock, so two first
@@ -221,7 +252,7 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
                 lock,
             ))
         };
-        load_or_create_master_key(store.as_ref())
+        load_or_create_master_key(store.as_ref()).into()
     }
 }
 
@@ -473,7 +504,7 @@ pub fn run() {
                 key_file: {
                     let paths = app_paths.clone();
                     Some(std::sync::Arc::new(move || {
-                        key_file_master_key(&paths, scripted_run)
+                        key_file_master_key(&paths, scripted_run).into()
                     }))
                 },
                 #[cfg(not(target_os = "linux"))]

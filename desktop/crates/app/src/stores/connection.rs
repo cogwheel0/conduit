@@ -23,9 +23,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use conduit_daemon::http::HttpClient;
-use conduit_daemon::paths::{AppPaths, move_aside};
+use conduit_daemon::paths::AppPaths;
+use conduit_daemon::paths::KeyLock;
 use conduit_daemon::rpc::{ClientEvent, ConnectionState, Handshake, RpcClient, RpcConfig};
-use conduit_daemon::secrets::SecretError;
+use conduit_daemon::secrets::{FreshStart, MasterKeyItems, SecretError};
 use conduit_daemon::supervisor::{FatalReason, Supervisor, SupervisorConfig, SupervisorEvent};
 use conduit_daemon::{runtime, secrets};
 use conduit_protocol::{Event, HandshakeRequest, NetworkReport, NoParams, events, methods};
@@ -68,6 +69,21 @@ pub enum Status {
     NoSecretStore {
         detail: String,
     },
+    /// Reading the master key would make macOS ask for the login keychain
+    /// password, so conduitd waits for Continue or Start Fresh. `busy`: one
+    /// of them is running; `failures`: how many choices failed, the last
+    /// as `failure` says.
+    KeychainPrompt {
+        busy: bool,
+        failures: u32,
+        failure: Option<KeychainFailure>,
+        /// Start Fresh moved the profile aside: Continue would open an empty
+        /// one at its place, so only Start Fresh goes on.
+        moved: bool,
+        /// The key the profile records is gone: the card says so, and only
+        /// Start Fresh goes on.
+        missing: bool,
+    },
     /// Fatal: the app and its daemon speak different protocol versions.
     VersionMismatch {
         daemon: String,
@@ -84,6 +100,7 @@ impl Status {
             Self::Failed { .. }
             | Self::StoreUnreadable
             | Self::NoSecretStore { .. }
+            | Self::KeychainPrompt { .. }
             | Self::VersionMismatch { .. } => true,
             Self::Connecting | Self::CoreStarting | Self::Reconnecting { .. } => !routed,
             Self::Connected => false,
@@ -191,8 +208,9 @@ pub struct ConnectionStore {
     resolving_key: bool,
     /// The app is quitting: a key found now starts no daemon.
     quitting: bool,
-    /// Whether the client's and the supervisor's events reach the store
-    /// (never in tests: see [`Self::start`]).
+    keychain: Option<KeychainQuestion>,
+    /// Whether the client's and the supervisor's events are followed
+    /// ([`Self::start`]).
     follow: bool,
     binary: PathBuf,
     rpc_config: RpcConfig,
@@ -223,8 +241,8 @@ impl EventEmitter<ConnectionEvent> for ConnectionStore {}
 
 /// Asks the system's secret store for the master key (made on first run):
 /// at start, and again when Retry follows a failure to get one (a locked or
-/// stopped Secret Service). `Err` says why there is none.
-pub type MasterKeySource = Arc<dyn Fn() -> Result<String, SecretError> + Send + Sync>;
+/// stopped Secret Service, a Keychain check that failed).
+pub type MasterKeySource = Arc<dyn Fn() -> MasterKey + Send + Sync>;
 
 /// Starting parameters.
 pub struct ConnectionOptions {
@@ -239,9 +257,76 @@ pub struct ConnectionOptions {
     pub client_version: String,
 }
 
+/// Why the keychain card's last choice failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeychainFailure {
+    /// Continue did not get the key (or the profile's key is gone).
+    NoKey,
+    /// Start Fresh could not move the profile aside; nothing changed.
+    Move,
+    /// Start Fresh moved the profile but could not store or record a key.
+    NewKey,
+}
+
+/// The master key the connection starts with.
+pub enum MasterKey {
+    Ready(String),
+    /// Reading the stored key would make macOS ask for the login keychain
+    /// password: the window asks first, and conduitd waits.
+    WouldPrompt(KeychainChoice),
+    /// The secret store could not give a key.
+    Failed(SecretError),
+}
+
+impl From<Result<String, SecretError>> for MasterKey {
+    fn from(key: Result<String, SecretError>) -> Self {
+        match key {
+            Ok(key) => Self::Ready(key),
+            Err(e) => Self::Failed(e),
+        }
+    }
+}
+
+/// What the keychain card's choices act on.
+pub struct KeychainChoice {
+    pub items: Arc<dyn MasterKeyItems + Send + Sync>,
+    /// The account whose read would prompt.
+    pub account: String,
+    /// The lock Start Fresh holds ([`conduit_daemon::paths::master_key_lock`]).
+    pub lock: KeyLock,
+    /// The key the profile records is gone from the Keychain: the card
+    /// opens saying so.
+    pub missing: bool,
+}
+
+/// The keychain card's question, while it is asked.
+struct KeychainQuestion {
+    choice: Arc<KeychainChoice>,
+    busy: bool,
+    failures: u32,
+    failure: Option<KeychainFailure>,
+    /// The key the profile records is gone.
+    missing: bool,
+    /// Where a Start Fresh that then failed moved the profile.
+    moved_to: Option<PathBuf>,
+}
+
+impl KeychainQuestion {
+    fn new(choice: KeychainChoice) -> Self {
+        Self {
+            missing: choice.missing,
+            choice: Arc::new(choice),
+            busy: false,
+            failures: 0,
+            failure: None,
+            moved_to: None,
+        }
+    }
+}
+
 impl ConnectionStore {
-    /// Starts the daemon and the connection. In tests the client's and the
-    /// supervisor's events are never followed, whoever starts it (a view
+    /// Starts the daemon and the connection. In tests neither the client's
+    /// nor the supervisor's events are followed, whoever starts it (a view
     /// test's stores or a fixture's): nothing on the daemon's I/O thread may
     /// wake a test's tasks, which the test scheduler refuses as not
     /// deterministic.
@@ -257,12 +342,15 @@ impl ConnectionStore {
         let (client, client_events) = RpcClient::start(rpc_config.clone(), &rt);
         client.subscribe(WINDOW_EVENTS, &[]);
 
-        let (master_key, startup_error, no_secret_store) = match (options.master_key)() {
-            Ok(key) => (Some(key), None, false),
-            Err(e) => {
+        let (master_key, startup_error, no_secret_store, keychain) = match (options.master_key)() {
+            MasterKey::Ready(key) => (Some(key), None, false, None),
+            MasterKey::WouldPrompt(choice) => {
+                (None, None, false, Some(KeychainQuestion::new(choice)))
+            }
+            MasterKey::Failed(e) => {
                 log::error!("no master key: {e}");
                 let unavailable = matches!(e, SecretError::Unavailable(_));
-                (None, Some(e.to_string()), unavailable)
+                (None, Some(e.to_string()), unavailable, None)
             }
         };
         if follow {
@@ -278,6 +366,7 @@ impl ConnectionStore {
             no_secret_store,
             resolving_key: false,
             quitting: false,
+            keychain,
             follow,
             binary: options.binary,
             rpc_config,
@@ -370,6 +459,15 @@ impl ConnectionStore {
     /// The window's status. `routed` and `session_error` come from the
     /// session store.
     pub fn status(&self, routed: bool, session_error: Option<&str>) -> Status {
+        if let Some(q) = &self.keychain {
+            return Status::KeychainPrompt {
+                busy: q.busy,
+                failures: q.failures,
+                failure: q.failure,
+                moved: q.moved_to.is_some(),
+                missing: q.missing,
+            };
+        }
         if self.offers_key_file() {
             return Status::NoSecretStore {
                 detail: self.startup_error.clone().unwrap_or_default(),
@@ -543,9 +641,12 @@ impl ConnectionStore {
     pub fn retry(&mut self, cx: &mut Context<Self>) -> bool {
         self.reset_error = None;
         // No daemon was started for want of a master key: ask the secret
-        // store again, and start it once there is one.
+        // store again, and start it once there is one. The keychain card
+        // has its own choices.
         if self.master_key.is_none() {
-            self.resolve_master_key(self.key_source.clone(), cx);
+            if self.keychain.is_none() {
+                self.resolve_master_key(self.key_source.clone(), cx);
+            }
             cx.notify();
             return false;
         }
@@ -589,8 +690,9 @@ impl ConnectionStore {
     }
 
     /// Asks `source` for the master key off the UI thread (it may wait on
-    /// the desktop's unlock prompt), then starts the daemon with it. The
-    /// window reads as connecting meanwhile.
+    /// the desktop's unlock prompt), then starts the daemon with it, or
+    /// asks the keychain card's question. The window reads as connecting
+    /// meanwhile.
     fn resolve_master_key(&mut self, source: MasterKeySource, cx: &mut Context<Self>) {
         if self.resolving_key {
             return;
@@ -605,14 +707,16 @@ impl ConnectionStore {
                 if s.quitting {
                     return;
                 }
+                s.no_secret_store = false;
                 match answer {
-                    Ok(key) => {
+                    MasterKey::Ready(key) => {
                         log::info!("master key found on retry");
-                        s.master_key = Some(key);
-                        s.no_secret_store = false;
-                        s.spawn_supervisor(cx);
+                        s.start_with_key(key, cx);
                     }
-                    Err(e) => {
+                    MasterKey::WouldPrompt(choice) => {
+                        s.keychain = Some(KeychainQuestion::new(choice));
+                    }
+                    MasterKey::Failed(e) => {
                         log::error!("no master key: {e}");
                         s.no_secret_store = matches!(e, SecretError::Unavailable(_));
                         s.startup_error = Some(e.to_string());
@@ -624,13 +728,130 @@ impl ConnectionStore {
         .detach();
     }
 
+    /// The keychain card's Continue: reads the profile's key, and macOS
+    /// asks for the login keychain password. Off the main thread: the read
+    /// waits for the answer in macOS's dialog.
+    pub fn keychain_continue(&mut self, cx: &mut Context<Self>) {
+        // After a move it would open an empty profile at the old place; a
+        // missing key has nothing to read.
+        if self
+            .keychain
+            .as_ref()
+            .is_some_and(|q| q.moved_to.is_some() || q.missing)
+        {
+            return;
+        }
+        let Some(choice) = self.begin_keychain_choice(cx) else {
+            return;
+        };
+        let user_data = self.paths.user_data.clone();
+        let read = cx.background_spawn(async move {
+            let profile = secrets::profile_key(&user_data)?;
+            secrets::read_master_key(choice.items.as_ref(), &profile)
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let read = read.await;
+            let _ = this.update(cx, |s, cx| {
+                match read {
+                    Ok(key) => s.start_with_key(key, cx),
+                    Err(e) => {
+                        s.keychain_choice_failed(KeychainFailure::NoKey, format!("Continue: {e}"))
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The keychain card's Start Fresh ([`secrets::start_fresh`]), off the
+    /// main thread. Whatever fails, the card stays with its choices.
+    pub fn keychain_start_fresh(&mut self, cx: &mut Context<Self>) {
+        let Some(choice) = self.begin_keychain_choice(cx) else {
+            return;
+        };
+        let user_data = self.paths.user_data.clone();
+        let fresh = cx.background_spawn(async move {
+            secrets::start_fresh(
+                choice.items.as_ref(),
+                &user_data,
+                &choice.account,
+                &choice.lock,
+                SystemTime::now(),
+            )
+        });
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
+            let fresh = fresh.await;
+            let _ = this.update(cx, |s, cx| {
+                match fresh {
+                    FreshStart::Started { key, moved_to } => {
+                        s.keep_moved_to(moved_to);
+                        s.start_with_key(key, cx);
+                    }
+                    FreshStart::AlreadyFresh(key) => s.start_with_key(key, cx),
+                    FreshStart::MoveFailed(e) => {
+                        s.keychain_choice_failed(KeychainFailure::Move, format!("Start Fresh: {e}"))
+                    }
+                    FreshStart::KeyFailed { error, moved_to } => {
+                        s.keep_moved_to(moved_to);
+                        s.keychain_choice_failed(
+                            KeychainFailure::NewKey,
+                            format!("Start Fresh: {error}"),
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The card's choice, unless one is already running.
+    fn begin_keychain_choice(&mut self, cx: &mut Context<Self>) -> Option<Arc<KeychainChoice>> {
+        let q = self.keychain.as_mut().filter(|q| !q.busy)?;
+        q.busy = true;
+        q.failure = None;
+        cx.notify();
+        Some(q.choice.clone())
+    }
+
+    fn keychain_choice_failed(&mut self, failure: KeychainFailure, why: String) {
+        log::warn!("keychain: {why}");
+        if let Some(q) = &mut self.keychain {
+            q.busy = false;
+            q.failures += 1;
+            q.failure = Some(failure);
+        }
+    }
+
+    fn keep_moved_to(&mut self, moved_to: Option<PathBuf>) {
+        if let Some(q) = &mut self.keychain {
+            q.moved_to = q.moved_to.take().or(moved_to);
+        }
+    }
+
+    fn start_with_key(&mut self, key: String, cx: &mut Context<Self>) {
+        if self.quitting {
+            return;
+        }
+        if let Some(moved_to) = self.keychain.take().and_then(|q| q.moved_to) {
+            log::warn!(
+                "start fresh: moved local data aside to {}",
+                moved_to.display()
+            );
+            cx.emit(ConnectionEvent::LocalDataReset { moved_to });
+        }
+        self.master_key = Some(key);
+        self.spawn_supervisor(cx);
+    }
+
     /// "Reset local data" (after exit 77): moves userData aside with a
     /// timestamp (nothing is deleted) and starts the daemon fresh.
     pub fn reset_local_data(&mut self, cx: &mut Context<Self>) {
         if !matches!(self.daemon, DaemonPhase::Fatal(_)) {
             return;
         }
-        match move_aside(&self.paths.user_data, SystemTime::now()) {
+        match secrets::move_profile_aside(&self.paths.user_data, SystemTime::now()) {
             Ok(moved_to) => {
                 log::warn!("moved local data aside to {}", moved_to.display());
                 self.reset_error = None;
@@ -641,7 +862,7 @@ impl ConnectionStore {
             }
             Err(e) => {
                 log::warn!("reset local data: {e}");
-                self.reset_error = Some(e.to_string());
+                self.reset_error = Some(e);
             }
         }
         cx.notify();
@@ -710,7 +931,8 @@ impl ConnectionStore {
             if !hold.is_zero() {
                 cx.background_executor().timer(hold).await;
             }
-            let moved = move_data.then(|| move_aside(&user_data, SystemTime::now()));
+            let moved =
+                move_data.then(|| secrets::move_profile_aside(&user_data, SystemTime::now()));
             let _ = this.update(cx, |s, cx| {
                 s.clearing = false;
                 s.restarting = false;
@@ -721,7 +943,7 @@ impl ConnectionStore {
                     }
                     Some(Err(e)) => {
                         log::warn!("clear local data: {e}");
-                        s.reset_error = Some(e.to_string());
+                        s.reset_error = Some(e);
                     }
                     None => {}
                 }
@@ -804,7 +1026,9 @@ fn pump<E: Send + 'static>(
 mod tests {
     use super::*;
     use conduit_daemon::rpc::Handshake;
+    use conduit_daemon::secrets::SecretError;
     use serde_json::json;
+    use std::path::Path;
 
     fn connected() -> ConnectionState {
         ConnectionState::Connected(Handshake {
@@ -947,6 +1171,16 @@ mod tests {
     #[test]
     fn only_fatal_or_unrouted_states_replace_the_content() {
         assert!(Status::StoreUnreadable.blocks(true));
+        assert!(
+            Status::KeychainPrompt {
+                busy: false,
+                failures: 0,
+                failure: None,
+                moved: false,
+                missing: false,
+            }
+            .blocks(true)
+        );
         assert!(Status::Connecting.blocks(false));
         assert!(!Status::Reconnecting { attempt: 2 }.blocks(true));
         assert!(!Status::Connected.blocks(false));
@@ -974,7 +1208,7 @@ mod tests {
             let asked = asked.clone();
             Arc::new(move || {
                 let n = asked.fetch_add(1, Ordering::SeqCst);
-                answers[n.min(answers.len() - 1)].clone()
+                MasterKey::from(answers[n.min(answers.len() - 1)].clone())
             })
         };
         let paths = AppPaths {
@@ -1034,6 +1268,67 @@ mod tests {
         });
     }
 
+    /// The Mac's check that reads the key without a prompt failed (the
+    /// login keychain stayed locked): Retry runs the check again, and a key
+    /// that would now prompt brings the keychain card, never macOS's
+    /// dialog.
+    #[gpui_kit::test]
+    fn retry_runs_the_keychain_check_again(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let scratch = tempfile::Builder::new()
+            .prefix("conduit-connection-key-")
+            .tempdir()
+            .expect("a temporary folder");
+        let asked = Arc::new(AtomicUsize::new(0));
+        let source: MasterKeySource = {
+            let (asked, lock) = (asked.clone(), scratch.path().join("master-key.lock"));
+            Arc::new(move || match asked.fetch_add(1, Ordering::SeqCst) {
+                0 => MasterKey::Failed(SecretError::Locked),
+                _ => MasterKey::WouldPrompt(KeychainChoice {
+                    items: OtherBuildsKeychain::new(true),
+                    account: secrets::MASTER_KEY_ACCOUNT.into(),
+                    lock: KeyLock::File(lock.clone()),
+                    missing: false,
+                }),
+            })
+        };
+        let connection = cx.update(|cx| {
+            ConnectionStore::start(
+                ConnectionOptions {
+                    paths: AppPaths {
+                        flavor: conduit_daemon::paths::Flavor::Production,
+                        user_data: scratch.path().join("user-data"),
+                        logs: scratch.path().join("logs"),
+                    },
+                    binary: PathBuf::from("/nonexistent/conduitd"),
+                    master_key: source,
+                    key_file: None,
+                    locale: "en".into(),
+                    client_version: "0".into(),
+                },
+                cx,
+            )
+        });
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), failed(&SecretError::Locked));
+        });
+        connection.update(cx, |c, cx| c.retry(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "Retry runs the check again"
+        );
+        connection.update(cx, |c, cx| {
+            assert_eq!(c.status(false, None), card(false, 0, None));
+            assert!(!c.can_clear(), "conduitd waits for the card");
+            // Retry leaves the card's question to the card.
+            c.retry(cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
     /// Quitting while Retry still waits on the keyring: the key that comes
     /// back afterwards starts no daemon.
     #[gpui_kit::test]
@@ -1079,7 +1374,7 @@ mod tests {
     /// a file would leave behind.
     #[gpui_kit::test]
     fn the_key_file_is_offered_only_without_a_secret_service(cx: &mut gpui_kit::TestAppContext) {
-        let file: MasterKeySource = Arc::new(|| Ok(secrets::new_master_key()));
+        let file: MasterKeySource = Arc::new(|| MasterKey::Ready(secrets::new_master_key()));
         let none = SecretError::Unavailable("no session bus".into());
         let (connection, _, _scratch) = over_store(vec![Err(none)], Some(file.clone()), cx);
         connection.read_with(cx, |c, _| assert!(c.offers_key_file()));
@@ -1098,7 +1393,7 @@ mod tests {
     /// or no key file here, stays a failure with Retry.
     #[gpui_kit::test]
     fn the_key_file_screen_shows_only_without_a_secret_service(cx: &mut gpui_kit::TestAppContext) {
-        let file: MasterKeySource = Arc::new(|| Ok(secrets::new_master_key()));
+        let file: MasterKeySource = Arc::new(|| MasterKey::Ready(secrets::new_master_key()));
         let none = SecretError::Unavailable("no session bus".into());
         let (connection, _, _scratch) = over_store(vec![Err(none.clone())], Some(file.clone()), cx);
         connection.read_with(cx, |c, _| {
@@ -1131,7 +1426,7 @@ mod tests {
         let key = secrets::new_master_key();
         let file: MasterKeySource = {
             let key = key.clone();
-            Arc::new(move || Ok(key.clone()))
+            Arc::new(move || MasterKey::Ready(key.clone()))
         };
         let none = SecretError::Unavailable("no session bus".into());
         let (connection, _, _scratch) = over_store(vec![Err(none)], Some(file), cx);
@@ -1160,7 +1455,7 @@ mod tests {
                         logs: scratch.join("logs"),
                     },
                     binary: PathBuf::from("/nonexistent/conduitd"),
-                    master_key: Arc::new(|| Err(SecretError::Store("test".into()))),
+                    master_key: Arc::new(|| MasterKey::Failed(SecretError::Store("test".into()))),
                     key_file: None,
                     locale: "en".into(),
                     client_version: "0".into(),
@@ -1179,5 +1474,319 @@ mod tests {
                 Some(&(follows.to_vec(), vec!["chat-2".to_string()]))
             );
         });
+    }
+
+    /// A keychain whose key another build stored: reading it needs macOS's
+    /// prompt, which gives the key when `answers` (else as Deny does). The
+    /// next `refused_adds` adds fail (a keychain that locked meanwhile).
+    struct OtherBuildsKeychain {
+        items: std::sync::Mutex<BTreeMap<String, String>>,
+        answers: bool,
+        refused_adds: std::sync::Mutex<u32>,
+    }
+
+    impl OtherBuildsKeychain {
+        fn new(answers: bool) -> Arc<Self> {
+            Arc::new(Self {
+                items: std::sync::Mutex::new(BTreeMap::from([(
+                    secrets::MASTER_KEY_ACCOUNT.to_string(),
+                    secrets::new_master_key(),
+                )])),
+                answers,
+                refused_adds: Default::default(),
+            })
+        }
+
+        fn key(&self, account: &str) -> Option<String> {
+            self.items.lock().unwrap().get(account).cloned()
+        }
+
+        fn accounts(&self) -> Vec<String> {
+            self.items.lock().unwrap().keys().cloned().collect()
+        }
+    }
+
+    struct OtherBuildsItem<'a>(&'a OtherBuildsKeychain, String);
+
+    impl secrets::MasterKeyStore for OtherBuildsItem<'_> {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            match self.0.key(&self.1) {
+                Some(_) if self.1 == secrets::MASTER_KEY_ACCOUNT && !self.0.answers => {
+                    Err(SecretError::Store("the user denied access (-128)".into()))
+                }
+                key => Ok(key),
+            }
+        }
+
+        fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
+            match self.0.key(&self.1) {
+                Some(_) if self.1 == secrets::MASTER_KEY_ACCOUNT => Err(SecretError::WouldPrompt),
+                key => Ok(key),
+            }
+        }
+
+        fn add(&self, key: &str) -> Result<bool, SecretError> {
+            let mut refused = self.0.refused_adds.lock().unwrap();
+            if *refused > 0 {
+                *refused -= 1;
+                return Err(SecretError::Store("the keychain is locked (-25308)".into()));
+            }
+            let mut items = self.0.items.lock().unwrap();
+            if items.contains_key(&self.1) {
+                return Ok(false);
+            }
+            items.insert(self.1.clone(), key.to_string());
+            Ok(true)
+        }
+    }
+
+    impl MasterKeyItems for OtherBuildsKeychain {
+        fn item(&self, account: &str) -> Box<dyn secrets::MasterKeyStore + '_> {
+            Box::new(OtherBuildsItem(self, account.to_string()))
+        }
+    }
+
+    /// A store asking about `keychain`'s `masterKey` (`missing`: the card
+    /// opens on a recorded key that went), its profile under `profiles` and
+    /// everything else (the lock, the logs) under `own`.
+    fn start_asking(
+        keychain: Arc<OtherBuildsKeychain>,
+        missing: bool,
+        profiles: &Path,
+        own: &Path,
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> Entity<ConnectionStore> {
+        cx.update(|cx| {
+            ConnectionStore::start(
+                ConnectionOptions {
+                    paths: AppPaths {
+                        flavor: conduit_daemon::paths::Flavor::Production,
+                        user_data: profiles.join("user-data"),
+                        logs: own.join("logs"),
+                    },
+                    binary: PathBuf::from("/nonexistent/conduitd"),
+                    master_key: {
+                        let lock = own.join("master-key.lock");
+                        Arc::new(move || {
+                            MasterKey::WouldPrompt(KeychainChoice {
+                                items: keychain.clone(),
+                                account: secrets::MASTER_KEY_ACCOUNT.into(),
+                                lock: KeyLock::File(lock.clone()),
+                                missing,
+                            })
+                        })
+                    },
+                    key_file: None,
+                    locale: "en".into(),
+                    client_version: "0".into(),
+                },
+                cx,
+            )
+        })
+    }
+
+    fn start_with(
+        keychain: Arc<OtherBuildsKeychain>,
+        profiles: &Path,
+        own: &Path,
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> Entity<ConnectionStore> {
+        start_asking(keychain, false, profiles, own, cx)
+    }
+
+    fn card(busy: bool, failures: u32, failure: Option<KeychainFailure>) -> Status {
+        Status::KeychainPrompt {
+            busy,
+            failures,
+            failure,
+            moved: false,
+            missing: false,
+        }
+    }
+
+    /// The key the profile now records, which `conduitd` must have started
+    /// with.
+    fn recorded_key(keychain: &OtherBuildsKeychain, user_data: &Path) -> Option<String> {
+        let profile = secrets::profile_key(user_data).unwrap();
+        assert!(profile.recorded);
+        keychain.key(&profile.account)
+    }
+
+    /// The key a pre-release build stored: the card asks before macOS does,
+    /// and conduitd waits for the answer.
+    #[gpui_kit::test]
+    fn a_key_that_would_prompt_holds_conduitd_for_the_keychain_card(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let keychain = OtherBuildsKeychain::new(true);
+        let connection = start_with(keychain, profiles.path(), own.path(), cx);
+        connection.update(cx, |c, _| {
+            assert_eq!(c.status(false, None), card(false, 0, None));
+            assert!(!c.can_clear(), "conduitd never started");
+        });
+    }
+
+    /// The key the profile records went from the Keychain: the card says
+    /// so, with no failure line, and goes on only by Start Fresh; Continue
+    /// does nothing, and conduitd waits.
+    #[gpui_kit::test]
+    fn a_recorded_key_that_went_opens_the_missing_key_card(cx: &mut gpui_kit::TestAppContext) {
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let keychain = OtherBuildsKeychain::new(true);
+        let connection = start_asking(keychain, true, profiles.path(), own.path(), cx);
+        let missing = Status::KeychainPrompt {
+            busy: false,
+            failures: 0,
+            failure: None,
+            moved: false,
+            missing: true,
+        };
+        connection.update(cx, |c, cx| {
+            assert_eq!(c.status(false, None), missing);
+            c.keychain_continue(cx);
+        });
+        cx.run_until_parked();
+        connection.update(cx, |c, _| {
+            assert_eq!(c.status(false, None), missing);
+            assert!(!c.can_clear(), "conduitd never started");
+        });
+    }
+
+    /// Deny in macOS's dialog: the card comes back saying so, and a choice
+    /// made while the first one runs is ignored.
+    #[gpui_kit::test]
+    fn a_continue_macos_refuses_brings_the_card_back_with_the_failed_line(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let keychain = OtherBuildsKeychain::new(false);
+        let connection = start_with(keychain.clone(), profiles.path(), own.path(), cx);
+        connection.update(cx, |c, cx| {
+            c.keychain_continue(cx);
+            c.keychain_start_fresh(cx);
+            assert_eq!(c.status(false, None), card(true, 0, None));
+        });
+        cx.run_until_parked();
+        connection.update(cx, |c, _| {
+            assert_eq!(
+                c.status(false, None),
+                card(false, 1, Some(KeychainFailure::NoKey))
+            );
+            assert!(!c.can_clear(), "conduitd still waits");
+        });
+        assert_eq!(
+            keychain.accounts(),
+            [secrets::MASTER_KEY_ACCOUNT],
+            "Start Fresh never ran"
+        );
+    }
+
+    /// The keychain refuses Start Fresh's new key once (it locked after the
+    /// card appeared): the card stays, saying Start Fresh failed, and the
+    /// next Start Fresh starts conduitd with its key.
+    #[gpui_kit::test]
+    fn a_start_fresh_the_keychain_refuses_keeps_the_card_for_another_try(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let keychain = OtherBuildsKeychain::new(true);
+        *keychain.refused_adds.lock().unwrap() = 1;
+        let connection = start_with(keychain.clone(), profiles.path(), own.path(), cx);
+        connection.update(cx, |c, cx| c.keychain_start_fresh(cx));
+        cx.run_until_parked();
+        connection.update(cx, |c, _| {
+            assert_eq!(
+                c.status(false, None),
+                card(false, 1, Some(KeychainFailure::NewKey))
+            );
+            assert!(!c.can_clear(), "conduitd still waits");
+        });
+        connection.update(cx, |c, cx| c.keychain_start_fresh(cx));
+        cx.run_until_parked();
+        let user_data = profiles.path().join("user-data");
+        connection.update(cx, |c, _| {
+            assert!(c.can_clear(), "conduitd started");
+            assert_eq!(c.master_key, recorded_key(&keychain, &user_data));
+            assert!(!matches!(
+                c.status(false, None),
+                Status::KeychainPrompt { .. }
+            ));
+        });
+    }
+
+    /// Start Fresh moved the profile aside, then the keychain refused its
+    /// key: Continue would read the old key and open an empty profile at
+    /// the old place, so the card offers only Start Fresh, and Continue
+    /// does nothing.
+    #[gpui_kit::test]
+    fn after_start_fresh_moved_the_profile_continue_is_gone(cx: &mut gpui_kit::TestAppContext) {
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::create_dir_all(profiles.path().join("user-data/db")).unwrap();
+        let keychain = OtherBuildsKeychain::new(true);
+        *keychain.refused_adds.lock().unwrap() = 1;
+        let connection = start_with(keychain, profiles.path(), own.path(), cx);
+        connection.update(cx, |c, cx| c.keychain_start_fresh(cx));
+        cx.run_until_parked();
+        let moved = Status::KeychainPrompt {
+            busy: false,
+            failures: 1,
+            failure: Some(KeychainFailure::NewKey),
+            moved: true,
+            missing: false,
+        };
+        connection.update(cx, |c, cx| {
+            assert_eq!(c.status(false, None), moved);
+            c.keychain_continue(cx);
+        });
+        cx.run_until_parked();
+        connection.update(cx, |c, _| {
+            assert_eq!(c.status(false, None), moved);
+            assert!(!c.can_clear(), "conduitd still waits");
+        });
+    }
+
+    /// The profile can't be moved aside: conduitd stays stopped (a profile
+    /// without a secure store would otherwise open as it was), the card
+    /// says so, and its Start Fresh moves the profile once it can and
+    /// starts conduitd with one new key.
+    #[cfg(unix)]
+    #[gpui_kit::test]
+    fn a_profile_that_cannot_move_keeps_conduitd_stopped_until_it_moves(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (profiles, own) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let user_data = profiles.path().join("user-data");
+        std::fs::create_dir_all(user_data.join("db")).unwrap();
+        std::fs::write(user_data.join("db/server.sqlite"), b"old chats").unwrap();
+        let keychain = OtherBuildsKeychain::new(true);
+        let connection = start_with(keychain.clone(), profiles.path(), own.path(), cx);
+        let mode = |m| std::fs::Permissions::from_mode(m);
+        std::fs::set_permissions(profiles.path(), mode(0o555)).unwrap();
+        connection.update(cx, |c, cx| c.keychain_start_fresh(cx));
+        cx.run_until_parked();
+        std::fs::set_permissions(profiles.path(), mode(0o755)).unwrap();
+        connection.update(cx, |c, _| {
+            assert_eq!(
+                c.status(false, None),
+                card(false, 1, Some(KeychainFailure::Move))
+            );
+            assert!(!c.can_clear(), "conduitd still waits");
+        });
+        assert_eq!(
+            keychain.accounts(),
+            [secrets::MASTER_KEY_ACCOUNT],
+            "no key for a profile that stayed"
+        );
+        assert!(user_data.join("db/server.sqlite").exists());
+        connection.update(cx, |c, cx| c.keychain_start_fresh(cx));
+        cx.run_until_parked();
+        connection.update(cx, |c, _| {
+            assert!(c.can_clear(), "conduitd started");
+            assert_eq!(c.master_key, recorded_key(&keychain, &user_data));
+        });
+        assert_eq!(keychain.accounts().len(), 2, "one new key");
+        assert!(!user_data.join("db").exists(), "moved aside");
     }
 }

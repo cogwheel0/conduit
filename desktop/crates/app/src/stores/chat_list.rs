@@ -968,6 +968,7 @@ impl ChatListStore {
             .call::<methods::ChatsMarkUnread>(&conduit_protocol::MarkUnread {
                 chat_id: id.into(),
                 unread: false,
+                explicit: false,
             });
         Box::pin(async move { call.await.map(|_| ()) })
     }
@@ -997,11 +998,24 @@ impl ChatListStore {
         })
     }
 
-    /// Marks `id` unread (a dot in the sidebar), or read again.
+    /// The user's Mark as Unread (a dot in the sidebar), or Mark as Read
+    /// (`unread` false), which also ends a hold on the chat for the server's
+    /// text not stored yet: the reads made on opening or leaving a chat
+    /// leave that hold.
     pub fn mark_unread(
         &mut self,
         id: &str,
         unread: bool,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<(), RpcError>> {
+        self.set_unread(id, unread, !unread, cx)
+    }
+
+    fn set_unread(
+        &mut self,
+        id: &str,
+        unread: bool,
+        explicit: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), RpcError>> {
         self.answered_reads.remove(id);
@@ -1017,6 +1031,7 @@ impl ChatListStore {
             &conduit_protocol::MarkUnread {
                 chat_id: id.into(),
                 unread,
+                explicit,
             },
             ChatAction::MarkUnread(unread),
             cx,
@@ -1029,7 +1044,7 @@ impl ChatListStore {
     pub fn mark_read(&mut self, id: &str, cx: &mut Context<Self>) {
         self.marked_unread_here.remove(id);
         if self.find(id).is_some_and(|c| c.unread) {
-            self.mark_unread(id, false, cx).detach();
+            self.set_unread(id, false, false, cx).detach();
         }
     }
 
@@ -1524,7 +1539,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),
-            vec![json!({"chatId": "a", "unread": false})],
+            vec![json!({"chatId": "a", "unread": false, "explicit": false})],
             "leaving the chat did not read it"
         );
 
@@ -1574,8 +1589,8 @@ mod tests {
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),
             vec![
-                json!({"chatId": "b", "unread": false}),
-                json!({"chatId": "from-search", "unread": false}),
+                json!({"chatId": "b", "unread": false, "explicit": false}),
+                json!({"chatId": "from-search", "unread": false, "explicit": false}),
             ]
         );
     }
@@ -1721,7 +1736,7 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),
-            vec![json!({"chatId": "a", "unread": false})]
+            vec![json!({"chatId": "a", "unread": false, "explicit": false})]
         );
     }
 

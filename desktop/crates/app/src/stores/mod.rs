@@ -146,7 +146,9 @@ impl Stores {
                 },
                 binary: std::path::PathBuf::from("/nonexistent/conduitd"),
                 master_key: std::sync::Arc::new(|| {
-                    Err(conduit_daemon::secrets::SecretError::Store("test".into()))
+                    connection::MasterKey::Failed(conduit_daemon::secrets::SecretError::Store(
+                        "test".into(),
+                    ))
                 }),
                 key_file: None,
                 locale: "en".into(),

@@ -659,6 +659,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static int _shownChatViews = 0;
   final String _shownChatView = 'chatPage/${_shownChatViews++}';
   late final ShownChats _shownChats;
+  // The app's providers, for the read once the page is gone: `ref` is
+  // unusable by then.
+  late final ProviderContainer _providers;
   StreamSubscription<AppLifecyclePhase>? _appLifecycleSub;
   bool _appResumed = true;
   bool _pageVisible = false;
@@ -953,6 +956,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.initState();
     _livePromptNotifier = ref.read(openWebUiLivePromptProvider.notifier);
     _shownChats = ref.read(shownChatsProvider.notifier);
+    _providers = ProviderScope.containerOf(context, listen: false);
     final appLifecycle = ref.read(appLifecycleProvider);
     _appResumed = _isResumed(appLifecycle.current);
     _appLifecycleSub = appLifecycle.changes.listen((phase) {
@@ -1080,6 +1084,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static bool _isResumed(AppLifecyclePhase? phase) =>
       (phase ?? AppLifecyclePhase.resumed) == AppLifecyclePhase.resumed;
 
+  /// Whether the page is on screen with the app in the foreground.
+  bool get _onScreen => _pageVisible && _appResumed;
+
   /// Tells the core which chat this page shows, so it keeps that chat read
   /// while it does: the open chat while the page is on screen and the app in
   /// the foreground, none otherwise.
@@ -1088,18 +1095,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final active = ref.read(activeConversationProvider);
     _shownChats.show(
       _shownChatView,
-      _pageVisible && _appResumed && active != null
-          ? conversationScopedId(active)
-          : null,
+      _onScreen && active != null ? conversationScopedId(active) : null,
     );
   }
 
   @override
   void dispose() {
-    markConversationRead(ref, _lastConversationId);
+    // Leaving the chat on screen reads it, as leaving it for another chat
+    // does; one left off screen keeps what came meanwhile unread. Providers
+    // can't change while the tree is torn down, and `ref` is gone here, so
+    // the read and the report wait for the tree to settle, through what
+    // initState kept.
+    final left = _onScreen ? _lastConversationId : null;
+    if (left != null) {
+      scheduleMicrotask(() => markConversationRead(_providers, left));
+    }
     _appLifecycleSub?.cancel();
-    // Providers can't change while the tree is torn down, and `ref` is gone
-    // here, so the notifier read in initState says it once the tree settles.
     scheduleMicrotask(() => _shownChats.show(_shownChatView, null));
     _livePromptNotifier.cancel();
     _screenContextSub?.close();

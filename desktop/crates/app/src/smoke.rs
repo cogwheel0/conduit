@@ -264,6 +264,7 @@ fn status_name(status: &Status, route: Route) -> &'static str {
         (Status::Failed { .. }, _) => "connection-failed",
         (Status::StoreUnreadable, _) => "store-unreadable",
         (Status::NoSecretStore { .. }, _) => "no-secret-store",
+        (Status::KeychainPrompt { .. }, _) => "keychain-prompt",
         (Status::VersionMismatch { .. }, _) => "version-mismatch",
         _ => "connecting",
     }

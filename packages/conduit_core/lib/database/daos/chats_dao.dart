@@ -1475,6 +1475,12 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// enqueues an `updateChat` op — all in one transaction. Caller holds the
   /// chat lock. `dirty=true` is always set for a local mutation; the
   /// non-enqueuing server-confirmed path stays on bare [updateEnvelope].
+  ///
+  /// An edit that dates the chat ([updatedAt]) adds nothing to read: a chat
+  /// that was read before it stays read through that date
+  /// ([keepReadThroughOwnPush]). It never dates the chat back, as a device
+  /// clock behind the chat's date would, which could put an unread chat's
+  /// date before its read.
   Future<void> updateEnvelopeWithOutbox(
     String chatId, {
     Value<String> title = const Value.absent(),
@@ -1486,16 +1492,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }) {
     noteEnvelopeChanged(chatId);
     return transaction(() async {
+      if (updatedAt.present) {
+        await keepReadThroughOwnPush(chatId, updatedAt.value);
+      }
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
           title: title,
           folderId: folderId,
           pinned: pinned,
           archived: archived,
-          updatedAt: updatedAt,
           dirty: const Value(true),
         ),
       );
+      if (updatedAt.present) {
+        await customUpdate(
+          'UPDATE chats SET updated_at = max(updated_at, ?) WHERE id = ?',
+          variables: [
+            Variable.withInt(updatedAt.value),
+            Variable.withString(chatId),
+          ],
+          updates: {chats},
+          updateKind: UpdateKind.update,
+        );
+      }
       if (enqueue) {
         await _outboxDao.enqueue(kind: OutboxKind.updateChat, chatId: chatId);
       }
@@ -2720,8 +2739,30 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
   /// never lowered. A read here ends [Chats.heldUnread] once the text it is
   /// held for is stored here ([Chats.heldTextAt]).
-  Future<void> setLastReadAt(String chatId, int epochSeconds) {
+  ///
+  /// An [explicit] read, the user's own Mark as Read, ends the hold at once
+  /// and reads through the server's copy that holds that text, so the chat
+  /// stays read when a pull stores it. [Chats.heldTextAt] stays for a sync
+  /// cycle to fetch that copy.
+  Future<void> setLastReadAt(
+    String chatId,
+    int epochSeconds, {
+    bool explicit = false,
+  }) {
     _touchReadState(chatId);
+    if (explicit) {
+      return customUpdate(
+        'UPDATE chats SET last_read_at = '
+        'max(coalesce(last_read_at, 0), ?, coalesce(held_text_at, 0)), '
+        'held_unread = 0 WHERE id = ?',
+        variables: [
+          Variable.withInt(epochSeconds),
+          Variable.withString(chatId),
+        ],
+        updates: {chats},
+        updateKind: UpdateKind.update,
+      );
+    }
     return customUpdate(
       'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?), '
       'held_unread = held_unread AND held_text_at IS NOT NULL WHERE id = ?',
@@ -2731,19 +2772,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
-  /// A push of chat [chatId] from this device left the server's copy dated
-  /// [serverUpdatedAt], holding nothing from elsewhere: a chat that was read
-  /// stays read through that date. An unread chat, one marked unread or
-  /// held unread here included, is left as it is.
-  Future<void> keepReadThroughOwnPush(String chatId, int serverUpdatedAt) {
+  /// A change of chat [chatId] made by this device dated it [at], adding
+  /// nothing from elsewhere: a push that left the server's copy dated so, or
+  /// an edit here. A chat that was read stays read through that date. An
+  /// unread chat, one marked unread or held unread here included, is left
+  /// as it is.
+  Future<void> keepReadThroughOwnPush(String chatId, int at) {
     return customUpdate(
       'UPDATE chats SET last_read_at = ? '
       'WHERE id = ? AND held_unread = 0 AND last_read_at >= updated_at '
       'AND last_read_at < ?',
       variables: [
-        Variable.withInt(serverUpdatedAt),
+        Variable.withInt(at),
         Variable.withString(chatId),
-        Variable.withInt(serverUpdatedAt),
+        Variable.withInt(at),
       ],
       updates: {chats},
       updateKind: UpdateKind.update,
@@ -3082,7 +3124,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read(chats.updatedAt)!,
         heldUnread: row.read(chats.heldUnread)!,
       ),
-      heldTextUnstored: row.read(chats.heldTextAt) != null,
+      heldTextUnstored:
+          row.read(chats.heldUnread)! && row.read(chats.heldTextAt) != null,
     );
   }
 
@@ -3100,7 +3143,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read<int>('updated_at'),
         heldUnread: row.read<bool>('held_unread'),
       ),
-      heldTextUnstored: row.readNullable<int>('held_text_at') != null,
+      heldTextUnstored:
+          row.read<bool>('held_unread') &&
+          row.readNullable<int>('held_text_at') != null,
     );
   }
 }

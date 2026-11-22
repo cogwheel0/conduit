@@ -409,9 +409,9 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
             paths,
             binary: PathBuf::from("/nonexistent/conduitd"),
             master_key: std::sync::Arc::new(|| {
-                Err(conduit_daemon::secrets::SecretError::Store(
-                    "fixture".into(),
-                ))
+                crate::stores::connection::MasterKey::Failed(
+                    conduit_daemon::secrets::SecretError::Store("fixture".into()),
+                )
             }),
             key_file: None,
             locale: "en".into(),

@@ -468,6 +468,7 @@ impl Render for SetupWindow {
                 Status::Failed { .. }
                     | Status::StoreUnreadable
                     | Status::NoSecretStore { .. }
+                    | Status::KeychainPrompt { .. }
                     | Status::VersionMismatch { .. }
             );
         if !chooser && !starting && reveal(&self.fit, window) {

@@ -956,6 +956,89 @@ void main() {
       expect(listedFor(container, chat).lastReadAt, readAt);
     });
 
+    // A push of this device's left the server's copy of `chat-s`, read here
+    // at 100, dated 160 and holding text not stored here.
+    for (final (clock, seconds) in [
+      ('', 500),
+      (' by a clock behind the server\'s', 99),
+    ]) {
+      test('the user\'s own Mark as Read$clock ends the hold on a chat held '
+          'unread for the server\'s text, which a read made on leaving it '
+          'keeps; that text stored later leaves the chat read', () async {
+        final store = AppDatabase(NativeDatabase.memory());
+        final container = await readingFrom(store);
+        final chat = _openWebUiScoped('chat-s');
+        final at = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+        final held = Completer<void>();
+        final listening = container.listen(conversationsProvider, (_, next) {
+          final listed = next.asData?.value.where((c) => c.id == 'chat-s');
+          if (listed?.single.lastReadAt ==
+                  DateTime.fromMillisecondsSinceEpoch(99 * 1000) &&
+              !held.isCompleted) {
+            held.complete();
+          }
+        });
+        addTearDown(listening.close);
+        await store.chatsDao.setLastReadAt('chat-s', 100);
+        await store.chatsDao.holdUnreadUntilPulled('chat-s', 160);
+        await held.future;
+
+        expect(await markConversationRead(container, chat, readAt: at), isTrue);
+        expect((await store.chatsDao.getChat('chat-s'))!.heldUnread, isTrue);
+
+        expect(
+          await markConversationRead(
+            container,
+            chat,
+            readAt: at,
+            explicit: true,
+          ),
+          isTrue,
+        );
+        expect((await store.chatsDao.getChat('chat-s'))!.heldUnread, isFalse);
+        expect(
+          (await store.chatsDao.getChatMeta('chat-s'))!.heldTextUnstored,
+          isFalse,
+        );
+
+        await store.chatsDao.upsertServerChat(
+          rows: _rows('chat-s', title: 'Server', updatedAt: 160),
+        );
+        final stored = (await store.chatsDao.getChat('chat-s'))!;
+        expect(stored.updatedAt, 160);
+        expect(stored.heldUnread, isFalse);
+        expect(stored.lastReadAt, greaterThanOrEqualTo(160));
+      });
+    }
+
+    test('a read no later than the one shown reports the write that stores '
+        'that one, not a Mark as Read made since that left the list as it '
+        'was', () async {
+      final marks = _FailingReadMarks(fails: 0);
+      final store = AppDatabase(NativeDatabase.memory().interceptWith(marks));
+      final container = await readingFrom(store);
+      final chat = _openWebUiScoped('chat-s');
+      DateTime at(int seconds) =>
+          DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+      expect(
+        await markConversationRead(container, chat, readAt: at(100)),
+        isTrue,
+      );
+
+      marks.fails = 1;
+      final shown = markConversationRead(container, chat, readAt: at(500));
+      final marked = markConversationRead(
+        container,
+        chat,
+        readAt: at(99),
+        explicit: true,
+      );
+      final skipped = markConversationRead(container, chat, readAt: at(500));
+      expect(await shown, isFalse);
+      expect(await marked, isTrue);
+      expect(await skipped, isFalse);
+    });
+
     test('a read with no database to store it in is not stored', () async {
       final container = containerWith(
         pulls: <String>[],

@@ -11,7 +11,10 @@ part of 'app_providers.dart';
 /// shown chat's own stored row is watched, so one the chat list does not
 /// hold (archived, or past its loaded page) is read too. A chat marked unread stays so until it
 /// is read again, as opening it does. Nothing is read in another account's
-/// database.
+/// database, and an account switch forgets the views of the account left,
+/// while an on-device chat on screen stays shown and read. An account whose
+/// session ends and is signed in again, as a refused renewal ends one, keeps
+/// its views.
 final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
   ShownChats.new,
 );
@@ -19,9 +22,17 @@ final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
 /// A shown chat's stored row: the database its reads go to, and its id there.
 typedef _StoredChat = (AppDatabase, String);
 
+/// Where a shown chat is kept: its storage, the account that owned the Chats
+/// tab when it was shown (none for an on-device chat), and the database it
+/// was last read in.
+typedef _Home = (ChatStorageKind, PrimaryAccountRef?, AppDatabase);
+
 class ShownChats extends Notifier<Map<String, String>> {
-  /// Where each view's chat is stored, as it was when it was shown.
+  /// Where each view's chat is stored now, while its database is open.
   final Map<String, _StoredChat> _stored = <String, _StoredChat>{};
+
+  /// Where each view's chat is kept, as it was when it was shown.
+  final Map<String, _Home> _homes = <String, _Home>{};
 
   /// One watch of each shown chat's stored row, shared by every view that
   /// shows it.
@@ -30,14 +41,18 @@ class ShownChats extends Notifier<Map<String, String>> {
 
   @override
   Map<String, String> build() {
-    // A Ref's listener can stall while this notifier is only read, as
+    // Open WebUI's and LibreChat's databases each come from their own
+    // account, and the repository holds the one whose account owns the Chats
+    // tab. A Ref's listener can stall while this notifier is only read, as
     // conduitd reads it: the database check before each read is what keeps
     // reads in their account.
-    ref.listen<AppDatabase?>(appDatabaseProvider, (previous, next) {
-      if (!identical(previous, next)) _forgetAll();
-    });
+    ref.listen<ChatDatabaseRepository>(
+      chatDatabaseRepositoryProvider,
+      (_, next) => _followDatabases(next),
+    );
     ref.onDispose(() {
       _stored.clear();
+      _homes.clear();
       _followStoredRows();
     });
     return const <String, String>{};
@@ -56,17 +71,83 @@ class ShownChats extends Notifier<Map<String, String>> {
         : null;
     if (db == null) {
       _stored.remove(view);
+      _homes.remove(view);
     } else {
       _stored[view] = (db, rawId);
+      _homes[view] = _homeOf(db);
     }
     state = shows ? {...state, view: id} : ({...state}..remove(view));
     _followStoredRows();
   }
 
-  void _forgetAll() {
-    _stored.clear();
+  _Home _homeOf(AppDatabase db) {
+    final repository = ref.read(chatDatabaseRepositoryProvider);
+    if (identical(db, repository.directLocalLocation.database)) {
+      return (ChatStorageKind.directLocal, null, db);
+    }
+    return (
+      identical(db, repository.libreChatLocation?.database)
+          ? ChatStorageKind.libreChat
+          : ChatStorageKind.openWebUi,
+      ref.read(primaryAccountProvider),
+      db,
+    );
+  }
+
+  /// Follows a change of the databases [repository] holds. A view whose
+  /// database closes, as a session's end closes it, keeps its chat and reads
+  /// it again once that database, or another opened for the same account, is
+  /// back. A view is forgotten once its account no longer owns the Chats tab,
+  /// when its chat had no database to be read in (a report must show it
+  /// anew), or when another database takes its own's place otherwise.
+  void _followDatabases(ChatDatabaseRepository repository) {
+    final account = ref.read(primaryAccountProvider);
+    final gone = <String>{};
+    for (final MapEntry(key: view, value: id) in state.entries) {
+      final home = _homes[view];
+      if (home == null || (home.$2 != null && home.$2 != account)) {
+        gone.add(view);
+        continue;
+      }
+      final (storage, owner, readIn) = home;
+      final db = switch (storage) {
+        ChatStorageKind.directLocal => repository.directLocalLocation.database,
+        ChatStorageKind.openWebUi => repository.openWebUiLocation?.database,
+        ChatStorageKind.libreChat => repository.libreChatLocation?.database,
+      };
+      if (db == null) {
+        _stored.remove(view);
+        continue;
+      }
+      // Whatever the account in charge says at this moment, which can lag
+      // behind its database: never from one open database to another, and
+      // from a closed one only to one opened for the same account.
+      if (!identical(db, readIn) &&
+          (_stored.containsKey(view) || !_sameAccount(storage, readIn, db))) {
+        gone.add(view);
+        continue;
+      }
+      _homes[view] = (storage, owner, db);
+      _stored[view] = (db, ChatStorageIdentity.parse(id).rawId);
+    }
+    _stored.removeWhere((view, _) => gone.contains(view));
+    _homes.removeWhere((view, _) => gone.contains(view));
     _followStoredRows();
-    if (state.isNotEmpty) state = const <String, String>{};
+    if (gone.isNotEmpty) {
+      state = {...state}..removeWhere((view, _) => gone.contains(view));
+    }
+  }
+
+  /// Whether [a] and [b] were opened for the same account, as the manager of
+  /// [storage]'s databases keeps it, once they are closed too.
+  bool _sameAccount(ChatStorageKind storage, AppDatabase a, AppDatabase b) {
+    final manager = switch (storage) {
+      ChatStorageKind.openWebUi => ref.read(databaseManagerProvider),
+      ChatStorageKind.libreChat => ref.read(libreChatDatabaseManagerProvider),
+      ChatStorageKind.directLocal => null,
+    };
+    final account = manager?.serverIdForDatabase(a);
+    return account != null && account == manager!.serverIdForDatabase(b);
   }
 
   /// Watches the stored row of each chat a view shows, and of no other.

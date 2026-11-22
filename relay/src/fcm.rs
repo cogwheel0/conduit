@@ -5,11 +5,12 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
+use tokio::time::Instant;
 
 use crate::config::FcmConfig;
 use crate::{now_unix, Message, Outcome};
@@ -66,6 +67,8 @@ pub struct Fcm {
     backoff: Duration,
 }
 
+/// Its times are on tokio's clock, like the relay's timers, so that a paused
+/// clock moves them too.
 #[derive(Default)]
 struct TokenState {
     current: Option<CachedToken>,

@@ -351,10 +351,11 @@ pub enum KeyLock {
 ///   user's id alone. `HOME`, `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` can
 ///   differ between a desktop session's launch and an ssh, cron or `env -i`
 ///   one, which would split a lock file.
-/// * macOS (its stores need none): under `~/Library/Caches`.
+/// * macOS: under `~/Library/Caches`, held by Start Fresh
+///   ([`crate::secrets::start_fresh`]).
 pub fn master_key_lock(os: Os, service: &str, host: &dyn Host) -> KeyLock {
     match os {
-        // The Mac's stores take no lock; tests alone use this one.
+        // With no home the app stops before it asks (`AppPaths::for_flavor`).
         Os::MacOs => KeyLock::File(
             home(host)
                 .unwrap_or_else(std::env::temp_dir)
@@ -563,8 +564,17 @@ pub fn locate_daemon() -> PathBuf {
 
 /// Moves `dir` aside as `<dir> (reset <timestamp>)` and returns the new
 /// path. Nothing is deleted: "Reset local data" keeps the old folder for the
-/// user (and support) to look at.
+/// user (and support) to look at. Restoring one by hand means moving both
+/// the folder and its `.master-key-account` file over the current ones, or
+/// removing the current record when the archive has none.
 pub fn move_aside(dir: &Path, now: SystemTime) -> std::io::Result<PathBuf> {
+    let target = aside_path(dir, now);
+    std::fs::rename(dir, &target)?;
+    Ok(target)
+}
+
+/// Where [`move_aside`] would move `dir` now: a name no folder has yet.
+pub fn aside_path(dir: &Path, now: SystemTime) -> PathBuf {
     let secs = now
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -581,8 +591,7 @@ pub fn move_aside(dir: &Path, now: SystemTime) -> std::io::Result<PathBuf> {
         target = parent.join(format!("{name} (reset {stamp} {n})"));
         n += 1;
     }
-    std::fs::rename(dir, &target)?;
-    Ok(target)
+    target
 }
 
 /// `YYYY-MM-DD HH.MM.SS` (UTC), safe in a file name.

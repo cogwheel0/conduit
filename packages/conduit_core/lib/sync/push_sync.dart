@@ -447,8 +447,13 @@ class PushSync {
         if (!ownSave && landed != null) {
           // The server's copy holds what this device never sent or showed,
           // and isn't stored here: news, whatever the dates say once a pull
-          // stores it.
-          await _db.chatsDao.holdUnreadUntilPulled(chatId, serverUpdatedAt);
+          // stores it. Unless the user's own Mark as Read covers it.
+          final held = await _db.chatsDao.getChat(chatId);
+          if (held != null && _coveredByMarkAsRead(held, landed, pushed)) {
+            await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
+          } else {
+            await _db.chatsDao.holdUnreadUntilPulled(chatId, serverUpdatedAt);
+          }
         }
       });
     });
@@ -815,6 +820,26 @@ class PushSync {
   static bool _showsOther(MessageRowData a, MessageRowData b) =>
       storedAnswerShows(a.content, _outputOf(a)) !=
       storedAnswerShows(b.content, _outputOf(b));
+
+  /// Whether the user's own Mark as Read of [chat], made while the server's
+  /// text was not stored here ([ChatsDao.setLastReadAt]), covers what
+  /// [landed], the server's copy, holds beyond [pushed]. A message new here
+  /// is news when it was written after that read, by its `timestamp`. More
+  /// text in a message this device holds can't be dated, so it counts as the
+  /// text the read covered.
+  static bool _coveredByMarkAsRead(
+    ChatRow chat,
+    Map<String, MessageRowData> landed,
+    Map<String, MessageRowData> pushed,
+  ) {
+    if (chat.heldUnread || chat.heldTextAt == null) return false;
+    final read = chat.lastReadAt ?? 0;
+    return landed.entries.every((stored) {
+      if (pushed.containsKey(stored.key)) return true;
+      final written = stored.value.payload['timestamp'];
+      return written is num && written <= read;
+    });
+  }
 
   static bool _differs(MessageRowData a, MessageRowData b) =>
       a.content != b.content || !_deepEquality.equals(a.payload, b.payload);

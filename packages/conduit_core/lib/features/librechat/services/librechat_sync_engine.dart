@@ -859,6 +859,15 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
         'pinned': conversation.pinned,
         'archived': conversation.isArchived,
       };
+      // A rename made here and not on the server yet kept the chat read
+      // through its own date, by this device's clock. A message the server
+      // gained since is news, whatever its date.
+      final news =
+          existing != null &&
+          existing.dirty &&
+          previous['title'] != existing.title &&
+          !(await _db.messagesDao.idsForChat(id))
+              .containsAll(messages.map((message) => message.messageId));
       // LibreChat's conversation does not carry its share link; the one the
       // app made or found stays, so the chat can still delete it.
       await _db.chatsDao.upsertServerChat(
@@ -875,6 +884,7 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
           dirty: const Value(true),
         ),
       );
+      if (news) await _db.chatsDao.holdUnread(id);
       return true;
     });
   }
@@ -930,8 +940,9 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       meta[kLibreChatEnvelopeBaselineKey] as Map? ?? const {},
     );
     if (baseline['title'] != row.title) {
-      await _engine.api.renameConversation(id, row.title);
+      final renamed = await _engine.api.renameConversation(id, row.title);
       await _recordBaseline(id, 'title', row.title);
+      await _keepReadThroughRename(id, renamed);
     }
     if (baseline['pinned'] != row.pinned) {
       await _engine.api.setPinned(id, row.pinned);
@@ -968,6 +979,31 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       );
     });
   }
+
+  /// LibreChat dates a conversation it renames, and answers with it
+  /// ([renamed]). A chat read here stays read through that date when the
+  /// server holds as many messages as are stored here. When it holds
+  /// others, from elsewhere since the last pull, the chat is held unread
+  /// until a pull stores them and it is read here.
+  ///
+  /// LibreChat's message routes leave out the ids the answer lists, so only
+  /// their number can be compared. With no date or list in the answer the
+  /// read is left as it is.
+  Future<void> _keepReadThroughRename(
+    String id,
+    LibreChatConversation? renamed,
+  ) => _engine.locks.runExclusive(id, () async {
+    final at = renamed?.updatedAt;
+    final serverMessages = renamed?.raw['messages'];
+    if (at == null || serverMessages is! List) return;
+    final serverAt = at.millisecondsSinceEpoch ~/ 1000;
+    final stored = await _db.messagesDao.idsForChat(id);
+    if (serverMessages.length == stored.length) {
+      await _db.chatsDao.keepReadThroughOwnPush(id, serverAt);
+    } else {
+      await _db.chatsDao.holdUnreadUntilPulled(id, serverAt);
+    }
+  });
 
   /// Records that the server took [field] as [value], as soon as it did: a
   /// later call failing must not leave the baseline behind the server, or a
