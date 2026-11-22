@@ -344,7 +344,7 @@ impl Cursor {
     pub fn opened_by_keyboard(items: &[ChromeMenuItem]) -> Self {
         Self {
             path: first(items).into_iter().collect(),
-            part: 1,
+            part: first(items).map_or(1, |i| landing_part(&items[i])),
             expanded: false,
         }
     }
@@ -520,11 +520,33 @@ impl Cursor {
         }
     }
 
+    /// The items were built again with the menu open (a zoom part ran): a
+    /// part that can no longer act gives the highlight to one that can, and
+    /// a row that can't act at all gives it to the next row.
+    pub fn settle(&mut self, items: &[ChromeMenuItem]) {
+        let level = self.path.len().saturating_sub(1);
+        let (Some(rows), Some(&at)) = (self.rows(items, level), self.path.last()) else {
+            return;
+        };
+        match rows.get(at) {
+            Some(ChromeMenuItem::Zoom(zoom))
+                if zoom.parts().get(self.part).is_some_and(|p| !p.disabled) => {}
+            Some(row) if row.is_selectable() => self.part = landing_part(row),
+            _ => {
+                if let Some(next) = step(rows, Some(at), true) {
+                    *self.path.last_mut().unwrap() = next;
+                    self.part = landing_part(&rows[next]);
+                    self.expanded = false;
+                }
+            }
+        }
+    }
+
     fn open(&mut self, sub: &[ChromeMenuItem]) -> Outcome {
         match first(sub) {
             Some(i) => {
                 self.path.push(i);
-                self.part = 1;
+                self.part = landing_part(&sub[i]);
                 self.expanded = false;
                 Outcome::Moved
             }
@@ -876,6 +898,63 @@ mod tests {
         // The pointer resting on it selects nothing new.
         c.hover_part(&items, 0, 1, 1);
         assert_ne!(c.part, 1);
+    }
+
+    #[test]
+    fn opening_onto_a_zoom_row_lands_on_a_part_that_acts() {
+        // At the actual size: Actual Size can't act.
+        let items = vec![
+            zoom(true),
+            ChromeMenuItem::submenu("More", vec![zoom(true)]),
+        ];
+        let mut c = Cursor::opened_by_keyboard(&items);
+        assert_eq!(
+            (c.path.clone(), c.part),
+            (vec![0], 0),
+            "the menu opens on Zoom Out"
+        );
+        c.key(&items, MenuKey::Down);
+        c.key(&items, MenuKey::Right);
+        assert_eq!(
+            (c.path.clone(), c.part),
+            (vec![1, 0], 0),
+            "so does a submenu"
+        );
+        assert!(matches!(
+            c.key(&items, MenuKey::Activate),
+            Outcome::Activate { .. }
+        ));
+        // Zoomed: Actual Size acts, so both land on it.
+        let items = vec![
+            zoom(false),
+            ChromeMenuItem::submenu("More", vec![zoom(false)]),
+        ];
+        let mut c = Cursor::opened_by_keyboard(&items);
+        assert_eq!((c.path.clone(), c.part), (vec![0], 1));
+        c.key(&items, MenuKey::Down);
+        c.key(&items, MenuKey::Right);
+        assert_eq!((c.path.clone(), c.part), (vec![1, 0], 1));
+    }
+
+    #[test]
+    fn settling_moves_on_from_a_zoom_row_that_can_no_longer_act() {
+        let mut c = Cursor {
+            path: vec![0],
+            part: 2,
+            expanded: false,
+        };
+        let ChromeMenuItem::Zoom(mut row) = zoom(true) else {
+            unreachable!()
+        };
+        row.out.disabled = true;
+        row.zoom_in.disabled = true;
+        let items = vec![
+            ChromeMenuItem::Zoom(row),
+            ChromeMenuItem::Separator,
+            ChromeMenuItem::action("One", One),
+        ];
+        c.settle(&items);
+        assert_eq!((c.path.clone(), c.part), (vec![2], 1));
     }
 
     #[test]

@@ -202,17 +202,21 @@ impl MainMenu {
         match self.cursor.key(&self.items, key) {
             Outcome::None => {}
             Outcome::Moved => {
-                // The keyboard keeps its row in view in a panel that scrolls.
-                if let Some(&row) = self.cursor.path.last() {
-                    let level = self.cursor.path.len() - 1;
-                    self.scroll(level).scroll_to_item(row);
-                }
+                self.keep_row_in_view();
                 cx.notify()
             }
             Outcome::Activate { action, keep_open } => self.activate(action, keep_open, window, cx),
             Outcome::Close => self.close(window, cx),
         }
         true
+    }
+
+    /// The keyboard keeps its row in view in a panel that scrolls.
+    fn keep_row_in_view(&mut self) {
+        if let Some(&row) = self.cursor.path.last() {
+            let level = self.cursor.path.len() - 1;
+            self.scroll(level).scroll_to_item(row);
+        }
     }
 
     fn scroll(&mut self, level: usize) -> ScrollHandle {
@@ -255,6 +259,11 @@ impl MainMenu {
                 let items = grey(items, &mut |a| cx.is_action_available(a));
                 let _ = menu.update(cx, |m, cx| {
                     m.items = items;
+                    let row = m.cursor.path.clone();
+                    m.cursor.settle(&m.items);
+                    if m.cursor.path != row {
+                        m.keep_row_in_view();
+                    }
                     cx.notify();
                 });
             });
@@ -539,6 +548,8 @@ fn panel(
     div()
         .id(ElementId::Name(format!("chrome-menu-{level}").into()))
         .debug_selector(|| format!("chrome-menu-panel-{level}"))
+        // A submenu laid over its parent takes the pointer alone.
+        .occlude()
         .role(Role::Menu)
         .aria_label(label)
         .w(px(width))

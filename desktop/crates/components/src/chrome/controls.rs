@@ -5,9 +5,9 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    AnyElement, App, BoxShadow, ClickEvent, CursorStyle, Decorations, ElementId, Hsla, MouseButton,
-    Pixels, Point, ResizeEdge, Role, SharedString, Size, Stateful, Tiling, Window,
-    WindowControlArea, div, point, px, rgb,
+    AnyElement, App, BoxShadow, ClickEvent, CursorStyle, Decorations, DispatchPhase, ElementId,
+    Hsla, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point, ResizeEdge, Role, SharedString,
+    Size, Stateful, Tiling, Window, WindowControlArea, canvas, div, point, px, rgb,
 };
 
 use super::ChromeStyle;
@@ -256,7 +256,8 @@ pub fn header_drag(
                 cx,
                 |_, _| None::<Point<Pixels>>,
             );
-            let (down, moved, up) = (pressed.clone(), pressed.clone(), pressed);
+            let armed = pressed.read(cx).is_some();
+            let down = pressed.clone();
             div()
                 .id(id)
                 .on_mouse_down(MouseButton::Left, move |e, window, cx| {
@@ -264,31 +265,63 @@ pub fn header_drag(
                         window.zoom_window();
                     } else {
                         let at = e.position;
-                        down.update(cx, |p, _| *p = Some(at));
+                        down.update(cx, |p, cx| {
+                            *p = Some(at);
+                            cx.notify();
+                        });
                     }
-                })
-                .on_mouse_move(move |e, window, cx| {
-                    let Some(at) = *moved.read(cx) else {
-                        return;
-                    };
-                    if e.pressed_button != Some(MouseButton::Left) {
-                        moved.update(cx, |p, _| *p = None);
-                        return;
-                    }
-                    let travel = (e.position - at).magnitude() as f32;
-                    if travel >= DRAG_THRESHOLD {
-                        moved.update(cx, |p, _| *p = None);
-                        window.start_window_move();
-                    }
-                })
-                .on_mouse_up(MouseButton::Left, move |_, _, cx| {
-                    up.update(cx, |p, _| *p = None);
                 })
                 .on_mouse_down(MouseButton::Right, |e, window, _| {
                     window.show_window_menu(e.position)
                 })
+                // Once pressed, the drag is followed over the whole window:
+                // the first move may already have left the header.
+                .when(armed, |d| {
+                    d.child(
+                        canvas(
+                            |_, _, _| {},
+                            move |_, _, window, _| follow_press(&pressed, window),
+                        )
+                        .absolute()
+                        .size_0(),
+                    )
+                })
         }
     }
+}
+
+/// Moves the window once a header press travels past the threshold,
+/// wherever the pointer goes; a release anywhere ends the wait.
+fn follow_press(pressed: &gpui_kit::Entity<Option<Point<Pixels>>>, window: &mut Window) {
+    let moved = pressed.clone();
+    window.on_mouse_event(move |e: &MouseMoveEvent, phase, window, cx| {
+        if phase != DispatchPhase::Bubble {
+            return;
+        }
+        let Some(at) = *moved.read(cx) else {
+            return;
+        };
+        let lifted = e.pressed_button != Some(MouseButton::Left);
+        let travelled = (e.position - at).magnitude() as f32 >= DRAG_THRESHOLD;
+        if lifted || travelled {
+            moved.update(cx, |p, cx| {
+                *p = None;
+                cx.notify();
+            });
+        }
+        if !lifted && travelled {
+            window.start_window_move();
+        }
+    });
+    let up = pressed.clone();
+    window.on_mouse_event(move |e: &MouseUpEvent, phase, _, cx| {
+        if phase == DispatchPhase::Bubble && e.button == MouseButton::Left {
+            up.update(cx, |p, cx| {
+                *p = None;
+                cx.notify();
+            });
+        }
+    });
 }
 
 /// GNOME's shadow reach around a floating window (GPUI Kit's).

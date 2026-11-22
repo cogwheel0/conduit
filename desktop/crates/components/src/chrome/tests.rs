@@ -35,7 +35,7 @@ actions!(
 enum Menu {
     /// Answered, Unanswered, More ▸ (Unanswered), Also ▸ (AlsoAnswered).
     Rows,
-    /// Answered, then a zoom row whose Actual Size acts once zoomed.
+    /// Answered, then a zoom row three steps deep: 90%, 100%, 110%.
     Zoom,
     /// Sixty rows, taller than the window.
     Long,
@@ -55,12 +55,17 @@ struct Host {
     menu: Entity<MainMenu>,
     answered: usize,
     also_answered: usize,
-    zoomed: Rc<Cell<bool>>,
+    /// -1, 0 (the actual size) or 1.
+    level: Rc<Cell<i32>>,
 }
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let zoomed = self.zoomed.get();
+        let level = self.level.get();
+        let zoom = |h: &mut Host, by: i32, cx: &mut Context<Host>| {
+            h.level.set(if by == 0 { 0 } else { h.level.get() + by });
+            cx.notify();
+        };
         div()
             .size_full()
             .flex()
@@ -70,12 +75,15 @@ impl Render for Host {
             .on_action(cx.listener(|h, _: &Steal, window, cx| {
                 window.focus(&h.other, cx);
             }))
-            .on_action(cx.listener(|h, _: &ZoomIn, _, cx| {
-                h.zoomed.set(true);
-                cx.notify();
-            }))
-            .on_action(|_: &ZoomOut, _, _| {})
-            .when(zoomed, |d| d.on_action(|_: &ActualSize, _, _| {}))
+            .when(level < 1, |d| {
+                d.on_action(cx.listener(move |h, _: &ZoomIn, _, cx| zoom(h, 1, cx)))
+            })
+            .when(level > -1, |d| {
+                d.on_action(cx.listener(move |h, _: &ZoomOut, _, cx| zoom(h, -1, cx)))
+            })
+            .when(level != 0, |d| {
+                d.on_action(cx.listener(move |h, _: &ActualSize, _, cx| zoom(h, 0, cx)))
+            })
             .child(
                 div()
                     .pl(px(self.menu_at))
@@ -103,7 +111,7 @@ fn rows() -> Vec<ChromeMenuItem> {
 
 /// The zoom row as the app builds it: each part off by the same rule its
 /// handler follows.
-fn zoom_rows(zoomed: bool) -> Vec<ChromeMenuItem> {
+fn zoom_rows(level: i32) -> Vec<ChromeMenuItem> {
     let part = |label: &str, action: Box<dyn gpui_kit::Action>, disabled: bool| ZoomPart {
         label: label.to_string().into(),
         action,
@@ -113,10 +121,10 @@ fn zoom_rows(zoomed: bool) -> Vec<ChromeMenuItem> {
         ChromeMenuItem::action("Answered", Answered),
         ChromeMenuItem::Separator,
         ChromeMenuItem::Zoom(ZoomRow {
-            level: if zoomed { "110%" } else { "100%" }.into(),
-            out: part("Zoom Out", Box::new(ZoomOut), false),
-            reset: part("Actual Size", Box::new(ActualSize), !zoomed),
-            zoom_in: part("Zoom In", Box::new(ZoomIn), false),
+            level: format!("{}%", 100 + 10 * level).into(),
+            out: part("Zoom Out", Box::new(ZoomOut), level <= -1),
+            reset: part("Actual Size", Box::new(ActualSize), level == 0),
+            zoom_in: part("Zoom In", Box::new(ZoomIn), level >= 1),
         }),
     ]
 }
@@ -183,14 +191,14 @@ fn open_host(
         if focus_field {
             window.focus(&field, cx);
         }
-        let zoomed = Rc::new(Cell::new(false));
+        let level = Rc::new(Cell::new(0));
         let build: super::MenuItems = match menu {
             Menu::Rows => Rc::new(|_, _| rows()),
             Menu::Long => Rc::new(|_, _| long_rows()),
             Menu::Deep => Rc::new(|_, _| deep_rows()),
             Menu::Zoom => {
-                let zoomed = zoomed.clone();
-                Rc::new(move |_, _| zoom_rows(zoomed.get()))
+                let level = level.clone();
+                Rc::new(move |_, _| zoom_rows(level.get()))
             }
         };
         let menu = cx.new(|cx| MainMenu::new(style, "Main Menu", build, window, cx));
@@ -201,7 +209,7 @@ fn open_host(
             menu,
             answered: 0,
             also_answered: 0,
-            zoomed,
+            level,
         }
     });
     vcx.update(|window, _| window.activate_window());
@@ -450,7 +458,7 @@ fn a_keyboard_zoom_in_lets_actual_size_act(cx: &mut TestAppContext) {
     // Down to the zoom row, Right to Zoom In, Enter: the menu stays open.
     vcx.simulate_keystrokes("down right enter");
     draw(vcx);
-    assert!(vcx.update(|_, cx| host.read(cx).zoomed.get()));
+    assert_eq!(vcx.update(|_, cx| host.read(cx).level.get()), 1);
     assert!(is_open(&host, vcx));
     let reset_off = vcx.update(|_, cx| {
         host.read(cx)
@@ -465,6 +473,54 @@ fn a_keyboard_zoom_in_lets_actual_size_act(cx: &mut TestAppContext) {
             .unwrap()
     });
     assert!(!reset_off, "Actual Size acts once zoomed");
+}
+
+/// The zoom level, and the zoom row's highlighted part: its name and
+/// whether it can act.
+fn zoom_highlight(host: &Entity<Host>, vcx: &mut VisualTestContext) -> (i32, String, bool) {
+    vcx.update(|_, cx| {
+        let host = host.read(cx);
+        let menu = host.menu.read(cx);
+        let row = menu
+            .items()
+            .iter()
+            .find_map(|i| match i {
+                ChromeMenuItem::Zoom(row) => Some(row),
+                _ => None,
+            })
+            .unwrap();
+        let part = row.parts()[menu.cursor().part];
+        (host.level.get(), part.label.to_string(), !part.disabled)
+    })
+}
+
+/// A zoom part that runs leaves the menu open and built again; the
+/// highlight then moves off a part that can no longer act.
+#[gpui_kit::test]
+fn after_a_zoom_part_runs_the_highlight_sits_on_a_part_that_acts(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Zoom, true, cx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    vcx.simulate_keystrokes("down");
+    draw(vcx);
+    let acts = |level: i32, part: &str| (level, part.to_string(), true);
+    assert_eq!(zoom_highlight(&host, vcx), acts(0, "Zoom Out"));
+    let steps = [
+        ("enter", acts(-1, "Actual Size"), "Zoom Out at its least"),
+        ("right enter", acts(0, "Zoom In"), "Zoom In still acts"),
+        ("enter", acts(1, "Actual Size"), "Zoom In at its most"),
+        ("enter", acts(0, "Zoom Out"), "Actual Size"),
+    ];
+    for (keys, after, case) in steps {
+        vcx.simulate_keystrokes(keys);
+        draw(vcx);
+        assert_eq!(zoom_highlight(&host, vcx), after, "{case}");
+    }
+    assert!(is_open(&host, vcx));
+    assert_eq!(
+        vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone()),
+        [2]
+    );
 }
 
 /// The smallest main window.
@@ -611,6 +667,74 @@ fn gnomes_menu_stays_inside_the_visible_frame_not_its_shadow(cx: &mut TestAppCon
             "{panel} {b:?} ends inside the frame, at {frame_right:?} at most"
         );
     }
+}
+
+#[gpui_kit::test]
+fn the_pointer_over_a_submenu_covering_its_parent_stays_in_the_submenu(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Deep, true, cx);
+    vcx.simulate_resize(smallest());
+    draw(vcx);
+    // Edit › Find: with no room on the right, Find opens over Edit.
+    vcx.simulate_keystrokes("f10 down down down down down right end right");
+    draw(vcx);
+    let path = || vec![7usize, 8, 0];
+    assert_eq!(
+        vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone()),
+        path()
+    );
+    let row = bounds("chrome-menu-2-0".into(), vcx);
+    let edit = bounds("chrome-menu-panel-1".into(), vcx);
+    assert!(
+        row.right() > edit.left() && row.top() < edit.bottom(),
+        "Find's first row {row:?} covers Edit {edit:?}"
+    );
+    // A point on Find's row, over where Edit lies beneath.
+    let at = point(
+        (row.right() + edit.left().max(row.left())) / 2.,
+        row.center().y,
+    );
+    vcx.simulate_mouse_move(at, None, Modifiers::none());
+    draw(vcx);
+    assert_eq!(
+        vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone()),
+        path(),
+        "the covered Edit took no part in the move"
+    );
+}
+
+/// A GNOME header bar alone, 200 × 40 at the window's top left.
+struct Header;
+
+impl Render for Header {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            super::header_drag("header", Some(ChromeStyle::Gnome), window, cx)
+                .w(px(200.))
+                .h(px(40.)),
+        )
+    }
+}
+
+/// GPUI's test window has no window move (`unimplemented!`), so reaching it
+/// is how this test sees the drag start.
+#[gpui_kit::test]
+#[should_panic(expected = "not implemented")]
+fn a_header_press_then_a_move_off_the_header_moves_the_window(cx: &mut TestAppContext) {
+    let (_, vcx) = cx.add_window_view(|_, _| Header);
+    draw(vcx);
+    vcx.simulate_mouse_down(
+        point(px(20.), px(20.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    draw(vcx);
+    // The first move after the press already leaves the header.
+    vcx.simulate_mouse_move(
+        point(px(20.), px(120.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    draw(vcx);
 }
 
 /// GNOME's frame alone, client-side decorated and floating.
