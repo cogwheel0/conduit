@@ -48,8 +48,9 @@ class Chats extends Table {
   /// text [heldUnread] is for, returned by a push, until a pull stores a
   /// copy that new here. Till then a read here covers only the older copy,
   /// so it leaves the hold. The user's own Mark as Read ends the hold and
-  /// leaves this date, for a sync cycle to fetch that copy. Null when that
-  /// text is stored here.
+  /// leaves this date, for a sync cycle to fetch that copy; a push landing
+  /// meanwhile holds the chat again only for a message written after that
+  /// read. Null when that text is stored here.
   IntColumn get heldTextAt => integer().nullable()();
 
   /// A2: `ChatResponse` envelope fields.

@@ -1011,6 +1011,34 @@ void main() {
       });
     }
 
+    test('a read no later than the one shown reports the write that stores '
+        'that one, not a Mark as Read made since that left the list as it '
+        'was', () async {
+      final marks = _FailingReadMarks(fails: 0);
+      final store = AppDatabase(NativeDatabase.memory().interceptWith(marks));
+      final container = await readingFrom(store);
+      final chat = _openWebUiScoped('chat-s');
+      DateTime at(int seconds) =>
+          DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+      expect(
+        await markConversationRead(container, chat, readAt: at(100)),
+        isTrue,
+      );
+
+      marks.fails = 1;
+      final shown = markConversationRead(container, chat, readAt: at(500));
+      final marked = markConversationRead(
+        container,
+        chat,
+        readAt: at(99),
+        explicit: true,
+      );
+      final skipped = markConversationRead(container, chat, readAt: at(500));
+      expect(await shown, isFalse);
+      expect(await marked, isTrue);
+      expect(await skipped, isFalse);
+    });
+
     test('a read with no database to store it in is not stored', () async {
       final container = containerWith(
         pulls: <String>[],
