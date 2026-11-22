@@ -1059,8 +1059,10 @@ mod secret_service {
         "org.freedesktop.DBus.Error.NameHasNoOwner",
     ];
 
-    /// No session bus to reach (no address, no socket, nobody listening on
-    /// it), or nothing on it provides the Secret Service.
+    /// No session bus to reach (no socket where the address points, nobody
+    /// listening on it), or nothing on it provides the Secret Service. A
+    /// malformed address, or a connection that fails another way, doesn't
+    /// show there is none: those keep Retry.
     fn no_secret_service(e: &oo7::Error) -> bool {
         use oo7::zbus;
         let oo7::Error::DBus(e) = e else {
@@ -1072,8 +1074,7 @@ mod secret_service {
             return false;
         };
         match wire {
-            zbus::Error::Address(_) | zbus::Error::Connection(..) => true,
-            zbus::Error::InputOutput(e) => matches!(
+            zbus::Error::InputOutput(e) | zbus::Error::Connection(e, _) => matches!(
                 e.kind(),
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
             ),
@@ -1147,6 +1148,11 @@ mod secret_service {
             zbus::Error::InputOutput(std::sync::Arc::new(std::io::Error::from(kind)))
         }
 
+        fn connection(kind: std::io::ErrorKind) -> zbus::Error {
+            let address = "unix:path=/run/user/1000/bus".parse().unwrap();
+            zbus::Error::Connection(std::sync::Arc::new(std::io::Error::from(kind)), address)
+        }
+
         /// Only a missing bus or a missing service offers the key file;
         /// declining the "create the default keyring" prompt, a locked
         /// keyring and other failures keep Retry.
@@ -1157,12 +1163,20 @@ mod secret_service {
             let service = |e: ServiceError| oo7::Error::DBus(DBus::Service(e));
             for (error, expected) in [
                 // No session bus.
-                (
-                    wire(zbus::Error::Address("no address".into())),
-                    "unavailable",
-                ),
                 (wire(io(ErrorKind::NotFound)), "unavailable"),
                 (wire(io(ErrorKind::ConnectionRefused)), "unavailable"),
+                (wire(connection(ErrorKind::NotFound)), "unavailable"),
+                (
+                    wire(connection(ErrorKind::ConnectionRefused)),
+                    "unavailable",
+                ),
+                // A session bus that may be there: a malformed address, or a
+                // connection that failed another way.
+                (
+                    wire(zbus::Error::Address("unix:pth=/run/user/1000/bus".into())),
+                    "store",
+                ),
+                (wire(connection(ErrorKind::PermissionDenied)), "store"),
                 // Nothing provides org.freedesktop.secrets.
                 (
                     wire(method_error("org.freedesktop.DBus.Error.ServiceUnknown")),
