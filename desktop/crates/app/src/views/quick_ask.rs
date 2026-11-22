@@ -288,7 +288,9 @@ impl QuickAskView {
         } else if !self.shown
             && let Some(id) = self.chat_id(cx)
         {
-            self.stores.chat_list.update(cx, |c, _| c.shown(&id));
+            self.stores
+                .chat_list
+                .update(cx, |c, cx| c.mark_read(&id, cx));
         }
         self.shown = shown;
     }
@@ -321,9 +323,10 @@ impl QuickAskView {
         }
     }
 
-    /// New chat: drops this exchange (the chat stays in the sidebar), the
-    /// draft and its attachments.
+    /// New chat: drops this exchange (the chat stays in the sidebar, read
+    /// up to now), the draft and its attachments.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.leave_chat(cx);
         self.clear(window, cx);
         self.composer_store.update(cx, |c, cx| {
             c.start_over(cx);
@@ -333,7 +336,8 @@ impl QuickAskView {
     }
 
     /// Another account: drops everything of the last one's, the composer's
-    /// models, options and attachments included.
+    /// models, options and attachments included. Its chat is not read:
+    /// the daemon now answers for the new account.
     fn forget(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.clear(window, cx);
         self.composer_store.update(cx, |c, cx| c.reset(cx));
@@ -342,7 +346,6 @@ impl QuickAskView {
 
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.generation += 1;
-        self.leave_chat(cx);
         self.chat = None;
         self.starting = false;
         self.notice = None;
@@ -1384,9 +1387,43 @@ mod tests {
         });
     }
 
+    /// Another account while the panel shows a chat: that chat goes with
+    /// the account it belongs to, and nothing of it is read in the new one.
+    #[gpui_kit::test]
+    fn another_account_reads_nothing_of_the_last_ones_chat(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        let listed: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
+            "chats": [{"id": "chat-q", "title": "Tide times", "updatedAtMs": 1, "unread": true}],
+        }))
+        .unwrap();
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+
+        stores.accounts.update(vcx, |a, cx| {
+            a.adopt(
+                list(vec![
+                    account("a", "Avery", false, true),
+                    account("b", "Blake", true, true),
+                ]),
+                cx,
+            )
+        });
+        vcx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::ChatsMarkUnread>().is_empty(),
+            "the last account's chat was read in the new one"
+        );
+    }
+
     /// An answer read in the panel leaves its chat read: the panel reads
-    /// the chat it shows as it hides, as it starts a new chat, and as the
-    /// app quits. Hidden, it reads nothing.
+    /// the chat it shows as it hides, as it is shown again, as it starts a
+    /// new chat, and as the app quits. Hidden, it reads nothing.
     #[gpui_kit::test]
     fn the_panel_reads_its_chat_as_it_stops_showing_it(cx: &mut TestAppContext) {
         let (daemon, stores, view, vcx) = bench(cx);
@@ -1421,15 +1458,20 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(reads().len(), 1, "the hidden panel read its chat");
 
-        // Its next answer finishes while the panel is hidden.
+        // Its next answer finishes while the panel is hidden: shown again,
+        // the chat is read as an opened one is.
         stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
         vcx.run_until_parked();
-        view.update_in(vcx, |v, window, cx| {
-            v.set_shown(true, cx);
-            v.new_chat(window, cx);
-        });
+        view.update(vcx, |v, cx| v.set_shown(true, cx));
         vcx.run_until_parked();
-        assert_eq!(reads().len(), 2, "a new chat did not read the chat left");
+        assert_eq!(reads().len(), 2, "the chat shown again was not read");
+
+        // Another finishes while it shows, then a new chat starts there.
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.new_chat(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(reads().len(), 3, "a new chat did not read the chat left");
 
         view.update_in(vcx, |v, window, cx| {
             v.open_chat("chat-r".into(), window, cx)

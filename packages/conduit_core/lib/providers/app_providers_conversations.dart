@@ -497,11 +497,15 @@ class Conversations extends _$Conversations {
     );
   }
 
-  /// The write of each chat's newest read, by raw id, until it is stored.
-  final Map<String, Future<void>> _readsStoring = <String, Future<void>>{};
+  /// The write of each chat's newest read, by its database and raw id (two
+  /// accounts, or an account and this device, may hold the same id), until
+  /// it is stored.
+  final Map<(AppDatabase, String), Future<void>> _readsStoring =
+      <(AppDatabase, String), Future<void>>{};
 
-  /// Completes once the read is stored, with the write's error when it
-  /// could not be; throws at once when the chat cannot be looked up. A read
+  /// Completes once the read is stored, with an error when it could not be
+  /// (no database holds the chat, or the write failed, which takes the read
+  /// shown back); throws at once when the chat cannot be looked up. A read
   /// no later than the one shown completes with the write still storing
   /// that one.
   Future<void> markConversationRead(String id, DateTime readAt) {
@@ -512,42 +516,66 @@ class Conversations extends _$Conversations {
     final index = current == null
         ? -1
         : _conversationIndexForSelection(current, id);
-    Conversation? target = index >= 0 ? current![index] : null;
-    if (current != null) {
-      if (index >= 0) {
-        final conversation = current[index];
-        final existing = conversation.lastReadAt;
-        if (existing != null && !readAt.isAfter(existing)) {
-          return _readsStoring[rawId] ?? Future<void>.value();
-        }
-        target = conversation.copyWith(lastReadAt: readAt);
-        final updated = <Conversation>[...current]..[index] = target;
-        _replaceState(updated);
-      }
-    }
+    final listed = index >= 0 ? current![index] : null;
     final directLocal =
-        isDirectLocalConversation(target) ||
-        (target == null && identity.storage == ChatStorageKind.directLocal);
+        isDirectLocalConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.directLocal);
     final libreChat =
-        isLibreChatConversation(target) ||
-        (target == null && identity.storage == ChatStorageKind.libreChat);
+        isLibreChatConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.libreChat);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
         : libreChat
         ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
-    if (db == null || isTemporaryChat(rawId)) return Future<void>.value();
+    final temporary = isTemporaryChat(rawId);
+    if (db == null && !temporary) {
+      return Future<void>.error(StateError('no database holds chat $rawId'));
+    }
+    if (listed != null) {
+      final existing = listed.lastReadAt;
+      if (existing != null && !readAt.isAfter(existing)) {
+        return (db == null ? null : _readsStoring[(db, rawId)]) ??
+            Future<void>.value();
+      }
+      final updated = <Conversation>[...current!]
+        ..[index] = listed.copyWith(lastReadAt: readAt);
+      _replaceState(updated);
+    }
+    if (db == null || temporary) return Future<void>.value();
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
     final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
-    _readsStoring[rawId] = write;
-    void stored([Object? _]) {
-      if (identical(_readsStoring[rawId], write)) _readsStoring.remove(rawId);
+    final key = (db, rawId);
+    _readsStoring[key] = write;
+    void stored() {
+      if (identical(_readsStoring[key], write)) _readsStoring.remove(key);
     }
 
-    write.then(stored, onError: stored);
+    write.then(
+      (_) => stored(),
+      onError: (Object _) {
+        stored();
+        if (listed != null) _takeBackRead(id, readAt, listed.lastReadAt);
+      },
+    );
     return write;
+  }
+
+  /// A read that could not be stored goes from the list too, unless a later
+  /// one replaced it, so asking again writes it.
+  void _takeBackRead(String id, DateTime readAt, DateTime? before) {
+    if (!ref.mounted) return;
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    if (index < 0 || current![index].lastReadAt != readAt) return;
+    _replaceState(
+      <Conversation>[...current]
+        ..[index] = current[index].copyWith(lastReadAt: before),
+    );
   }
 
   /// Re-reads the drawer's folder listings, which load their rows once

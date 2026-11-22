@@ -66,6 +66,13 @@ const String kStoppedHereMetadataKey = 'stoppedHere';
 /// Kept on this device only.
 const String kSettledHereMetadataKey = 'settledHere';
 
+/// Where an answer's metadata says a push of this device took its text from
+/// the server's copy (a fuller answer, or one finished elsewhere), and no
+/// push of it has landed since: that text was never shown here, so the push
+/// does not keep its chat read. Kept on this device only, through a failed
+/// attempt.
+const String kTakenFromServerMetadataKey = 'takenFromServer';
+
 extension ChatMessageComparisonFields on ChatMessage {
   /// Whether the server holds this question until a running reply ends.
   bool get isHeldByServer => metadata?[kMessageHeldByServerMetadataKey] == true;

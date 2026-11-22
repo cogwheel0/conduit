@@ -236,6 +236,26 @@ class _StopHookClient extends FakeSyncApiClient {
 /// Keeps the messages an update leaves out, as Open WebUI's `merge_history`
 /// does (`models/chats.py`, 0.13.4): another device's, saved since this
 /// device last read the chat.
+/// Loses the first chat update's connection before the server takes it, as
+/// a dropped network does; every later one goes through.
+class _FirstUpdateFailsClient extends FakeSyncApiClient {
+  _FirstUpdateFailsClient(super.server);
+
+  var _failed = false;
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    if (!_failed) {
+      _failed = true;
+      throw StateError('connection reset before the update reached $id');
+    }
+    return super.updateChat(id, fullBlob);
+  }
+}
+
 class _MergingHistoryClient extends FakeSyncApiClient {
   _MergingHistoryClient(super.server);
 
@@ -2200,11 +2220,27 @@ void main() {
                 as Map)['messages'][id]
             as Map<String, dynamic>;
 
+    /// A later pull of the chat, read here before the server's clock moved
+    /// on and the push landed.
+    Future<Conversation> pulled() async => (await PullSync(
+      client: client,
+      db: db,
+      locks: chatLocks,
+      remapper: remapper,
+    ).pullChat(chatId))!;
+
+    /// Reads the chat here, then lets the server's clock move on.
+    Future<void> readHere() async {
+      await db.chatsDao.setLastReadAt(chatId, 7000);
+      serverNow = 7300;
+    }
+
     test('a cut-off answer reaches the server finished, with the text kept '
         'here and its error, the chat stopped first while no task '
-        'runs', () async {
+        'runs; read here, it stays read, the text its own', () async {
       await seed();
       await settleCutOff();
+      await readHere();
 
       await push.pushUpdateChat(chatId);
 
@@ -2214,13 +2250,15 @@ void main() {
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check(server.chatStops).deepEquals([chatId]);
       check((await answerHere()).dirty).isFalse();
+      check(isConversationUnread(await pulled())).isFalse();
     });
 
     test('a cut-off answer whose unfinished copy on the server holds more '
-        'text is finished with the server\'s text and the error '
-        'here', () async {
+        'text is finished with the server\'s text and the error here; that '
+        'text was never shown here, so the chat goes unread', () async {
       await seed(stored: kept);
       await settleCutOff('Gales veer');
+      await readHere();
 
       await push.pushUpdateChat(chatId);
 
@@ -2229,38 +2267,63 @@ void main() {
         ..has((it) => it['content'], 'content').equals(kept)
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check((await answerHere()).content).equals(kept);
+      check(isConversationUnread(await pulled())).isTrue();
     });
 
-    /// The chat as a later pull reads it, once the server's clock moved on
-    /// past the read made here, and a push of it landed.
-    Future<Conversation> pushedAfterRead() async {
-      await db.chatsDao.setLastReadAt(chatId, 7000);
-      serverNow = 7300;
+    test('a finished answer whose copy on the server shows the same text and '
+        'a reasoning block more goes as the server\'s; that reasoning was '
+        'never shown here, so the chat goes unread', () async {
+      await seed(
+        stored: kept,
+        done: true,
+        output: [
+          {
+            'type': 'reasoning',
+            'id': 'r1',
+            'summary': [
+              {'type': 'summary_text', 'text': 'Warm air rides up first'},
+            ],
+          },
+          {
+            'type': 'message',
+            'id': 'm1',
+            'role': 'assistant',
+            'status': 'completed',
+            'content': [
+              {'type': 'output_text', 'text': kept},
+            ],
+          },
+        ],
+      );
+      await settleCutOff(kept);
+      await readHere();
+
       await push.pushUpdateChat(chatId);
-      return (await PullSync(
-        client: client,
-        db: db,
-        locks: chatLocks,
-        remapper: remapper,
-      ).pullChat(chatId))!;
-    }
 
-    test('a cut-off answer read here stays read once its push lands, the '
-        'text it took to the server its own', () async {
-      await seed();
-      await settleCutOff();
-
-      check(isConversationUnread(await pushedAfterRead())).isFalse();
+      check((await answerHere()).content).equals(kept);
+      check(isConversationUnread(await pulled())).isTrue();
     });
 
-    test('a push that took the server\'s fuller text leaves the chat '
-        'unread: that text was never shown here', () async {
+    test('the server\'s text a failed push took stays news when the push is '
+        'sent again and lands', () async {
       await seed(stored: kept);
       await settleCutOff('Gales veer');
+      await readHere();
+      final dropping = PushSync(
+        client: _FirstUpdateFailsClient(server),
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
 
-      final pulled = await pushedAfterRead();
+      await check(dropping.pushUpdateChat(chatId)).throws<StateError>();
+      // The fuller answer is stored here now, as if it were this device's.
       check((await answerHere()).content).equals(kept);
-      check(isConversationUnread(pulled)).isTrue();
+      await dropping.pushUpdateChat(chatId);
+
+      check(isConversationUnread(await pulled())).isTrue();
     });
 
     test('with a task running in the chat (another device answering), no '

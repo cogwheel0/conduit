@@ -90,7 +90,7 @@ pub enum ChatListEvent {
 pub struct ChatListStore {
     /// Chats marked unread here while they were open: leaving them, from
     /// any view, keeps the dot until they are shown again
-    /// ([`Self::shown`]).
+    /// ([`Self::mark_read`]).
     pub marked_unread_here: std::collections::HashSet<String>,
     /// [`Self::note_answered`].
     answered_here: std::collections::HashSet<String>,
@@ -172,6 +172,8 @@ impl ChatListStore {
     /// Forgets everything: another account (or none) is in use.
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.account += 1;
+        self.answered_here.clear();
+        self.marked_unread_here.clear();
         self._sync = None;
         self.generation += 1;
         self.search_generation += 1;
@@ -886,16 +888,10 @@ impl ChatListStore {
         }
     }
 
-    /// `id` is on screen again: a mark of unread made before it no longer
-    /// keeps its dot when it is left.
-    pub fn shown(&mut self, id: &str) {
-        self.marked_unread_here.remove(id);
-    }
-
     /// Leaving a chat reads it (what arrived while it was open), when it
     /// may not be read already ([`Self::reads_on_leaving`]). Nobody asked
-    /// for this read: the dot goes at once, a failure is only logged, and
-    /// the list follows the daemon's `chats.changed`.
+    /// for this read: the dot goes at once, and a failure shows nothing but
+    /// asks for the list again, which brings back what the daemon holds.
     pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
         if !self.reads_on_leaving(id) {
             return;
@@ -908,9 +904,10 @@ impl ChatListStore {
             self.changed(cx);
         }
         let call = self.read_call(id);
-        cx.background_spawn(async move {
+        cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
             if let Err(error) = call.await {
                 log::warn!("a chat left could not be read: {error}");
+                this.update(cx, |s, cx| s.refresh(cx)).ok();
             }
         })
         .detach();
@@ -995,8 +992,9 @@ impl ChatListStore {
         )
     }
 
-    /// Opening `id` reads it: its dot goes, here and on the server. Nothing
-    /// is asked of the daemon for a chat that has none.
+    /// Opening `id`, or showing it again, reads it: its dot goes, here and
+    /// on the server, and a mark of unread made here before ends. Nothing
+    /// is asked of the daemon for a chat that has no dot.
     pub fn mark_read(&mut self, id: &str, cx: &mut Context<Self>) {
         self.marked_unread_here.remove(id);
         if self.find(id).is_some_and(|c| c.unread) {
@@ -1490,7 +1488,8 @@ mod tests {
     }
 
     /// The read leaving a chat sends is nobody's request: a failure shows
-    /// no notice, and a list on its way is still taken.
+    /// no notice, but brings the daemon's list back, and a list on its way
+    /// is still taken.
     #[gpui_kit::test]
     fn a_read_on_leaving_shows_no_failure_and_drops_no_list(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
@@ -1515,6 +1514,13 @@ mod tests {
         assert!(
             seen.borrow().is_empty(),
             "a failed read on leaving was shown"
+        );
+        // The daemon stored nothing: the list is asked again, and the chat
+        // keeps its dot.
+        assert_eq!(daemon.calls::<methods::ChatsList>().len(), 2);
+        assert!(
+            store.read_with(cx, |s, _| s.find("a").is_some_and(|c| c.unread)),
+            "a failed read on leaving left the chat shown read"
         );
 
         let newer = list(
@@ -1567,11 +1573,8 @@ mod tests {
         );
         assert!(daemon.calls::<methods::ChatsMarkUnread>().is_empty());
 
-        // Shown again: leaving it now reads it.
-        store.update(cx, |s, cx| {
-            s.shown("a");
-            s.mark_left("a", cx)
-        });
+        // Shown again: read as an opened chat is.
+        store.update(cx, |s, cx| s.mark_read("a", cx));
         cx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),

@@ -46,13 +46,56 @@ import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod/misc.dart';
 import 'package:test/test.dart';
 
 import 'package:conduit_core/testing.dart';
+
+/// Fails the read marks' writes: every one, or only the first [fails].
+final class _FailingReadMarks extends QueryInterceptor {
+  _FailingReadMarks({this.fails});
+
+  /// How many writes fail before the rest go through; null fails them all.
+  int? fails;
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('last_read_at = max') && (fails ?? 1) > 0) {
+      if (fails != null) fails = fails! - 1;
+      throw StateError('database or disk is full');
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
+/// Holds the read marks' writes while [hold] is set; [reached] completes as
+/// the first gets to the database.
+final class _HeldReadMarks extends QueryInterceptor {
+  Completer<void>? hold;
+  final Completer<void> reached = Completer<void>();
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final held = hold;
+    if (held != null && statement.contains('last_read_at = max')) {
+      if (!reached.isCompleted) reached.complete();
+      await held.future;
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
 
 final class _ActiveConversation extends ActiveConversationNotifier {
   @override
@@ -729,6 +772,137 @@ void main() {
         );
         expect(listed(container).single.pinned, isFalse);
       });
+    });
+  });
+
+  group('markConversationRead', () {
+    final readAt = DateTime.fromMillisecondsSinceEpoch(500 * 1000);
+
+    /// A container whose Open WebUI chats are kept in [store], holding the
+    /// read chat `chat-s`.
+    Future<ProviderContainer> readingFrom(AppDatabase store) async {
+      addTearDown(store.close);
+      await store.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Server', updatedAt: 100),
+      );
+      final container = containerWith(
+        pulls: <String>[],
+        storageOverrides: openWebUiStorageOpenOverrides(database: store),
+      );
+      await container.read(conversationsProvider.future);
+      return container;
+    }
+
+    test('a repeated read completes only once the read before it is '
+        'stored', () async {
+      final marks = _HeldReadMarks();
+      final container = await readingFrom(
+        AppDatabase(NativeDatabase.memory().interceptWith(marks)),
+      );
+      final held = marks.hold = Completer<void>();
+      final notifier = container.read(conversationsProvider.notifier);
+
+      final first = notifier.markConversationRead(
+        _openWebUiScoped('chat-s'),
+        readAt,
+      );
+      var repeatedDone = false;
+      final repeated = notifier
+          .markConversationRead(_openWebUiScoped('chat-s'), readAt)
+          .whenComplete(() => repeatedDone = true);
+      await marks.reached.future;
+      expect(repeatedDone, isFalse);
+
+      held.complete();
+      await first;
+      await repeated;
+      expect(repeatedDone, isTrue);
+    });
+
+    test('a repeated read waits only for its own database\'s write, never '
+        'that of another holding the same chat id', () async {
+      await seedDirect('chat-s', title: 'On this device');
+      final container = await readingFrom(
+        AppDatabase(NativeDatabase.memory().interceptWith(_FailingReadMarks())),
+      );
+      expect(
+        await markConversationRead(
+          container,
+          _directScoped('chat-s'),
+          readAt: readAt,
+        ),
+        isTrue,
+      );
+
+      // The server chat's write fails while the on-device chat is read
+      // again: that read is its own, stored already.
+      final server = markConversationRead(
+        container,
+        _openWebUiScoped('chat-s'),
+        readAt: readAt,
+      );
+      final device = markConversationRead(
+        container,
+        _directScoped('chat-s'),
+        readAt: readAt,
+      );
+      expect(await server, isFalse);
+      expect(await device, isTrue);
+    });
+
+    test('a read whose write failed is written again when it is asked '
+        'again', () async {
+      final store = AppDatabase(
+        NativeDatabase.memory().interceptWith(_FailingReadMarks(fails: 1)),
+      );
+      final container = await readingFrom(store);
+
+      expect(
+        await markConversationRead(
+          container,
+          _openWebUiScoped('chat-s'),
+          readAt: readAt,
+        ),
+        isFalse,
+      );
+      expect(
+        await markConversationRead(
+          container,
+          _openWebUiScoped('chat-s'),
+          readAt: readAt,
+        ),
+        isTrue,
+      );
+      expect((await store.chatsDao.getChat('chat-s'))!.lastReadAt, 500);
+    });
+
+    test('a read with no database to store it in is not stored', () async {
+      final container = containerWith(
+        pulls: <String>[],
+        storageOverrides: [appDatabaseProvider.overrideWith((ref) => null)],
+      );
+
+      expect(
+        await markConversationRead(container, _openWebUiScoped('chat-s')),
+        isFalse,
+      );
+    });
+
+    test('a read whose database cannot be read never escapes as an error, '
+        'so a caller may leave it unawaited', () async {
+      final container = containerWith(
+        pulls: <String>[],
+        storageOverrides: [
+          appDatabaseProvider.overrideWith(
+            (ref) => throw StateError('the chats are locked'),
+          ),
+        ],
+      );
+
+      await expectLater(
+        markConversationRead(container, _openWebUiScoped('chat-s')),
+        completion(isFalse),
+      );
     });
   });
 
