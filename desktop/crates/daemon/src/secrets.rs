@@ -15,7 +15,10 @@
 //! partition list wins). Items the `security` tool creates sit in its
 //! stable `apple-tool:` partition. The packaged app talks to the Keychain
 //! directly ([`Keychain`]); its Developer ID signature gives a stable
-//! `teamid:` partition.
+//! `teamid:` partition. An item an earlier, differently signed build stored
+//! would make macOS ask for the login keychain password, so the app reads
+//! with user interaction off first ([`check_master_key`]) and asks the user
+//! before macOS does.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -57,6 +60,8 @@ pub enum SecretError {
     /// A stored key is not base64 of 32 bytes. It is never overwritten: the
     /// secure store it protects would become unreadable for good.
     Corrupt,
+    /// Reading the key needs the user's approval, and the read may not ask.
+    WouldPrompt,
 }
 
 impl std::fmt::Display for SecretError {
@@ -65,6 +70,7 @@ impl std::fmt::Display for SecretError {
             Self::Store(e) if cfg!(target_os = "macos") => write!(f, "keychain: {e}"),
             Self::Store(e) => write!(f, "secret store: {e}"),
             Self::Corrupt => f.write_str("the stored master key is not 32 bytes of base64"),
+            Self::WouldPrompt => f.write_str("reading the master key needs the user's approval"),
         }
     }
 }
@@ -77,6 +83,91 @@ pub trait MasterKeyStore {
     /// Stores `key` unless a key is stored already, and then answers
     /// `false` and replaces nothing: another launch stored its key first.
     fn add(&self, key: &str) -> Result<bool, SecretError>;
+    /// [`Self::load`], never asking the user: [`SecretError::WouldPrompt`]
+    /// when the read needs their approval. A store that never asks reads
+    /// as usual.
+    fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
+        self.load()
+    }
+}
+
+/// A service's master-key items, one per account (the macOS Keychain).
+pub trait MasterKeyItems {
+    /// The accounts that have an item, found without reading any key.
+    fn accounts(&self) -> Result<Vec<String>, SecretError>;
+    fn item(&self, account: &str) -> Box<dyn MasterKeyStore + '_>;
+}
+
+/// What the app finds before it starts conduitd.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MasterKeyCheck {
+    /// The key, read or made without asking the user.
+    Ready(String),
+    /// Reading the stored key would make macOS ask for the login keychain
+    /// password. The app asks first: Continue ([`read_master_key`]) or
+    /// Start fresh ([`fresh_master_key`]).
+    WouldPrompt,
+}
+
+/// The key in use, read without asking the user, or made on first run.
+/// Any other failure of that read is reported, never followed by a read
+/// that may prompt.
+pub fn check_master_key(items: &dyn MasterKeyItems) -> Result<MasterKeyCheck, SecretError> {
+    let item = items.item(&account_in_use(&items.accounts()?));
+    match item.load_without_asking() {
+        Ok(Some(key)) => checked(key).map(MasterKeyCheck::Ready),
+        Ok(None) => create_master_key(item.as_ref()).map(MasterKeyCheck::Ready),
+        Err(SecretError::WouldPrompt) => Ok(MasterKeyCheck::WouldPrompt),
+        Err(e) => Err(e),
+    }
+}
+
+/// Continue: the key in use, read even if macOS asks for it (once, if the
+/// user answers "Always Allow").
+pub fn read_master_key(items: &dyn MasterKeyItems) -> Result<String, SecretError> {
+    load_or_create_master_key(items.item(&account_in_use(&items.accounts()?)).as_ref())
+}
+
+/// Start fresh: a new key under the next generation's account. The old
+/// item is never read (that read is what prompts) and never deleted: an
+/// item another build stored refuses this one's delete anyway, and the
+/// local data it encrypted is moved aside, not deleted.
+pub fn fresh_master_key(items: &dyn MasterKeyItems) -> Result<String, SecretError> {
+    let account = generation_account(generation_in_use(&items.accounts()?).saturating_add(1));
+    create_master_key(items.item(&account).as_ref())
+}
+
+/// The latest generation among `accounts`: [`MASTER_KEY_ACCOUNT`] is the
+/// first, `masterKey.2` the second, and so on. 0 when there is none.
+fn generation_in_use(accounts: &[String]) -> u32 {
+    accounts
+        .iter()
+        .filter_map(|account| generation(account))
+        .max()
+        .unwrap_or(0)
+}
+
+fn generation(account: &str) -> Option<u32> {
+    if account == MASTER_KEY_ACCOUNT {
+        return Some(1);
+    }
+    let n: u32 = account
+        .strip_prefix(MASTER_KEY_ACCOUNT)?
+        .strip_prefix('.')?
+        .parse()
+        .ok()?;
+    (n >= 2 && generation_account(n) == account).then_some(n)
+}
+
+fn generation_account(n: u32) -> String {
+    match n {
+        0 | 1 => MASTER_KEY_ACCOUNT.to_string(),
+        n => format!("{MASTER_KEY_ACCOUNT}.{n}"),
+    }
+}
+
+fn account_in_use(accounts: &[String]) -> String {
+    generation_account(generation_in_use(accounts))
 }
 
 /// The stored master key, creating and storing one on first run. Two first
@@ -84,9 +175,14 @@ pub trait MasterKeyStore {
 /// launch takes that one: a second write would leave the data the first
 /// launch encrypted under a key nobody has.
 pub fn load_or_create_master_key(store: &dyn MasterKeyStore) -> Result<String, SecretError> {
-    if let Some(key) = store.load()? {
-        return checked(key);
+    match store.load()? {
+        Some(key) => checked(key),
+        None => create_master_key(store),
     }
+}
+
+/// A new key stored in `store`, or the key another launch stored first.
+fn create_master_key(store: &dyn MasterKeyStore) -> Result<String, SecretError> {
     let key = new_master_key();
     if store.add(&key)? {
         return Ok(key);
@@ -195,42 +291,75 @@ impl MasterKeyStore for MemoryStore {
 }
 
 #[cfg(target_os = "macos")]
-pub use keychain::Keychain;
+pub use keychain::{Keychain, KeychainItems};
 
 #[cfg(target_os = "macos")]
 mod keychain {
-    use super::{MASTER_KEY_ACCOUNT, MasterKeyStore, SecretError};
+    use super::{MasterKeyItems, MasterKeyStore, SecretError};
     use core_foundation::data::CFData;
-    use security_framework::item::{ItemAddOptions, ItemAddValue, ItemClass};
+    use security_framework::base::Error;
+    use security_framework::item::{
+        ItemAddOptions, ItemAddValue, ItemClass, ItemSearchOptions, Limit,
+    };
+    use security_framework::os::macos::keychain::SecKeychain;
     use security_framework::passwords::get_generic_password;
 
     /// `errSecItemNotFound`.
     const ITEM_NOT_FOUND: i32 = -25300;
     /// `errSecDuplicateItem`.
     const DUPLICATE_ITEM: i32 = -25299;
+    /// A read with user interaction off that needs the user's approval:
+    /// `errSecAuthFailed` for an item another build stored (measured on
+    /// macOS 27, not the documented `errSecInteractionNotAllowed`), and
+    /// `errSecInteractionNotAllowed` (a locked keychain).
+    const NEEDS_APPROVAL: [i32; 2] = [-25293, -25308];
 
-    /// A generic-password item: service = the flavour's, account
-    /// [`MASTER_KEY_ACCOUNT`], default ACL (the signed app).
+    fn store_error(e: Error) -> SecretError {
+        SecretError::Store(format!("{} ({})", e, e.code()))
+    }
+
+    fn text(bytes: Option<Vec<u8>>) -> Result<Option<String>, SecretError> {
+        bytes
+            .map(|b| String::from_utf8(b).map_err(|_| SecretError::Corrupt))
+            .transpose()
+    }
+
+    /// A generic-password item: the flavour's service, one account of the
+    /// key's generations ([`super::check_master_key`]), default ACL (the
+    /// signed app).
     pub struct Keychain {
         pub service: String,
+        pub account: String,
     }
 
     impl Keychain {
-        pub fn new(service: impl Into<String>) -> Self {
+        pub fn new(service: impl Into<String>, account: impl Into<String>) -> Self {
             Self {
                 service: service.into(),
+                account: account.into(),
+            }
+        }
+
+        fn read(&self) -> Result<Option<Vec<u8>>, Error> {
+            match get_generic_password(&self.service, &self.account) {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(e) if e.code() == ITEM_NOT_FOUND => Ok(None),
+                Err(e) => Err(e),
             }
         }
     }
 
     impl MasterKeyStore for Keychain {
         fn load(&self) -> Result<Option<String>, SecretError> {
-            match get_generic_password(&self.service, MASTER_KEY_ACCOUNT) {
-                Ok(bytes) => String::from_utf8(bytes)
-                    .map(Some)
-                    .map_err(|_| SecretError::Corrupt),
-                Err(e) if e.code() == ITEM_NOT_FOUND => Ok(None),
-                Err(e) => Err(SecretError::Store(format!("{} ({})", e, e.code()))),
+            text(self.read().map_err(store_error)?)
+        }
+
+        fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
+            // Process-wide: user interaction is off for this one read only.
+            let _no_ui = SecKeychain::disable_user_interaction().map_err(store_error)?;
+            match self.read() {
+                Err(e) if NEEDS_APPROVAL.contains(&e.code()) => Err(SecretError::WouldPrompt),
+                read => text(read.map_err(store_error)?),
             }
         }
 
@@ -244,12 +373,49 @@ mod keychain {
             });
             options
                 .set_service(&self.service)
-                .set_account_name(MASTER_KEY_ACCOUNT);
+                .set_account_name(&self.account);
             match options.add() {
                 Ok(()) => Ok(true),
                 Err(e) if e.code() == DUPLICATE_ITEM => Ok(false),
-                Err(e) => Err(SecretError::Store(format!("{} ({})", e, e.code()))),
+                Err(e) => Err(store_error(e)),
             }
+        }
+    }
+
+    /// The service's items in the login keychain.
+    pub struct KeychainItems {
+        pub service: String,
+    }
+
+    impl KeychainItems {
+        pub fn new(service: impl Into<String>) -> Self {
+            Self {
+                service: service.into(),
+            }
+        }
+    }
+
+    impl MasterKeyItems for KeychainItems {
+        /// Attributes only: an item's data is never read, so nothing asks.
+        fn accounts(&self) -> Result<Vec<String>, SecretError> {
+            let found = ItemSearchOptions::new()
+                .class(ItemClass::generic_password())
+                .service(&self.service)
+                .load_attributes(true)
+                .limit(Limit::All)
+                .search();
+            match found {
+                Ok(items) => Ok(items
+                    .iter()
+                    .filter_map(|item| item.simplify_dict()?.remove("acct"))
+                    .collect()),
+                Err(e) if e.code() == ITEM_NOT_FOUND => Ok(vec![]),
+                Err(e) => Err(store_error(e)),
+            }
+        }
+
+        fn item(&self, account: &str) -> Box<dyn MasterKeyStore + '_> {
+            Box::new(Keychain::new(self.service.as_str(), account))
         }
     }
 }
@@ -585,6 +751,7 @@ impl MasterKeyStore for SecurityCli {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn session_token_shape() {
@@ -767,5 +934,229 @@ mod tests {
         let store = MemoryStore(std::sync::Mutex::new(Some("short".into())));
         assert_eq!(load_or_create_master_key(&store), Err(SecretError::Corrupt));
         assert_eq!(store.load().unwrap().as_deref(), Some("short"));
+    }
+
+    /// How an item answers a read.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Reads {
+        /// This build stored it: no prompt.
+        Freely,
+        /// Another build stored it: macOS asks for the login keychain
+        /// password.
+        WithPrompt,
+        /// A read that may not ask fails with a status the check doesn't
+        /// know, and the usual read asks.
+        FailsWithoutUi,
+    }
+
+    /// A Keychain service: one item per account.
+    #[derive(Default)]
+    struct FakeKeychain {
+        items: std::sync::Mutex<BTreeMap<String, (String, Reads)>>,
+        /// The accounts read with macOS's prompt, in order.
+        prompted: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl FakeKeychain {
+        fn with(items: &[(&str, &str, Reads)]) -> Self {
+            let keychain = Self::default();
+            for (account, key, reads) in items {
+                keychain
+                    .items
+                    .lock()
+                    .unwrap()
+                    .insert(account.to_string(), (key.to_string(), *reads));
+            }
+            keychain
+        }
+
+        fn key(&self, account: &str) -> Option<String> {
+            self.items
+                .lock()
+                .unwrap()
+                .get(account)
+                .map(|(k, _)| k.clone())
+        }
+
+        fn prompted(&self) -> Vec<String> {
+            self.prompted.lock().unwrap().clone()
+        }
+    }
+
+    struct FakeItem<'a> {
+        keychain: &'a FakeKeychain,
+        account: String,
+    }
+
+    impl MasterKeyStore for FakeItem<'_> {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            let items = self.keychain.items.lock().unwrap();
+            let Some((key, reads)) = items.get(&self.account) else {
+                return Ok(None);
+            };
+            if *reads != Reads::Freely {
+                self.keychain
+                    .prompted
+                    .lock()
+                    .unwrap()
+                    .push(self.account.clone());
+            }
+            Ok(Some(key.clone()))
+        }
+
+        fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
+            match self.keychain.items.lock().unwrap().get(&self.account) {
+                None => Ok(None),
+                Some((key, Reads::Freely)) => Ok(Some(key.clone())),
+                Some((_, Reads::WithPrompt)) => Err(SecretError::WouldPrompt),
+                Some((_, Reads::FailsWithoutUi)) => {
+                    Err(SecretError::Store("an unknown status (-1)".into()))
+                }
+            }
+        }
+
+        fn add(&self, key: &str) -> Result<bool, SecretError> {
+            let mut items = self.keychain.items.lock().unwrap();
+            if items.contains_key(&self.account) {
+                return Ok(false);
+            }
+            items.insert(self.account.clone(), (key.to_string(), Reads::Freely));
+            Ok(true)
+        }
+    }
+
+    impl MasterKeyItems for FakeKeychain {
+        fn accounts(&self) -> Result<Vec<String>, SecretError> {
+            Ok(self.items.lock().unwrap().keys().cloned().collect())
+        }
+
+        fn item(&self, account: &str) -> Box<dyn MasterKeyStore + '_> {
+            Box::new(FakeItem {
+                keychain: self,
+                account: account.to_string(),
+            })
+        }
+    }
+
+    fn a_key() -> String {
+        new_master_key()
+    }
+
+    #[test]
+    fn a_first_launch_makes_its_key_without_asking() {
+        let keychain = FakeKeychain::default();
+        let MasterKeyCheck::Ready(key) = check_master_key(&keychain).unwrap() else {
+            panic!("a first launch has nothing to ask about");
+        };
+        assert!(is_valid_master_key(&key));
+        assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(key));
+        assert!(keychain.prompted().is_empty());
+    }
+
+    #[test]
+    fn a_key_this_build_stored_starts_the_app_without_asking() {
+        let key = a_key();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &key, Reads::Freely)]);
+        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::Ready(key)));
+        assert!(keychain.prompted().is_empty());
+    }
+
+    /// The pre-release build's key: the app asks before macOS does, and
+    /// nothing is read or written until the user chooses.
+    #[test]
+    fn a_key_another_build_stored_is_never_read_before_the_app_asks() {
+        let old = a_key();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
+        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::WouldPrompt));
+        assert!(keychain.prompted().is_empty(), "macOS never asked");
+        assert_eq!(keychain.accounts().unwrap(), [MASTER_KEY_ACCOUNT]);
+        assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(old));
+    }
+
+    #[test]
+    fn continue_reads_the_key_in_use_and_macos_asks_once() {
+        let old = a_key();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
+        assert_eq!(read_master_key(&keychain), Ok(old));
+        assert_eq!(keychain.prompted(), [MASTER_KEY_ACCOUNT]);
+    }
+
+    /// Start fresh never reads the old key (that read is what prompts) and
+    /// never deletes it: it adds a key under the next account, which every
+    /// later launch reads without asking.
+    #[test]
+    fn start_fresh_keeps_the_old_item_and_uses_a_new_key_from_then_on() {
+        let old = a_key();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
+        let fresh = fresh_master_key(&keychain).unwrap();
+        assert!(is_valid_master_key(&fresh));
+        assert_ne!(fresh, old);
+        assert_eq!(
+            keychain.accounts().unwrap(),
+            [MASTER_KEY_ACCOUNT, "masterKey.2"]
+        );
+        assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(old), "left alone");
+        assert_eq!(
+            check_master_key(&keychain),
+            Ok(MasterKeyCheck::Ready(fresh))
+        );
+        assert!(keychain.prompted().is_empty(), "macOS never asked");
+    }
+
+    /// The latest generation is the key in use; accounts outside the
+    /// scheme are never read.
+    #[test]
+    fn the_latest_generation_is_the_key_in_use() {
+        let (current, older) = (a_key(), a_key());
+        let keychain = FakeKeychain::with(&[
+            (MASTER_KEY_ACCOUNT, &older, Reads::WithPrompt),
+            ("masterKey.2", &older, Reads::WithPrompt),
+            ("masterKey.10", &current, Reads::Freely),
+            ("masterKey.11x", "not a key", Reads::WithPrompt),
+            ("masterKey.012", "not a key", Reads::WithPrompt),
+            ("masterKey.1", "not a key", Reads::WithPrompt),
+            ("someone else", "not a key", Reads::WithPrompt),
+        ]);
+        assert_eq!(
+            check_master_key(&keychain),
+            Ok(MasterKeyCheck::Ready(current.clone()))
+        );
+        assert_eq!(read_master_key(&keychain), Ok(current));
+        let fresh = fresh_master_key(&keychain).unwrap();
+        assert_eq!(keychain.key("masterKey.11"), Some(fresh));
+        assert!(keychain.prompted().is_empty());
+    }
+
+    /// Start fresh again, after a key another build stored under the
+    /// second generation: the third.
+    #[test]
+    fn start_fresh_again_takes_the_generation_after_the_latest() {
+        let keychain = FakeKeychain::with(&[
+            (MASTER_KEY_ACCOUNT, &a_key(), Reads::Freely),
+            ("masterKey.2", &a_key(), Reads::WithPrompt),
+        ]);
+        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::WouldPrompt));
+        let fresh = fresh_master_key(&keychain).unwrap();
+        assert_eq!(keychain.key("masterKey.3"), Some(fresh));
+    }
+
+    /// Another failure of the read that may not ask is reported, and the
+    /// key is never read with the prompt behind the user's back: on the
+    /// first live check, such a fallback read raised macOS's dialog.
+    #[test]
+    fn another_failure_without_ui_is_reported_and_never_read_with_the_prompt() {
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::FailsWithoutUi)]);
+        assert!(matches!(
+            check_master_key(&keychain),
+            Err(SecretError::Store(_))
+        ));
+        assert!(keychain.prompted().is_empty(), "macOS never asked");
+    }
+
+    #[test]
+    fn a_corrupt_key_in_use_is_reported_and_kept() {
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, "short", Reads::Freely)]);
+        assert_eq!(check_master_key(&keychain), Err(SecretError::Corrupt));
+        assert_eq!(keychain.key(MASTER_KEY_ACCOUNT).as_deref(), Some("short"));
     }
 }

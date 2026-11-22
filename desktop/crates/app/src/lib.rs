@@ -186,12 +186,12 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     };
     #[cfg(target_os = "macos")]
     let store: Box<dyn MasterKeyStore> = {
-        use conduit_daemon::secrets::{Keychain, SecurityCli};
+        use conduit_daemon::secrets::{Keychain, MASTER_KEY_ACCOUNT, SecurityCli};
         // Dev builds go through /usr/bin/security so a rebuilt (re-hashed)
         // binary never meets a Keychain prompt; see conduit_daemon::secrets.
         match paths.flavor {
             Flavor::Dev => Box::new(SecurityCli::new(service)),
-            Flavor::Production => Box::new(Keychain::new(service)),
+            Flavor::Production => Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT)),
         }
     };
     // Off the Mac a first key is written holding the service's lock, so two
