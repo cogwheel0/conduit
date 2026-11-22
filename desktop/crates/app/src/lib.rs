@@ -509,6 +509,7 @@ pub fn run() {
                 },
                 #[cfg(not(target_os = "linux"))]
                 key_file: None,
+                key_in_background: cfg!(target_os = "linux"),
                 locale: locale::bcp47(settings.read(cx).locale()),
                 client_version: VERSION.into(),
             },

@@ -151,6 +151,7 @@ impl Stores {
                     ))
                 }),
                 key_file: None,
+                key_in_background: false,
                 locale: "en".into(),
                 client_version: "0".into(),
             },

@@ -253,6 +253,10 @@ pub struct ConnectionOptions {
     /// user's alone, made only when they choose it
     /// ([`ConnectionStore::use_key_file`]). `None` where there is none.
     pub key_file: Option<MasterKeySource>,
+    /// Ask for the key off the UI thread from the first try (Linux): another
+    /// launch can hold the key's lock through a keyring prompt, and the
+    /// window, reading as connecting, opens meanwhile.
+    pub key_in_background: bool,
     pub locale: String,
     pub client_version: String,
 }
@@ -342,15 +346,20 @@ impl ConnectionStore {
         let (client, client_events) = RpcClient::start(rpc_config.clone(), &rt);
         client.subscribe(WINDOW_EVENTS, &[]);
 
-        let (master_key, startup_error, no_secret_store, keychain) = match (options.master_key)() {
-            MasterKey::Ready(key) => (Some(key), None, false, None),
-            MasterKey::WouldPrompt(choice) => {
-                (None, None, false, Some(KeychainQuestion::new(choice)))
-            }
-            MasterKey::Failed(e) => {
-                log::error!("no master key: {e}");
-                let unavailable = matches!(e, SecretError::Unavailable(_));
-                (None, Some(e.to_string()), unavailable, None)
+        let in_background = options.key_in_background;
+        let (master_key, startup_error, no_secret_store, keychain) = if in_background {
+            (None, None, false, None)
+        } else {
+            match (options.master_key)() {
+                MasterKey::Ready(key) => (Some(key), None, false, None),
+                MasterKey::WouldPrompt(choice) => {
+                    (None, None, false, Some(KeychainQuestion::new(choice)))
+                }
+                MasterKey::Failed(e) => {
+                    log::error!("no master key: {e}");
+                    let unavailable = matches!(e, SecretError::Unavailable(_));
+                    (None, Some(e.to_string()), unavailable, None)
+                }
             }
         };
         if follow {
@@ -387,7 +396,11 @@ impl ConnectionStore {
             restarting: false,
             opened_urls: vec![],
         };
-        this.spawn_supervisor(cx);
+        if in_background {
+            this.resolve_master_key(this.key_source.clone(), cx);
+        } else {
+            this.spawn_supervisor(cx);
+        }
         this
     }
 
@@ -710,7 +723,7 @@ impl ConnectionStore {
                 s.no_secret_store = false;
                 match answer {
                     MasterKey::Ready(key) => {
-                        log::info!("master key found on retry");
+                        log::info!("master key found");
                         s.start_with_key(key, cx);
                     }
                     MasterKey::WouldPrompt(choice) => {
@@ -1198,6 +1211,20 @@ mod tests {
         Arc<std::sync::atomic::AtomicUsize>,
         tempfile::TempDir,
     ) {
+        over_store_asked(answers, key_file, false, cx)
+    }
+
+    /// [`over_store`], asking for the first key in the background or not.
+    fn over_store_asked(
+        answers: Vec<Result<String, SecretError>>,
+        key_file: Option<MasterKeySource>,
+        key_in_background: bool,
+        cx: &mut gpui_kit::TestAppContext,
+    ) -> (
+        Entity<ConnectionStore>,
+        Arc<std::sync::atomic::AtomicUsize>,
+        tempfile::TempDir,
+    ) {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let scratch = tempfile::Builder::new()
             .prefix("conduit-connection-key-")
@@ -1223,6 +1250,7 @@ mod tests {
                     binary: PathBuf::from("/nonexistent/conduitd"),
                     master_key: source,
                     key_file,
+                    key_in_background,
                     locale: "en".into(),
                     client_version: "0".into(),
                 },
@@ -1303,6 +1331,7 @@ mod tests {
                     binary: PathBuf::from("/nonexistent/conduitd"),
                     master_key: source,
                     key_file: None,
+                    key_in_background: false,
                     locale: "en".into(),
                     client_version: "0".into(),
                 },
@@ -1327,6 +1356,33 @@ mod tests {
         });
         cx.run_until_parked();
         assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    /// Linux asks for the first key off the UI thread too: the window opens
+    /// at once, reading as connecting, while another launch may hold the
+    /// key's lock through a keyring prompt. A key that comes back after
+    /// quitting began starts nothing.
+    #[gpui_kit::test]
+    fn the_first_key_is_asked_for_off_the_ui_thread(cx: &mut gpui_kit::TestAppContext) {
+        use std::sync::atomic::Ordering;
+        let key = secrets::new_master_key();
+        let (connection, asked, _scratch) = over_store_asked(vec![Ok(key.clone())], None, true, cx);
+        assert_eq!(asked.load(Ordering::SeqCst), 0, "not on the UI thread");
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.status(false, None), Status::Connecting);
+            assert!(c.supervisor.is_none());
+        });
+        cx.run_until_parked();
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        connection.read_with(cx, |c, _| {
+            assert_eq!(c.master_key.as_deref(), Some(key.as_str()));
+            assert!(c.supervisor.is_some(), "the daemon starts with the key");
+        });
+
+        let (connection, _, _scratch) = over_store_asked(vec![Ok(key)], None, true, cx);
+        connection.update(cx, |c, _| c.shutdown());
+        cx.run_until_parked();
+        connection.read_with(cx, |c, _| assert!(c.supervisor.is_none()));
     }
 
     /// Quitting while Retry still waits on the keyring: the key that comes
@@ -1457,6 +1513,7 @@ mod tests {
                     binary: PathBuf::from("/nonexistent/conduitd"),
                     master_key: Arc::new(|| MasterKey::Failed(SecretError::Store("test".into()))),
                     key_file: None,
+                    key_in_background: false,
                     locale: "en".into(),
                     client_version: "0".into(),
                 },
@@ -1577,6 +1634,7 @@ mod tests {
                         })
                     },
                     key_file: None,
+                    key_in_background: false,
                     locale: "en".into(),
                     client_version: "0".into(),
                 },

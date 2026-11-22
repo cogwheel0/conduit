@@ -414,6 +414,7 @@ pub(crate) fn stores(rpc: Rpc, scratch: &std::path::Path, cx: &mut App) -> Store
                 )
             }),
             key_file: None,
+            key_in_background: false,
             locale: "en".into(),
             client_version: crate::VERSION.into(),
         },
