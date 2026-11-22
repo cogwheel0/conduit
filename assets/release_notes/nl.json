@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Nieuw",
+      "intro": "Hoi! Pushmeldingen zijn er: afgeronde antwoorden, kanaalberichten en Hermes-taken bereiken je telefoon terwijl Conduit dicht is, versleuteld op je eigen server zodat niemand onderweg ze kan lezen. Eenmalige aanmelding kan toegangssleutels gebruiken via de systeembrowser, Open WebUI 0.13.4 werkt, en elke instellingenpagina opent nu binnen Instellingen.",
+      "bullets": [
+        {
+          "text": "Pushmeldingen: zet ze aan via Instellingen > Meldingen > Pushmeldingen. Op Open WebUI 0.11 of nieuwer installeert een beheerder eenmalig de opensourcefunctie Conduit Push met Instellen, of je gebruikt Vraag je beheerder. Je krijgt afgeronde en mislukte antwoorden, uit Chats gestart in Conduit of Al mijn chats, en kanaalberichten. Elk account toont zijn status, een oplossing met één tik en een testmelding, en Android kan Google of UnifiedPush gebruiken. Een tik opent het juiste account, en Agendaherinneringen melden je Open WebUI-afspraken ook als de app dicht is.",
+          "icon": "direct"
+        },
+        {
+          "text": "Inloggen: eenmalige aanmelding bij Open WebUI kan in de systeembrowser lopen, zodat toegangssleutels en beveiligingssleutels werken. Stel het in bij de geavanceerde instellingen als je een server toevoegt, of op de pagina van de server in Accounts. Het vraagt Open WebUI 0.8 of nieuwer en een client die je beheerder voor Conduit registreert, en de sessie vernieuwt zichzelf. Inloggen zegt nu wanneer de server onbereikbaar is of te lang doet, en op Android vertrouwt Conduit een server waarvan het certificaat komt van een certificeringsinstantie die je zelf hebt geïnstalleerd.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: installeer de Conduit-plug-in met één tik via het Hermes-dashboard, of kopieer de opdracht, om pushmeldingen voor je antwoorden te krijgen, en zet Stuur me een melding aan bij een geplande taak om te horen wanneer die iets aflevert. Inloggen bij een Desktop Gateway brengt je terug naar Conduit en blijft zich vernieuwen. Zet Geplande uitvoeringen tonen uit in de Hermes-instellingen om taakruns uit je chatlijst te houden. Foto's werken meteen in een nieuwe chat, en Laatste beurt ongedaan maken, Opnieuw genereren en Bewerken werken na Huidig model houden.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: de app werkt zonder compatibiliteitswaarschuwing, en chats mislukken niet meer bij strikte providers. Modellen, tools en terminals die je apparaten via Tether aanbieden, zijn gelabeld, en Persoonlijke verbindingen zegt wat daarheen is verhuisd. Codeeragents tonen hun echte modelnaam en stellen hun vragen weer, terminals per chat of per model werken, en gegenereerde video's blijven zoals de server ze heeft opgeslagen. Vastpinnen en archiveren op een andere plek komt aan in Conduit, en een bericht dat je stuurt terwijl het antwoord van een ander apparaat loopt, wacht daarop in plaats van een leeg antwoord te krijgen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Serverherstarts en offline: stopt Open WebUI midden in een antwoord, dan blijft het antwoord staan met zijn tekst, Stoppen houdt die vast, en de server krijgt het afgemaakte antwoord zodra hij terug is. Een bericht dat je intussen stuurt, staat in de wachtrij, Stoppen werkt voor standaardaccounts terwijl een antwoord op zijn verbinding wacht, en een verdwenen server wordt elke 30 seconden gecontroleerd in plaats van elke 2 minuten. Servers die alleen polling toestaan, streamen antwoorden live. Een net verstuurd bericht verdwijnt niet meer, een chat die je direct na het versturen verwijdert, blijft weg, en bulkverwijderingen op het web komen in de app aan.",
+          "icon": "direct"
+        },
+        {
+          "text": "Instellingen: elke pagina opent nu binnen Instellingen, waaronder Werkruimte, Hermes Agent, Directe verbindingen, Geplande taken, geheugen, webhooks en push, en op iOS de agenda. Instellingen op Android heeft dezelfde pagina's, rijen en volgorde als op iOS. Op iPad en Android-tablets toont Instellingen de lijst naast de geopende pagina, zoals de Instellingen-app van de iPad. Schermen die in andere talen nog Engels lieten zien, zoals Werkruimte, MCP-servers en de Hermes-instellingen, zijn vertaald.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: kies Hele kennisbank onder # om een hele kennisbank toe te voegen, en stuur een bijlage zonder iets te typen. Op Android behouden afbeeldingen hun kwaliteit in plaats van wazige JPEG's te worden. Modelnaam in berichtveld tonen, in de Chat-instellingen, zet de naam van het model in het lege berichtveld. Getikte vervolgsuggesties houden de tools van de chat, een opgeslagen chat met veel afbeeldingen verstuurt zonder lang wachten, MCP-apps verschijnen in de chat op volle hoogte, en audio en video waarnaar een tool op je server linkt, spelen af in de app. Directe chats met OpenAI kunnen tools gebruiken met een redeneerniveau.",
+          "icon": "polish"
+        },
+        {
+          "text": "Stem en sneltoetsen: apparaatstemmen op Android spreken in het tempo dat je kiest, van 0,25× tot 2×, zonder lange pauzes bij voorlezen. Op Android onderbreekt een gesprek op de luidspreker zichzelf niet meer en toont de luidsprekerknop waar het gesprek echt loopt. Op iOS klinken antwoorden in een gesprek op normaal volume, en Conduit staat niet meer in het belmenu van een contactkaart. Android krijgt tegels in Snelle instellingen voor een nieuwe chat en een spraakgesprek, en een toetsenbord bij iPad of iPhone krijgt ⌘N, ⌘K, ⌘1 tot ⌘5, ⌘, en Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

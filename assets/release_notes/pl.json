@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Co nowego",
+      "intro": "Cześć! Są powiadomienia push: gotowe odpowiedzi, wiadomości z kanałów i zadania Hermes trafiają na telefon, gdy Conduit jest zamknięty, zaszyfrowane na twoim własnym serwerze, więc nikt po drodze ich nie przeczyta. Logowanie jednokrotne może używać kluczy dostępu przez przeglądarkę systemową, Open WebUI 0.13.4 działa, a każda strona ustawień otwiera się teraz w samych Ustawieniach.",
+      "bullets": [
+        {
+          "text": "Powiadomienia push: włącz je w Ustawienia > Powiadomienia > Powiadomienia push. Na Open WebUI 0.11 lub nowszym administrator raz instaluje otwartoźródłową funkcję Conduit Push przyciskiem Skonfiguruj, a ty możesz użyć Poproś administratora. Dostajesz gotowe i nieudane odpowiedzi, z Czatów rozpoczętych w Conduit albo ze Wszystkich moich czatów, oraz wiadomości z kanałów. Każde konto pokazuje swój stan, poprawkę jednym dotknięciem i powiadomienie testowe, a Android może używać Google albo UnifiedPush. Dotknięcie otwiera właściwe konto, a Przypomnienia kalendarza przypominają o wydarzeniach z Open WebUI nawet przy zamkniętej aplikacji.",
+          "icon": "direct"
+        },
+        {
+          "text": "Logowanie: logowanie jednokrotne do Open WebUI może działać w przeglądarce systemowej, więc klucze dostępu i klucze bezpieczeństwa działają. Skonfigurujesz je w ustawieniach zaawansowanych przy dodawaniu serwera albo na stronie serwera w Kontach. Wymaga Open WebUI 0.8 lub nowszego i klienta, którego administrator zarejestruje dla Conduit, a sesja odnawia się sama. Logowanie mówi teraz, gdy serwer jest nieosiągalny albo odpowiada zbyt długo, a na Androidzie Conduit ufa serwerowi, którego certyfikat pochodzi od zainstalowanego przez ciebie urzędu certyfikacji.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: zainstaluj wtyczkę Conduit jednym dotknięciem przez panel Hermes albo skopiuj jej polecenie, aby dostawać powiadomienia push o swoich odpowiedziach, i włącz Powiadom mnie przy zaplanowanym zadaniu, by wiedzieć, kiedy coś dostarczy. Logowanie do Desktop Gateway wraca do Conduit i samo się odnawia. Wyłącz Pokazuj zaplanowane uruchomienia w ustawieniach Hermes, a uruchomienia zadań nie zapełnią listy czatów. Zdjęcia działają w nowym czacie od razu, a Cofnij ostatnią wymianę, Wygeneruj ponownie i Edytuj działają po Zostań przy obecnym modelu.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: aplikacja działa bez ostrzeżenia o zgodności, a czaty nie kończą się już błędem u restrykcyjnych dostawców. Modele, narzędzia i terminale, które twoje urządzenia udostępniają przez Tether, są oznaczone, a Połączenia osobiste mówią, co się tam przeniosło. Agenci programistyczni pokazują prawdziwe nazwy swoich modeli i znów zadają pytania, terminale tworzone dla czatu lub modelu działają, a wygenerowane filmy zostają takie, jak zapisał je serwer. Przypięcia i archiwizacje zrobione gdzie indziej docierają do Conduit, a wiadomość wysłana, gdy trwa odpowiedź z innego urządzenia, czeka na nią zamiast dostać pustą odpowiedź.",
+          "icon": "direct"
+        },
+        {
+          "text": "Restarty serwera i offline: gdy Open WebUI zatrzyma się w połowie odpowiedzi, odpowiedź zostaje ze swoim tekstem, Zatrzymaj go zachowuje, a serwer dostaje gotową odpowiedź, gdy wróci. Wiadomość wysłana w międzyczasie pokazuje się jako oczekująca w kolejce, Zatrzymaj działa dla zwykłych kont, gdy odpowiedź czeka na połączenie, a serwer, który zniknął, jest sprawdzany co 30 sekund zamiast co 2 minuty. Serwery pozwalające tylko na polling strumieniują odpowiedzi na żywo. Właśnie wysłana wiadomość już nie znika, czat usunięty zaraz po wysłaniu zostaje usunięty, a hurtowe usuwanie w przeglądarce dociera do aplikacji.",
+          "icon": "direct"
+        },
+        {
+          "text": "Ustawienia: każda strona otwiera się teraz w Ustawieniach, w tym Obszar roboczy, Hermes Agent, Połączenia bezpośrednie, Zadania zaplanowane, pamięć, webhooki i push, a na iOS także kalendarz. Ustawienia na Androidzie mają te same strony, wiersze i kolejność co na iOS. Na iPadzie i tabletach z Androidem Ustawienia pokazują listę obok otwartej strony, jak aplikacja Ustawienia na iPadzie. Ekrany, które w innych językach wciąż były po angielsku, na przykład Obszar roboczy, serwery MCP i ustawienia Hermes, są przetłumaczone.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czaty: pod # wybierz Cała baza wiedzy, aby dołączyć całą bazę, i wyślij załącznik bez pisania tekstu. Na Androidzie obrazy zachowują jakość zamiast zmieniać się w rozmyte pliki JPEG. Pokazuj nazwę modelu w polu wiadomości w ustawieniach Czatu wpisuje nazwę modelu w puste pole wiadomości. Dotknięte propozycje dalszych pytań zachowują narzędzia czatu, zapisany czat z wieloma obrazami wysyła się bez długiego czekania, aplikacje MCP pokazują się w czacie w pełnej wysokości, a dźwięk i wideo, do których narzędzie linkuje na twoim serwerze, odtwarzają się w aplikacji. Bezpośrednie czaty z OpenAI mogą używać narzędzi z poziomem rozumowania.",
+          "icon": "polish"
+        },
+        {
+          "text": "Głos i skróty: głosy urządzenia na Androidzie mówią w wybranym tempie, od 0,25× do 2×, a czytanie na głos nie zacina się na długie przerwy. Na Androidzie rozmowa na głośniku już nie przerywa sama siebie, a przycisk głośnika pokazuje, gdzie naprawdę idzie dźwięk. Na iOS odpowiedzi w rozmowie grają z normalną głośnością, a Conduit nie pojawia się już w menu połączeń na karcie kontaktu. Android dostaje kafelki w Szybkich ustawieniach do nowego czatu i rozmowy głosowej, a klawiatura przy iPadzie lub iPhonie dostaje ⌘N, ⌘K, ⌘1 do ⌘5, ⌘, i Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

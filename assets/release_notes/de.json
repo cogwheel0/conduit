@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Push-Benachrichtigungen sind da: Fertige Antworten, Kanalnachrichten und Hermes-Jobs erreichen dein Handy, während Conduit geschlossen ist, verschlüsselt auf deinem eigenen Server, sodass unterwegs niemand sie lesen kann. Single Sign-on kann Passkeys über den Systembrowser nutzen, Open WebUI 0.13.4 funktioniert, und jede Seite der Einstellungen öffnet sich jetzt in den Einstellungen selbst.",
+      "bullets": [
+        {
+          "text": "Push-Benachrichtigungen: Schalte sie unter „Einstellungen > Benachrichtigungen > Push-Benachrichtigungen“ ein. Ab Open WebUI 0.11 installiert ein Admin die quelloffene Funktion Conduit Push einmal mit „Einrichten“, oder du nutzt „Admin fragen“. Du bekommst fertige und fehlgeschlagene Antworten, aus „In Conduit gestartete Chats“ oder „Alle meine Chats“, und Kanalnachrichten. Jedes Konto zeigt seinen Status, eine Lösung mit einem Tippen und eine Testbenachrichtigung, und Android kann Google oder UnifiedPush nutzen. Ein Tippen öffnet das richtige Konto, und „Kalendererinnerungen“ melden deine Open-WebUI-Termine auch bei geschlossener App.",
+          "icon": "direct"
+        },
+        {
+          "text": "Anmeldung: Single Sign-on bei Open WebUI kann im Systembrowser laufen, sodass Passkeys und Sicherheitsschlüssel funktionieren. Richte es beim Hinzufügen eines Servers in den erweiterten Einstellungen ein oder auf der Seite des Servers unter „Konten“. Dafür braucht es Open WebUI 0.8 oder neuer und einen Client, den dein Admin für Conduit registriert, und die Sitzung erneuert sich von selbst. Die Anmeldung sagt jetzt, wenn der Server nicht erreichbar ist oder zu lange braucht, und unter Android vertraut Conduit einem Server, dessen Zertifikat von einer selbst installierten Zertifizierungsstelle stammt.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: Installiere das Conduit-Plugin mit einem Tippen über das Hermes-Dashboard oder kopiere seinen Befehl, um Push-Benachrichtigungen für deine Antworten zu bekommen, und schalte bei einem geplanten Job „Benachrichtige mich“ ein, um zu erfahren, wenn er liefert. Die Anmeldung an einem Desktop Gateway bringt dich zurück zu Conduit und erneuert sich laufend. Schalte „Geplante Ausführungen zeigen“ in den Hermes-Einstellungen aus, damit Job-Läufe deine Chatliste nicht füllen. Fotos funktionieren sofort in einem neuen Chat, und „Letzten Nachrichtenaustausch rückgängig machen“, „Neu generieren“ und „Bearbeiten“ funktionieren nach „Aktuelles Modell behalten“.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: Die App funktioniert ohne Kompatibilitätswarnung, und Chats scheitern nicht mehr an strengen Anbietern. Modelle, Tools und Terminals, die deine Geräte über Tether anbieten, sind gekennzeichnet, und „Persönliche Verbindungen“ sagt, was dorthin umgezogen ist. Coding-Agenten zeigen ihre echten Modellnamen und stellen ihre Fragen wieder, Terminals pro Chat oder pro Modell funktionieren, und erzeugte Videos bleiben so, wie der Server sie gespeichert hat. Anderswo angeheftete und archivierte Chats kommen in Conduit an, und eine Nachricht, die du sendest, während die Antwort eines anderen Geräts läuft, wartet auf sie, statt eine leere Antwort zu bekommen.",
+          "icon": "direct"
+        },
+        {
+          "text": "Server-Neustarts und offline: Hält Open WebUI mitten in einer Antwort an, bleibt die Antwort mit ihrem Text stehen, Stoppen behält ihn, und der Server bekommt die fertige Antwort, sobald er zurück ist. Eine Nachricht, die du in der Zwischenzeit sendest, erscheint als wartend, Stoppen wirkt für Standardkonten auch, während eine Antwort auf ihre Verbindung wartet, und ein verschwundener Server wird alle 30 Sekunden statt alle 2 Minuten geprüft. Server, die nur Polling erlauben, streamen Antworten live. Eine gerade gesendete Nachricht verschwindet nicht mehr, ein direkt nach dem Senden gelöschter Chat bleibt gelöscht, und im Web gesammelt gelöschte Chats und Notizen verschwinden auch in der App.",
+          "icon": "direct"
+        },
+        {
+          "text": "Einstellungen: Jede Seite öffnet sich jetzt in den Einstellungen, darunter Arbeitsbereich, Hermes Agent, Direktverbindungen, Geplante Aufgaben, Erinnerungen, Webhooks und Push, unter iOS auch der Kalender. Die Einstellungen unter Android haben dieselben Seiten, Zeilen und Reihenfolge wie unter iOS. Auf dem iPad und auf Android-Tablets zeigen die Einstellungen ihre Liste neben der geöffneten Seite, wie die Einstellungen-App des iPad. Bildschirme, die in anderen Sprachen noch Englisch zeigten, etwa Arbeitsbereich, MCP-Server und Hermes-Einstellungen, sind übersetzt.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: Wähle unter # „Gesamte Wissensdatenbank“, um eine ganze Datenbank anzuhängen, und sende einen Anhang, ohne etwas zu tippen. Unter Android behalten Bilder ihre Qualität, statt zu unscharfen JPEGs zu werden. „Modellnamen im Nachrichtenfeld zeigen“ in den Chat-Einstellungen schreibt den Namen des Modells ins leere Nachrichtenfeld. Angetippte Folgevorschläge behalten die Tools des Chats, ein gespeicherter Chat mit vielen Bildern sendet ohne lange Wartezeit, MCP-Apps erscheinen in voller Höhe im Chat, und Audio und Video, die ein Tool auf deinem Server verlinkt, spielen in der App. Direct-Chats mit OpenAI können Tools mit einem Denkaufwand nutzen.",
+          "icon": "polish"
+        },
+        {
+          "text": "Sprache und Tastenkürzel: Gerätestimmen unter Android sprechen im gewählten Tempo, von 0,25× bis 2×, ohne lange Pausen beim Vorlesen. Unter Android unterbricht sich ein Anruf über den Lautsprecher nicht mehr selbst, und die Lautsprechertaste zeigt, wo der Anruf wirklich läuft. Unter iOS spielen Antworten im Anruf in normaler Lautstärke, und Conduit erscheint nicht mehr im Anrufmenü der Kontaktkarte. Android bekommt Kacheln in den Schnelleinstellungen für einen neuen Chat und einen Sprachanruf, und eine Tastatur am iPad oder iPhone bekommt ⌘N, ⌘K, ⌘1 bis ⌘5, ⌘, und Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Les notifications push arrivent : les réponses terminées, les messages des canaux et les tâches Hermes parviennent à votre téléphone quand Conduit est fermé, chiffrés sur votre propre serveur pour que personne en chemin ne puisse les lire. L'authentification unique peut utiliser des clés d'accès via le navigateur du système, Open WebUI 0.13.4 fonctionne, et chaque page de réglages s'ouvre désormais dans les Réglages eux-mêmes.",
+      "bullets": [
+        {
+          "text": "Notifications push : activez-les dans Réglages > Notifications > Notifications push. Sur Open WebUI 0.11 ou plus récent, un admin installe une fois la fonction open source Conduit Push avec Configurer, ou vous pouvez utiliser Demander à l'admin. Recevez les réponses terminées et en échec, des Chats lancés dans Conduit ou de Tous mes chats, ainsi que les messages des canaux. Chaque compte affiche son état, une correction en un toucher et une notification de test, et Android peut utiliser Google ou UnifiedPush. Un toucher ouvre le bon compte, et l'option Rappels d'agenda vous prévient de vos événements Open WebUI même app fermée.",
+          "icon": "direct"
+        },
+        {
+          "text": "Connexion : l'authentification unique d'Open WebUI peut passer par le navigateur du système, pour que les clés d'accès et les clés de sécurité fonctionnent. Configurez-la dans les réglages avancés en ajoutant un serveur, ou depuis la page du serveur dans Comptes. Il faut Open WebUI 0.8 ou plus récent et un client que votre admin enregistre pour Conduit, et la session se renouvelle toute seule. La connexion indique désormais quand le serveur est injoignable ou met trop de temps à répondre, et sur Android, Conduit fait confiance à un serveur dont le certificat vient d'une autorité que vous avez installée.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes : installez le plugin Conduit en un toucher depuis le tableau de bord Hermes, ou copiez sa commande, pour recevoir des notifications push de vos réponses, et activez M'avertir sur une tâche planifiée pour savoir quand elle livre. La connexion à un Desktop Gateway vous ramène dans Conduit et se renouvelle d'elle-même. Désactivez Afficher les exécutions planifiées dans les réglages Hermes pour que les exécutions ne remplissent plus votre liste de chats. Les photos fonctionnent tout de suite dans un nouveau chat, et Annuler le dernier échange, Régénérer et Modifier fonctionnent après Garder le modèle actuel.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4 : l'app fonctionne sans avertissement de compatibilité, et les chats n'échouent plus avec les fournisseurs stricts. Les modèles, outils et terminaux que vos appareils proposent via Tether sont signalés, et Connexions personnelles indique ce qui y a été déplacé. Les agents de programmation affichent le vrai nom de leur modèle et posent de nouveau leurs questions, les terminaux créés par chat ou par modèle fonctionnent, et les vidéos générées restent telles que le serveur les a enregistrées. Les épinglages et archivages faits ailleurs arrivent dans Conduit, et un message envoyé pendant la réponse d'un autre appareil l'attend au lieu de recevoir une réponse vide.",
+          "icon": "direct"
+        },
+        {
+          "text": "Redémarrages du serveur et hors ligne : si Open WebUI s'arrête au milieu d'une réponse, la réponse se fige avec son texte, Arrêter le conserve, et le serveur reçoit la réponse terminée dès son retour. Un message envoyé entre-temps s'affiche en file d'attente, Arrêter fonctionne pour les comptes standard pendant qu'une réponse attend sa connexion, et un serveur disparu est vérifié toutes les 30 secondes au lieu de toutes les 2 minutes. Les serveurs qui n'autorisent que le polling diffusent les réponses en direct. Un message tout juste envoyé ne disparaît plus, un chat supprimé juste après l'envoi reste supprimé, et les suppressions en masse sur le web atteignent l'app.",
+          "icon": "direct"
+        },
+        {
+          "text": "Réglages : chaque page s'ouvre désormais dans les Réglages, dont Espace de travail, Agent Hermes, Connexions directes, Tâches planifiées, la mémoire, les webhooks et le push, et sur iOS le calendrier. Les Réglages d'Android ont les mêmes pages, lignes et ordre que sur iOS. Sur iPad et tablettes Android, les Réglages affichent leur liste à côté de la page ouverte, comme l'app Réglages de l'iPad. Les écrans encore en anglais dans d'autres langues, comme Espace de travail, les serveurs MCP et les réglages Hermes, sont traduits.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats : choisissez Toute la base de connaissances sous # pour joindre une base entière, et envoyez une pièce jointe sans rien écrire. Sur Android, les images gardent leur qualité au lieu de devenir des JPEG flous. Afficher le nom du modèle dans la zone de message, dans les réglages Discussion, met le nom du modèle dans la zone de message vide. Les suggestions de suivi touchées gardent les outils du chat, un chat enregistré avec beaucoup d'images s'envoie sans longue attente, les apps MCP s'affichent dans le chat sur toute leur hauteur, et l'audio et la vidéo qu'un outil lie sur votre serveur se lisent dans l'app. Les chats directs avec OpenAI peuvent utiliser des outils avec un niveau de raisonnement.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voix et raccourcis : les voix de l'appareil sur Android parlent à la vitesse choisie, de 0,25× à 2×, sans longues pauses en lecture à voix haute. Sur Android, un appel sur haut-parleur ne s'interrompt plus lui-même et le bouton du haut-parleur montre où passe vraiment l'appel. Sur iOS, les réponses d'un appel sont jouées à un volume normal, et Conduit n'apparaît plus dans le menu d'appel de la fiche contact. Android gagne des vignettes dans les Réglages rapides pour un nouveau chat et un appel vocal, et un clavier sur iPad ou iPhone gagne ⌘N, ⌘K, ⌘1 à ⌘5, ⌘, et Échap.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
