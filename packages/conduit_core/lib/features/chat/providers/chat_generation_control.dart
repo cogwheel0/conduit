@@ -281,6 +281,8 @@ Future<bool> _stopGeneration(Ref ref) {
   String? stoppedAnswerId;
   var taskRan = Future<bool?>.value();
   final serverStops = <Future<bool>>[];
+  // The chat whose stop the stopped answer's own stop asks, and that ask.
+  ({String chatId, Future<bool> taken})? answerStopsChat;
   // The server-side effects of this stop, kept so that a refusal can be asked
   // again after the visible answers have settled (see [_oweCancellation]).
   final cancellation = <_CancellationStep>[];
@@ -457,6 +459,10 @@ Future<bool> _stopGeneration(Ref ref) {
         );
         serverStops.add(transportStop);
         settled.add(transportStop);
+        final taskChatId = last.metadata?['taskConversationId']?.toString();
+        if (taskChatId != null && taskChatId.isNotEmpty) {
+          answerStopsChat = (chatId: taskChatId, taken: transportStop);
+        }
         final regenerationAttemptId =
             last.metadata?[_openWebUiRegenerationAttemptMetadataKey];
         if (regenerationAttemptId is String &&
@@ -510,8 +516,11 @@ Future<bool> _stopGeneration(Ref ref) {
     final activeConv = ref.read(activeConversationProvider);
     if (api != null && activeConv != null) {
       final lookup = taskRan;
+      final answerStop = answerStopsChat;
       final chatStop = cancelOnServer(
         (chatId) async {
+          // The answer's own stop asks this chat's stop already.
+          if (answerStop?.chatId == chatId) return answerStop!.taken;
           await lookup;
           await api.stopTasksByChat(chatId);
           return true;
