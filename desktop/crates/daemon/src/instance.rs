@@ -358,9 +358,21 @@ impl Listener {
         use crate::abstract_socket::{peer_uid, this_uid};
         let listener = self.0;
         let workers = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_WORKERS));
+        let mut failures: u32 = 0;
         loop {
-            let Ok((stream, _)) = listener.accept().await else {
-                continue;
+            let stream = match listener.accept().await {
+                Ok((stream, _)) => {
+                    failures = 0;
+                    stream
+                }
+                Err(e) => {
+                    failures = failures.saturating_add(1);
+                    if failures == 1 {
+                        log::warn!("single instance: a launch couldn't be taken ({e}); waiting");
+                    }
+                    tokio::time::sleep(accept_backoff(failures)).await;
+                    continue;
+                }
             };
             let deadline = Instant::now() + HANDOFF_TIMEOUT;
             if !matches!(peer_uid(&stream), Ok(uid) if uid == this_uid()) {
@@ -396,6 +408,20 @@ impl Listener {
             spawn_worker(pipe, deadline, &workers, &on_launch);
         }
     }
+}
+
+/// How long to wait before accepting again after `failures` accepts in a
+/// row failed (out of descriptors, say): the launch stays queued, so trying
+/// again at once would only spin. The wait doubles from 10 ms up to 1 s; the
+/// listener, and the profile's claim, stay.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn accept_backoff(failures: u32) -> Duration {
+    const FIRST: Duration = Duration::from_millis(10);
+    const MAX: Duration = Duration::from_secs(1);
+    let doubled = 1u32
+        .checked_shl(failures.saturating_sub(1))
+        .unwrap_or(u32::MAX);
+    FIRST.saturating_mul(doubled).min(MAX)
 }
 
 /// The longest wait before the pipe's next end is tried again.
@@ -635,6 +661,18 @@ mod pipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Accepting fails again and again (no descriptors left): the waits
+    /// between tries double, and stop growing at a second.
+    #[test]
+    fn failed_accepts_wait_longer_each_time() {
+        let waits: Vec<_> = [1, 2, 3, 7, 8, 40, u32::MAX]
+            .map(accept_backoff)
+            .into_iter()
+            .map(|wait| wait.as_millis())
+            .collect();
+        assert_eq!(waits, [10, 20, 40, 640, 1_000, 1_000, 1_000]);
+    }
 
     /// A launch's line, as `hand_over` writes it, that stops waiting at
     /// `expires`.
