@@ -1026,7 +1026,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub = ref.listenManual(
       hermesDesktopTranscriptChangesProvider,
       (_, next) => next.whenData(
-        (change) => unawaited(_refreshDesktopHermesTranscript(change.storedId)),
+        (change) =>
+            unawaited(_refreshDesktopHermesTranscript(change.storedId)),
       ),
     );
     _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
@@ -1767,8 +1768,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (mounted) {
         AdaptiveSnackBar.show(
           context,
-          message: AppLocalizations.of(context)!
-              .chatDataControlsResponseRunning,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -2138,7 +2140,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           });
                           try {
                             final trimmedUrl = url.trim();
-                            final page = await readUrlContext(api, trimmedUrl);
+                            final page = await readUrlContext(
+                              api,
+                              trimmedUrl,
+                            );
                             if (page.content.isEmpty) {
                               setError(
                                 page.youtube
@@ -3778,8 +3783,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Whether the open chat's messages can be deleted here: not a LibreChat
   /// chat's, which a delete here would not take off its server.
-  bool _messagesDeletable(WidgetRef rowRef) =>
-      !rowRef.watch(activeConversationProvider.select(isLibreChatConversation));
+  bool _messagesDeletable(WidgetRef rowRef) => !rowRef.watch(
+    activeConversationProvider.select(isLibreChatConversation),
+  );
 
   ChatMessage _messageWithGroupedHermesToolStatuses(
     WidgetRef rowRef,
@@ -4226,7 +4232,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   // in sight: the router keeps a hidden destination's page
                   // mounted with its tickers muted. The work sheet watches
                   // the list itself.
-                  final hermesWork = TickerMode.valuesOf(context).enabled
+                  final hermesWork =
+                      TickerMode.valuesOf(context).enabled
                       ? composerRef.watch(
                           hermesBackgroundWorkProvider.select(
                             (work) => (
@@ -6640,11 +6647,12 @@ class MarkdownPrewarmEligibilityCache {
   // trimmed copies that can double a loaded transcript's text heap.
   final _eligible = Expando<bool>();
 
-  bool isEligible(ChatMessage message) => _eligible[message] ??=
-      message.role == 'assistant' &&
-      !message.isStreaming &&
-      message.content.trim().isNotEmpty &&
-      !message.content.contains('data:image/');
+  bool isEligible(ChatMessage message) =>
+      _eligible[message] ??=
+          message.role == 'assistant' &&
+          !message.isStreaming &&
+          message.content.trim().isNotEmpty &&
+          !message.content.contains('data:image/');
 }
 
 @visibleForTesting

@@ -113,6 +113,7 @@ void main() {
     Future<List<Model>>? modelList,
     bool holdDrain = false,
     bool newChat = false,
+    Conversation? conversation,
     bool reviewer = false,
     Model? model,
     DirectConnectionProfile? directProfile,
@@ -173,7 +174,7 @@ void main() {
           () => _Selected(modelPicked ? model : null, picked: modelPicked),
         ),
         activeConversationProvider.overrideWith(
-          () => _Active(newChat ? null : chat),
+          () => _Active(newChat ? null : (conversation ?? chat)),
         ),
         chatMessagesProvider.overrideWith(() => _Messages(transcript)),
         optimizedStorageServiceProvider.overrideWithValue(_Storage()),
@@ -667,6 +668,73 @@ void main() {
     expect(composerText(tester), isEmpty);
     expect(container.read(attachedFilesProvider), isEmpty);
   });
+
+  testPage(
+    'a Direct send rejected for an unsupported image keeps its draft and '
+    'attachment',
+    (tester) async {
+      final directDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(() => pumpDatabaseOperation(tester, directDb.close));
+      final existingDirect = withChatStorageProvenance(
+        Conversation(
+          id: 'direct-local:existing-chat',
+          title: 'Existing direct chat',
+          createdAt: DateTime.utc(2026, 7, 13),
+          updatedAt: DateTime.utc(2026, 7, 13),
+          metadata: const <String, dynamic>{'backend': 'direct'},
+        ),
+        ChatStorageKind.directLocal,
+      );
+      await tester.runAsync(
+        () => directDb
+            .into(directDb.chats)
+            .insert(
+              ChatsCompanion.insert(
+                id: existingDirect.id,
+                title: existingDirect.title,
+                createdAt: 1,
+                updatedAt: 1,
+                bodySynced: const Value(true),
+              ),
+            ),
+      );
+      final profile = DirectConnectionProfile(
+        id: 'text-only-profile',
+        name: 'Text-only provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final textOnlyModel = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'text-only-model', isMultimodal: false),
+      ]).single;
+      final adapter = _WaitingDirectAdapter();
+      final photo = _dataImageUpload('rejected-photo.png');
+
+      final container = await compareOnPage(
+        tester,
+        ordinarySend: true,
+        conversation: existingDirect,
+        model: textOnlyModel,
+        directProfile: profile,
+        overrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          directLocalDatabaseProvider.overrideWithValue(directDb),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(_IdleDirectDiscovery.new),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          attachedFilesProvider.overrideWith(() => _Tray([photo])),
+        ],
+      );
+
+      expect(adapter.runs, 0);
+      expect(composerText(tester), 'compare this');
+      expect(container.read(attachedFilesProvider), [same(photo)]);
+    },
+  );
 }
 
 FileUploadState _dataImageUpload(String name) {

@@ -495,11 +495,12 @@ class _FolderPageState extends ConsumerState<FolderPage> {
       await ThemedSheets.showCustom<void>(
         context: context,
         isScrollControlled: true,
-        builder: (sheetContext) => ModelSelectorSheet(
-          models: models,
-          selectedModelId: ref.read(selectedModelProvider)?.id,
-          onPick: _pickSingleModel,
-        ),
+        builder: (sheetContext) =>
+            ModelSelectorSheet(
+              models: models,
+              selectedModelId: ref.read(selectedModelProvider)?.id,
+              onPick: _pickSingleModel,
+            ),
       );
     } catch (_) {
       return;
@@ -1253,7 +1254,10 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                           });
                           try {
                             final trimmedUrl = url.trim();
-                            final page = await readUrlContext(api, trimmedUrl);
+                            final page = await readUrlContext(
+                              api,
+                              trimmedUrl,
+                            );
                             if (page.content.isEmpty) {
                               setError(
                                 page.youtube

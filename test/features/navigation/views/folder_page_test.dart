@@ -984,6 +984,93 @@ void main() {
     },
   );
 
+  testWidgets(
+    'folder Direct send rejected for an unsupported image keeps draft and '
+    'attachment',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      final directDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(() => pumpDatabaseOperation(tester, directDb.close));
+      final profile = DirectConnectionProfile(
+        id: 'folder-text-only',
+        name: 'Text-only provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final registry = DirectModelRegistry();
+      final textOnlyModel = registry.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'text-only-model', isMultimodal: false),
+      ]).single;
+      final adapter = _WaitingFolderDirectAdapter();
+      final dataUrl = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+      final photo = FileUploadState(
+        file: File('${Directory.systemTemp.path}/folder-rejected-photo.png'),
+        fileName: 'folder-rejected-photo.png',
+        fileSize: 3,
+        progress: 1,
+        status: FileUploadStatus.completed,
+        fileId: dataUrl,
+        isImage: true,
+        base64DataUrl: dataUrl,
+      );
+
+      final container = _createContainer(
+        folders: const [Folder(id: 'work', name: 'Work')],
+        selectedModel: textOnlyModel,
+        extraOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(
+            _OpenFolderDatabaseAccess.new,
+          ),
+          directLocalDatabaseProvider.overrideWithValue(directDb),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedFolderDirectProfiles(profile),
+          ),
+          directModelRegistryProvider.overrideWithValue(registry),
+          directModelDiscoveryProvider.overrideWith(
+            _IdleFolderDirectDiscovery.new,
+          ),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          attachedFilesProvider.overrideWith(_Tray.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildHarnessFromContainer(container));
+      await tester.pumpAndSettle();
+      (container.read(attachedFilesProvider.notifier) as _Tray).put(photo);
+      await tester.pump();
+
+      final composer = tester.widget<ModernChatInput>(
+        find.byType(ModernChatInput),
+      );
+      final sentFiles = container
+          .read(mediaUploadControllerProvider)
+          .captureSentAttachments();
+      final committed = await tester.runAsync(
+        () => composer.onSendDraft!('Folder rejected draft', sentFiles, (_) {}),
+      );
+      await tester.pumpAndSettle();
+
+      expect(adapter.asked.isCompleted, isFalse);
+      expect(committed, isNull);
+      expect(container.read(attachedFilesProvider), [same(photo)]);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    },
+  );
+
   testWidgets('folder conversation rows reuse the shared chat context menu', (
     tester,
   ) async {

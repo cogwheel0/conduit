@@ -343,6 +343,74 @@ void main() {
     });
   });
   test(
+    'a Direct send rejected for an unsupported image never fires onTurnStarted',
+    () async {
+      final image = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+      final adapter = _WaitingAdapter();
+      final profile = DirectConnectionProfile(
+        id: 'profile-text-only',
+        name: 'Text-only provider',
+        adapterKey: kOllamaAdapterKey,
+        baseUrl: 'http://localhost:11434',
+      );
+      final models = DirectModelRegistry();
+      final textOnlyModel = models.replaceProfileModels(profile, [
+        DirectRemoteModel(id: 'text-only', isMultimodal: false),
+      ]).single;
+      final container = ProviderContainer(
+        overrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          directLocalDatabaseProvider.overrideWith((ref) {
+            final database = AppDatabase(NativeDatabase.memory());
+            ref.onDispose(() => unawaited(database.close()));
+            return database;
+          }),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          selectedModelProvider.overrideWithValue(textOnlyModel),
+          reviewerModeProvider.overrideWithValue(false),
+          directConnectionProfilesProvider.overrideWith(
+            () => _FixedProfiles(profile),
+          ),
+          directModelRegistryProvider.overrideWithValue(models),
+          directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+          directProviderAdapterRegistryProvider.overrideWithValue(
+            DirectProviderAdapterRegistry([adapter]),
+          ),
+          attachedFilesProvider.overrideWith(
+            () => _Tray([
+              FileUploadState(
+                file: File('/synthetic/tray/photo.png'),
+                fileName: 'photo.png',
+                fileSize: 3,
+                progress: 1,
+                status: FileUploadStatus.completed,
+                fileId: image,
+                isImage: true,
+                base64DataUrl: image,
+              ),
+            ]),
+          ),
+          webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+          imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+          codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      var turnStarted = false;
+      await check(
+        durableSend(container, 'Describe this photo', [
+          image,
+        ], onTurnStarted: () => turnStarted = true),
+      ).throws<DirectChatInputException>();
+
+      check(turnStarted).isFalse();
+      check(adapter.runs).equals(0);
+    },
+  );
+
+  test(
     'stored Direct sends keep placeholder ownership across turns and recovery',
     () async {
       final adapter = _WaitingAdapter();
