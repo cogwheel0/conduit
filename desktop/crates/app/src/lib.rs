@@ -188,9 +188,10 @@ fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
     };
     #[cfg(target_os = "macos")]
     let store: Box<dyn MasterKeyStore> = {
+        use crate::stores::connection::KeychainChoice;
         use conduit_daemon::secrets::{
             Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
-            check_master_key,
+            check_master_key, profile_key_account,
         };
         match paths.flavor {
             // Dev builds go through /usr/bin/security so a rebuilt
@@ -200,12 +201,18 @@ fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
             // A scripted run never shows the keychain card.
             Flavor::Production if scripted => Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT)),
             Flavor::Production => {
+                let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &|key| {
+                    std::env::var_os(key)
+                });
                 let items = KeychainItems::new(service);
-                return match check_master_key(&items) {
+                let account = profile_key_account(&paths.user_data);
+                return match check_master_key(&items, &account) {
                     Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
-                    Ok(MasterKeyCheck::WouldPrompt) => {
-                        MasterKey::WouldPrompt(std::sync::Arc::new(items))
-                    }
+                    Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(KeychainChoice {
+                        items: std::sync::Arc::new(items),
+                        account,
+                        lock,
+                    }),
                     Err(e) => MasterKey::Failed(e.to_string()),
                 };
             }

@@ -1121,7 +1121,7 @@
   "desktopResetLocalData": "Réinitialiser les données locales",
   "desktopResetFailed": "Impossible de déplacer les anciennes données. Réessayez, ou cliquez sur « Afficher les journaux » pour en savoir plus.",
   "desktopKeychainPromptTitle": "Conduit a besoin du mot de passe de votre trousseau",
-  "desktopKeychainPromptBody": "La clé des données de Conduit sur ce Mac a été enregistrée par une version précédente. Pour l’utiliser, macOS demande le mot de passe de votre trousseau de session ; cliquez sur « Toujours autoriser » pour qu’il ne le demande qu’une fois. Ou cliquez sur « Repartir de zéro » : vous vous reconnectez, vos conversations restent sur vos serveurs, et les anciennes données sont mises de côté, pas supprimées.",
+  "desktopKeychainPromptBody": "La clé des données de Conduit sur ce Mac a été enregistrée par une version précédente. Pour l’utiliser, macOS demande le mot de passe de votre trousseau de session ; cliquez sur « Toujours autoriser » pour qu’il ne le demande qu’une fois. Ou cliquez sur « Repartir de zéro » : vous vous reconnectez. Les conversations sur vos serveurs y restent ; celles conservées uniquement sur ce Mac sont mises de côté avec les anciennes données, pas supprimées.",
   "desktopKeychainPromptStartFresh": "Repartir de zéro",
   "desktopKeychainPromptFailed": "macOS n’a pas donné la clé à Conduit. Réessayez, ou cliquez sur « Repartir de zéro ».",
   "desktopExportDiagnosticsHint": "Enregistre les journaux et une configuration expurgée dans un fichier zip et l’affiche dans le Finder. Rien n’est envoyé.",

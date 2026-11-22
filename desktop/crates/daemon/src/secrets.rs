@@ -18,7 +18,9 @@
 //! `teamid:` partition. An item an earlier, differently signed build stored
 //! would make macOS ask for the login keychain password, so the app reads
 //! with user interaction off first ([`check_master_key`]) and asks the user
-//! before macOS does.
+//! before macOS does. Its Start fresh ([`start_fresh`]) gives that profile
+//! a key under a new account, recorded for the profile alone
+//! ([`profile_key_account`]): other profiles keep theirs.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -105,36 +107,166 @@ pub enum MasterKeyCheck {
     Ready(String),
     /// Reading the stored key would make macOS ask for the login keychain
     /// password. The app asks first: Continue ([`read_master_key`]) or
-    /// Start fresh ([`fresh_master_key`]).
+    /// Start fresh ([`start_fresh`]).
     WouldPrompt,
 }
 
-/// The key in use, read without asking the user, or made on first run.
-/// Any other failure of that read is reported, never followed by a read
-/// that may prompt.
-pub fn check_master_key(items: &dyn MasterKeyItems) -> Result<MasterKeyCheck, SecretError> {
-    let item = items.item(&account_in_use(&items.accounts()?));
+/// The account of `user_data`'s key: the one Start fresh recorded for that
+/// profile, else [`MASTER_KEY_ACCOUNT`] (every profile before it). Reads a
+/// file, never the Keychain.
+pub fn profile_key_account(user_data: &std::path::Path) -> String {
+    recorded_account(user_data).unwrap_or_else(|| MASTER_KEY_ACCOUNT.to_string())
+}
+
+/// Where a profile's account is recorded: beside its folder, not in it, so
+/// Reset and Clear Local Data, which move the folder aside and start again
+/// with the same key, keep it.
+fn key_account_file(user_data: &std::path::Path) -> std::path::PathBuf {
+    let name = user_data
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "userData".into());
+    user_data.with_file_name(format!("{name}.master-key-account"))
+}
+
+fn recorded_account(user_data: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(key_account_file(user_data)).ok()?;
+    let account = text.trim();
+    generation(account).map(|_| account.to_string())
+}
+
+/// The key under `account`, read without asking the user, or made on first
+/// run. Any other failure of that read is reported, never followed by a
+/// read that may prompt.
+pub fn check_master_key(
+    items: &dyn MasterKeyItems,
+    account: &str,
+) -> Result<MasterKeyCheck, SecretError> {
+    let item = items.item(account);
     match item.load_without_asking() {
         Ok(Some(key)) => checked(key).map(MasterKeyCheck::Ready),
-        Ok(None) => create_master_key(item.as_ref()).map(MasterKeyCheck::Ready),
+        Ok(None) => create_without_asking(item.as_ref()),
         Err(SecretError::WouldPrompt) => Ok(MasterKeyCheck::WouldPrompt),
         Err(e) => Err(e),
     }
 }
 
-/// Continue: the key in use, read even if macOS asks for it (once, if the
-/// user answers "Always Allow").
-pub fn read_master_key(items: &dyn MasterKeyItems) -> Result<String, SecretError> {
-    load_or_create_master_key(items.item(&account_in_use(&items.accounts()?)).as_ref())
+/// Continue: the key under `account`, read even if macOS asks for it
+/// (once, if the user answers "Always Allow").
+pub fn read_master_key(items: &dyn MasterKeyItems, account: &str) -> Result<String, SecretError> {
+    load_or_create_master_key(items.item(account).as_ref())
 }
 
-/// Start fresh: a new key under the next generation's account. The old
-/// item is never read (that read is what prompts) and never deleted: an
-/// item another build stored refuses this one's delete anyway, and the
-/// local data it encrypted is moved aside, not deleted.
-pub fn fresh_master_key(items: &dyn MasterKeyItems) -> Result<String, SecretError> {
+/// A new key stored in `store`, or the key another launch stored first,
+/// read without asking.
+fn create_without_asking(store: &dyn MasterKeyStore) -> Result<MasterKeyCheck, SecretError> {
+    let key = new_master_key();
+    if store.add(&key)? {
+        return Ok(MasterKeyCheck::Ready(key));
+    }
+    match store.load_without_asking() {
+        Ok(Some(key)) => checked(key).map(MasterKeyCheck::Ready),
+        Ok(None) => Err(SecretError::Store("the stored master key went away".into())),
+        Err(SecretError::WouldPrompt) => Ok(MasterKeyCheck::WouldPrompt),
+        Err(e) => Err(e),
+    }
+}
+
+/// What Start fresh did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FreshStart {
+    /// The profile's new key, and where its old folder went.
+    Started {
+        key: String,
+        moved_to: Option<std::path::PathBuf>,
+    },
+    /// Another launch started this profile fresh first: its key.
+    AlreadyFresh(String),
+    /// The profile could not be moved aside, and nothing changed.
+    MoveFailed(String),
+    /// The profile was moved aside (if it had a folder), but no key was
+    /// stored and recorded for it.
+    KeyFailed {
+        error: SecretError,
+        moved_to: Option<std::path::PathBuf>,
+    },
+}
+
+/// Start fresh for the profile at `user_data`, whose key under `asked`
+/// would prompt: its folder moved aside, then a key under the next account,
+/// recorded for the profile. The old item is never read (that read is what
+/// prompts) and never deleted (another build's item refuses this one's
+/// delete anyway).
+///
+/// The folder moves first: a key made first would be the profile's from
+/// then on, and a launch after a failed move would open the old folder
+/// with it. It all happens holding `lock`, so a second launch that chose
+/// Start fresh for the profile finds it recorded under another account and
+/// takes that key.
+pub fn start_fresh(
+    items: &dyn MasterKeyItems,
+    user_data: &std::path::Path,
+    asked: &str,
+    lock: &std::path::Path,
+    now: std::time::SystemTime,
+) -> FreshStart {
+    exclusively(lock, || {
+        Ok(fresh_holding_the_lock(items, user_data, asked, now))
+    })
+    .unwrap_or_else(|error| FreshStart::KeyFailed {
+        error,
+        moved_to: None,
+    })
+}
+
+fn fresh_holding_the_lock(
+    items: &dyn MasterKeyItems,
+    user_data: &std::path::Path,
+    asked: &str,
+    now: std::time::SystemTime,
+) -> FreshStart {
+    if let Some(recorded) = recorded_account(user_data).filter(|a| a != asked) {
+        let error = match items.item(&recorded).load_without_asking() {
+            Ok(Some(key)) => match checked(key) {
+                Ok(key) => return FreshStart::AlreadyFresh(key),
+                Err(e) => e,
+            },
+            Ok(None) => SecretError::Store(format!("no key under {recorded}")),
+            Err(e) => e,
+        };
+        return FreshStart::KeyFailed {
+            error,
+            moved_to: None,
+        };
+    }
+    let moved_to = if user_data.exists() {
+        match crate::paths::move_aside(user_data, now) {
+            Ok(moved_to) => Some(moved_to),
+            Err(e) => return FreshStart::MoveFailed(e.to_string()),
+        }
+    } else {
+        None
+    };
+    match new_profile_key(items, user_data) {
+        Ok(key) => FreshStart::Started { key, moved_to },
+        Err(error) => FreshStart::KeyFailed { error, moved_to },
+    }
+}
+
+/// A key under the next account, recorded for the profile.
+fn new_profile_key(
+    items: &dyn MasterKeyItems,
+    user_data: &std::path::Path,
+) -> Result<String, SecretError> {
     let account = generation_account(generation_in_use(&items.accounts()?).saturating_add(1));
-    create_master_key(items.item(&account).as_ref())
+    let key = match create_without_asking(items.item(&account).as_ref())? {
+        MasterKeyCheck::Ready(key) => key,
+        MasterKeyCheck::WouldPrompt => return Err(SecretError::WouldPrompt),
+    };
+    let file = key_account_file(user_data);
+    std::fs::write(&file, &account)
+        .map_err(|e| SecretError::Store(format!("{}: {e}", file.display())))?;
+    Ok(key)
 }
 
 /// The latest generation among `accounts`: [`MASTER_KEY_ACCOUNT`] is the
@@ -166,23 +298,14 @@ fn generation_account(n: u32) -> String {
     }
 }
 
-fn account_in_use(accounts: &[String]) -> String {
-    generation_account(generation_in_use(accounts))
-}
-
 /// The stored master key, creating and storing one on first run. Two first
 /// launches at once both make a key, but only one is stored, and the other
 /// launch takes that one: a second write would leave the data the first
 /// launch encrypted under a key nobody has.
 pub fn load_or_create_master_key(store: &dyn MasterKeyStore) -> Result<String, SecretError> {
-    match store.load()? {
-        Some(key) => checked(key),
-        None => create_master_key(store),
+    if let Some(key) = store.load()? {
+        return checked(key);
     }
-}
-
-/// A new key stored in `store`, or the key another launch stored first.
-fn create_master_key(store: &dyn MasterKeyStore) -> Result<String, SecretError> {
     let key = new_master_key();
     if store.add(&key)? {
         return Ok(key);
@@ -955,6 +1078,11 @@ mod tests {
         items: std::sync::Mutex<BTreeMap<String, (String, Reads)>>,
         /// The accounts read with macOS's prompt, in order.
         prompted: std::sync::Mutex<Vec<String>>,
+        /// An item another launch stores just before this one's next add.
+        stored_first_elsewhere: std::sync::Mutex<Option<(String, String, Reads)>>,
+        /// Start fresh's lock, and whether each add found it held.
+        lock: Option<std::path::PathBuf>,
+        lock_held_while_adding: std::sync::Mutex<Vec<bool>>,
     }
 
     impl FakeKeychain {
@@ -1016,7 +1144,27 @@ mod tests {
         }
 
         fn add(&self, key: &str) -> Result<bool, SecretError> {
+            if let Some(lock) = &self.keychain.lock {
+                let held = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(false)
+                    .open(lock)
+                    .is_ok_and(|file| {
+                        matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+                    });
+                self.keychain
+                    .lock_held_while_adding
+                    .lock()
+                    .unwrap()
+                    .push(held);
+            }
             let mut items = self.keychain.items.lock().unwrap();
+            if let Some((account, other, reads)) =
+                self.keychain.stored_first_elsewhere.lock().unwrap().take()
+            {
+                items.insert(account, (other, reads));
+            }
             if items.contains_key(&self.account) {
                 return Ok(false);
             }
@@ -1042,10 +1190,52 @@ mod tests {
         new_master_key()
     }
 
+    /// A profile folder with one file sealed under its old key.
+    fn profile(root: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let user_data = root.join(name);
+        std::fs::create_dir_all(user_data.join("db")).unwrap();
+        std::fs::write(
+            user_data.join("db/secure.sqlite"),
+            b"sealed with the old key",
+        )
+        .unwrap();
+        user_data
+    }
+
+    fn fresh(
+        keychain: &FakeKeychain,
+        user_data: &std::path::Path,
+        asked: &str,
+        root: &std::path::Path,
+    ) -> FreshStart {
+        start_fresh(
+            keychain,
+            user_data,
+            asked,
+            &root.join("master-key.lock"),
+            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000),
+        )
+    }
+
+    /// The folders a profile was moved aside to.
+    fn moved_aside(root: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+        let mut found: Vec<_> = std::fs::read_dir(root)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&format!("{name} (reset ")))
+            })
+            .collect();
+        found.sort();
+        found
+    }
+
     #[test]
     fn a_first_launch_makes_its_key_without_asking() {
         let keychain = FakeKeychain::default();
-        let MasterKeyCheck::Ready(key) = check_master_key(&keychain).unwrap() else {
+        let MasterKeyCheck::Ready(key) = check_master_key(&keychain, MASTER_KEY_ACCOUNT).unwrap()
+        else {
             panic!("a first launch has nothing to ask about");
         };
         assert!(is_valid_master_key(&key));
@@ -1057,7 +1247,10 @@ mod tests {
     fn a_key_this_build_stored_starts_the_app_without_asking() {
         let key = a_key();
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &key, Reads::Freely)]);
-        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::Ready(key)));
+        assert_eq!(
+            check_master_key(&keychain, MASTER_KEY_ACCOUNT),
+            Ok(MasterKeyCheck::Ready(key))
+        );
         assert!(keychain.prompted().is_empty());
     }
 
@@ -1067,77 +1260,160 @@ mod tests {
     fn a_key_another_build_stored_is_never_read_before_the_app_asks() {
         let old = a_key();
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
-        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::WouldPrompt));
+        assert_eq!(
+            check_master_key(&keychain, MASTER_KEY_ACCOUNT),
+            Ok(MasterKeyCheck::WouldPrompt)
+        );
         assert!(keychain.prompted().is_empty(), "macOS never asked");
         assert_eq!(keychain.accounts().unwrap(), [MASTER_KEY_ACCOUNT]);
         assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(old));
+    }
+
+    /// Two first launches: this one's add finds the other's key, which
+    /// another build's signature guards. It is read without asking, and
+    /// the app asks first, as at the start.
+    #[test]
+    fn losing_the_first_key_race_never_reads_with_the_prompt() {
+        let keychain = FakeKeychain::default();
+        *keychain.stored_first_elsewhere.lock().unwrap() =
+            Some((MASTER_KEY_ACCOUNT.into(), a_key(), Reads::WithPrompt));
+        assert_eq!(
+            check_master_key(&keychain, MASTER_KEY_ACCOUNT),
+            Ok(MasterKeyCheck::WouldPrompt)
+        );
+        assert!(keychain.prompted().is_empty(), "macOS never asked");
     }
 
     #[test]
     fn continue_reads_the_key_in_use_and_macos_asks_once() {
         let old = a_key();
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
-        assert_eq!(read_master_key(&keychain), Ok(old));
+        assert_eq!(read_master_key(&keychain, MASTER_KEY_ACCOUNT), Ok(old));
         assert_eq!(keychain.prompted(), [MASTER_KEY_ACCOUNT]);
     }
 
     /// Start fresh never reads the old key (that read is what prompts) and
-    /// never deletes it: it adds a key under the next account, which every
-    /// later launch reads without asking.
+    /// never deletes it: it moves the profile aside, adds a key under the
+    /// next account, and records that account in the fresh profile.
     #[test]
-    fn start_fresh_keeps_the_old_item_and_uses_a_new_key_from_then_on() {
+    fn start_fresh_keeps_the_old_item_and_records_a_new_key_in_the_fresh_profile() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = profile(root.path(), "Conduit");
         let old = a_key();
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::WithPrompt)]);
-        let fresh = fresh_master_key(&keychain).unwrap();
-        assert!(is_valid_master_key(&fresh));
-        assert_ne!(fresh, old);
-        assert_eq!(
-            keychain.accounts().unwrap(),
-            [MASTER_KEY_ACCOUNT, "masterKey.2"]
-        );
+        let FreshStart::Started { key, moved_to } =
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path())
+        else {
+            panic!("a fresh start");
+        };
+        assert!(is_valid_master_key(&key));
+        assert_eq!(keychain.key("masterKey.2"), Some(key.clone()));
         assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(old), "left alone");
+        let moved_to = moved_to.expect("the profile was moved aside");
         assert_eq!(
-            check_master_key(&keychain),
-            Ok(MasterKeyCheck::Ready(fresh))
+            std::fs::read(moved_to.join("db/secure.sqlite")).unwrap(),
+            b"sealed with the old key"
+        );
+        assert!(!user_data.join("db").exists());
+        assert_eq!(profile_key_account(&user_data), "masterKey.2");
+        assert_eq!(
+            check_master_key(&keychain, &profile_key_account(&user_data)),
+            Ok(MasterKeyCheck::Ready(key))
         );
         assert!(keychain.prompted().is_empty(), "macOS never asked");
     }
 
-    /// The latest generation is the key in use; accounts outside the
-    /// scheme are never read.
+    /// Profiles on one service: starting one fresh leaves the others on the
+    /// key they were made with. A profile with no record (every profile
+    /// before Start fresh), or a record outside the scheme, uses
+    /// `masterKey`.
     #[test]
-    fn the_latest_generation_is_the_key_in_use() {
-        let (current, older) = (a_key(), a_key());
-        let keychain = FakeKeychain::with(&[
-            (MASTER_KEY_ACCOUNT, &older, Reads::WithPrompt),
-            ("masterKey.2", &older, Reads::WithPrompt),
-            ("masterKey.10", &current, Reads::Freely),
-            ("masterKey.11x", "not a key", Reads::WithPrompt),
-            ("masterKey.012", "not a key", Reads::WithPrompt),
-            ("masterKey.1", "not a key", Reads::WithPrompt),
-            ("someone else", "not a key", Reads::WithPrompt),
-        ]);
+    fn each_profile_keeps_the_key_it_was_made_with() {
+        let root = tempfile::tempdir().unwrap();
+        let first = profile(root.path(), "First");
+        let second = profile(root.path(), "Second");
+        let old = a_key();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &old, Reads::Freely)]);
+        let FreshStart::Started { key, .. } =
+            fresh(&keychain, &first, MASTER_KEY_ACCOUNT, root.path())
+        else {
+            panic!("a fresh start");
+        };
         assert_eq!(
-            check_master_key(&keychain),
-            Ok(MasterKeyCheck::Ready(current.clone()))
+            check_master_key(&keychain, &profile_key_account(&first)),
+            Ok(MasterKeyCheck::Ready(key))
         );
-        assert_eq!(read_master_key(&keychain), Ok(current));
-        let fresh = fresh_master_key(&keychain).unwrap();
-        assert_eq!(keychain.key("masterKey.11"), Some(fresh));
-        assert!(keychain.prompted().is_empty());
+        assert_eq!(profile_key_account(&second), MASTER_KEY_ACCOUNT);
+        assert_eq!(
+            check_master_key(&keychain, &profile_key_account(&second)),
+            Ok(MasterKeyCheck::Ready(old))
+        );
+        std::fs::write(key_account_file(&second), "someone else\n").unwrap();
+        assert_eq!(profile_key_account(&second), MASTER_KEY_ACCOUNT);
     }
 
-    /// Start fresh again, after a key another build stored under the
-    /// second generation: the third.
+    /// Start fresh again on a profile whose second-generation key another
+    /// build stored: the third, whatever other profiles hold.
     #[test]
     fn start_fresh_again_takes_the_generation_after_the_latest() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = profile(root.path(), "Conduit");
+        std::fs::write(key_account_file(&user_data), "masterKey.2").unwrap();
         let keychain = FakeKeychain::with(&[
             (MASTER_KEY_ACCOUNT, &a_key(), Reads::Freely),
             ("masterKey.2", &a_key(), Reads::WithPrompt),
         ]);
-        assert_eq!(check_master_key(&keychain), Ok(MasterKeyCheck::WouldPrompt));
-        let fresh = fresh_master_key(&keychain).unwrap();
-        assert_eq!(keychain.key("masterKey.3"), Some(fresh));
+        assert_eq!(
+            check_master_key(&keychain, &profile_key_account(&user_data)),
+            Ok(MasterKeyCheck::WouldPrompt)
+        );
+        let FreshStart::Started { key, .. } =
+            fresh(&keychain, &user_data, "masterKey.2", root.path())
+        else {
+            panic!("a fresh start");
+        };
+        assert_eq!(keychain.key("masterKey.3"), Some(key));
+        assert_eq!(profile_key_account(&user_data), "masterKey.3");
+    }
+
+    /// Two launches showed the card for one profile and both chose Start
+    /// fresh: the second finds the profile already fresh and takes its key.
+    /// The profile is moved once, and no third key is made.
+    #[test]
+    fn a_second_start_fresh_takes_the_key_the_first_recorded() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = profile(root.path(), "Conduit");
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        let FreshStart::Started { key, .. } =
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path())
+        else {
+            panic!("a fresh start");
+        };
+        assert_eq!(
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path()),
+            FreshStart::AlreadyFresh(key)
+        );
+        assert_eq!(
+            keychain.accounts().unwrap(),
+            [MASTER_KEY_ACCOUNT, "masterKey.2"]
+        );
+        assert_eq!(moved_aside(root.path(), "Conduit").len(), 1);
+        assert!(keychain.prompted().is_empty());
+    }
+
+    /// Start fresh picks and stores the account holding the service's lock,
+    /// which every launch takes turns on.
+    #[test]
+    fn start_fresh_stores_its_key_holding_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = profile(root.path(), "Conduit");
+        let mut keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        keychain.lock = Some(root.path().join("master-key.lock"));
+        assert!(matches!(
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path()),
+            FreshStart::Started { .. }
+        ));
+        assert_eq!(*keychain.lock_held_while_adding.lock().unwrap(), [true]);
     }
 
     /// Another failure of the read that may not ask is reported, and the
@@ -1147,7 +1423,7 @@ mod tests {
     fn another_failure_without_ui_is_reported_and_never_read_with_the_prompt() {
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::FailsWithoutUi)]);
         assert!(matches!(
-            check_master_key(&keychain),
+            check_master_key(&keychain, MASTER_KEY_ACCOUNT),
             Err(SecretError::Store(_))
         ));
         assert!(keychain.prompted().is_empty(), "macOS never asked");
@@ -1156,7 +1432,10 @@ mod tests {
     #[test]
     fn a_corrupt_key_in_use_is_reported_and_kept() {
         let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, "short", Reads::Freely)]);
-        assert_eq!(check_master_key(&keychain), Err(SecretError::Corrupt));
+        assert_eq!(
+            check_master_key(&keychain, MASTER_KEY_ACCOUNT),
+            Err(SecretError::Corrupt)
+        );
         assert_eq!(keychain.key(MASTER_KEY_ACCOUNT).as_deref(), Some("short"));
     }
 }

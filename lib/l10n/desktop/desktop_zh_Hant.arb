@@ -1121,7 +1121,7 @@
   "desktopResetLocalData": "重設本機資料",
   "desktopResetFailed": "無法移走舊資料。請再試一次，或按一下「顯示記錄檔」查看詳細資訊。",
   "desktopKeychainPromptTitle": "Conduit 需要您的鑰匙圈密碼",
-  "desktopKeychainPromptBody": "這台 Mac 上 Conduit 資料的密鑰是由較早的版本儲存的。若要使用它，macOS 會要求輸入您的登入鑰匙圈密碼；按一下「永遠允許」，這樣只會詢問一次。或按一下「重新開始」：您需要重新登入，您的聊天仍保留在伺服器上，舊資料會被移到一旁，而不是刪除。",
+  "desktopKeychainPromptBody": "這台 Mac 上 Conduit 資料的密鑰是由較早的版本儲存的。若要使用它，macOS 會要求輸入您的登入鑰匙圈密碼；按一下「永遠允許」，這樣只會詢問一次。或按一下「重新開始」：您需要重新登入。伺服器上的聊天會保留在那裡；只儲存在這台 Mac 上的聊天會隨舊資料一起移到一旁，而不是刪除。",
   "desktopKeychainPromptStartFresh": "重新開始",
   "desktopKeychainPromptFailed": "macOS 沒有將密鑰提供給 Conduit。請再試一次，或按一下「重新開始」。",
   "desktopExportDiagnosticsHint": "將記錄檔和已去除敏感資訊的設定儲存為 zip 檔，並在 Finder 中顯示。不會上傳任何內容。",

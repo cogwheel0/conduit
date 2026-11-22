@@ -155,6 +155,10 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
                 }))
                 .into_any_element(),
             );
+            // The move's failure line points at the logs.
+            if conn.reset_error.is_some() {
+                buttons.push(show_logs.into_any_element());
+            }
         }
         Status::VersionMismatch { .. } => {
             buttons.push(show_logs.into_any_element());
@@ -168,17 +172,24 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
     }
     // A fixed sentence; the system's reason is in the log (and Show Logs is
     // beside it).
+    let keychain_card = matches!(status, Status::KeychainPrompt { .. });
     let reset_error = conn
         .reset_error
         .as_ref()
+        .filter(|_| !keychain_card)
         .map(|_| SharedString::from(l10n.desktop_reset_failed()));
-    // Spoken as it comes back, again after each refused Continue.
+    // Spoken as the card comes back, again after each failed choice: the
+    // profile that would not move, or the key macOS did not give.
     let keychain_failed = match status {
         Status::KeychainPrompt {
             busy: false,
             failures,
         } if *failures > 0 => Some((
-            SharedString::from(l10n.desktop_keychain_prompt_failed()),
+            SharedString::from(if conn.reset_error.is_some() {
+                l10n.desktop_reset_failed()
+            } else {
+                l10n.desktop_keychain_prompt_failed()
+            }),
             *failures,
         )),
         _ => None,

@@ -1121,7 +1121,7 @@
   "desktopResetLocalData": "Restablecer datos locales",
   "desktopResetFailed": "No se pudieron apartar los datos antiguos. Vuelve a intentarlo o haz clic en «Mostrar registros» para ver los detalles.",
   "desktopKeychainPromptTitle": "Conduit necesita la contraseña de tu llavero",
-  "desktopKeychainPromptBody": "La clave de los datos de Conduit en este Mac la guardó una versión anterior. Para usarla, macOS te pide la contraseña de tu llavero de inicio de sesión; haz clic en «Permitir siempre» para que solo la pida una vez. O haz clic en «Empezar de cero»: vuelves a iniciar sesión, tus chats siguen en tus servidores y los datos antiguos se apartan, no se eliminan.",
+  "desktopKeychainPromptBody": "La clave de los datos de Conduit en este Mac la guardó una versión anterior. Para usarla, macOS te pide la contraseña de tu llavero de inicio de sesión; haz clic en «Permitir siempre» para que solo la pida una vez. O haz clic en «Empezar de cero»: vuelves a iniciar sesión. Los chats de tus servidores se quedan allí; los chats guardados solo en este Mac se apartan con los datos antiguos, no se eliminan.",
   "desktopKeychainPromptStartFresh": "Empezar de cero",
   "desktopKeychainPromptFailed": "macOS no le dio la clave a Conduit. Vuelve a intentarlo o haz clic en «Empezar de cero».",
   "desktopExportDiagnosticsHint": "Guarda los registros y una configuración anonimizada en un archivo zip y lo muestra en el Finder. No se sube nada.",
