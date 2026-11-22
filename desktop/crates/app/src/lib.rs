@@ -134,12 +134,12 @@ pub fn is_scripted(args: &[String]) -> bool {
 /// never touches a profile the caller did not name, or the user's own.
 pub fn harness_profile(
     named: Option<PathBuf>,
-    ordinary: &std::path::Path,
+    ordinary: Option<&std::path::Path>,
     scratch: &std::path::Path,
 ) -> Result<PathBuf, String> {
     match named {
         Some(named) => {
-            if same_folder(&named, ordinary) {
+            if ordinary.is_some_and(|ordinary| same_folder(&named, ordinary)) {
                 Err(format!(
                     "{} is the app's own profile; name a test profile in CONDUIT_USER_DATA",
                     named.display()
@@ -160,15 +160,18 @@ fn same_folder(a: &std::path::Path, b: &std::path::Path) -> bool {
 
 /// The app's own profile for `flavor` (`~/Library/Application Support/
 /// Conduit Dev`, or `Conduit`, on the Mac), which no scripted run may use.
-pub fn app_profile(flavor: Flavor) -> PathBuf {
-    AppPaths::standard(paths::Os::CURRENT, flavor, &paths::System).user_data
+/// `None` with no home folder, where the app has no profile.
+pub fn app_profile(flavor: Flavor) -> Option<PathBuf> {
+    AppPaths::standard(paths::Os::CURRENT, flavor, &paths::System)
+        .ok()
+        .map(|paths| paths.user_data)
 }
 
 /// Whether a scripted pass (E2E, capture) may reset the profile at
 /// `paths`: never the app's own. The passes check it before every reset,
 /// on top of `run()` never giving them that profile.
 pub fn may_reset_profile(paths: &AppPaths) -> bool {
-    !same_folder(&paths.user_data, &app_profile(paths.flavor))
+    app_profile(paths.flavor).is_some_and(|own| !same_folder(&paths.user_data, &own))
 }
 
 /// The Keychain service of a scripted run's master key: never the app's own.
@@ -240,7 +243,10 @@ fn linux_master_key(
     use conduit_daemon::secrets::{KeyFile, SecretService};
     let service = key_service(paths, scripted);
     let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
-    let file = KeyFile::new(paths::master_key_file(&service, &paths::System));
+    let file = KeyFile::new(
+        paths::master_key_file(&service, &paths::System)
+            .map_err(|e| SecretError::Store(e.to_string()))?,
+    );
     let key = conduit_daemon::secrets::linux_master_key(
         &SecretService::new(service),
         &file,
@@ -311,7 +317,15 @@ pub fn run() {
         return;
     }
     let flavor = Flavor::detect();
-    let mut app_paths = AppPaths::for_flavor(flavor);
+    // With no home folder there is no private place for the profile or its
+    // key, and a shared one (the temporary folder) is never used instead.
+    let mut app_paths = match AppPaths::for_flavor(flavor) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("conduit-desktop: {e}");
+            std::process::exit(1);
+        }
+    };
     // A scripted run gets its own profile, logs and Keychain item.
     let scripted_run = is_scripted(&args);
     if scripted_run {
@@ -323,7 +337,7 @@ pub fn run() {
             std::env::temp_dir().join(format!("conduit-harness-{}-{stamp}", std::process::id()));
         let named = std::env::var_os("CONDUIT_USER_DATA").map(PathBuf::from);
         let fresh = named.is_none();
-        match harness_profile(named, &ordinary, &scratch) {
+        match harness_profile(named, ordinary.as_deref(), &scratch) {
             Ok(user_data) => app_paths.user_data = user_data,
             Err(e) => {
                 eprintln!("conduit-desktop: {e}");
@@ -1090,15 +1104,15 @@ mod harness_profile_tests {
         let scratch = std::path::Path::new("/tmp/conduit-harness-1");
         // None named: a fresh one, never the app's own.
         assert_eq!(
-            harness_profile(None, ordinary, scratch).unwrap(),
+            harness_profile(None, Some(ordinary), scratch).unwrap(),
             scratch.join("user-data")
         );
         // The app's own profile, named: refused.
-        assert!(harness_profile(Some(ordinary.to_path_buf()), ordinary, scratch).is_err());
+        assert!(harness_profile(Some(ordinary.to_path_buf()), Some(ordinary), scratch).is_err());
         // Another profile the caller named: that one.
         let named = std::path::PathBuf::from("/tmp/e2e-profile-7");
         assert_eq!(
-            harness_profile(Some(named.clone()), ordinary, scratch).unwrap(),
+            harness_profile(Some(named.clone()), Some(ordinary), scratch).unwrap(),
             named
         );
         assert_eq!(
@@ -1111,7 +1125,9 @@ mod harness_profile_tests {
             user_data,
             logs: PathBuf::from("/tmp/logs"),
         };
-        assert!(!may_reset_profile(&paths(app_profile(Flavor::Dev))));
+        assert!(!may_reset_profile(&paths(
+            app_profile(Flavor::Dev).unwrap()
+        )));
         assert!(may_reset_profile(&paths(scratch.join("user-data"))));
     }
 }

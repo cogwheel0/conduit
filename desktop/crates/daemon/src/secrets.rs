@@ -768,6 +768,7 @@ impl MasterKeyStore for KeyFile {
         use std::os::unix::fs::PermissionsExt as _;
         let failed =
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
+        check_folders_above(&self.path)?;
         let metadata = match std::fs::metadata(&self.path) {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -802,6 +803,8 @@ impl MasterKeyStore for KeyFile {
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
         let dir = parent_or_here(&self.path);
         make_folders_durably(dir).map_err(failed)?;
+        // After making them, so one another user made first is caught too.
+        check_folders_above(&self.path)?;
         let name = self.path.file_name().unwrap_or_default().to_string_lossy();
         let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
         let written = std::fs::OpenOptions::new()
@@ -870,6 +873,58 @@ fn sync_folders_above(path: &std::path::Path) -> std::io::Result<()> {
 #[cfg(unix)]
 fn sync_folder(dir: &std::path::Path) -> std::io::Result<()> {
     std::fs::File::open(dir)?.sync_all()
+}
+
+/// Refuses a key file under a folder another user could change, where they
+/// could put their own key in its place or move this one: every folder
+/// above it that is there must be this user's, or root's and closed to
+/// others. Looked at as named (`symlink_metadata`), up to `/`.
+#[cfg(unix)]
+fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
+    use std::os::unix::fs::MetadataExt as _;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    for folder in path.ancestors().skip(1) {
+        if folder.as_os_str().is_empty() {
+            break;
+        }
+        let metadata = match std::fs::symlink_metadata(folder) {
+            Ok(metadata) => metadata,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(SecretError::Store(format!("{}: {e}", folder.display()))),
+        };
+        let link = metadata.file_type().is_symlink();
+        if let Some(why) = untrusted(metadata.uid(), metadata.mode(), link, me) {
+            return Err(SecretError::Store(format!(
+                "{} {why}, so it can't hold the key file {}",
+                folder.display(),
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Why a folder (owned by `owner`, with `mode`) is no place above the key
+/// file for user `me`, if it isn't. Another user's folder is refused
+/// whatever its mode, as its owner can rename what is in it. Root's are
+/// the system's, unless others can write to them without the sticky bit
+/// (which keeps each entry in `/tmp` its owner's). A link is refused
+/// unless it is root's, part of the system's layout (macOS's `/var`,
+/// Fedora Atomic's `/home`).
+#[cfg(unix)]
+fn untrusted(owner: u32, mode: u32, link: bool, me: u32) -> Option<&'static str> {
+    if link {
+        return (owner != 0).then_some("is a link");
+    }
+    if owner == me {
+        return None;
+    }
+    if owner != 0 {
+        return Some("belongs to another user");
+    }
+    let open_to_others = mode & 0o022 != 0 && mode & 0o1000 == 0;
+    open_to_others.then_some("can be changed by other users")
 }
 
 #[cfg(unix)]
@@ -1257,6 +1312,82 @@ mod tests {
             KeyFile::new(&path).load(),
             Err(SecretError::Store(_))
         ));
+    }
+
+    /// The key file is kept only under folders no other user can change:
+    /// this user's, or root's when closed to others (sticky like `/tmp`
+    /// counts as closed). Another user's folder or a link is refused, but
+    /// root's links (macOS's `/var`) are the system's.
+    #[cfg(unix)]
+    #[test]
+    fn only_folders_no_other_user_can_change_hold_the_key_file() {
+        let me = 501;
+        let other = 502;
+        let ok = [
+            (me, 0o40700, false),
+            (me, 0o40777, false),
+            (0, 0o40755, false),
+            (0, 0o41777, false),
+            (0, 0o120755, true),
+        ];
+        for (owner, mode, link) in ok {
+            assert_eq!(untrusted(owner, mode, link, me), None, "{owner} {mode:o}");
+        }
+        let refused = [
+            (other, 0o40755, false),
+            (other, 0o40700, false),
+            (other, 0o41777, false),
+            (0, 0o40777, false),
+            (0, 0o40775, false),
+            (me, 0o120755, true),
+            (other, 0o120755, true),
+        ];
+        for (owner, mode, link) in refused {
+            assert!(
+                untrusted(owner, mode, link, me).is_some(),
+                "{owner} {mode:o}"
+            );
+        }
+        // Root's own folders are root's.
+        assert_eq!(untrusted(0, 0o40777, false, 0), None);
+    }
+
+    /// A key file under a link is neither made nor read: a link under
+    /// this user's own folder, as no test can make another user's folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_file_under_a_link_is_refused() {
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let real = dir.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let name = "app.example.conduit.master-key";
+        let linked = KeyFile::new(link.join("share").join(name));
+        assert!(
+            matches!(linked.add(&new_master_key()), Err(SecretError::Store(_))),
+            "made under a link"
+        );
+        assert!(!real.join("share").join(name).exists());
+        // The same folder, named without the link, holds it.
+        let key = load_or_create_master_key(&KeyFile::new(real.join("share").join(name))).unwrap();
+        assert!(is_valid_master_key(&key));
+        assert!(
+            matches!(linked.load(), Err(SecretError::Store(_))),
+            "read through a link"
+        );
+        // A launch that finds it there gets an error, never that key or a
+        // new one in the keyring.
+        let lock = KeyLock::File(dir.path().join(format!("{name}.lock")));
+        let keyring = Keyring::up(true);
+        assert!(matches!(
+            linux_master_key(&keyring, &linked, &lock, false),
+            Err(SecretError::Store(_))
+        ));
+        assert_eq!(*keyring.key.lock().unwrap(), None);
     }
 
     /// Something that happens in the middle of a launch's first look at
