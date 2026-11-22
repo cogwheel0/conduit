@@ -139,6 +139,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
     FilesService? files,
     ChatPromptsService? chatPrompts,
     QueuedCompletionsService? queued,
+    List<Override> Function()? scopeOverrides,
     DateTime Function()? now,
     Future<void> Function(Duration)? pause,
   }) : temporary = temporary ?? TemporaryChats(),
@@ -149,7 +150,8 @@ final class TurnsService implements ChatTurns, AddressReplies {
        _hermes = hermes,
        _files = files,
        _chatPrompts = chatPrompts,
-       _queuedCompletions = queued {
+       _queuedCompletions = queued,
+       _scopeOverrides = scopeOverrides {
     // A chat keeps its scope while it has answers waiting to go out, so one
     // that goes out streams there; once none wait it may go.
     queued?.onChanged = (chatId) {
@@ -234,6 +236,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
 
   /// Answers waiting in the outbox (sent while offline, or failed).
   final QueuedCompletionsService? _queuedCompletions;
+
+  /// What the host adds to every chat's scope, such as its schedulers.
+  final List<Override> Function()? _scopeOverrides;
 
   late final List<ProviderSubscription<Object?>> _accountWatches;
   StreamSubscription<Object?>? _remaps;
@@ -3707,6 +3712,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         composerTextInsertionProvider.overrideWith(
           ComposerTextInsertionNotifier.new,
         ),
+        ...?_scopeOverrides?.call(),
       ],
     );
     session = _ChatSession(scope, requestedChatId: chatId)..holds = 1;

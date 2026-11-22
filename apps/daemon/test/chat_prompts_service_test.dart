@@ -6,7 +6,6 @@ import 'dart:async';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
-import 'package:conduitd/src/chat_prompts_service.dart';
 import 'package:conduitd/src/queued_completions_service.dart';
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:test/test.dart';

@@ -20,18 +20,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'accounts_service.dart';
 import 'auth_service.dart';
 import 'bootstrap.dart';
-import 'chat_prompts_service.dart';
-import 'chats_service.dart';
-import 'composer_service.dart';
-import 'drafts_service.dart';
 import 'local_whisper.dart';
 import 'direct_service.dart';
-import 'mcp_apps_service.dart';
-import 'mcp_service.dart';
 import 'notes_service.dart';
-import 'channels_service.dart';
-import 'prompts_service.dart';
-import 'queued_completions_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
 import 'daemon_paths.dart';
@@ -41,45 +32,16 @@ import 'files_service.dart';
 import 'media_service.dart';
 import 'settled.dart';
 import 'log.dart';
+import 'protocol_services.dart';
 import 'rpc_session.dart';
-import 'temporary_chats.dart';
 import 'ui_requests_service.dart';
-import 'models_service.dart';
-import 'servers_service.dart';
-import 'settings_service.dart';
-import 'capabilities_service.dart';
 import 'system_service.dart';
-import 'turns_service.dart';
-import 'valves_service.dart';
-import 'web_search_service.dart';
-import 'workspace_service.dart';
 import 'terminals_service.dart';
-import 'computer_rpc_service.dart';
-import 'handoff_service.dart';
-import 'automations_service.dart';
-import 'calendar_service.dart';
-import 'hermes_admin_service.dart';
-import 'hermes_cards_service.dart';
-import 'hermes_rooms_service.dart';
 import 'hermes_service.dart';
-import 'apple_models_service.dart';
 import 'calls_service.dart';
-import 'speech_service.dart';
 import 'voice_service.dart';
 import 'dictation_service.dart';
 import 'recordings_service.dart';
-import 'core_settings_service.dart';
-import 'data_service.dart';
-import 'access_service.dart';
-import 'chat_settings_service.dart';
-import 'folder_settings_service.dart';
-import 'librechat_service.dart';
-import 'integrations_service.dart';
-import 'memories_service.dart';
-import 'notifications_service.dart';
-import 'webhooks_service.dart';
-import 'profile_service.dart';
-import 'release_notes_rpc_service.dart';
 
 /// The loopback server the desktop app talks to.
 ///
@@ -128,17 +90,21 @@ class DaemonServer {
   /// Completed by [attachCore], or with null when the daemon stops first.
   /// Only waited on after [coreStarting].
   Completer<CoreRuntime?>? _coreComing;
-  AccountsService? _accounts;
-  ServersService? _servers;
-  AuthService? _auth;
-  SettingsService? _settings;
-  ChatsService? _chats;
-  HandoffService? _handoff;
-  CalendarService? _calendar;
-  AutomationsService? _automations;
-  TurnsService? _turns;
-  ModelsService? _models;
-  FilesService? _files;
+  ProtocolServices? _services;
+
+  // What the routes and the diagnostics snapshot read: none until the core
+  // attaches.
+  AccountsService? get _accounts => _services?.accounts;
+  AuthService? get _auth => _services?.auth;
+  DirectService? get _direct => _services?.direct;
+  HermesService? get _hermes => _services?.hermes;
+  FilesService? get _files => _services?.files;
+  NotesService? get _notes => _services?.notes;
+  TerminalsService? get _terminals => _services?.terminals;
+  VoiceService? get _voice => _services?.voice;
+  DictationService? get _dictation => _services?.dictation;
+  RecordingsService? get _recordings => _services?.recordings;
+  CallsService? get _calls => _services?.calls;
 
   /// `GET /media/{image|pdf}`: no core needed, so it answers from the start
   /// (the account's server, once there is one, is reached as it is).
@@ -156,52 +122,12 @@ class DaemonServer {
     return server == null ? null : Uri.tryParse(server.url);
   }
 
-  UiRequestsService? _uiRequests;
-  ChatPromptsService? _chatPrompts;
-  QueuedCompletionsService? _queuedCompletions;
-  McpAppsService? _mcpApps;
-  HermesCardsService? _hermesCards;
-  HermesRoomsService? _hermesRooms;
-  ComposerService? _composer;
-  DraftsService? _drafts;
-  PromptsService? _prompts;
-  DirectService? _direct;
-  McpService? _mcp;
-  WebSearchService? _webSearch;
-  NotesService? _notes;
-  ChannelsService? _channels;
-  WorkspaceService? _workspace;
-  TerminalsService? _terminals;
-  ComputerRpcService? _computer;
-  HermesService? _hermes;
-  HermesAdminService? _hermesAdmin;
-  VoiceService? _voice;
-  DictationService? _dictation;
-  RecordingsService? _recordings;
-  CapabilitiesService? _capabilities;
-  CoreSettingsService? _coreSettings;
-  ProfileService? _profile;
-  MemoriesService? _memories;
-  NotificationsService? _notifications;
-  WebhooksService? _webhooks;
-  IntegrationsService? _integrations;
-  LibreChatService? _libreChat;
-  ChatSettingsService? _chatSettings;
-  ValvesService? _valves;
-  AccessService? _access;
-  FolderSettingsService? _folderSettings;
-  SpeechService? _readAloud;
-  CallsService? _calls;
-  AppleModelsService? _apple;
-  ReleaseNotesRpcService? _releaseNotes;
-  DataService? _data;
-
-  /// What sessions see of the services above: none until [attachCore].
-  CoreServices _coreServices = const CoreServices();
+  /// What sessions see of the services: none until [attachCore].
+  CoreServices get _coreServices => _services?.core ?? const CoreServices();
 
   /// The broker the core asks its questions through. Exposed so tests can
   /// ask one and watch it cross the RPC boundary.
-  UiRequestsService? get uiRequests => _uiRequests;
+  UiRequestsService? get uiRequests => _services?.uiRequests;
 
   final EventBus events = EventBus();
   final Map<String, RpcSession> _sessions = <String, RpcSession>{};
@@ -246,216 +172,24 @@ class DaemonServer {
     _core = core;
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);
-    _servers = ServersService(core.container, events: events);
-    _auth = AuthService(core.container, events: events);
-    _settings = SettingsService(core.container);
-    final temporary = TemporaryChats();
-    _queuedCompletions = QueuedCompletionsService(core.container, events);
-    _hermes = HermesService(core.container, events: events);
-    // Bot Mode and Group Chats; a bot's Bot Chat opens as its session.
-    _hermesRooms = HermesRoomsService(
-      core.container,
-      events,
-      connection: _hermes!.connection,
-    );
-    _hermes!.botChats = _hermesRooms;
-    _hermesAdmin = HermesAdminService(
+    _services = ProtocolServices.compose(
       core.container,
       events: events,
-      hermes: _hermes,
-      dashboardCookies: core.dashboardCookies,
-    );
-    _chats = ChatsService(
-      core.container,
-      events: events,
-      temporary: temporary,
-      hermes: _hermes,
-      queued: _queuedCompletions,
-    );
-    _files = FilesService(core.container);
-    _uiRequests = UiRequestsService(events);
-    // The core's own prompts, raised from any chat's turn, reach the windows
-    // through the same broker.
-    core.uiRequests.attach(_uiRequests!);
-    _chatPrompts = ChatPromptsService(events);
-    _turns = TurnsService(
-      core.container,
-      events,
-      temporary: temporary,
-      uiRequests: _uiRequests,
-      hermes: _hermes,
-      files: _files,
-      chatPrompts: _chatPrompts,
-      queued: _queuedCompletions,
-    );
-    // A Hermes model switch is asked as the question of the chat holding
-    // its session.
-    core.uiRequests.hermesChatOf = _turns!.hermesChatOf;
-    // The list's unread dots and a chat's abilities read the turns.
-    _chats!.turns = _turns;
-    // Changing the address in use asks first while one of them answers.
-    _servers!.replies = _turns;
-    // A Hermes chat's agent cards: its work, its context, its questions.
-    _hermesCards = HermesCardsService(
-      core.container,
-      events,
-      hold: (chatId) => _turns!.holdScope(chatId),
-      release: (chatId) => _turns?.releaseScope(chatId),
-      uiRequests: _uiRequests,
-    );
-    _turns!.hermesCards = _hermesCards;
-    // A server's `chat:handoff` for a chat the user is in: one answering
-    // here, or one a window shows.
-    _handoff = HandoffService(
-      events,
-      claims: (chatId) =>
-          (_turns?.hasScope(chatId) ?? false) || events.watches(chatId),
-    );
-    core.handoff.attach(_handoff!);
-    _drafts = DraftsService(core.container, temporary: temporary);
-    _mcpApps = McpAppsService(core.container, events, uiRequests: _uiRequests);
-    _accounts = AccountsService(core.container, events: events, turns: _turns);
-    _models = ModelsService(core.container, events: events);
-    _composer = ComposerService(core.container);
-    _prompts = PromptsService(core.container);
-    _direct = DirectService(core.container);
-    _mcp = McpService(core.container);
-    _webSearch = WebSearchService(core.container);
-    _notes = NotesService(
-      core.container,
-      events: events,
-      paths: core.directories,
-    );
-    _channels = ChannelsService(core.container, events: events);
-    _workspace = WorkspaceService(core.container, events: events);
-    final models = _models!;
-    _terminals = TerminalsService(
-      core.container,
-      events: events,
-      modelFor: models.modelFor,
-    );
-    _computer = ComputerRpcService(core.container, modelFor: models.modelFor);
-    _voice = VoiceService(
-      core.container,
-      events: events,
-      local: WhisperTranscriber(
-        Directory(p.join(core.directories.paths.userData, 'whisper')),
+      system: _system,
+      ports: ProtocolHostPorts(
+        uiRequests: core.uiRequests,
+        handoff: core.handoff,
+        openUrl: core.openUrl,
+        calls: core.calls,
+        apple: core.apple,
+        location: core.location,
+        paths: core.directories,
+        dashboardCookies: core.dashboardCookies,
+        localTranscriber: WhisperTranscriber(
+          Directory(p.join(core.directories.paths.userData, 'whisper')),
+        ),
       ),
     );
-    _dictation = DictationService(core.container, voice: _voice!);
-    _recordings = RecordingsService(drafts: _drafts!, dictation: _dictation!);
-    _coreSettings = CoreSettingsService(core.container, events: events);
-    _profile = ProfileService(core.container, accounts: _accounts);
-    _memories = MemoriesService(core.container);
-    _notifications = NotificationsService(
-      core.container,
-      events: events,
-      announced: _turns!.announced,
-    );
-    _webhooks = WebhooksService(core.container);
-    _integrations = IntegrationsService(core.container);
-    _libreChat = LibreChatService(
-      core.container,
-      events: events,
-      accounts: _accounts!,
-    );
-    _calendar = CalendarService(core.container, events: events);
-    _automations = AutomationsService(core.container, events: events);
-    _releaseNotes = ReleaseNotesRpcService(core.container);
-    _data = DataService(core.container, events: events);
-    _chatSettings = ChatSettingsService(
-      core.container,
-      scopeOf: (chatId) => _turns?.scopeOf(chatId),
-    );
-    _chats?.chatSettings = _chatSettings;
-    _valves = ValvesService(core.container);
-    _access = AccessService(core.container, workspace: _workspace);
-    _folderSettings = FolderSettingsService(core.container, events: events);
-    final chats = _chats;
-    _readAloud = SpeechService(
-      core.container,
-      events: events,
-      voice: _voice!,
-      answerFor: chats?.answerFor,
-    );
-    _calls = CallsService(
-      core.container,
-      events: events,
-      turns: _turns!,
-      ports: core.calls,
-      speech: _readAloud,
-    );
-    // Apple's on-device model: the chat runs here, the model in the window.
-    core.apple.bind(events);
-    // `{{USER_LOCATION}}`: the window asks the Mac's location services.
-    core.location.bind(events);
-    _apple = AppleModelsService(core.container, bridge: core.apple);
-    if (chats != null) {
-      _voice!.speechOfChat = (chatId) async => SpeechService.speechForModel(
-        core.container,
-        await chats.modelOf(chatId),
-      );
-    }
-    // Every session reads this, including one that connected before now.
-    _coreServices = CoreServices(
-      accounts: _accounts,
-      servers: _servers,
-      auth: _auth,
-      settings: _settings,
-      chats: _chats,
-      turns: _turns,
-      models: _models,
-      uiRequests: _uiRequests,
-      chatPrompts: _chatPrompts,
-      mcpApps: _mcpApps,
-      hermesCards: _hermesCards,
-      composer: _composer,
-      prompts: _prompts,
-      direct: _direct,
-      mcp: _mcp,
-      webSearch: _webSearch,
-      notes: _notes,
-      channels: _channels,
-      workspace: _workspace,
-      terminals: _terminals,
-      computer: _computer,
-      hermes: _hermes,
-      hermesAdmin: _hermesAdmin,
-      voice: _voice,
-      dictation: _dictation,
-      recordings: _recordings,
-      coreSettings: _coreSettings,
-      profile: _profile,
-      memories: _memories,
-      notifications: _notifications,
-      webhooks: _webhooks,
-      integrations: _integrations,
-      libreChat: _libreChat,
-      releaseNotes: _releaseNotes,
-      data: _data,
-      drafts: _drafts,
-      chatSettings: _chatSettings,
-      valves: _valves,
-      access: _access,
-      folderSettings: _folderSettings,
-      speech: _readAloud,
-      calls: _calls,
-      apple: _apple,
-      location: core.location,
-      handoff: _handoff,
-      calendar: _calendar,
-      automations: _automations,
-      hermesRooms: _hermesRooms,
-    );
-    // What the active account can use: answered by `system.capabilities`
-    // and the handshake, announced on change.
-    _capabilities = CapabilitiesService(
-      core.container,
-      events: events,
-      onChange: (capabilities) => _system.capabilities = capabilities,
-    );
-    // An MCP sign-in opens the provider's page through a window.
-    core.openUrl.attach(events);
     _log.info('core attached');
   }
 
@@ -1244,57 +978,18 @@ class DaemonServer {
       await session.close();
     }
     _sessions.clear();
-    await _calls?.dispose();
-    await _readAloud?.dispose();
-    await _terminals?.dispose();
-    await _computer?.dispose();
-    await _data?.dispose();
-    _terminals = null;
-    _computer = null;
+    await _services?.closeTransports();
     await _server?.close(force: true);
     _server = null;
     _media.close();
-    // The services that hold chats and watches go while the core they read
-    // is still there: stopping an answer that is still running, and closing a
-    // chat that lingers after its answer, both read its container.
-    _accounts?.dispose();
-    _accounts = null;
-    _servers?.dispose();
-    _auth?.dispose();
-    _notifications?.dispose();
-    await _turns?.dispose();
-    _queuedCompletions?.dispose();
-    _mcpApps?.dispose();
-    _hermesCards?.dispose();
-    _hermesRooms?.dispose();
-    _hermesRooms = null;
-    _hermesAdmin?.dispose();
-    _hermesAdmin = null;
-    _core?.uiRequests.hermesChatOf = null;
-    _turns = null;
-    _chats?.dispose();
-    _chats = null;
-    _core?.handoff.detach();
-    _handoff = null;
-    _calendar?.dispose();
-    _calendar = null;
-    _automations?.dispose();
-    _automations = null;
-    _capabilities?.dispose();
-    _capabilities = null;
-    // Waits for the recordings' writers: nothing writes once the database
-    // below is closed.
-    await _notes?.close();
-    // After the sockets and those, so nothing can arrive mid-teardown and
-    // read a half-disposed container; before completing, so a caller
-    // awaiting `onStopped` knows the database is closed and the process can
-    // exit.
+    await _services?.dispose();
+    // After the sockets and the services, so nothing can arrive
+    // mid-teardown and read a half-disposed container; before completing,
+    // so a caller awaiting `onStopped` knows the database is closed and the
+    // process can exit.
     await _core?.dispose();
     _core = null;
-    _servers = null;
-    _auth = null;
-    _settings = null;
-    _models = null;
+    _services = null;
     if (!_stopped.isCompleted) _stopped.complete();
   }
 }
