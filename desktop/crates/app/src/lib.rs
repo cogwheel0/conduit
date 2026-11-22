@@ -227,12 +227,19 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
     load_or_create_master_key(store.as_ref())
 }
 
-/// D12: the master key from its key file, made there if missing, once the
-/// user chose that over the Secret Service they don't have.
+/// D12: once the user chose the key file, the key is still the Secret
+/// Service's whenever one answers; only with none at all is it read from
+/// the key file, or made there.
 #[cfg(target_os = "linux")]
 fn key_file_master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
-    let file = paths::master_key_file(&key_service(paths, scripted), &paths::System);
-    conduit_daemon::secrets::load_or_create_master_key(&conduit_daemon::secrets::KeyFile::new(file))
+    use conduit_daemon::secrets::{KeyFile, LockedStore, SecretService};
+    let service = key_service(paths, scripted);
+    let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &paths::System);
+    let file = KeyFile::new(paths::master_key_file(&service, &paths::System));
+    conduit_daemon::secrets::key_file_master_key(
+        &LockedStore::new(SecretService::new(service), lock),
+        &file,
+    )
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts

@@ -104,6 +104,21 @@ pub fn load_or_create_master_key(store: &dyn MasterKeyStore) -> Result<String, S
     }
 }
 
+/// D12's key once the user chose the key file: still the Secret Service's
+/// whenever one answers (made there on first run), and the key file's only
+/// when there is none at all. A keyring that is locked or refuses keeps its
+/// answer: a new key in a file beside a keyring that holds the key would
+/// leave the data that key protects behind.
+pub fn key_file_master_key(
+    secret_service: &dyn MasterKeyStore,
+    key_file: &dyn MasterKeyStore,
+) -> Result<String, SecretError> {
+    match load_or_create_master_key(secret_service) {
+        Err(SecretError::Unavailable(_)) => load_or_create_master_key(key_file),
+        answered => answered,
+    }
+}
+
 /// A stored key, trimmed, unless it is not base64 of 32 bytes.
 fn checked(key: String) -> Result<String, SecretError> {
     let key = key.trim().to_string();
@@ -514,30 +529,67 @@ mod secret_service {
         }
     }
 
-    fn store_error(e: oo7::Error) -> SecretError {
-        SecretError::Store(e.to_string())
+    /// The keyring's failure as a [`SecretError`]: `Unavailable` only when
+    /// there is no Secret Service to ask ([`no_secret_service`]). A dismissed
+    /// prompt (declining to create the default keyring among them), a locked
+    /// or refusing keyring and every other failure are the keyring's own
+    /// answer, `Store`: Retry asks it again, and the key file is not offered
+    /// over a keyring that works.
+    pub(super) fn keyring_error(e: oo7::Error) -> SecretError {
+        if no_secret_service(&e) {
+            SecretError::Unavailable(e.to_string())
+        } else {
+            SecretError::Store(e.to_string())
+        }
     }
 
-    /// The keyring can't even be reached: no session bus, or nothing
-    /// provides the Secret Service on it.
-    fn unavailable(e: oo7::Error) -> SecretError {
-        SecretError::Unavailable(e.to_string())
+    /// The D-Bus errors that say nothing provides `org.freedesktop.secrets`.
+    const SERVICE_MISSING: [&str; 2] = [
+        "org.freedesktop.DBus.Error.ServiceUnknown",
+        "org.freedesktop.DBus.Error.NameHasNoOwner",
+    ];
+
+    /// No session bus to reach (no address, no socket, nobody listening on
+    /// it), or nothing on it provides the Secret Service.
+    fn no_secret_service(e: &oo7::Error) -> bool {
+        use oo7::zbus;
+        let oo7::Error::DBus(e) = e else {
+            return false;
+        };
+        let (oo7::dbus::Error::ZBus(wire)
+        | oo7::dbus::Error::Service(oo7::dbus::ServiceError::ZBus(wire))) = e
+        else {
+            return false;
+        };
+        match wire {
+            zbus::Error::Address(_) | zbus::Error::Connection(..) => true,
+            zbus::Error::InputOutput(e) => matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ),
+            zbus::Error::MethodError(name, ..) => SERVICE_MISSING.contains(&name.as_str()),
+            zbus::Error::FDO(e) => matches!(
+                **e,
+                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
+            ),
+            _ => false,
+        }
     }
 
     impl ReplacingStore for SecretService {
         fn load(&self) -> Result<Option<String>, SecretError> {
             futures_lite::future::block_on(async {
-                let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
-                keyring.unlock().await.map_err(store_error)?;
+                let keyring = oo7::Keyring::new().await.map_err(keyring_error)?;
+                keyring.unlock().await.map_err(keyring_error)?;
                 let items = keyring
                     .search_items(&self.attributes())
                     .await
-                    .map_err(store_error)?;
+                    .map_err(keyring_error)?;
                 let Some(item) = items.first() else {
                     return Ok(None);
                 };
-                item.unlock().await.map_err(store_error)?;
-                let secret = item.secret().await.map_err(store_error)?;
+                item.unlock().await.map_err(keyring_error)?;
+                let secret = item.secret().await.map_err(keyring_error)?;
                 String::from_utf8(secret.to_vec())
                     .map(Some)
                     .map_err(|_| SecretError::Corrupt)
@@ -546,13 +598,101 @@ mod secret_service {
 
         fn replace(&self, key: &str) -> Result<(), SecretError> {
             futures_lite::future::block_on(async {
-                let keyring = oo7::Keyring::new().await.map_err(unavailable)?;
-                keyring.unlock().await.map_err(store_error)?;
+                let keyring = oo7::Keyring::new().await.map_err(keyring_error)?;
+                keyring.unlock().await.map_err(keyring_error)?;
                 keyring
                     .create_item(&self.service, &self.attributes(), key, true)
                     .await
-                    .map_err(store_error)
+                    .map_err(keyring_error)
             })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use oo7::dbus::{Error as DBus, ServiceError};
+        use oo7::zbus;
+
+        fn kind(e: SecretError) -> &'static str {
+            match e {
+                SecretError::Unavailable(_) => "unavailable",
+                SecretError::Store(_) => "store",
+                SecretError::Corrupt => "corrupt",
+            }
+        }
+
+        fn method_error(name: &str) -> zbus::Error {
+            let call = zbus::Message::method_call("/org/freedesktop/secrets", "OpenSession")
+                .unwrap()
+                .build(&())
+                .unwrap();
+            zbus::Error::MethodError(name.try_into().unwrap(), None, call)
+        }
+
+        fn io(kind: std::io::ErrorKind) -> zbus::Error {
+            zbus::Error::InputOutput(std::sync::Arc::new(std::io::Error::from(kind)))
+        }
+
+        /// Only a missing bus or a missing service offers the key file;
+        /// declining the "create the default keyring" prompt, a locked
+        /// keyring and other failures keep Retry.
+        #[test]
+        fn only_a_missing_bus_or_service_counts_as_no_secret_service() {
+            use std::io::ErrorKind;
+            let wire = |e: zbus::Error| oo7::Error::DBus(DBus::ZBus(e));
+            let service = |e: ServiceError| oo7::Error::DBus(DBus::Service(e));
+            for (error, expected) in [
+                // No session bus.
+                (
+                    wire(zbus::Error::Address("no address".into())),
+                    "unavailable",
+                ),
+                (wire(io(ErrorKind::NotFound)), "unavailable"),
+                (wire(io(ErrorKind::ConnectionRefused)), "unavailable"),
+                // Nothing provides org.freedesktop.secrets.
+                (
+                    wire(method_error("org.freedesktop.DBus.Error.ServiceUnknown")),
+                    "unavailable",
+                ),
+                (
+                    service(ServiceError::ZBus(method_error(
+                        "org.freedesktop.DBus.Error.NameHasNoOwner",
+                    ))),
+                    "unavailable",
+                ),
+                (
+                    wire(zbus::Error::FDO(Box::new(
+                        zbus::fdo::Error::ServiceUnknown("org.freedesktop.secrets".into()),
+                    ))),
+                    "unavailable",
+                ),
+                // The keyring answered.
+                (oo7::Error::DBus(DBus::Dismissed), "store"),
+                (oo7::Error::DBus(DBus::Deleted), "store"),
+                (oo7::Error::DBus(DBus::NotFound("default".into())), "store"),
+                (service(ServiceError::IsLocked("locked".into())), "store"),
+                (service(ServiceError::NoSession("gone".into())), "store"),
+                (wire(io(ErrorKind::PermissionDenied)), "store"),
+                (
+                    wire(method_error("org.freedesktop.DBus.Error.AccessDenied")),
+                    "store",
+                ),
+                (
+                    wire(zbus::Error::FDO(Box::new(zbus::fdo::Error::AccessDenied(
+                        "no".into(),
+                    )))),
+                    "store",
+                ),
+                (wire(zbus::Error::InvalidReply), "store"),
+                (
+                    oo7::Error::DBus(DBus::IO(std::io::Error::other("disk"))),
+                    "store",
+                ),
+            ] {
+                let shown = error.to_string();
+                assert_eq!(kind(keyring_error(error)), expected, "{shown}");
+            }
         }
     }
 }
@@ -976,6 +1116,45 @@ mod tests {
             KeyFile::new(&path).load(),
             Err(SecretError::Store(_))
         ));
+    }
+
+    /// A store that always fails with `error`.
+    struct Failing(SecretError);
+
+    impl MasterKeyStore for Failing {
+        fn load(&self) -> Result<Option<String>, SecretError> {
+            Err(self.0.clone())
+        }
+        fn add(&self, _: &str) -> Result<bool, SecretError> {
+            Err(self.0.clone())
+        }
+    }
+
+    /// The key file is used only when there is no Secret Service at all:
+    /// a keyring that holds the key, has room for one, or is locked keeps it.
+    #[test]
+    fn the_key_file_never_replaces_a_secret_service_that_answers() {
+        let keyring_key = new_master_key();
+        let holding = MemoryStore(std::sync::Mutex::new(Some(keyring_key.clone())));
+        let file = MemoryStore::default();
+        assert_eq!(key_file_master_key(&holding, &file), Ok(keyring_key));
+        assert_eq!(file.load(), Ok(None), "no key file beside the keyring's key");
+
+        let empty = MemoryStore::default();
+        let made = key_file_master_key(&empty, &file).unwrap();
+        assert_eq!(empty.load(), Ok(Some(made)), "made in the keyring");
+        assert_eq!(file.load(), Ok(None));
+
+        let locked = Failing(SecretError::Store("the keyring is locked".into()));
+        assert_eq!(
+            key_file_master_key(&locked, &file),
+            Err(SecretError::Store("the keyring is locked".into()))
+        );
+        assert_eq!(file.load(), Ok(None));
+
+        let none = Failing(SecretError::Unavailable("no session bus".into()));
+        let from_file = key_file_master_key(&none, &file).unwrap();
+        assert_eq!(file.load(), Ok(Some(from_file)));
     }
 
     #[test]
