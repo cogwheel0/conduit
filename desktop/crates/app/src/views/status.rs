@@ -1,11 +1,13 @@
 //! The designed connection states: a centred status card in the first-run
 //! frame (connecting, core starting, failed with Retry, unreadable data with
-//! Reset local data, version mismatch), and the reconnect banner shown over
-//! content that is already routed.
+//! Reset local data, the keychain's question before conduitd starts, version
+//! mismatch), and the reconnect banner shown over content that is already
+//! routed.
 
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, brand_mark, icon};
 use conduit_components::theme::{MONO_FONT, with_alpha};
 use conduit_components::views::kit::{Button, ClickHandler, heading};
@@ -14,7 +16,7 @@ use gpui_kit::prelude::*;
 use gpui_kit::{AnyElement, App, Div, Entity, FontWeight, Role, SharedString, div, px, relative};
 
 use crate::l10n::{ActiveL10n as _, L10n};
-use crate::stores::connection::{ConnectionStore, Diagnostics, Status};
+use crate::stores::connection::{ConnectionStore, Diagnostics, KeychainFailure, Status};
 
 /// The word beside the composer's Send while it can't send: the state the
 /// window's banner shows for the same connection ("Reconnecting…",
@@ -36,6 +38,44 @@ pub fn send_waits(status: &Status, l10n: &L10n) -> String {
         Status::Reconnecting { .. } => l10n.desktop_send_waits_reconnecting(),
         Status::Connecting | Status::CoreStarting => l10n.desktop_send_waits_starting(),
         _ => l10n.desktop_send_waits_offline(),
+    }
+}
+
+/// The keychain card's title and body: its own for a key that is gone.
+pub fn keychain_card_text(missing: bool, l10n: &L10n) -> (String, String) {
+    if missing {
+        (
+            l10n.desktop_keychain_missing_title(),
+            l10n.desktop_keychain_missing_body(),
+        )
+    } else {
+        (
+            l10n.desktop_keychain_prompt_title(),
+            l10n.desktop_keychain_prompt_body(),
+        )
+    }
+}
+
+/// Whether the keychain card offers Continue: not for a key that is gone,
+/// nor after Start Fresh moved the profile aside (Continue would open an
+/// empty one at its place).
+pub fn keychain_card_offers_continue(status: &Status) -> bool {
+    matches!(
+        status,
+        Status::KeychainPrompt {
+            moved: false,
+            missing: false,
+            ..
+        }
+    )
+}
+
+/// The keychain card's line for the choice that failed.
+pub fn keychain_failure_line(failure: KeychainFailure, l10n: &L10n) -> String {
+    match failure {
+        KeychainFailure::NoKey => l10n.desktop_keychain_prompt_failed(),
+        KeychainFailure::Move => l10n.desktop_reset_failed(),
+        KeychainFailure::NewKey => l10n.desktop_keychain_prompt_fresh_failed(),
     }
 }
 
@@ -73,6 +113,10 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             false,
             Some(r.warning),
         ),
+        Status::KeychainPrompt { busy, missing, .. } => {
+            let (title, body) = keychain_card_text(*missing, &l10n);
+            (title.into(), Some(body.into()), *busy, Some(r.warning))
+        }
         Status::VersionMismatch { .. } => (
             l10n.desktop_core_version_mismatch().into(),
             None,
@@ -124,6 +168,49 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             );
             buttons.push(show_logs.into_any_element());
         }
+        Status::KeychainPrompt { busy, .. } => {
+            let offers_continue = keychain_card_offers_continue(status);
+            if offers_continue {
+                let s = store.clone();
+                buttons.push(
+                    Button::new("status-keychain-continue", l10n.continue_action())
+                        .primary()
+                        .disabled(*busy)
+                        .on_click(handler(move |cx| {
+                            s.update(cx, |s, cx| s.keychain_continue(cx))
+                        }))
+                        .into_any_element(),
+                );
+            }
+            let s = store.clone();
+            let start_fresh = Button::new(
+                "status-keychain-start-fresh",
+                l10n.desktop_keychain_prompt_start_fresh(),
+            )
+            .disabled(*busy)
+            .on_click(handler(move |cx| {
+                s.update(cx, |s, cx| s.keychain_start_fresh(cx))
+            }));
+            buttons.push(
+                if offers_continue {
+                    start_fresh
+                } else {
+                    start_fresh.primary()
+                }
+                .into_any_element(),
+            );
+            // Start Fresh's failures say why in the log.
+            if matches!(
+                status,
+                Status::KeychainPrompt {
+                    busy: false,
+                    failure: Some(KeychainFailure::Move | KeychainFailure::NewKey),
+                    ..
+                }
+            ) {
+                buttons.push(show_logs.into_any_element());
+            }
+        }
         Status::VersionMismatch { .. } => {
             buttons.push(show_logs.into_any_element());
             buttons.push(
@@ -136,10 +223,26 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
     }
     // A fixed sentence; the system's reason is in the log (and Show Logs is
     // beside it).
+    let keychain_card = matches!(status, Status::KeychainPrompt { .. });
     let reset_error = conn
         .reset_error
         .as_ref()
+        .filter(|_| !keychain_card)
         .map(|_| SharedString::from(l10n.desktop_reset_failed()));
+    // Spoken as the card comes back, again after each failed choice: the
+    // profile that would not move, or the key macOS did not give.
+    let keychain_failed = match status {
+        Status::KeychainPrompt {
+            busy: false,
+            failures,
+            failure: Some(failure),
+            ..
+        } => Some((
+            SharedString::from(keychain_failure_line(*failure, &l10n)),
+            *failures,
+        )),
+        _ => None,
+    };
 
     let mark = div()
         .size(px(56.))
@@ -210,6 +313,19 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
                     .text_size(px(t.metrics.small))
                     .text_color(r.danger)
                     .child(e),
+            )
+        })
+        .when_some(keychain_failed, |d, (e, failures)| {
+            d.child(
+                div()
+                    .id("status-keychain-failed")
+                    .role(Role::Alert)
+                    .aria_label(e.clone())
+                    .text_size(px(t.metrics.small))
+                    .text_color(r.danger)
+                    .text_center()
+                    .child(e.clone())
+                    .child(live_text("live", Some(e), Priority::High).attempt(u64::from(failures))),
             )
         })
         .when(!buttons.is_empty(), |d| {
@@ -314,6 +430,51 @@ pub fn diagnostics_state(diagnostics: &Diagnostics, cx: &App) -> Option<SharedSt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key the profile records that went has a card of its own, which goes
+    /// on by Start Fresh alone, as a card after Start Fresh moved the
+    /// profile does; a key that would prompt keeps the usual card.
+    #[test]
+    fn a_missing_key_has_its_own_card_with_start_fresh_alone() {
+        let l10n = L10n::new("en");
+        let card = |moved, missing| Status::KeychainPrompt {
+            busy: false,
+            failures: 0,
+            failure: None,
+            moved,
+            missing,
+        };
+        assert_eq!(
+            keychain_card_text(true, &l10n).0,
+            "Conduit Can't Find Its Key"
+        );
+        assert_eq!(
+            keychain_card_text(false, &l10n).0,
+            "Conduit Needs Your Keychain Password"
+        );
+        assert!(!keychain_card_offers_continue(&card(false, true)));
+        assert!(!keychain_card_offers_continue(&card(true, false)));
+        assert!(keychain_card_offers_continue(&card(false, false)));
+    }
+
+    /// Each failed choice gets its own line: a key Continue didn't get, a
+    /// profile that wouldn't move, and a key Start Fresh couldn't make.
+    #[test]
+    fn the_keychain_card_says_which_choice_failed() {
+        let l10n = L10n::new("en");
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::NoKey, &l10n),
+            "macOS didn't give Conduit the key. Try again, or click \u{201c}Start Fresh\u{201d}."
+        );
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::Move, &l10n),
+            "Couldn't move the old data aside. Try again, or click \u{201c}Show Logs\u{201d} for details."
+        );
+        assert_eq!(
+            keychain_failure_line(KeychainFailure::NewKey, &l10n),
+            "Conduit couldn't make a new key. Try again, or click \u{201c}Show Logs\u{201d} for details."
+        );
+    }
 
     #[test]
     fn the_composer_says_what_the_banner_says() {

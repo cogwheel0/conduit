@@ -67,7 +67,7 @@ use gpui_kit::{
 use crate::actions::*;
 use crate::l10n::{ActiveL10n as _, L10n, locale};
 use crate::stores::Stores;
-use crate::stores::connection::{ConnectionEvent, ConnectionOptions, ConnectionStore};
+use crate::stores::connection::{ConnectionEvent, ConnectionOptions, ConnectionStore, MasterKey};
 use crate::stores::layout::LayoutStore;
 use crate::stores::settings::{SettingsEvent, SettingsStore};
 use crate::views::main_window::MainWindow;
@@ -176,8 +176,10 @@ fn harness_service(flavor: Flavor) -> String {
 }
 
 /// The master key from the Keychain (Credential Manager on Windows, the
-/// Secret Service on Linux), created on first run.
-fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
+/// Secret Service on Linux), created on first run. The packaged Mac app
+/// first finds out, without a prompt, whether reading it would make macOS
+/// ask for the login keychain password, and then the window asks first.
+fn master_key(paths: &AppPaths, scripted: bool) -> MasterKey {
     use conduit_daemon::secrets::{MasterKeyStore, load_or_create_master_key};
     let service = if scripted {
         harness_service(paths.flavor)
@@ -186,12 +188,41 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
     };
     #[cfg(target_os = "macos")]
     let store: Box<dyn MasterKeyStore> = {
-        use conduit_daemon::secrets::{Keychain, SecurityCli};
-        // Dev builds go through /usr/bin/security so a rebuilt (re-hashed)
-        // binary never meets a Keychain prompt; see conduit_daemon::secrets.
+        use crate::stores::connection::KeychainChoice;
+        use conduit_daemon::secrets::{
+            Keychain, KeychainItems, MASTER_KEY_ACCOUNT, MasterKeyCheck, SecurityCli,
+            check_master_key, profile_key,
+        };
         match paths.flavor {
+            // Dev builds go through /usr/bin/security so a rebuilt
+            // (re-hashed) binary never meets a Keychain prompt; see
+            // conduit_daemon::secrets.
             Flavor::Dev => Box::new(SecurityCli::new(service)),
-            Flavor::Production => Box::new(Keychain::new(service)),
+            // A scripted run never shows the keychain card.
+            Flavor::Production if scripted => Box::new(Keychain::new(service, MASTER_KEY_ACCOUNT)),
+            Flavor::Production => {
+                let lock = paths::master_key_lock(paths::Os::CURRENT, &service, &|key| {
+                    std::env::var_os(key)
+                });
+                let items = KeychainItems::new(service);
+                let profile = match profile_key(&paths.user_data) {
+                    Ok(profile) => profile,
+                    Err(e) => return MasterKey::Failed(e.to_string()),
+                };
+                let check = check_master_key(&items, &profile);
+                let choice = |missing| KeychainChoice {
+                    items: std::sync::Arc::new(items),
+                    account: profile.account.clone(),
+                    lock,
+                    missing,
+                };
+                return match check {
+                    Ok(MasterKeyCheck::Ready(key)) => MasterKey::Ready(key),
+                    Ok(MasterKeyCheck::WouldPrompt) => MasterKey::WouldPrompt(choice(false)),
+                    Ok(MasterKeyCheck::Missing) => MasterKey::WouldPrompt(choice(true)),
+                    Err(e) => MasterKey::Failed(e.to_string()),
+                };
+            }
         }
     };
     // Off the Mac a first key is written holding the service's lock, so two
@@ -208,7 +239,10 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, String> {
         conduit_daemon::secrets::SecretService::new(service),
         lock,
     ));
-    load_or_create_master_key(store.as_ref()).map_err(|e| e.to_string())
+    match load_or_create_master_key(store.as_ref()) {
+        Ok(key) => MasterKey::Ready(key),
+        Err(e) => MasterKey::Failed(e.to_string()),
+    }
 }
 
 /// Bytes only a build with the test harness carries: the packaging scripts

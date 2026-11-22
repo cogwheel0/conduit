@@ -287,8 +287,17 @@ pub fn locate_daemon() -> PathBuf {
 
 /// Moves `dir` aside as `<dir> (reset <timestamp>)` and returns the new
 /// path. Nothing is deleted: "Reset local data" keeps the old folder for the
-/// user (and support) to look at.
+/// user (and support) to look at. Restoring one by hand means moving both
+/// the folder and its `.master-key-account` file over the current ones, or
+/// removing the current record when the archive has none.
 pub fn move_aside(dir: &Path, now: SystemTime) -> std::io::Result<PathBuf> {
+    let target = aside_path(dir, now);
+    std::fs::rename(dir, &target)?;
+    Ok(target)
+}
+
+/// Where [`move_aside`] would move `dir` now: a name no folder has yet.
+pub fn aside_path(dir: &Path, now: SystemTime) -> PathBuf {
     let secs = now
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -305,8 +314,7 @@ pub fn move_aside(dir: &Path, now: SystemTime) -> std::io::Result<PathBuf> {
         target = parent.join(format!("{name} (reset {stamp} {n})"));
         n += 1;
     }
-    std::fs::rename(dir, &target)?;
-    Ok(target)
+    target
 }
 
 /// `YYYY-MM-DD HH.MM.SS` (UTC), safe in a file name.
