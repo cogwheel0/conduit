@@ -1239,36 +1239,60 @@ impl KeyFile {
         Self { path: path.into() }
     }
 
-    /// Whether the user chose the key file before: it is there. One that
-    /// can't be looked at (its folder unreadable) is an error, never "not
-    /// chosen": a new key made instead would leave the data the old one
+    /// Whether the user chose the key file before: something is at its
+    /// name. Only nothing there is "not chosen". One that can't be looked
+    /// at (its folder unreadable), or a link there, dangling or not, is an
+    /// error: a new key made instead would leave the data the old one
     /// protects unreadable.
     pub fn chosen(&self) -> Result<bool, SecretError> {
-        self.path
-            .try_exists()
-            .map_err(|e| SecretError::Store(format!("{}: {e}", self.path.display())))
+        match std::fs::symlink_metadata(&self.path) {
+            Ok(entry) if entry.file_type().is_symlink() => Err(self.not_a_key_file("a link")),
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(SecretError::Store(format!("{}: {e}", self.path.display()))),
+        }
+    }
+
+    fn not_a_key_file(&self, what: &str) -> SecretError {
+        SecretError::Store(format!("{} is {what}, not a key file", self.path.display()))
     }
 }
 
 #[cfg(unix)]
 impl MasterKeyStore for KeyFile {
     fn load(&self) -> Result<Option<String>, SecretError> {
-        use std::os::unix::fs::PermissionsExt as _;
+        use std::io::Read as _;
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
         let failed =
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
         check_folders_above(&self.path)?;
-        let metadata = match std::fs::metadata(&self.path) {
-            Ok(m) => m,
+        // Opened without following a link or waiting on a pipe (this runs
+        // holding the service's lock), and looked at through the same
+        // handle it is read from.
+        let mut file = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&self.path)
+        {
+            Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.raw_os_error() == Some(libc::ELOOP) => {
+                return Err(self.not_a_key_file("a link"));
+            }
             Err(e) => return Err(failed(e)),
         };
+        let metadata = file.metadata().map_err(failed)?;
+        if !metadata.is_file() {
+            return Err(self.not_a_key_file("not a regular file"));
+        }
         if metadata.permissions().mode() & 0o077 != 0 {
             return Err(SecretError::Store(format!(
                 "{} can be read by other users",
                 self.path.display()
             )));
         }
-        let key = std::fs::read_to_string(&self.path).map_err(failed)?;
+        let mut key = String::new();
+        file.read_to_string(&mut key).map_err(failed)?;
         // Before the key is used, its name and the folders above it are on
         // disk, however it was found: the launch that made it may have
         // failed its sync, or still be syncing, or a folder it made may not
@@ -1791,6 +1815,34 @@ mod tests {
             matches!(unreadable, Err(SecretError::Store(_))),
             "{unreadable:?}"
         );
+    }
+
+    /// Something at the key file's name that isn't one, a dangling link
+    /// included, is an error, never "not chosen" (which would start the
+    /// keyring's key instead) and never read: a link, or a pipe, which a read
+    /// holding the service's lock would wait on.
+    #[cfg(unix)]
+    #[test]
+    fn only_a_regular_file_is_the_key_file() {
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let path = dir.path().join("app.example.conduit.master-key");
+        std::os::unix::fs::symlink(dir.path().join("gone"), &path).unwrap();
+        let store = KeyFile::new(&path);
+        assert!(
+            matches!(store.chosen(), Err(SecretError::Store(_))),
+            "a dangling link"
+        );
+        std::fs::write(dir.path().join("gone"), new_master_key()).unwrap();
+        assert!(matches!(store.load(), Err(SecretError::Store(_))), "a link");
+        std::fs::remove_file(&path).unwrap();
+        let fifo = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path, for the call.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        assert_eq!(store.chosen(), Ok(true));
+        assert!(matches!(store.load(), Err(SecretError::Store(_))), "a pipe");
     }
 
     /// A key file others can read (copied, restored from a backup, chmod
