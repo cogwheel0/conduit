@@ -739,6 +739,11 @@ abstract final class ConduitMethodSpecs {
     params: MarkUnread.fromJson,
     result: ChatList.fromJson,
   );
+  static const chatsSetShown = ConduitMethodSpec<ShownChat, OkResult>(
+    ConduitMethods.chatsSetShown,
+    params: ShownChat.fromJson,
+    result: OkResult.fromJson,
+  );
   static const chatsSaveTemporary = ConduitMethodSpec<ChatRef, ChatForked>(
     ConduitMethods.chatsSaveTemporary,
     params: ChatRef.fromJson,
@@ -2581,6 +2586,7 @@ abstract final class ConduitMethodSpecs {
         chatsExport,
         chatsGenerateTitle,
         chatsMarkUnread,
+        chatsSetShown,
         chatsSaveTemporary,
         messagesDelete,
         modelsList,

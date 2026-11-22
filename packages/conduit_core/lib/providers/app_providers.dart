@@ -107,6 +107,7 @@ import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
 
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart' show ChatListEntry;
 
 import 'package:conduit_core/database/database_provider.dart';
 
@@ -140,6 +141,7 @@ part 'app_providers_models.dart';
 part 'app_providers_openwebui_ownership.dart';
 part 'app_providers_search.dart';
 part 'app_providers_server_config.dart';
+part 'app_providers_shown_chats.dart';
 part 'app_providers_sign_out.dart';
 part 'app_providers_socket.dart';
 part 'app_providers_user_settings.dart';

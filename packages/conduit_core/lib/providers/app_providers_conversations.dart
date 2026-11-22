@@ -568,15 +568,31 @@ class Conversations extends _$Conversations {
     return write;
   }
 
+  /// The database that stores chat [id]'s reads.
+  AppDatabase? _readDatabaseOf(String id) {
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    return _readDatabase(
+      index >= 0 ? current![index] : null,
+      ChatStorageIdentity.parse(id),
+    );
+  }
+
   /// The database that stores chat [listed]'s reads, or, while it is not
-  /// listed, that of the storage [identity] names.
+  /// listed, that of the storage [identity] names, or its raw id's
+  /// on-device prefix.
   AppDatabase? _readDatabase(
     Conversation? listed,
     ChatStorageIdentity identity,
   ) {
     final directLocal =
         isDirectLocalConversation(listed) ||
-        (listed == null && identity.storage == ChatStorageKind.directLocal);
+        (listed == null &&
+            (identity.storage == ChatStorageKind.directLocal ||
+                (identity.storage == null &&
+                    identity.rawId.startsWith('direct-local:'))));
     final libreChat =
         isLibreChatConversation(listed) ||
         (listed == null && identity.storage == ChatStorageKind.libreChat);

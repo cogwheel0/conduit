@@ -182,6 +182,29 @@ fn row_bg(state: RowState, t: &ConduitTheme) -> Hsla {
 /// at its end, as the phone draws them. With `actions`, hovering shows them
 /// in place of the stamp; `title` replaces the title (the inline rename
 /// field).
+/// What VoiceOver hears for chat row `chat` drawn in `state`: its title,
+/// then its note, its Unread mark or what its answer is doing.
+pub fn chat_row_label(chat: &ChatRow, state: RowState) -> String {
+    let mut label = chat.title.to_string();
+    if let Some(note) = &chat.note {
+        label.push_str(", ");
+        label.push_str(note);
+    }
+    if chat.unread && !chat.streaming && !state.selected {
+        label.push_str(", ");
+        label.push_str(chat.unread_spoken.as_ref().map_or("unread", |s| s.as_ref()));
+    }
+    if chat.streaming {
+        label.push_str(", ");
+        label.push_str(
+            chat.status
+                .as_ref()
+                .map_or("writing an answer", |s| s.as_ref()),
+        );
+    }
+    label
+}
+
 pub fn chat_row(
     chat: &ChatRow,
     state: RowState,
@@ -250,23 +273,7 @@ pub fn chat_row(
             })
             .into_any_element()
     });
-    let mut label = chat.title.to_string();
-    if let Some(note) = &chat.note {
-        label.push_str(", ");
-        label.push_str(note);
-    }
-    if chat.unread && !chat.streaming && !state.selected {
-        label.push_str(", ");
-        label.push_str(chat.unread_spoken.as_ref().map_or("unread", |s| s.as_ref()));
-    }
-    if chat.streaming {
-        label.push_str(", ");
-        label.push_str(
-            chat.status
-                .as_ref()
-                .map_or("writing an answer", |s| s.as_ref()),
-        );
-    }
+    let label = chat_row_label(chat, state);
     let title: AnyElement = title.unwrap_or_else(|| {
         // The open chat is marked by its fill alone, at the regular weight
         // (as Finder's and Mail's source lists do), so selecting a row never

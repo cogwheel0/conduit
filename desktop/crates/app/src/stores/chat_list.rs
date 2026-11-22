@@ -25,9 +25,9 @@ use std::time::Duration;
 use conduit_daemon::{RpcError, RpcMethod};
 use conduit_protocol::{
     ArchivedVisibility, BulkChatAction, BulkChats, ChatList, ChatRef, ChatSearchQuery,
-    ChatSearchResults, ChatShare, ChatSummary, ChatTree, CreateFolder, Event, FolderRef,
-    FolderSummary, MoveChat, NoParams, RenameChat, RenameFolder, SetChatFlag, SyncState, events,
-    methods,
+    ChatSearchResults, ChatShare, ChatSummary, ChatTree, ChatView, CreateFolder, Event, FolderRef,
+    FolderSummary, MoveChat, NoParams, RenameChat, RenameFolder, SetChatFlag, ShownChat, SyncState,
+    events, methods,
 };
 use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -1093,6 +1093,68 @@ pub struct ScopeChange {
     pub reset: bool,
     /// Fetch the list and the sync state.
     pub refresh: bool,
+}
+
+/// What a view has told the daemon it shows on screen (`chats.setShown`),
+/// so each change of that chat's stored copy is read while it shows.
+pub struct ShownReport {
+    view: ChatView,
+    /// The chat last sent (`Some(None)`: none). `None` once the daemon
+    /// refused it: the next report is sent whatever it holds.
+    sent: Option<Option<String>>,
+    /// Counts the reports sent, so only a refusal of the last one counts.
+    sends: u64,
+}
+
+impl ShownReport {
+    /// A view whose daemon knows of no chat it shows.
+    pub fn new(view: ChatView) -> Self {
+        Self {
+            view,
+            sent: Some(None),
+            sends: 0,
+        }
+    }
+
+    /// A new daemon session knows of no chat on screen.
+    pub fn reconnected(&mut self) {
+        self.sent = Some(None);
+        self.sends += 1;
+    }
+
+    /// Tells the daemon the view shows `shown`, unless it was the last chat
+    /// told. `of` finds this report in the view, for the daemon's answer.
+    pub fn report<V: 'static>(
+        &mut self,
+        shown: Option<String>,
+        rpc: &Rpc,
+        cx: &mut Context<V>,
+        of: fn(&mut V) -> &mut ShownReport,
+    ) {
+        if self.sent.as_ref() == Some(&shown) {
+            return;
+        }
+        self.sent = Some(shown.clone());
+        self.sends += 1;
+        let send = self.sends;
+        let call = rpc.call::<methods::ChatsSetShown>(&ShownChat {
+            view: self.view,
+            chat_id: shown,
+        });
+        cx.spawn(async move |this: WeakEntity<V>, cx: &mut AsyncApp| {
+            if let Err(e) = call.await {
+                log::warn!("chats.setShown: {e}");
+                this.update(cx, |view, _| {
+                    let report = of(view);
+                    if report.sends == send {
+                        report.sent = None;
+                    }
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
 }
 
 /// The change between the scope last seen and `next`.

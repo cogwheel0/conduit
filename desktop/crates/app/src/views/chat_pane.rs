@@ -28,7 +28,9 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
 use conduit_components::views::kit::{Button, IconButton, bare_input};
 use conduit_components::views::shell::{ChatToolbar, TitlePill};
-use conduit_protocol::{ComposerMentionDto, Event, NoteSave, NoticeLevel, events, methods};
+use conduit_protocol::{
+    ChatView, ComposerMentionDto, Event, NoteSave, NoticeLevel, events, methods,
+};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -110,6 +112,8 @@ pub struct ChatPane {
     /// menu bar or closed ([`Self::window_closing`]), until it is back
     /// ([`Self::window_shown`]).
     window_shown: bool,
+    /// The chat on screen as the daemon heard it ([`Self::report_shown`]).
+    shown_report: crate::stores::chat_list::ShownReport,
     /// A new chat's first message is on its way.
     /// The composition a new chat's first message was sent from, while it
     /// is on its way: it holds back another send (and Chat Settings) only
@@ -425,6 +429,7 @@ impl ChatPane {
                 if let Some(chat) = &this.chat {
                     chat.store.update(cx, |s, cx| s.remap(from, to, cx));
                 }
+                this.report_shown(cx);
                 // The composer's own state for that chat moves too, whether
                 // or not it is the chat shown.
                 this.composer_store
@@ -524,6 +529,7 @@ impl ChatPane {
             chat: None,
             chat_on_screen: false,
             window_shown: true,
+            shown_report: crate::stores::chat_list::ShownReport::new(ChatView::Main),
             starting: None,
             account,
             hermes_continuing: false,
@@ -815,6 +821,11 @@ impl ChatPane {
 
     /// Follows the navigation store's selection.
     fn sync_selection(&mut self, cx: &mut Context<Self>) {
+        self.follow_selection(cx);
+        self.report_shown(cx);
+    }
+
+    fn follow_selection(&mut self, cx: &mut Context<Self>) {
         let selection = self.stores.navigation.read(cx).selection().clone();
         // A Hermes session's chat opens in this pane as any chat does.
         let selection = match selection.chat_id() {
@@ -1107,6 +1118,7 @@ impl ChatPane {
     pub fn window_closing(&mut self, cx: &mut Context<Self>) {
         self.window_shown = false;
         self.leave_chat(cx);
+        self.report_shown(cx);
     }
 
     /// The main window is back on screen, and with it the chat it shows.
@@ -1131,6 +1143,23 @@ impl ChatPane {
         self.stores
             .chat_list
             .update(cx, |c, cx| c.mark_read(&id, cx));
+        self.report_shown(cx);
+    }
+
+    /// Tells the daemon which chat is on screen, when that changed: the
+    /// core reads each change of its stored copy while it shows. Only the
+    /// account it showed the chat for has it on screen.
+    fn report_shown(&mut self, cx: &mut Context<Self>) {
+        let shown = self
+            .chat
+            .as_ref()
+            .filter(|_| {
+                self.chat_on_screen && self.stores.accounts.read(cx).scope_key() == self.account
+            })
+            .map(|c| c.store.read(cx).chat_id().to_string());
+        let rpc = self.stores.connection.read(cx).rpc();
+        self.shown_report
+            .report(shown, &rpc, cx, |pane| &mut pane.shown_report);
     }
 
     /// The app quits: the chat on screen is left, by a read the quit waits
@@ -1286,6 +1315,8 @@ impl ChatPane {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
+                self.shown_report.reconnected();
+                self.report_shown(cx);
                 // A new daemon session: the order of model answers starts
                 // again (the open chat, draft and attachments stay).
                 self.composer_store.update(cx, |c, cx| c.reconnected(cx));
@@ -4561,6 +4592,127 @@ mod tests {
             assert!(
                 daemon.calls::<methods::ChatsMarkUnread>().is_empty(),
                 "the last account's chat was read in the new one"
+            );
+        }
+
+        /// The daemon hears which chat the main window shows on screen, each
+        /// time that changes, so the core reads what changes in it
+        /// meanwhile: none for a new chat, another area's item, a hidden or
+        /// minimized window, or another account.
+        #[gpui_kit::test]
+        fn the_daemon_hears_which_chat_is_on_screen(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+            let shows_c1 = serde_json::json!({"view": "main", "chatId": "c1"});
+            let shows_none = serde_json::json!({"view": "main"});
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            let note = crate::stores::navigation::AreaItem::Note("n1".into());
+            stores
+                .navigation
+                .update(vcx, |n, cx| n.open_item(note.clone(), cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            pane.update(vcx, |p, cx| p.window_closing(cx));
+            pane.update(vcx, |p, cx| p.window_shown(cx));
+            vcx.run_until_parked();
+            vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Hidden);
+            vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Visible);
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>(),
+                vec![
+                    shows_c1.clone(),
+                    shows_none.clone(),
+                    shows_c1.clone(),
+                    shows_none.clone(),
+                    shows_c1.clone(),
+                    shows_none.clone(),
+                    shows_c1.clone(),
+                    shows_none.clone(),
+                    shows_c1.clone(),
+                ],
+                "the daemon heard another chat on screen than the window shows"
+            );
+
+            vcx.update(|_, cx| {
+                stores.navigation.update(cx, |n, cx| n.reset(cx));
+                stores.chat_list.update(cx, |c, cx| c.reset(cx));
+                stores.accounts.update(cx, |a, cx| {
+                    a.adopt(
+                        list(vec![
+                            account("a", "Avery", false, true),
+                            account("b", "Blake", true, true),
+                        ]),
+                        cx,
+                    )
+                });
+            });
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>().last(),
+                Some(&shows_none),
+                "the last account's chat stayed on screen in the new one"
+            );
+        }
+
+        /// A report of the chat on screen the daemon refuses is sent again
+        /// with the next change of what shows, even to the same chat; a
+        /// late refusal never undoes a newer report the daemon took.
+        #[gpui_kit::test]
+        fn a_refused_report_of_the_chat_on_screen_is_sent_again(cx: &mut TestAppContext) {
+            let (daemon, stores, _pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            daemon.once::<methods::ChatsSetShown>(Err(conduit_protocol::RpcError::internal(
+                "the daemon is still starting",
+            )));
+            daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+            let shows_c1 = serde_json::json!({"view": "main", "chatId": "c1"});
+            // Another chat gets its server id: the pane looks again at what
+            // it shows, which is still c1.
+            let another_remapped = |n: u32, vcx: &mut VisualTestContext| {
+                stores.router.update(vcx, |r, cx| {
+                    r.on_remap(format!("local:other-{n}"), format!("other-{n}"), cx)
+                });
+                vcx.run_until_parked();
+            };
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            another_remapped(1, vcx);
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>(),
+                vec![shows_c1.clone(), shows_c1.clone()],
+                "a refused report was not sent again"
+            );
+
+            // Refused late, after a newer report went through.
+            daemon.once::<methods::ChatsSetShown>(Err(conduit_protocol::RpcError::internal(
+                "the daemon is still starting",
+            )));
+            let held = daemon.hold_one::<methods::ChatsSetShown>(0);
+            stores.navigation.update(vcx, |n, cx| {
+                n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
+            });
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            held.release();
+            vcx.run_until_parked();
+            another_remapped(2, vcx);
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>().len(),
+                4,
+                "a late refusal undid the report the daemon took"
             );
         }
 

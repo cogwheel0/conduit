@@ -23,7 +23,7 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::{UI_FONT, with_alpha};
 use conduit_components::views::kit::{Button, ESC_KEYCAP, IconButton, keycap};
-use conduit_protocol::{Event, events, methods};
+use conduit_protocol::{ChatView, Event, events, methods};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent, Role, SharedString,
@@ -83,6 +83,11 @@ pub struct QuickAskView {
     pub chat: Option<QuickChat>,
     /// The panel is on screen ([`Self::set_shown`]).
     shown: bool,
+    /// The platform shows the panel's window: not while the app is hidden
+    /// (⌘H), nor minimized or fully covered.
+    window_visible: bool,
+    /// The chat on screen as the daemon heard it ([`Self::report_shown`]).
+    shown_report: crate::stores::chat_list::ShownReport,
     /// The first message is on its way.
     starting: bool,
     /// Bumped by New Chat and by another account: a first message sent
@@ -163,6 +168,13 @@ impl QuickAskView {
                     cx.emit(QuickAskEvent::Blurred);
                 }
             }),
+            // ⌘H hides the app, panel included, without hiding Quick Ask
+            // (`hide_quick_ask`); minimized or fully covered, it shows
+            // nothing either.
+            cx.observe_window_visibility(window, |this, visibility, _, cx| {
+                this.window_visible = visibility.is_visible();
+                this.report_shown(cx);
+            }),
             cx.observe(&stores.connection, |this, _, cx| this.sync_offline(cx)),
             // The call button: ready while no call is on and a model is
             // chosen.
@@ -231,6 +243,8 @@ impl QuickAskView {
             composer,
             chat: None,
             shown: false,
+            window_visible: true,
+            shown_report: crate::stores::chat_list::ShownReport::new(ChatView::QuickAsk),
             starting: false,
             generation: 0,
             scope,
@@ -293,6 +307,19 @@ impl QuickAskView {
                 .update(cx, |c, cx| c.mark_read(&id, cx));
         }
         self.shown = shown;
+        self.report_shown(cx);
+    }
+
+    /// Tells the daemon which chat the panel shows on screen, when that
+    /// changed (a first message's chat gets its id as it is saved): the core
+    /// reads each change of its stored copy while it shows.
+    fn report_shown(&mut self, cx: &mut Context<Self>) {
+        let shown = self
+            .chat_id(cx)
+            .filter(|_| self.shown && self.window_visible);
+        let rpc = self.stores.connection.read(cx).rpc();
+        self.shown_report
+            .report(shown, &rpc, cx, |panel| &mut panel.shown_report);
     }
 
     /// The app quits: the chat the panel shows is left, by a read the quit
@@ -347,6 +374,7 @@ impl QuickAskView {
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.generation += 1;
         self.chat = None;
+        self.report_shown(cx);
         self.starting = false;
         self.notice = None;
         (self.subscribe_hook())(None, cx);
@@ -410,6 +438,8 @@ impl QuickAskView {
                 // A new daemon session: the order of model answers starts
                 // again (the open chat, draft and attachments stay).
                 self.composer_store.update(cx, |c, cx| c.reconnected(cx));
+                self.shown_report.reconnected();
+                self.report_shown(cx);
             }
             ConnectionEvent::Gap => {
                 if let Some(chat) = &self.chat {
@@ -500,6 +530,7 @@ impl QuickAskView {
         });
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
+                this.report_shown(cx);
                 let streaming = store.read(cx).is_streaming();
                 if streaming {
                     let id = store.read(cx).chat_id().to_string();
@@ -533,6 +564,7 @@ impl QuickAskView {
             transcript,
             _subscriptions: subscriptions,
         });
+        self.report_shown(cx);
         cx.notify();
         store
     }
@@ -1487,6 +1519,72 @@ mod tests {
             Some(&serde_json::json!({"chatId": "chat-r", "unread": false}))
         );
     }
+
+    /// The daemon hears which chat the panel shows on screen, each time
+    /// that changes, so the core reads what changes in it meanwhile: none
+    /// while it is hidden, or once a new chat starts there.
+    #[gpui_kit::test]
+    fn the_daemon_hears_which_chat_the_panel_shows(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        let shows_q = serde_json::json!({"view": "quickAsk", "chatId": "chat-q"});
+        let shows_none = serde_json::json!({"view": "quickAsk"});
+
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| v.set_shown(false, cx));
+        view.update(vcx, |v, cx| v.set_shown(true, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.new_chat(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>(),
+            vec![
+                shows_q.clone(),
+                shows_none.clone(),
+                shows_q.clone(),
+                shows_none.clone()
+            ],
+            "the daemon heard another chat on screen than the panel shows"
+        );
+    }
+
+    /// The panel hidden with the app (⌘H), minimized or fully covered shows
+    /// nothing: the daemon hears no chat on screen until the panel is
+    /// visible again. #1220's reads on hiding and showing it are its own.
+    #[gpui_kit::test]
+    fn a_panel_the_platform_hides_shows_no_chat(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        let reads = daemon.calls::<methods::ChatsMarkUnread>().len();
+
+        vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Hidden);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>().last(),
+            Some(&serde_json::json!({"view": "quickAsk"})),
+            "the hidden panel's chat stayed on screen"
+        );
+        vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Visible);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>().last(),
+            Some(&serde_json::json!({"view": "quickAsk", "chatId": "chat-q"})),
+            "the panel visible again did not show its chat"
+        );
+        assert_eq!(daemon.calls::<methods::ChatsMarkUnread>().len(), reads);
+    }
+
     /// A Services selection never takes the place of what the user left in
     /// Quick Ask, and never joins it: words, files (sent up or still on
     /// their way) all stay as they were, with no selection among them.

@@ -978,7 +978,9 @@ impl SidebarView {
 
     /// Go › a section (⌘1…): the area opened and scrolled to, the list
     /// focused with the keyboard on its heading (on its first row when the
-    /// sidebar shows no headings).
+    /// sidebar shows no headings). The section holding the chat on screen
+    /// puts the keyboard on that chat's row instead, so it stays the
+    /// selection.
     pub fn go_to_area(&mut self, area: Area, window: &mut Window, cx: &mut Context<Self>) {
         // Search lists chats alone: the sections come back first.
         if !self.search.read(cx).value().is_empty() || self.stores.chat_list.read(cx).is_searching()
@@ -995,10 +997,19 @@ impl SidebarView {
                 .iter()
                 .position(|r| KeyRow::of(r).is_some_and(|k| !matches!(k, KeyRow::Area(_))))
         });
+        let shown = self.stores.navigation.read(cx).selection();
+        let on_screen = (shown.chat_id().is_some() && shown.area() == area)
+            .then(|| self.open_row(cx))
+            .flatten()
+            .and_then(|row| index_of(&self.rows, &row).map(|at| (at, row)));
         self.list_focus.focus(window, cx);
         if let Some(ix) = ix {
             self.cursor = KeyRow::of(&self.rows[ix]);
             self.scroll_to_top(ix);
+        }
+        if let Some((at, row)) = on_screen {
+            self.cursor = Some(row);
+            self.scroll.scroll_to_item(at, ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -2258,6 +2269,70 @@ impl SidebarView {
         }
     }
 
+    /// Whether chat `chat`'s row shows the Unread dot: not on the chat on
+    /// screen, which is being read, whichever row the keyboard stands on,
+    /// unless it was marked unread here, until it is read again.
+    fn shows_unread(&self, chat: &ChatSummary, cx: &App) -> bool {
+        chat.unread
+            && (self.stores.navigation.read(cx).selected_chat() != Some(chat.id.as_str())
+                || self
+                    .stores
+                    .chat_list
+                    .read(cx)
+                    .marked_unread_here
+                    .contains(&chat.id))
+    }
+
+    /// Chat `chat`'s row as the list draws it, and its state.
+    fn chat_row_model(
+        &self,
+        chat: &ChatSummary,
+        depth: usize,
+        now: &DateTime<Local>,
+        cx: &App,
+    ) -> (ChatRow, RowState) {
+        let l = cx.l10n();
+        let id = chat.id.clone();
+        // Dated the one way (as Notes dates its notes); under a date heading
+        // (an unfiled chat's section) a date needs only its day and month.
+        let dated = if depth == 0 && !chat.pinned && !chat.archived {
+            dates::Dated::ByHeading
+        } else {
+            dates::Dated::Alone
+        };
+        let (time, spoken) = dates::stamp_in(chat.updated_at_ms, now, dated, l);
+        let row = ChatRow {
+            id: id.clone().into(),
+            title: display_title(&chat.title, l),
+            time: time.into(),
+            time_spoken: spoken.into(),
+            pinned: chat.pinned,
+            streaming: false,
+            working: false,
+            reduce_motion: false,
+            status: None,
+            // Another user's chat in a shared folder: opened and read,
+            // nothing else (the server refuses every change to it).
+            note: chat.read_only.then(|| l.read_only().into()),
+            unread: self.shows_unread(chat, cx),
+            unread_spoken: Some(l.desktop_unread().into()),
+        };
+        let state = RowState {
+            selected: self.is_selection(&KeyRow::Chat(id.clone())),
+            hovered: self.hovered.as_deref() == Some(id.as_str()),
+            context: self.context_target.as_deref() == Some(id.as_str()),
+            drop_target: false,
+            // A read-only chat takes no bulk change either: no checkbox.
+            checked: self
+                .selecting
+                .as_ref()
+                .filter(|_| self.checkboxes && !chat.read_only)
+                .map(|s| s.contains(&id)),
+            keyboard: self.list_focused,
+        };
+        (row, state)
+    }
+
     fn chat(
         &mut self,
         chat: &ChatSummary,
@@ -2268,42 +2343,13 @@ impl SidebarView {
     ) -> AnyElement {
         let l = cx.l10n().clone();
         let id = chat.id.clone();
-        let title = display_title(&chat.title, &l);
-        // Dated the one way (as Notes dates its notes); under a date heading
-        // (an unfiled chat's section) a date needs only its day and month.
-        let dated = if depth == 0 && !chat.pinned && !chat.archived {
-            dates::Dated::ByHeading
-        } else {
-            dates::Dated::Alone
-        };
-        let (time, spoken) = dates::stamp_in(chat.updated_at_ms, now, dated, &l);
-        // Another user's chat in a shared folder: opened and read, nothing
-        // else (the server refuses every change to it).
         let read_only = chat.read_only;
-        let row = ChatRow {
-            id: id.clone().into(),
-            title: title.clone(),
-            time: time.into(),
-            time_spoken: spoken.into(),
-            pinned: chat.pinned,
-            streaming: false,
-            working: false,
-            reduce_motion: false,
-            status: None,
-            note: read_only.then(|| l.read_only().into()),
-            unread: chat.unread,
-            unread_spoken: Some(l.desktop_unread().into()),
-        };
+        let (row, state) = self.chat_row_model(chat, depth, now, cx);
+        let title = row.title.clone();
         let key_row = KeyRow::Chat(id.clone());
-        let selected = self.is_selection(&key_row);
         let cursor = self.cursor.as_ref() == Some(&key_row);
-        let hovered = self.hovered.as_deref() == Some(id.as_str());
-        // A read-only chat takes no bulk change either: no checkbox.
-        let checked = self
-            .selecting
-            .as_ref()
-            .filter(|_| self.checkboxes && !read_only)
-            .map(|s| s.contains(&id));
+        let hovered = state.hovered;
+        let checked = state.checked;
         let in_selection = self.selecting.as_ref().is_some_and(|s| s.contains(&id));
         let field = self.name_field_for(&NameTarget::Chat(id.clone()), t, cx);
         // Hovering shows "…" alone, in place of the date: the commands are
@@ -2330,14 +2376,6 @@ impl SidebarView {
             ]
         } else {
             vec![]
-        };
-        let state = RowState {
-            selected,
-            hovered,
-            context: self.context_target.as_deref() == Some(id.as_str()),
-            drop_target: false,
-            checked,
-            keyboard: self.list_focused,
         };
         let (hover_id, click_id, menu_id) = (id.clone(), id.clone(), id.clone());
         let mut el = chat_row(&row, state, depth as f32 * NEST_INDENT, actions, field, t)
@@ -2514,7 +2552,17 @@ impl SidebarView {
     /// The list's one selection: while it has focus, the row the arrows
     /// stand on (a folder or footer row too); otherwise the open chat.
     pub fn selection(&self, cx: &App) -> Option<KeyRow> {
-        let open = KeyRow::of_selection(self.stores.navigation.read(cx).selection()).map(|row| {
+        selection_row(
+            &self.rows,
+            self.list_focused,
+            self.cursor.as_ref(),
+            self.open_row(cx).as_ref(),
+        )
+    }
+
+    /// The row standing for what the main window shows.
+    fn open_row(&self, cx: &App) -> Option<KeyRow> {
+        KeyRow::of_selection(self.stores.navigation.read(cx).selection()).map(|row| {
             // A Bot Chat (a session no list shows) is its bot's row.
             match &row {
                 KeyRow::Item(AreaItem::HermesSession(session))
@@ -2529,13 +2577,7 @@ impl SidebarView {
                 }
                 _ => row,
             }
-        });
-        selection_row(
-            &self.rows,
-            self.list_focused,
-            self.cursor.as_ref(),
-            open.as_ref(),
-        )
+        })
     }
 
     /// Whether `row` is drawn selected this frame: one of several selected
@@ -4976,6 +5018,139 @@ mod selection_tests {
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
         });
+    }
+
+    /// Go › a section and back (⌘2, then ⌘1) leaves the chat on screen
+    /// selected: the keyboard comes back to its row, not to the heading.
+    /// Another section's heading, or Chats with a note shown, keeps the
+    /// keyboard on the heading.
+    #[gpui_kit::test]
+    fn going_back_to_chats_selects_the_chat_on_screen(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench_on(two_chats_and_a_folder(), cx);
+        stores.session.update(vcx, |s, cx| {
+            s.system_capabilities = Some(conduit_protocol::Capabilities {
+                notes: true,
+                ..Default::default()
+            });
+            s.preview_route(Some(crate::stores::session::Route::Main), cx)
+        });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            assert_eq!(s.cursor(), Some(&KeyRow::Area(Area::Notes)));
+            assert_eq!(s.selection(cx), Some(KeyRow::Area(Area::Notes)));
+        });
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Chats, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            assert_eq!(
+                s.selection(cx),
+                Some(KeyRow::Chat("chat-a".into())),
+                "the chat on screen lost its selection"
+            );
+            assert_eq!(s.cursor(), Some(&KeyRow::Chat("chat-a".into())));
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Chats, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.cursor(), Some(&KeyRow::Area(Area::Chats)));
+        });
+    }
+
+    /// The chat on screen never shows the Unread dot, whichever row the
+    /// keyboard stands on: it is being read.
+    #[gpui_kit::test]
+    fn the_chat_on_screen_never_shows_unread(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let now = Local::now().timestamp_millis();
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(
+            serde_json::from_value(serde_json::json!({
+                "chats": [
+                    {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now, "unread": true},
+                    {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1, "unread": true},
+                ],
+                "folders": [],
+            }))
+            .unwrap(),
+        );
+        let (stores, view, vcx) = bench_on(daemon, cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            let unread = |id: &str| {
+                let chat = s.stores.chat_list.read(cx).find(id).cloned().unwrap();
+                s.shows_unread(&chat, cx)
+            };
+            assert!(!unread("chat-a"), "the chat on screen shows Unread");
+            assert!(unread("chat-b"), "another chat lost its Unread");
+        });
+    }
+
+    /// Mark as Unread on the chat on screen shows its mark, the dot and
+    /// VoiceOver's "Unread", whenever its row is not the list's selection,
+    /// until it is read again. A selected row draws no mark, as before.
+    #[gpui_kit::test]
+    fn a_chat_on_screen_marked_unread_shows_its_mark(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let now = Local::now().timestamp_millis();
+        let listed = |unread: bool| -> conduit_protocol::ChatList {
+            serde_json::from_value(serde_json::json!({
+                "chats": [
+                    {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now, "unread": unread},
+                    {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1},
+                ],
+                "folders": [],
+            }))
+            .unwrap()
+        };
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(listed(false));
+        daemon.returns::<methods::ChatsMarkUnread>(listed(true));
+        let (stores, view, vcx) = bench_on(daemon, cx);
+        stores.session.update(vcx, |s, cx| {
+            s.system_capabilities = Some(conduit_protocol::Capabilities {
+                notes: true,
+                ..Default::default()
+            });
+            s.preview_route(Some(crate::stores::session::Route::Main), cx)
+        });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        let label = |vcx: &mut VisualTestContext| {
+            view.read_with(vcx, |s, cx| {
+                let chat = s.stores.chat_list.read(cx).find("chat-a").cloned().unwrap();
+                let (row, state) = s.chat_row_model(&chat, 0, &Local::now(), cx);
+                conduit_components::views::sidebar::chat_row_label(&row, state)
+            })
+        };
+
+        view.update_in(vcx, |s, window, cx| {
+            s.run("chat-a", ChatCommand::MarkUnread, window, cx)
+        });
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            label(vcx),
+            "Tide tables, Unread",
+            "the chat on screen marked unread showed no mark"
+        );
+
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Chats, window, cx));
+        vcx.run_until_parked();
+        assert_eq!(label(vcx), "Tide tables", "the selected row drew a mark");
     }
 
     /// A LibreChat copy made under one account, answered after another

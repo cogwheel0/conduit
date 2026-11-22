@@ -1177,3 +1177,23 @@ abstract class MarkUnread with _$MarkUnread {
   factory MarkUnread.fromJson(Map<String, dynamic> json) =>
       _$MarkUnreadFromJson(json);
 }
+
+/// A view of a window that shows one chat at a time.
+enum ChatView {
+  /// The main window's chat pane.
+  main,
+
+  /// The Quick Ask panel.
+  quickAsk,
+}
+
+/// Params for `chats.setShown`: the chat [view] shows on screen now, or
+/// none (a new chat, another area's item, a hidden window).
+@freezed
+abstract class ShownChat with _$ShownChat {
+  const factory ShownChat({required ChatView view, String? chatId}) =
+      _ShownChat;
+
+  factory ShownChat.fromJson(Map<String, dynamic> json) =>
+      _$ShownChatFromJson(json);
+}

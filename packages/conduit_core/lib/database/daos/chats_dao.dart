@@ -321,6 +321,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       _unreadMarksInFlight.containsKey(chatId) ||
       (_readStateTouchedAt[chatId] ?? 0) > since;
 
+  /// Whether a mark of unread of chat [chatId] is under way ([markUnread]
+  /// until its [finishUnread]).
+  bool isMarkingUnread(String chatId) =>
+      _unreadMarksInFlight.containsKey(chatId);
+
   void _touchReadState(String chatId) {
     _readStateTouchedAt[chatId] = ++_readStateClock;
   }
@@ -479,6 +484,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     return query.watchSingleOrNull().map(
       (row) => row == null ? null : _entryFromProjection(row),
     );
+  }
+
+  /// [watchChatMeta], once.
+  Future<ChatListEntry?> getChatMeta(String chatId) async {
+    final query = _listProjection()..where(chats.id.equals(chatId));
+    final row = await query.getSingleOrNull();
+    return row == null ? null : _entryFromProjection(row);
   }
 
   /// deleted=false, ORDER BY updatedAt DESC.

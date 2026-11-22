@@ -3952,6 +3952,8 @@ final Map<String, Object> protocolFixtures = <String, Object>{
     outcome: GenerateTitleOutcome.none,
   ),
   'markUnread': const MarkUnread(chatId: 'chat-9a2e4d1b', unread: false),
+  'shownChat': const ShownChat(view: ChatView.main, chatId: 'chat-9a2e4d1b'),
+  'shownChatNone': const ShownChat(view: ChatView.quickAsk),
   'deleteMessages': const DeleteMessages(
     chatId: 'chat-9a2e4d1b',
     messageIds: <String>['msg-q1'],
@@ -5589,6 +5591,8 @@ final Map<String, Object Function(Map<String, dynamic>)> protocolDecoders =
       'generatedTitle': GeneratedTitle.fromJson,
       'generatedTitleNone': GeneratedTitle.fromJson,
       'markUnread': MarkUnread.fromJson,
+      'shownChat': ShownChat.fromJson,
+      'shownChatNone': ShownChat.fromJson,
       'deleteMessages': DeleteMessages.fromJson,
       'messagesDeletedDryRun': MessagesDeleted.fromJson,
       'messagesDeleted': MessagesDeleted.fromJson,
