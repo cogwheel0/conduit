@@ -1429,8 +1429,9 @@ fn check_folders<'a>(
     path: &std::path::Path,
 ) -> Result<(), SecretError> {
     use std::os::unix::fs::MetadataExt as _;
-    // SAFETY: geteuid and getegid have no preconditions and cannot fail.
-    let (me, my_group) = unsafe { (libc::geteuid(), libc::getegid()) };
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    let own_group = user_private_group();
     for folder in folders {
         if folder.as_os_str().is_empty() {
             break;
@@ -1442,7 +1443,7 @@ fn check_folders<'a>(
         };
         let link = metadata.file_type().is_symlink();
         let (owner, group, mode) = (metadata.uid(), metadata.gid(), metadata.mode());
-        if let Some(why) = untrusted(owner, group, mode, link, me, my_group) {
+        if let Some(why) = untrusted(owner, group, mode, link, me, own_group) {
             return Err(SecretError::Store(format!(
                 "{} {why}, so it can't hold the key file {}",
                 folder.display(),
@@ -1454,14 +1455,14 @@ fn check_folders<'a>(
 }
 
 /// Why a folder (owned by `owner` and `group`, with `mode`) is no place
-/// above the key file for user `me`, whose group is `my_group`, if it
-/// isn't. Another user's folder is refused whatever its mode, as its owner
-/// can rename what is in it. This user's and root's are refused when
-/// others can write to them, or a group other than `my_group` can, unless
-/// the sticky bit keeps each entry its owner's (`/tmp`). A folder only its
-/// owner's own group can write to is a private group's (umask 002), where
-/// `~/.local` is 0775. A link is refused unless it is root's, part of the
-/// system's layout (macOS's `/var`, Fedora Atomic's `/home`).
+/// above the key file for user `me` if it isn't. Another user's folder is
+/// refused whatever its mode, as its owner can rename what is in it. This
+/// user's and root's are refused when others can write to them, or a group
+/// can other than `own_group` (the user's private group, if they have one),
+/// unless the sticky bit keeps each entry its owner's (`/tmp`). With a
+/// private group and umask 002, `~/.local` is 0775. A link is refused
+/// unless it is root's, part of the system's layout (macOS's `/var`,
+/// Fedora Atomic's `/home`).
 #[cfg(unix)]
 fn untrusted(
     owner: u32,
@@ -1469,7 +1470,7 @@ fn untrusted(
     mode: u32,
     link: bool,
     me: u32,
-    my_group: u32,
+    own_group: Option<u32>,
 ) -> Option<&'static str> {
     if link {
         return (owner != 0).then_some("is a link");
@@ -1478,9 +1479,106 @@ fn untrusted(
         return Some("belongs to another user");
     }
     let others_write = mode & 0o002 != 0;
-    let another_groups_write = mode & 0o020 != 0 && group != my_group;
+    let another_groups_write = mode & 0o020 != 0 && Some(group) != own_group;
     let sticky = mode & 0o1000 != 0;
     ((others_write || another_groups_write) && !sticky).then_some("can be changed by other users")
+}
+
+/// The user's private group, if their primary group is one: the effective
+/// gid, named after the user, with no one listed in it. A shared primary
+/// group (openSUSE's `users`, the Mac's `staff`) is not: its other members
+/// could change a folder it can write to.
+#[cfg(unix)]
+fn user_private_group() -> Option<u32> {
+    // SAFETY: getegid has no preconditions and cannot fail.
+    let gid = unsafe { libc::getegid() };
+    let user = user_name()?;
+    let (name, members) = group_entry(gid)?;
+    private_group(gid, &name, members, &user)
+}
+
+/// `gid` if its group, called `name` with `members` listed, is the private
+/// group of the user called `user`.
+#[cfg(unix)]
+fn private_group(gid: u32, name: &[u8], members: usize, user: &[u8]) -> Option<u32> {
+    (name == user && members == 0).then_some(gid)
+}
+
+/// This user's name, from their passwd entry.
+#[cfg(unix)]
+fn user_name() -> Option<Vec<u8>> {
+    let mut buffer = vec![0u8; 4096];
+    // SAFETY: an all-zero passwd is valid for getpwuid_r to fill.
+    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut found: *mut libc::passwd = std::ptr::null_mut();
+    loop {
+        // SAFETY: `entry`, `buffer` (of the length given) and `found` are
+        // valid for writes for the call.
+        let status = unsafe {
+            libc::getpwuid_r(
+                libc::geteuid(),
+                &mut entry,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE && buffer.len() < 1 << 20 {
+            buffer.resize(buffer.len() * 2, 0);
+            continue;
+        }
+        if status != 0 || found.is_null() || entry.pw_name.is_null() {
+            return None;
+        }
+        // SAFETY: a NUL-terminated string in `buffer`, which is alive here.
+        return Some(
+            unsafe { std::ffi::CStr::from_ptr(entry.pw_name) }
+                .to_bytes()
+                .to_vec(),
+        );
+    }
+}
+
+/// Group `gid`'s name and how many members it lists, from the group file.
+#[cfg(unix)]
+fn group_entry(gid: u32) -> Option<(Vec<u8>, usize)> {
+    let mut buffer = vec![0u8; 4096];
+    // SAFETY: an all-zero group is valid for getgrgid_r to fill.
+    let mut entry: libc::group = unsafe { std::mem::zeroed() };
+    let mut found: *mut libc::group = std::ptr::null_mut();
+    loop {
+        // SAFETY: `entry`, `buffer` (of the length given) and `found` are
+        // valid for writes for the call.
+        let status = unsafe {
+            libc::getgrgid_r(
+                gid,
+                &mut entry,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE && buffer.len() < 1 << 20 {
+            buffer.resize(buffer.len() * 2, 0);
+            continue;
+        }
+        if status != 0 || found.is_null() || entry.gr_name.is_null() {
+            return None;
+        }
+        // SAFETY: the name is a NUL-terminated string, and the member list a
+        // NULL-terminated array of them, all in `buffer`, which is alive here.
+        let name = unsafe { std::ffi::CStr::from_ptr(entry.gr_name) }
+            .to_bytes()
+            .to_vec();
+        let mut members = 0;
+        if !entry.gr_mem.is_null() {
+            // SAFETY: as above; the walk stops at the array's NULL.
+            while !unsafe { *entry.gr_mem.add(members) }.is_null() {
+                members += 1;
+            }
+        }
+        return Some((name, members));
+    }
 }
 
 #[cfg(unix)]
@@ -1950,7 +2048,7 @@ mod tests {
         ];
         for (owner, group, mode, link) in ok {
             assert_eq!(
-                untrusted(owner, group, mode, link, me, mine),
+                untrusted(owner, group, mode, link, me, Some(mine)),
                 None,
                 "{owner}:{group} {mode:o}"
             );
@@ -1969,13 +2067,26 @@ mod tests {
         ];
         for (owner, group, mode, link) in refused {
             assert!(
-                untrusted(owner, group, mode, link, me, mine).is_some(),
+                untrusted(owner, group, mode, link, me, Some(mine)).is_some(),
                 "{owner}:{group} {mode:o}"
             );
         }
+        // With no private group (a shared primary group), no group may write.
+        assert!(untrusted(me, shared, 0o40775, false, me, None).is_some());
         // As root too, a folder anyone can write to is refused.
-        assert_eq!(untrusted(0, 0, 0o40755, false, 0, 0), None);
-        assert!(untrusted(0, 0, 0o40777, false, 0, 0).is_some());
+        assert_eq!(untrusted(0, 0, 0o40755, false, 0, Some(0)), None);
+        assert!(untrusted(0, 0, 0o40777, false, 0, Some(0)).is_some());
+    }
+
+    /// A group may write above the key file only if it is the user's
+    /// private group: named after them, with no one listed. A shared
+    /// primary group, or one that lists a member, lets others in.
+    #[cfg(unix)]
+    #[test]
+    fn only_a_users_private_group_may_write_above_the_key_file() {
+        assert_eq!(private_group(1501, b"avery", 0, b"avery"), Some(1501));
+        assert_eq!(private_group(100, b"users", 0, b"avery"), None);
+        assert_eq!(private_group(1501, b"avery", 1, b"avery"), None);
     }
 
     /// Where a link leads is checked too: a link (root's, say, which passes
