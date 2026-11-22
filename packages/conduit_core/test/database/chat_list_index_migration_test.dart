@@ -171,7 +171,7 @@ void main() {
   });
 
   test(
-    'v8 upgrade creates the message branch index and reopens idempotently',
+    'v8 upgrade adds the branch index and unread hold, idempotently',
     () async {
       final directory = Directory.systemTemp.createTempSync(
         'conduit_message_branch_index_migration',
@@ -183,6 +183,9 @@ void main() {
         await database.customSelect('SELECT 1').get();
         await database.customStatement(
           'DROP INDEX IF EXISTS idx_messages_chat_parent_role',
+        );
+        await database.customStatement(
+          'ALTER TABLE chats DROP COLUMN held_unread',
         );
         await database.customStatement('PRAGMA user_version = 8');
         await database.close();
@@ -204,7 +207,7 @@ void main() {
 }
 
 Future<void> _expectChatListIndex(AppDatabase database) async {
-  check(database.schemaVersion).equals(13);
+  check(database.schemaVersion).equals(14);
   final indexRow = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "
@@ -228,7 +231,8 @@ Future<void> _expectChatListIndex(AppDatabase database) async {
       .customSelect('PRAGMA table_info(chats)')
       .get();
   check(chatColumns.map((row) => row.read<String>('name')).toSet())
-      .contains('user_id');
+    ..contains('user_id')
+    ..contains('held_unread');
   final receiptIndex = await database
       .customSelect(
         "SELECT sql FROM sqlite_master WHERE type = 'index' "

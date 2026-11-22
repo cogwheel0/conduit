@@ -9,7 +9,10 @@ import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
-    show kSettledHereMetadataKey, kStoppedHereMetadataKey;
+    show
+        kSettledHereMetadataKey,
+        kStoppedHereMetadataKey,
+        kTakenFromServerMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
@@ -374,6 +377,24 @@ Future<void> seedParkedFolderOp(
       );
 }
 
+/// Fails each statement holding [failing], while it is set.
+final class _FailingStatements extends QueryInterceptor {
+  String? failing;
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final failing = this.failing;
+    if (failing != null && statement.contains(failing)) {
+      throw StateError('database or disk is full');
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
 Future<List<OutboxOp>> outboxOpsForChat(AppDatabase db, String chatId) {
   return (db.select(db.outboxOps)..where((t) => t.chatId.equals(chatId))).get();
 }
@@ -383,6 +404,7 @@ void main() {
   // The server's clock: 7000 unless a test moves it on.
   late int serverNow;
   late FakeSyncApiClient client;
+  late _FailingStatements statements;
   late AppDatabase db;
   late ConversationLocks chatLocks;
   late FolderLocks folderLocks;
@@ -394,7 +416,8 @@ void main() {
     serverNow = 7000;
     server = FakeOpenWebUiServer(nowEpochSeconds: () => serverNow);
     client = FakeSyncApiClient(server);
-    db = AppDatabase(NativeDatabase.memory());
+    statements = _FailingStatements();
+    db = AppDatabase(NativeDatabase.memory().interceptWith(statements));
     chatLocks = ConversationLocks();
     folderLocks = FolderLocks();
     remapper = IdRemapper(db);
@@ -2341,6 +2364,42 @@ void main() {
       serverNow = 7600;
       await push.pushUpdateChat(chatId);
 
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    for (final (moment, readAt) in [
+      ('in the very second it lands', 7000),
+      ('by a clock ahead of the server\'s', 7100),
+    ]) {
+      test('the server\'s text a push took is news when the chat was read '
+          'here $moment, until it is read here again', () async {
+        await seed(stored: kept);
+        await settleCutOff('Gales veer');
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+
+        await push.pushUpdateChat(chatId);
+
+        check(isConversationUnread(await pulled())).isTrue();
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+        check(isConversationUnread(await pulled())).isFalse();
+      });
+    }
+
+    test('a push that took the server\'s text, whose landing could not be '
+        'stored, keeps its marks: sent again, it leaves the chat '
+        'unread', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+
+      statements.failing = 'chats SET updated_at';
+      await check(push.pushUpdateChat(chatId)).throws<StateError>();
+      statements.failing = null;
+      final metadata =
+          (jsonDecode((await answerHere()).payload) as Map)['metadata'] as Map?;
+      check(metadata?[kTakenFromServerMetadataKey]).equals(true);
+
+      await push.pushUpdateChat(chatId);
       check(isConversationUnread(await pulled())).isTrue();
     });
 

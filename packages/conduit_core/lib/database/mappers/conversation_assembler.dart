@@ -72,6 +72,16 @@ ChatRows chatRowsFromDb(ChatRow chat, List<MessageRow> messages) {
   );
 }
 
+/// The read a chat shows, in epoch seconds: [lastReadAt], or, while this
+/// device holds it unread ([heldUnread]), one just before [updatedAt].
+int? shownLastReadAt(
+  int? lastReadAt,
+  int updatedAt, {
+  required bool heldUnread,
+}) => heldUnread && lastReadAt != null && lastReadAt >= updatedAt
+    ? updatedAt - 1
+    : lastReadAt;
+
 /// Rebuilds the exact `ChatResponse`-shaped map the app parses today; ints
 /// stay epoch seconds.
 Map<String, dynamic> buildChatResponseEnvelope(
@@ -86,7 +96,11 @@ Map<String, dynamic> buildChatResponseEnvelope(
     'chat': ChatBlobMapper.rowsToBlob(chatRowsFromDb(chat, messages)),
     'updated_at': chat.updatedAt,
     'created_at': chat.createdAt,
-    'last_read_at': chat.lastReadAt,
+    'last_read_at': shownLastReadAt(
+      chat.lastReadAt,
+      chat.updatedAt,
+      heldUnread: chat.heldUnread,
+    ),
     'pinned': chat.pinned,
     'archived': chat.archived,
     'folder_id': chat.folderId,

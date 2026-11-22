@@ -114,7 +114,7 @@ class AppDatabase extends _$AppDatabase {
   }) => AppDatabase(opener.open(serverId));
 
   @override
-  int get schemaVersion => 13;
+  int get schemaVersion => 14;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -205,6 +205,9 @@ class AppDatabase extends _$AppDatabase {
         // check in place: the table is rebuilt, its rows and indexes kept.
         // A pre-v2 file created the current shape above.
         await m.alterTable(TableMigration(outboxOps));
+      }
+      if (from < 14 && !await _chatsHasColumn('held_unread')) {
+        await m.addColumn(chats, chats.heldUnread);
       }
     },
     beforeOpen: (details) async {

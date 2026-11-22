@@ -44,6 +44,7 @@ ChatRow _row(String id, String title) => ChatRow(
   meta: '{}',
   blobMeta: '{}',
   bodySynced: true,
+  heldUnread: false,
 );
 
 void main() {
