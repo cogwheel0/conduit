@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -15,7 +14,7 @@ import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'event_bus.dart';
-import 'local_whisper.dart';
+import 'local_transcriber.dart';
 import 'settled.dart';
 
 /// `voice.*`, `POST /transcribe` and `GET /tts/{jobId}`.
@@ -25,25 +24,16 @@ import 'settled.dart';
 /// speech job is text the window names by id, so an `<audio>` element can
 /// fetch it with no credential of its own.
 final class VoiceService {
-  VoiceService(
-    this._container, {
-    EventBus? events,
-    Directory? whisperDirectory,
-    String? whisperLibrary,
-  }) : _events = events,
-       _library = whisperLibrary ?? findWhisperLibrary(),
-       _models = WhisperModelStore(
-         whisperDirectory ??
-             Directory('${Directory.systemTemp.path}/conduit-whisper'),
-       );
+  VoiceService(this._container, {EventBus? events, LocalTranscriber? local})
+    : _events = events,
+      _local = local;
 
   final ProviderContainer _container;
   final EventBus? _events;
   final Random _random = Random.secure();
 
-  /// `libconduit_whisper`, when this build has it.
-  final String? _library;
-  final WhisperModelStore _models;
+  /// Transcription on this device, when the host has an engine.
+  final LocalTranscriber? _local;
   String? _failedId;
   String? _failure;
 
@@ -55,13 +45,24 @@ final class VoiceService {
   String get _engine =>
       PreferencesStore.getString(_engineKey) == 'local' ? 'local' : 'server';
 
-  WhisperModel? get _chosenModel =>
-      whisperModel(PreferencesStore.getString(_modelKey) ?? '');
+  LocalSpeechModel? get _chosenModel =>
+      _localModel(PreferencesStore.getString(_modelKey) ?? '');
+
+  LocalSpeechModel? _localModel(String id) {
+    for (final model in _local?.models ?? const <LocalSpeechModel>[]) {
+      if (model.id == id) return model;
+    }
+    return null;
+  }
 
   /// The model local transcription would use now, if it can.
-  WhisperModel? get _readyModel {
+  LocalSpeechModel? get _readyModel {
+    final local = _local;
     final model = _chosenModel;
-    if (_library == null || model == null || !_models.isDownloaded(model)) {
+    if (local == null ||
+        !local.available ||
+        model == null ||
+        !local.isDownloaded(model.id)) {
       return null;
     }
     return model;
@@ -116,7 +117,7 @@ final class VoiceService {
     final stored = _container.read(appSettingsProvider);
     return VoiceSettings(
       serverStt: config != null && transcribes(config),
-      localStt: _library != null,
+      localStt: localAvailable,
       sttEngine: _engine,
       localModel: _chosenModel?.id,
       localReady: _readyModel != null,
@@ -152,7 +153,7 @@ final class VoiceService {
       await PreferencesStore.put(_engineKey, engine);
     }
     if (edit.localModel case final id?) {
-      if (whisperModel(id) == null) {
+      if (_localModel(id) == null) {
         throw RpcError(
           code: ConduitErrorCodes.invalidParams,
           debugMessage: 'no model "$id"',
@@ -334,18 +335,19 @@ final class VoiceService {
     }
   }
 
-  /// The whisper models, and how far any download has got.
+  /// The local engine's models, and how far any download has got.
   VoiceModels models() => VoiceModels(
     models: <VoiceModel>[
-      for (final model in whisperModels)
-        VoiceModel(
-          id: model.id,
-          name: model.name,
-          sizeBytes: model.sizeBytes,
-          englishOnly: model.englishOnly,
-          downloaded: _models.isDownloaded(model),
-          receivedBytes: _models.downloading[model.id],
-        ),
+      if (_local case final local?)
+        for (final model in local.models)
+          VoiceModel(
+            id: model.id,
+            name: model.name,
+            sizeBytes: model.sizeBytes,
+            englishOnly: model.englishOnly,
+            downloaded: local.isDownloaded(model.id),
+            receivedBytes: local.receivedBytes(model.id),
+          ),
     ],
     failedId: _failedId,
     failure: _failure,
@@ -356,11 +358,11 @@ final class VoiceService {
 
   /// Starts downloading model [id]; `voice.changed` says how it goes.
   VoiceModels downloadModel(String id) {
-    final model = _modelOrThrow(id);
+    final (local, model) = _modelOrThrow(id);
     _failedId = null;
     _failure = null;
     unawaited(
-      _models.download(model, onProgress: _announceModels).catchError((
+      local.download(model.id, onProgress: _announceModels).catchError((
         Object error,
       ) {
         _failedId = id;
@@ -373,21 +375,24 @@ final class VoiceService {
 
   /// Deletes model [id], or stops its download.
   VoiceModels deleteModel(String id) {
-    final model = _modelOrThrow(id);
-    if (_library case final library? when _chosenModel == model) {
-      whisperUnload(library);
-    }
-    _models.delete(model);
+    final (local, model) = _modelOrThrow(id);
+    if (local.available && _chosenModel?.id == model.id) local.unload();
+    local.delete(model.id);
     _announceModels();
     return models();
   }
 
-  static WhisperModel _modelOrThrow(String id) =>
-      whisperModel(id) ??
-      (throw RpcError(
+  (LocalTranscriber, LocalSpeechModel) _modelOrThrow(String id) {
+    final local = _local;
+    final model = _localModel(id);
+    if (local == null || model == null) {
+      throw RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: 'no model "$id"',
-      ));
+      );
+    }
+    return (local, model);
+  }
 
   /// The transcription of [bytes], in the saved language: by the active
   /// server, or with the local engine by whisper on this computer.
@@ -427,8 +432,8 @@ final class VoiceService {
     String type,
   ) async {
     final model = _readyModel;
-    final library = _library;
-    if (model == null || library == null) {
+    final local = _local;
+    if (model == null || local == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
         debugMessage: 'no model downloaded for transcribing here',
@@ -440,24 +445,19 @@ final class VoiceService {
         debugMessage: 'local transcription takes 16 kHz WAV, not $type',
       );
     }
-    final Float32List samples;
+    final language = _container.read(appSettingsProvider).sttLanguageCode;
     try {
-      samples = decodeWavTo16kMono(bytes);
+      final text = await local.transcribe(
+        model.id,
+        bytes,
+        language: language ?? (model.englishOnly ? 'en' : null),
+      );
+      return VoiceTranscript(text: text);
     } on FormatException catch (error) {
       throw RpcError(
         code: ConduitErrorCodes.invalidParams,
         debugMessage: error.message,
       );
-    }
-    final language = _container.read(appSettingsProvider).sttLanguageCode;
-    try {
-      final text = await whisperTranscribe(
-        library: library,
-        modelPath: _models.pathFor(model),
-        samples: samples,
-        language: language ?? (model.englishOnly ? 'en' : null),
-      );
-      return VoiceTranscript(text: text);
     } on Object catch (error) {
       throw RpcError(
         code: ConduitErrorCodes.serverError,
@@ -473,8 +473,8 @@ final class VoiceService {
   /// `server`, or `local` for whisper on this computer.
   String get sttEngine => _engine;
 
-  /// Whether this build has the whisper library.
-  bool get localAvailable => _library != null;
+  /// Whether this host transcribes on the device.
+  bool get localAvailable => _local?.available ?? false;
 
   /// Whether whisper can transcribe now: the library and the chosen model.
   bool get localReady => _readyModel != null;

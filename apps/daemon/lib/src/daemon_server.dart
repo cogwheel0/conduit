@@ -24,6 +24,7 @@ import 'chat_prompts_service.dart';
 import 'chats_service.dart';
 import 'composer_service.dart';
 import 'drafts_service.dart';
+import 'local_whisper.dart';
 import 'direct_service.dart';
 import 'mcp_apps_service.dart';
 import 'mcp_service.dart';
@@ -337,8 +338,8 @@ class DaemonServer {
     _voice = VoiceService(
       core.container,
       events: events,
-      whisperDirectory: Directory(
-        p.join(core.directories.paths.userData, 'whisper'),
+      local: WhisperTranscriber(
+        Directory(p.join(core.directories.paths.userData, 'whisper')),
       ),
     );
     _dictation = DictationService(core.container, voice: _voice!);

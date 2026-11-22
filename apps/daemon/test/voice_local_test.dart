@@ -34,8 +34,10 @@ void main() {
   VoiceService service({String? withLibrary}) => VoiceService(
     runtime.container,
     events: EventBus(),
-    whisperDirectory: Directory('${temporary.path}/whisper'),
-    whisperLibrary: withLibrary,
+    local: WhisperTranscriber(
+      Directory('${temporary.path}/whisper'),
+      library: withLibrary,
+    ),
   );
 
   test('the engine and model are settings of their own', () async {
@@ -53,6 +55,24 @@ void main() {
     );
     // Back to the default for the next test.
     await voice.save(const VoiceSettingsEdit(sttEngine: 'server'));
+  });
+
+  test('a host with no local engine offers none', () async {
+    final voice = VoiceService(runtime.container, events: EventBus());
+    expect((await voice.settings()).localStt, isFalse);
+    expect(voice.localAvailable, isFalse);
+    expect(voice.models().models, isEmpty);
+    expect(() => voice.downloadModel('tiny.en'), throwsA(isA<RpcError>()));
+    await expectLater(
+      voice.transcribeHere(Uint8List(4), 'audio/wav'),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.unsupported,
+        ),
+      ),
+    );
   });
 
   test('lists the models, none downloaded', () {

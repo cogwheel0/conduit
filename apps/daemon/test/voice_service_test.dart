@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
+import 'package:conduitd/src/local_whisper.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
@@ -34,7 +35,7 @@ void main() {
     auth = AuthService(runtime.container);
     voice = VoiceService(
       runtime.container,
-      whisperDirectory: Directory('${temporary.path}/whisper'),
+      local: WhisperTranscriber(Directory('${temporary.path}/whisper')),
     );
   });
 

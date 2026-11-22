@@ -27,6 +27,7 @@ export 'src/calls_service.dart';
 export 'src/computer_rpc_service.dart';
 export 'src/speech_service.dart';
 export 'src/voice_service.dart';
+export 'src/local_transcriber.dart';
 export 'src/dictation_service.dart';
 export 'src/recordings_service.dart';
 export 'src/workspace_service.dart';
