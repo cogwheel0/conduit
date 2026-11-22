@@ -978,7 +978,9 @@ impl SidebarView {
 
     /// Go › a section (⌘1…): the area opened and scrolled to, the list
     /// focused with the keyboard on its heading (on its first row when the
-    /// sidebar shows no headings).
+    /// sidebar shows no headings). The section holding the chat on screen
+    /// puts the keyboard on that chat's row instead, so it stays the
+    /// selection.
     pub fn go_to_area(&mut self, area: Area, window: &mut Window, cx: &mut Context<Self>) {
         // Search lists chats alone: the sections come back first.
         if !self.search.read(cx).value().is_empty() || self.stores.chat_list.read(cx).is_searching()
@@ -995,10 +997,19 @@ impl SidebarView {
                 .iter()
                 .position(|r| KeyRow::of(r).is_some_and(|k| !matches!(k, KeyRow::Area(_))))
         });
+        let shown = self.stores.navigation.read(cx).selection();
+        let on_screen = (shown.chat_id().is_some() && shown.area() == area)
+            .then(|| self.open_row(cx))
+            .flatten()
+            .and_then(|row| index_of(&self.rows, &row).map(|at| (at, row)));
         self.list_focus.focus(window, cx);
         if let Some(ix) = ix {
             self.cursor = KeyRow::of(&self.rows[ix]);
             self.scroll_to_top(ix);
+        }
+        if let Some((at, row)) = on_screen {
+            self.cursor = Some(row);
+            self.scroll.scroll_to_item(at, ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -2258,6 +2269,12 @@ impl SidebarView {
         }
     }
 
+    /// Whether chat `chat`'s row shows the Unread dot: never on the chat on
+    /// screen, which is being read, whichever row the keyboard stands on.
+    fn shows_unread(&self, chat: &ChatSummary, cx: &App) -> bool {
+        chat.unread && self.stores.navigation.read(cx).selected_chat() != Some(chat.id.as_str())
+    }
+
     fn chat(
         &mut self,
         chat: &ChatSummary,
@@ -2291,7 +2308,7 @@ impl SidebarView {
             reduce_motion: false,
             status: None,
             note: read_only.then(|| l.read_only().into()),
-            unread: chat.unread,
+            unread: self.shows_unread(chat, cx),
             unread_spoken: Some(l.desktop_unread().into()),
         };
         let key_row = KeyRow::Chat(id.clone());
@@ -2514,7 +2531,17 @@ impl SidebarView {
     /// The list's one selection: while it has focus, the row the arrows
     /// stand on (a folder or footer row too); otherwise the open chat.
     pub fn selection(&self, cx: &App) -> Option<KeyRow> {
-        let open = KeyRow::of_selection(self.stores.navigation.read(cx).selection()).map(|row| {
+        selection_row(
+            &self.rows,
+            self.list_focused,
+            self.cursor.as_ref(),
+            self.open_row(cx).as_ref(),
+        )
+    }
+
+    /// The row standing for what the main window shows.
+    fn open_row(&self, cx: &App) -> Option<KeyRow> {
+        KeyRow::of_selection(self.stores.navigation.read(cx).selection()).map(|row| {
             // A Bot Chat (a session no list shows) is its bot's row.
             match &row {
                 KeyRow::Item(AreaItem::HermesSession(session))
@@ -2529,13 +2556,7 @@ impl SidebarView {
                 }
                 _ => row,
             }
-        });
-        selection_row(
-            &self.rows,
-            self.list_focused,
-            self.cursor.as_ref(),
-            open.as_ref(),
-        )
+        })
     }
 
     /// Whether `row` is drawn selected this frame: one of several selected
@@ -4975,6 +4996,83 @@ mod selection_tests {
         view.update(vcx, |s, cx| s.end_selection(cx));
         view.read_with(vcx, |s, _| {
             assert_eq!(s.on_selection(&ChatCommand::Delete), None)
+        });
+    }
+
+    /// Go › a section and back (⌘2, then ⌘1) leaves the chat on screen
+    /// selected: the keyboard comes back to its row, not to the heading.
+    /// Another section's heading, or Chats with a note shown, keeps the
+    /// keyboard on the heading.
+    #[gpui_kit::test]
+    fn going_back_to_chats_selects_the_chat_on_screen(cx: &mut TestAppContext) {
+        let (stores, view, vcx) = bench_on(two_chats_and_a_folder(), cx);
+        stores.session.update(vcx, |s, cx| {
+            s.system_capabilities = Some(conduit_protocol::Capabilities {
+                notes: true,
+                ..Default::default()
+            });
+            s.preview_route(Some(crate::stores::session::Route::Main), cx)
+        });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            assert_eq!(s.cursor(), Some(&KeyRow::Area(Area::Notes)));
+            assert_eq!(s.selection(cx), Some(KeyRow::Area(Area::Notes)));
+        });
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Chats, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            assert_eq!(
+                s.selection(cx),
+                Some(KeyRow::Chat("chat-a".into())),
+                "the chat on screen lost its selection"
+            );
+            assert_eq!(s.cursor(), Some(&KeyRow::Chat("chat-a".into())));
+        });
+        stores
+            .navigation
+            .update(vcx, |n, cx| n.open_item(AreaItem::Note("n1".into()), cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Chats, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, _| {
+            assert_eq!(s.cursor(), Some(&KeyRow::Area(Area::Chats)));
+        });
+    }
+
+    /// The chat on screen never shows the Unread dot, whichever row the
+    /// keyboard stands on: it is being read.
+    #[gpui_kit::test]
+    fn the_chat_on_screen_never_shows_unread(cx: &mut TestAppContext) {
+        use conduit_protocol::methods;
+        let now = Local::now().timestamp_millis();
+        let daemon = FakeDaemon::new();
+        daemon.returns::<methods::ChatsList>(
+            serde_json::from_value(serde_json::json!({
+                "chats": [
+                    {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now, "unread": true},
+                    {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1, "unread": true},
+                ],
+                "folders": [],
+            }))
+            .unwrap(),
+        );
+        let (stores, view, vcx) = bench_on(daemon, cx);
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        stores.navigation.update(vcx, |n, cx| n.open("chat-a", cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |s, window, cx| s.go_to_area(Area::Notes, window, cx));
+        vcx.run_until_parked();
+        view.read_with(vcx, |s, cx| {
+            let unread = |id: &str| {
+                let chat = s.stores.chat_list.read(cx).find(id).cloned().unwrap();
+                s.shows_unread(&chat, cx)
+            };
+            assert!(!unread("chat-a"), "the chat on screen shows Unread");
+            assert!(unread("chat-b"), "another chat lost its Unread");
         });
     }
 

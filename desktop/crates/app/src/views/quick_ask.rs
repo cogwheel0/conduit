@@ -23,7 +23,7 @@ use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
 use conduit_components::theme::{UI_FONT, with_alpha};
 use conduit_components::views::kit::{Button, ESC_KEYCAP, IconButton, keycap};
-use conduit_protocol::{Event, events, methods};
+use conduit_protocol::{ChatView, Event, events, methods};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, KeyDownEvent, Role, SharedString,
@@ -83,6 +83,8 @@ pub struct QuickAskView {
     pub chat: Option<QuickChat>,
     /// The panel is on screen ([`Self::set_shown`]).
     shown: bool,
+    /// The chat on screen as the daemon last heard it ([`Self::report_shown`]).
+    shown_reported: Option<String>,
     /// The first message is on its way.
     starting: bool,
     /// Bumped by New Chat and by another account: a first message sent
@@ -231,6 +233,7 @@ impl QuickAskView {
             composer,
             chat: None,
             shown: false,
+            shown_reported: None,
             starting: false,
             generation: 0,
             scope,
@@ -293,6 +296,20 @@ impl QuickAskView {
                 .update(cx, |c, cx| c.mark_read(&id, cx));
         }
         self.shown = shown;
+        self.report_shown(cx);
+    }
+
+    /// Tells the daemon which chat the panel shows on screen, when that
+    /// changed (a first message's chat gets its id as it is saved): the core
+    /// reads each change of its stored copy while it shows.
+    fn report_shown(&mut self, cx: &mut Context<Self>) {
+        let shown = self.chat_id(cx).filter(|_| self.shown);
+        if shown == self.shown_reported {
+            return;
+        }
+        self.shown_reported = shown.clone();
+        let rpc = self.stores.connection.read(cx).rpc();
+        crate::stores::chat_list::set_shown(&rpc, ChatView::QuickAsk, shown, cx);
     }
 
     /// The app quits: the chat the panel shows is left, by a read the quit
@@ -347,6 +364,7 @@ impl QuickAskView {
     fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.generation += 1;
         self.chat = None;
+        self.report_shown(cx);
         self.starting = false;
         self.notice = None;
         (self.subscribe_hook())(None, cx);
@@ -410,6 +428,9 @@ impl QuickAskView {
                 // A new daemon session: the order of model answers starts
                 // again (the open chat, draft and attachments stay).
                 self.composer_store.update(cx, |c, cx| c.reconnected(cx));
+                // It knows of no chat on screen.
+                self.shown_reported = None;
+                self.report_shown(cx);
             }
             ConnectionEvent::Gap => {
                 if let Some(chat) = &self.chat {
@@ -500,6 +521,7 @@ impl QuickAskView {
         });
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
+                this.report_shown(cx);
                 let streaming = store.read(cx).is_streaming();
                 if streaming {
                     let id = store.read(cx).chat_id().to_string();
@@ -533,6 +555,7 @@ impl QuickAskView {
             transcript,
             _subscriptions: subscriptions,
         });
+        self.report_shown(cx);
         cx.notify();
         store
     }
@@ -1487,6 +1510,40 @@ mod tests {
             Some(&serde_json::json!({"chatId": "chat-r", "unread": false}))
         );
     }
+
+    /// The daemon hears which chat the panel shows on screen, each time
+    /// that changes, so the core reads what changes in it meanwhile: none
+    /// while it is hidden, or once a new chat starts there.
+    #[gpui_kit::test]
+    fn the_daemon_hears_which_chat_the_panel_shows(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        let shows_q = serde_json::json!({"view": "quickAsk", "chatId": "chat-q"});
+        let shows_none = serde_json::json!({"view": "quickAsk"});
+
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        view.update(vcx, |v, cx| v.set_shown(false, cx));
+        view.update(vcx, |v, cx| v.set_shown(true, cx));
+        vcx.run_until_parked();
+        view.update_in(vcx, |v, window, cx| v.new_chat(window, cx));
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>(),
+            vec![
+                shows_q.clone(),
+                shows_none.clone(),
+                shows_q.clone(),
+                shows_none.clone()
+            ],
+            "the daemon heard another chat on screen than the panel shows"
+        );
+    }
+
     /// A Services selection never takes the place of what the user left in
     /// Quick Ask, and never joins it: words, files (sent up or still on
     /// their way) all stay as they were, with no selection among them.

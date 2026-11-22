@@ -25,9 +25,9 @@ use std::time::Duration;
 use conduit_daemon::{RpcError, RpcMethod};
 use conduit_protocol::{
     ArchivedVisibility, BulkChatAction, BulkChats, ChatList, ChatRef, ChatSearchQuery,
-    ChatSearchResults, ChatShare, ChatSummary, ChatTree, CreateFolder, Event, FolderRef,
-    FolderSummary, MoveChat, NoParams, RenameChat, RenameFolder, SetChatFlag, SyncState, events,
-    methods,
+    ChatSearchResults, ChatShare, ChatSummary, ChatTree, ChatView, CreateFolder, Event, FolderRef,
+    FolderSummary, MoveChat, NoParams, RenameChat, RenameFolder, SetChatFlag, ShownChat, SyncState,
+    events, methods,
 };
 use gpui_kit::{App, AppContext as _, AsyncApp, Context, EventEmitter, Task, WeakEntity};
 
@@ -1093,6 +1093,18 @@ pub struct ScopeChange {
     pub reset: bool,
     /// Fetch the list and the sync state.
     pub refresh: bool,
+}
+
+/// Tells the daemon which chat `view` shows on screen (`None`: none), so
+/// each change of its stored copy is read while it shows.
+pub fn set_shown(rpc: &Rpc, view: ChatView, chat_id: Option<String>, cx: &mut App) {
+    let call = rpc.call::<methods::ChatsSetShown>(&ShownChat { view, chat_id });
+    cx.background_spawn(async move {
+        if let Err(e) = call.await {
+            log::warn!("chats.setShown: {e}");
+        }
+    })
+    .detach();
 }
 
 /// The change between the scope last seen and `next`.
