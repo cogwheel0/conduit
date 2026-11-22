@@ -292,14 +292,30 @@ fn linux_master_key(
     key
 }
 
+/// A harness flag `os` doesn't run: `--probe` drives the Mac's shell and
+/// isn't built elsewhere, where it would only open the app on its real
+/// profile without the single-instance check, beside the one already open.
+pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
+    (os != paths::Os::MacOs && args.iter().any(|a| a == "--probe")).then_some("--probe")
+}
+
 /// What a launch's arguments ask to open (Windows, Linux), or `None` for a
 /// scripted launch: it is an app of its own, claims no instance, and its
 /// arguments (`--shots <dir>`, a fixture's) are nothing to open.
-pub fn launch_urls(args: &[String], cwd: &std::path::Path) -> Option<Vec<String>> {
-    if is_scripted(args) || scripted::requested(args) {
+pub fn launch_urls(args: &[std::ffi::OsString], cwd: &std::path::Path) -> Option<Vec<String>> {
+    let text = as_text(args);
+    if is_scripted(&text) || scripted::requested(&text) {
         return None;
     }
     Some(shell::deep_link::from_argv(args, cwd))
+}
+
+/// Arguments as text, for reading options (an argument that isn't UTF-8
+/// is only ever a file, which `from_argv` reads from the bytes).
+fn as_text(args: &[std::ffi::OsString]) -> Vec<String> {
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
 }
 
 /// This profile's single instance: the listener when this launch is the
@@ -357,7 +373,10 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
 pub static HARNESS_MARKER: &[u8; 35] = b"conduit-desktop: test harness build";
 
 pub fn run() {
-    let args: Vec<String> = std::env::args().collect();
+    // Read natively: a file's name need not be UTF-8 (std::env::args
+    // would panic on it). Options are read as text.
+    let args_os: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let args = as_text(&args_os);
     // Kept in the binary (never optimized out): the marker is how a harness
     // build is told from a release one after the fact.
     #[cfg(feature = "harness")]
@@ -375,8 +394,16 @@ pub fn run() {
         eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
         std::process::exit(64);
     }
+    // A harness flag this OS doesn't run ends the launch before anything
+    // opens.
+    if let Some(flag) = unsupported_flag(paths::Os::CURRENT, &args) {
+        eprintln!("conduit-desktop: {flag} runs only on macOS");
+        std::process::exit(64);
+    }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
-    if let Some(dir) = arg(&args, "--cwd") {
+    if let Some(i) = args.iter().position(|a| a == "--cwd")
+        && let Some(dir) = args_os.get(i + 1)
+    {
         std::env::set_current_dir(dir).ok();
     }
     // A scripted launch (a pass, the capture, a fixture) never asks for a
@@ -445,7 +472,7 @@ pub fn run() {
     // both on the Mac).
     #[cfg(not(target_os = "macos"))]
     let (launch_urls, instance) =
-        match launch_urls(&args, &std::env::current_dir().unwrap_or_default()) {
+        match launch_urls(&args_os, &std::env::current_dir().unwrap_or_default()) {
             Some(urls) => {
                 let instance = claim_instance(&app_paths, &urls);
                 (urls, instance)
@@ -1213,9 +1240,27 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
 mod harness_profile_tests {
     use super::*;
 
+    /// `--probe` drives the Mac's shell only: elsewhere it is refused before
+    /// anything opens, never a launch on the real profile beside the app.
+    #[test]
+    fn the_probe_is_refused_off_the_mac() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let probe = args(&["app", "--probe", "state.json"]);
+        assert_eq!(unsupported_flag(paths::Os::Linux, &probe), Some("--probe"));
+        assert_eq!(
+            unsupported_flag(paths::Os::Windows, &probe),
+            Some("--probe")
+        );
+        assert_eq!(unsupported_flag(paths::Os::MacOs, &probe), None);
+        assert_eq!(
+            unsupported_flag(paths::Os::Linux, &args(&["app", "--hidden"])),
+            None
+        );
+    }
+
     #[test]
     fn a_scripted_launch_opens_nothing_from_its_arguments() {
-        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let args = |a: &[&str]| a.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
         let cwd = std::path::Path::new("/tmp/launch");
         for scripted in [
             &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
