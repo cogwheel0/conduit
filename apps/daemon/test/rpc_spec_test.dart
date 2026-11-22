@@ -10,7 +10,7 @@ import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// The daemon answers exactly the methods the protocol's tables list, with
 /// the tables' own decoders, so the Rust client generated from those tables
@@ -22,15 +22,14 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('conduitd_rpc_spec');
-    final log = DaemonLog(level: 'error', sink: NullSink());
     final pipe = StreamChannelController<String>(sync: true);
     session = RpcSession(
       sessionId: 'spec',
       channel: pipe.local,
       system: SystemService(
-        directories: DaemonDirectories.create(tempDir.path),
+        paths: testDaemonPaths,
+        platform: 'macos',
         daemonVersion: '0.0.0-test',
-        log: log,
         requestStop: (_) => fail('nothing here should stop the daemon'),
       ),
       events: EventBus(),

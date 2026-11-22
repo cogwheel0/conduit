@@ -34,6 +34,7 @@ import 'queued_completions_service.dart';
 import 'core_runtime.dart';
 import 'redact.dart';
 import 'daemon_paths.dart';
+import 'diagnostics.dart';
 import 'event_bus.dart';
 import 'files_service.dart';
 import 'media_service.dart';
@@ -92,13 +93,19 @@ class DaemonServer {
     required DaemonLog log,
   }) : _log = log {
     _system = SystemService(
-      directories: directories,
+      paths: directories.paths,
+      platform: daemonPlatform,
       daemonVersion: daemonVersion,
-      log: log,
       requestStop: requestStop,
       needsOnboarding: () async =>
           await (await _coreSoon())?.needsOnboarding() ?? false,
       flushOutbox: () async => await _core?.flushOutbox() ?? 0,
+      exportDiagnostics: () => _diagnostics.export(),
+    );
+    _diagnostics = DaemonDiagnostics(
+      directories: directories,
+      log: log,
+      system: _system,
       configSnapshot: _configSnapshot,
       secrets: <String>[config.sessionToken, config.masterKey],
     );
@@ -110,6 +117,7 @@ class DaemonServer {
   final DaemonLog _log;
 
   late final SystemService _system;
+  late final DaemonDiagnostics _diagnostics;
 
   /// Set by [attachCore]. Sessions opened before it arrives answer
   /// `servers.*` and `auth.*` with `rpc.daemonUnavailable` rather than with a

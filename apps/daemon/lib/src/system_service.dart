@@ -1,36 +1,34 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 
-import 'daemon_paths.dart';
-import 'diagnostics.dart';
-import 'log.dart';
-
 /// Implements the `system.*` family.
+///
+/// What every session needs, whatever hosts it. The host says where its
+/// data lives ([paths]) and what it runs on ([platform]), how it stops, and
+/// how it exports diagnostics, if it does.
 class SystemService {
   SystemService({
-    required this.directories,
+    required this.paths,
+    required this.platform,
     required this.daemonVersion,
-    required DaemonLog log,
     required void Function(String reason) requestStop,
     Future<bool> Function()? needsOnboarding,
     Future<int> Function()? flushOutbox,
-    Future<Map<String, Object?>> Function()? configSnapshot,
-    Iterable<String> secrets = const <String>[],
+    Future<DiagnosticsExport> Function()? exportDiagnostics,
     DateTime? startedAt,
-  }) : _log = log,
-       _requestStop = requestStop,
+  }) : _requestStop = requestStop,
        _needsOnboarding = needsOnboarding,
        _flushOutbox = flushOutbox,
-       _configSnapshot = configSnapshot,
-       _secrets = List<String>.of(secrets),
+       _exportDiagnostics = exportDiagnostics,
        _startedAt = startedAt ?? DateTime.now();
 
-  final DaemonDirectories directories;
+  final DaemonPaths paths;
+
+  /// The platform string the protocol uses (`macos`, `windows`, `linux`).
+  final String platform;
   final String daemonVersion;
-  final DaemonLog _log;
 
   /// The daemon's one way to stop: stdin EOF, a signal and
   /// `system.shutdown` all end there.
@@ -39,11 +37,7 @@ class SystemService {
   /// Each null, or answering for nothing, while the core is starting.
   final Future<bool> Function()? _needsOnboarding;
   final Future<int> Function()? _flushOutbox;
-  final Future<Map<String, Object?>> Function()? _configSnapshot;
-
-  /// Known by value and kept out of the export: the session token and the
-  /// master key.
-  final List<String> _secrets;
+  final Future<DiagnosticsExport> Function()? _exportDiagnostics;
   final DateTime _startedAt;
 
   /// What the active account can use now.
@@ -62,8 +56,8 @@ class SystemService {
     daemonVersion: daemonVersion,
     sessionId: sessionId,
     capabilities: capabilities,
-    paths: directories.paths,
-    platform: currentPlatform,
+    paths: paths,
+    platform: platform,
     // From the core's routing policy once it is up. Before then nobody
     // knows, and false only costs the window the round trip that finds out:
     // true would show onboarding to someone who is signed in.
@@ -125,58 +119,15 @@ class SystemService {
     );
   }
 
-  /// Zips the daemon's logs and a snapshot of its configuration with every
-  /// credential left out, into the staging directory.
+  /// The host's diagnostics export; a host without one says so.
   Future<DiagnosticsExport> exportDiagnostics() async {
-    final zip = await writeDiagnosticsZip(
-      logs: Directory(directories.paths.logs),
-      staging: Directory(directories.paths.staging),
-      snapshot: await _snapshot(),
-      exactSecrets: _secrets,
-    );
-    _log.info('diagnostics written to ${homeRelative(zip.path)}');
-    return DiagnosticsExport(path: zip.path, sizeBytes: await zip.length());
-  }
-
-  Future<Map<String, Object?>> _snapshot() async {
-    Map<String, Object?> core;
-    final snapshot = _configSnapshot;
-    if (snapshot == null) {
-      core = <String, Object?>{'state': 'starting'};
-    } else {
-      try {
-        core = await snapshot();
-      } on Object catch (error) {
-        core = <String, Object?>{
-          'state': 'unreadable',
-          'error': error.runtimeType.toString(),
-        };
-      }
+    final export = _exportDiagnostics;
+    if (export == null) {
+      throw const RpcError(
+        code: ConduitErrorCodes.unsupported,
+        debugMessage: 'this host exports no diagnostics',
+      );
     }
-    return <String, Object?>{
-      'generatedAt': DateTime.now().toUtc().toIso8601String(),
-      'daemonVersion': daemonVersion,
-      'protocolVersion': kConduitProtocolVersion,
-      'platform': currentPlatform,
-      'osVersion': Platform.operatingSystemVersion,
-      'dartVersion': Platform.version.split(' ').first,
-      'uptimeMs': ping().uptimeMs,
-      'logLevel': _log.level,
-      'paths': <String, String>{
-        'userData': homeRelative(directories.paths.userData),
-        'logs': homeRelative(directories.paths.logs),
-      },
-      'capabilities': capabilities.toJson(),
-      'core': core,
-    };
-  }
-
-  /// The platform string the protocol uses. Kept here rather than derived in
-  /// the UI so both front-ends agree on the spelling.
-  static String get currentPlatform {
-    if (Platform.isMacOS) return 'macos';
-    if (Platform.isWindows) return 'windows';
-    if (Platform.isLinux) return 'linux';
-    return Platform.operatingSystem;
+    return export();
   }
 }

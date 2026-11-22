@@ -2,9 +2,93 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:path/path.dart' as p;
 
+import 'daemon_paths.dart';
+import 'log.dart';
 import 'redact.dart';
+import 'system_service.dart';
+
+/// `system.exportDiagnostics` on the desktop: the daemon's logs and a
+/// snapshot of its configuration with every credential left out, zipped
+/// into the staging directory.
+final class DaemonDiagnostics {
+  DaemonDiagnostics({
+    required this.directories,
+    required DaemonLog log,
+    required SystemService system,
+    Future<Map<String, Object?>> Function()? configSnapshot,
+    Iterable<String> secrets = const <String>[],
+  }) : _log = log,
+       _system = system,
+       _configSnapshot = configSnapshot,
+       _secrets = List<String>.of(secrets);
+
+  final DaemonDirectories directories;
+  final DaemonLog _log;
+  final SystemService _system;
+
+  /// Null, or answering for nothing, while the core is starting.
+  final Future<Map<String, Object?>> Function()? _configSnapshot;
+
+  /// Known by value and kept out of the export: the session token and the
+  /// master key.
+  final List<String> _secrets;
+
+  Future<DiagnosticsExport> export() async {
+    final zip = await writeDiagnosticsZip(
+      logs: Directory(directories.paths.logs),
+      staging: Directory(directories.paths.staging),
+      snapshot: await _snapshot(),
+      exactSecrets: _secrets,
+    );
+    _log.info('diagnostics written to ${homeRelative(zip.path)}');
+    return DiagnosticsExport(path: zip.path, sizeBytes: await zip.length());
+  }
+
+  Future<Map<String, Object?>> _snapshot() async {
+    Map<String, Object?> core;
+    final snapshot = _configSnapshot;
+    if (snapshot == null) {
+      core = <String, Object?>{'state': 'starting'};
+    } else {
+      try {
+        core = await snapshot();
+      } on Object catch (error) {
+        core = <String, Object?>{
+          'state': 'unreadable',
+          'error': error.runtimeType.toString(),
+        };
+      }
+    }
+    return <String, Object?>{
+      'generatedAt': DateTime.now().toUtc().toIso8601String(),
+      'daemonVersion': _system.daemonVersion,
+      'protocolVersion': kConduitProtocolVersion,
+      'platform': _system.platform,
+      'osVersion': Platform.operatingSystemVersion,
+      'dartVersion': Platform.version.split(' ').first,
+      'uptimeMs': _system.ping().uptimeMs,
+      'logLevel': _log.level,
+      'paths': <String, String>{
+        'userData': homeRelative(directories.paths.userData),
+        'logs': homeRelative(directories.paths.logs),
+      },
+      'capabilities': _system.capabilities.toJson(),
+      'core': core,
+    };
+  }
+}
+
+/// The platform string the protocol uses for this computer. Kept here
+/// rather than derived in the UI so both front-ends agree on the spelling.
+String get daemonPlatform {
+  if (Platform.isMacOS) return 'macos';
+  if (Platform.isWindows) return 'windows';
+  if (Platform.isLinux) return 'linux';
+  return Platform.operatingSystem;
+}
 
 /// Writes a diagnostics zip into [staging] and returns it.
 ///

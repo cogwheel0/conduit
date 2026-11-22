@@ -15,7 +15,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 final class _Conversations extends Conversations {
   @override
@@ -40,15 +40,14 @@ void main() {
       ],
     );
     final chats = ChatsService(container);
-    final log = DaemonLog(level: 'error', sink: NullSink());
     final pipe = StreamChannelController<String>(sync: true);
     session = RpcSession(
       sessionId: 'w1',
       channel: pipe.local,
       system: SystemService(
-        directories: DaemonDirectories.create(tempDir.path),
+        paths: testDaemonPaths,
+        platform: 'macos',
         daemonVersion: '0.0.0-test',
-        log: log,
         requestStop: (_) => fail('nothing here should stop the daemon'),
       ),
       events: EventBus(),
