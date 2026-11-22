@@ -46,14 +46,23 @@
 # Windows has crates/app/run.ps1.
 set -eu
 # File arguments are the caller's: made absolute before the cd below, so
-# `run.sh notes.md` still names that file. Flags and links stay as they are.
+# `run.sh notes.md` still names that file. Flags, links and the value after
+# each of the app's flags that takes one (`--e2e chat`) stay as they are.
 caller="$PWD"
+value_next=0
 for arg in "$@"; do
   shift
-  case "$arg" in
-    -* | /* | *://*) ;;
-    *) if [ -e "$caller/$arg" ]; then arg="$caller/$arg"; fi ;;
-  esac
+  if [ "$value_next" = 1 ]; then
+    value_next=0
+  else
+    case "$arg" in
+      --cwd | --shots | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
+        --fixture | --chat-fixture | --channel-fixture | --calendar-fixture | --tasks-fixture | --workspace-fixture | --preview-route)
+        value_next=1 ;;
+      -* | /* | *://*) ;;
+      *) if [ -e "$caller/$arg" ]; then arg="$caller/$arg"; fi ;;
+    esac
+  fi
   set -- "$@" "$arg"
 done
 cd "$(dirname "$0")/../.."

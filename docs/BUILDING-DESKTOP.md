@@ -114,6 +114,8 @@ crates\app\run.ps1 -RegisterScheme           # conduit:// links open this build
 crates\app\run.ps1 -UnregisterScheme         # ... and no longer
 ```
 
+`run.ps1` needs PowerShell 7 (`pwsh`).
+
 Registering is the only step that changes the system, and only when asked:
 per-user keys under `HKCU\Software\Classes\conduit` on Windows; on Linux a
 `conduit-dev.desktop` file in `$XDG_DATA_HOME/applications`, made the

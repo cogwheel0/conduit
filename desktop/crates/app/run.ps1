@@ -17,6 +17,9 @@ never the app's own; without one it starts on a fresh profile in %TEMP%.
 #>
 # A plain script, not an advanced one: arguments it doesn't take (the
 # app's `--hidden`, `--e2e`) stay in $args instead of being refused.
+# PowerShell 7 (pwsh): file arguments resolve with .NET's GetFullPath(path,
+# base), which Windows PowerShell's .NET Framework lacks.
+#Requires -Version 7
 param(
   [switch]$BuildOnly,
   [switch]$RegisterScheme,
@@ -25,16 +28,29 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 # File arguments are the caller's: made absolute before Set-Location below,
-# so `run.ps1 notes.md` still names that file. Flags and links stay as they
-# are.
-$caller = (Get-Location).Path
-$AppArgs = @($args | ForEach-Object {
-  if ($_ -like '-*' -or $_ -like '*://*' -or [System.IO.Path]::IsPathRooted($_)) {
-    $_
-  } elseif (Test-Path -LiteralPath (Join-Path $caller $_)) {
-    Join-Path $caller $_
+# so `run.ps1 notes.md` and `run.ps1 C:notes.md` still name that file
+# (IsPathRooted counts a drive-relative `C:notes.md` as rooted, but it
+# depends on the folder). Flags, links and the value after each of the app's
+# flags that takes one (`--e2e chat`) stay as they are.
+$caller = (Get-Location).ProviderPath
+$valueFlags = @(
+  '--cwd', '--shots', '--e2e', '--e2e-env', '--capture', '--capture-env',
+  '--capture-only', '--probe', '--fixture', '--chat-fixture', '--channel-fixture',
+  '--calendar-fixture', '--tasks-fixture', '--workspace-fixture', '--preview-route'
+)
+$valueNext = $false
+$AppArgs = @(foreach ($arg in $args) {
+  if ($valueNext) {
+    $valueNext = $false
+    $arg
+  } elseif ($valueFlags -contains $arg) {
+    $valueNext = $true
+    $arg
+  } elseif ($arg -like '-*' -or $arg -like '*://*') {
+    $arg
   } else {
-    $_
+    $full = try { [System.IO.Path]::GetFullPath($arg, $caller) } catch { $null }
+    if ($full -and (Test-Path -LiteralPath $full)) { $full } else { $arg }
   }
 })
 Set-Location (Join-Path $PSScriptRoot '..\..')
