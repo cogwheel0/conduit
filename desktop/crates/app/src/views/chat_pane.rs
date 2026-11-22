@@ -112,8 +112,8 @@ pub struct ChatPane {
     /// menu bar or closed ([`Self::window_closing`]), until it is back
     /// ([`Self::window_shown`]).
     window_shown: bool,
-    /// The chat on screen as the daemon last heard it ([`Self::report_shown`]).
-    shown_reported: Option<String>,
+    /// The chat on screen as the daemon heard it ([`Self::report_shown`]).
+    shown_report: crate::stores::chat_list::ShownReport,
     /// A new chat's first message is on its way.
     /// The composition a new chat's first message was sent from, while it
     /// is on its way: it holds back another send (and Chat Settings) only
@@ -529,7 +529,7 @@ impl ChatPane {
             chat: None,
             chat_on_screen: false,
             window_shown: true,
-            shown_reported: None,
+            shown_report: crate::stores::chat_list::ShownReport::new(ChatView::Main),
             starting: None,
             account,
             hermes_continuing: false,
@@ -1157,12 +1157,9 @@ impl ChatPane {
                 self.chat_on_screen && self.stores.accounts.read(cx).scope_key() == self.account
             })
             .map(|c| c.store.read(cx).chat_id().to_string());
-        if shown == self.shown_reported {
-            return;
-        }
-        self.shown_reported = shown.clone();
         let rpc = self.stores.connection.read(cx).rpc();
-        crate::stores::chat_list::set_shown(&rpc, ChatView::Main, shown, cx);
+        self.shown_report
+            .report(shown, &rpc, cx, |pane| &mut pane.shown_report);
     }
 
     /// The app quits: the chat on screen is left, by a read the quit waits
@@ -1318,8 +1315,7 @@ impl ChatPane {
                 if let Some(chat) = &self.chat {
                     chat.store.update(cx, |s, cx| s.on_reconnected(cx));
                 }
-                // A new daemon session knows of no chat on screen.
-                self.shown_reported = None;
+                self.shown_report.reconnected();
                 self.report_shown(cx);
                 // A new daemon session: the order of model answers starts
                 // again (the open chat, draft and attachments stay).
@@ -4665,6 +4661,58 @@ mod tests {
                 daemon.calls::<methods::ChatsSetShown>().last(),
                 Some(&shows_none),
                 "the last account's chat stayed on screen in the new one"
+            );
+        }
+
+        /// A report of the chat on screen the daemon refuses is sent again
+        /// with the next change of what shows, even to the same chat; a
+        /// late refusal never undoes a newer report the daemon took.
+        #[gpui_kit::test]
+        fn a_refused_report_of_the_chat_on_screen_is_sent_again(cx: &mut TestAppContext) {
+            let (daemon, stores, _pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            daemon.once::<methods::ChatsSetShown>(Err(conduit_protocol::RpcError::internal(
+                "the daemon is still starting",
+            )));
+            daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+            let shows_c1 = serde_json::json!({"view": "main", "chatId": "c1"});
+            // Another chat gets its server id: the pane looks again at what
+            // it shows, which is still c1.
+            let another_remapped = |n: u32, vcx: &mut VisualTestContext| {
+                stores.router.update(vcx, |r, cx| {
+                    r.on_remap(format!("local:other-{n}"), format!("other-{n}"), cx)
+                });
+                vcx.run_until_parked();
+            };
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            another_remapped(1, vcx);
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>(),
+                vec![shows_c1.clone(), shows_c1.clone()],
+                "a refused report was not sent again"
+            );
+
+            // Refused late, after a newer report went through.
+            daemon.once::<methods::ChatsSetShown>(Err(conduit_protocol::RpcError::internal(
+                "the daemon is still starting",
+            )));
+            let held = daemon.hold_one::<methods::ChatsSetShown>(0);
+            stores.navigation.update(vcx, |n, cx| {
+                n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
+            });
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            held.release();
+            vcx.run_until_parked();
+            another_remapped(2, vcx);
+            assert_eq!(
+                daemon.calls::<methods::ChatsSetShown>().len(),
+                4,
+                "a late refusal undid the report the daemon took"
             );
         }
 

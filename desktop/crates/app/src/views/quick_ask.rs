@@ -83,8 +83,11 @@ pub struct QuickAskView {
     pub chat: Option<QuickChat>,
     /// The panel is on screen ([`Self::set_shown`]).
     shown: bool,
-    /// The chat on screen as the daemon last heard it ([`Self::report_shown`]).
-    shown_reported: Option<String>,
+    /// The platform shows the panel's window: not while the app is hidden
+    /// (⌘H), nor minimized or fully covered.
+    window_visible: bool,
+    /// The chat on screen as the daemon heard it ([`Self::report_shown`]).
+    shown_report: crate::stores::chat_list::ShownReport,
     /// The first message is on its way.
     starting: bool,
     /// Bumped by New Chat and by another account: a first message sent
@@ -165,6 +168,13 @@ impl QuickAskView {
                     cx.emit(QuickAskEvent::Blurred);
                 }
             }),
+            // ⌘H hides the app, panel included, without hiding Quick Ask
+            // (`hide_quick_ask`); minimized or fully covered, it shows
+            // nothing either.
+            cx.observe_window_visibility(window, |this, visibility, _, cx| {
+                this.window_visible = visibility.is_visible();
+                this.report_shown(cx);
+            }),
             cx.observe(&stores.connection, |this, _, cx| this.sync_offline(cx)),
             // The call button: ready while no call is on and a model is
             // chosen.
@@ -233,7 +243,8 @@ impl QuickAskView {
             composer,
             chat: None,
             shown: false,
-            shown_reported: None,
+            window_visible: true,
+            shown_report: crate::stores::chat_list::ShownReport::new(ChatView::QuickAsk),
             starting: false,
             generation: 0,
             scope,
@@ -303,13 +314,12 @@ impl QuickAskView {
     /// changed (a first message's chat gets its id as it is saved): the core
     /// reads each change of its stored copy while it shows.
     fn report_shown(&mut self, cx: &mut Context<Self>) {
-        let shown = self.chat_id(cx).filter(|_| self.shown);
-        if shown == self.shown_reported {
-            return;
-        }
-        self.shown_reported = shown.clone();
+        let shown = self
+            .chat_id(cx)
+            .filter(|_| self.shown && self.window_visible);
         let rpc = self.stores.connection.read(cx).rpc();
-        crate::stores::chat_list::set_shown(&rpc, ChatView::QuickAsk, shown, cx);
+        self.shown_report
+            .report(shown, &rpc, cx, |panel| &mut panel.shown_report);
     }
 
     /// The app quits: the chat the panel shows is left, by a read the quit
@@ -428,8 +438,7 @@ impl QuickAskView {
                 // A new daemon session: the order of model answers starts
                 // again (the open chat, draft and attachments stay).
                 self.composer_store.update(cx, |c, cx| c.reconnected(cx));
-                // It knows of no chat on screen.
-                self.shown_reported = None;
+                self.shown_report.reconnected();
                 self.report_shown(cx);
             }
             ConnectionEvent::Gap => {
@@ -1542,6 +1551,38 @@ mod tests {
             ],
             "the daemon heard another chat on screen than the panel shows"
         );
+    }
+
+    /// The panel hidden with the app (⌘H), minimized or fully covered shows
+    /// nothing: the daemon hears no chat on screen until the panel is
+    /// visible again. #1220's reads on hiding and showing it are its own.
+    #[gpui_kit::test]
+    fn a_panel_the_platform_hides_shows_no_chat(cx: &mut TestAppContext) {
+        let (daemon, stores, view, vcx) = bench(cx);
+        daemon.returns::<methods::ChatsSetShown>(conduit_protocol::OkResult { ok: true });
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        view.update_in(vcx, |v, window, cx| {
+            v.set_shown(true, cx);
+            v.open_chat("chat-q".into(), window, cx);
+        });
+        vcx.run_until_parked();
+        let reads = daemon.calls::<methods::ChatsMarkUnread>().len();
+
+        vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Hidden);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>().last(),
+            Some(&serde_json::json!({"view": "quickAsk"})),
+            "the hidden panel's chat stayed on screen"
+        );
+        vcx.simulate_visibility_change(gpui_kit::WindowVisibility::Visible);
+        vcx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsSetShown>().last(),
+            Some(&serde_json::json!({"view": "quickAsk", "chatId": "chat-q"})),
+            "the panel visible again did not show its chat"
+        );
+        assert_eq!(daemon.calls::<methods::ChatsMarkUnread>().len(), reads);
     }
 
     /// A Services selection never takes the place of what the user left in
