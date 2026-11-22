@@ -47,6 +47,9 @@ futures-lite = "2"
 # The desktop portal's network monitor (the version and executor GPUI's
 # portal calls use).
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "network_monitor"] }
+# The wait before the portal is asked again, which the monitor's stop cuts
+# short (the executor ashpd runs on).
+async-io = "2"
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "test-util"] }

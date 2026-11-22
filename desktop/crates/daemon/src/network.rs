@@ -19,30 +19,70 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Calls its callback with `online` once at start and on every change,
 /// until it drops.
 pub struct NetworkMonitor {
-    stopped: Arc<AtomicBool>,
+    stop: Arc<Stop>,
     #[cfg(windows)]
     token: i64,
+}
+
+/// A monitor's stop: set when it drops, waking what waits on it (the Linux
+/// worker's wait on the portal, or before asking it again).
+#[derive(Default)]
+struct Stop {
+    stopped: AtomicBool,
+    waker: std::sync::Mutex<Option<std::task::Waker>>,
+}
+
+impl Stop {
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        let waker = self.waker.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::SeqCst)
+    }
+
+    /// Ends once the monitor stops.
+    #[cfg_attr(not(target_os = "linux"), cfg(test))]
+    fn stopped(&self) -> impl std::future::Future<Output = ()> + '_ {
+        std::future::poll_fn(|cx| {
+            if self.is_stopped() {
+                return std::task::Poll::Ready(());
+            }
+            *self.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(cx.waker().clone());
+            // Stopped between the look and the waker going in: its wake
+            // found no waker, so look again.
+            if self.is_stopped() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        })
+    }
 }
 
 impl NetworkMonitor {
     /// Starts watching; `on_change` runs on a thread of the system's.
     pub fn start(on_change: impl Fn(bool) + Send + Sync + 'static) -> Option<Self> {
-        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(Stop::default());
         let report = {
-            let stopped = stopped.clone();
+            let stop = stop.clone();
             move |online: bool| {
-                if !stopped.load(Ordering::SeqCst) {
+                if !stop.is_stopped() {
                     on_change(online);
                 }
             }
         };
         #[cfg(windows)]
         {
-            windows_monitor::start(report).map(|token| Self { stopped, token })
+            windows_monitor::start(report).map(|token| Self { stop, token })
         }
         #[cfg(target_os = "linux")]
         {
-            linux_monitor::start(report, stopped.clone()).then_some(Self { stopped })
+            linux_monitor::start(report, stop.clone()).then_some(Self { stop })
         }
         #[cfg(not(any(windows, target_os = "linux")))]
         {
@@ -68,7 +108,7 @@ fn sample_and_send(
 
 impl Drop for NetworkMonitor {
     fn drop(&mut self) {
-        self.stopped.store(true, Ordering::SeqCst);
+        self.stop.stop();
         #[cfg(windows)]
         windows_monitor::stop(self.token);
     }
@@ -119,32 +159,39 @@ mod windows_monitor {
 #[cfg(target_os = "linux")]
 mod linux_monitor {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use ashpd::desktop::network_monitor::NetworkMonitor;
     use futures_lite::StreamExt as _;
+    use futures_lite::future::{block_on, or};
+
+    use super::Stop;
 
     /// The longest wait before the portal is asked again.
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
-    /// Follows the portal on a thread of its own until `stopped`. Whenever
-    /// its subscription ends (the portal restarted, or was never there) it
-    /// is asked again, after a wait that doubles up to a minute and starts
-    /// over once a subscription holds.
-    pub fn start(report: impl Fn(bool) + Send + Sync + 'static, stopped: Arc<AtomicBool>) -> bool {
+    /// Follows the portal on a thread of its own until `stop`, which wakes
+    /// it from either wait. Whenever its subscription ends (the portal
+    /// restarted, or was never there) it is asked again, after a wait that
+    /// doubles up to a minute and starts over once a subscription holds.
+    pub fn start(report: impl Fn(bool) + Send + Sync + 'static, stop: Arc<Stop>) -> bool {
         std::thread::Builder::new()
             .name("conduit-network".into())
             .spawn(move || {
                 let mut backoff = Duration::from_secs(1);
                 let mut said_online = false;
-                while !stopped.load(Ordering::SeqCst) {
-                    match futures_lite::future::block_on(follow(&report)) {
-                        Ok(()) => {
+                while !stop.is_stopped() {
+                    let followed = block_on(or(async { Some(follow(&report).await) }, async {
+                        stop.stopped().await;
+                        None
+                    }));
+                    match followed {
+                        None => break,
+                        Some(Ok(())) => {
                             backoff = Duration::from_secs(1);
                             said_online = false;
                         }
-                        Err(e) => {
+                        Some(Err(e)) => {
                             // With no portal the computer reads as online,
                             // so a missing portal never stops the app (nor
                             // leaves the last state it gave standing).
@@ -155,7 +202,9 @@ mod linux_monitor {
                             }
                         }
                     }
-                    std::thread::sleep(backoff);
+                    block_on(or(stop.stopped(), async {
+                        async_io::Timer::after(backoff).await;
+                    }));
                     backoff = (backoff * 2).min(MAX_BACKOFF);
                 }
             })
@@ -180,6 +229,30 @@ mod linux_monitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dropping the monitor wakes its worker's wait (on the portal, or
+    /// before asking it again), which then ends; a wait that starts once it
+    /// stopped ends at once.
+    #[test]
+    fn stopping_the_monitor_wakes_its_wait() {
+        use std::future::Future as _;
+        struct Woken(std::sync::atomic::AtomicUsize);
+        impl std::task::Wake for Woken {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let woken = Arc::new(Woken(Default::default()));
+        let waker = std::task::Waker::from(woken.clone());
+        let mut cx = std::task::Context::from_waker(&waker);
+        let stop = Stop::default();
+        let mut wait = std::pin::pin!(stop.stopped());
+        assert!(wait.as_mut().poll(&mut cx).is_pending());
+        stop.stop();
+        assert_eq!(woken.0.load(Ordering::SeqCst), 1, "the wait is woken");
+        assert!(wait.as_mut().poll(&mut cx).is_ready());
+        assert!(std::pin::pin!(stop.stopped()).poll(&mut cx).is_ready());
+    }
 
     /// A sample is taken and sent in one turn: the turn is held while it
     /// is sampled and while it is sent, so the handler's newer "online"
