@@ -37,7 +37,11 @@
 #                                                  # this build (a .desktop
 #                                                  # file and xdg-mime);
 #                                                  # only on this command
-#   crates/app/run.sh --unregister-scheme          # undo it
+#   crates/app/run.sh --unregister-scheme [--force] # undo it
+#
+# Every checkout writes the same conduit-dev.desktop, so both refuse an
+# entry another checkout wrote unless --force is given; and the run passes
+# on the app's own exit code.
 #
 # Windows has crates/app/run.ps1.
 set -eu
@@ -47,8 +51,17 @@ if [ "$(uname -s)" = Linux ]; then
   apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
   entry_name=conduit-dev.desktop
   entry="$apps/$entry_name"
+  exec_line="Exec=\"$bin\" %u"
+  # An entry another checkout wrote: left alone unless --force.
+  others_entry() {
+    [ -f "$entry" ] && ! grep -qxF "$exec_line" "$entry" && [ "${2:-}" != --force ]
+  }
   case "${1:-}" in
     --unregister-scheme)
+      if others_entry "$@"; then
+        echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to remove it" >&2
+        exit 1
+      fi
       # Moved aside, never deleted (as the widget's files below).
       if [ -f "$entry" ]; then
         mkdir -p target/app
@@ -75,6 +88,10 @@ if [ "$(uname -s)" = Linux ]; then
         echo "conduit:// links open $current; add --force to point them at this build" >&2
         exit 1
       fi
+      if others_entry "$@"; then
+        echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to point it at this build" >&2
+        exit 1
+      fi
       # The Exec line quotes the path; these characters would need escapes.
       case "$bin" in
         *'"'* | *'`'* | *'$'* | *'\'*)
@@ -88,7 +105,7 @@ if [ "$(uname -s)" = Linux ]; then
         echo 'Type=Application'
         echo 'Name=Conduit Dev'
         echo "Comment=Conduit Desktop, a dev build from $PWD"
-        echo "Exec=\"$bin\" %u"
+        echo "$exec_line"
         echo 'Terminal=false'
         echo 'NoDisplay=true'
         echo 'MimeType=x-scheme-handler/conduit;'
@@ -109,9 +126,12 @@ if [ "$(uname -s)" = Linux ]; then
   if [ -n "${DISPLAY:-}" ] && [ "${CONDUIT_WAYLAND:-}" != 1 ]; then
     unset WAYLAND_DISPLAY
   fi
-  "$bin" "$@" 2>&1 | tee "$log"
+  # The app's exit code, past tee (sh has no pipefail).
+  status_file=target/app/last-run.status
+  echo 1 > "$status_file"
+  { "$bin" "$@" && code=0 || code=$?; echo "$code" > "$status_file"; } 2>&1 | tee "$log"
   if grep -q "SMOKE FAILED" "$log"; then exit 1; fi
-  exit 0
+  exit "$(cat "$status_file")"
 fi
 cargo build -p conduit-desktop --features harness
 # Team signing, only when asked; ad-hoc otherwise ("-" means ad-hoc too).

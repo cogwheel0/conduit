@@ -30,6 +30,15 @@ $bin = Join-Path (Get-Location) 'target\debug\conduit-desktop.exe'
 $key = 'HKCU:\Software\Classes\conduit'
 $command = "`"$bin`" `"%1`""
 
+# The conduit: handlers registered for this user and for the machine
+# (HKCU's wins where both are set; an installer may write HKLM).
+function Get-SchemeCommands {
+  foreach ($root in @($key, 'HKLM:\Software\Classes\conduit')) {
+    $item = Get-ItemProperty -Path "$root\shell\open\command" -ErrorAction SilentlyContinue
+    if ($item) { [pscustomobject]@{ Key = $root; Command = $item.'(default)' } }
+  }
+}
+
 function Get-SchemeCommand {
   $item = Get-ItemProperty -Path "$key\shell\open\command" -ErrorAction SilentlyContinue
   if ($item) { $item.'(default)' } else { $null }
@@ -55,9 +64,10 @@ if ($BuildOnly) {
 }
 
 if ($RegisterScheme) {
-  $current = Get-SchemeCommand
-  if ($current -and $current -ne $command -and -not $Force) {
-    Write-Error "conduit:// links open $current; add -Force to point them at this build"
+  # Any handler that isn't this checkout's, per user or for the machine.
+  $other = @(Get-SchemeCommands | Where-Object { $_.Command -ne $command }) | Select-Object -First 1
+  if ($other -and -not $Force) {
+    Write-Error "conduit:// links open $($other.Command) ($($other.Key)); add -Force to point them at this build"
   }
   New-Item -Path "$key\shell\open\command" -Force | Out-Null
   New-Item -Path "$key\DefaultIcon" -Force | Out-Null
@@ -78,5 +88,8 @@ if ($AppArgs -contains '--e2e' -and -not $env:CONDUIT_SPEECH_OUTPUT) {
 # The app's stderr is its log, not a failure of this script.
 $ErrorActionPreference = 'Continue'
 & $bin @AppArgs 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
+# The app's own exit code (a refused flag is 64, a panic is not 0).
+$code = $LASTEXITCODE
 if (Select-String -Path $log -Pattern 'SMOKE FAILED' -Quiet) { exit 1 }
-exit 0
+if ($null -eq $code) { exit 1 }
+exit $code
