@@ -460,6 +460,44 @@ void main() {
     await answered(edited.assistantMessageId, beforeEdit);
   });
 
+  test('regenerate and edit after the chat closed take the tools the '
+      'request names', () async {
+    open('named');
+    final first = await turns.send(SendTurn(model: model, text: 'tools here'));
+    subscribeWindow(events, turns, 'named', <String>[first.chatId]);
+    await until(() => ended('named', first.assistantMessageId));
+    // Closed, so nothing of the first turn's composer is left to keep.
+    await until(() => turns.scopeOf(first.chatId) == null);
+
+    final again = await turns.regenerate(
+      RegenerateTurn(
+        chatId: first.chatId,
+        messageId: first.assistantMessageId,
+        model: model,
+        toolIds: <String>['sample-tool'],
+      ),
+    );
+    final scope = turns.scopeOf(first.chatId)!;
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    await until(() => ended('named', again.assistantMessageId));
+    await until(() => turns.scopeOf(first.chatId) == null);
+
+    final edited = await turns.edit(
+      EditTurn(
+        chatId: first.chatId,
+        messageId: first.userMessageId,
+        text: 'tools there',
+        model: model,
+        toolIds: <String>['other-tool'],
+      ),
+    );
+    expect(
+      turns.scopeOf(first.chatId)!.read(selectedToolIdsProvider),
+      <String>['other-tool'],
+    );
+    await until(() => ended('named', edited.assistantMessageId));
+  });
+
   test('regenerate and edit refuse what they cannot act on', () async {
     open('refuse');
     final first = await turns.send(SendTurn(model: model, text: 'subject'));

@@ -524,6 +524,9 @@ pub struct ChatStore {
     _refetch: Option<Task<()>>,
     _queue: Option<Task<()>>,
     _hermes: Subscription,
+    /// The composer's switches and tools now, for a regenerate or an edit:
+    /// the turn goes out with what the composer shows, as a send does.
+    switches: Option<ReadSwitches>,
 }
 
 impl EventEmitter<ChatStoreEvent> for ChatStore {}
@@ -576,6 +579,7 @@ impl ChatStore {
             _refetch: None,
             _queue: None,
             _hermes: hermes_seen,
+            switches: None,
         };
         store.queue.chat_id = store.chat_id.clone();
         store.resubscribe(cx);
@@ -2098,6 +2102,15 @@ impl ChatStore {
         .detach();
     }
 
+    /// Where a regenerate or an edit reads the composer's switches from.
+    pub fn set_switches(&mut self, switches: ReadSwitches) {
+        self.switches = Some(switches);
+    }
+
+    fn switches(&self, cx: &App) -> Option<TurnSwitches> {
+        self.switches.as_ref().and_then(|read| read(cx))
+    }
+
     /// Runs `message_id` (an answer) again, optionally with `model`.
     pub fn regenerate(&mut self, message_id: &str, model: Option<String>, cx: &mut Context<Self>) {
         self.regenerate_with(message_id, model, false, cx);
@@ -2116,11 +2129,16 @@ impl ChatStore {
         if !self.can_branch() {
             return;
         }
+        let switches = self.switches(cx);
         let call = self.rpc.call::<methods::TurnsRegenerate>(&RegenerateTurn {
             chat_id: self.chat_id.clone(),
             message_id: message_id.to_string(),
             model,
             without_reasoning_effort: without_effort,
+            web_search: switches.as_ref().map(|s| s.web_search),
+            image_generation: switches.as_ref().map(|s| s.image_generation),
+            code_interpreter: switches.as_ref().map(|s| s.code_interpreter),
+            tool_ids: switches.map(|s| s.tool_ids),
         });
         // Shown as an answer on its way straight away, over the old one.
         let old = message_id.to_string();
@@ -2180,11 +2198,16 @@ impl ChatStore {
         if !self.can_branch() || text.trim().is_empty() {
             return;
         }
+        let switches = self.switches(cx);
         let call = self.rpc.call::<methods::TurnsEdit>(&EditTurn {
             chat_id: self.chat_id.clone(),
             message_id: message_id.to_string(),
             text: text.clone(),
             model: None,
+            web_search: switches.as_ref().map(|s| s.web_search),
+            image_generation: switches.as_ref().map(|s| s.image_generation),
+            code_interpreter: switches.as_ref().map(|s| s.code_interpreter),
+            tool_ids: switches.map(|s| s.tool_ids),
         });
         let pending = PendingMessage {
             replaces: Some(message_id.to_string()),
@@ -2503,6 +2526,19 @@ pub fn compare_columns(m: &ChatMessageDto) -> Vec<CompareColumn> {
         })
         .collect()
 }
+
+/// The composer's switches and tools, which a regenerate or an edit takes
+/// as a send does.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TurnSwitches {
+    pub web_search: bool,
+    pub image_generation: bool,
+    pub code_interpreter: bool,
+    pub tool_ids: Vec<String>,
+}
+
+/// Reads the composer's switches and tools now (none once it is gone).
+pub type ReadSwitches = Rc<dyn Fn(&App) -> Option<TurnSwitches>>;
 
 /// The parameters of a new turn, from the composer.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -3311,6 +3347,7 @@ mod tests {
             assistant_message_id: "a2".into(),
         });
         let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, _| s.set_switches(sample_switches()));
         let held = daemon.hold::<methods::TurnsRegenerate>();
         store.update(cx, |s, cx| {
             s.regenerate("a1", None, cx);
@@ -3328,6 +3365,30 @@ mod tests {
             daemon.calls::<methods::TurnsStop>(),
             vec![json!({"chatId": "c1"})]
         );
+        // It went with the composer's switches and tools, as a send does.
+        assert_eq!(
+            daemon.calls::<methods::TurnsRegenerate>(),
+            vec![json!({
+                "chatId": "c1",
+                "messageId": "a1",
+                "withoutReasoningEffort": false,
+                "webSearch": true,
+                "imageGeneration": false,
+                "codeInterpreter": false,
+                "toolIds": ["sample-tool"],
+            })]
+        );
+    }
+
+    /// A composer with web search and one tool on.
+    fn sample_switches() -> ReadSwitches {
+        Rc::new(|_| {
+            Some(TurnSwitches {
+                web_search: true,
+                tool_ids: vec!["sample-tool".into()],
+                ..TurnSwitches::default()
+            })
+        })
     }
 
     #[gpui_kit::test]
@@ -3348,13 +3409,23 @@ mod tests {
             assistant_message_id: "a3".into(),
         });
         let (store, _) = open(&daemon, "c1", cx);
+        store.update(cx, |s, _| s.set_switches(sample_switches()));
         store.update(cx, |s, cx| s.edit("u2", "second, better".into(), cx));
         assert_eq!(keys(&store, cx), vec!["u1", "a1", "pending", "waiting"]);
         cx.run_until_parked();
         assert_eq!(keys(&store, cx), vec!["u1", "a1", "pending", "a3"]);
+        // It goes with the composer's switches and tools, as a send does.
         assert_eq!(
             daemon.calls::<methods::TurnsEdit>(),
-            vec![json!({"chatId": "c1", "messageId": "u2", "text": "second, better"})]
+            vec![json!({
+                "chatId": "c1",
+                "messageId": "u2",
+                "text": "second, better",
+                "webSearch": true,
+                "imageGeneration": false,
+                "codeInterpreter": false,
+                "toolIds": ["sample-tool"],
+            })]
         );
     }
 

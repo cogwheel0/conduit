@@ -47,7 +47,7 @@ use gpui_kit::{
     AppContext as _, AsyncApp, Context, EventEmitter, Image, ImageFormat, Task, WeakEntity,
 };
 
-use super::chat::TurnOptions;
+use super::chat::{TurnOptions, TurnSwitches};
 use super::rpc::Rpc;
 
 /// The largest file the composer uploads (as Open with Conduit does).
@@ -2058,6 +2058,17 @@ impl ComposerStore {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The switches and tools the composer shows, which a regenerate or an
+    /// edit takes as the next turn would.
+    pub fn switches(&self) -> TurnSwitches {
+        TurnSwitches {
+            web_search: self.web_search,
+            image_generation: self.image_generation,
+            code_interpreter: self.code_interpreter,
+            tool_ids: self.tool_ids.iter().cloned().collect(),
+        }
     }
 
     /// The options the next turn would take, with `mentions` from the text,

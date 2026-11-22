@@ -1207,6 +1207,12 @@ impl ChatPane {
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
+        let composer = self.composer_store.downgrade();
+        store.update(cx, |s, _| {
+            s.set_switches(Rc::new(move |cx| {
+                composer.upgrade().map(|c| c.read(cx).switches())
+            }));
+        });
         let host = RowHost {
             store: store.downgrade(),
             pane: RowSink::Pane(cx.entity().downgrade()),
