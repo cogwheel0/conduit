@@ -15,7 +15,8 @@
 //!   ([`ConnectionStore::subscribe`]); the union goes out as one
 //!   `events.subscribe` and again after every reconnect.
 //! * **Window duties:** `shell.openUrl` (http(s) only), and `system.network`
-//!   pushed from NWPathMonitor.
+//!   pushed from the system's network monitor (NWPathMonitor on the Mac,
+//!   `conduit_daemon::network` elsewhere).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -500,7 +501,7 @@ impl ConnectionStore {
         matches!(self.rpc, ConnectionState::Connected(_))
     }
 
-    /// The window's view of the network (NWPathMonitor), once known.
+    /// The window's view of the network (the system's monitor), once known.
     pub fn online(&self) -> Option<bool> {
         self.online
     }

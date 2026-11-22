@@ -97,6 +97,44 @@ own development identity is opt-in: set `CONDUIT_SIGN_IDENTITY`, as for a
 bundle ([Apple Development test builds](#apple-development-test-builds)).
 `CONDUIT_DEV_WIDGET=1` embeds the widget in the dev bundle.
 
+### Windows and Linux (phase 1, dev builds only)
+
+Conduit Desktop builds and runs from a checkout on Windows and Linux too,
+with no package yet:
+
+```sh
+crates/app/run.sh                            # Linux: the binary itself, no bundle
+crates/app/run.sh --register-scheme          # Linux: conduit:// links open this build
+crates/app/run.sh --unregister-scheme        # ... and no longer
+```
+
+```powershell
+crates\app\run.ps1                           # Windows: the binary itself
+crates\app\run.ps1 -RegisterScheme           # conduit:// links open this build
+crates\app\run.ps1 -UnregisterScheme         # ... and no longer
+```
+
+Registering is the only step that changes the system, and only when asked:
+per-user keys under `HKCU\Software\Classes\conduit` on Windows; on Linux a
+`conduit-dev.desktop` file in `$XDG_DATA_HOME/applications`, made the
+`x-scheme-handler/conduit` default with `xdg-mime`. Either refuses to take
+over another handler without `-Force` / `--force`, and unregistering
+removes only this build's. Tests never register anything.
+
+The dev app keeps its data in `<Local AppData>\Conduit Dev\User Data`
+(the known folder, wherever it was moved) and `$XDG_DATA_HOME/conduit-dev`,
+its logs and crash files in `<Local AppData>\Conduit Dev\Logs` and
+`$XDG_STATE_HOME/conduit-dev/logs`, and its master key in Credential
+Manager or the Secret Service. A second launch of a profile hands its
+`conduit://` links and files to the app that runs it and exits. On Linux,
+`run.sh` starts it on XWayland when the session has it (the web views
+embed only in X11 windows); `CONDUIT_WAYLAND=1` keeps Wayland's own
+windows. Windows and Linux results come from CI (`Workspace (Windows)`,
+`Workspace (Linux)`, `Desktop daemon (Windows|Linux build + smoke)`); a Mac
+only type-checks them (`cargo clippy --target x86_64-pc-windows-msvc` or
+`x86_64-unknown-linux-gnu`, with no-op C tool shims, since no cross linker
+is set up).
+
 ### The test harness (`harness` feature)
 
 The E2E passes (`--e2e`), the design capture (`--capture`), `--probe` and

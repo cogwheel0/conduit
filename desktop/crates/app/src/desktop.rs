@@ -270,8 +270,15 @@ pub fn install(urls: UrlReceiver, hidden: bool, cx: &mut App) {
 // ── Links and "Open with" ──────────────────────────────────────────────────
 
 /// What `on_open_urls` brought: links and files are queued, the rest is
-/// logged and dropped.
+/// logged and dropped. Nothing at all is a second launch with nothing to
+/// open (Windows, Linux): the app comes forward, as from the Dock.
 pub fn handle_urls(urls: Vec<String>, cx: &mut App) {
+    if urls.is_empty() {
+        if cx.has_global::<AppState>() {
+            show_main(cx);
+        }
+        return;
+    }
     let incoming = deep_link::classify(&urls);
     for ignored in &incoming.ignored {
         log::info!("ignored a link: {}", deep_link::redacted(ignored));

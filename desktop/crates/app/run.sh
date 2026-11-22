@@ -26,8 +26,93 @@
 # The bundle lives in target/app/ (ignored) and is reused. A scripted run
 # (--shots, --e2e, --capture) uses the profile CONDUIT_USER_DATA names, never
 # the app's own; without one it starts on a fresh profile in $TMPDIR.
+#
+# On Linux it runs the binary itself (no bundle), on XWayland when the
+# session has it (D2: the web views embed only in X11 windows;
+# CONDUIT_WAYLAND=1 keeps Wayland's own windows):
+#
+#   crates/app/run.sh                              # run the app
+#   crates/app/run.sh --build-only                 # build, print the binary
+#   crates/app/run.sh --register-scheme [--force]  # conduit:// links open
+#                                                  # this build (a .desktop
+#                                                  # file and xdg-mime);
+#                                                  # only on this command
+#   crates/app/run.sh --unregister-scheme          # undo it
+#
+# Windows has crates/app/run.ps1.
 set -eu
 cd "$(dirname "$0")/../.."
+if [ "$(uname -s)" = Linux ]; then
+  bin="$PWD/target/debug/conduit-desktop"
+  apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  entry_name=conduit-dev.desktop
+  entry="$apps/$entry_name"
+  case "${1:-}" in
+    --unregister-scheme)
+      # Moved aside, never deleted (as the widget's files below).
+      if [ -f "$entry" ]; then
+        mkdir -p target/app
+        mv "$entry" "target/app/unregistered-$(date +%s)-$entry_name"
+        if command -v update-desktop-database >/dev/null 2>&1; then
+          update-desktop-database "$apps" || true
+        fi
+        echo "conduit:// links no longer open this build"
+      else
+        echo "no dev conduit:// handler is registered; nothing changed"
+      fi
+      exit 0
+      ;;
+  esac
+  cargo build -p conduit-desktop --features harness
+  case "${1:-}" in
+    --build-only)
+      echo "$bin"
+      exit 0
+      ;;
+    --register-scheme)
+      current="$(xdg-mime query default x-scheme-handler/conduit 2>/dev/null || true)"
+      if [ -n "$current" ] && [ "$current" != "$entry_name" ] && [ "${2:-}" != --force ]; then
+        echo "conduit:// links open $current; add --force to point them at this build" >&2
+        exit 1
+      fi
+      # The Exec line quotes the path; these characters would need escapes.
+      case "$bin" in
+        *'"'* | *'`'* | *'$'* | *'\'*)
+          echo "this checkout's path can't go in a .desktop file: $bin" >&2
+          exit 1
+          ;;
+      esac
+      mkdir -p "$apps"
+      {
+        echo '[Desktop Entry]'
+        echo 'Type=Application'
+        echo 'Name=Conduit Dev'
+        echo "Comment=Conduit Desktop, a dev build from $PWD"
+        echo "Exec=\"$bin\" %u"
+        echo 'Terminal=false'
+        echo 'NoDisplay=true'
+        echo 'MimeType=x-scheme-handler/conduit;'
+      } > "$entry"
+      xdg-mime default "$entry_name" x-scheme-handler/conduit
+      if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$apps" || true
+      fi
+      echo "conduit:// links now open $bin"
+      exit 0
+      ;;
+  esac
+  mkdir -p target/app
+  log=target/app/last-run.log
+  case " $* " in
+    *" --e2e "*) export CONDUIT_SPEECH_OUTPUT="${CONDUIT_SPEECH_OUTPUT:-null}" ;;
+  esac
+  if [ -n "${DISPLAY:-}" ] && [ "${CONDUIT_WAYLAND:-}" != 1 ]; then
+    unset WAYLAND_DISPLAY
+  fi
+  "$bin" "$@" 2>&1 | tee "$log"
+  if grep -q "SMOKE FAILED" "$log"; then exit 1; fi
+  exit 0
+fi
 cargo build -p conduit-desktop --features harness
 # Team signing, only when asked; ad-hoc otherwise ("-" means ad-hoc too).
 identity="${CONDUIT_SIGN_IDENTITY:-}"

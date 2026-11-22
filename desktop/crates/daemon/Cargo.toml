@@ -34,13 +34,18 @@ core-foundation = "0.10"
 # The master key's store off the Mac: Credential Manager and the Secret
 # Service, through the crates (and features) GPUI already uses for its own
 # credentials API. Windows' known folders (Win32_UI_Shell, and COM's
-# allocator for the strings it returns).
+# allocator for the strings it returns), the single-instance pipe (its
+# session checks, and handing the foreground to the running app), and the
+# network monitor (Networking_Connectivity).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Com", "Win32_UI_Shell"] }
+windows = { version = "0.62", features = ["Networking_Connectivity", "Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_IO", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
 futures-lite = "2"
+# The desktop portal's network monitor (the version and executor GPUI's
+# portal calls use).
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "network_monitor"] }
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "process", "test-util"] }

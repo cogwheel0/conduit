@@ -86,6 +86,10 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
 # Launch at login (SMAppService.mainApp).
 objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 
+# Whether a URL scheme has an app to open it (shell::open_url).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_UI_Shell"] }
+
 [features]
 # The test harness: the `--e2e` passes, the `--capture` screenshots,
 # `--probe` and the `--fixture` runs, with their modules. Dev and test

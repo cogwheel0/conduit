@@ -1,6 +1,9 @@
 //! A panic hook that writes a crash file next to the logs
-//! (`~/Library/Logs/Conduit[ Dev]/crash-<UTC time>.txt`) before the default
-//! hook runs. "Export diagnostics" zips the daemon's logs; the crash files
+//! (`crash-<UTC time>.txt` in [`conduit_daemon::paths::AppPaths::logs`]:
+//! `~/Library/Logs/Conduit[ Dev]` on the Mac,
+//! `<Local AppData>\Conduit[ Dev]\Logs` on Windows,
+//! `$XDG_STATE_HOME/conduit[-dev]/logs` on Linux) before the default hook
+//! runs. "Export diagnostics" zips the daemon's logs; the crash files
 //! sit beside the app log for support to ask for.
 
 use std::path::{Path, PathBuf};

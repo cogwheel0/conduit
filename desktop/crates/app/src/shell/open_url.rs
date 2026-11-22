@@ -26,9 +26,12 @@ pub fn from_payload(payload: &serde_json::Value) -> Option<url::Url> {
     validate(payload.get("url")?.as_str()?)
 }
 
-/// Whether an app on this Mac opens `url`'s scheme (an `otpauth://` link
-/// needs one that adds verification codes, as Passwords does), so the
-/// window can say so instead of opening nothing.
+/// Whether an app on this computer opens `url`'s scheme (an `otpauth://`
+/// link needs one that adds verification codes, as Passwords does), so the
+/// window can say so instead of opening nothing. On Windows, the scheme's
+/// registered open command; on Linux, the desktop's default
+/// `x-scheme-handler`, and yes when that can't be asked (no xdg-utils: the
+/// portal may still open it).
 pub fn has_handler(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -45,10 +48,44 @@ pub fn has_handler(url: &str) -> bool {
             !app.is_null()
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        let _ = url;
-        false
+        use windows::Win32::UI::Shell::{
+            ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_COMMAND, AssocQueryStringW,
+        };
+        use windows::core::{PCWSTR, w};
+        let Some(scheme) = url::Url::parse(url).ok().map(|u| u.scheme().to_string()) else {
+            return false;
+        };
+        let wide: Vec<u16> = scheme.encode_utf16().chain(Some(0)).collect();
+        let mut len = 0u32;
+        // SAFETY: `wide` is NUL-terminated and outlives the call; with no
+        // output buffer the call only writes the command's length to `len`.
+        unsafe {
+            AssocQueryStringW(
+                ASSOCF_INIT_IGNOREUNKNOWN,
+                ASSOCSTR_COMMAND,
+                PCWSTR::from_raw(wide.as_ptr()),
+                w!("open"),
+                None,
+                &mut len,
+            )
+        }
+        .is_ok()
+            && len > 1
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let Some(scheme) = url::Url::parse(url).ok().map(|u| u.scheme().to_string()) else {
+            return false;
+        };
+        match std::process::Command::new("xdg-mime")
+            .args(["query", "default", &format!("x-scheme-handler/{scheme}")])
+            .output()
+        {
+            Ok(out) if out.status.success() => !out.stdout.trim_ascii().is_empty(),
+            _ => true,
+        }
     }
 }
 

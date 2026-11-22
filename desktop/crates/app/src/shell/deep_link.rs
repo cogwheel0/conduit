@@ -252,6 +252,35 @@ pub fn classify(urls: &[String]) -> Incoming {
     incoming
 }
 
+/// What a launch's command line asks to open, as the URLs [`classify`]
+/// reads: on Windows and Linux links and files arrive as arguments (the
+/// registered `conduit://` handler, "Open with"), not through
+/// `on_open_urls`. Links are kept as they are; a file is made a `file://`
+/// URL, a relative one against `cwd` (the launch's own, which the running
+/// app's may not be). Flags are not things to open, and outside a scripted
+/// launch (which takes none of this) the app's one flag with a value is
+/// `--cwd`.
+pub fn from_argv(args: &[String], cwd: &std::path::Path) -> Vec<String> {
+    let mut urls = vec![];
+    let mut rest = args.iter().skip(1);
+    while let Some(arg) = rest.next() {
+        if arg == "--cwd" {
+            rest.next();
+            continue;
+        }
+        if arg.starts_with('-') {
+            continue;
+        }
+        // A one-letter scheme is a Windows drive (`C:\…`), not a link.
+        if url::Url::parse(arg).is_ok_and(|u| u.scheme().len() > 1) {
+            urls.push(arg.clone());
+        } else if let Ok(file) = url::Url::from_file_path(cwd.join(arg)) {
+            urls.push(file.to_string());
+        }
+    }
+    urls
+}
+
 /// A link for the log: the scheme and the kind, never ids or text.
 pub fn redacted(url: &str) -> String {
     match url::Url::parse(url) {
@@ -445,6 +474,52 @@ mod tests {
         assert!(!valid_id(""));
         assert!(!valid_id("a/b"));
         assert!(!valid_id("é"));
+    }
+
+    #[test]
+    fn a_launchs_links_and_files_become_the_urls_classify_reads() {
+        let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        #[cfg(windows)]
+        let (cwd, args, files) = (
+            std::path::Path::new(r"C:\Users\someone\Documents"),
+            argv(&[
+                r"C:\Program Files\Conduit\Conduit.exe",
+                "--hidden",
+                "CONDUIT://chat/c1",
+                r"notes v2.md",
+                r"D:\photos\photo.png",
+                "--cwd",
+                r"C:\elsewhere",
+            ]),
+            [
+                "file:///C:/Users/someone/Documents/notes%20v2.md",
+                "file:///D:/photos/photo.png",
+            ],
+        );
+        #[cfg(not(windows))]
+        let (cwd, args, files) = (
+            std::path::Path::new("/home/someone/Documents"),
+            argv(&[
+                "/usr/lib/conduit/conduit",
+                "--hidden",
+                "CONDUIT://chat/c1",
+                "notes v2.md",
+                "/tmp/photo.png",
+                "--cwd",
+                "/elsewhere",
+            ]),
+            [
+                "file:///home/someone/Documents/notes%20v2.md",
+                "file:///tmp/photo.png",
+            ],
+        );
+        let urls = from_argv(&args, cwd);
+        assert_eq!(urls, vec!["CONDUIT://chat/c1", files[0], files[1]]);
+        let incoming = classify(&urls);
+        assert_eq!(incoming.requests, vec![chat("c1").unwrap()]);
+        assert_eq!(incoming.files.len(), 2);
+        // The program alone: nothing to open.
+        assert!(from_argv(&args[..1], cwd).is_empty());
     }
 
     #[test]

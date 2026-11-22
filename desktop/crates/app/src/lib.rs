@@ -105,6 +105,8 @@ pub struct AppState {
     pub settings_window: Option<(AnyWindowHandle, Entity<SettingsView>)>,
     #[cfg(target_os = "macos")]
     _network: Option<shell::macos::NetworkMonitor>,
+    #[cfg(not(target_os = "macos"))]
+    _network: Option<conduit_daemon::network::NetworkMonitor>,
 }
 
 impl Global for AppState {}
@@ -290,6 +292,44 @@ fn linux_master_key(
     key
 }
 
+/// What a launch's arguments ask to open (Windows, Linux), or `None` for a
+/// scripted launch: it is an app of its own, claims no instance, and its
+/// arguments (`--shots <dir>`, a fixture's) are nothing to open.
+pub fn launch_urls(args: &[String], cwd: &std::path::Path) -> Option<Vec<String>> {
+    if is_scripted(args) || scripted::requested(args) {
+        return None;
+    }
+    Some(shell::deep_link::from_argv(args, cwd))
+}
+
+/// This profile's single instance: the listener when this launch is the
+/// app; ends the process when another launch is, after handing it `urls`.
+/// A failure leaves this launch running on its own.
+#[cfg(not(target_os = "macos"))]
+fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
+    use conduit_daemon::instance::{Claim, claim};
+    // Every launch names the profile the same way, made or not.
+    let _ = std::fs::create_dir_all(&paths.user_data);
+    let profile = paths
+        .user_data
+        .canonicalize()
+        .unwrap_or_else(|_| paths.user_data.clone());
+    match claim(&paths.flavor.keychain_service(), &profile, urls) {
+        Ok(Claim::First(listener)) => Some(listener),
+        Ok(Claim::Forwarded) => {
+            log::info!(
+                "handed this launch ({} to open) to the running app",
+                urls.len()
+            );
+            std::process::exit(0);
+        }
+        Err(e) => {
+            log::warn!("single instance: {e}; this launch runs on its own");
+            None
+        }
+    }
+}
+
 /// Bytes only a build with the test harness carries: the packaging scripts
 /// look for them in the built binary and never sign it for distribution
 /// (packaging/macos/lib.sh, `refuse_harness_distribution`), whatever flags
@@ -381,6 +421,18 @@ pub fn run() {
     }
     shell::logger::install(&app_paths.logs);
     shell::crash::install(app_paths.logs.clone(), VERSION);
+    // Off the Mac, links and files come as arguments, and a second launch of
+    // a profile that runs hands them to that app and ends here (AppKit does
+    // both on the Mac).
+    #[cfg(not(target_os = "macos"))]
+    let (launch_urls, instance) =
+        match launch_urls(&args, &std::env::current_dir().unwrap_or_default()) {
+            Some(urls) => {
+                let instance = claim_instance(&app_paths, &urls);
+                (urls, instance)
+            }
+            None => (vec![], None),
+        };
     log::info!(
         "Conduit Desktop {VERSION} ({flavor:?}), userData {}",
         app_paths.user_data.display()
@@ -428,6 +480,18 @@ pub fn run() {
     // `conduit://` links and "Open with" files, cold launch included: they
     // can come before the app state exists, so they wait in a channel.
     let (urls_tx, urls_rx) = desktop::url_channel();
+    #[cfg(not(target_os = "macos"))]
+    {
+        if !launch_urls.is_empty() {
+            let _ = urls_tx.unbounded_send(launch_urls);
+        }
+        if let Some(instance) = instance {
+            let urls_tx = urls_tx.clone();
+            instance.serve(move |urls| {
+                let _ = urls_tx.unbounded_send(urls);
+            });
+        }
+    }
     app.on_open_urls(move |urls| {
         let _ = urls_tx.unbounded_send(urls);
     });
@@ -577,12 +641,17 @@ pub fn run() {
         // Before any window opens: transitions read it on their first frame.
         shell::reduce_motion::install(cx);
 
-        #[cfg(target_os = "macos")]
+        // `system.network`: NWPathMonitor on the Mac; Windows' network
+        // status and the Linux portal elsewhere (conduit_daemon::network).
         let network = {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-            let monitor = shell::macos::NetworkMonitor::start(move |online| {
+            let report = move |online| {
                 let _ = tx.send(online);
-            });
+            };
+            #[cfg(target_os = "macos")]
+            let monitor = shell::macos::NetworkMonitor::start(report);
+            #[cfg(not(target_os = "macos"))]
+            let monitor = conduit_daemon::network::NetworkMonitor::start(report);
             let connection = connection.clone();
             cx.spawn(async move |cx| {
                 while let Some(online) = rx.recv().await {
@@ -603,7 +672,6 @@ pub fn run() {
             main_view: None,
             setup_window: None,
             settings_window: None,
-            #[cfg(target_os = "macos")]
             _network: network,
         });
 
@@ -1127,6 +1195,24 @@ pub fn open_settings(tab: Option<Tab>, cx: &mut App) {
 #[cfg(test)]
 mod harness_profile_tests {
     use super::*;
+
+    #[test]
+    fn a_scripted_launch_opens_nothing_from_its_arguments() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let cwd = std::path::Path::new("/tmp/launch");
+        for scripted in [
+            &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
+            &["app", "--chat-fixture", "shots"],
+            &["app", "--probe", "state.json"],
+            &["app", "--shots", "/tmp/shots", "--smoke-reset"],
+        ] {
+            assert_eq!(launch_urls(&args(scripted), cwd), None, "{scripted:?}");
+        }
+        assert_eq!(
+            launch_urls(&args(&["app", "--hidden", "conduit://chat/c1"]), cwd),
+            Some(vec!["conduit://chat/c1".to_string()])
+        );
+    }
 
     #[test]
     fn a_scripted_run_never_uses_a_profile_it_was_not_given() {

@@ -1172,6 +1172,7 @@ dependencies = [
 name = "conduit-daemon"
 version = "0.0.0"
 dependencies = [
+ "ashpd",
  "base64 0.22.1",
  "bytes",
  "conduit-protocol",
