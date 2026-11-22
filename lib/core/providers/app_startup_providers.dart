@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/providers/account_change_reset.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 // Re-exported because these used to live here and a dozen callers, and the
@@ -28,10 +29,6 @@ import 'package:conduit_core/services/interaction_activity.dart';
 import '../../shared/services/navigation_service.dart';
 import '../../features/navigation/providers/conversation_selection_provider.dart'
     show conversationSelectionProvider;
-import 'package:conduit_core/features/notes/providers/notes_providers.dart'
-    show activeNoteProvider;
-import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
-    show activePromptCommandProvider;
 import '../../platform/android_assistant_handler.dart';
 import '../../platform/app_intents_service.dart';
 import '../../platform/carplay_service.dart';
@@ -57,8 +54,6 @@ import '../utils/system_ui_style.dart';
 
 import 'package:conduit_core/models/server_config.dart';
 
-import 'package:conduit_core/features/tools/providers/tools_providers.dart';
-
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
@@ -69,7 +64,6 @@ import 'package:conduit_core/features/channels/providers/channel_providers.dart'
 import '../../features/channels/providers/channel_socket_handler.dart';
 
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
-import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 
 import '../../features/notifications/providers/direct_notification_bridge.dart';
 import '../../features/notifications/providers/hermes_notification_bridge.dart';
@@ -264,72 +258,20 @@ Future<void> _cleanupUserScopedProvidersAfterSignOut(
 }
 
 /// Drops every keepAlive provider holding the previous Open WebUI account's
-/// data or selections. Direct and Hermes state survives: a local chat or
-/// model does not belong to any account.
+/// data or selections: the core's shared list, then the ones only this app
+/// has.
 void _resetUserScopedProviders(Ref ref) {
   try {
-    final active = ref.read(activeConversationProvider);
-    final preserveLocalConversation =
-        active != null && !conversationUsesOpenWebUiStorage(active);
-    final selectedModel = ref.read(selectedModelProvider);
-    final preserveLocalModel =
-        selectedModel != null &&
-        (isLocallyMintedDirectModel(selectedModel) ||
-            isHermesModel(selectedModel));
-    ref.invalidate(conversationsProvider);
-    if (!preserveLocalConversation) {
-      ref.invalidate(activeConversationProvider);
-    }
-    ref.invalidate(foldersProvider);
-    ref.invalidate(modelsProvider);
-    if (!preserveLocalModel) {
-      ref.invalidate(selectedModelProvider);
-    }
-    ref.invalidate(currentUserProvider);
-    ref.invalidate(userSettingsProvider);
-    ref.invalidate(rawUserSettingsProvider);
-    ref.invalidate(personalizationSettingsProvider);
-    ref.invalidate(userMemoriesProvider);
-    ref.invalidate(accountProfileProvider);
-    ref.invalidate(serverAboutInfoProvider);
-    ref.invalidate(userPermissionsProvider);
-    ref.invalidate(toolsListProvider);
-    ref.invalidate(selectedToolIdsProvider);
-    ref.invalidate(selectedTerminalIdProvider);
-    ref.invalidate(selectedFilterIdsProvider);
-    ref.invalidate(contextAttachmentsProvider);
-    ref.read(knowledgeCacheProvider.notifier).clearAllCaches();
-    ref.invalidate(knowledgeBasesProvider);
-    ref.invalidate(channelsListProvider);
-    ref.invalidate(activeChannelProvider);
-    ref.invalidate(channelMessagesProvider);
-    ref.invalidate(threadMessagesProvider);
-    ref.invalidate(channelTypingUsersProvider);
+    // Before the core's loading flag: a selection still loading would set it
+    // again.
+    ref.invalidate(conversationSelectionProvider);
+    resetOpenWebUiAccountState(ref, keepLocalModel: true);
     ref.invalidate(channelSocketHandlerProvider);
-    ref.invalidate(availableVoicesProvider);
-    ref.invalidate(imageModelsProvider);
-    ref.invalidate(defaultModelProvider);
-    ref.invalidate(backendConfigProvider);
-    ref.invalidate(socketServiceManagerProvider);
     // Rebind the socket listener to the next session. Posted notifications
     // and the router's dedup memory stay: both are keyed by account, and a
     // tap opens in the account that posted it. Signing out clears that
     // account's own (see hostSignedOutProvider).
     ref.invalidate(notificationSocketListenerProvider);
-    // Selections that name the previous account's folders, prompts, notes or
-    // chats.
-    ref.invalidate(pendingFolderIdProvider);
-    ref.invalidate(folderDraftModelNoticeProvider);
-    ref.invalidate(folderDraftComparisonProvider);
-    ref.invalidate(folderDraftComparisonNoticeProvider);
-    ref.invalidate(isManualModelSelectionProvider);
-    ref.invalidate(searchQueryProvider);
-    ref.invalidate(activePromptCommandProvider);
-    ref.invalidate(activeNoteProvider);
-    ref.invalidate(conversationSelectionProvider);
-    // A selection still loading no longer owns the reset selection state, so
-    // it would never clear the loading flag it set.
-    ref.invalidate(isLoadingConversationProvider);
   } catch (error, stackTrace) {
     DebugLogger.error(
       'user-scoped-provider-cleanup-failed',

@@ -1,19 +1,13 @@
 import 'dart:async';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
-import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
-import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
-import 'package:conduit_core/features/notes/providers/notes_providers.dart'
-    show activeNoteProvider;
-import 'package:conduit_core/features/prompts/providers/prompts_providers.dart'
-    show activePromptCommandProvider;
 import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/account_change_reset.dart';
 import 'package:conduit_core/providers/account_change_superseded.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show persistOpenWebUiBackendPreference;
-import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart'
     show OpenWebUiRegistry, isCapturedSessionHeader;
 import 'package:conduit_core/models/server_config.dart';
@@ -25,7 +19,6 @@ import 'package:conduit_core/providers/primary_account_providers.dart'
 import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
-import 'package:riverpod/misc.dart' show ProviderOrFamily;
 import 'package:riverpod/riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -135,53 +128,12 @@ final class AccountsService {
     }
   }
 
-  /// What the departing account owned goes when the active account changes:
-  /// its conversation and folder lists, models, settings, permissions,
-  /// tools, knowledge, channels, server config and socket, and the
-  /// selections that name them. The same core providers mobile resets at
-  /// that boundary (`app_startup_providers.dart`), less the ones only a
-  /// screen has. Several rebuild on their own when the session changes;
-  /// the keep-alive ones would otherwise answer for the previous account.
+  /// What the departing account owned goes when the active account changes,
+  /// through the reset the phone uses too. A Direct or Hermes model picked
+  /// before goes as well: the Mac has always cleared it.
   void _resetUserScoped() {
     try {
-      for (final provider in <ProviderOrFamily>[
-        conversationsProvider,
-        foldersProvider,
-        modelsProvider,
-        selectedModelProvider,
-        isManualModelSelectionProvider,
-        defaultModelProvider,
-        imageModelsProvider,
-        currentUserProvider,
-        userSettingsProvider,
-        rawUserSettingsProvider,
-        personalizationSettingsProvider,
-        userMemoriesProvider,
-        accountProfileProvider,
-        serverAboutInfoProvider,
-        userPermissionsProvider,
-        availableVoicesProvider,
-        backendConfigProvider,
-        socketServiceManagerProvider,
-        toolsListProvider,
-        selectedToolIdsProvider,
-        selectedTerminalIdProvider,
-        selectedFilterIdsProvider,
-        contextAttachmentsProvider,
-        knowledgeBasesProvider,
-        channelsListProvider,
-        activeChannelProvider,
-        channelMessagesProvider,
-        threadMessagesProvider,
-        channelTypingUsersProvider,
-        pendingFolderIdProvider,
-        searchQueryProvider,
-        activePromptCommandProvider,
-        activeNoteProvider,
-      ]) {
-        _container.invalidate(provider);
-      }
-      _container.read(knowledgeCacheProvider.notifier).clearAllCaches();
+      resetOpenWebUiAccountState(_container, keepLocalModel: false);
     } on Object catch (error, stackTrace) {
       DebugLogger.error(
         'account-change-reset-failed',
