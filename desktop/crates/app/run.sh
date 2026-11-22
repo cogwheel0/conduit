@@ -45,12 +45,34 @@
 #
 # Windows has crates/app/run.ps1.
 set -eu
+# File arguments are the caller's: made absolute before the cd below, so
+# `run.sh notes.md` still names that file. Flags and links stay as they are.
+caller="$PWD"
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    -* | /* | *://*) ;;
+    *) if [ -e "$caller/$arg" ]; then arg="$caller/$arg"; fi ;;
+  esac
+  set -- "$@" "$arg"
+done
 cd "$(dirname "$0")/../.."
 if [ "$(uname -s)" = Linux ]; then
   bin="$PWD/target/debug/conduit-desktop"
-  apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  # Only the scheme commands need the data folder.
+  data_home="${XDG_DATA_HOME:-}"
+  if [ -z "$data_home" ] && [ -n "${HOME:-}" ]; then
+    data_home="$HOME/.local/share"
+  fi
+  apps="${data_home:+$data_home/applications}"
   entry_name=conduit-dev.desktop
-  entry="$apps/$entry_name"
+  entry="${apps:+$apps/$entry_name}"
+  needs_apps() {
+    if [ -z "$apps" ]; then
+      echo "the conduit:// handler goes in \$XDG_DATA_HOME/applications; set XDG_DATA_HOME or HOME" >&2
+      exit 1
+    fi
+  }
   exec_line="Exec=\"$bin\" %u"
   # An entry another checkout wrote: left alone unless --force.
   others_entry() {
@@ -58,6 +80,7 @@ if [ "$(uname -s)" = Linux ]; then
   }
   case "${1:-}" in
     --unregister-scheme)
+      needs_apps
       if others_entry "$@"; then
         echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to remove it" >&2
         exit 1
@@ -83,6 +106,7 @@ if [ "$(uname -s)" = Linux ]; then
       exit 0
       ;;
     --register-scheme)
+      needs_apps
       current="$(xdg-mime query default x-scheme-handler/conduit 2>/dev/null || true)"
       if [ -n "$current" ] && [ "$current" != "$entry_name" ] && [ "${2:-}" != --force ]; then
         echo "conduit:// links open $current; add --force to point them at this build" >&2
@@ -92,10 +116,11 @@ if [ "$(uname -s)" = Linux ]; then
         echo "$entry opens $(sed -n 's/^Exec=//p' "$entry" | head -1), not this checkout; add --force to point it at this build" >&2
         exit 1
       fi
-      # The Exec line quotes the path; these characters would need escapes.
+      # The Exec line quotes the path; these characters would need escapes
+      # (and `%` is a field code there).
       case "$bin" in
-        *'"'* | *'`'* | *'$'* | *'\'*)
-          echo "this checkout's path can't go in a .desktop file: $bin" >&2
+        *'"'* | *'`'* | *'$'* | *'\'* | *'%'*)
+          echo "this checkout's path can't go in a .desktop file (\" \` \$ \\ or %): $bin" >&2
           exit 1
           ;;
       esac
@@ -126,12 +151,14 @@ if [ "$(uname -s)" = Linux ]; then
   if [ -n "${DISPLAY:-}" ] && [ "${CONDUIT_WAYLAND:-}" != 1 ]; then
     unset WAYLAND_DISPLAY
   fi
-  # The app's exit code, past tee (sh has no pipefail).
-  status_file=target/app/last-run.status
-  echo 1 > "$status_file"
+  # The app's exit code, past tee (sh has no pipefail), in a file of this
+  # run's own.
+  status_file="$(mktemp target/app/last-run.status.XXXXXX)"
+  trap 'rm -f "$status_file"' EXIT
   { "$bin" "$@" && code=0 || code=$?; echo "$code" > "$status_file"; } 2>&1 | tee "$log"
+  code="$(cat "$status_file")"
   if grep -q "SMOKE FAILED" "$log"; then exit 1; fi
-  exit "$(cat "$status_file")"
+  exit "${code:-1}"
 fi
 cargo build -p conduit-desktop --features harness
 # Team signing, only when asked; ad-hoc otherwise ("-" means ad-hoc too).

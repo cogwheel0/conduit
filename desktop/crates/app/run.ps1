@@ -23,8 +23,20 @@ param(
   [switch]$UnregisterScheme,
   [switch]$Force
 )
-$AppArgs = @($args)
 $ErrorActionPreference = 'Stop'
+# File arguments are the caller's: made absolute before Set-Location below,
+# so `run.ps1 notes.md` still names that file. Flags and links stay as they
+# are.
+$caller = (Get-Location).Path
+$AppArgs = @($args | ForEach-Object {
+  if ($_ -like '-*' -or $_ -like '*://*' -or [System.IO.Path]::IsPathRooted($_)) {
+    $_
+  } elseif (Test-Path -LiteralPath (Join-Path $caller $_)) {
+    Join-Path $caller $_
+  } else {
+    $_
+  }
+})
 Set-Location (Join-Path $PSScriptRoot '..\..')
 $bin = Join-Path (Get-Location) 'target\debug\conduit-desktop.exe'
 $key = 'HKCU:\Software\Classes\conduit'
