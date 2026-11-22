@@ -1353,7 +1353,8 @@ final class ChatsService {
   }
 
   /// Marks [MarkUnread.chatId] unread, as the web sidebar's Mark as Unread
-  /// does, or read, as opening it does.
+  /// does, or read, as opening it does, or as the user's own Mark as Read
+  /// does ([MarkUnread.explicit]).
   Future<ChatList> markUnread(MarkUnread request) async {
     if (request.unread) {
       try {
@@ -1364,7 +1365,11 @@ final class ChatsService {
           debugMessage: 'the chat could not be marked unread: $error',
         );
       }
-    } else if (!await markConversationRead(_container, request.chatId)) {
+    } else if (!await markConversationRead(
+      _container,
+      request.chatId,
+      explicit: request.explicit,
+    )) {
       // Stored before the answer, or answered as a failure: an app that
       // quits waits for the answer, and then stops the daemon.
       throw const RpcError(

@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.77.0";
+pub const PROTOCOL_VERSION: &str = "1.78.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -4996,6 +4996,11 @@ pub struct MarkUnread {
     /// False marks it read, as opening it does.
     #[serde(default = "default_mark_unread_unread")]
     pub unread: bool,
+    /// With `unread` false: the user's own Mark as Read. It also ends a hold
+    /// on the chat for the server's text not stored here yet, which a read
+    /// the app makes itself (opening or leaving the chat) leaves in place.
+    #[serde(default)]
+    pub explicit: bool,
 }
 
 fn default_mark_unread_unread() -> bool {

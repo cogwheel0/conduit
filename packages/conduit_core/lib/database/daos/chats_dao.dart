@@ -2720,8 +2720,30 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
   /// never lowered. A read here ends [Chats.heldUnread] once the text it is
   /// held for is stored here ([Chats.heldTextAt]).
-  Future<void> setLastReadAt(String chatId, int epochSeconds) {
+  ///
+  /// An [explicit] read, the user's own Mark as Read, ends the hold at once
+  /// and reads through the server's copy that holds that text, so the chat
+  /// stays read when a pull stores it. [Chats.heldTextAt] stays for a sync
+  /// cycle to fetch that copy.
+  Future<void> setLastReadAt(
+    String chatId,
+    int epochSeconds, {
+    bool explicit = false,
+  }) {
     _touchReadState(chatId);
+    if (explicit) {
+      return customUpdate(
+        'UPDATE chats SET last_read_at = '
+        'max(coalesce(last_read_at, 0), ?, coalesce(held_text_at, 0)), '
+        'held_unread = 0 WHERE id = ?',
+        variables: [
+          Variable.withInt(epochSeconds),
+          Variable.withString(chatId),
+        ],
+        updates: {chats},
+        updateKind: UpdateKind.update,
+      );
+    }
     return customUpdate(
       'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?), '
       'held_unread = held_unread AND held_text_at IS NOT NULL WHERE id = ?',
@@ -3082,7 +3104,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read(chats.updatedAt)!,
         heldUnread: row.read(chats.heldUnread)!,
       ),
-      heldTextUnstored: row.read(chats.heldTextAt) != null,
+      heldTextUnstored:
+          row.read(chats.heldUnread)! && row.read(chats.heldTextAt) != null,
     );
   }
 
@@ -3100,7 +3123,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read<int>('updated_at'),
         heldUnread: row.read<bool>('held_unread'),
       ),
-      heldTextUnstored: row.readNullable<int>('held_text_at') != null,
+      heldTextUnstored:
+          row.read<bool>('held_unread') &&
+          row.readNullable<int>('held_text_at') != null,
     );
   }
 }
