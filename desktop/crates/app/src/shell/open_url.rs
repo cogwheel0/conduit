@@ -56,7 +56,8 @@ pub fn has_handler(url: &str) -> Option<bool> {
         use windows::core::{PCWSTR, w};
         let scheme = url::Url::parse(url).ok()?.scheme().to_string();
         let wide: Vec<u16> = scheme.encode_utf16().chain(Some(0)).collect();
-        // The length of the `open` verb's `what`, NUL included, if it has one.
+        // `HRESULT_FROM_WIN32(ERROR_NO_ASSOCIATION)`: nothing is registered.
+        const ERROR_NO_ASSOCIATION: u32 = 1155;
         let lookup = |what: ASSOCSTR| {
             let mut len = 0u32;
             // SAFETY: `wide` is NUL-terminated and outlives the call; with no
@@ -71,11 +72,17 @@ pub fn has_handler(url: &str) -> Option<bool> {
                     &mut len,
                 )
             };
-            found.is_ok().then_some(len)
+            if found.is_ok() {
+                Lookup::Set(len)
+            } else if found == windows::core::HRESULT::from_win32(ERROR_NO_ASSOCIATION) {
+                Lookup::Missing
+            } else {
+                Lookup::Failed
+            }
         };
-        Some(opens_by_verb(lookup(ASSOCSTR_COMMAND), || {
+        opens_by_verb(lookup(ASSOCSTR_COMMAND), || {
             lookup(ASSOCSTR_DELEGATEEXECUTE)
-        }))
+        })
     }
     #[cfg(target_os = "linux")]
     {
@@ -94,13 +101,33 @@ pub fn has_handler(url: &str) -> Option<bool> {
     }
 }
 
-/// Whether Windows has an app for a scheme's `open` verb, from the lengths
-/// (NUL included) of its command and, only when that is missing or empty,
-/// its `DelegateExecute` class: a handler may register either.
+/// What Windows said about one value of a scheme's `open` verb.
 #[cfg_attr(not(windows), cfg(test))]
-fn opens_by_verb(command: Option<u32>, delegate_execute: impl FnOnce() -> Option<u32>) -> bool {
-    let set = |len: Option<u32>| len.is_some_and(|len| len > 1);
-    set(command) || set(delegate_execute())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lookup {
+    /// Registered, this long (NUL included; 1 is empty).
+    Set(u32),
+    /// Nothing registered (`ERROR_NO_ASSOCIATION`).
+    Missing,
+    /// The query failed some other way: it can't be told.
+    Failed,
+}
+
+/// Whether Windows has an app for a scheme's `open` verb, from its command
+/// and, only when that isn't set, its `DelegateExecute` class: a handler
+/// may register either. `None` when a query failed other than by finding
+/// nothing, so it can't be told (the link opens anyway).
+#[cfg_attr(not(windows), cfg(test))]
+fn opens_by_verb(command: Lookup, delegate_execute: impl FnOnce() -> Lookup) -> Option<bool> {
+    let set = |lookup: Lookup| matches!(lookup, Lookup::Set(len) if len > 1);
+    if set(command) {
+        return Some(true);
+    }
+    let delegate_execute = delegate_execute();
+    if set(delegate_execute) {
+        return Some(true);
+    }
+    (command != Lookup::Failed && delegate_execute != Lookup::Failed).then_some(false)
 }
 
 /// How long `xdg-mime` may take before the answer counts as unknown.
@@ -230,12 +257,22 @@ mod tests {
     /// `DelegateExecute` class; only with neither is there no app.
     #[test]
     fn a_delegate_execute_handler_counts_as_an_app() {
-        let never = || -> Option<u32> { panic!("a command is enough") };
-        assert!(opens_by_verb(Some(40), never));
-        assert!(opens_by_verb(None, || Some(39)));
-        assert!(opens_by_verb(Some(1), || Some(39)), "an empty command");
-        assert!(!opens_by_verb(None, || None));
-        assert!(!opens_by_verb(Some(1), || Some(1)));
+        use Lookup::{Failed, Missing, Set};
+        let never = || -> Lookup { panic!("a command is enough") };
+        assert_eq!(opens_by_verb(Set(40), never), Some(true));
+        assert_eq!(opens_by_verb(Missing, || Set(39)), Some(true));
+        assert_eq!(
+            opens_by_verb(Set(1), || Set(39)),
+            Some(true),
+            "an empty command"
+        );
+        assert_eq!(opens_by_verb(Failed, || Set(39)), Some(true));
+        assert_eq!(opens_by_verb(Missing, || Missing), Some(false));
+        assert_eq!(opens_by_verb(Set(1), || Set(1)), Some(false));
+        // A query that failed other than by finding nothing can't tell, and
+        // the enrolment link opens anyway.
+        assert_eq!(opens_by_verb(Failed, || Missing), None);
+        assert_eq!(opens_by_verb(Missing, || Failed), None);
     }
 
     /// A helper keeps stdout open: the read gives up at the deadline (here
