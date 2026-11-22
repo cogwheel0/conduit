@@ -1475,6 +1475,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// enqueues an `updateChat` op — all in one transaction. Caller holds the
   /// chat lock. `dirty=true` is always set for a local mutation; the
   /// non-enqueuing server-confirmed path stays on bare [updateEnvelope].
+  ///
+  /// An edit that dates the chat ([updatedAt]) adds nothing to read: a chat
+  /// that was read stays read through that date ([keepReadThroughOwnPush]).
   Future<void> updateEnvelopeWithOutbox(
     String chatId, {
     Value<String> title = const Value.absent(),
@@ -1486,6 +1489,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }) {
     noteEnvelopeChanged(chatId);
     return transaction(() async {
+      if (updatedAt.present) {
+        await keepReadThroughOwnPush(chatId, updatedAt.value);
+      }
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
           title: title,
@@ -2731,19 +2737,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
-  /// A push of chat [chatId] from this device left the server's copy dated
-  /// [serverUpdatedAt], holding nothing from elsewhere: a chat that was read
-  /// stays read through that date. An unread chat, one marked unread or
-  /// held unread here included, is left as it is.
-  Future<void> keepReadThroughOwnPush(String chatId, int serverUpdatedAt) {
+  /// A change of chat [chatId] made by this device dated it [at], adding
+  /// nothing from elsewhere: a push that left the server's copy dated so, or
+  /// an edit here. A chat that was read stays read through that date. An
+  /// unread chat, one marked unread or held unread here included, is left
+  /// as it is.
+  Future<void> keepReadThroughOwnPush(String chatId, int at) {
     return customUpdate(
       'UPDATE chats SET last_read_at = ? '
       'WHERE id = ? AND held_unread = 0 AND last_read_at >= updated_at '
       'AND last_read_at < ?',
       variables: [
-        Variable.withInt(serverUpdatedAt),
+        Variable.withInt(at),
         Variable.withString(chatId),
-        Variable.withInt(serverUpdatedAt),
+        Variable.withInt(at),
       ],
       updates: {chats},
       updateKind: UpdateKind.update,

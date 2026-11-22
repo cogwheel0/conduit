@@ -143,12 +143,22 @@ Future<void> _writeLibreChatEnvelope(
   if (!_libreChatDatabaseIsCurrent(ref, db)) return;
   _readProvider(ref, conversationsProvider.notifier).updateConversation(
     conversationId,
-    (conversation) => conversation.copyWith(
-      title: title ?? conversation.title,
-      pinned: pinned ?? conversation.pinned,
-      archived: archived ?? conversation.archived,
-      updatedAt: title == null ? conversation.updatedAt : now,
-    ),
+    (conversation) {
+      final read = conversation.lastReadAt;
+      // Read through the rename's own date, as the database keeps it.
+      final readThrough =
+          title != null &&
+          read != null &&
+          !conversation.updatedAt.isAfter(read) &&
+          read.isBefore(now);
+      return conversation.copyWith(
+        title: title ?? conversation.title,
+        pinned: pinned ?? conversation.pinned,
+        archived: archived ?? conversation.archived,
+        updatedAt: title == null ? conversation.updatedAt : now,
+        lastReadAt: readThrough ? now : read,
+      );
+    },
   );
   final active = _readProvider(ref, activeConversationProvider);
   if (_activeConversationMatchesSelection(active, conversationId)) {
