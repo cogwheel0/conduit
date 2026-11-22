@@ -30,10 +30,6 @@ unic-langid = "0.9"
 url = "2"
 # Word and character steps in the note editor (GPUI Kit uses the same).
 unicode-segmentation = "1"
-# Dates in the app's language off the Mac (the Mac uses NSDateFormatter);
-# the same ICU4X release GPUI's segmenter comes from.
-icu_datetime = "2.4"
-icu_locale_core = "2.4"
 log = "0.4"
 tokio = { version = "1.54", features = ["sync", "rt", "macros"] }
 base64 = "0.22"
@@ -50,6 +46,12 @@ alacritty_terminal = { version = "=0.26.0", default-features = false }
 # and Linux, where the app builds none yet (their phase 2).
 gpui-webview = "=0.9.0"
 wry = { package = "lb-wry", version = "=0.53.3" }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# Dates in the app's language (views::dates; the Mac uses NSDateFormatter):
+# the same ICU4X release GPUI's segmenter comes from.
+icu_datetime = "2.4"
+icu_locale_core = "2.4"
 
 [target.'cfg(windows)'.dependencies]
 # The display languages and the regional format (l10n::locale); the accent

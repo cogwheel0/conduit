@@ -102,16 +102,17 @@ pub enum Form {
 /// app locale such as `en` or `zh_Hant`).
 pub fn format(ms: i64, form: Form, locale: &str) -> String {
     #[cfg(target_os = "macos")]
-    {
-        if let Some(s) = mac::format(ms, form, locale) {
-            return s;
-        }
-    }
-    let tag = format_tag(
-        locale,
-        crate::l10n::locale::system_format_locale().as_deref(),
+    let formatted = mac::format(ms, form, locale);
+    #[cfg(not(target_os = "macos"))]
+    let formatted = icu::format(
+        ms,
+        form,
+        &format_tag(
+            locale,
+            crate::l10n::locale::system_format_locale().as_deref(),
+        ),
     );
-    icu::format(ms, form, &tag).unwrap_or_else(|| fallback(ms, form, locale))
+    formatted.unwrap_or_else(|| fallback(ms, form, locale))
 }
 
 /// The locale dates are written in: the system's own (`de-AT`, `en-GB`)
@@ -145,7 +146,9 @@ pub fn format_tag(app: &str, system: Option<&str>) -> String {
     system.replace('_', "-")
 }
 
-/// Dates through ICU4X, as Windows and Linux write them.
+/// Dates through ICU4X, as Windows and Linux write them. Not on the Mac,
+/// whose bundle would carry ICU's date data for nothing.
+#[cfg(not(target_os = "macos"))]
 mod icu {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -333,11 +336,13 @@ mod mac {
     }
 }
 
-/// Windows' and Linux's dates, checked on every OS.
+/// Windows' and Linux's dates. ICU4X is not built for the Mac, so its forms
+/// are checked by the Windows and Linux CI jobs; the region rule everywhere.
 #[cfg(test)]
 mod icu_tests {
     use super::*;
 
+    #[cfg(not(target_os = "macos"))]
     fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> i64 {
         Local
             .with_ymd_and_hms(y, mo, d, h, mi, 0)
@@ -345,6 +350,7 @@ mod icu_tests {
             .timestamp_millis()
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn forms_read_as_the_locale_writes_them() {
         let t = at(2026, 7, 18, 9, 5);
@@ -364,6 +370,7 @@ mod icu_tests {
         assert_eq!(f(Form::LongDate, "zh-Hant"), "2026年7月18日");
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn day_and_month_follow_the_language() {
         let t = at(2026, 7, 4, 9, 5);
