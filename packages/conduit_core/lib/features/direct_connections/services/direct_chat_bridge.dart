@@ -1180,7 +1180,7 @@ final class DirectStreamingAccumulator {
   bool apply(DirectStreamEvent event) {
     switch (event) {
       case DirectProgressUpdate():
-        _finishProgress();
+        finishProgress();
         final action = switch (event.phase) {
           DirectProgressPhase.modelLoad => 'model_load',
           DirectProgressPhase.promptProcessing => 'prompt_processing',
@@ -1200,7 +1200,7 @@ final class DirectStreamingAccumulator {
         );
         return true;
       case DirectContentDelta():
-        if (event.content.isNotEmpty) _finishProgress();
+        if (event.content.isNotEmpty) finishProgress();
         _text.write(event.content);
         // Fragment-wise HTML escaping is compositional only outside Markdown
         // code. Once a possible code delimiter appears, authoritative full
@@ -1212,7 +1212,7 @@ final class DirectStreamingAccumulator {
         if (event.content.trim().isNotEmpty) _hasUsableOutput = true;
         return event.content.isNotEmpty;
       case DirectReasoningDelta():
-        if (event.content.isNotEmpty) _finishProgress();
+        if (event.content.isNotEmpty) finishProgress();
         if (!_reasoningWatch.isRunning) _reasoningWatch.start();
         _reasoning.write(event.content);
         if (!_reasoningHasVisibleText && event.content.trim().isNotEmpty) {
@@ -1251,6 +1251,7 @@ final class DirectStreamingAccumulator {
         _hasUsableOutput = true;
         return true;
       case DirectToolCallStarted():
+        finishProgress();
         _toolExecutions.add(
           _DirectToolExecution(
             id: event.id,
@@ -1283,6 +1284,7 @@ final class DirectStreamingAccumulator {
         _hasUsableOutput = true;
         return true;
       case DirectMcpApprovalRequested():
+        finishProgress();
         _mcpApproval = event.request.toMetadata('pending');
         return true;
       case DirectMcpApprovalResolved():
@@ -1298,17 +1300,17 @@ final class DirectStreamingAccumulator {
         }
         return true;
       case DirectStreamError():
-        _finishProgress();
+        finishProgress();
         _error = event;
         return true;
       case DirectStreamDone():
-        _finishProgress();
+        finishProgress();
         if (_reasoningWatch.isRunning) _reasoningWatch.stop();
         return true;
     }
   }
 
-  void _finishProgress() {
+  void finishProgress() {
     _progress.updateAll((_, status) => status.copyWith(done: true));
   }
 

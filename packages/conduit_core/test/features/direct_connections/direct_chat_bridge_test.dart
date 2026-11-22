@@ -94,6 +94,28 @@ void main() {
     },
   );
 
+  test('tool work and approval settle prompt progress before any text', () {
+    for (final event in <DirectStreamEvent>[
+      DirectToolCallStarted(id: 'call-one', name: 'sample-tool', arguments: {}),
+      const DirectMcpApprovalRequested(
+        DirectToolApprovalRequest(
+          id: 'approval-one',
+          serverName: 'Sample server',
+          toolName: 'sample-tool',
+          callId: 'call-one',
+          argumentsJson: '{}',
+        ),
+      ),
+    ]) {
+      final accumulator = DirectStreamingAccumulator();
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.promptProcessing),
+      );
+      accumulator.apply(event);
+      expect(accumulator.statusHistory.single.done, isTrue);
+    }
+  });
+
   group('normalizeDirectUsageMetadata', () {
     test('creates a detached deeply immutable JSON value', () {
       final shared = <Object?>[1, 'yes'];

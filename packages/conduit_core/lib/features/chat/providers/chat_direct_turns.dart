@@ -1583,14 +1583,16 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
               uiProjectionIsCurrent &&
               identical(visibleProjectionToken, uiProjectionToken);
           notifier.reconcileDirectStreamingMessageById(assistantMessageId);
-          if (projectedEvent is DirectProgressUpdate ||
-              ((projectedEvent is DirectContentDelta ||
-                      projectedEvent is DirectReasoningDelta) &&
-                  accumulator.statusHistory.isNotEmpty)) {
+          final statusHistory = accumulator.statusHistory;
+          final visibleStatusHistory =
+              (ref.read(chatMessagesProvider) as List<ChatMessage>)
+                  .where((message) => message.id == assistantMessageId)
+                  .firstOrNull
+                  ?.statusHistory;
+          if (!listEquals(visibleStatusHistory, statusHistory)) {
             notifier.updateMessageById(
               assistantMessageId,
-              (current) =>
-                  current.copyWith(statusHistory: accumulator.statusHistory),
+              (current) => current.copyWith(statusHistory: statusHistory),
             );
           }
           if (projectedEvent is DirectUsageUpdate) {
@@ -1822,6 +1824,7 @@ Future<void> _dispatchDirectRunFromChatWithTrackedOwner(
         data: {'errorType': terminalFailure.runtimeType.toString()},
       );
     }
+    accumulator.finishProgress();
     final completedContent = accumulator.render(done: true);
     final visible = ownerIsActive
         ? (ref.read(chatMessagesProvider) as List<ChatMessage>)
