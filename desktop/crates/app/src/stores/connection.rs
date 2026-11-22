@@ -181,6 +181,8 @@ pub struct ConnectionStore {
     no_secret_store: bool,
     /// The secret store is being asked again (Retry, or the key file).
     resolving_key: bool,
+    /// The app is quitting: a key found now starts no daemon.
+    quitting: bool,
     /// Whether the client's and the supervisor's events reach the store
     /// (never in tests: see [`Self::start`]).
     follow: bool,
@@ -267,6 +269,7 @@ impl ConnectionStore {
             key_file: options.key_file,
             no_secret_store,
             resolving_key: false,
+            quitting: false,
             follow,
             binary: options.binary,
             rpc_config,
@@ -586,6 +589,9 @@ impl ConnectionStore {
             let answer = asked.await;
             let _ = this.update(cx, |s, cx| {
                 s.resolving_key = false;
+                if s.quitting {
+                    return;
+                }
                 match answer {
                     Ok(key) => {
                         log::info!("master key found on retry");
@@ -744,6 +750,7 @@ impl ConnectionStore {
     /// Stops the daemon (stdin EOF → SIGTERM → SIGKILL) and closes the
     /// connection. Blocks: called on quit.
     pub fn shutdown(&mut self) {
+        self.quitting = true;
         self.client.shutdown();
         if let Some(s) = self.supervisor.take() {
             let outcome = s.stop_blocking();
@@ -1012,6 +1019,21 @@ mod tests {
             assert!(c.supervisor.is_some(), "the daemon starts with the key");
             assert_eq!(c.status(false, None), Status::Connecting);
         });
+    }
+
+    /// Quitting while Retry still waits on the keyring: the key that comes
+    /// back afterwards starts no daemon.
+    #[gpui_kit::test]
+    fn a_key_found_after_quitting_starts_no_daemon(cx: &mut gpui_kit::TestAppContext) {
+        let locked = SecretError::Store("the keyring is locked".into());
+        let (connection, _, _scratch) =
+            over_store(vec![Err(locked), Ok(secrets::new_master_key())], None, cx);
+        connection.update(cx, |c, cx| {
+            c.retry(cx);
+            c.shutdown();
+        });
+        cx.run_until_parked();
+        connection.read_with(cx, |c, _| assert!(c.supervisor.is_none()));
     }
 
     /// A Retry that still finds no key says the newer reason, starts
