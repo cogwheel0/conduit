@@ -17,8 +17,24 @@ Smaller changes:
   listening). `SileroV5Model.process` and `SileroV4Model.process` now
   release the output tensors `OrtSession.run` hands them, after copying
   their values, and `run` frees the name strings it allocates, in a
-  `finally`. Memory still grows by about 260 B per frame for a reason not
-  yet found (cogwheel0/conduit#895).
+  `finally`. Native handles across `SileroV5Model`, `SileroV4Model`,
+  `OrtSession`, `OrtValueTensor`, `OrtTensorTypeAndShapeInfo`, `OrtStatus`,
+  and `OrtEnv.init` (`logId` UTF-8 string) are released in `try/finally`
+  blocks so error paths cannot leak native allocations
+  (cogwheel0/conduit#895).
+- Per-frame Dart and FFI allocation churn on the hot path is eliminated:
+  `VadIterator` buffers PCM16 bytes in a reusable `Uint8List`, decodes
+  straight into `Float32List`, emits an unmodifiable `Float32List` view on
+  `frameProcessed`, and skips per-frame timestamp string formatting unless
+  `isDebug` is true. `OrtEnv` caches `.asFunction()` FFI bindings and the
+  default allocator's `OrtMemoryInfo`, `OrtValueTensor` adds typed
+  `Float32List`/`Int64List` input and flat float output paths, and
+  `SileroV5Model`/`SileroV4Model` reuse flat `Float32List` state tensors,
+  the sample-rate tensor, and `OrtPreparedRun` (`OrtRunOptions` and native
+  UTF-8 name arrays) across frames (cogwheel0/conduit#895).
+- `VadIterator.withInference` exposes dependency injection of `VadInference`
+  so pure-Dart unit tests can exercise framing and lifecycle without loading
+  native ONNX Runtime.
 - `VadIterator._combineFrames` and `VadHandler`'s speech-end and chunk
   events convert audio straight into typed lists (`Int16List`,
   `Float64List`) instead of through boxed lists, which for a ten-minute
