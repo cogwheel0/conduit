@@ -80,7 +80,7 @@ pub struct AppPaths {
 impl AppPaths {
     /// The standard locations for `flavor` on this OS. `CONDUIT_USER_DATA`
     /// and `CONDUIT_LOGS` override them (tests, smoke runs).
-    pub fn for_flavor(flavor: Flavor) -> Result<Self, NoHome> {
+    pub fn for_flavor(flavor: Flavor) -> Result<Self, NoUserFolder> {
         let mut paths = Self::standard(Os::CURRENT, flavor, &System)?;
         if let Some(dir) = System.var("CONDUIT_USER_DATA") {
             paths.user_data = PathBuf::from(dir);
@@ -101,12 +101,13 @@ impl AppPaths {
     ///   the open app log, so the two are siblings as on the Mac.
     /// * Linux: `$XDG_DATA_HOME/<name>` and `$XDG_STATE_HOME/<name>/logs`.
     ///
-    /// On macOS and Linux they are under the user's home folder ([`home`]);
-    /// with none, [`NoHome`].
-    pub fn standard(os: Os, flavor: Flavor, host: &dyn Host) -> Result<Self, NoHome> {
+    /// On macOS and Linux they are under the user's home folder ([`home`]),
+    /// and on Windows under Local AppData ([`local_app_data`]); with none,
+    /// [`NoUserFolder`].
+    pub fn standard(os: Os, flavor: Flavor, host: &dyn Host) -> Result<Self, NoUserFolder> {
         let (user_data, logs) = match os {
             Os::MacOs => {
-                let home = home(host).ok_or(NoHome)?;
+                let home = home(host).ok_or(NoUserFolder::Home)?;
                 (
                     home.join("Library/Application Support")
                         .join(flavor.app_name()),
@@ -114,7 +115,7 @@ impl AppPaths {
                 )
             }
             Os::Windows => {
-                let root = local_app_data(host).join(flavor.app_name());
+                let root = local_app_data(host)?.join(flavor.app_name());
                 (root.join("User Data"), root.join("Logs"))
             }
             Os::Linux => {
@@ -206,21 +207,32 @@ pub trait Host {
     fn account_home(&self) -> Option<PathBuf>;
 }
 
-/// No home folder to keep the profile and the key in: `HOME` is unset and
-/// the account names none. They never go to a shared folder instead.
+/// No folder of the user's to keep the profile and the key in. They never
+/// go to a shared folder, or a stale one, instead.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NoHome;
+pub enum NoUserFolder {
+    /// macOS and Linux: `HOME` is unset and the account names none.
+    Home,
+    /// Windows: the Local AppData known folder can't be resolved.
+    LocalAppData,
+}
 
-impl std::fmt::Display for NoHome {
+impl std::fmt::Display for NoUserFolder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(
-            "no home folder: HOME is unset and the account names none, \
-             so there is no private place for the profile and its key",
-        )
+        f.write_str(match self {
+            Self::Home => {
+                "no home folder: HOME is unset and the account names none, \
+                 so there is no private place for the profile and its key"
+            }
+            Self::LocalAppData => {
+                "Windows can't say where Local AppData is, \
+                 so there is no place for the profile and its key"
+            }
+        })
     }
 }
 
-impl std::error::Error for NoHome {}
+impl std::error::Error for NoUserFolder {}
 
 /// This computer.
 pub struct System;
@@ -311,17 +323,20 @@ fn windows_known_folder(folder: KnownFolder) -> Option<PathBuf> {
     use windows::Win32::System::Com::CoTaskMemFree;
     use windows::Win32::UI::Shell::{
         FOLDERID_Downloads, FOLDERID_LocalAppData, FOLDERID_Profile, KF_FLAG_DEFAULT,
-        SHGetKnownFolderPath,
+        KF_FLAG_DONT_VERIFY, SHGetKnownFolderPath,
     };
-    let id = match folder {
-        KnownFolder::LocalAppData => &FOLDERID_LocalAppData,
-        KnownFolder::Downloads => &FOLDERID_Downloads,
-        KnownFolder::Profile => &FOLDERID_Profile,
+    // Local AppData is where it is configured, reachable or not: the profile
+    // and the key's lock never move with the network. Downloads and the
+    // profile folder are looked at only to open a save panel.
+    let (id, flags) = match folder {
+        KnownFolder::LocalAppData => (&FOLDERID_LocalAppData, KF_FLAG_DONT_VERIFY),
+        KnownFolder::Downloads => (&FOLDERID_Downloads, KF_FLAG_DEFAULT),
+        KnownFolder::Profile => (&FOLDERID_Profile, KF_FLAG_DEFAULT),
     };
     // SAFETY: `id` is a valid known-folder id; the returned string is the
     // caller's to free with CoTaskMemFree, after it is copied.
     unsafe {
-        let raw = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok()?;
+        let raw = SHGetKnownFolderPath(id, flags, None).ok()?;
         let path = PathBuf::from(std::ffi::OsString::from_wide(raw.as_wide()));
         CoTaskMemFree(Some(raw.0 as *const _));
         Some(path).filter(|p| p.has_root())
@@ -362,9 +377,12 @@ pub fn master_key_lock(os: Os, service: &str, host: &dyn Host) -> KeyLock {
                 .join("Library/Caches")
                 .join(format!("{service}.master-key.lock")),
         ),
-        Os::Windows => {
-            KeyLock::File(local_app_data(host).join(format!("{service}.master-key.lock")))
-        }
+        // With no Local AppData the app stops before it asks.
+        Os::Windows => KeyLock::File(
+            local_app_data(host)
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join(format!("{service}.master-key.lock")),
+        ),
         Os::Linux => KeyLock::Abstract(format!("{service}.master-key.{}", host.uid())),
     }
 }
@@ -372,7 +390,7 @@ pub fn master_key_lock(os: Os, service: &str, host: &dyn Host) -> KeyLock {
 /// Where D12's opt-in key file keeps `service`'s master key on Linux:
 /// `$XDG_DATA_HOME/<service>.master-key`, beside the profiles rather than in
 /// one, as the key is the service's.
-pub fn master_key_file(service: &str, host: &dyn Host) -> Result<PathBuf, NoHome> {
+pub fn master_key_file(service: &str, host: &dyn Host) -> Result<PathBuf, NoUserFolder> {
     Ok(xdg(host, "XDG_DATA_HOME", ".local/share")?.join(format!("{service}.master-key")))
 }
 
@@ -477,27 +495,24 @@ fn home(host: &dyn Host) -> Option<PathBuf> {
         .or_else(|| host.account_home().filter(|p| p.has_root()))
 }
 
-/// Windows' Local AppData (local, not roaming): the known folder, else
-/// `%LOCALAPPDATA%`, else the profile's own copy. Never a `HOME`.
-pub fn local_app_data(host: &dyn Host) -> PathBuf {
+/// Windows' Local AppData (local, not roaming): the known folder where it
+/// is configured, even while it can't be reached (a redirected folder
+/// offline). Never `%LOCALAPPDATA%` or a `HOME`, which may name an older
+/// place: a launch there would open another profile beside another lock.
+pub fn local_app_data(host: &dyn Host) -> Result<PathBuf, NoUserFolder> {
     host.known_folder(KnownFolder::LocalAppData)
-        .or_else(|| host.var("LOCALAPPDATA").map(PathBuf::from))
-        .or_else(|| {
-            host.var("USERPROFILE")
-                .map(|p| PathBuf::from(p).join("AppData").join("Local"))
-        })
-        .unwrap_or_else(std::env::temp_dir)
+        .ok_or(NoUserFolder::LocalAppData)
 }
 
 /// An XDG base folder from `key`, else `fallback` under the home folder.
 /// The spec says to ignore a relative path in these. (A rooted one: Linux's
 /// absolute paths, read on any host.)
-fn xdg(host: &dyn Host, key: &str, fallback: &str) -> Result<PathBuf, NoHome> {
+fn xdg(host: &dyn Host, key: &str, fallback: &str) -> Result<PathBuf, NoUserFolder> {
     host.var(key)
         .map(PathBuf::from)
         .filter(|p| p.has_root())
         .or_else(|| home(host).map(|h| h.join(fallback)))
-        .ok_or(NoHome)
+        .ok_or(NoUserFolder::Home)
 }
 
 /// The packaged daemon for an executable at `exe`, if it exists.
@@ -787,13 +802,16 @@ pub(crate) mod tests {
         let nobody = vars(&[]);
         assert_eq!(
             AppPaths::standard(Os::Linux, Flavor::Dev, &nobody),
-            Err(NoHome)
+            Err(NoUserFolder::Home)
         );
         assert_eq!(
             AppPaths::standard(Os::MacOs, Flavor::Dev, &nobody),
-            Err(NoHome)
+            Err(NoUserFolder::Home)
         );
-        assert_eq!(master_key_file("app.example.conduit", &nobody), Err(NoHome));
+        assert_eq!(
+            master_key_file("app.example.conduit", &nobody),
+            Err(NoUserFolder::Home)
+        );
         // Absolute XDG folders need no home.
         let xdg = vars(&[
             ("XDG_DATA_HOME", "/srv/data"),
@@ -938,7 +956,7 @@ pub(crate) mod tests {
     #[test]
     fn windows_keeps_data_and_logs_under_local_app_data_never_tmp() {
         let local = Path::new(r"C:\Users\avery\AppData\Local");
-        let env = vars(&[("LOCALAPPDATA", local.to_str().unwrap())]);
+        let env = vars(&[]).known(KnownFolder::LocalAppData, local);
         let paths = AppPaths::standard(Os::Windows, Flavor::Production, &env).unwrap();
         assert_eq!(paths.user_data, local.join("Conduit").join("User Data"));
         assert_eq!(paths.logs, local.join("Conduit").join("Logs"));
@@ -946,27 +964,18 @@ pub(crate) mod tests {
         // keeps open) must not be inside it.
         assert!(!paths.logs.starts_with(&paths.user_data));
 
-        // No LOCALAPPDATA (and never a HOME): the profile's own copy.
-        let profile = Path::new(r"C:\Users\avery");
-        let paths = AppPaths::standard(
-            Os::Windows,
-            Flavor::Dev,
-            &vars(&[
-                ("USERPROFILE", profile.to_str().unwrap()),
-                ("HOME", "/home/x"),
-            ]),
-        )
-        .unwrap();
-        assert_eq!(
-            paths.user_data,
-            profile
-                .join("AppData")
-                .join("Local")
-                .join("Conduit Dev")
-                .join("User Data")
-        );
-        assert!(!paths.user_data.starts_with("/tmp"));
-        assert!(!paths.logs.starts_with("/tmp"));
+        // No known folder: no profile, never one the environment names
+        // (it may be stale) or the temporary folder.
+        for env in [
+            &[("LOCALAPPDATA", local.to_str().unwrap())][..],
+            &[("USERPROFILE", r"C:\Users\avery"), ("HOME", "/home/x")],
+        ] {
+            assert_eq!(
+                AppPaths::standard(Os::Windows, Flavor::Dev, &vars(env)),
+                Err(NoUserFolder::LocalAppData),
+                "{env:?}"
+            );
+        }
     }
 
     #[test]
@@ -1025,26 +1034,16 @@ pub(crate) mod tests {
     #[test]
     fn the_master_key_lock_is_per_user_and_service_never_per_profile() {
         let service = "app.example.conduit";
-        // Windows: in the user's local app data, whatever the profile, and
-        // the same folder when only the profile root is known.
-        let profile = Path::new(r"C:\Users\avery");
-        let local = profile.join("AppData").join("Local");
-        let windows = |pairs: &[(&str, &str)]| master_key_lock(Os::Windows, service, &vars(pairs));
+        // Windows: in the user's Local AppData, whatever the profile.
+        let local = Path::new(r"C:\Users\avery\AppData\Local");
+        let windows = |profile: &str| {
+            let host =
+                vars(&[("CONDUIT_USER_DATA", profile)]).known(KnownFolder::LocalAppData, local);
+            master_key_lock(Os::Windows, service, &host)
+        };
         let expected = KeyLock::File(local.join("app.example.conduit.master-key.lock"));
-        assert_eq!(
-            windows(&[
-                ("LOCALAPPDATA", local.to_str().unwrap()),
-                ("CONDUIT_USER_DATA", r"D:\profiles\one"),
-            ]),
-            expected
-        );
-        assert_eq!(
-            windows(&[
-                ("USERPROFILE", profile.to_str().unwrap()),
-                ("CONDUIT_USER_DATA", r"D:\profiles\two"),
-            ]),
-            expected
-        );
+        assert_eq!(windows(r"D:\profiles\one"), expected);
+        assert_eq!(windows(r"D:\profiles\two"), expected);
         // Linux: the user's, whatever the profile.
         let linux = |profile: &str| {
             master_key_lock(
