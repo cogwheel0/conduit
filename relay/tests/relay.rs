@@ -1779,28 +1779,69 @@ async fn clients_that_send_nothing_are_dropped() {
     );
 }
 
-#[tokio::test]
+// The paused-clock tests drive their client with blocking I/O: tokio does not
+// auto-advance a paused clock while a blocking task runs, so the clock cannot
+// jump to one of the relay's timers while a request or its answer is still
+// in the kernel. It moves only when the test advances it.
+
+impl Relay {
+    async fn connect_blocking(&self) -> std::net::TcpStream {
+        let addr = self.base.strip_prefix("http://").unwrap().to_owned();
+        tokio::task::spawn_blocking(move || std::net::TcpStream::connect(addr).unwrap())
+            .await
+            .unwrap()
+    }
+}
+
+/// Asks for `/healthz` on a kept-alive connection and returns the answer.
+async fn healthz_blocking(mut stream: std::net::TcpStream) -> (std::net::TcpStream, String) {
+    use std::io::{Read, Write};
+    tokio::task::spawn_blocking(move || {
+        stream.write_all(HEALTHZ).unwrap();
+        // A byte at a time, so that nothing past this answer is read.
+        let mut answer = Vec::new();
+        let mut byte = [0u8];
+        while !answer.ends_with(b"\r\n\r\nok") {
+            match stream.read(&mut byte) {
+                Ok(1) => answer.push(byte[0]),
+                closed => panic!("{closed:?} after {:?}", String::from_utf8_lossy(&answer)),
+            }
+        }
+        (stream, String::from_utf8(answer).unwrap())
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test(start_paused = true)]
 async fn idle_connections_are_closed() {
     // The header timeout would also close an idle HTTP/1 connection; make it
     // long so that only the idle bound can.
+    let idle = Duration::from_millis(300);
     let relay = start_with_connections(ConnectionLimits {
         header_read_timeout: Duration::from_secs(60),
-        idle_timeout: Duration::from_millis(300),
+        idle_timeout: idle,
         ..ConnectionLimits::default()
     })
     .await;
-    let mut stream = relay.connect().await;
-    stream.write_all(HEALTHZ).await.unwrap();
-    let mut buf = [0u8; 1024];
-    let n = stream.read(&mut buf).await.unwrap();
-    assert!(buf[..n].starts_with(b"HTTP/1.1 200"));
+    let stream = relay.connect_blocking().await;
+    let (stream, answer) = healthz_blocking(stream).await;
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
 
-    let served = Instant::now();
-    let closed_after = wait_for_close(&mut stream, served, Duration::from_secs(3)).await;
-    assert!(
-        closed_after >= Duration::from_millis(300),
-        "{closed_after:?}"
-    );
+    // Used again just inside the bound: kept, and the bound starts over.
+    tokio::time::advance(idle - Duration::from_millis(1)).await;
+    let (stream, answer) = healthz_blocking(stream).await;
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+
+    // Left alone, the clock auto-advances to the relay's next timer. Closing
+    // early, or not at all (then the header timeout closes it), shows as
+    // another time.
+    let served = tokio::time::Instant::now();
+    stream.set_nonblocking(true).unwrap();
+    let mut stream = TcpStream::from_std(stream).unwrap();
+    let mut buf = [0u8; 1024];
+    while let Ok(1..) = stream.read(&mut buf).await {}
+    assert_eq!(served.elapsed(), idle);
 }
 
 #[tokio::test]

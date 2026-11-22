@@ -33,8 +33,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["e
 aws-lc-rs = "1"
 # A request body the tests can fail or hold open.
 http-body-util = { version = "0.1", features = ["channel"] }
-# Raw sockets, for the connection-handling tests.
-tokio = { version = "1", features = ["io-util"] }
+# Raw sockets, for the connection-handling tests, and a paused clock.
+tokio = { version = "1", features = ["io-util", "test-util"] }
 
 [profile.release]
 lto = "thin"
