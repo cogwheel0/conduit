@@ -229,7 +229,7 @@ impl DesktopPrefs {
     /// The Quick Ask chord; the default when the stored one is unreadable.
     pub fn quick_ask_stroke(&self) -> crate::keymap::KeyStroke {
         crate::keymap::decode(&self.quick_ask_shortcut)
-            .filter(|s| s.is_chord())
+            .filter(|s| s.has_modifier())
             .or_else(|| crate::keymap::decode(DEFAULT_QUICK_ASK_SHORTCUT))
             .unwrap_or_else(|| crate::keymap::KeyStroke::new(" ").primary().shift())
     }

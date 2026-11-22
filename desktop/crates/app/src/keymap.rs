@@ -187,7 +187,14 @@ impl KeyStroke {
 
     /// [`Self::is_chord`] for `os`.
     pub fn is_chord_on(&self, os: KeyOs) -> bool {
-        self.primary || self.alt || self.ctrl || (!os.is_mac() && is_function_key(&self.key))
+        self.has_modifier() || (!os.is_mac() && is_function_key(&self.key))
+    }
+
+    /// Holds ⌘, ⌥ or ⌃ (Ctrl or Alt off the Mac). Quick Ask's system-wide
+    /// hotkey needs one on every OS: a bare F-key would take that key from
+    /// every app.
+    pub fn has_modifier(&self) -> bool {
+        self.primary || self.alt || self.ctrl
     }
     pub fn shift(mut self) -> Self {
         self.shift = true;
@@ -401,24 +408,57 @@ pub fn decode(encoded: &str) -> Option<KeyStroke> {
 /// The defaults with the user's keys (by action name) in place. An override
 /// that cannot be read keeps the default.
 pub fn apply_overrides(overrides: &BTreeMap<String, String>) -> Vec<Shortcut> {
-    default_shortcuts()
-        .into_iter()
+    apply_overrides_on(overrides, KeyOs::CURRENT)
+}
+
+/// [`apply_overrides`] for `os`.
+pub fn apply_overrides_on(overrides: &BTreeMap<String, String>, os: KeyOs) -> Vec<Shortcut> {
+    let defaults = default_shortcuts_on(os);
+    let mut table: Vec<Shortcut> = defaults
+        .iter()
+        .cloned()
         .map(|s| {
             match overrides
                 .get(s.action.name())
                 .and_then(|e| decode(e))
-                .map(|stroke| for_os(stroke, KeyOs::CURRENT))
+                .map(|stroke| for_os(stroke, os))
             {
                 Some(stroke) => Shortcut {
                     action: s.action,
                     // A chord keeps working while typing; a bare key must not.
-                    while_typing: stroke.is_chord(),
+                    while_typing: stroke.is_chord_on(os),
                     stroke,
                 },
                 None => s,
             }
         })
-        .collect()
+        .collect();
+    if !os.is_mac() {
+        // A Mac profile's ⌃J and ⌘J are both Ctrl+J here: the first keeps
+        // it, and a later one goes back to its default, or to no chord when
+        // another has that too.
+        for i in 0..table.len() {
+            let taken = |stroke: &KeyStroke, table: &[Shortcut]| {
+                table
+                    .iter()
+                    .enumerate()
+                    .any(|(j, s)| j != i && &s.stroke == stroke)
+            };
+            if !table[..i].iter().any(|s| s.stroke == table[i].stroke) {
+                continue;
+            }
+            table[i] = if taken(&defaults[i].stroke, &table) {
+                Shortcut {
+                    stroke: KeyStroke::new(""),
+                    while_typing: false,
+                    ..defaults[i].clone()
+                }
+            } else {
+                defaults[i].clone()
+            };
+        }
+    }
+    table
 }
 
 /// A command whose chord is fixed: the menus' standard ones and the app's
@@ -931,6 +971,11 @@ impl Keymap {
         apply_overrides(&self.overrides)
     }
 
+    /// [`Self::table`] for `os`.
+    pub fn table_on(&self, os: KeyOs) -> Vec<Shortcut> {
+        apply_overrides_on(&self.overrides, os)
+    }
+
     /// `action`'s default chord.
     pub fn defaults_stroke(&self, action: ShortcutAction) -> Option<KeyStroke> {
         default_shortcuts()
@@ -1043,13 +1088,12 @@ pub fn from_gpui_on(ks: &gpui_kit::Keystroke, os: KeyOs) -> Option<KeyStroke> {
         "" | "shift" | "alt" | "cmd" | "control" | "fn" | "platform" => return None,
         k => k.to_ascii_lowercase(),
     };
-    let held = held_on(m, os);
     Some(KeyStroke {
         key,
-        primary: held.primary,
-        shift: held.shift,
-        alt: held.alt,
-        ctrl: os.is_mac() && held.ctrl,
+        primary: if os.is_mac() { m.platform } else { m.control },
+        shift: m.shift,
+        alt: m.alt,
+        ctrl: os.is_mac() && m.control,
     })
 }
 
@@ -1081,7 +1125,9 @@ pub fn held_on(m: &gpui_kit::Modifiers, os: KeyOs) -> Held {
     let (primary, ctrl) = if os.is_mac() {
         (m.platform, m.control)
     } else {
-        (m.control, m.platform)
+        // Ctrl with Alt is how Windows reports AltGr, which types a
+        // character (Polish AltGr+S is ś): never the primary modifier.
+        (m.control && !m.alt, m.platform)
     };
     Held {
         primary,
@@ -1104,9 +1150,50 @@ pub fn shell_chords(os: KeyOs) -> Vec<KeyStroke> {
         .map(String::from)
         .chain(["[", "]", "\\", "/", " "].map(String::from))
         .map(|key| KeyStroke::new(&key).primary())
-        // Alt with an arrow moves a word in the shell (Back and Forward
-        // elsewhere).
-        .chain(["arrowleft", "arrowright"].map(|key| KeyStroke::new(key).alt()))
+        .collect()
+}
+
+/// The chords the app keeps while a terminal's console has the keyboard
+/// (its interceptor sends every other key to the shell first): off the
+/// Mac, those it binds where the console is (the table with `keymap`'s
+/// overrides, New Chat's alias, Quick Ask's and the fixed chords, and the
+/// terminal's own Edit keys) that hold Ctrl, Alt or a function key, less
+/// the shell's ([`shell_chords`]). Keys like Esc, Tab and Return stay the
+/// shell's, as on the Mac, where none is kept (the app's are ⌘ chords, which
+/// the console never sends).
+pub fn console_app_chords(
+    keymap: &Keymap,
+    quick_ask: Option<&KeyStroke>,
+    os: KeyOs,
+) -> Vec<KeyStroke> {
+    if os.is_mac() {
+        return vec![];
+    }
+    let shell = shell_chords(os);
+    app_chords(keymap, quick_ask, os)
+        .into_iter()
+        .chain(
+            area_shortcuts_on(os)
+                .into_iter()
+                .filter(|(k, _)| k.group() == KeyGroup::Terminal)
+                .map(|(_, s)| s),
+        )
+        .filter(|s| (s.primary || s.alt || is_function_key(&s.key)) && !shell.contains(s))
+        .collect()
+}
+
+/// Every chord the app binds everywhere on `os`: the table with `keymap`'s
+/// overrides (the commands it carries out), New Chat's alias, Quick Ask's
+/// and the fixed chords.
+pub fn app_chords(keymap: &Keymap, quick_ask: Option<&KeyStroke>, os: KeyOs) -> Vec<KeyStroke> {
+    keymap
+        .table_on(os)
+        .into_iter()
+        .filter(|s| s.action.is_live() && s.while_typing)
+        .map(|s| s.stroke)
+        .chain([new_chat_alias()])
+        .chain(quick_ask.cloned())
+        .chain(fixed_shortcuts_on(os).into_iter().map(|(_, s)| s))
         .collect()
 }
 
@@ -1904,11 +1991,14 @@ mod tests {
                 "ctrl-[",
                 "ctrl-/",
                 "ctrl-space",
-                "alt-left",
             ] {
                 assert!(shell.iter().any(|s| s == chord), "{os:?}: {chord}");
             }
-            assert!(!shell.iter().any(|s| s == "ctrl-tab" || s == "f6"));
+            assert!(
+                !shell
+                    .iter()
+                    .any(|s| s == "ctrl-tab" || s == "f6" || s == "alt-left")
+            );
         }
         // Per OS: the sidebar is Linux's F9 and Windows' Ctrl+Shift+S; Find
         // Next is Windows' F3 first, GNOME's Ctrl+G first; Windows quits
@@ -1936,6 +2026,123 @@ mod tests {
         // F9 is a chord off the Mac (it types nothing), a bare key there.
         assert!(KeyStroke::new("f9").is_chord_on(KeyOs::Linux));
         assert!(!KeyStroke::new("f9").is_chord_on(KeyOs::Mac));
+    }
+
+    /// While a terminal has the keyboard off the Mac, the app keeps its own
+    /// chords (Ctrl+Shift, Alt, the F-keys it binds, Ctrl with a digit or
+    /// punctuation) and the shell gets Ctrl and a letter, and Esc, Tab and
+    /// the F-keys the app doesn't bind (htop's F10). The Mac keeps none.
+    #[test]
+    fn a_terminal_lets_the_apps_chords_through_and_keeps_the_shells() {
+        let quick_ask = decode(crate::prefs::DEFAULT_QUICK_ASK_SHORTCUT).unwrap();
+        assert!(console_app_chords(&Keymap::default(), Some(&quick_ask), KeyOs::Mac).is_empty());
+        for os in [KeyOs::Windows, KeyOs::Linux] {
+            let app: Vec<String> = console_app_chords(&Keymap::default(), Some(&quick_ask), os)
+                .iter()
+                .map(|s| to_gpui_on(s, os))
+                .collect();
+            let keeps = |chord: &str| app.iter().any(|a| a == chord);
+            for chord in [
+                "ctrl-shift-n",
+                "ctrl-shift-c",
+                "ctrl-shift-v",
+                "ctrl-shift-k",
+                "ctrl-shift-space",
+                "f6",
+                "shift-f6",
+                "f3",
+                "f11",
+                "alt-left",
+                "ctrl-1",
+                "ctrl-,",
+                "ctrl-tab",
+            ] {
+                assert!(keeps(chord), "{os:?}: the app keeps {chord}");
+            }
+            for chord in [
+                "ctrl-r",
+                "ctrl-c",
+                "ctrl-f",
+                "ctrl-w",
+                "ctrl-k",
+                "ctrl-[",
+                "escape",
+                "shift-escape",
+                "tab",
+                "f1",
+                "f10",
+            ] {
+                assert!(!keeps(chord), "{os:?}: the shell keeps {chord}");
+            }
+        }
+        // A rebound chord moves with the user's keymap.
+        let k = Keymap::new(BTreeMap::from([("newChat".into(), "mod+shift+j".into())]));
+        let app = console_app_chords(&k, None, KeyOs::Linux);
+        assert!(app.contains(&KeyStroke::new("j").primary().shift()));
+    }
+
+    /// Windows reports AltGr as Ctrl+Alt: off the Mac that is never the
+    /// primary modifier, so AltGr+S (ś) types rather than saves. A recorded
+    /// chord keeps what was pressed.
+    #[test]
+    fn altgr_is_never_the_primary_modifier_off_the_mac() {
+        let ks = |s: &'static str| gpui_kit::Keystroke::parse(s).unwrap();
+        for os in [KeyOs::Windows, KeyOs::Linux] {
+            assert!(!held_on(&ks("ctrl-alt-s").modifiers, os).primary, "{os:?}");
+            assert!(held_on(&ks("ctrl-s").modifiers, os).primary, "{os:?}");
+            assert!(held_on(&ks("ctrl-shift-s").modifiers, os).primary, "{os:?}");
+            assert_eq!(
+                from_gpui_on(&ks("ctrl-alt-s"), os),
+                Some(KeyStroke::new("s").primary().alt())
+            );
+        }
+        assert!(held_on(&ks("cmd-alt-s").modifiers, KeyOs::Mac).primary);
+    }
+
+    /// A Mac profile's ⌃J and ⌘J are one chord off the Mac: the first
+    /// command keeps it, the other goes back to its default (or to none
+    /// when that is taken). The Mac keeps both.
+    #[test]
+    fn a_mac_profiles_chords_that_meet_off_the_mac_do_not_collide() {
+        let overrides = BTreeMap::from([
+            ("newChat".to_string(), "ctrl+j".to_string()),
+            ("openPalette".to_string(), "mod+j".to_string()),
+        ]);
+        let k = Keymap::new(overrides);
+        let stroke = |table: &[Shortcut], a| {
+            table
+                .iter()
+                .find(|s| s.action == a)
+                .map(|s| s.stroke.clone())
+                .unwrap()
+        };
+        let mac = k.table_on(KeyOs::Mac);
+        assert_eq!(stroke(&mac, A::NewChat), KeyStroke::new("j").ctrl());
+        assert_eq!(stroke(&mac, A::OpenPalette), KeyStroke::new("j").primary());
+        for os in [KeyOs::Windows, KeyOs::Linux] {
+            let t = k.table_on(os);
+            assert_eq!(stroke(&t, A::NewChat), KeyStroke::new("j").primary());
+            assert_eq!(stroke(&t, A::OpenPalette), KeyStroke::new("k").primary());
+            let mut chords: Vec<_> = t.iter().map(|s| &s.stroke).collect();
+            let n = chords.len();
+            chords.sort_by_key(|s| encode(s));
+            chords.dedup();
+            assert_eq!(chords.len(), n, "{os:?}: a chord twice");
+        }
+        // The default taken too: the later command has no chord.
+        let k = Keymap::new(BTreeMap::from([
+            ("newChat".to_string(), "ctrl+j".to_string()),
+            ("openPalette".to_string(), "mod+j".to_string()),
+            ("focusComposer".to_string(), "mod+k".to_string()),
+        ]));
+        let t = k.table_on(KeyOs::Linux);
+        assert_eq!(stroke(&t, A::OpenPalette), KeyStroke::new(""));
+        assert!(
+            !t.iter()
+                .find(|s| s.action == A::OpenPalette)
+                .unwrap()
+                .while_typing
+        );
     }
 
     /// Deleting the selected item: ⌘⌫ on the Mac, Delete alone elsewhere.

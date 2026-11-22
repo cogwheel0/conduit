@@ -34,7 +34,8 @@ use crate::AppState;
 use crate::actions::*;
 use crate::keymap::{
     AreaKey, FixedCommand, KeyOs, KeyStroke, Keymap, ShortcutAction, area_stroke, area_stroke_on,
-    describe, fixed_shortcuts, fixed_stroke, new_chat_alias, shell_chords, to_gpui, to_gpui_on,
+    console_app_chords, describe, fixed_shortcuts, fixed_stroke, new_chat_alias, shell_chords,
+    to_gpui, to_gpui_on,
 };
 use crate::l10n::{ActiveL10n as _, L10n};
 use crate::prefs::{Appearance, TEXT_SIZE_MAX, TEXT_SIZE_MIN};
@@ -376,7 +377,7 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     })
     .collect();
     cx.bind_keys(new_note);
-    bind_console_keys(KeyOs::CURRENT, cx);
+    bind_console_keys(KeyOs::CURRENT, keymap, quick_ask_stroke(cx).as_ref(), cx);
     // The app's own prompts (Windows and Linux), last: their Esc must win
     // over Stop Generating's, which has no context.
     if !KeyOs::CURRENT.is_mac() {
@@ -391,9 +392,13 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
 /// letter, whatever the app binds them to elsewhere ([`shell_chords`]).
 /// Bound last: GPUI ranks a binding without a context as deep as the
 /// focus, and the later of two equals wins.
-pub fn bind_console_keys(os: KeyOs, cx: &mut App) {
+pub fn bind_console_keys(os: KeyOs, keymap: &Keymap, quick_ask: Option<&KeyStroke>, cx: &mut App) {
     use gpui_kit::component::input::{Copy, Paste, SelectAll};
     let console = crate::views::terminal::console::CONSOLE_CONTEXT;
+    cx.set_global(crate::views::terminal::console::AppKeys {
+        os,
+        chords: console_app_chords(keymap, quick_ask, os),
+    });
     if os.is_mac() {
         return;
     }
@@ -1993,7 +1998,7 @@ mod tests {
             bind_keys(&Keymap::default(), cx);
             // Off the Mac the table binds Regenerate as Ctrl+R everywhere.
             cx.bind_keys([KeyBinding::new("ctrl-r", RegenerateLastAnswer, None)]);
-            bind_console_keys(crate::keymap::KeyOs::Linux, cx);
+            bind_console_keys(crate::keymap::KeyOs::Linux, &Keymap::default(), None, cx);
             let winner = |stroke: &'static str, stack: &[&str]| -> Option<&'static str> {
                 let input = [gpui_kit::Keystroke::parse(stroke).unwrap()];
                 let contexts: Vec<gpui_kit::KeyContext> = stack

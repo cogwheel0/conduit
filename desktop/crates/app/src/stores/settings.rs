@@ -414,7 +414,7 @@ impl SettingsStore {
     /// Why `stroke` can't be the Quick Ask chord: it needs ⌘ or ⌥, and the
     /// app's own shortcuts keep theirs (the hotkey would swallow them).
     pub fn quick_ask_conflict(&self, stroke: &KeyStroke) -> Option<RecordMessage> {
-        if !stroke.is_chord() {
+        if !stroke.has_modifier() {
             return Some(RecordMessage::NeedsModifier);
         }
         if let Some(command) = crate::keymap::fixed_conflict(stroke, None) {
@@ -751,12 +751,28 @@ mod tests {
             s.reset_shortcut(ShortcutAction::NewChat, cx);
         });
         settings.update(cx, |s, cx| s.record_quick_ask(true, cx));
-        // A bare key is refused; an app shortcut's chord conflicts.
-        assert!(settings.update(cx, |s, cx| s.record(&key("space"), cx)));
-        settings.read_with(cx, |s, _| {
-            assert_eq!(s.quick_ask_message, Some(RecordMessage::NeedsModifier));
-            assert!(s.recording_quick_ask);
-        });
+        // A bare key is refused, a function key too (the hotkey would take
+        // it from every app; in-app shortcuts may use one off the Mac); an
+        // app shortcut's chord conflicts.
+        for bare in ["space", "f8"] {
+            assert!(settings.update(cx, |s, cx| s.record(&key(bare), cx)));
+            settings.read_with(cx, |s, _| {
+                assert_eq!(
+                    s.quick_ask_message,
+                    Some(RecordMessage::NeedsModifier),
+                    "{bare}"
+                );
+                assert!(s.recording_quick_ask);
+            });
+        }
+        let stored_f8 = crate::prefs::DesktopPrefs {
+            quick_ask_shortcut: "f8".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            stored_f8.quick_ask_stroke(),
+            crate::keymap::decode(crate::prefs::DEFAULT_QUICK_ASK_SHORTCUT).unwrap()
+        );
         assert!(settings.update(cx, |s, cx| s.record(&key("secondary-k"), cx)));
         settings.read_with(cx, |s, _| {
             assert_eq!(
