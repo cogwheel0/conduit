@@ -23,7 +23,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::UI_FONT;
+use conduit_components::theme::ui_font;
 use conduit_components::views::kit::grouped_tones;
 use gpui_kit::base::{Scrollbar, ScrollbarMode};
 use gpui_kit::prelude::*;
@@ -330,7 +330,7 @@ fn setup_frame(
         .size_full()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(ui_font())
         .bg(page)
         .text_color(t.roles.text)
         .child(div().h(px(TITLE_BAR)).flex_none())

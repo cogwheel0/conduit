@@ -21,7 +21,7 @@ use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::{UI_FONT, with_alpha};
+use conduit_components::theme::{ui_font, with_alpha};
 use conduit_components::views::kit::{Button, ESC_KEYCAP, IconButton, keycap};
 use conduit_protocol::{ChatView, Event, events, methods};
 use gpui_kit::prelude::*;
@@ -895,7 +895,7 @@ impl Render for QuickAskView {
             .flex()
             .flex_col()
             .child(crate::views::chat::inline_web::frame_start())
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .text_color(r.text)
             .rounded(px(PANEL_RADIUS))
             .when(!native_chrome, |d| {

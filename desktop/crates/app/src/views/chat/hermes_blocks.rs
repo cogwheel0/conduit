@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use chrono::{DateTime, Local, TimeZone as _};
 use conduit_components::assets::{IconName, icon};
-use conduit_components::theme::{ConduitTheme, MONO_FONT, with_alpha};
+use conduit_components::theme::{ConduitTheme, mono_font, with_alpha};
 use conduit_components::views::focus::{ControlExt as _, Ring};
 use conduit_components::views::kit::Button;
 use conduit_protocol::{ChangedFileDto, HermesErrorDto};
@@ -110,7 +110,7 @@ fn counts(added: i64, removed: i64, t: &ConduitTheme) -> gpui_kit::Div {
         .flex_none()
         .flex()
         .gap(px(6.))
-        .font_family(MONO_FONT)
+        .font_family(mono_font())
         .text_size(px(m.small))
         .font_weight(FontWeight::SEMIBOLD)
         .child(

@@ -505,3 +505,66 @@ fn an_off_switch_track_stands_apart_from_its_knob() {
     let (red, _, _) = level(track);
     assert!((205. ..=213.).contains(&red), "{:?}", level(track));
 }
+
+/// Off the Mac nothing shows through a material sidebar: it is solid, and
+/// the Mac keeps what it asked for.
+#[test]
+fn off_the_mac_the_sidebar_is_solid() {
+    let material = DesignPrefs {
+        sidebar: SidebarStyle::Material,
+        ..DesignPrefs::default()
+    };
+    assert_eq!(material.for_os(false).sidebar, SidebarStyle::Surface);
+    assert_eq!(material.for_os(true).sidebar, SidebarStyle::Material);
+    let surface = DesignPrefs {
+        sidebar: SidebarStyle::Surface,
+        ..DesignPrefs::default()
+    };
+    assert_eq!(surface.for_os(true), surface);
+}
+
+/// Windows' code font is Cascadia Mono where installed, else Consolas; the
+/// UI keeps the system alias (Segoe UI). Linux takes fontconfig's families
+/// when installed, else a desktop's usual ones, never a proportional face
+/// for code.
+#[test]
+fn fonts_come_from_what_is_installed() {
+    let installed = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        fonts_for(&FontSystem::Windows, &installed(&["Segoe UI", "Consolas"])),
+        (UI_FONT.to_string(), "Consolas".to_string())
+    );
+    assert_eq!(
+        fonts_for(
+            &FontSystem::Windows,
+            &installed(&["Segoe UI", "Cascadia Mono", "Consolas"])
+        )
+        .1,
+        "Cascadia Mono"
+    );
+    let gnome = FontSystem::Linux {
+        sans: Some("Adwaita Sans".into()),
+        mono: Some("Adwaita Mono".into()),
+    };
+    assert_eq!(
+        fonts_for(&gnome, &installed(&["Adwaita Sans", "Adwaita Mono"])),
+        ("Adwaita Sans".to_string(), "Adwaita Mono".to_string())
+    );
+    // fontconfig names a family that is not there: the next installed.
+    let odd = FontSystem::Linux {
+        sans: Some("Missing Sans".into()),
+        mono: None,
+    };
+    assert_eq!(
+        fonts_for(&odd, &installed(&["Noto Sans", "DejaVu Sans Mono"])),
+        ("Noto Sans".to_string(), "DejaVu Sans Mono".to_string())
+    );
+    // Nothing known: GPUI's own fallbacks for the UI, a monospaced name.
+    assert_eq!(
+        fonts_for(&odd, &[]),
+        (UI_FONT.to_string(), "DejaVu Sans Mono".to_string())
+    );
+    // Until resolved (the Mac), the system aliases.
+    assert_eq!(mono_font(), MONO_FONT);
+    assert_eq!(ui_font(), UI_FONT);
+}

@@ -16,7 +16,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::UI_FONT;
+use conduit_components::theme::ui_font;
 use conduit_components::views::kit::grouped_tones;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -716,7 +716,7 @@ impl<V: SheetBody> Render for SheetHost<V> {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .bg(page)
             .text_color(t.roles.text)
             // Esc and ⌘. cancel, as in any sheet.

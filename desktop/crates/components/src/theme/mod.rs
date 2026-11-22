@@ -21,12 +21,96 @@ pub use prefs::{
     VARIANT_KEYS,
 };
 
-/// The UI font: SF Pro, through the system font alias.
+/// The UI font: SF Pro, through the system font alias (Windows' message
+/// font through the same alias).
 pub const UI_FONT: &str = ".SystemUIFont";
 /// Code font: SF Mono through the system's monospaced alias. (The family
 /// name "SF Mono" does not resolve through GPUI's text system and silently
 /// falls back to Helvetica.)
 pub const MONO_FONT: &str = ".AppleSystemUIFontMonospaced";
+
+/// The fonts [`resolve_fonts`] picked: (UI, code).
+static FONTS: std::sync::OnceLock<(&'static str, &'static str)> = std::sync::OnceLock::new();
+
+/// The UI font: [`UI_FONT`] on the Mac and Windows, the desktop's sans
+/// family on Linux ([`resolve_fonts`]).
+pub fn ui_font() -> &'static str {
+    FONTS.get().map_or(UI_FONT, |f| f.0)
+}
+
+/// The code font: [`MONO_FONT`] on the Mac, an installed monospaced family
+/// elsewhere ([`resolve_fonts`]), since the Mac's alias would fall back to
+/// a proportional face there.
+pub fn mono_font() -> &'static str {
+    FONTS.get().map_or(MONO_FONT, |f| f.1)
+}
+
+/// Where fonts are looked for: which system, and on Linux what fontconfig
+/// names its `sans-serif` and `monospace` families.
+pub enum FontSystem {
+    Windows,
+    Linux {
+        sans: Option<String>,
+        mono: Option<String>,
+    },
+}
+
+/// Picks the UI and code fonts from the `installed` families, once, at
+/// start-up (Windows and Linux; the Mac keeps its system aliases).
+pub fn resolve_fonts(system: FontSystem, installed: &[String]) {
+    let fonts = fonts_for(&system, installed);
+    let _ = FONTS.set((leak(fonts.0), leak(fonts.1)));
+}
+
+fn leak(name: String) -> &'static str {
+    Box::leak(name.into_boxed_str())
+}
+
+/// [`resolve_fonts`]' choice: the first of each list installed, else a
+/// name GPUI falls back from.
+pub fn fonts_for(system: &FontSystem, installed: &[String]) -> (String, String) {
+    let has = |name: &str| installed.iter().any(|i| i.eq_ignore_ascii_case(name));
+    let first = |names: Vec<&str>| names.into_iter().find(|n| has(n)).map(str::to_string);
+    match system {
+        FontSystem::Windows => (
+            UI_FONT.to_string(),
+            first(vec!["Cascadia Mono", "Consolas", "Courier New"])
+                .unwrap_or_else(|| "Consolas".into()),
+        ),
+        FontSystem::Linux { sans, mono } => {
+            let ui = first(
+                sans.iter()
+                    .map(String::as_str)
+                    .chain([
+                        "Adwaita Sans",
+                        "Cantarell",
+                        "Ubuntu Sans",
+                        "Ubuntu",
+                        "Noto Sans",
+                        "DejaVu Sans",
+                    ])
+                    .collect(),
+            );
+            let code = first(
+                mono.iter()
+                    .map(String::as_str)
+                    .chain([
+                        "Adwaita Mono",
+                        "Noto Sans Mono",
+                        "Ubuntu Sans Mono",
+                        "Ubuntu Mono",
+                        "DejaVu Sans Mono",
+                        "Liberation Mono",
+                    ])
+                    .collect(),
+            );
+            (
+                ui.unwrap_or_else(|| UI_FONT.into()),
+                code.unwrap_or_else(|| "DejaVu Sans Mono".into()),
+            )
+        }
+    }
+}
 /// macOS's default accent (blue), used when the system colour can't be read.
 pub const DEFAULT_SYSTEM_ACCENT: u32 = 0x007AFF;
 /// How far raised content moves from the column toward the text colour in
@@ -145,6 +229,7 @@ impl Global for ConduitTheme {}
 impl ConduitTheme {
     /// Resolves `palette_id` (falling back to Conduit's own) in one mode.
     pub fn new(palette_id: &str, dark: bool, prefs: DesignPrefs, system_accent: Hsla) -> Self {
+        let prefs = prefs.for_os(cfg!(target_os = "macos"));
         let palette = palettes().get(palette_id);
         let variant = palette.variant(dark);
         let roles = Self::roles(variant, dark, &prefs, system_accent);
@@ -379,7 +464,7 @@ impl ConduitTheme {
 
         t.font_family = UI_FONT.into();
         t.font_size = px(self.metrics.body);
-        t.mono_font_family = MONO_FONT.into();
+        t.mono_font_family = mono_font().into();
         t.mono_font_size = px(self.metrics.code);
         t.radius = self.control_radius();
         t.radius_lg = self.card_radius();

@@ -23,7 +23,7 @@ use alacritty_terminal::term::TermMode;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 use conduit_components::theme::{
-    ConduitTheme, MONO_FONT, composite, contrast_ratio, legible_lightness,
+    ConduitTheme, composite, contrast_ratio, legible_lightness, mono_font,
 };
 use conduit_daemon::http::HttpClient;
 use conduit_daemon::terminal::{self as socket, TerminalEnd, TerminalInput, TerminalLink};
@@ -888,7 +888,7 @@ impl IntoElement for Grid {
 }
 
 fn cell_font(bold: bool, italic: bool) -> Font {
-    let mut f = font(MONO_FONT);
+    let mut f = font(mono_font());
     if bold {
         f.weight = FontWeight::BOLD;
     }

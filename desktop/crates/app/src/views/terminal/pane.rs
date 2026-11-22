@@ -780,7 +780,7 @@ impl TerminalPane {
                         .child(
                             div()
                                 .text_size(px(m.control))
-                                .font_family(conduit_components::theme::MONO_FONT)
+                                .font_family(conduit_components::theme::mono_font())
                                 .text_color(r.text)
                                 .child(SharedString::from(address)),
                         )

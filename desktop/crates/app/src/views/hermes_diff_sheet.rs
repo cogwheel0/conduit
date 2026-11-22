@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::{MONO_FONT, with_alpha};
+use conduit_components::theme::{mono_font, with_alpha};
 use conduit_components::views::kit::{Button, heading};
 use conduit_protocol::{ChangedFileDto, DiffLineDto, DiffLineKind};
 use gpui_kit::prelude::*;
@@ -124,7 +124,7 @@ fn line_row(i: usize, line: &DiffLineDto, t: &conduit_components::ConduitTheme) 
         .flex()
         .items_center()
         .bg(fill)
-        .font_family(MONO_FONT)
+        .font_family(mono_font())
         .text_size(px(m.code - 1.))
         .whitespace_nowrap()
         .role(Role::ListItem)
@@ -247,7 +247,7 @@ impl Render for DiffSheet {
                             .flex_none()
                             .flex()
                             .gap(px(6.))
-                            .font_family(MONO_FONT)
+                            .font_family(mono_font())
                             .text_size(px(m.small))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(

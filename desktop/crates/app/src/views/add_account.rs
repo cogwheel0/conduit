@@ -22,7 +22,7 @@ use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
 use conduit_components::assets::IconName;
-use conduit_components::theme::UI_FONT;
+use conduit_components::theme::ui_font;
 use conduit_components::views::kit::{Button, Segment, Segmented, grouped_tones};
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -349,7 +349,7 @@ impl Render for AddAccountSheet {
             .track_focus(&self.focus)
             .size_full()
             .overflow_y_scroll()
-            .font_family(UI_FONT)
+            .font_family(ui_font())
             .bg(page)
             .text_color(t.roles.text)
             // Esc and ⌘. cancel, as in any sheet.

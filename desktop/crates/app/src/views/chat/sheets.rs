@@ -5,7 +5,7 @@
 //! settings sheets, so one sheet shows at a time whichever kind it is, and
 //! quitting ends it first.
 
-use conduit_components::theme::{ConduitTheme, UI_FONT};
+use conduit_components::theme::{ConduitTheme, ui_font};
 use conduit_components::views::kit::grouped_tones;
 use gpui_kit::prelude::*;
 use gpui_kit::{
@@ -116,7 +116,7 @@ pub fn frame(
         .aria_label(SharedString::from(title.clone()))
         .key_context("ConduitSheet")
         .size_full()
-        .font_family(UI_FONT)
+        .font_family(ui_font())
         .bg(page)
         .text_color(r.text)
         .flex()

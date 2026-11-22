@@ -177,7 +177,7 @@ pub fn listening_controls(
                 .text_size(px(m.small))
                 .text_color(r.text_subtle)
                 // Digits that do not jitter as they count.
-                .font_family(conduit_components::theme::MONO_FONT)
+                .font_family(conduit_components::theme::mono_font())
                 .child(SharedString::from(clock(store.elapsed()))),
         )
         .child(meter(store.level, &t))

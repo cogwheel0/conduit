@@ -936,7 +936,7 @@ impl TaskEditor {
                             )
                             .child(
                                 div()
-                                    .font_family(conduit_components::theme::MONO_FONT)
+                                    .font_family(conduit_components::theme::mono_font())
                                     .child(Textarea::new(&self.rrule)),
                             )
                             .child(

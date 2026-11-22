@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
-use conduit_components::theme::{MONO_FONT, with_alpha};
+use conduit_components::theme::{mono_font, with_alpha};
 use conduit_components::views::kit::Button;
 use conduit_protocol::{
     NoticeLevel, WorkspaceDetail, WorkspaceKind, WorkspaceKnowledgeDto, WorkspacePromptDiff,
@@ -605,7 +605,7 @@ impl Render for DiffSheet {
                     .border_1()
                     .border_color(r.divider)
                     .py(px(6.))
-                    .font_family(MONO_FONT)
+                    .font_family(mono_font())
                     .text_size(px(t.metrics.small + 0.5))
                     .line_height(relative(1.45))
                     .children(lines)

@@ -10,7 +10,7 @@ use gpui_kit::{
 
 use crate::assets::{IconName, brand_mark, icon};
 use crate::strings::{ActiveStrings as _, fill};
-use crate::theme::{ActiveConduitTheme, UI_FONT, with_alpha};
+use crate::theme::{ActiveConduitTheme, ui_font, with_alpha};
 use crate::views::focus::{ControlExt as _, Ring, pressed_fill};
 use crate::views::kit::{
     Button, ClickHandler, SelectHandler, Switch, bare_input, form_field, grouped, grouped_section,
@@ -31,7 +31,7 @@ pub fn first_run_frame(content: impl IntoElement, cx: &App) -> Div {
         .size_full()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(ui_font())
         .bg(page)
         .text_color(r.text)
         .child(

@@ -43,6 +43,7 @@ pub mod sheet;
 pub mod speech;
 pub mod speech_engine;
 pub mod sso;
+pub mod system_look;
 #[cfg(target_os = "macos")]
 pub mod tray;
 #[cfg(target_os = "macos")]

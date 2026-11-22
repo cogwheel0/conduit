@@ -364,6 +364,11 @@ pub fn run() {
         let services = shell::services::install();
         gpui_kit::init(cx);
         menus::KitBindings::capture(cx);
+        // Off the Mac the app draws its questions (the Mac attaches NSAlert
+        // sheets): keyboard-driven, and taken down when settled elsewhere.
+        // The fonts this system has, before any window opens.
+        #[cfg(not(target_os = "macos"))]
+        shell::system_look::resolve_fonts(cx);
         conduit_components::views::markdown::preload_grammars(&["python", "rust", "bash"]);
 
         let system_dark = matches!(
@@ -378,6 +383,8 @@ pub fn run() {
             )
         });
         settings.update(cx, |s, cx| s.apply(cx));
+        #[cfg(not(target_os = "macos"))]
+        shell::system_look::follow_accent(settings.clone(), cx);
         install_component_strings(cx);
         // The chat view over a fixture daemon (perf and AccessKit checks).
         #[cfg(all(target_os = "macos", feature = "harness"))]
