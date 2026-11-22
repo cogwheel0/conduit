@@ -91,33 +91,52 @@ pub fn has_handler(url: &str) -> Option<bool> {
 #[cfg(target_os = "linux")]
 pub const XDG_MIME_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// `command`'s output, or `None` when it can't start or doesn't end within
-/// `wait` (it is killed then).
+/// `command`'s exit status and stdout, or `None` when it can't start or
+/// doesn't end, stdout included, within `wait`: then it is killed and
+/// reaped. Stdout is read on its own thread under the same deadline, since
+/// a helper the command started can keep the pipe open after it exits.
 #[cfg(target_os = "linux")]
 fn run_bounded(
     command: &mut std::process::Command,
     wait: std::time::Duration,
 ) -> Option<std::process::Output> {
+    use std::io::Read as _;
     use std::process::Stdio;
+    let deadline = std::time::Instant::now() + wait;
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = std::time::Instant::now() + wait;
-    loop {
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = Vec::new();
+        let _ = tx.send(stdout.read_to_end(&mut out).map(|_| out));
+    });
+    let give_up = |child: &mut std::process::Child| {
+        let _ = child.kill();
+        let _ = child.wait();
+        None
+    };
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(Some(status)) => break status,
             Ok(None) if std::time::Instant::now() < deadline => {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+            _ => return give_up(&mut child),
         }
+    };
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    match rx.recv_timeout(left) {
+        Ok(Ok(stdout)) => Some(std::process::Output {
+            status,
+            stdout,
+            stderr: Vec::new(),
+        }),
+        _ => give_up(&mut child),
     }
 }
 
