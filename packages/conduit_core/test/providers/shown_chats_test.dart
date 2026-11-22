@@ -73,27 +73,37 @@ void main() {
     return container;
   }
 
-  /// Completes once the chat list shows [id] dated [updatedAt] (epoch
-  /// seconds). Every listener the list had before this one has been told
-  /// by then.
-  Future<void> listedAt(ProviderContainer container, String id, int updatedAt) {
+  /// Completes once the chat list satisfies [test]. A listener told at once
+  /// (`fireImmediately`) may complete before its subscription is assigned,
+  /// so it is closed once both have happened.
+  Future<void> listShows(
+    ProviderContainer container,
+    bool Function(List<Conversation> chats) test,
+  ) {
     final seen = Completer<void>();
-    late final ProviderSubscription<AsyncValue<List<Conversation>>> sub;
+    ProviderSubscription<AsyncValue<List<Conversation>>>? sub;
     sub = container.listen<AsyncValue<List<Conversation>>>(
       conversationsProvider,
       (_, next) {
-        final chat = next.asData?.value.where((c) => c.id == id).firstOrNull;
-        if (chat != null &&
-            chat.updatedAt.millisecondsSinceEpoch == updatedAt * 1000 &&
-            !seen.isCompleted) {
+        final chats = next.asData?.value;
+        if (chats != null && test(chats) && !seen.isCompleted) {
           seen.complete();
-          sub.close();
+          sub?.close();
         }
       },
       fireImmediately: true,
     );
+    if (seen.isCompleted) sub.close();
     return seen.future;
   }
+
+  /// Completes once [db] stores [id] dated [updatedAt] (epoch seconds). The
+  /// core's watch of a shown chat's row is told of the change first: drift
+  /// shares one stream between equal queries and calls its listeners in
+  /// order.
+  Future<void> storedAt(AppDatabase db, String id, int updatedAt) => db.chatsDao
+      .watchChatMeta(id)
+      .firstWhere((entry) => entry?.updatedAt == updatedAt);
 
   /// The stored read of [id] in [db], once it covers [updatedAt].
   Future<int> storedReadThrough(AppDatabase db, String id, int updatedAt) => db
@@ -105,109 +115,117 @@ void main() {
   Future<int?> storedRead(AppDatabase db, String id) async =>
       (await db.chatsDao.getChat(id))?.lastReadAt;
 
+  /// Lets a read the core began from an earlier change reach [db]: the
+  /// database runs statements in the order they come, and such a read looks
+  /// the chat up once before it writes.
+  Future<void> settled(AppDatabase db) async {
+    await db.chatsDao.getChat('settled');
+    await db.chatsDao.getChat('settled');
+  }
+
+  Future<void> seedRead(
+    AppDatabase db,
+    String id, {
+    int at = 100,
+    bool archived = false,
+  }) => db.chatsDao.upsertServerChat(
+    rows: _rows(id, updatedAt: at, archived: archived),
+    listLastReadAt: at,
+  );
+
   /// A pull brings [id] as the server last saved it, dated [updatedAt]: an
   /// answer Open WebUI finished and saved itself.
-  Future<void> serverSaved(AppDatabase db, String id, int updatedAt) =>
-      db.chatsDao.upsertServerChat(rows: _rows(id, updatedAt: updatedAt));
+  Future<void> serverSaved(
+    AppDatabase db,
+    String id,
+    int updatedAt, {
+    bool archived = false,
+  }) => db.chatsDao.upsertServerChat(
+    rows: _rows(id, updatedAt: updatedAt, archived: archived),
+  );
 
   test('a chat on screen is read when its stored copy changes, here and on '
       'the server, once per change', () async {
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-s', updatedAt: 100),
-      listLastReadAt: 100,
-    );
+    await seedRead(serverDb, 'chat-s');
     final container = await signedIn();
     container.read(shownChatsProvider.notifier).show('main', 'chat-s');
 
-    final listed = listedAt(container, 'chat-s', 160);
     await serverSaved(serverDb, 'chat-s', 160);
-    await listed;
-    expect(socket.reads, <String>['chat-s']);
     expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
+    expect(socket.reads, <String>['chat-s']);
 
     // Nothing more for the same copy, whatever else changes.
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-other', updatedAt: 170),
-    );
-    await listedAt(container, 'chat-other', 170);
+    await serverSaved(serverDb, 'chat-other', 170);
+    await settled(serverDb);
     expect(socket.reads, <String>['chat-s']);
 
     // The next change is read too.
-    final again = listedAt(container, 'chat-s', 4000000000);
     await serverSaved(serverDb, 'chat-s', 4000000000);
-    await again;
-    expect(socket.reads, <String>['chat-s', 'chat-s']);
     expect(
       await storedReadThrough(serverDb, 'chat-s', 4000000000),
       4000000000,
       reason: 'a copy dated past this device\'s clock stays unread',
     );
+    expect(socket.reads, <String>['chat-s', 'chat-s']);
   });
 
   test(
     'a chat no view shows keeps its mark: one left, or never shown',
     () async {
-      await serverDb.chatsDao.upsertServerChat(
-        rows: _rows('chat-a', updatedAt: 100),
-        listLastReadAt: 100,
-      );
-      await serverDb.chatsDao.upsertServerChat(
-        rows: _rows('chat-b', updatedAt: 100),
-        listLastReadAt: 100,
-      );
+      await seedRead(serverDb, 'chat-a');
+      await seedRead(serverDb, 'chat-b');
       final container = await signedIn();
       final shown = container.read(shownChatsProvider.notifier)
         ..show('main', 'chat-a');
 
-      final b = listedAt(container, 'chat-b', 160);
       await serverSaved(serverDb, 'chat-b', 160);
-      await b;
+      await settled(serverDb);
       expect(await storedRead(serverDb, 'chat-b'), 100);
 
       // An answer that finishes once the chat is no longer on screen.
       shown.show('main', null);
-      final a = listedAt(container, 'chat-a', 170);
       await serverSaved(serverDb, 'chat-a', 170);
-      await a;
+      await settled(serverDb);
       expect(await storedRead(serverDb, 'chat-a'), 100);
       expect(socket.reads, isEmpty);
     },
   );
 
   test('each view shows its own chat', () async {
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-a', updatedAt: 100),
-      listLastReadAt: 100,
-    );
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-q', updatedAt: 100),
-      listLastReadAt: 100,
-    );
+    await seedRead(serverDb, 'chat-a');
+    await seedRead(serverDb, 'chat-q');
     final container = await signedIn();
     container.read(shownChatsProvider.notifier)
       ..show('main', 'chat-a')
       ..show('quick-ask', 'chat-q')
       ..show('quick-ask', null);
 
-    final a = listedAt(container, 'chat-a', 160);
     await serverSaved(serverDb, 'chat-a', 160);
-    await a;
-    expect(socket.reads, <String>['chat-a']);
     expect(await storedReadThrough(serverDb, 'chat-a', 160), greaterThan(159));
+    expect(socket.reads, <String>['chat-a']);
 
-    final q = listedAt(container, 'chat-q', 170);
     await serverSaved(serverDb, 'chat-q', 170);
-    await q;
+    await settled(serverDb);
     expect(await storedRead(serverDb, 'chat-q'), 100);
     expect(socket.reads, <String>['chat-a']);
   });
 
+  test('two views showing one chat read each change of it once', () async {
+    await seedRead(serverDb, 'chat-s');
+    final container = await signedIn();
+    container.read(shownChatsProvider.notifier)
+      ..show('main', 'chat-s')
+      ..show('quick-ask', 'chat-s');
+
+    await serverSaved(serverDb, 'chat-s', 160);
+    expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
+    await settled(serverDb);
+    expect(socket.reads, <String>['chat-s']);
+  });
+
   test('a chat marked unread stays unread while it shows, until it is read '
       'again', () async {
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-s', updatedAt: 100),
-      listLastReadAt: 100,
-    );
+    await seedRead(serverDb, 'chat-s');
     final container = await signedIn();
     container.read(shownChatsProvider.notifier).show('main', 'chat-s');
     final previous = await serverDb.chatsDao.markUnread('chat-s');
@@ -217,9 +235,10 @@ void main() {
       previous: previous,
     );
 
-    final listed = listedAt(container, 'chat-s', 160);
+    final seen = storedAt(serverDb, 'chat-s', 160);
     await serverSaved(serverDb, 'chat-s', 160);
-    await listed;
+    await seen;
+    await settled(serverDb);
     expect(await storedRead(serverDb, 'chat-s'), 0);
     expect(socket.reads, isEmpty);
 
@@ -232,38 +251,129 @@ void main() {
       ),
       isTrue,
     );
-    final later = listedAt(container, 'chat-s', 4000000000);
     await serverSaved(serverDb, 'chat-s', 4000000000);
-    await later;
-    expect(socket.reads, <String>['chat-s', 'chat-s']);
     expect(await storedReadThrough(serverDb, 'chat-s', 4000000000), 4000000000);
+    expect(socket.reads, <String>['chat-s', 'chat-s']);
+  });
+
+  // The user marks the chat unread just as the server's save of its answer
+  // reaches the list, or the chat's own stored row, which the core is
+  // reading it from.
+  for (final reaches in ['the list', 'its stored row']) {
+    test('a mark of unread made as a change reaches $reaches stays', () async {
+      await seedRead(serverDb, 'chat-s');
+      final container = await signedIn();
+      container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+      final marking = Completer<int?>();
+      void markOnce() {
+        if (!marking.isCompleted) {
+          marking.complete(serverDb.chatsDao.markUnread('chat-s'));
+        }
+      }
+
+      if (reaches == 'the list') {
+        final hook = container.listen<AsyncValue<List<Conversation>>>(
+          conversationsProvider,
+          (_, next) {
+            final chat = next.asData?.value
+                .where((c) => c.id == 'chat-s')
+                .firstOrNull;
+            if (chat?.updatedAt.millisecondsSinceEpoch == 160 * 1000) {
+              markOnce();
+            }
+          },
+        );
+        addTearDown(hook.close);
+      } else {
+        final hook = serverDb.chatsDao.watchChatMeta('chat-s').listen((entry) {
+          if (entry?.updatedAt == 160) markOnce();
+        });
+        addTearDown(hook.cancel);
+      }
+
+      await serverSaved(serverDb, 'chat-s', 160);
+      final previous = await marking.future;
+      await serverDb.chatsDao.finishUnread(
+        'chat-s',
+        refused: false,
+        previous: previous,
+      );
+      await settled(serverDb);
+      expect(await storedRead(serverDb, 'chat-s'), 0);
+    });
+  }
+
+  test('an archived chat on screen is read when its stored copy changes, '
+      'once the list no longer holds it', () async {
+    await seedRead(serverDb, 'chat-s', archived: true);
+    final container = await signedIn();
+    final conversations = container.read(conversationsProvider.notifier);
+    await conversations.setArchivedChatsVisible(true);
+    await listShows(container, (chats) => chats.any((c) => c.id == 'chat-s'));
+    container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+    // Archived is collapsed while the chat stays on screen.
+    await conversations.setArchivedChatsVisible(false);
+    await listShows(container, (chats) => chats.every((c) => c.id != 'chat-s'));
+
+    await serverSaved(serverDb, 'chat-s', 160, archived: true);
+    expect(await storedReadThrough(serverDb, 'chat-s', 160), greaterThan(159));
+    expect(socket.reads, <String>['chat-s']);
+  });
+
+  test('a chat on screen past the list\'s loaded page is read too', () async {
+    for (var i = 0; i < 201; i++) {
+      await seedRead(serverDb, 'newer-$i', at: 1000 + i);
+    }
+    await seedRead(serverDb, 'chat-s');
+    final container = await signedIn();
+    expect(
+      container.read(conversationsProvider).requireValue.map((c) => c.id),
+      isNot(contains('chat-s')),
+    );
+    container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+
+    // A push of this device's that took the server's text holds the chat
+    // unread, as its date stays.
+    await serverDb.chatsDao.holdUnread('chat-s');
+    expect(await storedReadThrough(serverDb, 'chat-s', 100), greaterThan(99));
+    expect(socket.reads, <String>['chat-s']);
+  });
+
+  test('an on-device chat on screen the list does not hold is read in the '
+      'on-device database', () async {
+    const id = 'direct-local:tide';
+    await directDb.chatsDao.upsertLocalOnlyChat(
+      rows: _rows(id, updatedAt: 100, archived: true),
+    );
+    await directDb.chatsDao.setLastReadAt(id, 100);
+    final container = await signedIn();
+    container.read(shownChatsProvider.notifier).show('main', id);
+
+    await directDb.chatsDao.upsertLocalOnlyChat(
+      rows: _rows(id, updatedAt: 160, archived: true),
+    );
+    expect(await storedReadThrough(directDb, id, 160), greaterThan(159));
+    expect(socket.reads, isEmpty);
   });
 
   test('no read goes to another account, even for the same chat id', () async {
-    await serverDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-s', updatedAt: 100),
-      listLastReadAt: 100,
-    );
+    await seedRead(serverDb, 'chat-s');
     final otherDb = AppDatabase(NativeDatabase.memory());
     addTearDown(otherDb.close);
-    await otherDb.chatsDao.upsertServerChat(
-      rows: _rows('chat-s', updatedAt: 100),
-      listLastReadAt: 100,
-    );
+    await seedRead(otherDb, 'chat-s');
     final container = await signedIn();
     container.read(shownChatsProvider.notifier).show('main', 'chat-s');
 
     container.read(_activeDatabaseProvider.notifier).set(otherDb);
     await container.read(conversationsProvider.future);
-    final listed = listedAt(container, 'chat-s', 160);
     await serverSaved(otherDb, 'chat-s', 160);
-    await listed;
+    await settled(otherDb);
     expect(await storedRead(otherDb, 'chat-s'), 100);
     expect(socket.reads, isEmpty);
   });
 }
 
-ChatRows _rows(String id, {required int updatedAt}) {
+ChatRows _rows(String id, {required int updatedAt, bool archived = false}) {
   return ChatBlobMapper.blobToRows(
     chatId: id,
     blob: {
@@ -283,6 +393,7 @@ ChatRows _rows(String id, {required int updatedAt}) {
       },
     },
     title: 'Tide tables',
+    archived: archived,
     createdAt: 100,
     updatedAt: updatedAt,
   );

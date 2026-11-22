@@ -107,6 +107,7 @@ import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:drift/drift.dart' show Value;
 
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/daos/chats_dao.dart' show ChatListEntry;
 
 import 'package:conduit_core/database/database_provider.dart';
 

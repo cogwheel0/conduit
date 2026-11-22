@@ -6,31 +6,38 @@ part of 'app_providers.dart';
 /// A chat on screen is being read. When its stored copy changes while it
 /// shows (Open WebUI's own save of a finished answer, brought by a pull;
 /// another device's message), it is read up to that copy, here and on the
-/// server, once per change. A chat marked unread stays so until it is read
-/// again, as opening it does. Nothing is read in another account's database.
+/// server, once per change however many views show it. Each shown chat's own
+/// stored row is watched, so one the chat list does not hold (archived, or
+/// past its loaded page) is read too. A chat marked unread stays so until it
+/// is read again, as opening it does. Nothing is read in another account's
+/// database.
 final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
   ShownChats.new,
 );
 
-class ShownChats extends Notifier<Map<String, String>> {
-  /// Where each view's chat was read when it was shown.
-  final Map<String, AppDatabase?> _databases = <String, AppDatabase?>{};
+/// A shown chat's stored row: the database its reads go to, and its id there.
+typedef _StoredChat = (AppDatabase, String);
 
-  /// The copy each view last read, by its date, so a read that could not be
-  /// stored is not asked again until the copy changes.
-  final Map<String, DateTime> _readCopies = <String, DateTime>{};
+class ShownChats extends Notifier<Map<String, String>> {
+  /// Where each view's chat is stored, as it was when it was shown.
+  final Map<String, _StoredChat> _stored = <String, _StoredChat>{};
+
+  /// One watch of each shown chat's stored row, shared by every view that
+  /// shows it.
+  final Map<_StoredChat, _StoredRowWatch> _watches =
+      <_StoredChat, _StoredRowWatch>{};
 
   @override
   Map<String, String> build() {
+    // A Ref's listener can stall while this notifier is only read, as
+    // conduitd reads it: the database check before each read is what keeps
+    // reads in their account.
     ref.listen<AppDatabase?>(appDatabaseProvider, (previous, next) {
       if (!identical(previous, next)) _forgetAll();
     });
-    ref.listen<AsyncValue<List<Conversation>>>(conversationsProvider, (
-      _,
-      next,
-    ) {
-      final listed = next.asData?.value;
-      if (listed != null) _readChanged(listed);
+    ref.onDispose(() {
+      _stored.clear();
+      _followStoredRows();
     });
     return const <String, String>{};
   }
@@ -38,50 +45,123 @@ class ShownChats extends Notifier<Map<String, String>> {
   /// [view] shows chat [chatId] now, or no chat (null).
   void show(String view, String? chatId) {
     final id = chatId?.trim() ?? '';
-    if (state[view] == id) return;
-    _readCopies.remove(view);
-    if (id.isEmpty || isTemporaryChat(ChatStorageIdentity.parse(id).rawId)) {
-      _databases.remove(view);
-      if (state.containsKey(view)) state = {...state}..remove(view);
-      return;
+    final rawId = ChatStorageIdentity.parse(id).rawId;
+    final shows = id.isNotEmpty && !isTemporaryChat(rawId);
+    if (shows ? state[view] == id : !state.containsKey(view)) return;
+    final db = shows
+        ? ref.read(conversationsProvider.notifier)._readDatabaseOf(id)
+        : null;
+    if (db == null) {
+      _stored.remove(view);
+    } else {
+      _stored[view] = (db, rawId);
     }
-    _databases[view] = ref
-        .read(conversationsProvider.notifier)
-        ._readDatabaseOf(id);
-    state = {...state, view: id};
-    final listed = ref.read(conversationsProvider).asData?.value;
-    if (listed != null) _readChanged(listed);
+    state = shows ? {...state, view: id} : ({...state}..remove(view));
+    _followStoredRows();
   }
 
   void _forgetAll() {
-    _databases.clear();
-    _readCopies.clear();
+    _stored.clear();
+    _followStoredRows();
     if (state.isNotEmpty) state = const <String, String>{};
   }
 
-  void _readChanged(List<Conversation> listed) {
-    for (final MapEntry(key: view, value: id) in state.entries) {
-      final index = _conversationIndexForSelection(listed, id);
-      if (index < 0) continue;
-      final chat = listed[index];
-      final read = chat.lastReadAt;
-      // Open WebUI's explicit unread (`last_read_at = 0`).
-      if (read != null && read.millisecondsSinceEpoch == 0) continue;
-      if (read != null && !chat.updatedAt.isAfter(read)) continue;
-      if (_readCopies[view] == chat.updatedAt) continue;
-      final conversations = ref.read(conversationsProvider.notifier);
-      if (!identical(conversations._readDatabaseOf(id), _databases[view])) {
-        continue;
-      }
-      _readCopies[view] = chat.updatedAt;
-      final now = DateTime.now();
-      // Up to the copy shown, whichever clock dated it.
-      final readAt = now.isAfter(chat.updatedAt) ? now : chat.updatedAt;
-      // Not while the list is still telling its listeners of this change.
-      scheduleMicrotask(() {
-        if (!ref.mounted || state[view] != id) return;
-        unawaited(markConversationRead(ref, id, readAt: readAt));
-      });
+  /// Watches the stored row of each chat a view shows, and of no other.
+  void _followStoredRows() {
+    final shown = _stored.values.toSet();
+    _watches.removeWhere((chat, watch) {
+      if (shown.contains(chat)) return false;
+      unawaited(watch.subscription.cancel());
+      return true;
+    });
+    for (final chat in shown) {
+      if (_watches.containsKey(chat)) continue;
+      final (db, rawId) = chat;
+      final watch = _StoredRowWatch();
+      watch.subscription = db.chatsDao
+          .watchChatMeta(rawId)
+          .listen(
+            (entry) => _seen(chat, watch, entry),
+            onError: (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'shown-chat-watch-failed',
+                scope: 'conversations/shown',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          );
+      _watches[chat] = watch;
     }
   }
+
+  void _seen(_StoredChat chat, _StoredRowWatch watch, ChatListEntry? entry) {
+    if (entry == null || !identical(_watches[chat], watch)) return;
+    if (!_unreadCopy(entry) || watch.readCopy == entry.updatedAt) return;
+    watch.readCopy = entry.updatedAt;
+    unawaited(_read(chat, watch, entry.updatedAt));
+  }
+
+  /// Reads [chat] up to its stored copy dated [copy] (epoch seconds), if it
+  /// still needs it.
+  Future<void> _read(_StoredChat chat, _StoredRowWatch watch, int copy) async {
+    final (db, rawId) = chat;
+    final ChatListEntry? stored;
+    try {
+      stored = await db.chatsDao.getChatMeta(rawId);
+    } catch (error, stackTrace) {
+      DebugLogger.error(
+        'shown-chat-read-failed',
+        scope: 'conversations/shown',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return;
+    }
+    if (!ref.mounted || !identical(_watches[chat], watch)) return;
+    // As the chat is stored now: a mark of unread may have landed since
+    // the copy was seen, and the read would raise it again.
+    if (stored == null || stored.updatedAt != copy || !_unreadCopy(stored)) {
+      return;
+    }
+    if (db.chatsDao.isMarkingUnread(rawId)) {
+      // A refused mark puts the earlier read back: read the copy then.
+      watch.readCopy = null;
+      return;
+    }
+    final conversations = ref.read(conversationsProvider.notifier);
+    final id = _stored.entries
+        .where((shown) => shown.value == chat)
+        .map((shown) => state[shown.key])
+        .nonNulls
+        .where((id) => identical(conversations._readDatabaseOf(id), db))
+        .firstOrNull;
+    if (id == null) return;
+    final shownAt = DateTime.fromMillisecondsSinceEpoch(copy * 1000);
+    final now = DateTime.now();
+    // Up to the copy shown, whichever clock dated it.
+    unawaited(
+      markConversationRead(
+        ref,
+        id,
+        readAt: now.isAfter(shownAt) ? now : shownAt,
+      ),
+    );
+  }
+}
+
+/// Whether [entry]'s copy is newer than its read. Open WebUI's explicit
+/// unread (`last_read_at = 0`) is no read to raise.
+bool _unreadCopy(ChatListEntry entry) {
+  final read = entry.lastReadAt;
+  if (read == 0) return false;
+  return read == null || entry.updatedAt > read;
+}
+
+final class _StoredRowWatch {
+  late final StreamSubscription<ChatListEntry?> subscription;
+
+  /// The copy (its date, epoch seconds) last asked to be read, so a read
+  /// that could not be stored is not asked again until the copy changes.
+  int? readCopy;
 }
