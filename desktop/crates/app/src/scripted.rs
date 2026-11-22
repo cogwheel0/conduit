@@ -11,6 +11,50 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static SCRIPTED: AtomicBool = AtomicBool::new(false);
 
+/// The app's flags that take a value: the argument after one is that value,
+/// never a flag (`--cwd --shots` names a folder called `--shots`).
+const VALUE_FLAGS: [&str; 15] = [
+    "--cwd",
+    "--shots",
+    "--e2e",
+    "--e2e-env",
+    "--capture",
+    "--capture-env",
+    "--capture-only",
+    "--probe",
+    "--fixture",
+    "--chat-fixture",
+    "--channel-fixture",
+    "--calendar-fixture",
+    "--tasks-fixture",
+    "--workspace-fixture",
+    "--preview-route",
+];
+
+/// The arguments in an option's place, with where each is, past the
+/// program's name: a flag's value is skipped, whatever it looks like.
+pub fn option_positions(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
+    let mut rest = args.iter().map(String::as_str).enumerate().skip(1);
+    std::iter::from_fn(move || {
+        let (at, arg) = rest.next()?;
+        if VALUE_FLAGS.contains(&arg) {
+            rest.next();
+        }
+        Some((at, arg))
+    })
+}
+
+/// The arguments in an option's place ([`option_positions`]).
+pub fn options(args: &[String]) -> impl Iterator<Item = &str> {
+    option_positions(args).map(|(_, arg)| arg)
+}
+
+/// The value after `flag`, where `flag` is in an option's place.
+pub fn value(args: &[String], flag: &str) -> Option<String> {
+    let (at, _) = option_positions(args).find(|(_, arg)| *arg == flag)?;
+    args.get(at + 1).cloned()
+}
+
 /// The smoke pass's flags, in every build.
 const PASS_FLAGS: [&str; 2] = ["--shots", "--smoke-reset"];
 
@@ -19,7 +63,7 @@ const PASS_FLAGS: [&str; 2] = ["--shots", "--smoke-reset"];
 /// (`--fixture`, `--chat-fixture` and the rest). Builds without the
 /// `harness` feature refuse them.
 pub fn harness_flag(args: &[String]) -> Option<&str> {
-    args.iter().map(String::as_str).find(|a| {
+    options(args).find(|a| {
         a.starts_with("--e2e")
             || a.starts_with("--capture")
             || *a == "--probe"
@@ -29,7 +73,7 @@ pub fn harness_flag(args: &[String]) -> Option<&str> {
 
 /// Whether `args` make a scripted launch.
 pub fn requested(args: &[String]) -> bool {
-    args.iter().any(|a| PASS_FLAGS.contains(&a.as_str())) || harness_flag(args).is_some()
+    options(args).any(|a| PASS_FLAGS.contains(&a)) || harness_flag(args).is_some()
 }
 
 /// Marks this launch scripted (at start, from its arguments).

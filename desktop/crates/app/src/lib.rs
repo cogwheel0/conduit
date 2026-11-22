@@ -112,10 +112,7 @@ pub struct AppState {
 impl Global for AppState {}
 
 fn arg(args: &[String], key: &str) -> Option<String> {
-    args.iter()
-        .position(|a| a == key)
-        .and_then(|i| args.get(i + 1))
-        .cloned()
+    scripted::value(args, key)
 }
 
 /// Whether `args` ask for a scripted run (`--shots`, `--e2e`, `--capture`,
@@ -123,7 +120,7 @@ fn arg(args: &[String], key: &str) -> Option<String> {
 /// resets and photographs its profile, or saves settings to it (a
 /// fixture's screenshot theme): a profile of its own, never the user's.
 pub fn is_scripted(args: &[String]) -> bool {
-    args.iter().any(|a| {
+    scripted::options(args).any(|a| {
         a == "--shots"
             || a.starts_with("--e2e")
             || a.starts_with("--capture")
@@ -296,20 +293,7 @@ fn linux_master_key(
 /// isn't built elsewhere, where it would only open the app on its real
 /// profile without the single-instance check, beside the one already open.
 pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
-    (os != paths::Os::MacOs && options(args).any(|a| a == "--probe")).then_some("--probe")
-}
-
-/// The arguments in an option's place, past the program's name: never the
-/// value after `--cwd`, a folder whatever it is called.
-fn options(args: &[String]) -> impl Iterator<Item = &str> {
-    let mut rest = args.iter().skip(1).map(String::as_str);
-    std::iter::from_fn(move || {
-        let arg = rest.next()?;
-        if arg == "--cwd" {
-            rest.next();
-        }
-        Some(arg)
-    })
+    (os != paths::Os::MacOs && scripted::options(args).any(|a| a == "--probe")).then_some("--probe")
 }
 
 /// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
@@ -439,7 +423,7 @@ pub fn run() {
     }
     // An E2E pass runs inside the smoke pass (`--shots <dir>`): alone it
     // would open the app normally and report nothing.
-    if args.iter().any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
+    if scripted::options(&args).any(|a| a == "--e2e") && arg(&args, "--shots").is_none() {
         eprintln!("conduit-desktop: --e2e runs with --shots <dir>");
         std::process::exit(64);
     }
@@ -450,7 +434,7 @@ pub fn run() {
         std::process::exit(64);
     }
     // The smoke wrapper launches through `open`, which starts apps in `/`.
-    if let Some(i) = args.iter().position(|a| a == "--cwd")
+    if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
         && let Some(dir) = args_os.get(i + 1)
     {
         std::env::set_current_dir(dir).ok();
@@ -1373,6 +1357,23 @@ mod harness_profile_tests {
         assert!(is_scripted(&args(&["app", "--fixture", "web-media"])));
         assert!(!is_scripted(&args(&["app", "--hidden"])));
         assert!(!is_scripted(&args(&["app", "--cwd", "/tmp/fixture"])));
+        // A flag's value is never a flag: a folder named `--shots`, given to
+        // `--cwd`, is a folder, and the launch is the app's.
+        let folder = args(&["app", "--cwd", "--shots", "notes.md"]);
+        assert!(!is_scripted(&folder));
+        assert!(!scripted::requested(&folder));
+        assert_eq!(arg(&folder, "--shots"), None);
+        assert_eq!(arg(&folder, "--cwd").as_deref(), Some("--shots"));
+        assert_eq!(
+            launch_urls(
+                &folder
+                    .iter()
+                    .map(std::ffi::OsString::from)
+                    .collect::<Vec<_>>(),
+                std::path::Path::new("/tmp/launch")
+            ),
+            Some(vec!["file:///tmp/launch/notes.md".to_string()])
+        );
 
         let ordinary =
             std::path::Path::new("/Users/example/Library/Application Support/Conduit Dev");
