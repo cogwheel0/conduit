@@ -666,6 +666,9 @@ fn register_actions(cx: &mut App) {
             desktop::hide_quick_ask(cx);
             return;
         }
+        if main == Some(w) {
+            desktop::main_window_leaving(cx);
+        }
         let _ = w.update(cx, |_, window, _| window.remove_window());
     });
     cx.on_action(|_: &ToggleQuickAsk, cx| {

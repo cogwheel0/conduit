@@ -34,6 +34,27 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:conduit_core/testing.dart';
 
+/// Holds the read marks' writes while [hold] is set; [reached] completes as
+/// the first gets to the database.
+class _HeldReadMarks extends QueryInterceptor {
+  Completer<void>? hold;
+  final Completer<void> reached = Completer<void>();
+
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    final held = hold;
+    if (held != null && statement.contains('last_read_at = max')) {
+      if (!reached.isCompleted) reached.complete();
+      await held.future;
+    }
+    return executor.runUpdate(statement, args);
+  }
+}
+
 class _RecordingSyncEngine extends SyncEngine {
   _RecordingSyncEngine(this.pulls);
 
@@ -461,6 +482,58 @@ void main() {
       check(
         container.read(conversationsProvider).requireValue.single.lastReadAt,
       ).equals(newer);
+    });
+
+    test('a repeated read completes only once the read before it is '
+        'stored', () async {
+      await db.close();
+      final marks = _HeldReadMarks();
+      db = AppDatabase(NativeDatabase.memory().interceptWith(marks));
+      await seedServerChat('chat-1', updatedAt: 100);
+      final container = makeContainer();
+      await container.read(conversationsProvider.future);
+      final held = marks.hold = Completer<void>();
+      final readAt = DateTime.fromMillisecondsSinceEpoch(500 * 1000);
+      final notifier = container.read(conversationsProvider.notifier);
+
+      final first = notifier.markConversationRead('chat-1', readAt);
+      var repeatedDone = false;
+      final repeated = notifier
+          .markConversationRead('chat-1', readAt)
+          .whenComplete(() => repeatedDone = true);
+      await marks.reached.future;
+      check(repeatedDone).isFalse();
+
+      held.complete();
+      await first;
+      await repeated;
+      check(repeatedDone).isTrue();
+    });
+
+    test('a read that cannot be stored never escapes as an error', () async {
+      final container = ProviderContainer(
+        overrides: [
+          ...openWebUiStorageOpenOverrides(database: db),
+          directLocalDatabaseProvider.overrideWith(
+            (ref) => throw StateError('the on-device chats are locked'),
+          ),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          reviewerModeProvider.overrideWithValue(false),
+          legacyConversationCachePurgerProvider.overrideWith(
+            (ref) => () async {},
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      const onDevice = ChatStorageIdentity(
+        rawId: 'direct-1',
+        storage: ChatStorageKind.directLocal,
+      );
+
+      await expectLater(
+        markConversationRead(container, onDevice.scopedId),
+        completes,
+      );
     });
 
     test('free markConversationRead ignores temporary chats', () {

@@ -7,6 +7,7 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/features/chat/utils/conversation_unread.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/chat_comparison.dart'
     show kSettledHereMetadataKey, kStoppedHereMetadataKey;
 import 'package:conduit_core/sync/chat_locks.dart';
@@ -359,6 +360,8 @@ Future<List<OutboxOp>> outboxOpsForChat(AppDatabase db, String chatId) {
 
 void main() {
   late FakeOpenWebUiServer server;
+  // The server's clock: 7000 unless a test moves it on.
+  late int serverNow;
   late FakeSyncApiClient client;
   late AppDatabase db;
   late ConversationLocks chatLocks;
@@ -368,7 +371,8 @@ void main() {
   late PushSync push;
 
   setUp(() {
-    server = FakeOpenWebUiServer(nowEpochSeconds: () => 7000);
+    serverNow = 7000;
+    server = FakeOpenWebUiServer(nowEpochSeconds: () => serverNow);
     client = FakeSyncApiClient(server);
     db = AppDatabase(NativeDatabase.memory());
     chatLocks = ConversationLocks();
@@ -2225,6 +2229,38 @@ void main() {
         ..has((it) => it['content'], 'content').equals(kept)
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check((await answerHere()).content).equals(kept);
+    });
+
+    /// The chat as a later pull reads it, once the server's clock moved on
+    /// past the read made here, and a push of it landed.
+    Future<Conversation> pushedAfterRead() async {
+      await db.chatsDao.setLastReadAt(chatId, 7000);
+      serverNow = 7300;
+      await push.pushUpdateChat(chatId);
+      return (await PullSync(
+        client: client,
+        db: db,
+        locks: chatLocks,
+        remapper: remapper,
+      ).pullChat(chatId))!;
+    }
+
+    test('a cut-off answer read here stays read once its push lands, the '
+        'text it took to the server its own', () async {
+      await seed();
+      await settleCutOff();
+
+      check(isConversationUnread(await pushedAfterRead())).isFalse();
+    });
+
+    test('a push that took the server\'s fuller text leaves the chat '
+        'unread: that text was never shown here', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+
+      final pulled = await pushedAfterRead();
+      check((await answerHere()).content).equals(kept);
+      check(isConversationUnread(pulled)).isTrue();
     });
 
     test('with a task running in the chat (another device answering), no '

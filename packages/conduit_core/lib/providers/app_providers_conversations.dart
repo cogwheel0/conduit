@@ -497,10 +497,17 @@ class Conversations extends _$Conversations {
     );
   }
 
-  /// Completes once the read is stored.
-  Future<void> markConversationRead(String id, DateTime readAt) async {
-    if (id.isEmpty) return;
+  /// The write of each chat's newest read, by raw id, until it is stored.
+  final Map<String, Future<void>> _readsStoring = <String, Future<void>>{};
+
+  /// Completes once the read is stored, with the write's error when it
+  /// could not be; throws at once when the chat cannot be looked up. A read
+  /// no later than the one shown completes with the write still storing
+  /// that one.
+  Future<void> markConversationRead(String id, DateTime readAt) {
+    if (id.isEmpty) return Future<void>.value();
     final identity = ChatStorageIdentity.parse(id);
+    final rawId = identity.rawId;
     final current = state.asData?.value;
     final index = current == null
         ? -1
@@ -511,7 +518,7 @@ class Conversations extends _$Conversations {
         final conversation = current[index];
         final existing = conversation.lastReadAt;
         if (existing != null && !readAt.isAfter(existing)) {
-          return;
+          return _readsStoring[rawId] ?? Future<void>.value();
         }
         target = conversation.copyWith(lastReadAt: readAt);
         final updated = <Conversation>[...current]..[index] = target;
@@ -529,22 +536,18 @@ class Conversations extends _$Conversations {
         : libreChat
         ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
-    final rawId = identity.rawId;
-    if (db == null || isTemporaryChat(rawId)) return;
+    if (db == null || isTemporaryChat(rawId)) return Future<void>.value();
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
-    try {
-      await db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
-    } catch (error, stackTrace) {
-      DebugLogger.error(
-        'read-mark-failed',
-        scope: 'conversations',
-        error: error,
-        stackTrace: stackTrace,
-        data: {'id': rawId},
-      );
+    final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
+    _readsStoring[rawId] = write;
+    void stored([Object? _]) {
+      if (identical(_readsStoring[rawId], write)) _readsStoring.remove(rawId);
     }
+
+    write.then(stored, onError: stored);
+    return write;
   }
 
   /// Re-reads the drawer's folder listings, which load their rows once
@@ -1047,26 +1050,30 @@ class TemporaryChatEnabled extends _$TemporaryChatEnabled {
 /// Returns true if the given conversation ID represents a temporary chat.
 bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 
-/// Completes once the read is stored on this device.
-Future<void> markConversationRead(
+/// Marks [conversationId] read up to [readAt] (or now). Completes once the
+/// read is stored on this device: true, or false when it could not be
+/// (logged). Never throws, so a caller may leave it unawaited.
+Future<bool> markConversationRead(
   dynamic ref,
   String? conversationId, {
   DateTime? readAt,
 }) async {
   final scopedId = conversationId?.trim();
   if (scopedId == null || scopedId.isEmpty) {
-    return;
+    return true;
   }
   final identity = ChatStorageIdentity.parse(scopedId);
   final id = identity.rawId;
   if (isTemporaryChat(id)) {
-    return;
+    return true;
   }
 
   final timestamp = readAt ?? DateTime.now();
   Conversation? targetConversation;
   var resolvedSelectionId = scopedId;
-  var stored = Future<void>.value();
+  Future<void>? stored;
+  Object? failure;
+  StackTrace? failureStack;
   try {
     final conversations = (ref.read(
       conversationsProvider,
@@ -1083,7 +1090,10 @@ Future<void> markConversationRead(
                 .read(conversationsProvider.notifier)
                 .markConversationRead(resolvedSelectionId, timestamp)
             as Future<void>;
-  } catch (_) {}
+  } catch (error, stackTrace) {
+    failure = error;
+    failureStack = stackTrace;
+  }
 
   try {
     final active = ref.read(activeConversationProvider) as Conversation?;
@@ -1115,5 +1125,21 @@ Future<void> markConversationRead(
       });
     } catch (_) {}
   }
-  await stored;
+  if (stored != null) {
+    try {
+      await stored;
+    } catch (error, stackTrace) {
+      failure = error;
+      failureStack = stackTrace;
+    }
+  }
+  if (failure == null) return true;
+  DebugLogger.error(
+    'read-mark-failed',
+    scope: 'conversations',
+    error: failure,
+    stackTrace: failureStack,
+    data: {'id': id},
+  );
+  return false;
 }

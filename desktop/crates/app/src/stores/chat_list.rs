@@ -88,9 +88,12 @@ pub enum ChatListEvent {
 }
 
 pub struct ChatListStore {
-    /// Chats marked unread here while they were open: leaving them keeps
-    /// the dot.
+    /// Chats marked unread here while they were open: leaving them, from
+    /// any view, keeps the dot until they are shown again
+    /// ([`Self::shown`]).
     pub marked_unread_here: std::collections::HashSet<String>,
+    /// [`Self::note_answered`].
+    answered_here: std::collections::HashSet<String>,
     rpc: Rpc,
     /// `None` until the daemon has answered once (for this account).
     pub list: Option<ChatList>,
@@ -130,6 +133,7 @@ impl ChatListStore {
     pub fn new(rpc: Rpc) -> Self {
         Self {
             marked_unread_here: Default::default(),
+            answered_here: Default::default(),
             rpc,
             list: None,
             load_error: None,
@@ -873,33 +877,72 @@ impl ChatListStore {
         })
     }
 
-    /// Leaving a chat reads it (what arrived while it was open), unless it
-    /// was marked unread while it was open. The daemon is asked even when
-    /// this list shows no dot: the list may not have caught up with an
-    /// answer that finished while the chat was open.
-    pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
-        if self.reads_on_leaving(id) {
-            self.mark_unread(id, false, cx).detach();
+    /// `id`'s answer is running in a window. The list holds its dot back
+    /// while it answers, so until it is read, leaving it reads it whatever
+    /// the list shows.
+    pub fn note_answered(&mut self, id: &str) {
+        if !self.answered_here.contains(id) {
+            self.answered_here.insert(id.into());
         }
+    }
+
+    /// `id` is on screen again: a mark of unread made before it no longer
+    /// keeps its dot when it is left.
+    pub fn shown(&mut self, id: &str) {
+        self.marked_unread_here.remove(id);
+    }
+
+    /// Leaving a chat reads it (what arrived while it was open), when it
+    /// may not be read already ([`Self::reads_on_leaving`]). Nobody asked
+    /// for this read: the dot goes at once, a failure is only logged, and
+    /// the list follows the daemon's `chats.changed`.
+    pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.reads_on_leaving(id) {
+            return;
+        }
+        if let Some(list) = &mut self.list
+            && let Some(chat) = list.chats.iter_mut().find(|c| c.id == id)
+            && chat.unread
+        {
+            chat.unread = false;
+            self.changed(cx);
+        }
+        let call = self.read_call(id);
+        cx.background_spawn(async move {
+            if let Err(error) = call.await {
+                log::warn!("a chat left could not be read: {error}");
+            }
+        })
+        .detach();
     }
 
     /// [`Self::mark_left`] as the app quits: the daemon's answer, which the
     /// quit waits for before it stops the daemon.
     pub fn mark_left_on_quit(&mut self, id: &str) -> Option<QuitRead> {
-        if !self.reads_on_leaving(id) {
-            return None;
+        self.reads_on_leaving(id).then(|| self.read_call(id))
+    }
+
+    /// Whether leaving `id` reads it: listed with a dot, not listed yet
+    /// (just made, or older and opened from search), or answered in a
+    /// window since it was last read. Never one marked unread here, nor a
+    /// chat kept only on this device's daemon (`local:`), which has no read
+    /// state.
+    fn reads_on_leaving(&mut self, id: &str) -> bool {
+        let answered = self.answered_here.remove(id);
+        if self.marked_unread_here.contains(id) || id.starts_with("local:") {
+            return false;
         }
+        answered || self.find(id).is_none_or(|c| c.unread)
+    }
+
+    fn read_call(&self, id: &str) -> QuitRead {
         let call = self
             .rpc
             .call::<methods::ChatsMarkUnread>(&conduit_protocol::MarkUnread {
                 chat_id: id.into(),
                 unread: false,
             });
-        Some(Box::pin(async move { call.await.map(|_| ()) }))
-    }
-
-    fn reads_on_leaving(&mut self, id: &str) -> bool {
-        !self.marked_unread_here.remove(id) && self.find(id).is_some()
+        Box::pin(async move { call.await.map(|_| ()) })
     }
 
     /// `chats.unshare`: deletes the chat's link.
@@ -1369,11 +1412,12 @@ mod tests {
         );
     }
 
-    /// Leaving a chat reads it even while this list shows it without a
-    /// dot: the list may not yet have the answer that finished while the
-    /// chat was open. A chat marked unread while it was open keeps its dot.
+    /// Leaving a chat whose answer ran in a window reads it even while
+    /// this list shows it without a dot: the list holds the dot back while
+    /// a chat answers, and may not have caught up since. A chat marked
+    /// unread while it was open keeps its dot.
     #[gpui_kit::test]
-    fn leaving_a_chat_reads_it_unless_it_was_marked_unread_there(cx: &mut TestAppContext) {
+    fn leaving_a_chat_that_answered_here_reads_it_unless_marked_unread(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
         let listed = list(vec![chat("a", None), chat("b", None)], vec![]);
         daemon.returns::<methods::ChatsList>(listed.clone());
@@ -1382,7 +1426,10 @@ mod tests {
         store.update(cx, |s, cx| s.refresh(cx));
         cx.run_until_parked();
 
-        store.update(cx, |s, cx| s.mark_left("a", cx));
+        store.update(cx, |s, cx| {
+            s.note_answered("a");
+            s.mark_left("a", cx)
+        });
         cx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),
@@ -1391,6 +1438,7 @@ mod tests {
         );
 
         store.update(cx, |s, cx| {
+            s.note_answered("b");
             s.marked_unread_here.insert("b".into());
             s.mark_left("b", cx)
         });
@@ -1399,6 +1447,135 @@ mod tests {
             daemon.calls::<methods::ChatsMarkUnread>().len(),
             1,
             "a chat marked unread while it was open was read on leaving"
+        );
+    }
+
+    /// Leaving reads a chat only when it may not be read: listed with a
+    /// dot, or not listed yet (one just made, an older one opened from
+    /// search). Leaving one the list shows read asks nothing of the daemon.
+    #[gpui_kit::test]
+    fn leaving_reads_only_a_chat_not_known_to_be_read(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let dotted = ChatSummary {
+            unread: true,
+            ..chat("b", None)
+        };
+        let listed = list(vec![chat("a", None), dotted], vec![]);
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+
+        store.update(cx, |s, cx| s.mark_left("a", cx));
+        cx.run_until_parked();
+        assert!(
+            daemon.calls::<methods::ChatsMarkUnread>().is_empty(),
+            "leaving a read chat asked the daemon"
+        );
+        assert_eq!(daemon.calls::<methods::ChatsList>().len(), 1);
+
+        store.update(cx, |s, cx| {
+            s.mark_left("b", cx);
+            s.mark_left("from-search", cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsMarkUnread>(),
+            vec![
+                json!({"chatId": "b", "unread": false}),
+                json!({"chatId": "from-search", "unread": false}),
+            ]
+        );
+    }
+
+    /// The read leaving a chat sends is nobody's request: a failure shows
+    /// no notice, and a list on its way is still taken.
+    #[gpui_kit::test]
+    fn a_read_on_leaving_shows_no_failure_and_drops_no_list(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let dotted = |id: &str| ChatSummary {
+            unread: true,
+            ..chat(id, None)
+        };
+        let first = list(vec![dotted("a"), dotted("b")], vec![]);
+        daemon.returns::<methods::ChatsList>(first.clone());
+        daemon.once::<methods::ChatsMarkUnread>(Err(conduit_daemon::protocol::error(
+            "rpc.internal",
+            "disk full",
+        )));
+        daemon.returns::<methods::ChatsMarkUnread>(first);
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        let seen = events(&store, cx);
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+
+        store.update(cx, |s, cx| s.mark_left("a", cx));
+        cx.run_until_parked();
+        assert!(
+            seen.borrow().is_empty(),
+            "a failed read on leaving was shown"
+        );
+
+        let newer = list(
+            vec![chat("a", None), chat("b", None), chat("c", None)],
+            vec![],
+        );
+        daemon.returns::<methods::ChatsList>(newer.clone());
+        let held = daemon.hold::<methods::ChatsList>();
+        store.update(cx, |s, cx| {
+            s.refresh(cx);
+            s.mark_left("b", cx);
+        });
+        cx.run_until_parked();
+        drop(held);
+        cx.run_until_parked();
+        store.read_with(cx, |s, _| {
+            assert_eq!(
+                s.list.as_ref(),
+                Some(&newer),
+                "the list on its way was dropped"
+            )
+        });
+    }
+
+    /// A mark of unread made here holds for every view that shows the
+    /// chat (the main window and Quick Ask): no leaving reads it until the
+    /// chat is shown again.
+    #[gpui_kit::test]
+    fn a_mark_of_unread_holds_for_every_view_that_leaves(cx: &mut TestAppContext) {
+        let daemon = FakeDaemon::new();
+        let dotted = ChatSummary {
+            unread: true,
+            ..chat("a", None)
+        };
+        let listed = list(vec![dotted], vec![]);
+        daemon.returns::<methods::ChatsList>(listed.clone());
+        daemon.returns::<methods::ChatsMarkUnread>(listed);
+        let store = cx.new(|_| ChatListStore::new(daemon.rpc()));
+        store.update(cx, |s, cx| s.refresh(cx));
+        cx.run_until_parked();
+
+        store.update(cx, |s, cx| {
+            s.marked_unread_here.insert("a".into());
+            s.mark_left("a", cx);
+        });
+        cx.run_until_parked();
+        assert!(
+            store.update(cx, |s, _| s.mark_left_on_quit("a")).is_none(),
+            "the second view to leave read a chat marked unread"
+        );
+        assert!(daemon.calls::<methods::ChatsMarkUnread>().is_empty());
+
+        // Shown again: leaving it now reads it.
+        store.update(cx, |s, cx| {
+            s.shown("a");
+            s.mark_left("a", cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            daemon.calls::<methods::ChatsMarkUnread>(),
+            vec![json!({"chatId": "a", "unread": false})]
         );
     }
 

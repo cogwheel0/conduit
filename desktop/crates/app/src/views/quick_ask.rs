@@ -281,10 +281,14 @@ impl QuickAskView {
     }
 
     /// The panel comes on screen, or goes: going, it leaves its chat, which
-    /// is read up to now.
+    /// is read up to now; coming back, its chat is shown again.
     pub fn set_shown(&mut self, shown: bool, cx: &mut Context<Self>) {
         if !shown {
             self.leave_chat(cx);
+        } else if !self.shown
+            && let Some(id) = self.chat_id(cx)
+        {
+            self.stores.chat_list.update(cx, |c, _| c.shown(&id));
         }
         self.shown = shown;
     }
@@ -294,14 +298,16 @@ impl QuickAskView {
     pub fn leave_on_quit(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> Option<crate::stores::chat_list::QuitRead> {
+    ) -> Option<(String, crate::stores::chat_list::QuitRead)> {
         if !std::mem::take(&mut self.shown) {
             return None;
         }
         let left = self.chat_id(cx)?;
-        self.stores
+        let read = self
+            .stores
             .chat_list
-            .update(cx, |c, _| c.mark_left_on_quit(&left))
+            .update(cx, |c, _| c.mark_left_on_quit(&left))?;
+        Some((left, read))
     }
 
     fn leave_chat(&mut self, cx: &mut Context<Self>) {
@@ -492,6 +498,12 @@ impl QuickAskView {
         let subscriptions = vec![
             cx.observe(&store, |this, store, cx| {
                 let streaming = store.read(cx).is_streaming();
+                if streaming {
+                    let id = store.read(cx).chat_id().to_string();
+                    this.stores
+                        .chat_list
+                        .update(cx, |c, _| c.note_answered(&id));
+                }
                 this.composer.update(cx, |c, cx| {
                     if c.streaming != streaming {
                         c.streaming = streaming;
@@ -1378,10 +1390,11 @@ mod tests {
     #[gpui_kit::test]
     fn the_panel_reads_its_chat_as_it_stops_showing_it(cx: &mut TestAppContext) {
         let (daemon, stores, view, vcx) = bench(cx);
+        // Their answers finished in the panel: the sidebar has their dots.
         let listed: conduit_protocol::ChatList = serde_json::from_value(serde_json::json!({
             "chats": [
-                {"id": "chat-q", "title": "Tide times", "updatedAtMs": 1},
-                {"id": "chat-r", "title": "Moon phases", "updatedAtMs": 1},
+                {"id": "chat-q", "title": "Tide times", "updatedAtMs": 1, "unread": true},
+                {"id": "chat-r", "title": "Moon phases", "updatedAtMs": 1, "unread": true},
             ],
         }))
         .unwrap();
@@ -1408,6 +1421,9 @@ mod tests {
         vcx.run_until_parked();
         assert_eq!(reads().len(), 1, "the hidden panel read its chat");
 
+        // Its next answer finishes while the panel is hidden.
+        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+        vcx.run_until_parked();
         view.update_in(vcx, |v, window, cx| {
             v.set_shown(true, cx);
             v.new_chat(window, cx);
@@ -1419,9 +1435,10 @@ mod tests {
             v.open_chat("chat-r".into(), window, cx)
         });
         vcx.run_until_parked();
-        let read = view
+        let (id, read) = view
             .update(vcx, |v, cx| v.leave_on_quit(cx))
             .expect("quitting did not read the chat on screen");
+        assert_eq!(id, "chat-r");
         assert!(vcx.foreground_executor().block_test(read).is_ok());
         assert_eq!(
             reads().last(),

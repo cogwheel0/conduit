@@ -246,6 +246,9 @@ class PushSync {
         onTaken: () => _db.chatsDao.notePushLanded(chatId),
       );
       var rows = chatRowsFromDb(chat, messages).withoutMessages(heldAnswers);
+      final ownText = {
+        for (final message in rows.messages) message.id: message.content,
+      };
       // The answers this device finished itself, stopped or cut off.
       final settled = {
         for (final message in rows.messages)
@@ -404,11 +407,18 @@ class PushSync {
         messageIds: sent,
         serverUpdatedAt: serverUpdatedAt,
       );
-      // The push moved the server's date. Open WebUI keeps the messages an
-      // update leaves out (`merge_history`), so one this push did not send
-      // came from elsewhere, and the chat has news.
+      // The push moved the server's date. It is this device's own save only
+      // when everything it sent was text this device held, and the server
+      // keeps nothing beside it: Open WebUI keeps the messages an update
+      // leaves out (`merge_history`). A fuller answer or a finished sibling
+      // the push took from the server's copy, or a message from elsewhere,
+      // is news.
       final pushed = {for (final message in rows.messages) message.id};
-      if (resp['chat'] is Map &&
+      final onlyOwnText = rows.messages.every(
+        (message) => ownText[message.id] == message.content,
+      );
+      if (onlyOwnText &&
+          resp['chat'] is Map &&
           _serverMessages(chatId, resp['chat']).keys.every(pushed.contains)) {
         await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
       }

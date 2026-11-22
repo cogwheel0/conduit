@@ -23,7 +23,8 @@ import 'package:conduit_core/sync/pull_sync.dart' show PullResult;
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -42,6 +43,21 @@ final class _Engine extends SyncEngine {
     pulls++;
     state = SyncStatus(lastError: reachable ? null : 'pull failed');
     return null;
+  }
+}
+
+/// Fails every read mark's write, as a full disk would.
+final class _FailingReadMarks extends QueryInterceptor {
+  @override
+  Future<int> runUpdate(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('last_read_at')) {
+      throw StateError('database or disk is full');
+    }
+    return executor.runUpdate(statement, args);
   }
 }
 
@@ -111,6 +127,41 @@ void main() {
     now = now.add(const Duration(seconds: 5));
     await list();
     expect(engine.pulls, 2);
+  });
+
+  test('a read that could not be stored is answered as a failure, which a '
+      'quitting window logs', () async {
+    final warned = driftRuntimeOptions.dontWarnAboutMultipleDatabases;
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    addTearDown(
+      () => driftRuntimeOptions.dontWarnAboutMultipleDatabases = warned,
+    );
+    final failing = AppDatabase(
+      NativeDatabase.memory().interceptWith(_FailingReadMarks()),
+    );
+    addTearDown(failing.close);
+    final scoped = ProviderContainer(
+      overrides: [
+        syncEngineProvider.overrideWith(() => engine),
+        conversationsProvider.overrideWith(_Conversations.new),
+        foldersProvider.overrideWith(_Folders.new),
+        currentUserProvider2.overrideWithValue(null),
+        appDatabaseProvider.overrideWith((ref) => failing),
+      ],
+    );
+    addTearDown(scoped.dispose);
+
+    await expectLater(
+      ChatsService(scoped)
+          .markUnread(const MarkUnread(chatId: 'chat-a', unread: false)),
+      throwsA(
+        isA<RpcError>().having(
+          (e) => e.code,
+          'code',
+          ConduitErrorCodes.serverError,
+        ),
+      ),
+    );
   });
 
   test('a LibreChat chat not listed yet is pinned and archived in LibreChat', () async {

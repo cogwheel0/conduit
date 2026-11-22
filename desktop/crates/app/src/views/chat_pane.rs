@@ -103,8 +103,13 @@ pub struct ChatPane {
     pub composer: Entity<ChatComposer>,
     pub chat: Option<OpenChat>,
     /// Whether [`Self::chat`] is on screen: one kept loaded behind another
-    /// area's item is not, and was read as it was left.
+    /// area's item, or in a hidden window, is not, and was read as it was
+    /// left.
     chat_on_screen: bool,
+    /// Whether the main window is on screen: not once it is hidden to the
+    /// menu bar or closed ([`Self::window_closing`]), until it is back
+    /// ([`Self::window_shown`]).
+    window_shown: bool,
     /// A new chat's first message is on its way.
     /// The composition a new chat's first message was sent from, while it
     /// is on its way: it holds back another send (and Chat Settings) only
@@ -318,6 +323,13 @@ impl ChatPane {
                 },
             ),
             cx.observe(&stores.navigation, |this, _, cx| this.sync_selection(cx)),
+            // However the main window comes back (Show, the palette, a link,
+            // the Dock), it is made active, which a hidden window never is.
+            cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.window_shown(cx);
+                }
+            }),
             cx.observe(&stores.accounts, |this, accounts, cx| {
                 // Another account: nothing the composer holds for one
                 // message (files, knowledge, an `@` model) carries over.
@@ -498,6 +510,7 @@ impl ChatPane {
             composer,
             chat: None,
             chat_on_screen: false,
+            window_shown: true,
             starting: None,
             account,
             hermes_continuing: false,
@@ -802,14 +815,14 @@ impl ChatPane {
                     let current = chat.store.read(cx).chat_id().to_string();
                     let resolved = self.stores.router.read(cx).resolve(&current);
                     if current == id {
-                        self.chat_on_screen = true;
+                        self.chat_on_screen = self.window_shown;
                         return;
                     }
                     if resolved == id {
                         chat.store.update(cx, |s, cx| s.remap(&current, &id, cx));
                         self.composer_store
                             .update(cx, |c, cx| c.rekey_chat(&current, &id, cx));
-                        self.chat_on_screen = true;
+                        self.chat_on_screen = self.window_shown;
                         return;
                     }
                 }
@@ -1057,21 +1070,31 @@ impl ChatPane {
             .update(cx, |c, cx| c.mark_left(&left, cx));
     }
 
-    /// The main window closes, or hides to the menu bar: its chat is left.
+    /// The main window leaves the screen, hidden to the menu bar or closed:
+    /// its chat is left, and nothing shows there until it is back.
     pub fn window_closing(&mut self, cx: &mut Context<Self>) {
+        self.window_shown = false;
         self.leave_chat(cx);
     }
 
     /// The main window is back on screen, and with it the chat it shows.
+    /// Only a window that was hidden comes back: one the user merely
+    /// switched away from never left the screen.
     pub fn window_shown(&mut self, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.window_shown, true) {
+            return;
+        }
         let shown = self.stores.navigation.read(cx).selection().chat_id();
-        if self
+        let Some(id) = self
             .chat
             .as_ref()
-            .is_some_and(|c| shown.as_deref() == Some(c.store.read(cx).chat_id()))
-        {
-            self.chat_on_screen = true;
-        }
+            .map(|c| c.store.read(cx).chat_id().to_string())
+            .filter(|id| shown.as_deref() == Some(id.as_str()))
+        else {
+            return;
+        };
+        self.chat_on_screen = true;
+        self.stores.chat_list.update(cx, |c, _| c.shown(&id));
     }
 
     /// The app quits: the chat on screen is left, by a read the quit waits
@@ -1079,27 +1102,31 @@ impl ChatPane {
     pub fn leave_on_quit(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> Option<crate::stores::chat_list::QuitRead> {
+    ) -> Option<(String, crate::stores::chat_list::QuitRead)> {
         if !std::mem::take(&mut self.chat_on_screen) {
             return None;
         }
         let left = self.chat.as_ref()?.store.read(cx).chat_id().to_string();
-        self.stores
+        let read = self
+            .stores
             .chat_list
-            .update(cx, |c, _| c.mark_left_on_quit(&left))
+            .update(cx, |c, _| c.mark_left_on_quit(&left))?;
+        Some((left, read))
     }
 
-    /// Opens `id` in a fresh store and transcript. Opening reads it, and
-    /// the chat left is read up to now.
+    /// Opens `id` in a fresh store and transcript. Opening reads it, when
+    /// the window shows it, and the chat left is read up to now.
     fn open_chat(&mut self, id: String, cx: &mut Context<Self>) -> Entity<ChatStore> {
         self.forget_context_offer(cx);
         // The menus were built for this selection before the pane opened
         // the chat: Read Aloud follows it now.
         cx.defer(crate::menus::refresh_menus);
         self.leave_chat(cx);
-        self.stores
-            .chat_list
-            .update(cx, |c, cx| c.mark_read(&id, cx));
+        if self.window_shown {
+            self.stores
+                .chat_list
+                .update(cx, |c, cx| c.mark_read(&id, cx));
+        }
         let rpc = self.stores.connection.read(cx).rpc();
         let subscribe = self.subscribe_hook();
         let store = cx.new(|cx| ChatStore::new(rpc, subscribe, id, cx));
@@ -1147,6 +1174,12 @@ impl ChatPane {
                     cx.defer(crate::menus::refresh_menus);
                 }
                 let streaming = store.read(cx).is_streaming();
+                if streaming {
+                    let id = store.read(cx).chat_id().to_string();
+                    this.stores
+                        .chat_list
+                        .update(cx, |c, _| c.note_answered(&id));
+                }
                 let offer = store.read(cx).queue_offered();
                 this.composer.update(cx, |c, cx| {
                     if c.streaming != streaming || c.queue_offer != offer {
@@ -1208,7 +1241,7 @@ impl ChatPane {
             transcript,
             _subscriptions: subscriptions,
         });
-        self.chat_on_screen = true;
+        self.chat_on_screen = self.window_shown;
         self.sync_speech(cx);
         cx.notify();
         store
@@ -3743,6 +3776,13 @@ mod tests {
             Attachment::uploaded_for_test(1, name, &format!("file-{name}"))
         }
 
+        /// `c1`'s answer finished while it was open: the list has its dot.
+        fn answer_finished(daemon: &FakeDaemon, stores: &Stores, vcx: &mut VisualTestContext) {
+            daemon.returns::<methods::ChatsList>(listed_c1(true));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            vcx.run_until_parked();
+        }
+
         /// The sidebar's list: one chat, `c1`, with or without its dot.
         fn listed_c1(unread: bool) -> conduit_protocol::ChatList {
             serde_json::from_value(serde_json::json!({
@@ -4271,6 +4311,7 @@ mod tests {
             stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
+            answer_finished(&daemon, &stores, vcx);
 
             stores.navigation.update(vcx, |n, cx| {
                 n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
@@ -4307,6 +4348,7 @@ mod tests {
             stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
+            answer_finished(&daemon, &stores, vcx);
 
             pane.update(vcx, |p, cx| p.window_closing(cx));
             vcx.run_until_parked();
@@ -4315,6 +4357,7 @@ mod tests {
                 vec![serde_json::json!({"chatId": "c1", "unread": false})],
                 "closing the window did not read its chat"
             );
+            answer_finished(&daemon, &stores, vcx);
             assert!(
                 pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_none(),
                 "quitting with the window hidden read its chat"
@@ -4340,14 +4383,114 @@ mod tests {
             stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
             stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
             vcx.run_until_parked();
+            answer_finished(&daemon, &stores, vcx);
 
-            let read = pane
+            let (id, read) = pane
                 .update(vcx, |p, cx| p.leave_on_quit(cx))
                 .expect("quitting did not read the chat on screen");
+            assert_eq!(id, "c1");
             assert!(vcx.foreground_executor().block_test(read).is_ok());
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
                 vec![serde_json::json!({"chatId": "c1", "unread": false})]
+            );
+        }
+
+        /// A first send whose chat opens after the window was closed to the
+        /// menu bar: the chat is not on screen, so quitting reads its
+        /// answer only once the window is back.
+        #[gpui_kit::test]
+        fn a_chat_opened_while_the_window_is_hidden_is_not_on_screen(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            daemon.returns::<methods::TurnsSend>(
+                serde_json::from_value(serde_json::json!({
+                    "chatId": "c1", "userMessageId": "m1", "assistantMessageId": "a1"
+                }))
+                .unwrap(),
+            );
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            pane.update(vcx, |p, cx| {
+                p.composer_store.update(cx, |c, cx| c.refresh_models(cx))
+            });
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+
+            let held = daemon.hold::<methods::TurnsSend>();
+            pane.update_in(vcx, |p, window, cx| {
+                p.send_text("Seed order for the spring".into(), vec![], window, cx)
+            });
+            pane.update(vcx, |p, cx| p.window_closing(cx));
+            drop(held);
+            vcx.run_until_parked();
+            assert!(
+                pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_none(),
+                "quitting read a chat that opened while the window was hidden"
+            );
+
+            pane.update(vcx, |p, cx| p.window_shown(cx));
+            assert!(
+                pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_some(),
+                "quitting did not read the chat once the window was back"
+            );
+        }
+
+        /// A chat made offline whose id is remapped once the daemon is back,
+        /// while the window is closed to the menu bar, is not on screen:
+        /// quitting reads nothing.
+        #[gpui_kit::test]
+        fn a_chat_remapped_while_the_window_is_hidden_is_not_on_screen(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(true));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(true));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("local:x", cx));
+            vcx.run_until_parked();
+
+            pane.update(vcx, |p, cx| p.window_closing(cx));
+            vcx.update(|_, cx| {
+                stores
+                    .navigation
+                    .update(cx, |n, cx| n.on_remap("local:x", "c1", cx));
+                stores
+                    .router
+                    .update(cx, |r, cx| r.on_remap("local:x".into(), "c1".into(), cx));
+            });
+            vcx.run_until_parked();
+            assert!(
+                pane.update(vcx, |p, cx| p.leave_on_quit(cx)).is_none(),
+                "quitting read a chat remapped while the window was hidden"
+            );
+        }
+
+        /// However the main window comes back (the palette, a link, the
+        /// Dock), its chat is on screen again: leaving it reads it.
+        #[gpui_kit::test]
+        fn a_chat_is_read_on_leaving_once_its_window_is_back(cx: &mut TestAppContext) {
+            let (daemon, stores, pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(false));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            vcx.deactivate_window();
+            pane.update(vcx, |p, cx| p.window_closing(cx));
+            // An answer finishes while the window is hidden.
+            daemon.returns::<methods::ChatsList>(listed_c1(true));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            vcx.run_until_parked();
+            let before = daemon.calls::<methods::ChatsMarkUnread>().len();
+
+            vcx.update(|window, _| window.activate_window());
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.new_chat(false, cx));
+            vcx.run_until_parked();
+            let reads = daemon.calls::<methods::ChatsMarkUnread>();
+            assert_eq!(
+                reads.get(before..).unwrap_or_default(),
+                [serde_json::json!({"chatId": "c1", "unread": false})],
+                "the chat shown again was not read as it was left"
             );
         }
 
