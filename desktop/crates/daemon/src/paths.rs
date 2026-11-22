@@ -448,7 +448,8 @@ fn user_dir(text: &str, key: &str, home: Option<&Path>) -> Option<PathBuf> {
         return home.map(Path::to_path_buf);
     }
     if let Some(rest) = value.strip_prefix("$HOME/") {
-        return home.map(|h| h.join(unescape_user_dir(rest)));
+        // `$HOME//Downloads` too: an absolute rest would replace home.
+        return home.map(|h| h.join(unescape_user_dir(rest.trim_start_matches('/'))));
     }
     let path = unescape_user_dir(value);
     path.starts_with('/').then(|| PathBuf::from(path))
@@ -928,6 +929,7 @@ pub(crate) mod tests {
         };
         for (value, expected) in [
             (r#""$HOME/Team \$ Files""#, "/home/avery/Team $ Files"),
+            (r#""$HOME//Downloads""#, "/home/avery/Downloads"),
             (r#""$HOME/back\\slash""#, r"/home/avery/back\slash"),
             (r#""$HOME/\"quoted\"""#, r#"/home/avery/"quoted""#),
             (r#""$HOME/tick\`s""#, "/home/avery/tick`s"),
