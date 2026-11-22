@@ -10,7 +10,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_owui.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// An Open WebUI account behind a sign-in proxy whose session expires: the
 /// account is kept, the daemon reports a connection issue it can renew, and
@@ -70,15 +70,7 @@ void main() {
 
       setUpAll(() async {
         temporary = Directory.systemTemp.createTempSync('conduitd-proxy');
-        runtime = await CoreRuntime.start(
-          config: BootstrapConfig(
-            sessionToken: 'a' * 43,
-            masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-            userDataDir: temporary.path,
-          ),
-          directories: DaemonDirectories.create(temporary.path),
-          log: DaemonLog(level: 'error', sink: NullSink()),
-        );
+        runtime = await startTestRuntime(temporary);
         accounts = AccountsService(runtime.container, events: EventBus());
         events.attach('window', (envelope) => seen.add(envelope.event));
         auth = AuthService(runtime.container, events: events);

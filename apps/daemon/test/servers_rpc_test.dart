@@ -14,6 +14,7 @@ import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
 
 import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 const String _token = 'cJkVQ1mEo3nT7pZs9YbXwF2gH5LdRaUvNi0KqMtBxCe';
 
@@ -93,7 +94,8 @@ void main() {
       ),
     );
     server.attachCore(
-      await CoreRuntime.start(
+      await startTestRuntime(
+        tempDir,
         config: config,
         directories: directories,
         log: log,

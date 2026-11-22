@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/auth/auth_state_manager.dart';
@@ -10,7 +9,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// The connection issue's Retry (`auth.retry`) against a fake Open WebUI
 /// that can answer as a sign-in proxy whose session expired: the kept
@@ -30,15 +29,7 @@ void main() {
     // part way still cleans up what it made.
     temporary = Directory.systemTemp.createTempSync('auth-retry-test');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     addTearDown(runtime.dispose);
     owui = await FakeOwuiAuthServer.start(
       users: const {

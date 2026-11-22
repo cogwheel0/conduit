@@ -2,7 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -17,7 +16,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 import 'support/scripted_openai.dart';
 
 /// `accounts.*` over the core's accounts controller, against a fake Open
@@ -42,15 +41,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('accounts-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),

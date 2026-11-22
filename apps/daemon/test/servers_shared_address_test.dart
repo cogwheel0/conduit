@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -9,7 +8,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `servers.update` on an account that is not in use, on the same server as
 /// the signed-in one, against a fake Open WebUI with two synthetic users.
@@ -33,15 +32,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('servers-shared-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'ada@example.com': (id: 'user-ada', name: 'Ada', password: 'pw-ada'),

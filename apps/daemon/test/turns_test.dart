@@ -2,7 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -21,7 +20,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/chat_prompts_service.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 import 'support/scripted_openai.dart';
 import 'support/window.dart';
 
@@ -76,15 +75,7 @@ void main() {
   setUpAll(() async {
     TurnsService.lingerAfterTurn = const Duration(milliseconds: 300);
     temporary = Directory.systemTemp.createTempSync('turns-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     provider = await ScriptedOpenAi.start();
     final direct = DirectService(runtime.container);
     await direct.setPreferred(preferred: true);

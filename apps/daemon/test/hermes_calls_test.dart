@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 
 import 'support/call_window.dart';
 import 'support/fake_hermes_server.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// A voice call in a Hermes chat, as the phone allows one: the core admits
 /// a Hermes model while its connection is usable (`composer.options`
@@ -30,15 +30,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('hermes-calls-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     hermesServer = await FakeHermesServer.start();
     events = EventBus();
     hermes = HermesService(runtime.container, events: events);

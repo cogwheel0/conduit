@@ -1,18 +1,14 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
-import 'package:conduitd/src/bootstrap.dart';
 import 'package:conduitd/src/core_runtime.dart';
-import 'package:conduitd/src/daemon_paths.dart';
 import 'package:conduitd/src/event_bus.dart';
 import 'package:conduitd/src/local_whisper.dart';
-import 'package:conduitd/src/log.dart';
 import 'package:conduitd/src/voice_service.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// Transcribing on this computer, through the daemon's voice service
 /// with no server at all. The whisper parts run when a built library and a
@@ -27,15 +23,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('voice-local-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
   });
 
   tearDownAll(() async {

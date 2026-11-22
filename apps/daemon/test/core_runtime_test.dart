@@ -10,16 +10,13 @@ import 'package:conduit_core/ports/secure_key_value_store.dart';
 import 'package:conduit_core/ports/worker_port.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
-import 'package:conduitd/src/bootstrap.dart';
 import 'package:conduitd/src/core_runtime.dart';
-import 'package:conduitd/src/daemon_paths.dart';
-import 'package:conduitd/src/log.dart';
 import 'package:conduitd/src/ports/database_opener.dart';
 import 'package:conduitd/src/ports/secure_store.dart';
 import 'package:conduitd/src/ports/worker.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 void main() {
   late Directory temporary;
@@ -30,15 +27,7 @@ void main() {
   // be testing something the daemon never does (it starts exactly one).
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('core-runtime-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
   });
 
   tearDownAll(() async {
