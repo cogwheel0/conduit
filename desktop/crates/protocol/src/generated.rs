@@ -13502,8 +13502,9 @@ pub struct SendTurnAccepted {
 pub struct RegenerateTurn {
     pub chat_id: String,
     pub message_id: String,
-    /// Null keeps the model the conversation is already using. Passing one
-    /// is how "try this again with a better model" works.
+    /// Null runs on the model the chat has selected now, as a send that
+    /// names none does. Passing one is how "try this again with a better
+    /// model" works.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Retry Without Reasoning Effort: the reasoning effort the chat saved

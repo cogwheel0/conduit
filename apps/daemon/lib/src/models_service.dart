@@ -38,6 +38,8 @@ import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/persistence/account_scoped_preferences.dart'
     show currentPreferenceAccountId;
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
 import 'package:conduit_core/services/settings_service.dart'
     show appSettingsProvider;
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -941,17 +943,22 @@ final class ModelsService {
   }
 
   /// The account's default model among [models]' regular ones, else the
-  /// first of them: for a chat with no pick while the account's selection is
-  /// another chat's coding agent (or none). Never a coding agent.
+  /// one the core takes with none picked: for a chat with no pick while the
+  /// account's selection is another chat's coding agent (or none). Never a
+  /// coding agent.
   core.Model? _regularDefault(List<core.Model> models) {
     String? id;
     try {
       id = _defaultModelId();
     } on Object {
-      // No default to read: the first model.
+      // No default to read: the core's choice.
     }
     final regular = models.where((m) => !isTerminalAgentModel(m));
-    return regular.where((m) => m.id == id).firstOrNull ?? regular.firstOrNull;
+    return regular.where((m) => m.id == id).firstOrNull ??
+        unpickedSendModelAmong(
+          regular,
+          _container.read(primaryAccountKindProvider),
+        );
   }
 
   /// [agent] for the next turns, on its own terminal (picking an agent

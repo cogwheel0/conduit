@@ -871,11 +871,20 @@ class RpcSession {
       }
       return accepted;
     });
+    // Regenerate and edit run on the model the chat shows now, as a send
+    // does, unless the caller names one (Regenerate With).
     _on(
       ConduitMethodSpecs.turnsRegenerate,
-      (r) => _requireTurns().regenerate(r),
+      (r) async => _requireTurns().regenerate(
+        r.copyWith(model: r.model ?? await _models?.modelFor(r.chatId)),
+      ),
     );
-    _on(ConduitMethodSpecs.turnsEdit, (r) => _requireTurns().edit(r));
+    _on(
+      ConduitMethodSpecs.turnsEdit,
+      (r) async => _requireTurns().edit(
+        r.copyWith(model: r.model ?? await _models?.modelFor(r.chatId)),
+      ),
+    );
     _on(ConduitMethodSpecs.turnsRate, (r) async {
       await _requireTurns().rate(r);
       return const RatedResult(rated: true);

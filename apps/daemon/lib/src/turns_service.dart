@@ -923,13 +923,9 @@ final class TurnsService implements ChatTurns, AddressReplies {
               : 'no such message in that conversation',
         );
       }
-      // "Run this again" means the same model unless the caller says
-      // otherwise.
-      final model = await _resolveModel(
-        request.model ??
-            _libreChatModelOf(session) ??
-            target.assistantMessage.model,
-      );
+      // The model selected now, as the core regenerates on mobile; an answer
+      // of a comparison keeps its own there.
+      final model = await _resolveModel(request.model);
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
       if (request.withoutReasoningEffort) {
@@ -1003,16 +999,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
           debugMessage: 'the edited text is the same as the original',
         );
       }
-      // A question carries no model; the answer that followed it does, and
-      // "ask this again, differently" means the same model as before.
-      final answeredWith = messages
-          .skip(index + 1)
-          .where((m) => m.role == 'assistant')
-          .firstOrNull
-          ?.model;
-      final model = await _resolveModel(
-        request.model ?? _libreChatModelOf(session) ?? answeredWith,
-      );
+      final model = await _resolveModel(request.model);
       await _requireBackendFor(model);
       _choose(session.scope.container, model);
       return await _run(
@@ -3938,25 +3925,33 @@ final class TurnsService implements ChatTurns, AddressReplies {
   // ---------------------------------------------------------------------------
 
   /// Sets [scope]'s composer to what this turn asks for. Chosen by hand, so
-  /// the core's default-model restore leaves it alone.
+  /// the core's default-model restore leaves it alone. A switch or list the
+  /// request names none of (regenerate, edit) stays as the chat has it, as
+  /// mobile's composer keeps them.
   void _choose(
     ProviderContainer scope,
     Model model, {
-    bool webSearch = false,
-    bool imageGeneration = false,
-    bool codeInterpreter = false,
-    List<String> toolIds = const <String>[],
+    bool? webSearch,
+    bool? imageGeneration,
+    bool? codeInterpreter,
+    List<String>? toolIds,
     List<String>? filterIds,
     bool? temporary,
   }) {
     scope.read(isManualModelSelectionProvider.notifier).set(true);
     scope.read(selectedModelProvider.notifier).set(model, allowHidden: true);
-    scope.read(webSearchEnabledProvider.notifier).set(webSearch);
-    scope.read(imageGenerationEnabledProvider.notifier).set(imageGeneration);
-    scope.read(codeInterpreterEnabledProvider.notifier).set(codeInterpreter);
-    scope.read(selectedToolIdsProvider.notifier).set(toolIds);
-    // Chosen in the window, from the model's own defaults; a request that
-    // names none (regenerate, edit) keeps the scope's.
+    if (webSearch != null) {
+      scope.read(webSearchEnabledProvider.notifier).set(webSearch);
+    }
+    if (imageGeneration != null) {
+      scope.read(imageGenerationEnabledProvider.notifier).set(imageGeneration);
+    }
+    if (codeInterpreter != null) {
+      scope.read(codeInterpreterEnabledProvider.notifier).set(codeInterpreter);
+    }
+    if (toolIds != null) {
+      scope.read(selectedToolIdsProvider.notifier).set(toolIds);
+    }
     if (filterIds != null) {
       scope.read(selectedFilterIdsProvider.notifier).set(filterIds);
     }
@@ -4020,21 +4015,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
   ///
   /// The request wins when it names one, as the composer's picker does.
   /// Otherwise the account's selection or default ([currentModel]), and
-  /// failing that the first model offered.
-  /// The model a LibreChat chat runs on, as the picker knows it. Its
-  /// stored answers name the server's raw model (`harbour-small`), which is
-  /// no model here; the chat names the picker's (a spec, an agent, or an
-  /// endpoint's model). Null for any other chat.
-  static String? _libreChatModelOf(_ChatSession session) {
-    if (session.scope.isDisposed) return null;
-    final conversation = session.scope.conversation;
-    if (conversation == null || !isLibreChatConversation(conversation)) {
-      return null;
-    }
-    final id = conversation.model;
-    return id == null || id.isEmpty ? null : id;
-  }
-
+  /// failing that the core's [modelForUnpickedSend], as on mobile.
   Future<Model> _resolveModel(String? requested) async {
     List<Model> models;
     try {
@@ -4080,7 +4061,13 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
     final current = await currentModel(_container);
     if (current != null) return current;
-    if (models.isNotEmpty) return models.first;
+    Model? unpicked;
+    try {
+      unpicked = await modelForUnpickedSend(_container.read);
+    } on Object {
+      // The list failed (logged above): none to take.
+    }
+    if (unpicked != null) return unpicked;
     throw const RpcError(
       code: ConduitErrorCodes.unsupported,
       debugMessage: 'this server offers no models',

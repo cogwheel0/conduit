@@ -16,6 +16,10 @@ import 'package:conduit_core/features/chat/services/chat_draft_queue.dart'
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart'
     show terminalDisplayFileProvider;
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart'
+    show selectedToolIdsProvider;
+import 'package:conduit_core/providers/app_providers.dart'
+    show modelsProvider, selectedModelProvider;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/chat_prompts_service.dart';
@@ -39,6 +43,7 @@ void main() {
   late UiRequestsService ui;
   late ChatPromptsService prompts;
   late String model;
+  late String otherModel;
   final windows = <String, List<EventEnvelope>>{};
   final previousLinger = TurnsService.lingerAfterTurn;
 
@@ -94,10 +99,14 @@ void main() {
         name: 'Scripted',
         kind: DirectKind.openai,
         baseUrl: provider.baseUrl,
-        manualModelIds: const <String>['scripted-model'],
+        manualModelIds: const <String>['scripted-model', 'other-model'],
       ),
     );
     model = DirectModelId.encode(saved.connections.single.id, 'scripted-model');
+    otherModel = DirectModelId.encode(
+      saved.connections.single.id,
+      'other-model',
+    );
     events = EventBus();
     ui = UiRequestsService(events);
     prompts = ChatPromptsService(events);
@@ -378,6 +387,55 @@ void main() {
     // The first answer is still reachable, as another version: a direct
     // chat keeps it on the answer's versions, as mobile does.
     expect(answer.versions, isNotEmpty);
+  });
+
+  test('regenerate and edit run on the model selected now, keeping the '
+      "chat's tools", () async {
+    open('selected');
+    final first = await turns.send(
+      SendTurn(model: model, text: 'pick again', toolIds: ['sample-tool']),
+    );
+    subscribeWindow(events, turns, 'selected', <String>[first.chatId]);
+    await until(() => ended('selected', first.assistantMessageId));
+    // Kept open, as a window keeps the chat it shows: the tools are the
+    // chat's, not the turn's.
+    await turns.holdScope(first.chatId);
+    addTearDown(() => turns.releaseScope(first.chatId));
+    final listed = await runtime.container.read(modelsProvider.future);
+    final selection = runtime.container.read(selectedModelProvider.notifier);
+    final previous = runtime.container.read(selectedModelProvider);
+    selection.set(listed.firstWhere((m) => m.id == otherModel));
+    addTearDown(() => selection.set(previous));
+    // The stored answer [id]'s model, once the stored chat has it.
+    Future<String?> answerModel(String id) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 20));
+      while (DateTime.now().isBefore(deadline)) {
+        final answer = (await chats.get(first.chatId))?.messages.last;
+        if (answer?.id == id) return answer!.model;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      fail('the stored chat never had $id');
+    }
+
+    final again = await turns.regenerate(
+      RegenerateTurn(chatId: first.chatId, messageId: first.assistantMessageId),
+    );
+    final scope = turns.scopeOf(first.chatId)!;
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    await until(() => ended('selected', again.assistantMessageId));
+    await until(() => !scope.read(isChatStreamingProvider));
+    expect(await answerModel(again.assistantMessageId), otherModel);
+
+    final edited = await turns.edit(
+      EditTurn(
+        chatId: first.chatId,
+        messageId: first.userMessageId,
+        text: 'pick once more',
+      ),
+    );
+    expect(scope.read(selectedToolIdsProvider), <String>['sample-tool']);
+    await until(() => ended('selected', edited.assistantMessageId));
+    expect(await answerModel(edited.assistantMessageId), otherModel);
   });
 
   test('regenerate and edit refuse what they cannot act on', () async {

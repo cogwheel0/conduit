@@ -18,6 +18,10 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
     show hermesFastTierSelectionProvider;
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show libreChatCatalog;
+import 'package:conduit_core/features/librechat/providers/librechat_model_providers.dart'
+    show libreChatModelCatalogProvider;
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
     show terminalAgentModelFromJson;
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -35,6 +39,8 @@ import 'package:conduit_core/models/model_controls.dart'
     show ModelControlChoices;
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show primaryAccountKindProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart'
     show PrimaryAccountKind, PrimaryAccountRef, primaryAccountProvider;
 import 'package:conduit_core/models/server_config.dart';
@@ -93,6 +99,17 @@ final class _OnDevices extends Models {
     }),
     const core.Model(id: 'first-model', name: 'First model'),
   ];
+}
+
+/// [first] listed before [rest].
+final class _Plus extends Models {
+  _Plus(this.first, this.rest);
+
+  final List<core.Model> first;
+  final List<core.Model> rest;
+
+  @override
+  Future<List<core.Model>> build() async => [...first, ...rest];
 }
 
 /// Two Hermes models that both offer the Fast tier.
@@ -1510,6 +1527,42 @@ void main() {
 
     expect(list.models, hasLength(2));
     expect(list.selectedId, isNull);
+  });
+
+  test('with LibreChat in charge and nothing chosen, a turn takes '
+      "LibreChat's first model", () async {
+    final libreChatModels = libreChatCatalog(
+      startupConfig: const <String, dynamic>{},
+      endpoints: const <String, dynamic>{
+        'Sample': <String, dynamic>{'order': 0},
+      },
+      models: const <String, List<String>>{
+        'Sample': <String>['sample-model'],
+      },
+    );
+    final container = ProviderContainer(
+      overrides: [
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+        libreChatModelCatalogProvider.overrideWith(
+          (ref) async => libreChatModels,
+        ),
+        // Listed first: usable meanwhile, but not LibreChat's.
+        modelsProvider.overrideWith(
+          () => _Plus(const [_cached], libreChatModels),
+        ),
+        defaultModelProvider.overrideWith(
+          (ref) async => throw StateError('settings unavailable'),
+        ),
+      ],
+      retry: (_, _) => null,
+    );
+    addTearDown(container.dispose);
+
+    check(
+      await ModelsService(container).modelFor(null),
+    ).equals(libreChatModels.single.id);
   });
 
   test(
