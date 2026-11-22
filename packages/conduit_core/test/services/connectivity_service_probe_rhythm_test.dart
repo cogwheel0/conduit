@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
@@ -22,8 +23,9 @@ void main() {
   /// The account's server gone, with the network up: the service has probed
   /// it three times, failed each time, and marked it offline.
   ({ConnectivityService service, _Server server, AppDatabase db}) serverGone(
-    FakeAsync async,
-  ) {
+    FakeAsync async, {
+    Random? random,
+  }) {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
     final server = _Server();
@@ -53,6 +55,7 @@ void main() {
         network,
         false,
         FakeAppLifecycle(),
+        random,
       );
       ref.onDispose(service.dispose);
       return service;
@@ -65,18 +68,22 @@ void main() {
     return (service: service, server: server, db: db);
   }
 
-  /// An update queued for [chatId], then [settle]d.
+  /// An op queued for [chatId], an update unless [kind] says otherwise, then
+  /// [settle]d.
   int queue(
     FakeAsync async,
     AppDatabase db,
     _Settle settle, {
+    OutboxKind kind = OutboxKind.updateChat,
     String chatId = 'chat-1',
+    Map<String, dynamic> payload = const {},
   }) {
     int? seq;
     unawaited(() async {
       final queued = await db.outboxDao.enqueue(
-        kind: OutboxKind.updateChat,
+        kind: kind,
         chatId: chatId,
+        payload: payload,
       );
       await settle(db.outboxDao, queued);
       seq = queued;
@@ -86,33 +93,60 @@ void main() {
   }
 
   // The drainer puts an op off as offline once the server is known to be
-  // unreachable; one it tried before that failed to reach it.
-  for (final (label, settle) in <(String, _Settle)>[
-    ('put off as offline', _putOff),
-    (
-      'that failed to reach it',
-      (dao, seq) => dao.markFailedRetryable(
-        seq,
-        error: 'DioException [connection error]',
-        nextAttemptAt: 0,
-      ),
-    ),
-  ]) {
-    test(
-      'a server that cannot be reached is probed about every 30 s while an '
-      'update $label waits to be sent to it, from the moment it is queued',
-      () {
-        fakeAsync((async) {
-          final (service: _, :server, :db) = serverGone(async);
+  // unreachable; one it tried before that failed to reach it. A note's ops
+  // queue apart from a folder's, though their ids may match.
+  for (final (label, queueWork)
+      in <(String, void Function(FakeAsync, AppDatabase))>[
+        (
+          'an update put off as offline',
+          (async, db) => queue(async, db, _putOff),
+        ),
+        (
+          'an update that failed to reach it',
+          (async, db) => queue(
+            async,
+            db,
+            (dao, seq) => dao.markFailedRetryable(
+              seq,
+              error: 'DioException [connection error]',
+              nextAttemptAt: 0,
+            ),
+          ),
+        ),
+        (
+          'a note\'s update, beside a parked folder op with the same id,',
+          (async, db) {
+            queue(
+              async,
+              db,
+              _park,
+              kind: OutboxKind.folderUpsert,
+              chatId: 'shared-id',
+              payload: const {'folderId': 'shared-id', 'createIfAbsent': true},
+            );
+            queue(
+              async,
+              db,
+              _putOff,
+              kind: OutboxKind.noteUpdate,
+              chatId: 'shared-id',
+              payload: const {'title': 'Tide table'},
+            );
+          },
+        ),
+      ]) {
+    test('a server that cannot be reached is probed about every 30 s while '
+        '$label waits to be sent to it, from the moment it is queued', () {
+      fakeAsync((async) {
+        final (service: _, :server, :db) = serverGone(async);
 
-          queue(async, db, settle);
-          async.elapse(const Duration(seconds: 36));
-          check(server.probes).equals(4);
-          async.elapse(const Duration(seconds: 36));
-          check(server.probes).equals(5);
-        });
-      },
-    );
+        queueWork(async, db);
+        async.elapse(const Duration(seconds: 36));
+        check(server.probes).equals(4);
+        async.elapse(const Duration(seconds: 36));
+        check(server.probes).equals(5);
+      });
+    });
   }
 
   for (final (label, queueWork)
@@ -124,6 +158,33 @@ void main() {
           (async, db) {
             queue(async, db, _park);
             queue(async, db, _putOff);
+          },
+        ),
+        (
+          'only a delete waiting on an update held up behind a parked op is '
+              'queued',
+          (async, db) {
+            queue(
+              async,
+              db,
+              _park,
+              kind: OutboxKind.requestCompletion,
+              payload: const {
+                'assistantMessageId': 'answer-1',
+                'model': 'tide-model',
+                'toolIds': <String>[],
+              },
+            );
+            queue(async, db, _putOff);
+            queue(
+              async,
+              db,
+              _putOff,
+              kind: OutboxKind.deleteMessages,
+              payload: const {
+                kDeleteMessagesIdsKey: ['answer-0'],
+              },
+            );
           },
         ),
       ]) {
@@ -157,6 +218,40 @@ void main() {
       check(server.probes).equals(5);
     });
   });
+
+  test('a probe a failed request asked for keeps its time when nothing waits '
+      'to be sent any more', () {
+    fakeAsync((async) {
+      // Unspread: offline at 6 s, after probes at 0, 3 and 6 s.
+      final (service: _, :server, :db) = serverGone(async, random: _Steady());
+      // Queued at 10 s: the next probe is due at 40 s.
+      final seq = queue(async, db, _putOff);
+      async.elapse(const Duration(milliseconds: 29500));
+      check(server.probes).equals(3);
+
+      // A request fails at 39.5 s and asks for a probe at 40.5 s: the one at
+      // 40 s goes, as a probe the failure asked for.
+      ConnectivityService.reportTransportFailure(
+        Uri.parse('https://server.example'),
+      );
+      // The update leaves the outbox meanwhile.
+      unawaited(db.outboxDao.markDone(seq));
+      async.elapse(const Duration(seconds: 1));
+      check(server.probes).equals(4);
+    });
+  });
+}
+
+/// Spreads nothing: every probe comes at its rhythm's exact time.
+final class _Steady implements Random {
+  @override
+  int nextInt(int max) => max ~/ 2;
+
+  @override
+  double nextDouble() => 0.5;
+
+  @override
+  bool nextBool() => false;
 }
 
 Future<void> _putOff(OutboxDao dao, int seq) =>

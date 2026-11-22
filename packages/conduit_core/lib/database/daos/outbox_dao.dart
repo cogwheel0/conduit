@@ -431,19 +431,15 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
             ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
           .get();
 
-  bool _failedPredecessorsBlock(OutboxOp op) =>
-      !_kindsPastParkedOps.contains(op.kind);
-
-  /// The kinds a parked op before them does not hold up.
-  static final Set<String> _kindsPastParkedOps = {
-    for (final kind in const [
-      OutboxKind.deleteChat,
-      OutboxKind.deleteMessages,
-      OutboxKind.folderDelete,
-      OutboxKind.noteDelete,
-    ])
-      kind.name,
-  };
+  bool _failedPredecessorsBlock(OutboxOp op) {
+    return switch (OutboxKind.fromName(op.kind)) {
+      OutboxKind.deleteChat ||
+      OutboxKind.deleteMessages ||
+      OutboxKind.folderDelete ||
+      OutboxKind.noteDelete => false,
+      _ => true,
+    };
+  }
 
   /// The op [seq] as it is stored now, or null once it is gone.
   Future<OutboxOp?> opBySeq(int seq) =>
@@ -743,28 +739,27 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .write(OutboxOpsCompanion(chatId: Value(toChatId)));
   }
 
-  /// Whether some op waits to be sent: pending or under way, and not held up
-  /// for good behind a parked op of its chat ([parkedOpHoldsUpLaterOps]),
-  /// which only a manual retry moves. While the server cannot be reached,
-  /// these are what wait for it.
+  /// Whether some op waits to be sent: one pending or under way that heads
+  /// its queue ([_isChatHead]), as the drainer would claim it. The ops behind
+  /// it follow it; with no such op, every live one is held up for good behind
+  /// a parked op, which only a manual retry moves.
   Stream<bool> watchWaitingToBeSent() {
-    final pastParked = _kindsPastParkedOps.toList();
-    return customSelect(
-      'SELECT EXISTS (SELECT 1 FROM outbox_ops o '
-      'WHERE o.status IN (?, ?) AND (o.kind IN '
-      '(${List.filled(pastParked.length, '?').join(', ')}) '
-      'OR NOT EXISTS (SELECT 1 FROM outbox_ops p '
-      'WHERE p.status = ? AND p.kind != ? '
-      'AND p.chat_id IS o.chat_id AND p.seq < o.seq))) AS waiting',
-      variables: [
-        Variable.withString(OutboxStatus.pending),
-        Variable.withString(OutboxStatus.inFlight),
-        for (final kind in pastParked) Variable.withString(kind),
-        Variable.withString(OutboxStatus.failed),
-        Variable.withString(OutboxKind.deleteMessages.name),
-      ],
-      readsFrom: {outboxOps},
-    ).watchSingle().map((row) => row.read<int>('waiting') != 0).distinct();
+    return (select(outboxOps)
+          ..where(
+            (t) => t.status.isIn(const [
+              OutboxStatus.pending,
+              OutboxStatus.inFlight,
+            ]),
+          )
+          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+        .watch()
+        .asyncMap((live) async {
+          for (final op in live) {
+            if (await _isChatHead(op)) return true;
+          }
+          return false;
+        })
+        .distinct();
   }
 
   /// Live count of not-yet-terminal ops (pending|inFlight) — drives the

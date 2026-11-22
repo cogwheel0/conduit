@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:clock/clock.dart' show clock;
 import 'package:dio/dio.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
@@ -41,14 +42,16 @@ typedef RouteRejection = ({Uri server, ServerConfig? connection});
 class ConnectivityService {
   /// [lifecycle] defaults to [StaticAppLifecycle], meaning a host that never
   /// reports foreground/background; the service then polls as though always
-  /// visible.
+  /// visible. [random] spreads the probes' times.
   ConnectivityService(
     this._dio,
     this._ref, [
     ConnectivityPort? network,
     this._ownsDio = false,
     AppLifecyclePort lifecycle = const StaticAppLifecycle(),
-  ]) : _network = network ?? const AlwaysOnlineConnectivityPort() {
+    Random? random,
+  ]) : _network = network ?? const AlwaysOnlineConnectivityPort(),
+       _random = random ?? Random() {
     _initialize(lifecycle);
   }
 
@@ -58,7 +61,7 @@ class ConnectivityService {
   final Ref _ref;
   final ConnectivityPort _network;
   final bool _ownsDio;
-  final Random _random = Random();
+  final Random _random;
 
   final _statusController = StreamController<ConnectivityStatus>.broadcast();
   StreamSubscription<bool>? _connectivitySubscription;
@@ -170,7 +173,7 @@ class ConnectivityService {
     if (_consecutiveFailures == 0 || !(_pollTimer?.isActive ?? false)) return;
     if (waiting) {
       _scheduleNextCheck(retainEarlierDeadline: true);
-    } else if (_pollIsSooner) {
+    } else if (_pollIsSooner && !_pollForcesProbe) {
       _scheduleNextCheck();
     }
   }
@@ -222,7 +225,7 @@ class ConnectivityService {
     }
 
     final interval = delay ?? _nextStaleProbeDelay();
-    final deadline = DateTime.now().add(interval);
+    final deadline = clock.now().add(interval);
     final currentDeadline = _pollDeadline;
     if (retainEarlierDeadline &&
         (_pollTimer?.isActive ?? false) &&
