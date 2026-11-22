@@ -1,11 +1,13 @@
 //! The designed connection states: a centred status card in the first-run
 //! frame (connecting, core starting, failed with Retry, unreadable data with
-//! Reset local data, version mismatch), and the reconnect banner shown over
-//! content that is already routed.
+//! Reset local data, the keychain's question before conduitd starts, version
+//! mismatch), and the reconnect banner shown over content that is already
+//! routed.
 
 use std::rc::Rc;
 
 use conduit_components::ActiveConduitTheme as _;
+use conduit_components::announce::{Priority, live_text};
 use conduit_components::assets::{IconName, brand_mark, icon};
 use conduit_components::theme::{MONO_FONT, with_alpha};
 use conduit_components::views::kit::{Button, ClickHandler, heading};
@@ -73,6 +75,12 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             false,
             Some(r.warning),
         ),
+        Status::KeychainPrompt { busy, .. } => (
+            l10n.desktop_keychain_prompt_title().into(),
+            Some(l10n.desktop_keychain_prompt_body().into()),
+            *busy,
+            Some(r.warning),
+        ),
         Status::VersionMismatch { .. } => (
             l10n.desktop_core_version_mismatch().into(),
             None,
@@ -124,6 +132,30 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
             );
             buttons.push(show_logs.into_any_element());
         }
+        Status::KeychainPrompt { busy, .. } => {
+            let s = store.clone();
+            buttons.push(
+                Button::new("status-keychain-continue", l10n.continue_action())
+                    .primary()
+                    .disabled(*busy)
+                    .on_click(handler(move |cx| {
+                        s.update(cx, |s, cx| s.keychain_continue(cx))
+                    }))
+                    .into_any_element(),
+            );
+            let s = store.clone();
+            buttons.push(
+                Button::new(
+                    "status-keychain-start-fresh",
+                    l10n.desktop_keychain_prompt_start_fresh(),
+                )
+                .disabled(*busy)
+                .on_click(handler(move |cx| {
+                    s.update(cx, |s, cx| s.keychain_start_fresh(cx))
+                }))
+                .into_any_element(),
+            );
+        }
         Status::VersionMismatch { .. } => {
             buttons.push(show_logs.into_any_element());
             buttons.push(
@@ -140,6 +172,17 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
         .reset_error
         .as_ref()
         .map(|_| SharedString::from(l10n.desktop_reset_failed()));
+    // Spoken as it comes back, again after each refused Continue.
+    let keychain_failed = match status {
+        Status::KeychainPrompt {
+            busy: false,
+            failures,
+        } if *failures > 0 => Some((
+            SharedString::from(l10n.desktop_keychain_prompt_failed()),
+            *failures,
+        )),
+        _ => None,
+    };
 
     let mark = div()
         .size(px(56.))
@@ -210,6 +253,19 @@ pub fn status_screen(status: &Status, store: &Entity<ConnectionStore>, cx: &App)
                     .text_size(px(t.metrics.small))
                     .text_color(r.danger)
                     .child(e),
+            )
+        })
+        .when_some(keychain_failed, |d, (e, failures)| {
+            d.child(
+                div()
+                    .id("status-keychain-failed")
+                    .role(Role::Alert)
+                    .aria_label(e.clone())
+                    .text_size(px(t.metrics.small))
+                    .text_color(r.danger)
+                    .text_center()
+                    .child(e.clone())
+                    .child(live_text("live", Some(e), Priority::High).attempt(u64::from(failures))),
             )
         })
         .when(!buttons.is_empty(), |d| {
