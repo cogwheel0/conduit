@@ -550,6 +550,19 @@ class PullSync {
       }
     }
 
+    // 3a. A chat held for the server's text that no pull has stored yet is
+    // fetched whatever its date: the watermark may be past it already.
+    for (final held in await _db.chatsDao.chatsAwaitingHeldText()) {
+      changed.putIfAbsent(
+        held.id,
+        () => _ChangedItem(
+          id: held.id,
+          updatedAt: held.serverUpdatedAt,
+          lastReadAt: listedReadStates[held.id],
+        ),
+      );
+    }
+
     // 3b. Pins and archives, which Open WebUI 0.13.4 makes without moving a
     // chat's updated_at, so the lists above never show them. Before the
     // fetches, whose copies are newer. Never holds the watermark.
@@ -618,7 +631,8 @@ class PullSync {
             case _ChatFetch.stale:
               staleFetches++;
             case _ChatFetch.gone:
-              break;
+              // Or every cycle would ask for it again.
+              await _db.chatsDao.forgetHeldText(item.id);
           }
         } catch (error, stackTrace) {
           failedFetches++;

@@ -129,6 +129,19 @@ class _HeldCreateClient extends FakeSyncApiClient {
 
 /// Runs [afterRead] after each read of a chat, before the copy is handed
 /// back, and lays [envelope] over the copy (see [_HeldChatReadClient]).
+/// Counts the chats read from the server, one by one.
+class _CountingReadsClient extends FakeSyncApiClient {
+  _CountingReadsClient(super.server);
+
+  int chatReads = 0;
+
+  @override
+  Future<Map<String, dynamic>?> getChatRaw(String id) {
+    chatReads++;
+    return super.getChatRaw(id);
+  }
+}
+
 class _ReadHookClient extends FakeSyncApiClient {
   _ReadHookClient(super.server);
 
@@ -2271,12 +2284,35 @@ void main() {
     ).pullChat(chatId))!;
 
     /// A background sync cycle, which compares the chats' dates.
-    Future<void> cycle() => PullSync(
-      client: client,
+    Future<void> cycle({SyncApiClient? via, PullFetchMemo? memo}) => PullSync(
+      client: via ?? client,
       db: db,
       locks: chatLocks,
       remapper: remapper,
+      fetchMemo: memo,
     ).run();
+
+    /// The answer's task writes on after this device last pulled the chat,
+    /// read here at [readBefore]; then a save made here lands at 7300, and
+    /// the server keeps its fuller answer.
+    Future<void> saveOverFullerAnswer({int? readBefore}) async {
+      await seed(stored: 'Gales veer');
+      final blob = server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+      (((blob['history'] as Map)['messages'] as Map)['a1'] as Map)['content'] =
+          kept;
+      server.saveFromTask(chatId, blob);
+      if (readBefore != null) {
+        await db.chatsDao.setLastReadAt(chatId, readBefore);
+      }
+      serverNow = 7300;
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        chatId,
+        title: const Value('Gale notes'),
+        enqueue: true,
+      );
+      await push.pushUpdateChat(chatId);
+      check(onServer('a1')).has((it) => it['content'], 'content').equals(kept);
+    }
 
     /// Reads the chat here, then lets the server's clock move on.
     Future<void> readHere() async {
@@ -2491,55 +2527,77 @@ void main() {
     });
 
     // The push lands at 7300 by the server's clock.
-    for (final (moment, readAt, readOnceLanded, byCycle) in [
-      ('before the push', 7000, false, false),
-      ('in the very second it lands', 7300, false, false),
-      ('by a clock ahead of the server\'s', 7400, false, false),
-      ('once it lands, before a pull stores that text', 7300, true, false),
+    for (final (moment, readAt, readOnceLanded, storedBy) in [
+      ('before the push', 7000, false, _StoredBy.pull),
+      ('in the very second it lands', 7300, false, _StoredBy.pull),
+      ('by a clock ahead of the server\'s', 7400, false, _StoredBy.pull),
+      (
+        'once it lands, before a pull stores that text',
+        7300,
+        true,
+        _StoredBy.pull,
+      ),
       (
         'by a clock ahead of the server\'s once it lands, before a pull '
             'stores that text',
         7400,
         true,
-        false,
+        _StoredBy.pull,
       ),
-      // The cycle finds the server's copy dated as the push left it: the
-      // date stored here.
-      ('once it lands, before a sync cycle stores that text', 7300, true, true),
+      (
+        'once it lands, before a sync cycle stores that text',
+        7300,
+        true,
+        _StoredBy.cycle,
+      ),
+      (
+        'once it lands, before a sync cycle whose window is past the push '
+            'stores that text',
+        7300,
+        true,
+        _StoredBy.cycleAfterWindow,
+      ),
+      (
+        'once it lands, before a sync cycle that confirmed a fetch at the '
+            'push\'s date stores that text',
+        7300,
+        true,
+        _StoredBy.cycleWithConfirmedFetch,
+      ),
     ]) {
       test('an unfinished answer the server goes on writing comes back fuller '
           'from a save made here, the chat read here $moment; that text was '
           'never shown here, so the chat goes unread until it is read here '
           'again', () async {
-        await seed(stored: 'Gales veer');
-        // Its task writes on after this device last pulled the chat.
-        final blob =
-            server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
-        (((blob['history'] as Map)['messages'] as Map)['a1']
-                as Map)['content'] =
-            kept;
-        server.saveFromTask(chatId, blob);
-        if (!readOnceLanded) await db.chatsDao.setLastReadAt(chatId, readAt);
-        serverNow = 7300;
-
-        await db.chatsDao.updateEnvelopeWithOutbox(
-          chatId,
-          title: const Value('Gale notes'),
-          enqueue: true,
-        );
-        await push.pushUpdateChat(chatId);
-
-        check(onServer('a1'))
-            .has((it) => it['content'], 'content')
-            .equals(kept);
+        await saveOverFullerAnswer(readBefore: readOnceLanded ? null : readAt);
         if (readOnceLanded) {
           // The read covers the older answer, the one stored here.
           check((await answerHere()).content).equals('Gales veer');
           await db.chatsDao.setLastReadAt(chatId, readAt);
         }
-        if (byCycle) {
-          await cycle();
+        switch (storedBy) {
+          case _StoredBy.pull:
+            break;
+          case _StoredBy.cycle:
+            await cycle();
+          case _StoredBy.cycleAfterWindow:
+            // An archived chat saved later moved the watermark on before a
+            // cycle listed this one.
+            await db.syncMetaDao.setPullWatermark(
+              7300 + kPullOverlapSeconds + 10,
+            );
+            await cycle();
+          case _StoredBy.cycleWithConfirmedFetch:
+            var elapsedMs = 0;
+            final memo = PullFetchMemo(elapsedMs: () => elapsedMs)
+              ..recordFetched(chatId, 7300);
+            elapsedMs = kPullOverlapSeconds * 1000;
+            memo.recordFetched(chatId, 7300);
+            await cycle(memo: memo);
+        }
+        if (storedBy != _StoredBy.pull) {
           check((await answerHere()).content).equals(kept);
+          check((await db.chatsDao.getChat(chatId))!.heldTextAt).isNull();
         }
         final fuller = await pulled();
         check((await answerHere()).content).equals(kept);
@@ -2548,6 +2606,19 @@ void main() {
         check(isConversationUnread(await pulled())).isFalse();
       });
     }
+
+    test('a chat held for the server\'s text that the server no longer has '
+        'is read from the server once, not on every cycle', () async {
+      await saveOverFullerAnswer();
+      server.deleteChat(chatId);
+      final counting = _CountingReadsClient(server);
+
+      await cycle(via: counting);
+      check(counting.chatReads).equals(1);
+      check((await db.chatsDao.getChat(chatId))!.heldTextAt).isNull();
+      await cycle(via: counting);
+      check(counting.chatReads).equals(1);
+    });
 
     test('with a task running in the chat (another device answering), no '
         'stop is asked, neither answer the server holds is touched, and the '
@@ -3455,3 +3526,18 @@ class _RecordingChatLocks extends ConversationLocks {
 
 /// ChatLocks exposes `isIdle`; helper keeps call sites tidy.
 bool locksIdle(ChatLocks locks) => locks.isIdle;
+
+/// What stores the server's text a push left unstored here.
+enum _StoredBy {
+  /// A pull of the chat by name.
+  pull,
+
+  /// A sync cycle.
+  cycle,
+
+  /// A sync cycle whose window is already past the push.
+  cycleAfterWindow,
+
+  /// A sync cycle that already confirmed a fetch at the push's date.
+  cycleWithConfirmedFetch,
+}

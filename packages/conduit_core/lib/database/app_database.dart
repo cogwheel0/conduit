@@ -209,8 +209,18 @@ class AppDatabase extends _$AppDatabase {
       if (from < 14 && !await _chatsHasColumn('held_unread')) {
         await m.addColumn(chats, chats.heldUnread);
       }
-      if (from < 15 && !await _chatsHasColumn('held_text_at')) {
-        await m.addColumn(chats, chats.heldTextAt);
+      if (from < 15) {
+        if (!await _chatsHasColumn('held_text_at')) {
+          await m.addColumn(chats, chats.heldTextAt);
+        }
+        // A schema-14 hold doesn't say whether its text is stored here: it
+        // waits for the next pull, which stores the server's copy.
+        await customStatement(
+          'UPDATE chats SET held_text_at = '
+          'coalesce(server_updated_at, updated_at) '
+          'WHERE held_unread = 1 AND held_text_at IS NULL',
+        );
+        await _createHeldTextIndex();
       }
     },
     beforeOpen: (details) async {
@@ -226,6 +236,7 @@ class AppDatabase extends _$AppDatabase {
     await _createNoteIndexes();
     await _createAttachmentReceiptIndex();
     await _createMessageBranchIndex();
+    await _createHeldTextIndex();
   }
 
   Future<bool> _hasTable(String name) async {
@@ -239,6 +250,14 @@ class AppDatabase extends _$AppDatabase {
   Future<bool> _chatsHasColumn(String name) async {
     final rows = await customSelect('PRAGMA table_info(chats)').get();
     return rows.any((row) => row.read<String>('name') == name);
+  }
+
+  /// Each pull cycle looks up the chats whose held text waits for it.
+  Future<void> _createHeldTextIndex() {
+    return customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_chats_held_text '
+      'ON chats (id) WHERE held_text_at IS NOT NULL;',
+    );
   }
 
   Future<void> _createMessageBranchIndex() {

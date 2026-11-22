@@ -2780,6 +2780,33 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
+  /// The chats held for the server's text that no pull has stored here yet
+  /// ([Chats.heldTextAt]), with the server date stored for each.
+  Future<List<({String id, int serverUpdatedAt})>>
+  chatsAwaitingHeldText() async {
+    final rows = await customSelect(
+      'SELECT id, coalesce(server_updated_at, held_text_at) AS at '
+      'FROM chats WHERE held_text_at IS NOT NULL AND deleted = 0',
+      readsFrom: {chats},
+    ).get();
+    return [
+      for (final row in rows)
+        (id: row.read<String>('id'), serverUpdatedAt: row.read<int>('at')),
+    ];
+  }
+
+  /// The server no longer has chat [chatId]: no pull will bring the text a
+  /// hold waits for.
+  Future<void> forgetHeldText(String chatId) {
+    return customUpdate(
+      'UPDATE chats SET held_text_at = NULL '
+      'WHERE id = ? AND held_text_at IS NOT NULL',
+      variables: [Variable.withString(chatId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
   /// A push of chat [chatId] from this device sent text it took from the
   /// server's copy, still unseen here, which left that copy dated
   /// [serverUpdatedAt]: the chat is dated so here at once, as a pull would
