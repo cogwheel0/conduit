@@ -330,34 +330,63 @@ pub fn standard_downloads(os: Os, host: &dyn Host) -> Option<PathBuf> {
             .known_folder(KnownFolder::Downloads)
             .or_else(|| user_home(os, host).map(|p| p.join("Downloads"))),
         Os::Linux => {
-            let home = user_home(os, host)?;
-            let dirs = xdg(host, "XDG_CONFIG_HOME", ".config").join("user-dirs.dirs");
-            host.read_text(&dirs)
-                .and_then(|text| user_dir(&text, "XDG_DOWNLOAD_DIR", &home))
-                .or_else(|| Some(home.join("Downloads")))
+            let home = user_home(os, host);
+            let config = host
+                .var("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.has_root())
+                .or_else(|| home.as_ref().map(|h| h.join(".config")));
+            config
+                .and_then(|c| host.read_text(&c.join("user-dirs.dirs")))
+                .and_then(|text| user_dir(&text, "XDG_DOWNLOAD_DIR", home.as_deref()))
+                .or_else(|| home.map(|h| h.join("Downloads")))
         }
     }
 }
 
-/// `key`'s folder in a `user-dirs.dirs` file: `"$HOME/<path>"` or an
-/// absolute `"/<path>"`, as xdg-user-dirs writes them. Anything else is
-/// ignored.
-fn user_dir(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
+/// `key`'s folder in a `user-dirs.dirs` file: `"$HOME/<path>"` (none when
+/// `home` isn't known) or an absolute `"/<path>"`, as xdg-user-dirs writes
+/// them. Anything else is ignored.
+fn user_dir(text: &str, key: &str, home: Option<&Path>) -> Option<PathBuf> {
     let value = text
         .lines()
         .map(str::trim)
         .filter(|line| !line.starts_with('#'))
         .filter_map(|line| line.strip_prefix(key)?.strip_prefix('='))
         .next_back()?
-        .trim()
-        .trim_matches('"');
+        .trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .unwrap_or(value);
     if value == "$HOME" {
-        return Some(home.to_path_buf());
+        return home.map(Path::to_path_buf);
     }
     if let Some(rest) = value.strip_prefix("$HOME/") {
-        return Some(home.join(rest));
+        return home.map(|h| h.join(unescape_user_dir(rest)));
     }
-    value.starts_with('/').then(|| PathBuf::from(value))
+    let path = unescape_user_dir(value);
+    path.starts_with('/').then(|| PathBuf::from(path))
+}
+
+/// A `user-dirs.dirs` value's backslash escapes (`\$`, `\\`, `\"`, `` \` ``,
+/// as xdg-user-dirs writes them) read back as the characters. Nothing is
+/// evaluated; any other backslash stays, as in a shell's double quotes.
+fn unescape_user_dir(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\'
+            && let Some(&next) = chars.peek()
+            && matches!(next, '$' | '\\' | '"' | '`')
+        {
+            out.push(next);
+            chars.next();
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The user's home folder: `HOME` on macOS and Linux; the profile known
@@ -709,6 +738,46 @@ pub(crate) mod tests {
                 standard_downloads(Os::Linux, &host),
                 Some(PathBuf::from("/home/avery/Downloads"))
             );
+        }
+    }
+
+    /// With no `HOME`, an absolute folder in `$XDG_CONFIG_HOME/user-dirs.dirs`
+    /// still names Downloads; only one under `$HOME` can't be worked out.
+    #[test]
+    fn downloads_without_home_takes_an_absolute_user_dir() {
+        let config = [("XDG_CONFIG_HOME", "/srv/config")];
+        let dirs = "/srv/config/user-dirs.dirs";
+        let host = vars(&config).file(dirs, "XDG_DOWNLOAD_DIR=\"/data/incoming\"\n");
+        assert_eq!(
+            standard_downloads(Os::Linux, &host),
+            Some(PathBuf::from("/data/incoming"))
+        );
+        let host = vars(&config).file(dirs, "XDG_DOWNLOAD_DIR=\"$HOME/Downloads\"\n");
+        assert_eq!(standard_downloads(Os::Linux, &host), None);
+        assert_eq!(standard_downloads(Os::Linux, &vars(&[])), None);
+    }
+
+    /// xdg-user-dirs writes a folder name's `$`, `\`, `"` and `` ` `` with a
+    /// backslash before them; they are read back as the characters, never
+    /// evaluated, and only an unescaped `$HOME` is the home folder.
+    #[test]
+    fn user_dirs_escapes_are_decoded_never_evaluated() {
+        let dirs = "/home/avery/.config/user-dirs.dirs";
+        let downloads = |value: &str| {
+            let host =
+                vars(&[("HOME", "/home/avery")]).file(dirs, &format!("XDG_DOWNLOAD_DIR={value}\n"));
+            standard_downloads(Os::Linux, &host).unwrap()
+        };
+        for (value, expected) in [
+            (r#""$HOME/Team \$ Files""#, "/home/avery/Team $ Files"),
+            (r#""$HOME/back\\slash""#, r"/home/avery/back\slash"),
+            (r#""$HOME/\"quoted\"""#, r#"/home/avery/"quoted""#),
+            (r#""$HOME/tick\`s""#, "/home/avery/tick`s"),
+            (r#""/srv/\$HOME/in""#, "/srv/$HOME/in"),
+            // An escaped `$HOME` is a folder name, not home, and not absolute.
+            (r#""\$HOME/in""#, "/home/avery/Downloads"),
+        ] {
+            assert_eq!(downloads(value), PathBuf::from(expected), "{value}");
         }
     }
 
