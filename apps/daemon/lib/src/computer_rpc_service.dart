@@ -11,11 +11,11 @@ import 'package:conduit_core/features/terminal/services/computer_socket_relay.da
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
 
-import 'log.dart';
 import 'terminal_model_scope.dart';
 
 /// One open view: a relay the viewer page streams through, opened under
@@ -52,10 +52,8 @@ final class ComputerRpcService {
   /// made per model is used for.
   ComputerRpcService(
     this._container, {
-    DaemonLog? log,
     Future<String> Function(String? chatId)? modelFor,
-  }) : _log = log,
-       _modelFor = modelFor {
+  }) : _modelFor = modelFor {
     _accountWatch = _container.listen<Object?>(
       openWebUiAuthSessionEpochProvider,
       (previous, next) => unawaited(_closeViews()),
@@ -63,7 +61,6 @@ final class ComputerRpcService {
   }
 
   final ProviderContainer _container;
-  final DaemonLog? _log;
   final Future<String> Function(String? chatId)? _modelFor;
   late final ProviderSubscription<Object?> _accountWatch;
   final Map<String, _View> _views = <String, _View>{};
@@ -108,7 +105,6 @@ final class ComputerRpcService {
       await terminal.getAvailableServers(),
       _modelFor,
       scope,
-      log: _log,
     )).where((s) => s.isAvailableForChatScope(scope)).toList(growable: false);
     final server = resolveSelectedTerminalServerForTest(servers, selected);
     if (server == null) return null;
@@ -139,7 +135,10 @@ final class ComputerRpcService {
       );
     } on Object catch (error) {
       // A terminal that cannot say offers nothing, as mobile's header.
-      _log?.warn('computer status failed: ${error.runtimeType}');
+      DebugLogger.warning(
+        'computer status failed: ${error.runtimeType}',
+        scope: 'daemon/computer',
+      );
       return const ComputerStatus(enabled: true);
     }
   }

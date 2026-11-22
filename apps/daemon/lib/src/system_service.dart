@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_protocol/conduit_protocol.dart';
 
 import 'daemon_paths.dart';
@@ -75,7 +76,10 @@ class SystemService {
     try {
       return await ask();
     } on Object catch (error) {
-      _log.warn('could not tell whether onboarding is needed: $error');
+      DebugLogger.warning(
+        'could not tell whether onboarding is needed: $error',
+        scope: 'daemon/system',
+      );
       return false;
     }
   }
@@ -91,7 +95,7 @@ class SystemService {
   /// The reply says whether everything went; what did not stays on disk and
   /// goes on the next launch.
   Future<ShutdownResult> shutdown() async {
-    _log.info('shutdown requested over RPC');
+    DebugLogger.info('shutdown requested over RPC', scope: 'daemon/system');
     // -1: the count could not be read, so nothing is claimed to have gone.
     var pending = 0;
     final flush = _flushOutbox;
@@ -99,7 +103,10 @@ class SystemService {
       try {
         pending = await flush();
       } on Object catch (error) {
-        _log.warn('outbox flush before shutdown failed: $error');
+        DebugLogger.warning(
+          'outbox flush before shutdown failed: $error',
+          scope: 'daemon/system',
+        );
         pending = -1;
       }
     }

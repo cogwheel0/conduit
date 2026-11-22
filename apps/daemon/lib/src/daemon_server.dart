@@ -322,15 +322,10 @@ class DaemonServer {
     final models = _models!;
     _terminals = TerminalsService(
       core.container,
-      log: _log,
       events: events,
       modelFor: models.modelFor,
     );
-    _computer = ComputerRpcService(
-      core.container,
-      log: _log,
-      modelFor: models.modelFor,
-    );
+    _computer = ComputerRpcService(core.container, modelFor: models.modelFor);
     _voice = VoiceService(
       core.container,
       events: events,
@@ -1089,7 +1084,6 @@ class DaemonServer {
         channel: socket.cast<String>(),
         system: _system,
         events: events,
-        log: _log,
         // Read on every call, so a window that connected before the core
         // attached gets the services once they exist.
         services: () => _coreServices,
