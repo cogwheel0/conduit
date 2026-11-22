@@ -374,6 +374,36 @@ void main() {
     expect(socket.reads, <String>['chat-s', 'chat-s']);
   });
 
+  // A push of this device's lands, and the server's copy holds text not
+  // stored here; a pull stores it later, in a copy dated [storedAt].
+  for (final (dated, storedAt) in [
+    ('dated later', 160),
+    ('dated as the chat already was', 100),
+  ]) {
+    test('a chat on screen held unread for the server\'s text is read once a '
+        'pull stores that text, $dated, not before', () async {
+      await seedRead(serverDb, 'chat-s');
+      final container = await signedIn();
+      container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+
+      final held = serverDb.chatsDao
+          .watchChatMeta('chat-s')
+          .firstWhere((entry) => entry?.lastReadAt == 99);
+      await serverDb.chatsDao.holdUnreadUntilPulled('chat-s', storedAt);
+      await held;
+      await settled(serverDb);
+      expect(await storedRead(serverDb, 'chat-s'), 100);
+      expect(socket.reads, isEmpty);
+
+      await serverSaved(serverDb, 'chat-s', storedAt);
+      expect(
+        await storedReadThrough(serverDb, 'chat-s', storedAt),
+        greaterThanOrEqualTo(storedAt),
+      );
+      expect(socket.reads, <String>['chat-s']);
+    });
+  }
+
   test('an on-device chat on screen the list does not hold is read in the '
       'on-device database', () async {
     const id = 'direct-local:tide';

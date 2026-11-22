@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Novedades",
+      "intro": "¡Hola! Llegan las notificaciones push: las respuestas terminadas, los mensajes de canales y los trabajos de Hermes llegan a tu teléfono con Conduit cerrado, cifrados en tu propio servidor para que nadie por el camino pueda leerlos. El inicio de sesión único puede usar llaves de acceso a través del navegador del sistema, Open WebUI 0.13.4 funciona, y cada página de ajustes ahora se abre dentro de Ajustes.",
+      "bullets": [
+        {
+          "text": "Notificaciones push: actívalas en Ajustes > Notificaciones > Notificaciones push. En Open WebUI 0.11 o posterior, un administrador instala una vez la función de código abierto Conduit Push con Configurar, o puedes usar Pedir al administrador. Recibe respuestas terminadas y fallidas, de Chats iniciados en Conduit o de Todos mis chats, y mensajes de canales. Cada cuenta muestra su estado, un arreglo con un toque y una notificación de prueba, y Android puede usar Google o UnifiedPush. Un toque abre la cuenta correcta, y la opción Recordatorios del calendario avisa de tus eventos de Open WebUI aunque la app esté cerrada.",
+          "icon": "direct"
+        },
+        {
+          "text": "Inicio de sesión: el inicio de sesión único de Open WebUI puede hacerse en el navegador del sistema, así que funcionan las llaves de acceso y las llaves de seguridad. Configúralo en los ajustes avanzados al añadir un servidor, o desde la página del servidor en Cuentas. Necesita Open WebUI 0.8 o posterior y un cliente que tu administrador registre para Conduit, y la sesión se renueva sola. El inicio de sesión ahora dice cuándo no se puede llegar al servidor o tarda demasiado, y en Android Conduit confía en un servidor cuyo certificado viene de una autoridad que instalaste.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: instala el plugin de Conduit con un toque desde el panel de Hermes, o copia su comando, para recibir notificaciones push de tus respuestas, y activa Avisarme en un trabajo programado para saber cuándo entrega. Iniciar sesión en un Desktop Gateway te devuelve a Conduit y se renueva solo. Desactiva Mostrar ejecuciones programadas en los ajustes de Hermes para que las ejecuciones no llenen tu lista de chats. Las fotos funcionan en un chat nuevo desde el principio, y Deshacer el último turno, Regenerar y Editar funcionan después de Conservar el modelo actual.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: la app funciona sin aviso de compatibilidad, y los chats ya no fallan con proveedores estrictos. Los modelos, herramientas y terminales que tus dispositivos ofrecen a través de Tether aparecen etiquetados, y Conexiones personales indica qué se trasladó allí. Los agentes de programación muestran el nombre real de su modelo y vuelven a hacer sus preguntas, los terminales creados por chat o por modelo funcionan, y los vídeos generados quedan como los guardó el servidor. Los chats anclados y archivados en otro sitio llegan a Conduit, y un mensaje enviado mientras corre la respuesta de otro dispositivo la espera en vez de recibir una respuesta vacía.",
+          "icon": "direct"
+        },
+        {
+          "text": "Reinicios del servidor y sin conexión: si Open WebUI se detiene a mitad de una respuesta, la respuesta se queda con su texto, Detener lo conserva y el servidor recibe la respuesta terminada cuando vuelve. Un mensaje enviado mientras tanto aparece en cola, Detener funciona con cuentas estándar mientras una respuesta espera su conexión, y un servidor que desapareció se comprueba cada 30 segundos en lugar de cada 2 minutos. Los servidores que solo permiten polling transmiten las respuestas en directo. Un mensaje recién enviado ya no desaparece, un chat borrado justo después de enviarlo sigue borrado, y los borrados masivos en la web llegan a la app.",
+          "icon": "direct"
+        },
+        {
+          "text": "Ajustes: cada página se abre ahora dentro de Ajustes, incluidos Espacio de trabajo, Agente Hermes, Conexiones directas, Tareas programadas, la memoria, los webhooks y push, y en iOS el calendario. Los Ajustes de Android tienen las mismas páginas, filas y orden que los de iOS. En iPad y tabletas Android, Ajustes muestra su lista junto a la página abierta, como la app Ajustes del iPad. Las pantallas que aún salían en inglés en otros idiomas, como Espacio de trabajo, los servidores MCP y los ajustes de Hermes, están traducidas.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: elige Toda la base de conocimientos en # para adjuntar una base entera, y envía un adjunto sin escribir nada. En Android, las imágenes conservan su calidad en vez de volverse JPEG borrosos. Mostrar el nombre del modelo en el cuadro de mensaje, en los ajustes de Conversación, pone el nombre del modelo en el cuadro de mensaje vacío. Las sugerencias de seguimiento tocadas conservan las herramientas del chat, un chat guardado con muchas imágenes se envía sin una larga espera, las apps MCP se muestran en el chat a toda su altura, y el audio y el vídeo que una herramienta enlaza en tu servidor se reproducen en la app. Los chats directos con OpenAI pueden usar herramientas con un nivel de razonamiento.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voz y atajos: las voces del dispositivo en Android hablan a la velocidad que eliges, de 0,25× a 2×, sin largas pausas al leer en voz alta. En Android, una llamada por el altavoz ya no se interrumpe a sí misma y el botón del altavoz muestra dónde suena de verdad. En iOS, las respuestas de una llamada suenan a volumen normal, y Conduit ya no aparece en el menú de llamada de la ficha de contacto. Android tiene mosaicos en Ajustes rápidos para un chat nuevo y una llamada de voz, y un teclado en iPad o iPhone tiene ⌘N, ⌘K, ⌘1 a ⌘5, ⌘, y Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

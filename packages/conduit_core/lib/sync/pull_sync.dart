@@ -384,9 +384,10 @@ class PullSync {
   /// AND the local row is present, clean, body-synced, and stamped at that
   /// exact `updatedAt` — so a re-fetch could only reproduce the merge the
   /// database already holds. Any local divergence (dirty edit, remap,
-  /// stub) falls through to a normal fetch, as does a list envelope whose
-  /// lastReadAt would change the local row's (read-state changes on the
-  /// server do not bump updatedAt; the merge must still see them).
+  /// stub, the server's text a hold waits for) falls through to a normal
+  /// fetch, as does a list envelope whose lastReadAt would change the local
+  /// row's (read-state changes on the server do not bump updatedAt; the
+  /// merge must still see them).
   Future<bool> _canSkipOverlapFetch(_ChangedItem item) async {
     final memo = _fetchMemo;
     if (memo == null || !memo.isConfirmed(item.id, item.updatedAt)) {
@@ -397,6 +398,7 @@ class PullSync {
         local.dirty ||
         local.deleted ||
         !local.bodySynced ||
+        local.heldTextAt != null ||
         local.serverUpdatedAt != item.updatedAt) {
       return false;
     }
@@ -548,6 +550,19 @@ class PullSync {
       }
     }
 
+    // 3a. A chat held for the server's text that no pull has stored yet is
+    // fetched whatever its date: the watermark may be past it already.
+    for (final held in await _db.chatsDao.chatsAwaitingHeldText()) {
+      changed.putIfAbsent(
+        held.id,
+        () => _ChangedItem(
+          id: held.id,
+          updatedAt: held.serverUpdatedAt,
+          lastReadAt: listedReadStates[held.id],
+        ),
+      );
+    }
+
     // 3b. Pins and archives, which Open WebUI 0.13.4 makes without moving a
     // chat's updated_at, so the lists above never show them. Before the
     // fetches, whose copies are newer. Never holds the watermark.
@@ -616,7 +631,8 @@ class PullSync {
             case _ChatFetch.stale:
               staleFetches++;
             case _ChatFetch.gone:
-              break;
+              // Or every cycle would ask for it again.
+              await _db.chatsDao.forgetHeldText(item.id);
           }
         } catch (error, stackTrace) {
           failedFetches++;

@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "What's new",
+      "intro": "Hi! Push notifications are here: finished replies, channel messages and Hermes jobs reach your phone while Conduit is closed, encrypted on your own server so nothing in between can read them. Single sign-on can use passkeys through the system browser, Open WebUI 0.13.4 works, and every Settings page now opens inside Settings.",
+      "bullets": [
+        {
+          "text": "Push notifications: turn them on in Settings > Notifications > Push Notifications. On Open WebUI 0.11 or later, an admin installs the open-source Conduit Push function once with Set Up, or you can Ask Your Admin. Get finished and failed replies, from Chats Started in Conduit or All My Chats, and channel messages. Each account shows its status, a one-tap fix and a test notification, and Android can use Google or UnifiedPush. A tap opens the right account, and Calendar Reminders bring your Open WebUI events' alerts even with the app closed.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sign-in: Open WebUI single sign-on can run in the system browser, so passkeys and security keys work. Set it up under Advanced when you add a server, or from the server's page in Accounts. It needs Open WebUI 0.8 or later and a client your admin registers for Conduit, and the session renews on its own. Sign-in now says when the server can't be reached or took too long, and on Android a server whose certificate comes from an authority you installed is trusted.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: install the Conduit plugin from the Hermes dashboard in one tap, or copy its command, to get push notifications for your replies, and turn on Notify Me for a scheduled job to hear when it delivers. Signing in to a Desktop Gateway brings you back to Conduit and keeps renewing. Turn off Show Scheduled Runs in Hermes settings to keep job runs out of your chat list. Photos work in a new chat right away, and Undo Last Turn, Regenerate and Edit work after Keep Current Model.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: the app works without a compatibility warning, and chats no longer fail with strict providers. Models, tools and terminals your devices offer through Tether are labelled, and Personal Connections says what moved there. Coding agents show their real model names and ask their questions again, terminals made per chat or per model work, and generated videos stay as the server saved them. Pins and archives made elsewhere reach Conduit, and a message sent while another device's reply runs waits for it instead of getting an empty answer.",
+          "icon": "direct"
+        },
+        {
+          "text": "Server restarts and offline: if Open WebUI stops mid-reply, the reply settles with its text, Stop keeps it, and the server gets the finished answer once it's back. A message sent meanwhile shows as queued, Stop works for standard accounts while an answer waits for its connection, and a server that went away is checked every 30 seconds instead of every 2 minutes. Servers that allow only polling stream replies live. A just-sent message no longer vanishes, a chat deleted right after sending stays deleted, and bulk deletes on the web reach the app.",
+          "icon": "direct"
+        },
+        {
+          "text": "Settings: every page now opens inside Settings, including the Workspace, Hermes Agent, Direct Connections, Scheduled Tasks, memories, webhooks and push, and on iOS the calendar. Android's Settings has the same pages, rows and order as iOS. On iPad and Android tablets, Settings shows its list beside the page you opened, as the iPad Settings app does. Screens that still showed English in other languages, such as the Workspace, MCP servers and Hermes settings, are translated.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats: pick Entire Knowledge Base under # to attach a whole base, and send an attachment without typing anything. On Android, pictures keep their quality instead of becoming blurry JPEGs. Show Model Name in Message Box, in Chat settings, puts the model's name in the empty message box. Tapped follow-ups keep the chat's tools, a saved chat with many pictures sends without a long wait, MCP Apps show inline at full height, and audio and video a tool links on your server play in the app. Direct OpenAI chats can use tools with a reasoning effort.",
+          "icon": "polish"
+        },
+        {
+          "text": "Voice and shortcuts: Android device voices play at the speed you pick, from 0.25× to 2×, without long stalls in read-aloud. On Android, a call on the loudspeaker no longer interrupts itself and the speaker button shows where the call really is. On iOS, call replies play at normal loudness, and Conduit is out of the contact card's call menu. Android gets Quick Settings tiles for a new chat and a voice call, and a keyboard on iPad or iPhone gets ⌘N, ⌘K, ⌘1 to ⌘5, ⌘, and Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

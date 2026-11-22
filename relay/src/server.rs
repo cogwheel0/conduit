@@ -18,7 +18,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::pin;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::ConnectInfo;
@@ -29,6 +29,7 @@ use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::time::Instant;
 use tower_service::Service;
 
 use crate::config::ConnectionLimits;
@@ -166,7 +167,9 @@ struct Activity {
 
 struct ActivityState {
     in_progress: usize,
-    /// When the last request finished, or when the connection opened.
+    /// When the last request finished, or when the connection opened. On
+    /// tokio's clock, the one `idle` sleeps on, so that a paused clock moves
+    /// both.
     since: Instant,
     started_any: bool,
 }
@@ -212,7 +215,7 @@ impl Activity {
             match deadline {
                 Some(deadline) if deadline <= Instant::now() => return,
                 Some(deadline) => tokio::select! {
-                    () = tokio::time::sleep_until(deadline.into()) => {}
+                    () = tokio::time::sleep_until(deadline) => {}
                     () = self.finished.notified() => {}
                 },
                 None => self.finished.notified().await,

@@ -23,7 +23,7 @@ part 'chats_dao.g.dart';
 
 const _chatListColumns =
     'id, title, created_at, updated_at, pinned, archived, folder_id, '
-    'last_read_at, held_unread';
+    'last_read_at, held_unread, held_text_at';
 
 const _archivedChatCountSql = '''
 SELECT COUNT(id) AS archived_count
@@ -84,7 +84,8 @@ ORDER BY updated_at DESC, id ASC
 }
 
 /// Exactly the fields the conversation-list UI uses plus `createdAt`
-/// (required by `Conversation`). REQ §10.2: never message bodies.
+/// (required by `Conversation`) and [heldTextUnstored]. REQ §10.2: never
+/// message bodies.
 class ChatListEntry {
   const ChatListEntry({
     required this.id,
@@ -95,6 +96,7 @@ class ChatListEntry {
     required this.archived,
     this.folderId,
     this.lastReadAt,
+    this.heldTextUnstored = false,
   });
 
   final String id;
@@ -109,6 +111,10 @@ class ChatListEntry {
 
   /// Epoch seconds: the read shown ([shownLastReadAt]).
   final int? lastReadAt;
+
+  /// Held unread for the server's text no pull has stored here yet
+  /// ([Chats.heldTextAt]): a read here now leaves it unread.
+  final bool heldTextUnstored;
 }
 
 /// Minimal local envelope used by full-list server reconciliation.
@@ -559,6 +565,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         listLastReadAt: listLastReadAt,
         existingLastReadAt: existing?.lastReadAt,
         serverUpdatedAt: chat.updatedAt,
+        serverCopyAt: chat.updatedAt,
         chatDirty: false,
       );
     });
@@ -689,6 +696,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
+            serverCopyAt: serverChat.updatedAt,
             chatDirty: true,
             dirtyMessageIds: result.dirtyMessageIds,
           );
@@ -718,6 +726,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           listLastReadAt: listedReadAt,
           existingLastReadAt: existing?.lastReadAt,
           serverUpdatedAt: serverChat.updatedAt,
+          serverCopyAt: serverChat.updatedAt,
           chatDirty: false,
         );
         return const ChatMergeWriteResult(
@@ -783,7 +792,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             await _outboxDao.hasPendingBranchEdit(serverChat.id),
       );
 
-      if (refreshWhenClean &&
+      // A copy as new as the one holding the text a hold waits for holds
+      // that text, even dated as the base: a push of this device's left the
+      // server's copy there ([holdUnreadUntilPulled]).
+      final heldText = existing.heldTextAt;
+      final storesHeldText =
+          heldText != null && serverChat.updatedAt >= heldText;
+      if ((refreshWhenClean || storesHeldText) &&
           result.outcome == MergeOutcome.noRemoteChange &&
           !existing.dirty &&
           dirtyMessageIds.isEmpty) {
@@ -795,6 +810,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           listLastReadAt: listedReadAt,
           existingLastReadAt: existing.lastReadAt,
           serverUpdatedAt: base,
+          serverCopyAt: serverChat.updatedAt,
           chatDirty: false,
         );
         return const ChatMergeWriteResult(
@@ -841,6 +857,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
+            serverCopyAt: serverChat.updatedAt,
             chatDirty: false,
           );
           return _mergeResultWithUpdateOpIfMissing(
@@ -859,6 +876,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
             listLastReadAt: listedReadAt,
             existingLastReadAt: existing.lastReadAt,
             serverUpdatedAt: result.newServerUpdatedAt,
+            serverCopyAt: serverChat.updatedAt,
             chatDirty: true,
             dirtyMessageIds: result.dirtyMessageIds,
           );
@@ -995,6 +1013,10 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     required int? listLastReadAt,
     required int? existingLastReadAt,
     required int? serverUpdatedAt,
+
+    /// The `updated_at` of the server copy [rows] come from; null for a
+    /// local-only chat.
+    required int? serverCopyAt,
     required bool chatDirty,
     Set<String> dirtyMessageIds = const {},
   }) async {
@@ -1026,6 +1048,20 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         lastReadAt: Value(mergedLastReadAt),
       ),
     );
+
+    if (serverCopyAt != null) {
+      // The text a hold waited for is stored now ([holdUnreadUntilPulled]).
+      await customUpdate(
+        'UPDATE chats SET held_text_at = NULL '
+        'WHERE id = ? AND held_text_at <= ?',
+        variables: [
+          Variable.withString(chat.id),
+          Variable.withInt(serverCopyAt),
+        ],
+        updates: {chats},
+        updateKind: UpdateKind.update,
+      );
+    }
 
     await _syncMessages(chat.id, rows.messages, dirtyIds: dirtyMessageIds);
   }
@@ -1375,6 +1411,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         listLastReadAt: lastReadAt,
         existingLastReadAt: existing?.lastReadAt,
         serverUpdatedAt: null,
+        serverCopyAt: null,
         chatDirty: false,
       );
     });
@@ -2681,12 +2718,13 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   /// `UPDATE ... SET last_read_at = max(coalesce(last_read_at, 0), ?)` —
-  /// never lowered. A read here ends [Chats.heldUnread].
+  /// never lowered. A read here ends [Chats.heldUnread] once the text it is
+  /// held for is stored here ([Chats.heldTextAt]).
   Future<void> setLastReadAt(String chatId, int epochSeconds) {
     _touchReadState(chatId);
     return customUpdate(
       'UPDATE chats SET last_read_at = max(coalesce(last_read_at, 0), ?), '
-      'held_unread = 0 WHERE id = ?',
+      'held_unread = held_unread AND held_text_at IS NOT NULL WHERE id = ?',
       variables: [Variable.withInt(epochSeconds), Variable.withString(chatId)],
       updates: {chats},
       updateKind: UpdateKind.update,
@@ -2719,6 +2757,50 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<void> holdUnread(String chatId) {
     return customUpdate(
       'UPDATE chats SET held_unread = 1 WHERE id = ?',
+      variables: [Variable.withString(chatId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// A push of chat [chatId] from this device left the server's copy dated
+  /// [serverUpdatedAt] holding text that isn't stored here, for a pull to
+  /// bring: held unread ([holdUnread]), and a read here leaves the hold
+  /// until a pull stores a copy that new ([Chats.heldTextAt]).
+  Future<void> holdUnreadUntilPulled(String chatId, int serverUpdatedAt) {
+    return customUpdate(
+      'UPDATE chats SET held_unread = 1, '
+      'held_text_at = max(coalesce(held_text_at, 0), ?) WHERE id = ?',
+      variables: [
+        Variable.withInt(serverUpdatedAt),
+        Variable.withString(chatId),
+      ],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
+  /// The chats held for the server's text that no pull has stored here yet
+  /// ([Chats.heldTextAt]), with the server date stored for each.
+  Future<List<({String id, int serverUpdatedAt})>>
+  chatsAwaitingHeldText() async {
+    final rows = await customSelect(
+      'SELECT id, coalesce(server_updated_at, held_text_at) AS at '
+      'FROM chats WHERE held_text_at IS NOT NULL AND deleted = 0',
+      readsFrom: {chats},
+    ).get();
+    return [
+      for (final row in rows)
+        (id: row.read<String>('id'), serverUpdatedAt: row.read<int>('at')),
+    ];
+  }
+
+  /// The server no longer has chat [chatId]: no pull will bring the text a
+  /// hold waits for.
+  Future<void> forgetHeldText(String chatId) {
+    return customUpdate(
+      'UPDATE chats SET held_text_at = NULL '
+      'WHERE id = ? AND held_text_at IS NOT NULL',
       variables: [Variable.withString(chatId)],
       updates: {chats},
       updateKind: UpdateKind.update,
@@ -2982,6 +3064,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       chats.folderId,
       chats.lastReadAt,
       chats.heldUnread,
+      chats.heldTextAt,
     ]);
   }
 
@@ -2999,6 +3082,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read(chats.updatedAt)!,
         heldUnread: row.read(chats.heldUnread)!,
       ),
+      heldTextUnstored: row.read(chats.heldTextAt) != null,
     );
   }
 
@@ -3016,6 +3100,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         row.read<int>('updated_at'),
         heldUnread: row.read<bool>('held_unread'),
       ),
+      heldTextUnstored: row.readNullable<int>('held_text_at') != null,
     );
   }
 }

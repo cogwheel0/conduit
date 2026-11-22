@@ -321,6 +321,45 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.2",
+      "title": "Novinky",
+      "intro": "Ahoj! Prichádzajú push upozornenia: hotové odpovede, správy v kanáloch a úlohy Hermes ti prídu do telefónu, aj keď je Conduit zatvorený, a šifruje ich tvoj vlastný server, takže ich cestou nikto neprečíta. Jednotné prihlásenie vie použiť prístupové kľúče cez systémový prehliadač, Open WebUI 0.13.4 funguje a každá stránka nastavení sa teraz otvára priamo v Nastaveniach.",
+      "bullets": [
+        {
+          "text": "Push upozornenia: zapneš ich v Nastavenia > Upozornenia > Push upozornenia. Na Open WebUI 0.11 a novšom nainštaluje správca raz open source funkciu Conduit Push tlačidlom Nastaviť, alebo môžeš použiť Požiadať správcu. Dostaneš hotové aj neúspešné odpovede, z Chatov začatých v Conduite alebo zo Všetkých mojich chatov, a správy v kanáloch. Každý účet ukazuje svoj stav, opravu jedným ťuknutím a skúšobné upozornenie a Android môže použiť Google alebo UnifiedPush. Ťuknutie otvorí správny účet a Pripomienky kalendára ohlásia tvoje udalosti z Open WebUI, aj keď je aplikácia zatvorená.",
+          "icon": "direct"
+        },
+        {
+          "text": "Prihlásenie: jednotné prihlásenie do Open WebUI môže bežať v systémovom prehliadači, takže fungujú prístupové kľúče aj bezpečnostné kľúče. Nastavíš ho v pokročilých nastaveniach pri pridávaní servera alebo na stránke servera v Účtoch. Potrebuje Open WebUI 0.8 alebo novší a klienta, ktorého pre Conduit zaregistruje tvoj správca, a relácia sa obnovuje sama. Prihlásenie teraz povie, keď server nie je dostupný alebo odpovedá príliš dlho, a na Androide Conduit dôveruje serveru, ktorého certifikát pochádza od certifikačnej autority, ktorú máš nainštalovanú.",
+          "icon": "direct"
+        },
+        {
+          "text": "Hermes: nainštaluj plugin Conduit jedným ťuknutím cez nástenku Hermes, alebo skopíruj jeho príkaz, a budeš dostávať push upozornenia o svojich odpovediach. Pri naplánovanej úlohe zapni Upozorniť ma a dozvieš sa, keď niečo doručí. Prihlásenie k Desktop Gateway ťa vráti do Conduitu a priebežne sa obnovuje. Vypni Zobrazovať naplánované spustenia v nastaveniach Hermes a behy úloh ti nezaplnia zoznam chatov. Fotky fungujú v novom chate hneď a Vrátiť poslednú výmenu správ, Znova vygenerovať a Upraviť fungujú aj po Ponechať aktuálny model.",
+          "icon": "hermes"
+        },
+        {
+          "text": "Open WebUI 0.13.4: aplikácia funguje bez upozornenia na kompatibilitu a chaty už nezlyhávajú pri prísnych poskytovateľoch. Modely, nástroje a terminály, ktoré tvoje zariadenia ponúkajú cez Tether, sú označené a Osobné pripojenia povedia, čo sa tam presunulo. Programovací agenti ukazujú skutočné názvy svojich modelov a znova kladú svoje otázky, terminály vytvorené pre každý chat alebo model fungujú a vygenerované videá zostanú tak, ako ich server uložil. Pripnutia a archivácie urobené inde sa do Conduitu dostanú a správa odoslaná, kým beží odpoveď z iného zariadenia, na ňu počká namiesto prázdnej odpovede.",
+          "icon": "direct"
+        },
+        {
+          "text": "Reštarty servera a offline: keď sa Open WebUI zastaví uprostred odpovede, odpoveď sa ustáli aj s textom, Zastaviť ho ponechá a server dostane hotovú odpoveď, hneď ako sa vráti. Správa odoslaná medzitým sa ukáže ako čakajúca vo fronte, Zastaviť funguje aj pre bežné účty, kým odpoveď čaká na pripojenie, a server, ktorý zmizol, sa kontroluje každých 30 sekúnd namiesto každé 2 minúty. Servery, ktoré povoľujú len polling, streamujú odpovede naživo. Práve odoslaná správa už nezmizne, chat zmazaný hneď po odoslaní zostane zmazaný a hromadné mazanie na webe sa prejaví aj v aplikácii.",
+          "icon": "direct"
+        },
+        {
+          "text": "Nastavenia: každá stránka sa teraz otvára priamo v Nastaveniach, vrátane Pracovného priestoru, Hermes Agent, Priamych pripojení, Naplánovaných úloh, pamäte, webhookov a push upozornení, na iOS aj kalendára. Nastavenia na Androide majú rovnaké stránky, riadky aj poradie ako na iOS. Na iPade a tabletoch s Androidom ukazujú Nastavenia svoj zoznam vedľa otvorenej stránky, ako aplikácia Nastavenia na iPade. Obrazovky, ktoré v iných jazykoch ešte ukazovali angličtinu, napríklad Pracovný priestor, servery MCP a nastavenia Hermes, sú preložené.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chaty: pod # vyber Celá znalostná báza a pripojíš celú bázu. Prílohu teraz pošleš aj bez textu. Na Androide si obrázky zachovajú kvalitu a nestanú sa z nich rozmazané JPEGy. Zobrazovať názov modelu v poli správy v nastaveniach Chatu ukáže názov modelu v prázdnom poli správy. Ťuknuté návrhy nadväzujúcich otázok si ponechajú nástroje chatu, uložený chat s množstvom obrázkov sa odošle bez dlhého čakania, aplikácie MCP sa zobrazia v chate v plnej výške a zvuk a video, na ktoré nástroj odkáže na tvojom serveri, sa prehrajú v aplikácii. Priame chaty s OpenAI môžu používať nástroje spolu s úrovňou uvažovania.",
+          "icon": "polish"
+        },
+        {
+          "text": "Hlas a skratky: hlasy zariadenia na Androide hovoria rýchlosťou, ktorú zvolíš, od 0,25× do 2×, a predčítanie sa nezasekáva na dlhé pauzy. Na Androide už hovor cez reproduktor neprerušuje sám seba a tlačidlo reproduktora ukazuje, kade hovor naozaj ide. Na iOS hrajú odpovede v hovore normálnou hlasitosťou a Conduit už nie je v ponuke volania na karte kontaktu. Android dostáva dlaždice v Rýchlych nastaveniach pre nový chat a hlasový hovor a klávesnica na iPade alebo iPhone dostáva ⌘N, ⌘K, ⌘1 až ⌘5, ⌘, a Esc.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
