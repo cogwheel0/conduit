@@ -300,11 +300,12 @@ pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> 
 }
 
 /// What a launch's arguments ask to open (Windows, Linux), or `None` for a
-/// scripted launch: it is an app of its own, claims no instance, and its
-/// arguments (`--shots <dir>`, a fixture's) are nothing to open.
+/// scripted launch: it runs on a profile of its own ([`is_scripted`], the
+/// same test that gives it one), so it claims no instance, and its
+/// arguments (`--shots <dir>`, a fixture's) are nothing to open. Any other
+/// launch is on the app's profile and claims it, whatever its flags.
 pub fn launch_urls(args: &[std::ffi::OsString], cwd: &std::path::Path) -> Option<Vec<String>> {
-    let text = as_text(args);
-    if is_scripted(&text) || scripted::requested(&text) {
+    if is_scripted(&as_text(args)) {
         return None;
     }
     Some(shell::deep_link::from_argv(args, cwd))
@@ -345,6 +346,15 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
         Ok(Claim::Busy) => {
             let why = "Conduit is already running for this profile but isn't responding; \
                        this launch quits rather than open the profile twice";
+            log::error!("{why}");
+            eprintln!("conduit-desktop: {why}");
+            std::process::exit(1);
+        }
+        Ok(Claim::NotListening(e)) => {
+            let why = format!(
+                "this launch can't listen for the profile's later launches ({e}); \
+                 it quits rather than open the profile where another launch could too"
+            );
             log::error!("{why}");
             eprintln!("conduit-desktop: {why}");
             std::process::exit(1);
@@ -1265,11 +1275,17 @@ mod harness_profile_tests {
         for scripted in [
             &["app", "--shots", "/tmp/shots", "--e2e", "chat"][..],
             &["app", "--chat-fixture", "shots"],
-            &["app", "--probe", "state.json"],
             &["app", "--shots", "/tmp/shots", "--smoke-reset"],
         ] {
             assert_eq!(launch_urls(&args(scripted), cwd), None, "{scripted:?}");
         }
+        // On the app's own profile, a launch claims it whatever its flags:
+        // `--smoke-reset` is an option of the `--shots` pass, and alone it
+        // opens the app as usual. (`--probe` is refused off the Mac first.)
+        assert_eq!(
+            launch_urls(&args(&["app", "--smoke-reset"]), cwd),
+            Some(vec![])
+        );
         assert_eq!(
             launch_urls(&args(&["app", "--hidden", "conduit://chat/c1"]), cwd),
             Some(vec!["conduit://chat/c1".to_string()])

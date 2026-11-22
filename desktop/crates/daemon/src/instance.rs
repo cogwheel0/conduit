@@ -136,6 +136,10 @@ pub enum Claim {
     /// The profile's name is held, and who holds it can't be told: it may
     /// be this user's app, so this launch ends too.
     Unidentified(io::Error),
+    /// This launch holds the profile's name but can't listen on it (the
+    /// runtime refused its end). It ends: unclaimed, it would let a later
+    /// launch open the profile beside it.
+    NotListening(io::Error),
 }
 
 /// Who holds the profile's name, from a launch's try to reach it.
@@ -169,9 +173,10 @@ fn holder(reached: Result<u32, io::ErrorKind>, this_uid: u32, out_of_time: bool)
     }
 }
 
-/// The first launch's end, until it serves.
+/// The first launch's end, until it serves: already the runtime's, so the
+/// launch told it holds the profile can take later launches.
 #[cfg(target_os = "linux")]
-pub struct Listener(std::os::unix::net::UnixListener);
+pub struct Listener(tokio::net::UnixListener);
 
 #[cfg(windows)]
 pub struct Listener {
@@ -190,7 +195,18 @@ pub fn claim(service: &str, profile: &Path, args: &[String]) -> io::Result<Claim
     {
         let name = instance_name(service, profile, crate::abstract_socket::this_uid());
         match crate::abstract_socket::bind(&name) {
-            Ok(listener) => Ok(Claim::First(Listener(listener))),
+            Ok(bound) => {
+                let _in_runtime = runtime.enter();
+                Ok(
+                    match bound
+                        .set_nonblocking(true)
+                        .and_then(|()| tokio::net::UnixListener::from_std(bound))
+                    {
+                        Ok(listener) => Claim::First(Listener(listener)),
+                        Err(e) => Claim::NotListening(e),
+                    },
+                )
+            }
             Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
                 runtime.block_on(forward_linux(&name, args, Instant::now() + HANDOFF_TIMEOUT))
             }
@@ -306,17 +322,7 @@ impl Listener {
     #[cfg(target_os = "linux")]
     async fn accept_forever(self, on_launch: OnLaunch) {
         use crate::abstract_socket::{peer_uid, this_uid};
-        let listener = match self
-            .0
-            .set_nonblocking(true)
-            .and_then(|()| tokio::net::UnixListener::from_std(self.0))
-        {
-            Ok(listener) => listener,
-            Err(e) => {
-                log::error!("single instance: not listening: {e}");
-                return;
-            }
-        };
+        let listener = self.0;
         let workers = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_WORKERS));
         loop {
             let Ok((stream, _)) = listener.accept().await else {
