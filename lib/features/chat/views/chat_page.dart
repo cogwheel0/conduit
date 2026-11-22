@@ -1026,8 +1026,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub = ref.listenManual(
       hermesDesktopTranscriptChangesProvider,
       (_, next) => next.whenData(
-        (change) =>
-            unawaited(_refreshDesktopHermesTranscript(change.storedId)),
+        (change) => unawaited(_refreshDesktopHermesTranscript(change.storedId)),
       ),
     );
     _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
@@ -1595,6 +1594,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // Collect uploaded file IDs (including data URLs for images)
       final attachedFiles = sentFiles?.attachments ?? const <FileUploadState>[];
       final mediaUploadController = ref.read(mediaUploadControllerProvider);
+      var retiredSentFiles = false;
+      void retireSentFilesOnce() {
+        if (retiredSentFiles || sentFiles == null) return;
+        retiredSentFiles = true;
+        unawaited(
+          mediaUploadController.retireAttachmentOwnership(sentFiles).catchError(
+            (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'sent-attachment-cleanup-failed',
+                scope: 'chat/attachment',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
+        );
+      }
+
       final uploadedFileIds = attachedFiles
           .where(
             (file) =>
@@ -1613,6 +1630,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           !ref.read(reviewerModeProvider) &&
           !ref.read(temporaryChatEnabledProvider) &&
           !isTemporaryChat(ref.read(activeConversationProvider)?.id);
+
+      var admissionConfirmed = false;
+      var signalsTurnStart = false;
 
       // Durable send: persists rows + outbox op in one tx (survives a
       // force-quit) and drives streaming via the requestCompletion op.
@@ -1636,19 +1656,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           settleImmediately: settlePinImmediately,
         );
       } else {
-        var admissionConfirmed = false;
         final directBinding = ref
             .read(directModelRegistryProvider)
             .resolve(selectedModel);
         // A Hermes or device Direct turn says when it goes to its run; an
         // Open WebUI Direct one, sent through the server, does not.
-        final signalsTurnStart =
+        signalsTurnStart =
             isHermesModel(selectedModel) ||
             directBinding?.source == DirectModelSource.device;
         // Every Direct binding is sent inline, with no outbox receipt.
         final usesOutbox =
             hasDurableOutbox &&
             !isHermesModel(selectedModel) &&
+            !isLibreChatModel(selectedModel) &&
+            !isLibreChatConversation(ref.read(activeConversationProvider)) &&
             directBinding == null;
         await durableSend(
           ref,
@@ -1669,15 +1690,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           onAdmissionCommitted: usesOutbox && onDraftCommitted != null
               ? (_) {
                   admissionConfirmed = true;
+                  retireSentFilesOnce();
                   onDraftCommitted(pendingSend!);
                 }
               : null,
-          // A Hermes or Direct send lasts the whole turn: its words leave
-          // the composer once the turn is handed to its run, not when an
+          // A Hermes or Direct send lasts the whole turn: its words and files
+          // leave the composer once the turn is handed to its run, not when an
           // approval or question that holds the turn open is answered.
           onTurnStarted: () {
             if (admissionConfirmed || pendingSend == null) return;
             admissionConfirmed = true;
+            retireSentFilesOnce();
             onDraftCommitted?.call(pendingSend!);
           },
         );
@@ -1695,19 +1718,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // by the message/outbox. Retire only the exact identities/generations
       // captured for this send: a paste or picker result published while the
       // send awaited still belongs to the next composer turn.
-      if (sentFiles != null) {
-        unawaited(
-          mediaUploadController.retireAttachmentOwnership(sentFiles).catchError(
-            (Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'sent-attachment-cleanup-failed',
-                scope: 'chat/attachment',
-                error: error,
-                stackTrace: stackTrace,
-              );
-            },
-          ),
-        );
+      if (compareModels != null || !signalsTurnStart || admissionConfirmed) {
+        retireSentFilesOnce();
       }
 
       if (wasOffline && hasDurableOutbox && mounted) {
@@ -1755,9 +1767,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (mounted) {
         AdaptiveSnackBar.show(
           context,
-          message: AppLocalizations.of(
-            context,
-          )!.chatDataControlsResponseRunning,
+          message: AppLocalizations.of(context)!
+              .chatDataControlsResponseRunning,
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -2127,10 +2138,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                           });
                           try {
                             final trimmedUrl = url.trim();
-                            final page = await readUrlContext(
-                              api,
-                              trimmedUrl,
-                            );
+                            final page = await readUrlContext(api, trimmedUrl);
                             if (page.content.isEmpty) {
                               setError(
                                 page.youtube
@@ -3770,9 +3778,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// Whether the open chat's messages can be deleted here: not a LibreChat
   /// chat's, which a delete here would not take off its server.
-  bool _messagesDeletable(WidgetRef rowRef) => !rowRef.watch(
-    activeConversationProvider.select(isLibreChatConversation),
-  );
+  bool _messagesDeletable(WidgetRef rowRef) =>
+      !rowRef.watch(activeConversationProvider.select(isLibreChatConversation));
 
   ChatMessage _messageWithGroupedHermesToolStatuses(
     WidgetRef rowRef,
@@ -4219,8 +4226,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   // in sight: the router keeps a hidden destination's page
                   // mounted with its tickers muted. The work sheet watches
                   // the list itself.
-                  final hermesWork =
-                      TickerMode.valuesOf(context).enabled
+                  final hermesWork = TickerMode.valuesOf(context).enabled
                       ? composerRef.watch(
                           hermesBackgroundWorkProvider.select(
                             (work) => (
@@ -6634,12 +6640,11 @@ class MarkdownPrewarmEligibilityCache {
   // trimmed copies that can double a loaded transcript's text heap.
   final _eligible = Expando<bool>();
 
-  bool isEligible(ChatMessage message) =>
-      _eligible[message] ??=
-          message.role == 'assistant' &&
-          !message.isStreaming &&
-          message.content.trim().isNotEmpty &&
-          !message.content.contains('data:image/');
+  bool isEligible(ChatMessage message) => _eligible[message] ??=
+      message.role == 'assistant' &&
+      !message.isStreaming &&
+      message.content.trim().isNotEmpty &&
+      !message.content.contains('data:image/');
 }
 
 @visibleForTesting

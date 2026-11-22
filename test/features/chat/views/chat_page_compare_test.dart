@@ -14,16 +14,22 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_run_registry.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -33,6 +39,8 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart'
@@ -107,6 +115,7 @@ void main() {
     bool newChat = false,
     bool reviewer = false,
     Model? model,
+    DirectConnectionProfile? directProfile,
     List<ChatMessage> transcript = const <ChatMessage>[],
     String? followUp,
     List<Override> overrides = const <Override>[],
@@ -176,7 +185,11 @@ void main() {
         toolsListProvider.overrideWith(_Tools.new),
         comparisonCommandAvailableProvider.overrideWithValue(true),
         personalizationSettingsProvider.overrideWith(_Personalization.new),
-        directConnectionProfilesProvider.overrideWith(_NoProfiles.new),
+        directConnectionProfilesProvider.overrideWith(
+          directProfile == null
+              ? _NoProfiles.new
+              : () => _FixedDirectProfiles(directProfile),
+        ),
         currentUserProvider2.overrideWithValue(
           const User(
             id: 'me',
@@ -512,22 +525,162 @@ void main() {
   ) async {
     final db = AppDatabase(NativeDatabase.memory());
     final hermes = _NoNewSessionDesktopApi();
-    await compareOnPage(
+    final image = _dataImageUpload('before-turn.png');
+    final container = await compareOnPage(
       tester,
       db: db,
       ordinarySend: true,
       newChat: true,
       model: hermesSyntheticModel(),
       overrides: [
+        attachedFilesProvider.overrideWith(() => _Tray([image])),
         hermesConfigProvider.overrideWith(_DesktopHermesConfig.new),
         hermesApiServiceProvider.overrideWithValue(hermes),
+        hermesCapabilitiesProvider.overrideWith(
+          (ref) async => const HermesCapabilities(inputImages: true),
+        ),
       ],
     );
 
     expect(hermes.sessionsAsked, 1);
     expect(hermes.turns, 0);
     expect(composerText(tester), 'compare this');
+    expect(container.read(attachedFilesProvider), [same(image)]);
   });
+
+  testPage('a stored Direct send clears composer text on turn 2 and retires '
+      'attachments when the turn starts', (tester) async {
+    final directDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(() => pumpDatabaseOperation(tester, directDb.close));
+    final profile = DirectConnectionProfile(
+      id: 'local-profile',
+      name: 'Local provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final registry = DirectModelRegistry();
+    final model = registry.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'local-model', isMultimodal: true),
+    ]).single;
+    final adapter = _WaitingDirectAdapter();
+    final firstImage = _dataImageUpload('turn-1.png');
+    final secondImage = _dataImageUpload('turn-2.png');
+
+    final container = await compareOnPage(
+      tester,
+      ordinarySend: true,
+      newChat: true,
+      model: model,
+      directProfile: profile,
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        directLocalDatabaseProvider.overrideWithValue(directDb),
+        directModelRegistryProvider.overrideWithValue(registry),
+        directModelDiscoveryProvider.overrideWith(_IdleDirectDiscovery.new),
+        directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+        attachedFilesProvider.overrideWith(() => _Tray([firstImage])),
+      ],
+    );
+
+    await tester.runAsync(() => adapter.asked.future);
+    await settle(tester);
+
+    // Turn 1: text clears and attachment retires while stream is still open.
+    expect(adapter.runs, 1);
+    expect(composerText(tester), isEmpty);
+    expect(container.read(attachedFilesProvider), isEmpty);
+
+    adapter.events
+      ..add(const DirectContentDelta('First direct reply.'))
+      ..add(const DirectStreamDone());
+    await tester.runAsync(adapter.finish);
+    await settle(tester);
+
+    // Turn 2 on the same stored Direct chat: text must clear and attachment
+    // must retire at onTurnStarted and stay retired if the stream fails.
+    adapter.prepareNextRun();
+    (container.read(attachedFilesProvider.notifier) as _Tray).put(secondImage);
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'second direct turn');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await settle(tester);
+    await tester.runAsync(
+      () => adapter.asked.future.timeout(const Duration(seconds: 5)),
+    );
+    await settle(tester);
+
+    expect(adapter.runs, 2);
+    expect(composerText(tester), isEmpty);
+    expect(container.read(attachedFilesProvider), isEmpty);
+
+    adapter.events.addError(StateError('stream dropped'));
+    await tester.runAsync(adapter.finish);
+    await settle(tester);
+
+    expect(composerText(tester), isEmpty);
+    expect(container.read(attachedFilesProvider), isEmpty);
+  });
+
+  testPage('a Hermes send retires attachments when the turn starts even if the '
+      'stream fails', (tester) async {
+    PreferencesStore.debugOverride(InMemoryKeyValueStore());
+    HermesLocalDocumentTrustStore.debugResetRuntimeState();
+    addTearDown(() {
+      HermesLocalDocumentTrustStore.debugResetRuntimeState();
+      PreferencesStore.debugReset();
+    });
+    final db = AppDatabase(NativeDatabase.memory());
+    final hermes = _WaitingDesktopHermesApi();
+    final image = _dataImageUpload('hermes-turn.png');
+    final container = await compareOnPage(
+      tester,
+      db: db,
+      ordinarySend: true,
+      newChat: true,
+      model: hermesSyntheticModel(),
+      overrides: [
+        attachedFilesProvider.overrideWith(() => _Tray([image])),
+        hermesConfigProvider.overrideWith(_DesktopHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(hermes),
+        hermesCapabilitiesProvider.overrideWith(
+          (ref) async => const HermesCapabilities(inputImages: true),
+        ),
+      ],
+    );
+
+    await tester.runAsync(
+      () => hermes.asked.future.timeout(const Duration(seconds: 5)),
+    );
+    await settle(tester);
+
+    expect(composerText(tester), isEmpty);
+    expect(container.read(attachedFilesProvider), isEmpty);
+
+    hermes.events.addError(StateError('hermes stream dropped'));
+    await tester.runAsync(() => hermes.events.close());
+    await settle(tester);
+
+    expect(composerText(tester), isEmpty);
+    expect(container.read(attachedFilesProvider), isEmpty);
+  });
+}
+
+FileUploadState _dataImageUpload(String name) {
+  final dataUrl = 'data:image/png;base64,${base64Encode([1, 2, 3])}';
+  return FileUploadState(
+    file: File('${Directory.systemTemp.path}/sendpath-$name'),
+    fileName: name,
+    fileSize: 3,
+    progress: 1,
+    status: FileUploadStatus.completed,
+    fileId: dataUrl,
+    isImage: true,
+    base64DataUrl: dataUrl,
+  );
 }
 
 FileUploadState _upload(
@@ -712,6 +865,110 @@ class _IdleDirectDiscovery extends DirectModelDiscoveryController {
 class _NoProfiles extends DirectConnectionProfilesController {
   @override
   Future<List<DirectConnectionProfile>> build() async => const [];
+}
+
+class _FixedDirectProfiles extends DirectConnectionProfilesController {
+  _FixedDirectProfiles(this.profile);
+
+  final DirectConnectionProfile profile;
+
+  @override
+  Future<List<DirectConnectionProfile>> build() async => [profile];
+}
+
+class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
+  @override
+  OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
+}
+
+class _WaitingDirectAdapter implements DirectProviderAdapter {
+  StreamController<DirectStreamEvent> events =
+      StreamController<DirectStreamEvent>();
+  Completer<void> done = Completer<void>();
+  Completer<void> asked = Completer<void>();
+  var runs = 0;
+
+  void prepareNextRun() {
+    events = StreamController<DirectStreamEvent>();
+    done = Completer<void>();
+    asked = Completer<void>();
+  }
+
+  @override
+  String get key => kOllamaAdapterKey;
+
+  @override
+  Future<List<DirectRemoteModel>> listModels(
+    DirectConnectionProfile profile,
+  ) async => const [];
+
+  @override
+  Future<DirectConnectionProbe> probe(DirectConnectionProfile profile) async =>
+      const DirectConnectionProbe(reachable: true);
+
+  @override
+  DirectCompletionRun startCompletion(
+    DirectConnectionProfile profile,
+    DirectCompletionRequest request,
+  ) {
+    runs++;
+    if (!asked.isCompleted) asked.complete();
+    return DirectCompletionRun(
+      id: 'run-$runs',
+      profileId: profile.id,
+      remoteModelId: request.remoteModelId,
+      events: events.stream,
+      cancelToken: CancelToken(),
+      done: done.future,
+    );
+  }
+
+  Future<void> finish() async {
+    await events.close();
+    if (!done.isCompleted) done.complete();
+  }
+}
+
+class _WaitingDesktopHermesApi extends HermesApiService
+    implements HermesDesktopTurnService {
+  _WaitingDesktopHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example.test',
+          mode: HermesBackendMode.desktopGateway,
+        ),
+        dio: Dio(),
+      );
+
+  final events = StreamController<HermesRunEvent>();
+  final asked = Completer<void>();
+
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(
+    String id,
+  ) async => const [];
+
+  @override
+  Future<String> createDesktopSession({
+    String? title,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+  }) async => 'desktop-session-1';
+
+  @override
+  Future<HermesResponseStream> streamDesktopResponse(
+    HermesChatInput input, {
+    String? sessionId,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+    String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
+  }) async {
+    if (!asked.isCompleted) asked.complete();
+    return HermesResponseStream(events: events.stream);
+  }
 }
 
 /// Answers the settings read an admission makes, without a network.

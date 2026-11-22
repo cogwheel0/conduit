@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
@@ -22,6 +24,8 @@ import 'package:conduit_core/providers/account_change_reset.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart'
     show accountChangeStopRepliesProvider;
+import 'package:conduit_core/sync/id_remapper.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
@@ -44,13 +48,20 @@ final class _FixedProfiles extends DirectConnectionProfilesController {
 /// A provider whose reply streams until the test ends it, as one does while
 /// a tool approval holds it open.
 final class _WaitingAdapter implements DirectProviderAdapter {
-  final events = StreamController<DirectStreamEvent>();
-  final done = Completer<void>();
+  StreamController<DirectStreamEvent> events =
+      StreamController<DirectStreamEvent>();
+  Completer<void> done = Completer<void>();
   final requests = <DirectCompletionRequest>[];
   var runs = 0;
 
-  /// Completes when the first reply is asked for.
-  final asked = Completer<void>();
+  /// Completes when the current reply is asked for.
+  Completer<void> asked = Completer<void>();
+
+  void prepareNextRun() {
+    events = StreamController<DirectStreamEvent>();
+    done = Completer<void>();
+    asked = Completer<void>();
+  }
 
   @override
   String get key => kOllamaAdapterKey;
@@ -155,6 +166,26 @@ final class _Tray extends AttachedFilesNotifier {
 
   @override
   List<FileUploadState> build() => files;
+}
+
+final class _RemapSyncEngine extends SyncEngine {
+  _RemapSyncEngine(this.remapper);
+
+  final IdRemapper remapper;
+
+  @override
+  SyncStatus build() => const SyncStatus();
+
+  @override
+  Stream<RemapEvent> get remapEvents => remapper.remapEvents;
+
+  @override
+  Future<void> drainNowForDatabase(AppDatabase expectedDatabase) async {}
+}
+
+final class _SyncWithOpenWebUiPolicy extends DirectHistoryPolicyController {
+  @override
+  DirectHistoryPolicy build() => DirectHistoryPolicy.syncWithOpenWebUI;
 }
 
 void main() {
@@ -310,5 +341,229 @@ void main() {
       check(shown.isStreaming).isFalse();
       await adapter.finish();
     });
+  });
+  test(
+    'stored Direct sends keep placeholder ownership across turns and recovery',
+    () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+
+      ChatSendPlaceholderHandle? turn1Handle;
+      var turn1OwnedAtStart = false;
+      final turn1 = durableSend(
+        container,
+        'First stored Direct prompt',
+        null,
+        onAssistantPlaceholderCreated: (handle) => turn1Handle = handle,
+        onTurnStarted: () {
+          turn1OwnedAtStart = turn1Handle?.ownsActiveChat(container) ?? false;
+        },
+      );
+      await adapter.asked.future;
+
+      final activeAfterTurn1 = container.read(activeConversationProvider);
+      check(activeAfterTurn1).isNotNull();
+      check(turn1OwnedAtStart).isTrue();
+      check(turn1Handle!.ownsActiveChat(container)).isTrue();
+      check(
+        container.read(directRunRegistryProvider).hasLiveIntent((
+          ownerConversationId: directRunOwnerScopeForTest(
+            container,
+            activeAfterTurn1!,
+          ),
+          assistantMessageId: turn1Handle!.assistantMessageId,
+        )),
+      ).isTrue();
+
+      adapter.events
+        ..add(const DirectContentDelta('First reply.'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await turn1;
+
+      adapter.prepareNextRun();
+      ChatSendPlaceholderHandle? turn2Handle;
+      var turn2OwnedAtStart = false;
+      final turn2 = durableSend(
+        container,
+        'Second stored Direct prompt',
+        null,
+        onAssistantPlaceholderCreated: (handle) => turn2Handle = handle,
+        onTurnStarted: () {
+          turn2OwnedAtStart = turn2Handle?.ownsActiveChat(container) ?? false;
+        },
+      );
+      await adapter.asked.future;
+
+      check(turn2OwnedAtStart).isTrue();
+      check(turn2Handle!.ownsActiveChat(container)).isTrue();
+
+      // Recovery on a stored Direct chat relies on ownsActiveChat(ref).
+      recoverFailedChatSend(container, StateError('dropped'), turn2Handle);
+      final assistant = container
+          .read(chatMessagesProvider)
+          .firstWhere((m) => m.id == turn2Handle!.assistantMessageId);
+      check(assistant.isStreaming).isFalse();
+      check(assistant.error).isNotNull();
+
+      adapter.events.add(const DirectStreamDone());
+      await adapter.finish();
+      await turn2;
+    },
+  );
+
+  test(
+    'temporary Direct sends keep placeholder ownership across turns',
+    () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      ChatSendPlaceholderHandle? turn1Handle;
+      var turn1OwnedAtStart = false;
+      final turn1 = durableSend(
+        container,
+        'First temporary Direct prompt',
+        null,
+        onAssistantPlaceholderCreated: (handle) => turn1Handle = handle,
+        onTurnStarted: () {
+          turn1OwnedAtStart = turn1Handle?.ownsActiveChat(container) ?? false;
+        },
+      );
+      await adapter.asked.future;
+      check(turn1OwnedAtStart).isTrue();
+      check(turn1Handle!.ownsActiveChat(container)).isTrue();
+
+      adapter.events
+        ..add(const DirectContentDelta('Temporary reply.'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await turn1;
+
+      adapter.prepareNextRun();
+      ChatSendPlaceholderHandle? turn2Handle;
+      var turn2OwnedAtStart = false;
+      final turn2 = durableSend(
+        container,
+        'Second temporary Direct prompt',
+        null,
+        onAssistantPlaceholderCreated: (handle) => turn2Handle = handle,
+        onTurnStarted: () {
+          turn2OwnedAtStart = turn2Handle?.ownsActiveChat(container) ?? false;
+        },
+      );
+      await adapter.asked.future;
+      check(turn2OwnedAtStart).isTrue();
+      check(turn2Handle!.ownsActiveChat(container)).isTrue();
+
+      adapter.events
+        ..add(const DirectContentDelta('Second temporary reply.'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await turn2;
+    },
+  );
+
+  test('Open WebUI-stored Direct chat remap keeps placeholder ownership and '
+      'supports discard', () async {
+    final adapter = _WaitingAdapter();
+    final profile = DirectConnectionProfile(
+      id: 'profile-owui',
+      name: 'Local provider',
+      adapterKey: kOllamaAdapterKey,
+      baseUrl: 'http://localhost:11434',
+    );
+    final models = DirectModelRegistry();
+    final model = models.replaceProfileModels(profile, [
+      DirectRemoteModel(id: 'model-owui', isMultimodal: true),
+    ]).single;
+    final openWebUiDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(openWebUiDb.close);
+    final remapper = IdRemapper(openWebUiDb);
+    addTearDown(remapper.dispose);
+    final remapEngine = _RemapSyncEngine(remapper);
+
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWithValue(openWebUiDb),
+        directLocalDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        syncEngineProvider.overrideWith(() => remapEngine),
+        isAuthenticatedProvider2.overrideWithValue(true),
+        directHistoryPolicyProvider.overrideWith(_SyncWithOpenWebUiPolicy.new),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        selectedModelProvider.overrideWithValue(model),
+        reviewerModeProvider.overrideWithValue(false),
+        directConnectionProfilesProvider.overrideWith(
+          () => _FixedProfiles(profile),
+        ),
+        directModelRegistryProvider.overrideWithValue(models),
+        directRunRegistryProvider.overrideWithValue(DirectRunRegistry()),
+        directProviderAdapterRegistryProvider.overrideWithValue(
+          DirectProviderAdapterRegistry([adapter]),
+        ),
+        attachedFilesProvider.overrideWith(() => _Tray(const [])),
+        webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+        imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+        codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    ChatSendPlaceholderHandle? handle;
+    final send = durableSend(
+      container,
+      'Synced Direct prompt',
+      null,
+      onAssistantPlaceholderCreated: (created) => handle = created,
+    );
+    await adapter.asked.future;
+
+    final localActive = container.read(activeConversationProvider)!;
+    check(chatStorageKindOf(localActive)).equals(ChatStorageKind.openWebUi);
+    check(handle!.ownsActiveChat(container)).isTrue();
+
+    // Remap the Open WebUI chat id in place while the Direct run is live.
+    const serverId = 'server-direct-42';
+    await remapper.remapChat(
+      localId: localActive.id,
+      serverId: serverId,
+      serverCreatedAt: 1,
+      serverUpdatedAt: 2,
+    );
+    final remappedActive = withChatStorageProvenance(
+      localActive.copyWith(id: serverId),
+      ChatStorageKind.openWebUi,
+    );
+    container.read(activeConversationProvider.notifier).set(remappedActive);
+    await Future<void>.delayed(Duration.zero);
+
+    check(handle!.ownsActiveChat(container)).isTrue();
+    check(
+      container.read(directRunRegistryProvider).hasLiveIntent((
+        ownerConversationId: directRunOwnerScopeForTest(
+          container,
+          remappedActive,
+        ),
+        assistantMessageId: handle!.assistantMessageId,
+      )),
+    ).isTrue();
+
+    // discardUncommittedChatSend also relies on handle._owns(ref, active).
+    discardUncommittedChatSend(container, handle);
+    check(
+      container
+          .read(chatMessagesProvider)
+          .where((m) => m.id == handle!.assistantMessageId),
+    ).isEmpty();
+
+    adapter.events.add(const DirectStreamDone());
+    await adapter.finish();
+    await send;
   });
 }

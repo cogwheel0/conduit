@@ -643,7 +643,7 @@ Future<bool> _refreshDirectConversationOwner(
   );
   if (rebound) {
     owner.conversationId = resolvedConversationId;
-    sendHandle?._bindOwnerScope(resolvedOwnerScope);
+    sendHandle?._bindOwnerScope(owner.mutationOwnerScope);
     onRebound?.call(
       _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
     );
@@ -792,7 +792,7 @@ Future<void> _dispatchDirectRunFromChat(
           );
           if (!rebound) return;
           owner.conversationId = id;
-          sendHandle?._bindOwnerScope(resolvedOwnerScope);
+          sendHandle?._bindOwnerScope(owner.mutationOwnerScope);
           rebindStopIndex(
             _directRunKeyForOwner(resolvedOwnerScope, assistantMessageId),
           );

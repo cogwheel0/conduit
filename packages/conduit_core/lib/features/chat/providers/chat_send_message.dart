@@ -676,7 +676,7 @@ Future<void> _sendMessageInternal(
             owner = resolvedOwner;
             directStopIndex!.rebind(directIndexedRunKey!, nextKey);
             directIndexedRunKey = nextKey;
-            sendHandle._bindOwnerScope(resolvedOwner.scopedConversationId);
+            sendHandle._bindOwnerScope(resolvedOwner.mutationOwnerScope);
           }
           return rebound;
         },
