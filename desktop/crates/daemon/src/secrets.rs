@@ -1360,17 +1360,20 @@ fn make_folders_durably(dir: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Writes the entries of every folder above `path` to disk, from its own
-/// folder up. A folder this user can't open holds nothing made here, and a
-/// filesystem that can't sync folders (EINVAL) is taken as it is.
+/// folder up. Its own folder must sync: the name is in it, and a key used
+/// before its name is on disk can be lost with the data it seals (the key
+/// stays, and the next try syncs it). A folder above that this user can't
+/// open holds nothing made here, and a filesystem that can't sync folders
+/// (EINVAL) is taken as it is.
 #[cfg(unix)]
 fn sync_folders_above(path: &std::path::Path) -> std::io::Result<()> {
-    for folder in path.ancestors().skip(1) {
+    for (i, folder) in path.ancestors().skip(1).enumerate() {
         if folder.as_os_str().is_empty() {
             break;
         }
         let dir = match std::fs::File::open(folder) {
             Ok(dir) => dir,
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => continue,
+            Err(e) if i > 0 && e.kind() == std::io::ErrorKind::PermissionDenied => continue,
             Err(e) => return Err(e),
         };
         match dir.sync_all() {
@@ -1843,6 +1846,37 @@ mod tests {
         assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
         assert_eq!(store.chosen(), Ok(true));
         assert!(matches!(store.load(), Err(SecretError::Store(_))), "a pipe");
+    }
+
+    /// The key's own folder can be written but not read (0300), so its new
+    /// name can't be synced: the key isn't reported made, and isn't used
+    /// until it is. It stays, and once the folder can be read again the next
+    /// try syncs and takes that same key.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_whose_folder_cant_be_synced_is_not_used_until_it_is() {
+        use std::os::unix::fs::PermissionsExt as _;
+        // Root reads a folder whatever its permissions (a container's
+        // tests): there is no denial to see.
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let folder = dir.path().join("share");
+        std::fs::create_dir(&folder).unwrap();
+        let store = KeyFile::new(folder.join("app.example.conduit.master-key"));
+        let key = new_master_key();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o300)).unwrap();
+        let made = store.add(&key);
+        let loaded = store.load();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(matches!(made, Err(SecretError::Store(_))), "{made:?}");
+        assert!(matches!(loaded, Err(SecretError::Store(_))), "{loaded:?}");
+        assert_eq!(load_or_create_master_key(&store), Ok(key));
     }
 
     /// A key file others can read (copied, restored from a backup, chmod
