@@ -137,28 +137,74 @@ Future<bool> _askStopAgain(
   String chatId,
   ({Set<String> ids, bool known}) own,
   String? userId,
-) async {
+) {
   final session = api.captureAuthSnapshot();
-  Future<bool> stopChat() async {
-    if (!api.authSnapshotIsCurrent(session)) return false;
-    await api.stopChatTasksRaw(chatId, authSnapshot: session);
-    return true;
-  }
-
-  final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
-  if (!api.authSnapshotIsCurrent(session)) return false;
-  if (running.isEmpty) {
-    // Open WebUI stores no temporary chat, and answers a read of one 401 as
-    // it does a refused session; its stop there finishes no stored answer.
-    if (!isTemporaryChat(chatId)) {
-      final chat = await api.getChatRaw(chatId, authSnapshot: session);
-      if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+  // The chat's stop ends every task the account runs there, one a request
+  // sent after the task list was read would start among them.
+  return api.holdingChatCompletions(chatId, () async {
+    Future<bool> stopChat() async {
+      if (!api.authSnapshotIsCurrent(session)) return false;
+      await api.stopChatTasksRaw(chatId, authSnapshot: session);
+      return true;
     }
-    return stopChat();
+
+    final running = await api.getChatTaskIdsRaw(chatId, authSnapshot: session);
+    if (!api.authSnapshotIsCurrent(session)) return false;
+    if (running.isEmpty) {
+      // Open WebUI stores no temporary chat, and answers a read of one 401 as
+      // it does a refused session; its stop there finishes no stored answer.
+      if (!isTemporaryChat(chatId)) {
+        final chat = await api.getChatRaw(chatId, authSnapshot: session);
+        if (openWebUiChatStopRejectsPrompt(chat, userId: userId)) return false;
+      }
+      return stopChat();
+    }
+    if (!own.known) return false;
+    if (running.every(own.ids.contains)) return stopChat();
+    return !running.any(own.ids.contains);
+  });
+}
+
+/// Whether the signed-in account may stop a single Open WebUI task by its
+/// id: `POST /api/tasks/stop/{id}` is for administrators only.
+bool _maySingleTasksBeStopped(dynamic ref) =>
+    (ref.read(currentUserProvider2) as User?)?.role == 'admin';
+
+/// Stops [taskIds], the tasks of one Open WebUI request that ended badly
+/// here, by their ids, as [session]. No one pressed Stop for them, so they
+/// are never stopped through the chat: that would end every task the account
+/// runs there and finish its other unfinished answers. Unless the account is
+/// an [administrator], they run on. It never fails, and reports nothing.
+Future<void> _stopRequestTasksQuietly(
+  ApiService? api, {
+  required bool administrator,
+  required Iterable<String> taskIds,
+  required ApiAuthSnapshot? session,
+}) async {
+  final ids = taskIds.where((id) => id.isNotEmpty).toSet();
+  if (api == null || ids.isEmpty) return;
+  if (!administrator) {
+    DebugLogger.log(
+      'request-tasks-left-running',
+      scope: 'chat/stop',
+      data: {'tasks': ids.length},
+    );
+    return;
   }
-  if (!own.known) return false;
-  if (running.every(own.ids.contains)) return stopChat();
-  return !running.any(own.ids.contains);
+  final asked = session ?? api.captureAuthSnapshot();
+  for (final id in ids) {
+    if (!api.authSnapshotIsCurrent(asked)) return;
+    try {
+      await api.stopTaskRaw(id, authSnapshot: asked);
+    } catch (error) {
+      // A refusal is a task that could not be stopped, never one that was.
+      DebugLogger.log(
+        'request-task-not-stopped',
+        scope: 'chat/stop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+  }
 }
 
 // Stop generation provider
@@ -279,6 +325,7 @@ Future<bool> _stopGeneration(Ref ref) {
   // a task for the chat as Stop was pressed, and the asks that stop it on
   // the server: the answer is kept once they are answered.
   String? stoppedAnswerId;
+  String? stoppedTaskChatId;
   var taskRan = Future<bool?>.value();
   final serverStops = <Future<bool>>[];
   // The chat whose stop the stopped answer's own stop asks, and that ask.
@@ -450,6 +497,7 @@ Future<bool> _stopGeneration(Ref ref) {
         // both).
         stoppedOpenWebUiRun = true;
         stoppedAnswerId = last.id;
+        stoppedTaskChatId = last.metadata?['taskConversationId']?.toString();
         // Asked before the server is told to stop: only a task running then
         // saves the stopped answer itself.
         final lookup = taskRan = _openWebUiTaskRuns(api, stoppedChatId, last);
@@ -530,6 +578,13 @@ Future<bool> _stopGeneration(Ref ref) {
       );
       serverStops.add(chatStop);
       settled.add(chatStop);
+      // Its stops of the chat end every task the account runs there: a
+      // request sent there before they are answered waits for them.
+      final asked = Future.wait(serverStops);
+      for (final chatId in {activeConv.id, ?stoppedTaskChatId}) {
+        if (chatId.isEmpty) continue;
+        unawaited(api.holdingChatCompletions(chatId, () => asked));
+      }
       final stopped = stoppedAnswerId;
       if (stopped != null) {
         settled.add(

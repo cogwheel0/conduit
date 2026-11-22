@@ -1203,11 +1203,12 @@ Future<Set<String>> _markComparisonAcceptedOrAbort(
     }
   } catch (_) {
     await _abortQuietly(session);
-    for (final taskId in session.taskIds) {
-      try {
-        await api.stopTask(taskId);
-      } catch (_) {}
-    }
+    await _stopRequestTasksQuietly(
+      api,
+      administrator: _maySingleTasksBeStopped(ref),
+      taskIds: session.taskIds,
+      session: owner.authSnapshot,
+    );
     rethrow;
   }
   return completed;

@@ -1,11 +1,25 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:dio/dio.dart'
+    show
+        DioException,
+        Headers,
+        HttpClientAdapter,
+        InterceptorsWrapper,
+        RequestOptions,
+        Response,
+        ResponseBody;
+import 'package:fake_async/fake_async.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
+    show currentUserProvider2;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -136,9 +150,11 @@ ProviderContainer _container({
   Conversation? activeConversation,
   ApiService? apiService,
   SocketService? socketService,
+  User? user,
 }) {
   final container = ProviderContainer(
     overrides: [
+      if (user != null) currentUserProvider2.overrideWithValue(user),
       chatMessagesProvider.overrideWith(() => _TestMessagesNotifier()),
       activeConversationProvider.overrideWith(
         () => activeConversation == null
@@ -168,6 +184,8 @@ class _RecordingCompletionApi extends ApiService {
     this.sendGate,
     this.sendFailure,
     this.returnedTaskId,
+    this.standardAccount = false,
+    this.realTaskStops = false,
   }) : super(
          serverConfig: const ServerConfig(
            id: 'test',
@@ -181,6 +199,21 @@ class _RecordingCompletionApi extends ApiService {
   final Completer<void>? sendGate;
   final Object? sendFailure;
   final String? returnedTaskId;
+
+  /// Whether the account is not an administrator: Open WebUI stops a single
+  /// task (`POST /api/tasks/stop/{id}`) only for one, and refuses it 401.
+  final bool standardAccount;
+
+  /// Whether a task stop goes the service's own route, to [dio]'s adapter.
+  final bool realTaskStops;
+
+  /// The tasks the server runs for the account in the chat: one starts as its
+  /// completion request is answered, and ends once it is stopped.
+  final Set<String> runningTasks = {};
+
+  /// Completes once the server is asked to stop a task it runs, by the task's
+  /// id or by the chat's stop, whether it takes that or not.
+  final Completer<void> runningTaskStopAsked = Completer<void>();
   final Completer<void> settingsStarted = Completer<void>();
   final Completer<void> sendStarted = Completer<void>();
   int settingsCalls = 0;
@@ -195,9 +228,17 @@ class _RecordingCompletionApi extends ApiService {
   int targetedStopCalls = 0;
   int abortCalls = 0;
 
+  final Map<int, Completer<void>> _settingsCallsReached = {};
+
+  /// Completes once the account's settings have been read [count] times.
+  Future<void> settingsCallsReach(int count) => settingsCalls >= count
+      ? Future<void>.value()
+      : (_settingsCallsReached[count] ??= Completer<void>()).future;
+
   @override
   Future<Map<String, dynamic>> getUserSettings({Object? authSnapshot}) async {
     settingsCalls += 1;
+    _settingsCallsReached.remove(settingsCalls)?.complete();
     if (!settingsStarted.isCompleted) settingsStarted.complete();
     final gate = settingsGate;
     if (gate != null) await gate.future;
@@ -205,16 +246,40 @@ class _RecordingCompletionApi extends ApiService {
   }
 
   @override
-  Future<List<String>> getTaskIdsByChat(String chatId) async => const [];
+  Future<List<String>> getTaskIdsByChat(String chatId) async =>
+      runningTasks.toList();
 
   @override
   Future<void> stopTasksByChat(String chatId) async {
     broadStopCalls += 1;
+    if (runningTasks.isNotEmpty && !runningTaskStopAsked.isCompleted) {
+      runningTaskStopAsked.complete();
+    }
+    runningTasks.clear();
   }
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      realTaskStops
+      ? super.stopTaskRaw(taskId, authSnapshot: authSnapshot)
+      : stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
+    if (realTaskStops) return super.stopTask(taskId);
     targetedStopCalls += 1;
+    if (runningTasks.contains(taskId) && !runningTaskStopAsked.isCompleted) {
+      runningTaskStopAsked.complete();
+    }
+    if (standardAccount) {
+      final request = RequestOptions(path: '/api/tasks/stop/$taskId');
+      throw DioException.badResponse(
+        statusCode: 401,
+        requestOptions: request,
+        response: Response<dynamic>(requestOptions: request, statusCode: 401),
+      );
+    }
+    runningTasks.remove(taskId);
   }
 
   @override
@@ -267,6 +332,7 @@ class _RecordingCompletionApi extends ApiService {
 
     final taskId = returnedTaskId;
     if (taskId != null) {
+      runningTasks.add(taskId);
       return ChatCompletionSession.taskSocket(
         messageId: responseMessageId ?? 'assistant-regen',
         conversationId: conversationId,
@@ -320,6 +386,80 @@ final class _GatedSocketService extends SocketService {
   }
 }
 
+/// A socket that is down. The send's own reconnect is answered at once; once
+/// [holds] says so, a reconnect is answered only when [gate] completes, as the
+/// binding of an accepted answer's task to the socket waits for one.
+final class _BindingGatedSocketService extends SocketService {
+  _BindingGatedSocketService({required this.gate, required this.holds})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'test',
+          name: 'Test',
+          url: 'https://example.com',
+        ),
+      );
+
+  final Completer<void> gate;
+  final bool Function() holds;
+  final Completer<void> bindingStarted = Completer<void>();
+
+  @override
+  bool get isConnected => false;
+
+  @override
+  String? get sessionId => null;
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (!holds()) return false;
+    if (!bindingStarted.isCompleted) bindingStarted.complete();
+    await gate.future;
+    return false;
+  }
+}
+
+const _administrator = User(
+  id: 'admin',
+  username: 'admin',
+  email: 'admin@example.test',
+  role: 'admin',
+);
+
+const _standardAccount = User(
+  id: 'member',
+  username: 'member',
+  email: 'member@example.test',
+  role: 'user',
+);
+
+/// Answers every request, and records the session each task stop went as.
+final class _TaskStopRecorder implements HttpClientAdapter {
+  final List<Object?> stoppedAs = <Object?>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    if (options.path.startsWith('/api/tasks/stop/')) {
+      stoppedAs.add(options.headers['Authorization']);
+    }
+    return ResponseBody.fromString(
+      '{"status": true}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 ChatMessage _userMessage({required String id, required String content}) {
   return ChatMessage(
     id: id,
@@ -361,9 +501,20 @@ Conversation _conversation({
   );
 }
 
-Future<void> _flushAsyncWork() async {
-  await Future<void>.delayed(Duration.zero);
-  await Future<void>.delayed(Duration.zero);
+/// Completes once [container]'s transcript satisfies [done].
+Future<void> _untilMessages(
+  ProviderContainer container,
+  bool Function(List<ChatMessage> messages) done,
+) {
+  if (done(container.read(chatMessagesProvider))) return Future.value();
+  final reached = Completer<void>();
+  final subscription = container.listen<List<ChatMessage>>(
+    chatMessagesProvider,
+    (_, next) {
+      if (done(next) && !reached.isCompleted) reached.complete();
+    },
+  );
+  return reached.future.whenComplete(subscription.close);
 }
 
 void main() {
@@ -588,7 +739,10 @@ void main() {
         // JSON completions are intentionally applied in a microtask after the
         // transport has been attached. Wait for that terminal delivery rather
         // than assuming the dispatch future represents stream completion.
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         final messages = container.read(chatMessagesProvider);
@@ -646,13 +800,16 @@ void main() {
         // Direct-route resolution is asynchronous even when no direct binding
         // exists, so admission precedes the observable settings request by a
         // microtask.
-        await _flushAsyncWork();
+        await api.settingsCallsReach(2);
         check(api.settingsCalls).equals(2);
 
         settingsGate.complete();
         await Future.wait([regeneration, replacementRegeneration])
             .timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         // Only the replacement operation can submit. The stale operation was
         // displaced before its await resumed and cannot reacquire A by id.
@@ -721,16 +878,23 @@ void main() {
       },
     );
 
-    test(
-      'Stop while completion POST is pending aborts its returned task',
-      () async {
+    // No one pressed Stop for the task the server started, so it is never
+    // stopped through the chat: only an administrator may stop it alone.
+    for (final (label, user) in const [
+      ('is stopped by its id for an administrator', _administrator),
+      ('runs on, unasked, for a standard account', _standardAccount),
+    ]) {
+      test('Stop while completion POST is pending aborts its returned task, '
+          'whose task on the server $label', () async {
         final sendGate = Completer<void>();
         addTearDown(() {
           if (!sendGate.isCompleted) sendGate.complete();
         });
+        final administrator = user.role == 'admin';
         final api = _RecordingCompletionApi(
           sendGate: sendGate,
           returnedTaskId: 'task-regeneration',
+          standardAccount: !administrator,
         );
         final initialMessages = [
           _userMessage(id: 'u1', content: 'First prompt'),
@@ -743,6 +907,7 @@ void main() {
             messages: initialMessages,
           ),
           apiService: api,
+          user: user,
         );
         addTearDown(container.dispose);
 
@@ -753,11 +918,18 @@ void main() {
         container.read(stopGenerationProvider)();
         sendGate.complete();
         await regeneration.timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        if (administrator) await api.runningTaskStopAsked.future;
 
         check(api.completionCalls).equals(1);
         check(api.abortCalls).equals(1);
-        check(api.targetedStopCalls).equals(1);
+        check(api.broadStopCalls).equals(1);
+        if (administrator) {
+          check(api.targetedStopCalls).equals(1);
+          check(api.runningTasks).isEmpty();
+        } else {
+          check(api.targetedStopCalls).equals(0);
+          check(api.runningTasks).deepEquals({'task-regeneration'});
+        }
         final stopped = container.read(chatMessagesProvider).last;
         check(stopped.id).equals(placeholderId);
         check(stopped.isStreaming).isFalse();
@@ -768,8 +940,111 @@ void main() {
               ) ??
               false,
         ).isFalse();
-      },
-    );
+      });
+    }
+
+    test('an administrator\'s cleanup stop goes as the account that sent the '
+        'request, never as one signed in since', () {
+      fakeAsync((async) {
+        final sendGate = Completer<void>();
+        final api = _RecordingCompletionApi(
+          sendGate: sendGate,
+          returnedTaskId: 'task-regeneration',
+          realTaskStops: true,
+        )..updateAuthToken('token-admin');
+        final server = _TaskStopRecorder();
+        api.dio.httpClientAdapter = server;
+        // Another account signs in as the stop is on its way, before the
+        // session's interceptor reads the token.
+        var signedInMeanwhile = false;
+        api.dio.interceptors.insert(
+          0,
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              if (options.path.startsWith('/api/tasks/stop/')) {
+                api.updateAuthToken('token-other');
+                signedInMeanwhile = true;
+              }
+              handler.next(options);
+            },
+          ),
+        );
+        final initialMessages = [
+          _userMessage(id: 'u1', content: 'First prompt'),
+          _assistantMessage(id: 'a1', content: 'First answer'),
+        ];
+        final container = _container(
+          initialMessages: initialMessages,
+          activeConversation: _conversation(
+            id: 'conv-admin-stop',
+            messages: initialMessages,
+          ),
+          apiService: api,
+          user: _administrator,
+        );
+        addTearDown(container.dispose);
+
+        unawaited(
+          regenerateHistoricalMessageById(
+            container,
+            'a1',
+          ).catchError((Object _) {}),
+        );
+        async.flushMicrotasks();
+        check(api.sendStarted.isCompleted).isTrue();
+        container.read(stopGenerationProvider)();
+        sendGate.complete();
+        async.elapse(Duration.zero);
+
+        check(signedInMeanwhile).isTrue();
+        check(server.stoppedAs).not((it) => it.contains('Bearer token-other'));
+      });
+    });
+
+    test('a Stop while the answer\'s task waits for the socket is taken, '
+        'and stops that task, for a standard account', () async {
+      final socketGate = Completer<void>();
+      addTearDown(() {
+        if (!socketGate.isCompleted) socketGate.complete();
+      });
+      final api = _RecordingCompletionApi(
+        returnedTaskId: 'task-binding',
+        standardAccount: true,
+      );
+      final socket = _BindingGatedSocketService(
+        gate: socketGate,
+        holds: () => api.runningTasks.isNotEmpty,
+      );
+      addTearDown(socket.dispose);
+      final initialMessages = [
+        _userMessage(id: 'u1', content: 'First prompt'),
+        _assistantMessage(id: 'a1', content: 'First answer'),
+      ];
+      final container = _container(
+        initialMessages: initialMessages,
+        activeConversation: _conversation(
+          id: 'conv-binding',
+          messages: initialMessages,
+        ),
+        apiService: api,
+        socketService: socket,
+        user: _standardAccount,
+      );
+      addTearDown(container.dispose);
+
+      final regeneration = regenerateHistoricalMessageById(container, 'a1');
+      await socket.bindingStarted.future;
+      final binding = container.read(chatMessagesProvider).last;
+      check(binding.metadata?['taskId']).equals('task-binding');
+
+      final taken = await container.read(stopGenerationSettledProvider)();
+      socketGate.complete();
+      await regeneration;
+
+      check(taken).isTrue();
+      check(api.runningTasks).isEmpty();
+      check(api.targetedStopCalls).equals(0);
+    });
 
     test(
       'successful POST cannot attach after a newer assistant becomes tail',
@@ -793,6 +1068,7 @@ void main() {
             messages: initialMessages,
           ),
           apiService: api,
+          user: _administrator,
         );
         addTearDown(container.dispose);
 
@@ -808,7 +1084,7 @@ void main() {
 
         sendGate.complete();
         await regeneration.timeout(const Duration(seconds: 1));
-        await _flushAsyncWork();
+        await api.runningTaskStopAsked.future;
 
         check(api.completionCalls).equals(1);
         check(api.abortCalls).equals(1);
@@ -945,7 +1221,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         check(api.lastChatParams)
@@ -1105,7 +1384,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         check(api.completionCalls).equals(1);
         check(api.lastMessages.map((message) => message['role']).toList())
@@ -1133,7 +1415,10 @@ void main() {
         addTearDown(container.dispose);
 
         await regenerateHistoricalMessageById(container, 'a1');
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) => messages.last.content == 'Regenerated answer',
+        );
 
         var messages = container.read(chatMessagesProvider);
         final firstReplay = messages.last;
@@ -1141,7 +1426,12 @@ void main() {
             .deepEquals(['a1']);
 
         await regenerateHistoricalMessageById(container, firstReplay.id);
-        await _flushAsyncWork();
+        await _untilMessages(
+          container,
+          (messages) =>
+              messages.last.id != firstReplay.id &&
+              messages.last.content == 'Regenerated answer',
+        );
 
         messages = container.read(chatMessagesProvider);
         final secondReplay = messages.last;

@@ -1,9 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:dio/dio.dart'
-    show DioException, DioExceptionType, RequestOptions, Response;
+    show
+        DioException,
+        DioExceptionType,
+        Headers,
+        HttpClientAdapter,
+        RequestOptions,
+        Response,
+        ResponseBody;
 import 'package:conduit_core/auth/api_auth_interceptor.dart'
     show ApiAuthSnapshot;
 import 'package:conduit_core/database/app_database.dart';
@@ -232,14 +240,70 @@ class _FakeApiService extends ApiService {
     _send(authSnapshot);
     chatStops++;
     if (stopsRefused) throw StateError('the stop was refused');
+    final hold = holdChatStop;
+    if (hold != null) {
+      chatStopHeld = true;
+      await hold.future;
+      // It ends what the account runs in the chat as it reaches the server.
+      taskIds = const <String>[];
+    }
     server?.stopTasksByChat(chatId);
   }
+
+  /// When set, a chat's stop reaches the server only once this completes;
+  /// [chatStopHeld] marks the wait.
+  Completer<void>? holdChatStop;
+  bool chatStopHeld = false;
+
+  @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      stopTask(taskId);
 
   @override
   Future<void> stopTask(String taskId) async {
     stoppedTasks.add(taskId);
     if (stopsRefused) throw StateError('the stop was refused');
   }
+}
+
+/// Open WebUI's completion route: a request for a chat, recorded in
+/// [requested], starts a task there, `task-next`, which [api] lists.
+final class _CompletionRoute implements HttpClientAdapter {
+  _CompletionRoute(this.api, this.requested);
+
+  final _FakeApiService api;
+  final List<String> requested;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final completion =
+        options.method == 'POST' && options.path == '/api/chat/completions';
+    if (completion) {
+      requested.add((options.data as Map)['chat_id'] as String);
+      api.taskIds = [...api.taskIds, 'task-next'];
+    }
+    return ResponseBody.fromString(
+      jsonEncode(
+        completion
+            ? {
+                'status': true,
+                'task_ids': ['task-next'],
+              }
+            : const <String, dynamic>{},
+      ),
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// The model list, answered when a test says.
@@ -1898,6 +1962,111 @@ void main() {
         });
       });
     }
+
+    // A pressed Stop's stop of the chat ends every task the account runs
+    // there, one a request sent before it is answered would start.
+    test('a request to the chat while a pressed Stop\'s stop of it is on its '
+        'way waits until that stop is answered, and its own task runs on', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, db: _, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        final stop = Completer<void>();
+        final requested = <String>[];
+        api
+          ..holdChatStop = stop
+          ..dio.interceptors.clear()
+          ..dio.httpClientAdapter = _CompletionRoute(api, requested);
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+        check(api.chatStopHeld).isTrue();
+
+        unawaited(
+          api.sendMessageSession(
+            messages: const [
+              {'role': 'user', 'content': 'And the squall?'},
+            ],
+            model: 'gale-model',
+            conversationId: 'chat-1',
+            responseMessageId: 'assistant-next',
+          ),
+        );
+        async.elapse(Duration.zero);
+        check(requested).isEmpty();
+        stop.complete();
+        async.elapse(Duration.zero);
+
+        check(requested).deepEquals(['chat-1']);
+        check(api.taskIds).deepEquals(['task-next']);
+      });
+    });
+
+    // The chat's stop ends every task the account runs there, one a request
+    // sent between the task read and the stop would start among them.
+    test('a request to the chat while a Stop is asked again waits until that '
+        'stop is answered, and its own task runs on', () {
+      fakeAsync((async) {
+        final api = _FakeApiService(_chat([question]));
+        final (notifier: _, :db, :container) = streamHere(
+          async,
+          api,
+          'Gales veer',
+        );
+        api
+          ..away = true
+          ..readFailures = 1
+          ..stopsRefused = true;
+        unawaited(container.read(stopGenerationSettledProvider)());
+        async.flushMicrotasks();
+
+        // The server is back with nothing running; the Stop is asked again,
+        // and its stop of the chat is on its way.
+        final stop = Completer<void>();
+        final requested = <String>[];
+        api
+          ..away = false
+          ..stopsRefused = false
+          ..taskIds = const <String>[]
+          ..holdChatStop = stop
+          ..dio.interceptors.clear()
+          ..dio.httpClientAdapter = _CompletionRoute(api, requested);
+        unawaited(
+          container
+              .read(chatMessagesProvider.notifier)
+              .settlePendingCancellation(
+                chatId: 'chat-1',
+                database: db,
+                api: api,
+                authSessionEpoch: container.read(
+                  openWebUiAuthSessionEpochProvider,
+                ),
+              )!,
+        );
+        async.flushMicrotasks();
+        check(api.chatStopHeld).isTrue();
+
+        unawaited(
+          api.sendMessageSession(
+            messages: const [
+              {'role': 'user', 'content': 'And the squall?'},
+            ],
+            model: 'gale-model',
+            conversationId: 'chat-1',
+            responseMessageId: 'assistant-next',
+          ),
+        );
+        async.elapse(Duration.zero);
+        check(requested).isEmpty();
+        stop.complete();
+        async.elapse(Duration.zero);
+
+        check(requested).deepEquals(['chat-1']);
+        check(api.taskIds).deepEquals(['task-next']);
+      });
+    });
 
     // Open WebUI stores no temporary chat, and its stop there finishes no
     // stored answer.

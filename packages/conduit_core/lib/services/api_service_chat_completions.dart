@@ -245,6 +245,13 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     Future<Response<ResponseBody>> postWithMetadataFormat(
       _ChatRequestMetadataFormat metadataFormat,
     ) async {
+      for (
+        var stopping = _chatStopsUnderWay[savedChatId];
+        stopping != null;
+        stopping = _chatStopsUnderWay[savedChatId]
+      ) {
+        await Future.wait(stopping.toList());
+      }
       if (stoppedOrReplaced()) {
         throw ChatCompletionStopped(
           RequestOptions(path: '/api/chat/completions'),
@@ -777,19 +784,27 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   }
 
   // === Tasks control (parity with Web client) ===
-  Future<void> stopTask(String taskId) async {
-    try {
-      final response = await _dio.post('/api/tasks/stop/$taskId');
-      // A task the server does not hold is answered with HTTP 200 and
-      // `status: false`: the route succeeded, the stop did not.
-      final data = response.data;
-      if (data is Map && data['status'] == false) {
-        throw TaskStopNotAcknowledged(
-          data['message']?.toString() ?? 'Task $taskId was not stopped.',
-        );
-      }
-    } catch (e) {
-      rethrow;
+  Future<void> stopTask(String taskId) => stopTaskRaw(taskId);
+
+  /// POST `/api/tasks/stop/{id}`, which only an administrator may ask. Sent
+  /// with [authSnapshot], it goes only while that session is the current
+  /// one. Throws [TaskStopNotAcknowledged] when the server holds no such
+  /// task, and the request's error when it refuses the stop.
+  Future<void> stopTaskRaw(
+    String taskId, {
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    final response = await _dio.post(
+      '/api/tasks/stop/$taskId',
+      options: _withAuthSnapshot(Options(), authSnapshot),
+    );
+    // A task the server does not hold is answered with HTTP 200 and
+    // `status: false`: the route succeeded, the stop did not.
+    final data = response.data;
+    if (data is Map && data['status'] == false) {
+      throw TaskStopNotAcknowledged(
+        data['message']?.toString() ?? 'Task $taskId was not stopped.',
+      );
     }
   }
 
@@ -962,6 +977,26 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
 
   /// Whether a Stop reached the send of [messageId] before its request.
   bool sendStopped(String messageId) => _sendsUnderWay[messageId] ?? false;
+
+  /// Runs [stop], a stop of [chatId]'s tasks decided on a read of the tasks
+  /// running there. Until it ends, a completion request for that chat
+  /// ([sendMessageSession]) waits: the chat's stop ends every task the
+  /// account runs in the chat, a task this request would start among them.
+  Future<T> holdingChatCompletions<T>(
+    String chatId,
+    Future<T> Function() stop,
+  ) {
+    final ended = Completer<void>();
+    final underWay = _chatStopsUnderWay.putIfAbsent(chatId, () => {})
+      ..add(ended.future);
+    return Future<T>.sync(stop).whenComplete(() {
+      underWay.remove(ended.future);
+      if (underWay.isEmpty && identical(_chatStopsUnderWay[chatId], underWay)) {
+        _chatStopsUnderWay.remove(chatId);
+      }
+      ended.complete();
+    });
+  }
 
   /// The send of [messageId] ended before its request: its Stop goes too.
   void endSend(String messageId) => _sendsUnderWay.remove(messageId);

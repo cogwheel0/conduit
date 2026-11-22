@@ -14478,6 +14478,71 @@ void main() {
       await sending;
     });
 
+    // No one pressed Stop for the group, so its tasks are never stopped
+    // through the chat: only an administrator may stop each by its id.
+    for (final (label, account) in const [
+      ('stopped by their ids for an administrator', _admin),
+      ('left running, unasked, for a standard account', _accountA),
+    ]) {
+      test('a group whose answers cannot be marked accepted has its tasks '
+          '$label', () async {
+        final (:api, socket: _, client: _, :container) = await openDraft(
+          account: account,
+        );
+        final holdResponse = Completer<void>();
+        final requested = Completer<void>();
+        api
+          ..holdResponse = holdResponse
+          ..onRequest = requested.complete;
+        final sending = durableCompareSend(
+          container,
+          'compare these',
+          null,
+          models: const [duplicate, duplicate],
+        );
+        await requested.future;
+        final serverId = container.read(activeConversationProvider)!.id;
+
+        // One answer's row is gone when the server takes the request, so it
+        // cannot be marked accepted. The server runs both answers' tasks.
+        final rows = await db.messagesDao.getForChat(serverId);
+        final gone = rows.lastWhere((row) => row.role == 'assistant');
+        await (db.delete(
+          db.messages,
+        )..where((row) => row.id.equals(gone.id))).go();
+        final refused = RequestOptions(path: '/api/tasks/stop/task-0');
+        void ended(String task) => api.activeTaskIds = [
+          for (final running in api.activeTaskIds)
+            if (running != task) running,
+        ];
+        api
+          ..activeTaskIds = const ['task-0', 'task-1']
+          ..onTaskStopped = ended
+          ..taskStopFailure = account.role == 'admin'
+              ? null
+              : DioException.badResponse(
+                  statusCode: 401,
+                  requestOptions: refused,
+                  response: Response<dynamic>(
+                    requestOptions: refused,
+                    statusCode: 401,
+                  ),
+                );
+        holdResponse.complete();
+        // The send drains its turn, abort and all.
+        await sending;
+
+        check(api.stoppedChats).isEmpty();
+        if (account.role == 'admin') {
+          check(api.stoppedTasks).deepEquals(['task-0', 'task-1']);
+          check(api.activeTaskIds).isEmpty();
+        } else {
+          check(api.stoppedTasks).isEmpty();
+          check(api.activeTaskIds).deepEquals(['task-0', 'task-1']);
+        }
+      });
+    }
+
     test('answers the server holds only part of before they are bound stay '
         'live, each with its own task', () async {
       final (:api, :socket, :client, :container) = await openDraft(
@@ -14968,13 +15033,22 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   }
 
   @override
+  Future<void> stopTaskRaw(String taskId, {ApiAuthSnapshot? authSnapshot}) =>
+      stopTask(taskId);
+
+  @override
   Future<void> stopTask(String taskId) async {
     stoppedTasks.add(taskId);
     await holdStop?.future;
-    final failure = stopFailure;
+    final failure = taskStopFailure ?? stopFailure;
     if (failure != null) throw failure;
     onTaskStopped?.call(taskId);
   }
+
+  /// When set, the server refuses a task stop by its id with this, and takes
+  /// the chat's stop: Open WebUI stops a single task only for an
+  /// administrator.
+  Object? taskStopFailure;
 
   /// Run as a stop is taken, so the server the sync client reads stops the
   /// same tasks.

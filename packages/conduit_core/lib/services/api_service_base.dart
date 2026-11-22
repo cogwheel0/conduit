@@ -1609,6 +1609,10 @@ abstract class _ApiServiceBase {
   // The sends under way whose completion request is not registered yet, by
   // answer id, and whether a Stop has reached each ([beginSend]).
   final Map<String, bool> _sendsUnderWay = {};
+
+  // The stops of a chat's tasks under way, by chat id
+  // ([holdingChatCompletions]).
+  final Map<String, Set<Future<void>>> _chatStopsUnderWay = {};
   // -----------------------------------------------------------------------
   // Payload construction (shared by legacy and new transport-aware path)
   // -----------------------------------------------------------------------
