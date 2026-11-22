@@ -212,11 +212,12 @@ fn master_key(paths: &AppPaths, scripted: bool) -> Result<String, SecretError> {
     ));
     #[cfg(target_os = "linux")]
     let store: Box<dyn MasterKeyStore> = {
-        let file = paths::master_key_file(&service, &paths::System);
+        let file =
+            conduit_daemon::secrets::KeyFile::new(paths::master_key_file(&service, &paths::System));
         // Once chosen (D12), the key file stays the key's home.
-        if file.exists() {
-            log::warn!("the master key is in a key file: {}", file.display());
-            Box::new(conduit_daemon::secrets::KeyFile::new(file))
+        if file.chosen()? {
+            log::warn!("the master key is in a key file: {}", file.path.display());
+            Box::new(file)
         } else {
             Box::new(conduit_daemon::secrets::LockedStore::new(
                 conduit_daemon::secrets::SecretService::new(service),

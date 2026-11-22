@@ -711,6 +711,16 @@ impl KeyFile {
     pub fn new(path: impl Into<std::path::PathBuf>) -> Self {
         Self { path: path.into() }
     }
+
+    /// Whether the user chose the key file before: it is there. One that
+    /// can't be looked at (its folder unreadable) is an error, never "not
+    /// chosen": a new key made instead would leave the data the old one
+    /// protects unreadable.
+    pub fn chosen(&self) -> Result<bool, SecretError> {
+        self.path
+            .try_exists()
+            .map_err(|e| SecretError::Store(format!("{}: {e}", self.path.display())))
+    }
 }
 
 #[cfg(unix)]
@@ -737,18 +747,17 @@ impl MasterKeyStore for KeyFile {
 
     /// The key goes to a file of its own first and is linked into place, so
     /// a crash never leaves a half-written key, and the link refuses a file
-    /// that is already there.
+    /// that is already there. Success is reported only once the key, its
+    /// name and every folder made for it are on disk: the daemon encrypts
+    /// with the key next, and a key lost to a power cut after that would
+    /// leave that data unreadable.
     fn add(&self, key: &str) -> Result<bool, SecretError> {
         use std::io::Write as _;
-        use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+        use std::os::unix::fs::OpenOptionsExt as _;
         let failed =
             |e: std::io::Error| SecretError::Store(format!("{}: {e}", self.path.display()));
-        let dir = self.path.parent().unwrap_or(std::path::Path::new("."));
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(failed)?;
+        let dir = parent_or_here(&self.path);
+        make_folders_durably(dir).map_err(failed)?;
         let name = self.path.file_name().unwrap_or_default().to_string_lossy();
         let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
         let written = std::fs::OpenOptions::new()
@@ -763,10 +772,41 @@ impl MasterKeyStore for KeyFile {
             .and_then(|()| std::fs::hard_link(&staged, &self.path));
         let _ = std::fs::remove_file(&staged);
         match written {
-            Ok(()) => Ok(true),
+            Ok(()) => sync_folder(dir).map(|()| true).map_err(failed),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
             Err(e) => Err(failed(e)),
         }
+    }
+}
+
+/// Makes the folders missing on the way to `dir` (only their owner can open
+/// them), each written into its parent before the next is made.
+#[cfg(unix)]
+fn make_folders_durably(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt as _;
+    let missing: Vec<&std::path::Path> = dir.ancestors().take_while(|d| !d.exists()).collect();
+    for folder in missing.into_iter().rev() {
+        match std::fs::DirBuilder::new().mode(0o700).create(folder) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        sync_folder(parent_or_here(folder))?;
+    }
+    Ok(())
+}
+
+/// Writes `dir`'s entries (a new name in it) to disk.
+#[cfg(unix)]
+fn sync_folder(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::File::open(dir)?.sync_all()
+}
+
+#[cfg(unix)]
+fn parent_or_here(path: &std::path::Path) -> &std::path::Path {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => std::path::Path::new("."),
     }
 }
 
@@ -1084,6 +1124,8 @@ mod tests {
         assert!(is_valid_master_key(&key));
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "only its user reads it");
+        let folder = std::fs::metadata(path.parent().unwrap()).unwrap();
+        assert_eq!(folder.permissions().mode() & 0o777, 0o700, "nor its folder");
         assert_eq!(load_or_create_master_key(&store).unwrap(), key);
         // Another launch's key is refused, never written over this one.
         assert_eq!(store.add(&new_master_key()), Ok(false));
@@ -1096,6 +1138,29 @@ mod tests {
         assert_eq!(
             names,
             [std::ffi::OsString::from("app.example.conduit.master-key")]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_file_that_cant_be_looked_at_is_an_error_never_absent() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let folder = dir.path().join("share");
+        std::fs::create_dir(&folder).unwrap();
+        let store = KeyFile::new(folder.join("app.example.conduit.master-key"));
+        assert_eq!(store.chosen(), Ok(false));
+        load_or_create_master_key(&store).unwrap();
+        assert_eq!(store.chosen(), Ok(true));
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let unreadable = store.chosen();
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(
+            matches!(unreadable, Err(SecretError::Store(_))),
+            "{unreadable:?}"
         );
     }
 
@@ -1138,7 +1203,11 @@ mod tests {
         let holding = MemoryStore(std::sync::Mutex::new(Some(keyring_key.clone())));
         let file = MemoryStore::default();
         assert_eq!(key_file_master_key(&holding, &file), Ok(keyring_key));
-        assert_eq!(file.load(), Ok(None), "no key file beside the keyring's key");
+        assert_eq!(
+            file.load(),
+            Ok(None),
+            "no key file beside the keyring's key"
+        );
 
         let empty = MemoryStore::default();
         let made = key_file_master_key(&empty, &file).unwrap();
