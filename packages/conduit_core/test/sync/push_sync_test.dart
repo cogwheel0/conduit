@@ -2607,6 +2607,39 @@ void main() {
       });
     }
 
+    // The push lands at 7300 by the server's clock.
+    for (final (moment, readAt, storedBy) in [
+      ('once it lands', 7300, _StoredBy.pull),
+      ('by a clock behind the server\'s once it lands', 7100, _StoredBy.pull),
+      ('by a clock ahead of the server\'s once it lands', 7400, _StoredBy.pull),
+      (
+        'once it lands, before a sync cycle stores that text',
+        7300,
+        _StoredBy.cycle,
+      ),
+    ]) {
+      test('an unfinished answer the server goes on writing comes back fuller '
+          'from a save made here; a read on leaving keeps the chat unread, '
+          'but the user\'s own Mark as Read $moment ends that, and the chat '
+          'stays read once that text is stored', () async {
+        await saveOverFullerAnswer();
+        check((await answerHere()).content).equals('Gales veer');
+        await db.chatsDao.setLastReadAt(chatId, readAt);
+        check((await db.chatsDao.getChat(chatId))!.heldUnread).isTrue();
+
+        await db.chatsDao.setLastReadAt(chatId, readAt, explicit: true);
+        check((await db.chatsDao.getChat(chatId))!.heldUnread).isFalse();
+        if (storedBy == _StoredBy.cycle) {
+          await cycle();
+          check((await answerHere()).content).equals(kept);
+          check((await db.chatsDao.getChat(chatId))!.heldTextAt).isNull();
+        }
+        final fuller = await pulled();
+        check((await answerHere()).content).equals(kept);
+        check(isConversationUnread(fuller)).isFalse();
+      });
+    }
+
     test('a chat held for the server\'s text that the server no longer has '
         'is read from the server once, not on every cycle', () async {
       await saveOverFullerAnswer();

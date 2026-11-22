@@ -506,8 +506,14 @@ class Conversations extends _$Conversations {
   /// (no database holds the chat, or the write failed, which takes the read
   /// shown back); throws at once when the chat cannot be looked up. A read
   /// no later than the one shown completes with the write still storing
-  /// that one.
-  Future<void> markConversationRead(String id, DateTime readAt) {
+  /// that one, unless it is [explicit], the user's own Mark as Read, which
+  /// is always stored: it ends a hold the read shown can't tell
+  /// ([ChatsDao.setLastReadAt]).
+  Future<void> markConversationRead(
+    String id,
+    DateTime readAt, {
+    bool explicit = false,
+  }) {
     if (id.isEmpty) return Future<void>.value();
     final identity = ChatStorageIdentity.parse(id);
     final rawId = identity.rawId;
@@ -523,19 +529,26 @@ class Conversations extends _$Conversations {
     }
     if (listed != null) {
       final existing = listed.lastReadAt;
-      if (existing != null && !readAt.isAfter(existing)) {
+      final raises = existing == null || readAt.isAfter(existing);
+      if (!raises && !explicit) {
         return (db == null ? null : _readWrites[(db, rawId)])?.newest ??
             Future<void>.value();
       }
-      final updated = <Conversation>[...current!]
-        ..[index] = listed.copyWith(lastReadAt: readAt);
-      _replaceState(updated);
+      if (raises) {
+        final updated = <Conversation>[...current!]
+          ..[index] = listed.copyWith(lastReadAt: readAt);
+        _replaceState(updated);
+      }
     }
     if (db == null || temporary) return Future<void>.value();
     // Pre-existing UI-only read marks come from the device clock; the DAO's
     // max() rule means the column is never lowered and the value never enters
     // watermark logic.
-    final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
+    final write = db.chatsDao.setLastReadAt(
+      rawId,
+      _epochSecondsOf(readAt),
+      explicit: explicit,
+    );
     final key = (db, rawId);
     final writes = _readWrites.putIfAbsent(key, _ReadWrites.new);
     if (listed != null && !writes.seeded) {
@@ -1164,10 +1177,15 @@ bool isTemporaryChat(String? id) => id != null && id.startsWith('local:');
 /// Marks [conversationId] read up to [readAt] (or now). Completes once the
 /// read is stored on this device: true, or false when it could not be
 /// (logged). Never throws, so a caller may leave it unawaited.
+///
+/// [explicit] is the user's own Mark as Read: it also ends a hold on the
+/// chat for the server's text not stored here yet, which the reads the app
+/// makes itself (opening or leaving a chat, [ShownChats]) leave in place.
 Future<bool> markConversationRead(
   dynamic ref,
   String? conversationId, {
   DateTime? readAt,
+  bool explicit = false,
 }) async {
   final scopedId = conversationId?.trim();
   if (scopedId == null || scopedId.isEmpty) {
@@ -1199,7 +1217,11 @@ Future<bool> markConversationRead(
     stored =
         ref
                 .read(conversationsProvider.notifier)
-                .markConversationRead(resolvedSelectionId, timestamp)
+                .markConversationRead(
+                  resolvedSelectionId,
+                  timestamp,
+                  explicit: explicit,
+                )
             as Future<void>;
   } catch (error, stackTrace) {
     failure = error;
