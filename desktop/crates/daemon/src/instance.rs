@@ -133,6 +133,40 @@ pub enum Claim {
     /// time (hung, or its queue full). Another app on the same profile must
     /// not start, so this launch ends.
     Busy,
+    /// The profile's name is held, and who holds it can't be told: it may
+    /// be this user's app, so this launch ends too.
+    Unidentified(io::Error),
+}
+
+/// Who holds the profile's name, from a launch's try to reach it.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+#[derive(Debug, PartialEq, Eq)]
+enum Holder {
+    /// This user's app: the launch is handed to it.
+    Ours,
+    /// Another user's: not this profile's app, so the launch runs on its own.
+    Theirs,
+    /// Still starting (bound, not listening yet): try again.
+    Starting,
+    /// It has no room for the launch now.
+    Busy,
+    /// It can't be told; it may be this user's app.
+    Unknown,
+}
+
+/// Who holds the name, from what reaching it gave: the holder's user id, or
+/// why there was none. Only a holder known to be another user's lets a
+/// launch run on its own.
+#[cfg_attr(not(target_os = "linux"), cfg(test))]
+fn holder(reached: Result<u32, io::ErrorKind>, this_uid: u32, out_of_time: bool) -> Holder {
+    match reached {
+        Ok(uid) if uid == this_uid => Holder::Ours,
+        Ok(_) => Holder::Theirs,
+        Err(io::ErrorKind::WouldBlock) => Holder::Busy,
+        Err(io::ErrorKind::ConnectionRefused) if out_of_time => Holder::Busy,
+        Err(io::ErrorKind::ConnectionRefused) => Holder::Starting,
+        Err(_) => Holder::Unknown,
+    }
 }
 
 /// The first launch's end, until it serves.
@@ -192,27 +226,35 @@ pub fn claim(service: &str, profile: &Path, args: &[String]) -> io::Result<Claim
 async fn forward_linux(name: &str, args: &[String], deadline: Instant) -> io::Result<Claim> {
     use crate::abstract_socket::{connect, peer_uid, this_uid};
     let stream = loop {
-        match connect(name) {
-            Ok(stream) => break stream,
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Claim::Busy),
-            Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
-                if Instant::now() >= deadline {
-                    return Ok(Claim::Busy);
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
+        let reached = connect(name).and_then(|stream| Ok((peer_uid(&stream)?, stream)));
+        let who = holder(
+            reached
+                .as_ref()
+                .map(|(uid, _)| *uid)
+                .map_err(io::Error::kind),
+            this_uid(),
+            Instant::now() >= deadline,
+        );
+        match (who, reached) {
+            (Holder::Ours, Ok((_, stream))) => break stream,
+            (Holder::Theirs, _) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "another user holds this app's instance name",
+                ));
             }
-            Err(e) => return Err(e),
+            (Holder::Starting, _) => tokio::time::sleep(Duration::from_millis(20)).await,
+            (Holder::Busy, _) => return Ok(Claim::Busy),
+            (_, Err(e)) => return Ok(Claim::Unidentified(e)),
+            (_, Ok(_)) => return Ok(Claim::Unidentified(io::Error::other("no holder"))),
         }
     };
-    if peer_uid(&stream)? != this_uid() {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "another user holds this app's instance name",
-        ));
-    }
-    stream.set_nonblocking(true)?;
-    let mut stream = tokio::net::UnixStream::from_std(stream)?;
-    Ok(match hand_over(&mut stream, args, deadline).await {
+    let handed = async {
+        stream.set_nonblocking(true)?;
+        let mut stream = tokio::net::UnixStream::from_std(stream)?;
+        hand_over(&mut stream, args, deadline).await
+    };
+    Ok(match handed.await {
         Ok(()) => Claim::Forwarded,
         Err(e) => {
             log::warn!("single instance: the running app did not take the launch: {e}");
@@ -233,10 +275,16 @@ async fn forward_windows(name: &str, args: &[String], deadline: Instant) -> io::
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            Err(e) => return Err(e),
+            // Held (the first pipe end was refused), by whom can't be told.
+            Err(e) => return Ok(Claim::Unidentified(e)),
         }
     };
-    pipe::check_server(&client)?;
+    match pipe::check_server(&client) {
+        Ok(()) => {}
+        // Known to be another account's, or another session's.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
+        Err(e) => return Ok(Claim::Unidentified(e)),
+    }
     Ok(match hand_over(&mut client, args, deadline).await {
         Ok(()) => Claim::Forwarded,
         Err(e) => {
@@ -680,6 +728,27 @@ mod tests {
             }
         }
         assert_eq!(Instant::now() - started, HANDOFF_TIMEOUT);
+    }
+
+    /// A launch runs on its own only beside a holder known to be another
+    /// user's. One it can't identify (reaching it failed, other than busy)
+    /// may be this user's app, so the launch ends, as for a busy one.
+    #[test]
+    fn only_a_holder_known_to_be_another_users_lets_a_launch_run_alone() {
+        use io::ErrorKind::{ConnectionRefused, OutOfMemory, PermissionDenied, WouldBlock};
+        let me = 1000;
+        for (reached, out_of_time, expected) in [
+            (Ok(me), false, Holder::Ours),
+            (Ok(1001), false, Holder::Theirs),
+            (Err(WouldBlock), false, Holder::Busy),
+            (Err(ConnectionRefused), false, Holder::Starting),
+            (Err(ConnectionRefused), true, Holder::Busy),
+            (Err(OutOfMemory), false, Holder::Unknown),
+            (Err(PermissionDenied), false, Holder::Unknown),
+            (Err(io::ErrorKind::Other), true, Holder::Unknown),
+        ] {
+            assert_eq!(holder(reached, me, out_of_time), expected, "{reached:?}");
+        }
     }
 
     /// Two launches of one profile in this process: the second finds the

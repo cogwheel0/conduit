@@ -305,8 +305,9 @@ pub fn launch_urls(args: &[String], cwd: &std::path::Path) -> Option<Vec<String>
 /// This profile's single instance: the listener when this launch is the
 /// app; ends the process when another launch is, after handing it `urls`,
 /// and also when this user's app holds the profile but doesn't take the
-/// launch (two apps on one profile would share its data). Any other
-/// failure (another user holds the name) leaves this launch on its own.
+/// launch, or when what holds it can't be identified (two apps on one
+/// profile would share its data). Only a holder known to be another user's,
+/// or a failure before any holder was found, leaves this launch on its own.
 #[cfg(not(target_os = "macos"))]
 fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::instance::Listener> {
     use conduit_daemon::instance::{Claim, claim};
@@ -328,6 +329,15 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
         Ok(Claim::Busy) => {
             let why = "Conduit is already running for this profile but isn't responding; \
                        this launch quits rather than open the profile twice";
+            log::error!("{why}");
+            eprintln!("conduit-desktop: {why}");
+            std::process::exit(1);
+        }
+        Ok(Claim::Unidentified(e)) => {
+            let why = format!(
+                "something holds this profile and couldn't be reached ({e}); \
+                 this launch quits rather than open the profile twice"
+            );
             log::error!("{why}");
             eprintln!("conduit-desktop: {why}");
             std::process::exit(1);
