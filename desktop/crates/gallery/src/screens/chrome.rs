@@ -383,7 +383,10 @@ impl ChromeScreen {
             labels: ControlLabels {
                 minimize: "Minimize".into(),
                 maximize: "Maximize".into(),
-                restore: "Restore".into(),
+                restore: match self.shot.style {
+                    ChromeStyle::Windows => "Restore Down".into(),
+                    ChromeStyle::Gnome => "Restore".into(),
+                },
                 close: "Close".into(),
             },
             title: "Conduit".into(),

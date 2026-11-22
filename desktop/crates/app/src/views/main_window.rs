@@ -219,7 +219,8 @@ impl MainWindow {
         let main_menu = ChromeStyle::native().map(|style| {
             let items: conduit_components::chrome::MenuItems =
                 std::rc::Rc::new(move |_, cx| crate::menus::chrome_menu_items(style, cx));
-            cx.new(|cx| MainMenu::new(style, crate::l10n::pending::main_menu(), items, window, cx))
+            let name = cx.l10n().desktop_main_menu();
+            cx.new(|cx| MainMenu::new(style, name, items, window, cx))
         });
         let mut subscriptions = subscriptions;
         if main_menu.is_some() {
@@ -1137,12 +1138,7 @@ impl MainWindow {
             decorations: window.window_decorations(),
             maximized: window.is_maximized(),
             menu,
-            labels: ControlLabels {
-                minimize: l.desktop_minimize_window().into(),
-                maximize: l.desktop_maximize_window().into(),
-                restore: l.desktop_restore_window().into(),
-                close: l.desktop_close_window().into(),
-            },
+            labels: control_labels(style, l),
             title: l.app_title().into(),
             // As File › Close Window (which may only hide it).
             on_close: Some(std::rc::Rc::new(|_, window, cx| {
@@ -1156,6 +1152,46 @@ impl MainWindow {
 /// the chat pane is on screen.
 fn answers_chat_prompt(shows_main: bool, shows_chat: bool) -> bool {
     shows_main && shows_chat
+}
+
+/// The window controls' names, in each platform's words.
+fn control_labels(style: ChromeStyle, l: &crate::l10n::L10n) -> ControlLabels {
+    ControlLabels {
+        minimize: l.desktop_minimize_window().into(),
+        maximize: l.desktop_maximize_window().into(),
+        restore: match style {
+            ChromeStyle::Windows => l.desktop_restore_down(),
+            ChromeStyle::Gnome => l.desktop_restore_window(),
+        }
+        .into(),
+        close: l.desktop_close_window().into(),
+    }
+}
+
+#[cfg(test)]
+mod control_label_tests {
+    use super::{ChromeStyle, control_labels};
+    use crate::l10n::L10n;
+
+    #[test]
+    fn windows_names_its_restore_button_restore_down_and_gnome_restore() {
+        let en = L10n::new("en");
+        assert_eq!(
+            control_labels(ChromeStyle::Windows, &en).restore,
+            "Restore Down"
+        );
+        assert_eq!(control_labels(ChromeStyle::Gnome, &en).restore, "Restore");
+        // In Windows' own words for the language.
+        let de = L10n::new("de");
+        assert_eq!(
+            control_labels(ChromeStyle::Windows, &de).restore,
+            "Verkleinern"
+        );
+        assert_eq!(
+            control_labels(ChromeStyle::Gnome, &de).restore,
+            "Wiederherstellen"
+        );
+    }
 }
 
 #[cfg(test)]

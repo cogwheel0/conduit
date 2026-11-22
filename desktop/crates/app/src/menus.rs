@@ -827,8 +827,8 @@ fn file_menu_items(l10n: &L10n, state: &MenuState) -> Vec<MenuItem> {
     ])
     .collect();
     if state.areas.contains(&Area::Notes) {
-        // New Note, after New Temporary Chat (⌘N while the Notes section
-        // is shown, as Notes' own).
+        // File › New Note, after New Temporary Chat (⌘N while the Notes
+        // section is shown, as Notes' own).
         items.insert(
             2,
             MenuItem::action(l10n.desktop_new_note(), crate::views::notes::NewNote),
@@ -952,7 +952,7 @@ pub fn primary_menu(
                         .collect(),
                 ),
                 ChromeMenuItem::Separator,
-                ChromeMenuItem::action(crate::l10n::pending::exit(), Quit),
+                ChromeMenuItem::action(l10n.desktop_menu_exit(), Quit),
             ]);
             items
         }
@@ -990,7 +990,7 @@ pub fn primary_menu(
                     },
                 }),
                 ChromeMenuItem::Separator,
-                ChromeMenuItem::action(crate::l10n::pending::preferences(), OpenSettings),
+                ChromeMenuItem::action(l10n.desktop_menu_preferences(), OpenSettings),
                 ChromeMenuItem::action(l10n.desktop_menu_keyboard_shortcuts(), ShowShortcuts),
                 ChromeMenuItem::action(l10n.desktop_menu_help(), OpenHelp),
                 ChromeMenuItem::action(l10n.about_conduit(), About),
@@ -1505,6 +1505,17 @@ mod tests {
                 "About Conduit",
             ]
         );
+    }
+
+    /// ☰'s own words come from the catalogs, in each platform's terms.
+    #[test]
+    fn the_main_menus_own_words_are_the_platforms_in_each_language() {
+        let l = L10n::new("de");
+        let state = MenuState::default();
+        let windows = drawn(&primary_menu(&l, &state, ChromeStyle::Windows, 100));
+        assert_eq!(windows.last().map(String::as_str), Some("Beenden"));
+        let gnome = drawn(&primary_menu(&l, &state, ChromeStyle::Gnome, 100));
+        assert!(gnome.iter().any(|r| r == "Einstellungen"), "{gnome:?}");
     }
 
     #[test]
