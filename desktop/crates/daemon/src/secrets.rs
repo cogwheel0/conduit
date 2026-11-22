@@ -1393,13 +1393,45 @@ fn sync_folder(dir: &std::path::Path) -> std::io::Result<()> {
 /// Refuses a key file under a folder another user could change, where they
 /// could put their own key in its place or move this one: every folder
 /// above it that is there must be this user's, or root's and closed to
-/// others. Looked at as named (`symlink_metadata`), up to `/`.
+/// others. Looked at as named (`symlink_metadata`), up to `/`, and then
+/// where any link on the way leads ([`check_where_links_lead`]).
 #[cfg(unix)]
 fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
+    check_folders(path.ancestors().skip(1), path)?;
+    check_where_links_lead(path)
+}
+
+/// The folders the key file's are, links resolved: the deepest one above
+/// it that is there, canonicalized, and every folder above that. A link
+/// that passed as named (root's) leads there, and another user who can
+/// change a folder on that side could move the key too. Without a link the
+/// two chains are one. A folder that can't be resolved is an error.
+#[cfg(unix)]
+fn check_where_links_lead(path: &std::path::Path) -> Result<(), SecretError> {
+    for folder in path.ancestors().skip(1) {
+        if folder.as_os_str().is_empty() {
+            break;
+        }
+        match std::fs::canonicalize(folder) {
+            Ok(resolved) => return check_folders(resolved.ancestors(), path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(SecretError::Store(format!("{}: {e}", folder.display()))),
+        }
+    }
+    Ok(())
+}
+
+/// Each of `folders` that is there must pass [`untrusted`]'s rule, for the
+/// key file at `path`.
+#[cfg(unix)]
+fn check_folders<'a>(
+    folders: impl Iterator<Item = &'a std::path::Path>,
+    path: &std::path::Path,
+) -> Result<(), SecretError> {
     use std::os::unix::fs::MetadataExt as _;
     // SAFETY: geteuid and getegid have no preconditions and cannot fail.
     let (me, my_group) = unsafe { (libc::geteuid(), libc::getegid()) };
-    for folder in path.ancestors().skip(1) {
+    for folder in folders {
         if folder.as_os_str().is_empty() {
             break;
         }
@@ -1944,6 +1976,40 @@ mod tests {
         // As root too, a folder anyone can write to is refused.
         assert_eq!(untrusted(0, 0, 0o40755, false, 0, 0), None);
         assert!(untrusted(0, 0, 0o40777, false, 0, 0).is_some());
+    }
+
+    /// Where a link leads is checked too: a link (root's, say, which passes
+    /// as named) into a folder others can write to is refused, and one into
+    /// this user's own folder is fine. The test's links are this user's,
+    /// which the check of where they lead doesn't look at; a 0777 folder of
+    /// this user's stands in for one another user could change.
+    #[cfg(unix)]
+    #[test]
+    fn where_a_link_leads_must_pass_too() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let open = dir.path().join("open");
+        std::fs::create_dir_all(open.join("share")).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::os::unix::fs::symlink(open.join("share"), dir.path().join("into-open")).unwrap();
+        let own = dir.path().join("own");
+        std::fs::create_dir(&own).unwrap();
+        std::os::unix::fs::symlink(&own, dir.path().join("into-own")).unwrap();
+        let name = "app.example.conduit.master-key";
+        let refused = check_where_links_lead(&dir.path().join("into-open").join(name));
+        assert!(matches!(refused, Err(SecretError::Store(_))), "{refused:?}");
+        assert_eq!(
+            check_where_links_lead(&dir.path().join("into-own").join(name)),
+            Ok(())
+        );
+        // A key folder not made yet: the deepest folder that is there.
+        assert!(matches!(
+            check_where_links_lead(&dir.path().join("into-open").join("new").join(name)),
+            Err(SecretError::Store(_))
+        ));
     }
 
     /// A key file under a link is neither made nor read: a link under
