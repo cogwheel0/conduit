@@ -384,9 +384,10 @@ class PullSync {
   /// AND the local row is present, clean, body-synced, and stamped at that
   /// exact `updatedAt` — so a re-fetch could only reproduce the merge the
   /// database already holds. Any local divergence (dirty edit, remap,
-  /// stub) falls through to a normal fetch, as does a list envelope whose
-  /// lastReadAt would change the local row's (read-state changes on the
-  /// server do not bump updatedAt; the merge must still see them).
+  /// stub, the server's text a hold waits for) falls through to a normal
+  /// fetch, as does a list envelope whose lastReadAt would change the local
+  /// row's (read-state changes on the server do not bump updatedAt; the
+  /// merge must still see them).
   Future<bool> _canSkipOverlapFetch(_ChangedItem item) async {
     final memo = _fetchMemo;
     if (memo == null || !memo.isConfirmed(item.id, item.updatedAt)) {
@@ -397,6 +398,7 @@ class PullSync {
         local.dirty ||
         local.deleted ||
         !local.bodySynced ||
+        local.heldTextAt != null ||
         local.serverUpdatedAt != item.updatedAt) {
       return false;
     }

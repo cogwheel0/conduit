@@ -114,7 +114,7 @@ class AppDatabase extends _$AppDatabase {
   }) => AppDatabase(opener.open(serverId));
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -208,6 +208,9 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 14 && !await _chatsHasColumn('held_unread')) {
         await m.addColumn(chats, chats.heldUnread);
+      }
+      if (from < 15 && !await _chatsHasColumn('held_text_at')) {
+        await m.addColumn(chats, chats.heldTextAt);
       }
     },
     beforeOpen: (details) async {

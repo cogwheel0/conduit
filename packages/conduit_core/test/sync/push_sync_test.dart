@@ -2270,6 +2270,14 @@ void main() {
       remapper: remapper,
     ).pullChat(chatId))!;
 
+    /// A background sync cycle, which compares the chats' dates.
+    Future<void> cycle() => PullSync(
+      client: client,
+      db: db,
+      locks: chatLocks,
+      remapper: remapper,
+    ).run();
+
     /// Reads the chat here, then lets the server's clock move on.
     Future<void> readHere() async {
       await db.chatsDao.setLastReadAt(chatId, 7000);
@@ -2412,6 +2420,40 @@ void main() {
       check(isConversationUnread(await pulled())).isTrue();
     });
 
+    test('the server\'s text a push took, beside another device\'s message '
+        'the server keeps, stays news when the chat is read once the push '
+        'lands, before a pull stores that message', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      // Another device asks on; this one has not pulled the chat since.
+      final blob = server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+      final messages = (blob['history'] as Map)['messages'] as Map;
+      messages['q2'] = {
+        'id': 'q2',
+        'parentId': 'a1',
+        'childrenIds': <String>[],
+        'role': 'user',
+        'content': 'Which way do they veer?',
+      };
+      (messages['a1'] as Map)['childrenIds'] = ['q2'];
+      server.saveFromTask(chatId, blob);
+      serverNow = 7300;
+      final merging = PushSync(
+        client: _MergingHistoryClient(server),
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+
+      await merging.pushUpdateChat(chatId);
+      check(await db.messagesDao.getMessage(chatId, 'q2')).isNull();
+      await db.chatsDao.setLastReadAt(chatId, 7300);
+
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
     for (final (moment, readAt) in [
       ('in the very second it lands', 7000),
       ('by a clock ahead of the server\'s', 7100),
@@ -2449,14 +2491,26 @@ void main() {
     });
 
     // The push lands at 7300 by the server's clock.
-    for (final (moment, readAt) in [
-      ('before the push', 7000),
-      ('in the very second it lands', 7300),
-      ('by a clock ahead of the server\'s', 7400),
+    for (final (moment, readAt, readOnceLanded, byCycle) in [
+      ('before the push', 7000, false, false),
+      ('in the very second it lands', 7300, false, false),
+      ('by a clock ahead of the server\'s', 7400, false, false),
+      ('once it lands, before a pull stores that text', 7300, true, false),
+      (
+        'by a clock ahead of the server\'s once it lands, before a pull '
+            'stores that text',
+        7400,
+        true,
+        false,
+      ),
+      // The cycle finds the server's copy dated as the push left it: the
+      // date stored here.
+      ('once it lands, before a sync cycle stores that text', 7300, true, true),
     ]) {
       test('an unfinished answer the server goes on writing comes back fuller '
           'from a save made here, the chat read here $moment; that text was '
-          'never shown here, so the chat goes unread', () async {
+          'never shown here, so the chat goes unread until it is read here '
+          'again', () async {
         await seed(stored: 'Gales veer');
         // Its task writes on after this device last pulled the chat.
         final blob =
@@ -2465,7 +2519,7 @@ void main() {
                 as Map)['content'] =
             kept;
         server.saveFromTask(chatId, blob);
-        await db.chatsDao.setLastReadAt(chatId, readAt);
+        if (!readOnceLanded) await db.chatsDao.setLastReadAt(chatId, readAt);
         serverNow = 7300;
 
         await db.chatsDao.updateEnvelopeWithOutbox(
@@ -2478,7 +2532,20 @@ void main() {
         check(onServer('a1'))
             .has((it) => it['content'], 'content')
             .equals(kept);
-        check(isConversationUnread(await pulled())).isTrue();
+        if (readOnceLanded) {
+          // The read covers the older answer, the one stored here.
+          check((await answerHere()).content).equals('Gales veer');
+          await db.chatsDao.setLastReadAt(chatId, readAt);
+        }
+        if (byCycle) {
+          await cycle();
+          check((await answerHere()).content).equals(kept);
+        }
+        final fuller = await pulled();
+        check((await answerHere()).content).equals(kept);
+        check(isConversationUnread(fuller)).isTrue();
+        await db.chatsDao.setLastReadAt(chatId, 7300);
+        check(isConversationUnread(await pulled())).isFalse();
       });
     }
 

@@ -6,9 +6,10 @@ part of 'app_providers.dart';
 /// A chat on screen is being read. When its stored copy changes while it
 /// shows (Open WebUI's own save of a finished answer, brought by a pull;
 /// another device's message), it is read up to that copy, here and on the
-/// server, once per change however many views show it. Each shown chat's own
-/// stored row is watched, so one the chat list does not hold (archived, or
-/// past its loaded page) is read too. A chat marked unread stays so until it
+/// server, once per change however many views show it. One held unread for
+/// the server's text is read once a pull stores that text, not before. Each
+/// shown chat's own stored row is watched, so one the chat list does not
+/// hold (archived, or past its loaded page) is read too. A chat marked unread stays so until it
 /// is read again, as opening it does. Nothing is read in another account's
 /// database.
 final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
@@ -97,10 +98,10 @@ class ShownChats extends Notifier<Map<String, String>> {
 
   void _seen(_StoredChat chat, _StoredRowWatch watch, ChatListEntry? entry) {
     if (entry == null || !identical(_watches[chat], watch)) return;
-    if (!_unreadCopy(entry)) {
-      // Read, or marked unread: no read is pending. A later change at the
-      // same date (unseen text held unread, a refused mark's rollback) is
-      // read anew.
+    if (!_unreadCopy(entry) || entry.heldTextUnstored) {
+      // Read, marked unread, or held for text a pull has yet to store: no
+      // read is pending. A later change at the same date (unseen text held
+      // unread or stored, a refused mark's rollback) is read anew.
       watch.readCopy = null;
       return;
     }
@@ -134,7 +135,10 @@ class ShownChats extends Notifier<Map<String, String>> {
     }
     // As the chat is stored now: a mark of unread may have landed since
     // the copy was seen, and the read would raise it again.
-    if (stored == null || stored.updatedAt != copy || !_unreadCopy(stored)) {
+    if (stored == null ||
+        stored.updatedAt != copy ||
+        !_unreadCopy(stored) ||
+        stored.heldTextUnstored) {
       return;
     }
     final conversations = ref.read(conversationsProvider.notifier);
