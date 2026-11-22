@@ -93,6 +93,26 @@ where
     }
 }
 
+/// Sends `action` to window `main` once it offers it, as a key press or a
+/// menu pick meets it; false if it never does. The window answers Go › Back
+/// and Forward only with a step to go to, as of the frame it last drew, so
+/// Forward is there only once it has drawn the step Back made.
+async fn go(main: AnyWindowHandle, action: Box<dyn gpui_kit::Action>, cx: &mut AsyncApp) -> bool {
+    let offered = wait_until(cx, Duration::from_secs(5), |cx| {
+        main.update(cx, |_, window, cx| {
+            window.is_action_available(action.as_ref(), cx)
+        })
+        .unwrap_or(false)
+    })
+    .await;
+    if offered {
+        cx.update(|cx| {
+            let _ = main.update(cx, |_, window, cx| window.dispatch_action(action, cx));
+        });
+    }
+    offered
+}
+
 /// The sidebar's sections file, as written.
 fn sections_file(cx: &mut App) -> String {
     let path = cx
@@ -434,17 +454,17 @@ pub async fn run(inputs: &E2eInputs, dir: &Path, cx: &mut AsyncApp) -> bool {
     let dispatch = |action: Box<dyn gpui_kit::Action>, handle: AnyWindowHandle, cx: &mut App| {
         let _ = handle.update(cx, |_, window, cx| window.dispatch_action(action, cx));
     };
-    cx.update(|cx| dispatch(Box::new(crate::actions::GoBack), main, cx));
-    let back = wait_until(cx, Duration::from_secs(5), |cx| {
-        matches!(selection(cx), Selection::Area(AreaItem::Note(_)))
-    })
-    .await;
+    let back = go(main, Box::new(crate::actions::GoBack), cx).await
+        && wait_until(cx, Duration::from_secs(5), |cx| {
+            matches!(selection(cx), Selection::Area(AreaItem::Note(_)))
+        })
+        .await;
     pass &= ok("Back shows the note again", back);
-    cx.update(|cx| dispatch(Box::new(crate::actions::GoForward), main, cx));
-    let forward = wait_until(cx, Duration::from_secs(5), |cx| {
-        matches!(selection(cx), Selection::Area(AreaItem::Channel(_)))
-    })
-    .await;
+    let forward = go(main, Box::new(crate::actions::GoForward), cx).await
+        && wait_until(cx, Duration::from_secs(5), |cx| {
+            matches!(selection(cx), Selection::Area(AreaItem::Channel(_)))
+        })
+        .await;
     pass &= ok("Forward shows the channel again", forward);
     let menus = cx.update(|cx| crate::menus::menu_state(cx));
     pass &= ok(
