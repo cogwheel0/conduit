@@ -3,6 +3,7 @@ import 'package:drift/drift.dart';
 import '../app_database.dart';
 import '../fts/fts_ddl.dart';
 import '../fts/fts_query.dart';
+import '../mappers/conversation_assembler.dart' show shownLastReadAt;
 import '../tables/chats.dart';
 import '../tables/notes.dart';
 
@@ -55,7 +56,7 @@ class SearchHit {
   final bool archived;
   final String? folderId;
 
-  /// Epoch seconds.
+  /// Epoch seconds: the read shown ([shownLastReadAt]).
   final int? lastReadAt;
 
   /// FTS5 snippet around the best-scoring hit; `null` for a title-only match.
@@ -142,7 +143,7 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       '  FROM hits'
       ') '
       'SELECT c.id, c.title, c.created_at, c.updated_at, c.pinned, c.archived, '
-      '       c.folder_id, c.last_read_at, '
+      '       c.folder_id, c.last_read_at, c.held_unread, '
       '       r.score AS rank, r.snip AS snippet, r.message_id AS message_id '
       'FROM ranked r JOIN chats c ON c.id = r.chat_id '
       'WHERE r.rn = 1 AND c.deleted = 0 '
@@ -247,7 +248,11 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       pinned: row.read<bool>('pinned'),
       archived: row.read<bool>('archived'),
       folderId: row.read<String?>('folder_id'),
-      lastReadAt: row.read<int?>('last_read_at'),
+      lastReadAt: shownLastReadAt(
+        row.read<int?>('last_read_at'),
+        row.read<int>('updated_at'),
+        heldUnread: row.read<bool>('held_unread'),
+      ),
       snippet: row.read<String?>('snippet'),
       messageId: (messageId == null || messageId.isEmpty) ? null : messageId,
       rank: row.read<double>('rank'),

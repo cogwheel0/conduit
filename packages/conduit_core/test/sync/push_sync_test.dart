@@ -77,6 +77,24 @@ class _HeldChatReadClient extends FakeSyncApiClient {
 
 /// Fails the pin that follows an update: the update has reached the server,
 /// and the push has not finished.
+/// Holds each chat update, once sent ([sent]), until [release].
+class _HeldUpdateClient extends FakeSyncApiClient {
+  _HeldUpdateClient(super.server);
+
+  final Completer<void> sent = Completer<void>();
+  final Completer<void> release = Completer<void>();
+
+  @override
+  Future<Map<String, dynamic>?> updateChat(
+    String id,
+    Map<String, dynamic> fullBlob,
+  ) async {
+    if (!sent.isCompleted) sent.complete();
+    await release.future;
+    return super.updateChat(id, fullBlob);
+  }
+}
+
 class _PinFailsClient extends FakeSyncApiClient {
   _PinFailsClient(super.server);
 
@@ -2290,7 +2308,34 @@ void main() {
         ..has((it) => it['content'], 'content').equals(kept)
         ..has((it) => (it['error'] as Map?)?['content'], 'error').equals(lost);
       check((await answerHere()).content).equals(kept);
+      check((await db.chatsDao.getChat(chatId))!.heldUnread).isTrue();
       check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    test('the server\'s text a push took, read here while the push is on its '
+        'way, stays read once it lands', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+      final holding = _HeldUpdateClient(server);
+      final pushing = PushSync(
+        client: holding,
+        db: db,
+        chatLocks: chatLocks,
+        folderLocks: folderLocks,
+        clock: clock,
+        remapper: remapper,
+      );
+
+      final landing = pushing.pushUpdateChat(chatId);
+      await holding.sent.future;
+      check((await answerHere()).content).equals(kept);
+      await db.chatsDao.setLastReadAt(chatId, 7100);
+      holding.release.complete();
+      await landing;
+
+      check((await db.chatsDao.getChat(chatId))!.heldUnread).isFalse();
+      check(isConversationUnread(await pulled())).isFalse();
     });
 
     test('a finished answer whose copy on the server shows the same text and '

@@ -404,21 +404,17 @@ class PushSync {
           if (_isTakenFromServer(message)) message.id,
       };
       // The push moved the server's date. It is this device's own save only
-      // when it sent no text taken from the server's copy (marked, so a
-      // failed attempt's take still counts), and the server holds nothing
-      // else: Open WebUI keeps the messages an update leaves out
-      // (`merge_history`), and its own copy of an answer it holds as not
-      // done, which a running task may have written on.
+      // when the server holds nothing else: Open WebUI keeps the messages an
+      // update leaves out (`merge_history`), and its own copy of an answer
+      // it holds as not done, which a running task may have written on.
       final pushed = {for (final message in rows.messages) message.id: message};
       final ownSave =
-          taken.isEmpty &&
           resp['chat'] is Map &&
           _serverMessages(chatId, resp['chat']).entries.every((stored) {
             final sent = pushed[stored.key];
             return sent != null && !_showsOther(stored.value, sent);
           });
-      // At once: the taken marks go only as the chat is held unread in their
-      // place, or a retry would take the server's text for this device's.
+      // At once, so the marks go only with the landing that settles them.
       await _db.transaction(() async {
         await _clearSettledMarks(chatId, sent.where(recovered.contains));
         await _clearMarks(
@@ -431,7 +427,13 @@ class PushSync {
           messageIds: sent,
           serverUpdatedAt: serverUpdatedAt,
         );
-        if (taken.isNotEmpty) {
+        // Text it took from the server's copy (marked, so a failed attempt's
+        // take still counts) is news while the chat is still held unread
+        // from when that text was stored: no read here since.
+        final unseen =
+            taken.isNotEmpty &&
+            ((await _db.chatsDao.getChat(chatId))?.heldUnread ?? false);
+        if (unseen) {
           await _db.chatsDao.dateThroughPushOfServerText(
             chatId,
             serverUpdatedAt,
@@ -658,10 +660,11 @@ class PushSync {
       _finishedOver(local, server, serverFinished: serverFinished),
       all,
     );
-    if (_showsOther(finished, local) || _isTakenFromServer(local)) {
+    final news = _showsOther(finished, local);
+    if (news || _isTakenFromServer(local)) {
       finished = _marked(finished, kTakenFromServerMetadataKey);
     }
-    if (_differs(finished, local)) await _storeFinished(finished);
+    if (_differs(finished, local)) await _storeFinished(finished, news: news);
     return finished;
   }
 
@@ -783,11 +786,15 @@ class PushSync {
       return message;
     }
     var taken = withDerivedChildren(answerAt(copy, message), rows);
-    if (_showsOther(taken, message) || _isTakenFromServer(message)) {
+    final news = _showsOther(taken, message);
+    if (news || _isTakenFromServer(message)) {
       taken = _marked(taken, kTakenFromServerMetadataKey);
     }
     if (_differs(taken, message)) {
-      await _db.messagesDao.upsertLocalEcho(taken);
+      await _db.transaction(() async {
+        await _db.messagesDao.upsertLocalEcho(taken);
+        if (news) await _db.chatsDao.holdUnread(taken.chatId);
+      });
     }
     return taken;
   }
@@ -888,13 +895,17 @@ class PushSync {
   /// Stores [answer] as an edit still to push: a pull keeps it over the
   /// server's copy, which the stop finished with the text it had, until the
   /// push lands.
-  Future<void> _storeFinished(MessageRowData answer) =>
+  /// Stores [answer] finished here; with [news], text taken from the
+  /// server's copy that was never shown here, its chat is held unread with
+  /// it, until it is read here.
+  Future<void> _storeFinished(MessageRowData answer, {required bool news}) =>
       _db.transaction(() async {
         await _db.messagesDao.upsertLocalEcho(answer, keepDirty: true);
         await (_db.update(_db.messages)..where(
               (t) => t.chatId.equals(answer.chatId) & t.id.equals(answer.id),
             ))
             .write(const MessagesCompanion(dirty: Value(true)));
+        if (news) await _db.chatsDao.holdUnread(answer.chatId);
       });
 
   /// Drops the mark of each answer [ids] of [chatId] settled here, sent and

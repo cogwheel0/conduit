@@ -2700,15 +2700,25 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
+  /// Chat [chatId] now holds text taken from the server's copy, never shown
+  /// here: it is held unread ([Chats.heldUnread]) until it is read here,
+  /// whatever a later push of this device's own sends.
+  Future<void> holdUnread(String chatId) {
+    return customUpdate(
+      'UPDATE chats SET held_unread = 1 WHERE id = ?',
+      variables: [Variable.withString(chatId)],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
   /// A push of chat [chatId] from this device sent text it took from the
-  /// server's copy, which left that copy dated [serverUpdatedAt]: the chat
-  /// is dated so here at once, as a pull would date it, and is held unread
-  /// ([Chats.heldUnread]) until it is read here, whatever a later push of
-  /// this device's own sends.
+  /// server's copy, still unseen here, which left that copy dated
+  /// [serverUpdatedAt]: the chat is dated so here at once, as a pull would
+  /// date it.
   Future<void> dateThroughPushOfServerText(String chatId, int serverUpdatedAt) {
     return customUpdate(
-      'UPDATE chats SET updated_at = max(updated_at, ?), held_unread = 1 '
-      'WHERE id = ?',
+      'UPDATE chats SET updated_at = max(updated_at, ?) WHERE id = ?',
       variables: [
         Variable.withInt(serverUpdatedAt),
         Variable.withString(chatId),
