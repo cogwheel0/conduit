@@ -10,13 +10,14 @@
 //!   clients are refused, and each end checks the other's account and
 //!   session before a launch's arguments, which can carry tokens, cross.
 //!
-//! The message is one line of JSON, `{"args":[…]}`, answered `ok` once the
+//! The message is one line of JSON, `{"args":[…],"expires":<ms>}`, answered
+//! `ok` once the
 //! app has queued the launch. An empty list is a plain second launch: the
 //! app comes forward. Each handoff has one deadline, whichever end waits.
 
 use std::io;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{
@@ -36,9 +37,32 @@ const MAX_WORKERS: usize = 4;
 #[cfg(any(target_os = "linux", windows))]
 type OnLaunch = std::sync::Arc<dyn Fn(Vec<String>) -> bool + Send + Sync>;
 
+/// How long a launch must still wait for its `ok` to be queued: room for
+/// the answer to reach it before it gives up.
+const QUEUE_MARGIN: Duration = Duration::from_millis(500);
+
 #[derive(Serialize, Deserialize)]
 struct Message {
     args: Vec<String>,
+    /// When the launch stops waiting for `ok`: ms since the Unix epoch, on
+    /// the wall clock both ends share (a tokio instant is each process's
+    /// own).
+    expires: u64,
+}
+
+/// `time` as ms since the Unix epoch.
+fn unix_ms(time: SystemTime) -> u64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Whether a launch that stops waiting at `expires` is still waiting at
+/// `now` (both ms since the epoch), with room for the app's answer. One its
+/// sender has given up on, or is about to, is dropped: the sender has said
+/// it wasn't handed over, and a launch run again would open its link or
+/// file twice.
+fn still_waiting(expires: u64, now: u64) -> bool {
+    expires.saturating_sub(now) >= QUEUE_MARGIN.as_millis() as u64
 }
 
 /// The name every launch of one profile shares: `<service>.<profile
@@ -69,9 +93,12 @@ pub async fn hand_over<S: AsyncRead + AsyncWrite + Unpin>(
     args: &[String],
     deadline: Instant,
 ) -> io::Result<()> {
+    let left = deadline.saturating_duration_since(Instant::now());
+    let expires = unix_ms(SystemTime::now() + left);
     tokio::time::timeout_at(deadline, async {
         let mut line = serde_json::to_vec(&Message {
             args: args.to_vec(),
+            expires,
         })?;
         line.push(b'\n');
         stream.write_all(&line).await?;
@@ -112,10 +139,11 @@ pub async fn take_launch<S: AsyncRead + AsyncWrite + Unpin>(
             ));
         }
         let message: Message = serde_json::from_slice(&line)?;
-        // A frame read once the budget is gone is dropped, never queued:
-        // the launch that sent it has said by now that it wasn't handed
-        // over. (A ready read finishes before `timeout_at` looks.)
-        if Instant::now() >= deadline {
+        // A frame read once the budget is gone, or once its sender is about
+        // to give up, is dropped, never queued. (A ready read finishes
+        // before `timeout_at` looks.)
+        if Instant::now() >= deadline || !still_waiting(message.expires, unix_ms(SystemTime::now()))
+        {
             return Err(timed_out());
         }
         if !on_launch(message.args) {
@@ -608,6 +636,64 @@ mod pipe {
 mod tests {
     use super::*;
 
+    /// A launch's line, as `hand_over` writes it, that stops waiting at
+    /// `expires`.
+    fn frame(args: &[&str], expires: u64) -> Vec<u8> {
+        let mut line = serde_json::to_vec(&Message {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            expires,
+        })
+        .unwrap();
+        line.push(b'\n');
+        line
+    }
+
+    /// A launch is queued only with time to spare before it stops waiting.
+    #[test]
+    fn a_launch_is_queued_only_while_its_sender_still_waits() {
+        assert!(still_waiting(10_000, 9_000));
+        assert!(still_waiting(10_000, 9_500), "500 ms left");
+        assert!(!still_waiting(10_000, 9_501), "less than 500 ms left");
+        assert!(!still_waiting(10_000, 10_000));
+        assert!(!still_waiting(10_000, 20_000), "long gone");
+    }
+
+    /// The app reaches a launch's line late (it was busy, or suspended)
+    /// though within its own deadline, which ran from the accept: the
+    /// sender has given up by its own clock, so the launch is dropped, never
+    /// queued, and a launch run again opens its link once.
+    #[tokio::test(start_paused = true)]
+    async fn a_launch_its_sender_gave_up_on_is_dropped_never_queued() {
+        let now = unix_ms(SystemTime::now());
+        // The app's own deadline, from its accept, is 5 s ahead in both: the
+        // sender's clock started first, before it connected.
+        for (expires, case) in [
+            (now - 1_000, "its sender gave up a second ago"),
+            (
+                now + 300,
+                "its sender gives up in 300 ms, inside the margin",
+            ),
+        ] {
+            let (mut app, mut launch) = tokio::io::duplex(1024);
+            launch
+                .write_all(&frame(&["conduit://chat/c1"], expires))
+                .await
+                .unwrap();
+            let queued = std::sync::atomic::AtomicBool::new(false);
+            let taken = take_launch(&mut app, deadline(), &|_| {
+                queued.store(true, std::sync::atomic::Ordering::SeqCst);
+                true
+            })
+            .await;
+            assert_eq!(taken.unwrap_err().kind(), io::ErrorKind::TimedOut, "{case}");
+            assert!(!queued.load(std::sync::atomic::Ordering::SeqCst), "{case}");
+            drop(app);
+            let mut answer = Vec::new();
+            launch.read_to_end(&mut answer).await.unwrap();
+            assert!(answer.is_empty(), "no ok: {case}");
+        }
+    }
+
     /// A launch whose frame is read once its budget is gone (the app was
     /// slow to get to it) is dropped: it hears no `ok`, and its arguments
     /// are never queued, since it has given up and said so.
@@ -615,7 +701,7 @@ mod tests {
     async fn a_launch_read_after_its_deadline_is_dropped_never_queued() {
         let (mut app, mut launch) = tokio::io::duplex(1024);
         launch
-            .write_all(b"{\"args\":[\"conduit://chat/c1\"]}\n")
+            .write_all(&frame(&["conduit://chat/c1"], u64::MAX))
             .await
             .unwrap();
         let deadline = Instant::now();
@@ -703,6 +789,7 @@ mod tests {
             &b"GET / HTTP/1.1\r\n\r\n"[..],
             b"{\"args\":[1]}\n",
             b"{\"args\":[\"x\"]}",
+            b"{\"args\":[\"x\"]}\n",
         ] {
             let (mut other, mut first) = tokio::io::duplex(4096);
             other.write_all(bytes).await.unwrap();
