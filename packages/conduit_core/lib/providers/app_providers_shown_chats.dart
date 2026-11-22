@@ -97,7 +97,14 @@ class ShownChats extends Notifier<Map<String, String>> {
 
   void _seen(_StoredChat chat, _StoredRowWatch watch, ChatListEntry? entry) {
     if (entry == null || !identical(_watches[chat], watch)) return;
-    if (!_unreadCopy(entry) || watch.readCopy == entry.updatedAt) return;
+    if (!_unreadCopy(entry)) {
+      // Read, or marked unread: no read is pending. A later change at the
+      // same date (unseen text held unread, a refused mark's rollback) is
+      // read anew.
+      watch.readCopy = null;
+      return;
+    }
+    if (watch.readCopy == entry.updatedAt) return;
     watch.readCopy = entry.updatedAt;
     unawaited(_read(chat, watch, entry.updatedAt));
   }
@@ -162,7 +169,8 @@ bool _unreadCopy(ChatListEntry entry) {
 final class _StoredRowWatch {
   late final StreamSubscription<ChatListEntry?> subscription;
 
-  /// The copy (its date, epoch seconds) last asked to be read, so a read
-  /// that could not be stored is not asked again until the copy changes.
+  /// The copy (its date, epoch seconds) asked to be read and not yet shown
+  /// read, so a read that could not be stored is not asked again until the
+  /// copy changes. Cleared once the row shows it read or marked unread.
   int? readCopy;
 }
