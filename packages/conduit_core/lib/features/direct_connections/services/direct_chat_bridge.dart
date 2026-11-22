@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:crypto/crypto.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
@@ -1094,6 +1095,17 @@ final class DirectStreamingReplace extends DirectStreamingProjection {
 
 const int _kDirectMaxGeneratedImages = 10;
 
+/// The shortest wait between full streaming projections, the same cadence at
+/// which the chat publishes streamed text (`streamingContentUpdateInterval`).
+const Duration kDirectFullProjectionMinInterval = Duration(milliseconds: 100);
+
+/// Characters a second that full streaming projections may render: about 7%
+/// of an M-series Mac core for an answer with code
+/// (`tool/benchmarks/direct_streaming_projection.md`). The wait after a
+/// projection grows with its length once it exceeds what this budget allows in
+/// [kDirectFullProjectionMinInterval].
+const int kDirectFullProjectionCharactersPerSecond = 200000;
+
 /// Accumulates normalized provider events into the ChatMessage representation
 /// used by Conduit's renderer.
 final class DirectStreamingAccumulator {
@@ -1122,6 +1134,7 @@ final class DirectStreamingAccumulator {
   int _projectedTextLength = 0;
   int _projectedReasoningLength = 0;
   int _nextFullProjectionLength = 1;
+  DateTime? _nextFullProjectionAt;
   int _fullProjectionCount = 0;
   int _appendProjectionCount = 0;
   int _fullProjectionCharacterCount = 0;
@@ -1282,13 +1295,15 @@ final class DirectStreamingAccumulator {
 
   /// Returns the smallest safe UI update after [event] has been [apply]ed.
   ///
-  /// Answer text is appended while the active assistant remains the tail.
-  /// Reasoning lives before that text inside a semantic details block, so it
-  /// cannot be appended without corrupting the markup. Those replacements are
-  /// emitted only when the accumulated payload crosses a geometric threshold.
-  /// The total number of characters materialized by normal replacements is
-  /// therefore linear in the final payload size rather than quadratic in the
-  /// provider event count.
+  /// Plain answer text is appended while the active assistant remains the
+  /// tail. Reasoning lives before that text inside a semantic details block,
+  /// and answer text after a possible code delimiter needs the whole answer to
+  /// escape, so both need full replacements. One is due once the payload has
+  /// doubled, or once the previous replacement has been shown for
+  /// [kDirectFullProjectionMinInterval] or for its length at
+  /// [kDirectFullProjectionCharactersPerSecond], whichever is longer. A burst
+  /// of events therefore renders under twice the final payload in aggregate,
+  /// and a steady stream at most that budget per second on top.
   DirectStreamingProjection? projectStreamingEvent(
     DirectStreamEvent event, {
     required bool forceReplace,
@@ -1320,11 +1335,8 @@ final class DirectStreamingAccumulator {
           return DirectStreamingAppend(appendContent);
         }
         if (!_hasStreamingProjection ||
-            (canAppend &&
-                (_answerAppendIsPlain
-                    ? !appendIsSynchronized
-                    : logicalLength >= _nextFullProjectionLength)) ||
-            logicalLength >= _nextFullProjectionLength) {
+            (canAppend && _answerAppendIsPlain && !appendIsSynchronized) ||
+            _fullProjectionIsDue(logicalLength)) {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
@@ -1333,7 +1345,7 @@ final class DirectStreamingAccumulator {
         if (!_hasStreamingProjection ||
             !_hasReasoningProjection ||
             (_reasoningHasVisibleText && !_reasoningProjectionIsVisible) ||
-            logicalLength >= _nextFullProjectionLength) {
+            _fullProjectionIsDue(logicalLength)) {
           return _fullStreamingProjection(logicalLength);
         }
         return null;
@@ -1352,8 +1364,23 @@ final class DirectStreamingAccumulator {
     }
   }
 
+  bool _fullProjectionIsDue(int logicalLength) =>
+      logicalLength >= _nextFullProjectionLength ||
+      !clock.now().isBefore(_nextFullProjectionAt!);
+
   DirectStreamingReplace _fullStreamingProjection(int logicalLength) {
     final content = render(done: false);
+    final wait = Duration(
+      microseconds:
+          content.length *
+          Duration.microsecondsPerSecond ~/
+          kDirectFullProjectionCharactersPerSecond,
+    );
+    _nextFullProjectionAt = clock.now().add(
+      wait > kDirectFullProjectionMinInterval
+          ? wait
+          : kDirectFullProjectionMinInterval,
+    );
     _hasStreamingProjection = true;
     _hasReasoningProjection = _reasoning.isNotEmpty;
     _reasoningProjectionIsVisible = _reasoningHasVisibleText;

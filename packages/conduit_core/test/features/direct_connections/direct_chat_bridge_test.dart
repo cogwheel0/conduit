@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:clock/clock.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/models/model.dart';
@@ -2037,69 +2038,151 @@ void main() {
       expect(projected.content, endsWith('a'));
     });
 
-    test(
-      'many tiny deltas use bounded replacements and keep an exact snapshot',
-      () {
-        const reasoningDeltaCount = 8192;
-        const answerDeltaCount = 4096;
-        final accumulator = DirectStreamingAccumulator();
-        StringBuffer? visible;
+    for (final pacing in const <({String name, int deltaMicros})>[
+      (name: 'a burst', deltaMicros: 0),
+      (name: 'a steady stream', deltaMicros: 1500),
+    ]) {
+      test('reasoning and an answer with code arriving in ${pacing.name} '
+          'stay visible within a bounded wait and bounded work', () {
+        const reasoningDeltaCount = 2048;
+        final answer = _syntheticAnswerWithCode(24000);
+        var now = DateTime.utc(2026, 11, 23);
+        withClock(Clock(() => now), () {
+          final accumulator = DirectStreamingAccumulator();
+          final started = now;
+          StringBuffer? visible;
+          var lastUpdate = now;
+          var lastReplaceLength = 0;
+          var worstOverrun = Duration(days: -1);
 
-        void project(DirectStreamEvent event, {bool forceReplace = false}) {
-          expect(accumulator.apply(event), isTrue);
-          final projection = accumulator.projectStreamingEvent(
-            event,
-            forceReplace: forceReplace,
-            canAppend: true,
-          );
-          switch (projection) {
-            case DirectStreamingAppend():
-              visible!.write(projection.content);
-              break;
-            case DirectStreamingReplace():
-              visible = StringBuffer(projection.content);
-              break;
-            case null:
-              break;
+          // Updates may wait for the full-projection interval of what is
+          // shown, plus the one delta that arrives at or after that point.
+          void checkGap() {
+            final scaled = Duration(
+              microseconds:
+                  lastReplaceLength *
+                  Duration.microsecondsPerSecond ~/
+                  kDirectFullProjectionCharactersPerSecond,
+            );
+            final allowed =
+                (scaled > kDirectFullProjectionMinInterval
+                    ? scaled
+                    : kDirectFullProjectionMinInterval) +
+                Duration(microseconds: pacing.deltaMicros);
+            final overrun = now.difference(lastUpdate) - allowed;
+            if (overrun > worstOverrun) worstOverrun = overrun;
           }
-        }
 
-        for (var index = 0; index < reasoningDeltaCount; index++) {
-          project(const DirectReasoningDelta('r'), forceReplace: index == 0);
-        }
-        for (var index = 0; index < answerDeltaCount; index++) {
-          project(const DirectContentDelta('a'));
-        }
+          void project(DirectStreamEvent event, {bool forceReplace = false}) {
+            now = now.add(Duration(microseconds: pacing.deltaMicros));
+            expect(accumulator.apply(event), isTrue);
+            final projection = accumulator.projectStreamingEvent(
+              event,
+              forceReplace: forceReplace,
+              canAppend: true,
+            );
+            if (projection != null) {
+              checkGap();
+              lastUpdate = now;
+            }
+            switch (projection) {
+              case DirectStreamingAppend():
+                visible!.write(projection.content);
+              case DirectStreamingReplace():
+                visible = StringBuffer(projection.content);
+                lastReplaceLength = projection.content.length;
+              case null:
+                break;
+            }
+          }
 
-        // Powers-of-two reasoning projections materialize less than three
-        // final reasoning buffers in aggregate (including semantic markup),
-        // instead of one ever-growing replacement per provider event.
-        expect(accumulator.fullProjectionCount, lessThanOrEqualTo(14));
-        expect(
-          accumulator.fullProjectionCharacterCount,
-          lessThan(reasoningDeltaCount * 3),
-        );
-        expect(accumulator.appendProjectionCount, answerDeltaCount);
-        expect(visible.toString(), accumulator.render(done: false));
+          for (var index = 0; index < reasoningDeltaCount; index++) {
+            project(
+              const DirectReasoningDelta('rest'),
+              forceReplace: index == 0,
+            );
+          }
+          for (var offset = 0; offset < answer.length; offset += 4) {
+            final end = offset + 4 < answer.length ? offset + 4 : answer.length;
+            project(DirectContentDelta(answer.substring(offset, end)));
+          }
+          checkGap();
 
-        expect(accumulator.apply(const DirectStreamDone()), isTrue);
-        final completed = accumulator.render(done: true);
-        final expected = DirectStreamingAccumulator()
-          ..apply(
-            DirectReasoningDelta(
-              List<String>.filled(reasoningDeltaCount, 'r').join(),
+          expect(worstOverrun, lessThanOrEqualTo(Duration.zero));
+          // Full projections render at most the per-second budget for the
+          // time the answer streamed, plus the doubling projections, which
+          // sum to under twice the final snapshot, plus that snapshot once.
+          final finalLength = accumulator.render(done: false).length;
+          final streamedMicros = now.difference(started).inMicroseconds;
+          expect(
+            accumulator.fullProjectionCharacterCount,
+            lessThanOrEqualTo(
+              kDirectFullProjectionCharactersPerSecond *
+                      streamedMicros ~/
+                      Duration.microsecondsPerSecond +
+                  3 * finalLength,
             ),
-          )
-          ..apply(
-            DirectContentDelta(
-              List<String>.filled(answerDeltaCount, 'a').join(),
-            ),
-          )
-          ..apply(const DirectStreamDone());
-        expect(completed, expected.render(done: true));
-      },
-    );
+          );
+          expect(visible.toString(), isNotEmpty);
+
+          expect(accumulator.apply(const DirectStreamDone()), isTrue);
+          final expected = DirectStreamingAccumulator()
+            ..apply(
+              DirectReasoningDelta(
+                List<String>.filled(reasoningDeltaCount, 'rest').join(),
+              ),
+            )
+            ..apply(DirectContentDelta(answer))
+            ..apply(const DirectStreamDone());
+          expect(accumulator.render(done: true), expected.render(done: true));
+        });
+      });
+    }
+
+    test('plain answer deltas append without full projections', () {
+      const answerDeltaCount = 4096;
+      final accumulator = DirectStreamingAccumulator();
+      StringBuffer? visible;
+      for (var index = 0; index < answerDeltaCount; index++) {
+        const event = DirectContentDelta('a');
+        expect(accumulator.apply(event), isTrue);
+        switch (accumulator.projectStreamingEvent(
+          event,
+          forceReplace: index == 0,
+          canAppend: true,
+        )) {
+          case DirectStreamingAppend(:final content):
+            visible!.write(content);
+          case DirectStreamingReplace(:final content):
+            visible = StringBuffer(content);
+          case null:
+            break;
+        }
+      }
+      expect(accumulator.fullProjectionCount, 1);
+      expect(accumulator.appendProjectionCount, answerDeltaCount - 1);
+      expect(visible.toString(), accumulator.render(done: false));
+    });
   });
+}
+
+/// Newly invented prose with inline code and a fenced block every few
+/// paragraphs, the first backtick within the first 400 characters.
+String _syntheticAnswerWithCode(int length) {
+  const prose =
+      'The lighthouse keeper counts gulls on the north rocks each morning '
+      'and writes the tally beside the tide table. ';
+  const code =
+      'Call `tally.add(count)` once per survey:\n\n'
+      '```python\n'
+      'if counts and counts[0] < 3 and "rocks" in notes:\n'
+      '    print({"max": max(counts), "sum": sum(counts)})\n'
+      '```\n\n';
+  final out = StringBuffer(prose * 3);
+  for (var unit = 0; out.length < length; unit++) {
+    out.write(unit.isEven ? code : prose * 4);
+  }
+  return out.toString().substring(0, length);
 }
 
 ChatMessage _message({
