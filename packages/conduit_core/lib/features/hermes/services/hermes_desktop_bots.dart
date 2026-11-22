@@ -73,8 +73,12 @@ extension _HermesDesktopBots on HermesDesktopApiService {
   /// Returns the stored session id.
   Future<String> _openBotChat(HermesBot bot) async {
     await _ensureConnected();
-    for (final candidate in <String?>[bot.chatSessionId, kHermesBotChatTitle]) {
-      if (candidate == null) continue;
+    final candidates = <String>[
+      if (bot.chatSessionId != null && bot.chatSessionId != kHermesBotChatTitle)
+        bot.chatSessionId!,
+      kHermesBotChatTitle,
+    ];
+    for (final candidate in candidates) {
       _sessionProfiles[candidate] = bot.name;
       try {
         // A session authority looks a session up by title only when asked
@@ -88,6 +92,7 @@ extension _HermesDesktopBots on HermesDesktopApiService {
         return binding.storedId;
       } catch (error) {
         _sessionProfiles.remove(candidate);
+        if (!isHermesDesktopSessionNotFound(error)) rethrow;
         DebugLogger.warning(
           'bot-chat-resume-failed',
           scope: 'hermes/desktop/bots',

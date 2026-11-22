@@ -2310,6 +2310,69 @@ void main() {
     check(resume.containsKey('session_id')).isFalse();
   });
 
+  test(
+    'opening a bot chat fails closed on profile_mismatch without calling session.create',
+    () async {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4001, 'profile_mismatch', {
+            'reason': 'profile_mismatch',
+          });
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      Object? failure;
+      try {
+        await service.openBotChat(
+          const HermesBot(
+            name: 'sibling',
+            title: 'Sibling bot',
+            chatSessionId: 'sibling-chat-1',
+          ),
+        );
+      } catch (error) {
+        failure = error;
+      }
+      check(failure).isA<HermesDesktopRpcException>()
+        ..has((e) => e.code, 'code').equals(4001)
+        ..has((e) => e.reason, 'reason').equals('profile_mismatch');
+      check(gateway.calls('session.resume')).length.equals(1);
+      check(gateway.calls('session.create')).isEmpty();
+    },
+  );
+
+  test(
+    'opening a bot chat falls back from a stale id and creates only on not_found',
+    () async {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          throw const _Refusal(4001, 'not_found', {'reason': 'not_found'});
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+
+      final stored = await service.openBotChat(
+        const HermesBot(
+          name: 'researcher',
+          title: 'Research',
+          chatSessionId: 'retired-bot-chat',
+        ),
+      );
+
+      check(stored).equals('local-1');
+      final resumes = gateway.calls('session.resume');
+      check(resumes).length.equals(2);
+      check(resumes[0]['session_id']).equals('retired-bot-chat');
+      check(resumes[1]['title']).equals('Bot Chat');
+      check(gateway.calls('session.create')).length.equals(1);
+    },
+  );
+
   test('an undo refused because the chat moved on is not sent again',
       () async {
     final gateway = _Authority();

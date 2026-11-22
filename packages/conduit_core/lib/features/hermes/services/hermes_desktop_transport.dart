@@ -62,6 +62,58 @@ final class HermesDesktopRpcException implements Exception {
   String toString() => message;
 }
 
+/// Hermes gateway `session.resume` error code for an unknown session on legacy
+/// dashboard sockets.
+const int kHermesDesktopSessionNotFoundCode = 4007;
+
+const int _kMaxHermesRpcFailureDetailCharacters = 120;
+
+/// Whether [error] is a definitive "session does not exist" reply from Hermes
+/// (`4007` on legacy dashboard sockets, or `not_found` on canonical session
+/// authorities), never a transport blip or another refusal.
+bool isHermesDesktopSessionNotFound(Object error) {
+  if (error is! HermesDesktopRpcException) return false;
+  if (error.deliveryAmbiguous || error.notReady) return false;
+  if (error.code == kHermesDesktopSessionNotFoundCode) return true;
+  final reason = error.reason;
+  if (reason != null) return reason == 'not_found';
+  if (error.code == 4001) {
+    final normalized = error.message.trim().toLowerCase();
+    return normalized == 'not_found' || normalized == 'session not found';
+  }
+  return false;
+}
+
+/// Bounded, control-stripped gateway RPC detail for surfacing in a load-failure
+/// notice, or null when the failure was a transport disconnect/timeout or had
+/// no text.
+String? hermesDesktopRpcFailureDetail(HermesDesktopRpcException error) {
+  if (error.deliveryAmbiguous || error.notReady) return null;
+  final data = error.data;
+  final dataDetail = data is Map && data['detail'] is String
+      ? _sanitizeHermesRpcFailureDetail(data['detail'] as String)
+      : null;
+  final detail = dataDetail ?? _sanitizeHermesRpcFailureDetail(error.message);
+  if (detail == null) return null;
+  final code = error.code;
+  return code == null ? detail : '$detail ($code)';
+}
+
+String? _sanitizeHermesRpcFailureDetail(String raw) {
+  final collapsed = raw
+      .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F\s]+'), ' ')
+      .trim();
+  if (collapsed.isEmpty) return null;
+  final runes = collapsed.runes.toList(growable: false);
+  final truncated = runes.length > _kMaxHermesRpcFailureDetailCharacters
+      ? '${String.fromCharCodes(runes.take(_kMaxHermesRpcFailureDetailCharacters - 1))}\u2026'
+      : collapsed;
+  return validateHermesBoundedString(
+    truncated,
+    maxCharacters: _kMaxHermesRpcFailureDetailCharacters,
+  );
+}
+
 final class HermesDesktopEvent {
   const HermesDesktopEvent({
     required this.type,

@@ -170,7 +170,20 @@ final class HermesRoomsService implements HermesBotChats {
       );
     }
     this.connection.stillCurrent(began);
-    final storedId = await service.openBotChat(bot);
+    final String storedId;
+    try {
+      storedId = await service.openBotChat(bot);
+    } on HermesDesktopRpcException catch (error) {
+      final detail = hermesDesktopRpcFailureDetail(error);
+      throw RpcError(
+        code: error.deliveryAmbiguous || error.notReady
+            ? ConduitErrorCodes.connectionFailed
+            : ConduitErrorCodes.conflict,
+        retryable: error.deliveryAmbiguous || error.notReady,
+        args: <String, String>{'detail': ?detail},
+        debugMessage: 'Hermes refused: ${error.message}',
+      );
+    }
     // A connection edit during the open: the id belongs to another one.
     this.connection.stillCurrent(began);
     String? avatar;

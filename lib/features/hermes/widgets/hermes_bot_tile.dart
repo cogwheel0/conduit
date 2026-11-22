@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_session_tile.dart';
@@ -108,12 +109,17 @@ class _HermesBotTileState extends ConsumerState<HermesBotTile> {
       DebugLogger.error(
         'open-bot-chat-failed',
         scope: 'hermes/bots',
-        data: {'errorType': error.runtimeType.toString()},
+        data: {
+          'errorType': error.runtimeType.toString(),
+          if (error is HermesDesktopRpcException) 'rpcCode': error.code,
+          if (error is HermesDesktopRpcException && error.reason != null)
+            'rpcReason': error.reason,
+        },
       );
       if (mounted) {
         UiUtils.showMessage(
           context,
-          AppLocalizations.of(context)!.hermesSessionLoadFailed,
+          hermesSessionLoadFailureMessage(AppLocalizations.of(context)!, error),
           isError: true,
         );
       }

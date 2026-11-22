@@ -101,7 +101,10 @@ class HermesBot {
 
     final meta = json['ui_meta'];
     final botMeta = meta is Map ? meta['hermes-bots'] : null;
-    final session = json['preferred_session'] ?? json['last_session'];
+    final canonical = json['canonical_session'];
+    final canonicalRow = canonical is Map ? canonical : null;
+    final session =
+        canonicalRow ?? json['preferred_session'] ?? json['last_session'];
     final sessionRow = session is Map ? session : const {};
     final rawShape = validateHermesBoundedString(
       botMeta is Map ? botMeta['shape'] : null,
@@ -132,9 +135,12 @@ class HermesBot {
         sessionRow['preview'],
         maxCharacters: kMaxHermesBotPreviewCharacters,
       ),
-      chatSessionId: validateHermesOpaqueIdentifier(
-        botMeta is Map ? botMeta['chat'] : null,
-      ),
+      chatSessionId:
+          validateHermesOpaqueIdentifier(canonicalRow?['resolved_id']) ??
+          validateHermesOpaqueIdentifier(canonicalRow?['id']) ??
+          validateHermesOpaqueIdentifier(
+            botMeta is Map ? botMeta['chat'] : null,
+          ),
       hasAvatar: json['has_avatar'] == true,
       avatarShape: _validHermesBotShape(rawShape) ?? 'squircle',
       avatarColor: _validHermesBotColor(rawColor) ?? '#8b5cf6',

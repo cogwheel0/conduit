@@ -2,6 +2,8 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart' as core;
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -19,8 +21,11 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduit_services/conduit_services.dart';
 import 'package:conduit_services/src/hermes_connection.dart';
 import 'package:conduit_services/src/hermes_rooms_service.dart';
+import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:stream_channel/stream_channel.dart';
 import 'package:test/test.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// A synthetic two-bot room on a gateway that runs rooms.
 Map<String, Object?> _roomJson({
@@ -220,6 +225,130 @@ HermesDesktopApiService _gateway(String address) {
       channelFactory: (uri, _, {httpClient}) {
         _reached.add(uri.host);
         throw StateError('No gateway in this test.');
+      },
+    ),
+  );
+  addTearDown(service.close);
+  return service;
+}
+
+final class _FakeWsChannel with StreamChannelMixin<dynamic> implements WebSocketChannel {
+  _FakeWsChannel(this._incoming, this._outgoing);
+
+  final StreamController<dynamic> _incoming;
+  final StreamController<dynamic> _outgoing;
+
+  @override
+  Stream<dynamic> get stream => _incoming.stream;
+
+  @override
+  WebSocketSink get sink => _FakeWsSink(_outgoing);
+
+  @override
+  Future<void> get ready => Future<void>.value();
+
+  @override
+  int? get closeCode => null;
+
+  @override
+  String? get closeReason => null;
+
+  @override
+  String? get protocol => null;
+}
+
+final class _FakeWsSink implements WebSocketSink {
+  _FakeWsSink(this._controller);
+
+  final StreamController<dynamic> _controller;
+
+  @override
+  void add(dynamic data) => _controller.add(data);
+
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) =>
+      _controller.addError(error, stackTrace);
+
+  @override
+  Future<void> addStream(Stream<dynamic> stream) => _controller.addStream(stream);
+
+  @override
+  Future<void> close([int? closeCode, String? closeReason]) => _controller.close();
+
+  @override
+  Future<void> get done => _controller.done;
+}
+
+final class _StatusOkAdapter implements HttpClientAdapter {
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    jsonEncode({'auth_required': false, 'gateway_running': true}),
+    200,
+    headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    },
+  );
+}
+
+HermesDesktopApiService _scriptedBotGateway({
+  Map<String, Object?>? resumeError,
+  bool closeOnResume = false,
+}) {
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+    ),
+    dio: Dio()..httpClientAdapter = _StatusOkAdapter(),
+    rpc: HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) {
+        final incoming = StreamController<dynamic>.broadcast();
+        final outgoing = StreamController<dynamic>();
+        outgoing.stream.listen((raw) {
+          final frame = jsonDecode(raw as String) as Map<String, dynamic>;
+          final id = frame['id'];
+          final method = frame['method'];
+          if (id == null) return;
+          if (method == 'session.resume') {
+            if (closeOnResume) {
+              unawaited(incoming.close());
+              return;
+            }
+            if (resumeError != null) {
+              incoming.add(
+                jsonEncode({'jsonrpc': '2.0', 'id': id, 'error': resumeError}),
+              );
+              return;
+            }
+          }
+          incoming.add(
+            jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': const {}}),
+          );
+        });
+        scheduleMicrotask(() {
+          if (!incoming.isClosed) {
+            incoming.add(
+              jsonEncode({
+                'jsonrpc': '2.0',
+                'method': 'event',
+                'params': {
+                  'type': 'gateway.ready',
+                  'payload': {'session_authority': true},
+                },
+              }),
+            );
+          }
+        });
+        return _FakeWsChannel(incoming, outgoing);
       },
     ),
   );
@@ -531,6 +660,77 @@ void main() {
       ('fern', 'bc-1'),
       ('moss', null),
     ]);
+  });
+
+  test('a canonical_session roster row matches botOf and botDto before open', () async {
+    final canonicalBot = core.HermesBot.fromJson({
+      'name': 'fern',
+      'ui_meta': {
+        'hermes-bots': {'title': 'Fern'},
+      },
+      'canonical_session': {
+        'id': 'bc-root',
+        'resolved_id': 'bc-tip-4',
+        'preview': 'Latest canonical reply',
+        'last_active': 1767225600,
+      },
+    })!;
+    final canonicalContainer = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWith((ref) => ref.watch(_connection)),
+        hermesBotsProvider.overrideWith((ref) async => [canonicalBot]),
+      ],
+    );
+    addTearDown(canonicalContainer.dispose);
+    canonicalContainer
+        .read(_connection.notifier)
+        .use(_gateway('https://hermes.example'));
+    final canonicalRooms = HermesRoomsService(canonicalContainer, events);
+    addTearDown(canonicalRooms.dispose);
+
+    final listed = await canonicalRooms.bots();
+    expect(listed.bots.single.sessionId, 'bc-tip-4');
+    expect(canonicalRooms.botOf('bc-tip-4')?.title, 'Fern');
+    expect(canonicalRooms.botMetadataOf('bc-tip-4')['hermesBotTitle'], 'Fern');
+  });
+
+  test('openBot surfaces gateway RPC refusal detail and omits detail on disconnect', () async {
+    final hermes = HermesService(container, events: events);
+    addTearDown(hermes.dispose);
+
+    final failingGateway = _scriptedBotGateway(
+      resumeError: const {
+        'code': 4001,
+        'message': 'profile_mismatch',
+        'data': {'reason': 'profile_mismatch'},
+      },
+    );
+    container.read(_connection.notifier).use(failingGateway);
+
+    await expectLater(
+      rooms.openBot('fern', hermes),
+      throwsA(
+        isA<RpcError>()
+            .having((e) => e.code, 'code', ConduitErrorCodes.conflict)
+            .having(
+              (e) => e.args['detail'],
+              'detail',
+              'profile_mismatch (4001)',
+            ),
+      ),
+    );
+
+    final disconnectedGateway = _scriptedBotGateway(closeOnResume: true);
+    container.read(_connection.notifier).use(disconnectedGateway);
+
+    await expectLater(
+      rooms.openBot('fern', hermes),
+      throwsA(
+        isA<RpcError>()
+            .having((e) => e.code, 'code', ConduitErrorCodes.connectionFailed)
+            .having((e) => e.args['detail'], 'detail', isNull),
+      ),
+    );
   });
 
   test('a connection has its own name, and a request under the last one is '
