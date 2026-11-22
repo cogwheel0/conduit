@@ -296,7 +296,20 @@ fn linux_master_key(
 /// isn't built elsewhere, where it would only open the app on its real
 /// profile without the single-instance check, beside the one already open.
 pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> {
-    (os != paths::Os::MacOs && args.iter().any(|a| a == "--probe")).then_some("--probe")
+    (os != paths::Os::MacOs && options(args).any(|a| a == "--probe")).then_some("--probe")
+}
+
+/// The arguments in an option's place, past the program's name: never the
+/// value after `--cwd`, a folder whatever it is called.
+fn options(args: &[String]) -> impl Iterator<Item = &str> {
+    let mut rest = args.iter().skip(1).map(String::as_str);
+    std::iter::from_fn(move || {
+        let arg = rest.next()?;
+        if arg == "--cwd" {
+            rest.next();
+        }
+        Some(arg)
+    })
 }
 
 /// What a launch's arguments ask to open (Windows, Linux), or `None` for a
@@ -1265,6 +1278,21 @@ mod harness_profile_tests {
         assert_eq!(
             unsupported_flag(paths::Os::Linux, &args(&["app", "--hidden"])),
             None
+        );
+        // A folder named `--probe`, given to `--cwd`, is a folder.
+        assert_eq!(
+            unsupported_flag(
+                paths::Os::Linux,
+                &args(&["app", "--cwd", "--probe", "notes.md"])
+            ),
+            None
+        );
+        assert_eq!(
+            unsupported_flag(
+                paths::Os::Windows,
+                &args(&["app", "--cwd", r"C:\notes", "--probe", "state.json"])
+            ),
+            Some("--probe")
         );
     }
 
