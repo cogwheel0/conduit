@@ -200,7 +200,6 @@ fn read_to_end_by(
         return None;
     }
     let mut out = Vec::new();
-    let mut chunk = [0u8; 4096];
     loop {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left.is_zero() {
@@ -218,14 +217,52 @@ fn read_to_end_by(
         {
             return None;
         }
-        loop {
-            match pipe.read(&mut chunk) {
-                Ok(0) => return Some(out),
-                Ok(n) => out.extend_from_slice(&chunk[..n]),
-                Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == ErrorKind::WouldBlock => break,
-                Err(_) => return None,
-            }
+        match drain(&mut pipe, &mut out, deadline) {
+            Drained::End => return Some(out),
+            Drained::ForNow => {}
+            Drained::GiveUp => return None,
+        }
+    }
+}
+
+/// The most a lookup's helper may print: a desktop entry's name is short.
+#[cfg(any(target_os = "linux", test))]
+const MAX_HELPER_OUTPUT: usize = 4096;
+
+/// What reading the bytes a pipe has now ended with.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug, PartialEq, Eq)]
+enum Drained {
+    /// The pipe's end: all of it is read.
+    End,
+    /// Nothing more for now.
+    ForNow,
+    /// Past the deadline or the cap, or a read failed.
+    GiveUp,
+}
+
+/// Reads what `pipe` has now into `out`: to its end, or until it has
+/// nothing more for now. It gives up past `deadline`, or once `out` holds
+/// more than [`MAX_HELPER_OUTPUT`], so a helper that keeps writing can't
+/// hold the lookup.
+#[cfg(any(target_os = "linux", test))]
+fn drain(
+    pipe: &mut impl std::io::Read,
+    out: &mut Vec<u8>,
+    deadline: std::time::Instant,
+) -> Drained {
+    use std::io::ErrorKind;
+    let mut chunk = [0u8; 4096];
+    loop {
+        if std::time::Instant::now() >= deadline || out.len() > MAX_HELPER_OUTPUT {
+            return Drained::GiveUp;
+        }
+        match pipe.read(&mut chunk) {
+            Ok(0) => return Drained::End,
+            Ok(n) => out.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == ErrorKind::WouldBlock => return Drained::ForNow,
+            Err(_) => return Drained::GiveUp,
         }
     }
 }
@@ -298,6 +335,29 @@ mod tests {
             read_to_end_by(reader, Instant::now() + Duration::from_secs(5)).as_deref(),
             Some(&b"org.example.Authenticator.desktop\n"[..])
         );
+    }
+
+    /// A helper that keeps writing can't hold a lookup: the drain gives up
+    /// past the output cap, or past the deadline, while bytes keep coming
+    /// (a megabyte stands in for output that never ends). A desktop entry's
+    /// name and the pipe's end come back whole.
+    #[test]
+    fn a_helper_that_keeps_writing_is_given_up_on() {
+        use std::io::Read as _;
+        use std::time::{Duration, Instant};
+        let endless = || std::io::repeat(b'x').take(1 << 20);
+        let later = Instant::now() + Duration::from_secs(3600);
+        let mut out = Vec::new();
+        assert_eq!(drain(&mut endless(), &mut out, later), Drained::GiveUp);
+        assert!(out.len() <= 2 * MAX_HELPER_OUTPUT, "{}", out.len());
+        assert_eq!(
+            drain(&mut endless(), &mut Vec::new(), Instant::now()),
+            Drained::GiveUp
+        );
+        let mut out = Vec::new();
+        let entry = b"org.example.Authenticator.desktop\n";
+        assert_eq!(drain(&mut &entry[..], &mut out, later), Drained::End);
+        assert_eq!(out, entry);
     }
 
     #[test]
