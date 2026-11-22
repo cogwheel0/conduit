@@ -1727,7 +1727,7 @@ mod chat_menu_tests {
         vcx.run_until_parked();
         assert_eq!(
             daemon.calls::<methods::ChatsMarkUnread>(),
-            vec![serde_json::json!({"chatId": "chat-a", "unread": false})],
+            vec![serde_json::json!({"chatId": "chat-a", "unread": false, "explicit": false})],
             "closing the window did not read its chat"
         );
         assert!(

@@ -4358,7 +4358,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "the chat left for a new one was not read"
             );
         }
@@ -4383,7 +4383,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "the chat left for a note was not read"
             );
 
@@ -4418,7 +4418,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "closing the window did not read its chat"
             );
             answer_finished(&daemon, &stores, vcx);
@@ -4456,7 +4456,7 @@ mod tests {
             assert!(vcx.foreground_executor().block_test(read).is_ok());
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})]
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})]
             );
         }
 
@@ -4557,7 +4557,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "the chat picked again was not read"
             );
         }
@@ -4741,7 +4741,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>(),
-                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                vec![serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "the chat was not read once the window was back"
             );
         }
@@ -4771,7 +4771,7 @@ mod tests {
             vcx.run_until_parked();
             assert_eq!(
                 daemon.calls::<methods::ChatsMarkUnread>().last(),
-                Some(&serde_json::json!({"chatId": "c1", "unread": false})),
+                Some(&serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})),
                 "the chat shown again was not read"
             );
             assert!(
@@ -4807,7 +4807,7 @@ mod tests {
             let reads = daemon.calls::<methods::ChatsMarkUnread>();
             assert_eq!(
                 reads.get(before..).unwrap_or_default(),
-                [serde_json::json!({"chatId": "c1", "unread": false})],
+                [serde_json::json!({"chatId": "c1", "unread": false, "explicit": false})],
                 "the chat shown again was not read as it was left"
             );
         }

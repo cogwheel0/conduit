@@ -37,7 +37,8 @@ class Chats extends Table {
   /// The chat holds text from the server's copy never shown here, taken
   /// into a push from this device or returned by one: it shows unread on
   /// this device until it is read here ([ChatsDao.setLastReadAt]) with that
-  /// text stored here ([heldTextAt]), whatever its dates say. Its dates
+  /// text stored here ([heldTextAt]), or the user marks it read, whatever
+  /// its dates say. Its dates
   /// alone can't hold that: a read in the second the push lands, or by a
   /// clock ahead of the server's, is no earlier than the push, and pulls
   /// take the server's `updated_at` and the newer `last_read_at`.
@@ -46,7 +47,10 @@ class Chats extends Table {
   /// Epoch seconds, server clock: the date of the server's copy holding the
   /// text [heldUnread] is for, returned by a push, until a pull stores a
   /// copy that new here. Till then a read here covers only the older copy,
-  /// so it leaves the hold. Null when that text is stored here.
+  /// so it leaves the hold. The user's own Mark as Read ends the hold and
+  /// leaves this date, for a sync cycle to fetch that copy; a push landing
+  /// meanwhile holds the chat again only for a message written after that
+  /// read. Null when that text is stored here.
   IntColumn get heldTextAt => integer().nullable()();
 
   /// A2: `ChatResponse` envelope fields.
