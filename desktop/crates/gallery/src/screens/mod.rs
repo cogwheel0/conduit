@@ -1,7 +1,12 @@
 //! The named screens and how each one opens.
 
+pub mod chrome;
 pub mod main_window;
 pub mod other;
+
+use conduit_components::chrome::ChromeStyle;
+
+use chrome::ChromeShot;
 
 use conduit_components::theme::DesignPrefs;
 use conduit_components::window::{MAIN_WINDOW_SIZE, QUICK_ASK_SIZE};
@@ -29,6 +34,17 @@ pub enum Screen {
     ContextMenu,
     /// Extra: the model picker open over the empty chat.
     ModelPicker,
+    /// The main window off the Mac, with the app's own chrome (D13).
+    Chrome(ChromeShot),
+}
+
+const fn shot(style: ChromeStyle, menu_open: bool, sidebar: bool, start: bool) -> Screen {
+    Screen::Chrome(ChromeShot {
+        style,
+        menu_open,
+        sidebar,
+        start_controls: start,
+    })
 }
 
 /// How a screen's window is built and captured.
@@ -42,6 +58,9 @@ pub enum Frame {
     QuickAsk,
     /// A drawn scene (desktop + menu bar), captured as is.
     Scene { w: f32, h: f32 },
+    /// A borderless, clear window the chrome draws whole: Windows rounds
+    /// its corners; GNOME's frame draws its own shadow `inset` around it.
+    Chrome { inset: f32, radius: f32 },
 }
 
 impl Screen {
@@ -64,6 +83,13 @@ impl Screen {
         Screen::MenuBar,
         Screen::ContextMenu,
         Screen::ModelPicker,
+        shot(ChromeStyle::Windows, false, true, false),
+        shot(ChromeStyle::Windows, true, true, false),
+        shot(ChromeStyle::Windows, false, false, false),
+        shot(ChromeStyle::Gnome, false, true, false),
+        shot(ChromeStyle::Gnome, true, true, false),
+        shot(ChromeStyle::Gnome, false, false, false),
+        shot(ChromeStyle::Gnome, false, true, true),
     ];
 
     pub fn name(self) -> &'static str {
@@ -86,6 +112,15 @@ impl Screen {
             Screen::MenuBar => "menu-bar",
             Screen::ContextMenu => "context-menu",
             Screen::ModelPicker => "model-picker",
+            Screen::Chrome(s) => match (s.style, s.menu_open, s.sidebar, s.start_controls) {
+                (ChromeStyle::Windows, false, true, _) => "chrome-windows",
+                (ChromeStyle::Windows, true, _, _) => "chrome-windows-menu",
+                (ChromeStyle::Windows, false, false, _) => "chrome-windows-no-sidebar",
+                (ChromeStyle::Gnome, true, _, _) => "chrome-gnome-menu",
+                (ChromeStyle::Gnome, false, false, _) => "chrome-gnome-no-sidebar",
+                (ChromeStyle::Gnome, false, true, true) => "chrome-gnome-controls-start",
+                (ChromeStyle::Gnome, false, true, false) => "chrome-gnome",
+            },
         }
     }
 
@@ -106,6 +141,7 @@ impl Screen {
             Screen::QuickAsk | Screen::QuickAskEmpty => 11,
             Screen::MenuBar | Screen::ContextMenu => 12,
             Screen::ModelPicker => 13,
+            Screen::Chrome(_) => 14,
         }
     }
 
@@ -136,6 +172,14 @@ impl Screen {
             Screen::Accounts | Screen::SettingsAppearance => Frame::Settings,
             Screen::QuickAsk | Screen::QuickAskEmpty => Frame::QuickAsk,
             Screen::MenuBar => Frame::Scene { w: 760., h: 460. },
+            Screen::Chrome(s) => Frame::Chrome {
+                inset: s.inset(),
+                radius: match s.style {
+                    // Windows 11's own corners.
+                    ChromeStyle::Windows => 8.,
+                    ChromeStyle::Gnome => 0.,
+                },
+            },
             _ => Frame::Main { sidebar: material },
         }
     }
@@ -146,6 +190,10 @@ impl Screen {
             Frame::Settings => (860., 760.),
             Frame::QuickAsk => QUICK_ASK_SIZE,
             Frame::Scene { w, h } => (w, h),
+            Frame::Chrome { inset, .. } => (
+                MAIN_WINDOW_SIZE.0 + 2. * inset,
+                MAIN_WINDOW_SIZE.1 + 2. * inset,
+            ),
         }
     }
 }

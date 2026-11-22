@@ -390,6 +390,7 @@ fn open_screen(
         Frame::Settings => (ORIGIN.0 + 210., ORIGIN.1 + 120.),
         Frame::QuickAsk => (ORIGIN.0 + 280., ORIGIN.1 + 200.),
         Frame::Scene { .. } => (ORIGIN.0 + 260., ORIGIN.1 + 150.),
+        Frame::Chrome { .. } => ORIGIN,
     };
     let bounds = Bounds::new(point(px(origin.0), px(origin.1)), size(px(w), px(h)));
     let screen = job.screen;
@@ -450,16 +451,39 @@ fn open_screen(
             handle.update(cx, |_, window, _| views::hide_window_buttons(window))?;
             handle
         }
+        Frame::Chrome { radius, .. } => {
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: None,
+                focus: true,
+                window_background: WindowBackgroundAppearance::Transparent,
+                ..Default::default()
+            };
+            let (handle, _) = cw::open_window_clear_root(options, cx, move |window, cx| {
+                views::build(screen, window, cx)
+            })?;
+            handle.update(cx, |_, window, _| {
+                views::hide_window_buttons(window);
+                views::make_chrome_window(window, radius);
+            })?;
+            handle
+        }
     };
     Ok((handle, bounds))
 }
 
 fn apply_theme(job: &Job, accent: gpui_kit::Hsla, cx: &mut App) {
     cw::macos::set_app_appearance(job.dark);
-    theme::install(
-        ConduitTheme::new(&job.palette, job.dark, job.prefs, accent),
-        cx,
-    );
+    let mut prefs = job.prefs;
+    // Off the Mac there is no material behind the sidebar: solid.
+    if matches!(job.screen.frame(&job.prefs), Frame::Chrome { .. }) {
+        prefs.sidebar = theme::SidebarStyle::Surface;
+    }
+    theme::install(ConduitTheme::new(&job.palette, job.dark, prefs, accent), cx);
+    // Only a chrome screen draws the chrome (it sets its own as it draws),
+    // with its own chords.
+    cx.set_global(conduit_components::chrome::ActiveChrome(None));
+    cx.set_global(conduit_components::views::focus::ShortcutHints::default());
 }
 
 async fn render_job(
@@ -519,7 +543,7 @@ async fn render_job(
     let w = f32::from(bounds.size.width) as f64;
     let h = f32::from(bounds.size.height) as f64;
     let rect = match (job.screen, frame) {
-        (_, Frame::Scene { .. }) => capture::CGRect { x, y, w, h },
+        (_, Frame::Scene { .. } | Frame::Chrome { .. }) => capture::CGRect { x, y, w, h },
         (Screen::Sidebar, _) => {
             let sidebar = cx.update(|cx| cx.global::<ConduitTheme>().metrics.sidebar_width) as f64;
             capture::CGRect {
@@ -538,7 +562,7 @@ async fn render_job(
     };
     let out = job.out.to_string_lossy().to_string();
     let windows: &[u32] = match frame {
-        Frame::Scene { .. } => &[screen_id],
+        Frame::Scene { .. } | Frame::Chrome { .. } => &[screen_id],
         _ => &[screen_id, backdrop_id],
     };
     let result = capture::capture_windows(windows, Some(rect), &out);
