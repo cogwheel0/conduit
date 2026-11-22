@@ -63,6 +63,32 @@ Map<String, dynamic> _directDocumentDescriptor(int index, String text) {
 }
 
 void main() {
+  test(
+    'progress replaces a phase and settles before output without becoming text',
+    () {
+      final accumulator = DirectStreamingAccumulator();
+      for (var percent = 0; percent < 100; percent++) {
+        accumulator.apply(
+          DirectProgressUpdate(
+            DirectProgressPhase.modelLoad,
+            fraction: percent / 100,
+          ),
+        );
+      }
+      expect(accumulator.statusHistory, hasLength(1));
+      expect(accumulator.statusHistory.single.description, 'Model load · 99%');
+      expect(accumulator.statusHistory.single.done, isFalse);
+      expect(accumulator.hasUsableOutput, isFalse);
+      expect(accumulator.render(done: false), isEmpty);
+      accumulator.apply(
+        const DirectProgressUpdate(DirectProgressPhase.promptProcessing),
+      );
+      accumulator.apply(const DirectReasoningDelta('Planning'));
+      expect(accumulator.statusHistory, hasLength(2));
+      expect(accumulator.statusHistory.every((s) => s.done == true), isTrue);
+    },
+  );
+
   group('normalizeDirectUsageMetadata', () {
     test('creates a detached deeply immutable JSON value', () {
       final shared = <Object?>[1, 'yes'];

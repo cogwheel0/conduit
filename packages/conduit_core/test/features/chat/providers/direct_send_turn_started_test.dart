@@ -187,6 +187,46 @@ void main() {
     check(steps).deepEquals(['placeholder', 'started']);
   });
 
+  test(
+    'Direct progress is visible while waiting and settled with the answer',
+    () async {
+      final adapter = _WaitingAdapter();
+      final container = _directContainer(adapter);
+      final send = durableSend(container, 'Check a synthetic plan', null);
+      await adapter.asked.future;
+      final shown = Completer<void>();
+      final subscription = container.listen(chatMessagesProvider, (_, next) {
+        if (next.last.statusHistory.isNotEmpty && !shown.isCompleted) {
+          shown.complete();
+        }
+      });
+      addTearDown(subscription.close);
+      adapter.events.add(
+        const DirectProgressUpdate(
+          DirectProgressPhase.promptProcessing,
+          fraction: 0.5,
+        ),
+      );
+      await shown.future;
+      final waiting = container.read(chatMessagesProvider).last;
+      expect(waiting.content, isEmpty);
+      expect(
+        waiting.statusHistory.single.description,
+        'Prompt processing · 50%',
+      );
+      expect(waiting.statusHistory.single.done, isFalse);
+      adapter.events
+        ..add(const DirectContentDelta('The plan is ready.'))
+        ..add(const DirectStreamDone());
+      await adapter.finish();
+      await send;
+      final completed = container.read(chatMessagesProvider).last;
+      expect(completed.statusHistory.single.done, isTrue);
+      expect(completed.isStreaming, isFalse);
+      expect(completed.content, 'The plan is ready.');
+    },
+  );
+
   // A chat begun with only a picture is named for it, not "New Chat".
   test('a Direct send without words is titled by its files', () async {
     final image = 'data:image/png;base64,${base64Encode([1, 2, 3])}';

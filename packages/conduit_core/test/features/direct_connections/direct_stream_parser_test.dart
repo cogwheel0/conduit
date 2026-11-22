@@ -7,10 +7,74 @@ import 'package:conduit_core/features/direct_connections/models/direct_completio
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_stream_parser.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_stream_progress.dart';
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('progress accepts only known phases and finite bounded fractions', () {
+    for (final phase in ['model_load', 'prompt_processing']) {
+      for (final suffix in ['start', 'progress', 'end']) {
+        final progress = directStreamProgress({
+          'progress': 0.65,
+        }, event: '$phase.$suffix')!;
+        expect(
+          progress.phase,
+          phase == 'model_load'
+              ? DirectProgressPhase.modelLoad
+              : DirectProgressPhase.promptProcessing,
+        );
+        expect(progress.fraction, 0.65);
+        expect(progress.done, suffix == 'end');
+      }
+    }
+    for (final entry in {
+      'load_start': DirectProgressPhase.modelLoad,
+      'load_end': DirectProgressPhase.modelLoad,
+      'prompt_start': DirectProgressPhase.promptProcessing,
+      'prompt': DirectProgressPhase.promptProcessing,
+      'prompt_end': DirectProgressPhase.promptProcessing,
+    }.entries) {
+      final nested = directStreamProgress({
+        'provider_progress': {'phase': entry.key, 'fraction': 0.5},
+      })!;
+      final responses = directStreamProgress({
+        'type': 'response.provider_progress',
+        'phase': entry.key,
+        'fraction': 0.5,
+      })!;
+      expect(nested.phase, entry.value);
+      expect(responses.phase, entry.value);
+      expect(nested.done, entry.key.endsWith('_end'));
+      expect(responses.fraction, 0.5);
+    }
+    for (final value in [null, '0.5', double.nan, double.infinity]) {
+      expect(
+        directStreamProgress({
+          'type': 'model_load.progress',
+          'progress': value,
+        })!.fraction,
+        isNull,
+      );
+    }
+    for (final value in [-1, 2]) {
+      expect(
+        directStreamProgress({
+          'type': 'model_load.progress',
+          'progress': value,
+        })!.fraction,
+        value.clamp(0, 1),
+      );
+    }
+    expect(directStreamProgress({'type': 'unknown.progress'}), isNull);
+    expect(
+      directStreamProgress({
+        'provider_progress': {'phase': 'unknown'},
+      }),
+      isNull,
+    );
+  });
+
   test('Ollama parser handles split UTF-8, CRLF, and trailing line', () async {
     final bytes = utf8.encode(
       '{"message":{"content":"你"}}\r\n'

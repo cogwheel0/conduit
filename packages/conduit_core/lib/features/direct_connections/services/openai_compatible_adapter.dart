@@ -12,6 +12,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_stream_progress.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/models/openrouter_reasoning.dart';
@@ -775,6 +776,8 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
         return;
       }
 
+      emitter.progress(payload, raw.event);
+
       if (_chatPayloadHasToolCall(payload)) {
         throw const DirectProviderException(
           kDirectToolCallingUnsupportedMessage,
@@ -1000,6 +1003,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             directErrorMessage(protocolError ?? payload),
           );
         }
+        emitter.progress(payload, raw.event);
         final choices = payload['choices'];
         final choice = choices is List && choices.isNotEmpty
             ? choices.first
@@ -1276,6 +1280,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
             directErrorMessage(payload['error'] ?? payload),
           );
         }
+        emitter.progress(payload, raw.event);
         if (payload['type'] == null && raw.event != null) {
           payload['type'] = raw.event;
         }
@@ -2859,6 +2864,11 @@ final class _DirectEmitter {
   String get responseReasoningTextValue => _responseReasoningText.toString();
   String get responseReasoningSummaryValue =>
       _responseReasoningSummary.toString();
+
+  void progress(Map<String, dynamic> payload, String? event) {
+    final progress = directStreamProgress(payload, event: event);
+    if (progress != null) controller.add(progress);
+  }
 
   void beginResponsesRound() {
     _responseRoundHasCompletion = false;

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_stream_progress.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
@@ -698,6 +699,13 @@ final class OllamaAdapter
               if (payload['error'] != null) {
                 emitProtocolError(payload['error']);
                 break;
+              }
+              final progress = directStreamProgress(payload);
+              if (progress != null) {
+                controller.add(progress);
+                if (payload['message'] == null && payload['done'] != true) {
+                  continue;
+                }
               }
               final rawMessage = payload['message'];
               if (rawMessage is Map) {
