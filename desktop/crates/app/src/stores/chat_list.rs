@@ -96,8 +96,8 @@ pub struct ChatListStore {
     answered_here: std::collections::HashSet<String>,
     /// Reads on leaving still on their way for chats answered here, by each
     /// read's number: a failed one leaves its chat to read on the next
-    /// leave, unless a later read, a mark of unread or another account came
-    /// in between.
+    /// leave, unless a later read was sent, the chat was marked unread or
+    /// another account came in between.
     answered_reads: HashMap<String, u64>,
     reads_sent: u64,
     rpc: Rpc,
@@ -1028,7 +1028,6 @@ impl ChatListStore {
     /// is asked of the daemon for a chat that has no dot.
     pub fn mark_read(&mut self, id: &str, cx: &mut Context<Self>) {
         self.marked_unread_here.remove(id);
-        self.answered_reads.remove(id);
         if self.find(id).is_some_and(|c| c.unread) {
             self.mark_unread(id, false, cx).detach();
         }
@@ -1597,6 +1596,33 @@ mod tests {
         assert_eq!(
             reads_of_c, 2,
             "the next leave did not read a chat whose read failed"
+        );
+
+        // Opened again while the list shows it read, it sends no read of its
+        // own: the held one failing still leaves it to the next leave.
+        daemon.once::<methods::ChatsMarkUnread>(Err(conduit_daemon::protocol::error(
+            "rpc.internal",
+            "disk full",
+        )));
+        let held = daemon.hold::<methods::ChatsMarkUnread>();
+        store.update(cx, |s, cx| {
+            s.note_answered("c");
+            s.mark_left("c", cx);
+            s.mark_read("c", cx);
+        });
+        cx.run_until_parked();
+        drop(held);
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.mark_left("c", cx));
+        cx.run_until_parked();
+        let reads_of_c = daemon
+            .calls::<methods::ChatsMarkUnread>()
+            .iter()
+            .filter(|call| call["chatId"] == "c")
+            .count();
+        assert_eq!(
+            reads_of_c, 4,
+            "a chat opened again lost the read its failed leave owed"
         );
     }
 
