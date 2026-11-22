@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:clock/clock.dart' show clock;
 import 'package:dio/dio.dart';
 import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/server_config.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
@@ -40,14 +42,16 @@ typedef RouteRejection = ({Uri server, ServerConfig? connection});
 class ConnectivityService {
   /// [lifecycle] defaults to [StaticAppLifecycle], meaning a host that never
   /// reports foreground/background; the service then polls as though always
-  /// visible.
+  /// visible. [random] spreads the probes' times.
   ConnectivityService(
     this._dio,
     this._ref, [
     ConnectivityPort? network,
     this._ownsDio = false,
     AppLifecyclePort lifecycle = const StaticAppLifecycle(),
-  ]) : _network = network ?? const AlwaysOnlineConnectivityPort() {
+    Random? random,
+  ]) : _network = network ?? const AlwaysOnlineConnectivityPort(),
+       _random = random ?? Random() {
     _initialize(lifecycle);
   }
 
@@ -57,12 +61,13 @@ class ConnectivityService {
   final Ref _ref;
   final ConnectivityPort _network;
   final bool _ownsDio;
-  final Random _random = Random();
+  final Random _random;
 
   final _statusController = StreamController<ConnectivityStatus>.broadcast();
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<Uri>? _transportFailureSubscription;
   StreamSubscription<Uri>? _successfulTrafficSubscription;
+  ProviderSubscription<AsyncValue<bool>>? _workWaitingSubscription;
   Timer? _pollTimer;
   DateTime? _pollDeadline;
   bool _pollForcesProbe = false;
@@ -75,6 +80,10 @@ class ConnectivityService {
   bool _hasNetworkInterface = false;
   bool _hasConfirmedNetwork = false;
   int _consecutiveFailures = 0;
+  // Whether the account has work to send that waits for the server, and
+  // whether the probe timer runs on the shorter rhythm that sets.
+  bool _workWaits = false;
+  bool _pollIsSooner = false;
   int _lastLatencyMs = -1;
   Future<void>? _healthCheckFuture;
   bool _activeHealthCheckSatisfiesForce = false;
@@ -86,6 +95,8 @@ class ConnectivityService {
   // worst-case realtime outage once the server is back; keep it at the healthy
   // probe interval rather than letting exponential backoff stretch further.
   static const Duration _maximumFailureBackoff = Duration(minutes: 2);
+  // The rhythm instead while the account has work waiting to be sent.
+  static const Duration _workWaitingProbeInterval = Duration(seconds: 30);
   static const Duration _probeDeadline = Duration(seconds: 6);
   static const Duration _probeConnectTimeout = Duration(seconds: 5);
 
@@ -144,6 +155,27 @@ class ConnectivityService {
 
     _lifecycleSubscription = lifecycle.changes.listen(_onLifecyclePhase);
     _extendOfflineSuppression(const Duration(seconds: 3));
+
+    _workWaitingSubscription = _ref.listen<AsyncValue<bool>>(
+      outboxWaitsForServerProvider,
+      (_, next) => _setWorkWaiting(next.value ?? false),
+      fireImmediately: true,
+    );
+  }
+
+  /// A server that cannot be reached is probed sooner while the account has
+  /// work waiting to be sent to it. Only a timer the rhythm set moves:
+  /// polling that is stopped (no network, in the background) stays stopped,
+  /// and a probe asked for sooner keeps its time.
+  void _setWorkWaiting(bool waiting) {
+    if (_workWaits == waiting) return;
+    _workWaits = waiting;
+    if (_consecutiveFailures == 0 || !(_pollTimer?.isActive ?? false)) return;
+    if (waiting) {
+      _scheduleNextCheck(retainEarlierDeadline: true);
+    } else if (_pollIsSooner && !_pollForcesProbe) {
+      _scheduleNextCheck();
+    }
   }
 
   void _handleNetworkChange(bool hasNetwork) {
@@ -193,7 +225,7 @@ class ConnectivityService {
     }
 
     final interval = delay ?? _nextStaleProbeDelay();
-    final deadline = DateTime.now().add(interval);
+    final deadline = clock.now().add(interval);
     final currentDeadline = _pollDeadline;
     if (retainEarlierDeadline &&
         (_pollTimer?.isActive ?? false) &&
@@ -209,6 +241,7 @@ class ConnectivityService {
     _stopPolling();
     _pollDeadline = deadline;
     _pollForcesProbe = force;
+    _pollIsSooner = delay == null && _workWaits && _consecutiveFailures != 0;
 
     _pollTimer = Timer(interval, () {
       final forceProbe = _pollForcesProbe;
@@ -224,6 +257,9 @@ class ConnectivityService {
   Duration _nextStaleProbeDelay() {
     if (_consecutiveFailures == 0) {
       return _withJitter(_healthyProbeInterval, fraction: 0.15);
+    }
+    if (_workWaits) {
+      return _withJitter(_workWaitingProbeInterval, fraction: 0.2);
     }
     final exponent = min(_consecutiveFailures - 1, 4);
     final milliseconds = min(
@@ -245,6 +281,7 @@ class ConnectivityService {
     _pollTimer = null;
     _pollDeadline = null;
     _pollForcesProbe = false;
+    _pollIsSooner = false;
   }
 
   Future<void> _checkServerHealth({bool force = false}) {
@@ -588,6 +625,8 @@ class ConnectivityService {
     _transportFailureSubscription = null;
     _successfulTrafficSubscription?.cancel();
     _successfulTrafficSubscription = null;
+    _workWaitingSubscription?.close();
+    _workWaitingSubscription = null;
     _cancelNoNetworkGrace();
     _lifecycleSubscription?.cancel();
     _lifecycleSubscription = null;
@@ -620,6 +659,14 @@ class ConnectivityService {
     }
   }
 }
+
+/// Whether the account's outbox holds work waiting to be sent to its server
+/// ([OutboxDao.watchWaitingToBeSent]).
+final outboxWaitsForServerProvider = StreamProvider<bool>((ref) {
+  final database = ref.watch(appDatabaseProvider);
+  if (database == null) return Stream<bool>.value(false);
+  return database.outboxDao.watchWaitingToBeSent();
+});
 
 // Provider for the connectivity service
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {

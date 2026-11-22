@@ -739,6 +739,29 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
         .write(OutboxOpsCompanion(chatId: Value(toChatId)));
   }
 
+  /// Whether some op waits to be sent: one pending or under way that heads
+  /// its queue ([_isChatHead]), as the drainer would claim it. The ops behind
+  /// it follow it; with no such op, every live one is held up for good behind
+  /// a parked op, which only a manual retry moves.
+  Stream<bool> watchWaitingToBeSent() {
+    return (select(outboxOps)
+          ..where(
+            (t) => t.status.isIn(const [
+              OutboxStatus.pending,
+              OutboxStatus.inFlight,
+            ]),
+          )
+          ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
+        .watch()
+        .asyncMap((live) async {
+          for (final op in live) {
+            if (await _isChatHead(op)) return true;
+          }
+          return false;
+        })
+        .distinct();
+  }
+
   /// Live count of not-yet-terminal ops (pending|inFlight) — drives the
   /// "drain on increase" trigger (A7).
   Stream<int> watchPendingCount() {
