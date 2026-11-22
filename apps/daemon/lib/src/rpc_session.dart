@@ -229,6 +229,9 @@ class RpcSession {
   ModelsService? get _models => _services().models;
   final json_rpc.Peer _peer;
 
+  /// The views of this window that said which chat they show.
+  final Set<ChatView> _shownViews = <ChatView>{};
+
   /// Set by a successful `system.handshake`. Until then every other method is
   /// refused, so a client cannot skip version negotiation and then be
   /// surprised by a payload it cannot parse.
@@ -303,6 +306,10 @@ class RpcSession {
 
   Future<void> _close() async {
     _events.detach(sessionId);
+    // The chats it showed are no longer on screen.
+    for (final view in _shownViews) {
+      _chats?.setShown(sessionId, ShownChat(view: view));
+    }
     // If that was the last window, nobody is left to answer: questions
     // still waiting take their conservative default now rather than hang
     // the turn that asked them.
@@ -776,6 +783,11 @@ class RpcSession {
       ConduitMethodSpecs.chatsMarkUnread,
       (r) => _requireChats().markUnread(r),
     );
+    _on(ConduitMethodSpecs.chatsSetShown, (r) {
+      _requireChats().setShown(sessionId, r);
+      _shownViews.add(r.view);
+      return const OkResult(ok: true);
+    });
     _on(
       ConduitMethodSpecs.chatsSaveTemporary,
       (r) => _requireTurns().saveTemporary(r.id),

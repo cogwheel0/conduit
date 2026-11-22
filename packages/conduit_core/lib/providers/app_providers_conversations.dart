@@ -568,6 +568,18 @@ class Conversations extends _$Conversations {
     return write;
   }
 
+  /// The database that stores chat [id]'s reads.
+  AppDatabase? _readDatabaseOf(String id) {
+    final current = state.asData?.value;
+    final index = current == null
+        ? -1
+        : _conversationIndexForSelection(current, id);
+    return _readDatabase(
+      index >= 0 ? current![index] : null,
+      ChatStorageIdentity.parse(id),
+    );
+  }
+
   /// The database that stores chat [listed]'s reads, or, while it is not
   /// listed, that of the storage [identity] names.
   AppDatabase? _readDatabase(

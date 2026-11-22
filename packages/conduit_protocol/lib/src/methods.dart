@@ -286,6 +286,10 @@ abstract final class ConduitMethods {
   /// Marks a chat unread, or read again.
   static const String chatsMarkUnread = 'chats.markUnread';
 
+  /// The chat a view shows on screen now, or none: each change of its
+  /// stored copy is read while it shows.
+  static const String chatsSetShown = 'chats.setShown';
+
   /// Makes a temporary chat a normal, stored one (Save Chat); answers with
   /// its new id, and windows showing it hear `route.remap`.
   static const String chatsSaveTemporary = 'chats.saveTemporary';

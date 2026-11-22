@@ -653,6 +653,8 @@
   "setModelPinned": "SetModelPinned",
   "setReasoningEffort": "SetReasoningEffort",
   "shareChat": "ShareChat",
+  "shownChat": "ShownChat",
+  "shownChatNone": "ShownChat",
   "shutdownResult": "ShutdownResult",
   "signOutAll": "SignOutAll",
   "skillList": "SkillList",

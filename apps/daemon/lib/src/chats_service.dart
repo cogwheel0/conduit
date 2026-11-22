@@ -1379,6 +1379,15 @@ final class ChatsService {
     return list();
   }
 
+  /// The chat [ShownChat.view] of window [window] shows on screen now, or
+  /// none: the core reads each change of its stored copy while it shows
+  /// ([ShownChats]).
+  void setShown(String window, ShownChat request) {
+    _container
+        .read(shownChatsProvider.notifier)
+        .show('$window/${request.view.name}', request.chatId);
+  }
+
   /// A message on one line, without its reasoning and tool-call markup,
   /// short enough to read at a glance.
   static String _preview(String content) {

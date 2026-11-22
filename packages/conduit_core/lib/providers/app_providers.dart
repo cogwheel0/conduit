@@ -140,6 +140,7 @@ part 'app_providers_models.dart';
 part 'app_providers_openwebui_ownership.dart';
 part 'app_providers_search.dart';
 part 'app_providers_server_config.dart';
+part 'app_providers_shown_chats.dart';
 part 'app_providers_sign_out.dart';
 part 'app_providers_socket.dart';
 part 'app_providers_user_settings.dart';

@@ -16,7 +16,7 @@ use crate::{EventSpec, MethodSpec};
 ///
 /// Bump this whenever a method, event, or DTO changes shape in a way that an
 /// older peer would misread.
-pub const PROTOCOL_VERSION: &str = "1.76.0";
+pub const PROTOCOL_VERSION: &str = "1.77.0";
 
 /// A resource whose access grants the everyday UI edits. Generic on
 /// purpose: chats, folders and notes, and the workspace's models,
@@ -5000,6 +5000,31 @@ pub struct MarkUnread {
 
 fn default_mark_unread_unread() -> bool {
     true
+}
+
+/// A view of a window that shows one chat at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChatView {
+    /// The main window's chat pane.
+    #[serde(rename = "main")]
+    Main,
+    /// The Quick Ask panel.
+    #[serde(rename = "quickAsk")]
+    QuickAsk,
+    /// A value this build does not know, from a newer daemon. It decodes
+    /// only: it encodes as `"unknown"`, which the daemon refuses.
+    #[serde(other, rename = "unknown")]
+    Unknown,
+}
+
+/// Params for `chats.setShown`: the chat `view` shows on screen now, or
+/// none (a new chat, another area's item, a hidden window).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownChat {
+    pub view: ChatView,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_id: Option<String>,
 }
 
 /// A tool the server offers for a turn.
@@ -16815,6 +16840,19 @@ pub mod methods {
         type Result = super::ChatList;
     }
 
+    /// The chat a view shows on screen now, or none: each change of its
+    /// stored copy is read while it shows.
+    ///
+    /// `chats.setShown`: ShownChat -> OkResult.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+    pub struct ChatsSetShown;
+
+    impl RpcMethod for ChatsSetShown {
+        const NAME: &'static str = "chats.setShown";
+        type Params = super::ShownChat;
+        type Result = super::OkResult;
+    }
+
     /// Makes a temporary chat a normal, stored one (Save Chat); answers with
     /// its new id, and windows showing it hear `route.remap`.
     ///
@@ -20999,6 +21037,11 @@ pub const METHODS: &[MethodSpec] = &[
         result: Some("ChatList"),
     },
     MethodSpec {
+        name: "chats.setShown",
+        params: Some("ShownChat"),
+        result: Some("OkResult"),
+    },
+    MethodSpec {
         name: "chats.saveTemporary",
         params: Some("ChatRef"),
         result: Some("ChatForked"),
@@ -23929,6 +23972,7 @@ pub mod conformance {
         "SetModelPinned",
         "SetReasoningEffort",
         "ShareChat",
+        "ShownChat",
         "ShutdownResult",
         "SignOutAll",
         "SkillList",
@@ -24609,6 +24653,7 @@ pub mod conformance {
             "SetModelPinned" => roundtrip::<super::SetModelPinned>(json),
             "SetReasoningEffort" => roundtrip::<super::SetReasoningEffort>(json),
             "ShareChat" => roundtrip::<super::ShareChat>(json),
+            "ShownChat" => roundtrip::<super::ShownChat>(json),
             "ShutdownResult" => roundtrip::<super::ShutdownResult>(json),
             "SignOutAll" => roundtrip::<super::SignOutAll>(json),
             "SkillList" => roundtrip::<super::SkillList>(json),
