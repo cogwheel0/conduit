@@ -1956,5 +1956,7 @@
   "desktopYourDevices": "自分のデバイス",
   "@desktopYourDevices": {
     "description": "Heading in the message box's + menu above the tools and terminals the user's own computers offer through Tether (Open WebUI 0.13.4 and later), in Title Case as Mac menu headings are."
-  }
+  },
+  "desktopPickerHour": "時",
+  "desktopPickerMinute": "分"
 }

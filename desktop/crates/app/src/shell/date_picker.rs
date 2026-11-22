@@ -542,6 +542,14 @@ impl PickerField {
         // A part of the time: a click picks it (the keys then change it),
         // and the arrows above and below step it, for the pointer. The
         // field as a whole is what screen readers and the keys reach.
+        let (hour_name, minute_name) = {
+            use crate::l10n::ActiveL10n as _;
+            let l = cx.l10n();
+            (
+                SharedString::from(l.desktop_picker_hour()),
+                SharedString::from(l.desktop_picker_minute()),
+            )
+        };
         let mut segment_for = |segment: Segment, n: u32, name: &'static str| {
             let active = self.state.segment == segment;
             let stepper = |id: &'static str, by: i32, icon: IconName, cx: &mut Context<Self>| {
@@ -589,13 +597,15 @@ impl PickerField {
             );
             // Each part is its own spin button, the focused field's active
             // descendant while the keys change it, so moving between them
-            // is heard. Its name waits on a string of its own (proposed:
-            // "Hour", "Minute"); the picker's title stands in.
+            // is heard.
             let field = div()
                 .id(name)
                 .debug_selector(move || name.into())
                 .role(Role::SpinButton)
-                .aria_label(SharedString::from(self.title.clone()))
+                .aria_label(match segment {
+                    Segment::Hour => hour_name.clone(),
+                    Segment::Minute => minute_name.clone(),
+                })
                 .aria_numeric_value(f64::from(n))
                 .aria_min_numeric_value(0.)
                 .aria_max_numeric_value(if segment == Segment::Hour { 23. } else { 59. })
