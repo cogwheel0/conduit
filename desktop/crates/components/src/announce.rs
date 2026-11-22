@@ -18,10 +18,18 @@
 //!
 //! An [`AnnouncementLog`] global, when installed, keeps every announcement,
 //! so tests and the E2E passes can check what VoiceOver would have heard.
+//!
+//! Off the Mac, [`install_live_regions`] makes announcements AccessKit live
+//! regions, which Narrator and NVDA (UIA) and Orca (AT-SPI) speak: each
+//! window's root draws the latest announcement made while it was in front
+//! as a new live node ([`LiveRegion`]), so the same words twice are heard
+//! twice. [`live_text`] speaks through [`announce`], so it follows.
 
+use gpui_kit::base::{Root, RootPlugin};
+use gpui_kit::prelude::*;
 use gpui_kit::{
-    App, Element, ElementId, Global, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, SharedString, Style, Window, px,
+    AnyWindowHandle, App, Context, Element, ElementId, Global, GlobalElementId, InspectorElementId,
+    IntoElement, LayoutId, Live, Pixels, Role, SharedString, Style, Subscription, Window, div, px,
 };
 
 /// How urgently VoiceOver speaks an announcement: `High` interrupts what it
@@ -89,6 +97,91 @@ pub fn announce(text: impl Into<SharedString>, priority: Priority, cx: &mut App)
     }
     #[cfg(target_os = "macos")]
     macos::post(&text, priority);
+    if cx.has_global::<LiveAnnouncements>() {
+        let window = cx.active_window().or_else(|| cx.windows().first().copied());
+        let latest = cx.global_mut::<LiveAnnouncements>();
+        latest.serial += 1;
+        latest.latest = Some(LiveAnnouncement {
+            serial: latest.serial,
+            window,
+            text,
+            priority,
+        });
+    }
+}
+
+/// The latest announcement, for the windows' live regions (off the Mac).
+#[derive(Default)]
+pub struct LiveAnnouncements {
+    serial: u64,
+    latest: Option<LiveAnnouncement>,
+}
+
+impl Global for LiveAnnouncements {}
+
+/// One announcement as a live region speaks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveAnnouncement {
+    /// Which announcement: each is a new node, heard even in the words of
+    /// the last.
+    pub serial: u64,
+    /// The window in front when it was made (else the first open).
+    pub window: Option<AnyWindowHandle>,
+    pub text: SharedString,
+    pub priority: Priority,
+}
+
+/// Makes [`announce`] speak through AccessKit live regions in every window
+/// opened after this (Windows and Linux; the Mac posts to VoiceOver).
+pub fn install_live_regions(cx: &mut App) {
+    if !cx.has_global::<LiveAnnouncements>() {
+        cx.set_global(LiveAnnouncements::default());
+    }
+    Root::register_plugin::<LiveRegion>(cx, LiveRegion::new);
+}
+
+/// The announcement `window`'s live region shows: the latest, if it was
+/// made with `window` in front.
+pub fn live_announcement(window: AnyWindowHandle, cx: &App) -> Option<LiveAnnouncement> {
+    cx.try_global::<LiveAnnouncements>()?
+        .latest
+        .clone()
+        .filter(|a| a.window == Some(window))
+}
+
+/// A window's live region: a zero-size node over the content, drawn again
+/// whenever an announcement is made.
+pub struct LiveRegion {
+    _announced: Subscription,
+}
+
+impl LiveRegion {
+    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self {
+            _announced: cx.observe_global::<LiveAnnouncements>(|_, cx| cx.notify()),
+        }
+    }
+}
+
+impl RootPlugin for LiveRegion {}
+
+impl gpui_kit::Render for LiveRegion {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let shown = live_announcement(window.window_handle(), cx);
+        div().absolute().size_0().children(shown.map(|a| {
+            let (role, live) = match a.priority {
+                Priority::High => (Role::Alert, Live::Assertive),
+                Priority::Low | Priority::Medium => (Role::Status, Live::Polite),
+            };
+            div()
+                .id(("announcement", a.serial))
+                .role(role)
+                .aria_live(live)
+                .aria_label(a.text)
+                .absolute()
+                .size_0()
+        }))
+    }
 }
 
 /// A live region of `text`: announced when it first draws with text, and
@@ -268,8 +361,7 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_kit::prelude::*;
-    use gpui_kit::{Context, TestAppContext, VisualTestContext, div};
+    use gpui_kit::{TestAppContext, VisualTestContext};
 
     #[gpui_kit::test]
     fn announce_keeps_text_and_priority_and_skips_blank(cx: &mut TestAppContext) {
@@ -300,6 +392,70 @@ mod tests {
         cx.update(|cx| {
             announce("Copied", Priority::Medium, cx);
             assert_eq!(AnnouncementLog::len(cx), 0);
+        });
+    }
+
+    struct Blank;
+
+    impl Render for Blank {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// Off the Mac an announcement is the window in front's live region,
+    /// a new one each time, so the same words twice are heard twice.
+    #[gpui_kit::test]
+    fn off_the_mac_an_announcement_is_the_front_windows_live_region(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            install_live_regions(cx);
+        });
+        let open = |cx: &mut TestAppContext| -> AnyWindowHandle {
+            cx.update(|cx| {
+                cx.open_window(Default::default(), |window, cx| {
+                    let view = cx.new(|_| Blank);
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .unwrap()
+                .into()
+            })
+        };
+        let front = open(cx);
+        let back = open(cx);
+        cx.update(|cx| {
+            front
+                .update(cx, |_, window, _| window.activate_window())
+                .unwrap()
+        });
+        cx.run_until_parked();
+        cx.update(|cx| announce("Copied", Priority::Medium, cx));
+        let shown = cx.update(|cx| live_announcement(front, cx)).unwrap();
+        assert_eq!(shown.text, SharedString::from("Copied"));
+        assert_eq!(shown.priority, Priority::Medium);
+        assert_eq!(cx.update(|cx| live_announcement(back, cx)), None);
+        cx.update(|cx| announce("Copied", Priority::Medium, cx));
+        let again = cx.update(|cx| live_announcement(front, cx)).unwrap();
+        assert_ne!(again.serial, shown.serial, "the same words, a new node");
+        // Each window's root carries a live region.
+        for window in [front, back] {
+            let has_region = cx
+                .update(|cx| {
+                    window.update(cx, |_, window, cx| {
+                        Root::read(window, cx).plugin::<LiveRegion>().is_some()
+                    })
+                })
+                .unwrap();
+            assert!(has_region);
+        }
+    }
+
+    /// Without live regions installed (the Mac) nothing is kept for them.
+    #[gpui_kit::test]
+    fn the_mac_keeps_no_live_regions(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            announce("Copied", Priority::Medium, cx);
+            assert!(!cx.has_global::<LiveAnnouncements>());
         });
     }
 

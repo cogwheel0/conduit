@@ -377,6 +377,12 @@ pub fn bind_keys(keymap: &Keymap, cx: &mut App) {
     .collect();
     cx.bind_keys(new_note);
     bind_console_keys(KeyOs::CURRENT, cx);
+    // The app's own prompts (Windows and Linux), last: their Esc must win
+    // over Stop Generating's, which has no context.
+    if !KeyOs::CURRENT.is_mac() {
+        cx.bind_keys(crate::shell::app_prompt::bindings());
+        cx.bind_keys(crate::shell::date_picker::bindings());
+    }
     cx.set_global(shortcut_hints(keymap, quick_ask_stroke(cx).as_ref()));
 }
 

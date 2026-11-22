@@ -366,9 +366,14 @@ pub fn run() {
         menus::KitBindings::capture(cx);
         // Off the Mac the app draws its questions (the Mac attaches NSAlert
         // sheets): keyboard-driven, and taken down when settled elsewhere.
-        // The fonts this system has, before any window opens.
         #[cfg(not(target_os = "macos"))]
-        shell::system_look::resolve_fonts(cx);
+        {
+            shell::app_prompt::install(cx);
+            // Announcements as AccessKit live regions, and the fonts this
+            // system has, before any window opens.
+            conduit_components::announce::install_live_regions(cx);
+            shell::system_look::resolve_fonts(cx);
+        }
         conduit_components::views::markdown::preload_grammars(&["python", "rust", "bash"]);
 
         let system_dark = matches!(

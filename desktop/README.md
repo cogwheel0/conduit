@@ -179,10 +179,11 @@ packaging/notices/notices.sh --check                   # the notices bundle.sh g
 
 ## Patched dependencies
 
-`vendor/gpui-pre` is gpui-pre 0.3.11 with three small patches (a file
+`vendor/gpui-pre` is gpui-pre 0.3.11 with four small patches (a file
 dropped right after typing switches GPUI to pointer input, so `on_drop`
 fires; AccessKit's debug tree carries each node's bounds; a newly focused
-element scrolls into view), used through `[patch.crates-io]`.
+element scrolls into view; an element can be an AccessKit live region),
+used through `[patch.crates-io]`.
 `vendor/gpui-pre/PATCHES.md` describes each and how to update it.
 
 ## Checks

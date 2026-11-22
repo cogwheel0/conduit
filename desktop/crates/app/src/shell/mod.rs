@@ -12,6 +12,7 @@
 //! Services menu ([`services`]); and Apple's on-device model
 //! ([`apple_models`]).
 
+pub mod app_prompt;
 pub mod apple_models;
 #[cfg(target_os = "macos")]
 pub mod continuity_camera;
