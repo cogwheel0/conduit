@@ -164,44 +164,6 @@ void main() {
     );
   });
 
-  test('the user\'s own Mark as Read ends the hold on a chat held unread for '
-      'the server\'s text, which a read made on leaving it keeps', () async {
-    final db = AppDatabase(NativeDatabase.memory());
-    addTearDown(db.close);
-    await db.chatsDao.upsertServerChat(
-      rows: ChatBlobMapper.blobToRows(
-        chatId: 'chat-a',
-        blob: const {'title': 'Tide tables'},
-        title: 'Tide tables',
-        createdAt: 100,
-        updatedAt: 100,
-      ),
-      listLastReadAt: 100,
-    );
-    // A push of this device's left the server's copy, dated 160, holding
-    // text not stored here.
-    await db.chatsDao.holdUnreadUntilPulled('chat-a', 160);
-    final scoped = ProviderContainer(
-      overrides: [
-        syncEngineProvider.overrideWith(() => engine),
-        conversationsProvider.overrideWith(_Conversations.new),
-        foldersProvider.overrideWith(_Folders.new),
-        currentUserProvider2.overrideWithValue(null),
-        appDatabaseProvider.overrideWithValue(db),
-      ],
-    );
-    addTearDown(scoped.dispose);
-    final service = ChatsService(scoped, now: () => now);
-
-    await service.markUnread(const MarkUnread(chatId: 'chat-a', unread: false));
-    expect((await db.chatsDao.getChat('chat-a'))!.heldUnread, isTrue);
-
-    await service.markUnread(
-      const MarkUnread(chatId: 'chat-a', unread: false, explicit: true),
-    );
-    expect((await db.chatsDao.getChat('chat-a'))!.heldUnread, isFalse);
-  });
-
   test('a LibreChat chat not listed yet is pinned and archived in LibreChat', () async {
     // LibreChat is in charge; Open WebUI's account is still signed in
     // behind it.

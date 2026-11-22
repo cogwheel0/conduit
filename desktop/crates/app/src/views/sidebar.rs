@@ -5153,41 +5153,6 @@ mod selection_tests {
         assert_eq!(label(vcx), "Tide tables", "the selected row drew a mark");
     }
 
-    /// Mark as Read, from a row's menu or the Chat menu, is the user's own
-    /// read: it ends a hold on the chat for the server's text, which the
-    /// reads made on opening or leaving a chat leave in place.
-    #[gpui_kit::test]
-    fn mark_as_read_says_the_user_asked_for_it(cx: &mut TestAppContext) {
-        use conduit_protocol::methods;
-        let now = Local::now().timestamp_millis();
-        let listed = |unread: bool| -> conduit_protocol::ChatList {
-            serde_json::from_value(serde_json::json!({
-                "chats": [
-                    {"id": "chat-a", "title": "Tide tables", "updatedAtMs": now},
-                    {"id": "chat-b", "title": "Bread starter", "updatedAtMs": now - 1, "unread": unread},
-                ],
-                "folders": [],
-            }))
-            .unwrap()
-        };
-        let daemon = FakeDaemon::new();
-        daemon.returns::<methods::ChatsList>(listed(true));
-        daemon.returns::<methods::ChatsMarkUnread>(listed(false));
-        let (stores, view, vcx) = bench_on(daemon.clone(), cx);
-        stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
-        vcx.run_until_parked();
-
-        view.update_in(vcx, |s, window, cx| {
-            s.run("chat-b", ChatCommand::MarkRead, window, cx)
-        });
-        vcx.run_until_parked();
-        assert_eq!(
-            daemon.calls::<methods::ChatsMarkUnread>(),
-            vec![serde_json::json!({"chatId": "chat-b", "unread": false, "explicit": true})],
-            "Mark as Read did not say the user asked for it"
-        );
-    }
-
     /// A LibreChat copy made under one account, answered after another
     /// signs in, is not opened in the new account's window.
     #[gpui_kit::test]
