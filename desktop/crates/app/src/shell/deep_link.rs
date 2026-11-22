@@ -271,14 +271,49 @@ pub fn from_argv(args: &[String], cwd: &std::path::Path) -> Vec<String> {
         if arg.starts_with('-') {
             continue;
         }
-        // A one-letter scheme is a Windows drive (`C:\…`), not a link.
-        if url::Url::parse(arg).is_ok_and(|u| u.scheme().len() > 1) {
+        // Only the app's own links, and web and file URLs, are links: a
+        // colon in a file's name (`notes:meeting.md`, a drive's `C:`) makes
+        // no scheme of it.
+        let link = url::Url::parse(arg)
+            .is_ok_and(|u| matches!(u.scheme(), SCHEME | "file" | "http" | "https"));
+        if link {
             urls.push(arg.clone());
-        } else if let Ok(file) = url::Url::from_file_path(cwd.join(arg)) {
+        } else if let Ok(file) = url::Url::from_file_path(launch_path(cwd, arg)) {
             urls.push(file.to_string());
         }
     }
     urls
+}
+
+/// `arg` as a path from the launch's folder `cwd`. On Windows a
+/// drive-relative path (`C:notes.md`) is on its own drive: from `cwd` when
+/// that is on it, else from the drive's current folder, which Windows keeps
+/// for the process.
+fn launch_path(cwd: &std::path::Path, arg: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(arg);
+    #[cfg(windows)]
+    if !path.has_root()
+        && let Some(std::path::Component::Prefix(drive)) = path.components().next()
+    {
+        let on_drive = matches!(
+            cwd.components().next(),
+            Some(std::path::Component::Prefix(here)) if same_drive(here.kind(), drive.kind())
+        );
+        if on_drive {
+            return cwd.join(path.components().skip(1).collect::<std::path::PathBuf>());
+        }
+        return std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    }
+    cwd.join(path)
+}
+
+#[cfg(windows)]
+fn same_drive(a: std::path::Prefix<'_>, b: std::path::Prefix<'_>) -> bool {
+    use std::path::Prefix::{Disk, VerbatimDisk};
+    match (a, b) {
+        (Disk(x) | VerbatimDisk(x), Disk(y) | VerbatimDisk(y)) => x.eq_ignore_ascii_case(&y),
+        _ => a == b,
+    }
 }
 
 /// A link for the log: the scheme and the kind, never ids or text.
@@ -479,6 +514,10 @@ mod tests {
     #[test]
     fn a_launchs_links_and_files_become_the_urls_classify_reads() {
         let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // A colon in a file's name is no scheme: only the app's own links
+        // (and web and file URLs) are links; anything else is a file. On
+        // Windows a drive-relative path (`C:notes.md`) is a file on that
+        // drive, from the launch's folder when it is there.
         #[cfg(windows)]
         let (cwd, args, files) = (
             std::path::Path::new(r"C:\Users\someone\Documents"),
@@ -488,12 +527,14 @@ mod tests {
                 "CONDUIT://chat/c1",
                 r"notes v2.md",
                 r"D:\photos\photo.png",
+                "C:meeting.md",
                 "--cwd",
                 r"C:\elsewhere",
             ]),
-            [
+            vec![
                 "file:///C:/Users/someone/Documents/notes%20v2.md",
                 "file:///D:/photos/photo.png",
+                "file:///C:/Users/someone/Documents/meeting.md",
             ],
         );
         #[cfg(not(windows))]
@@ -505,19 +546,23 @@ mod tests {
                 "CONDUIT://chat/c1",
                 "notes v2.md",
                 "/tmp/photo.png",
+                "notes:meeting.md",
                 "--cwd",
                 "/elsewhere",
             ]),
-            [
+            vec![
                 "file:///home/someone/Documents/notes%20v2.md",
                 "file:///tmp/photo.png",
+                "file:///home/someone/Documents/notes:meeting.md",
             ],
         );
         let urls = from_argv(&args, cwd);
-        assert_eq!(urls, vec!["CONDUIT://chat/c1", files[0], files[1]]);
+        let mut expected = vec!["CONDUIT://chat/c1"];
+        expected.extend(&files);
+        assert_eq!(urls, expected);
         let incoming = classify(&urls);
         assert_eq!(incoming.requests, vec![chat("c1").unwrap()]);
-        assert_eq!(incoming.files.len(), 2);
+        assert_eq!(incoming.files.len(), files.len());
         // The program alone: nothing to open.
         assert!(from_argv(&args[..1], cwd).is_empty());
     }
