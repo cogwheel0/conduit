@@ -52,6 +52,30 @@ impl NetworkMonitor {
     }
 }
 
+/// Takes a sample and sends it as one step, so the last sample taken is the
+/// last one sent, whichever thread takes it (the system's handler, or the
+/// start's first look).
+#[cfg_attr(not(windows), cfg(test))]
+struct Reporter<R> {
+    send: R,
+    turn: std::sync::Mutex<()>,
+}
+
+#[cfg_attr(not(windows), cfg(test))]
+impl<R: Fn(bool)> Reporter<R> {
+    fn new(send: R) -> Self {
+        Self {
+            send,
+            turn: std::sync::Mutex::new(()),
+        }
+    }
+
+    fn sample_and_send(&self, sample: impl FnOnce() -> bool) {
+        let _turn = self.turn.lock().unwrap_or_else(|e| e.into_inner());
+        (self.send)(sample());
+    }
+}
+
 impl Drop for NetworkMonitor {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
@@ -81,18 +105,18 @@ mod windows_monitor {
     }
 
     pub fn start(report: impl Fn(bool) + Send + Sync + 'static) -> Option<i64> {
-        let report = std::sync::Arc::new(report);
+        let reporter = std::sync::Arc::new(super::Reporter::new(report));
         let handler = {
-            let report = report.clone();
+            let reporter = reporter.clone();
             NetworkStatusChangedEventHandler::new(move |_| {
-                report(online());
+                reporter.sample_and_send(online);
                 Ok(())
             })
         };
         let token = NetworkInformation::NetworkStatusChanged(&handler)
             .inspect_err(|e| log::warn!("network status: {e}"))
             .ok()?;
-        report(online());
+        reporter.sample_and_send(online);
         Some(token)
     }
 
@@ -159,5 +183,39 @@ mod linux_monitor {
         }
         log::info!("network portal: its subscription ended; asking again");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The start samples "offline", and the network comes back before it
+    /// sends that: the handler's "online" waits its turn, so it is the last
+    /// word, not the stale "offline".
+    #[test]
+    fn the_last_sample_taken_is_the_last_one_sent() {
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let reporter = Arc::new(Reporter::new({
+            let sent = sent.clone();
+            move |online| sent.lock().unwrap().push(online)
+        }));
+        let (sampled, handler_may_go) = std::sync::mpsc::channel();
+        let handler = {
+            let reporter = reporter.clone();
+            std::thread::spawn(move || {
+                handler_may_go.recv().unwrap();
+                reporter.sample_and_send(|| true);
+            })
+        };
+        reporter.sample_and_send(|| {
+            sampled.send(()).unwrap();
+            // Room for the handler to cut in between this sample and its
+            // send, as the system's thread can.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            false
+        });
+        handler.join().unwrap();
+        assert_eq!(*sent.lock().unwrap(), [false, true]);
     }
 }
