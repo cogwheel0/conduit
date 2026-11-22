@@ -24,7 +24,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/testing.dart';
-import 'package:drift/drift.dart' show driftRuntimeOptions;
+import 'package:drift/drift.dart' show DatabaseConnection, driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,7 +111,16 @@ void main() {
   });
 
   late AppDatabase db;
-  setUp(() => db = AppDatabase(NativeDatabase.memory()));
+  // The core watches the stored chat on screen. Drift otherwise closes that
+  // watch on a timer the fake clock never runs.
+  setUp(
+    () => db = AppDatabase(
+      DatabaseConnection(
+        NativeDatabase.memory(),
+        closeStreamsSynchronously: true,
+      ),
+    ),
+  );
   tearDown(() => db.close());
 
   Future<void> mountPage(
