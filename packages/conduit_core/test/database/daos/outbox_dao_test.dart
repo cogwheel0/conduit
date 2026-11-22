@@ -6,7 +6,8 @@ import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/sync/id_remapper.dart';
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor, Value;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -1575,6 +1576,40 @@ void main() {
     });
   });
 
+  group('watchWaitingToBeSent', () {
+    // Ops held up behind a parked op pile up through a long offline spell;
+    // every change to the outbox reads them again.
+    test('reads the outbox once and one op per queue, however many wait '
+        'behind a parked head', () async {
+      final reads = _ReadCounter();
+      final counted = AppDatabase(NativeDatabase.memory().interceptWith(reads));
+      addTearDown(counted.close);
+      final outbox = counted.outboxDao;
+      Future<int> completion(String answerId) => counted.transaction(
+        () => outbox.enqueue(
+          kind: OutboxKind.requestCompletion,
+          chatId: 'chat-1',
+          payload: {
+            'assistantMessageId': answerId,
+            'model': 'tide-model',
+            'toolIds': <String>[],
+          },
+        ),
+      );
+      await outbox.markParked(
+        await completion('answer-0'),
+        error: 'not the owner',
+      );
+      for (var i = 1; i <= 50; i++) {
+        await completion('answer-$i');
+      }
+
+      reads.selects = 0;
+      check(await outbox.watchWaitingToBeSent().first).isFalse();
+      check(reads.selects).equals(2);
+    });
+  });
+
   group('watchPendingCount', () {
     test('counts pending + inFlight only', () async {
       check(await dao.watchPendingCount().first).equals(0);
@@ -1590,4 +1625,19 @@ void main() {
       check(await dao.watchPendingCount().first).equals(0);
     });
   });
+}
+
+/// Counts the reads that reach the database.
+class _ReadCounter extends QueryInterceptor {
+  int selects = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) {
+    selects += 1;
+    return executor.runSelect(statement, args);
+  }
 }

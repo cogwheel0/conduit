@@ -754,7 +754,11 @@ class OutboxDao extends DatabaseAccessor<AppDatabase> with _$OutboxDaoMixin {
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .watch()
         .asyncMap((live) async {
+          // Only the first live op of a queue can head it.
+          final queues = <(String, String?)>{};
           for (final op in live) {
+            final queue = (_domainKindNamesForName(op.kind).first, op.chatId);
+            if (!queues.add(queue)) continue;
             if (await _isChatHead(op)) return true;
           }
           return false;
