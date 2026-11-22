@@ -8,6 +8,7 @@ aiohttp. Every captured push is decrypted with the device's private key.
 import ast
 import asyncio
 import copy
+import gzip
 import inspect
 import json
 import logging
@@ -29,7 +30,7 @@ from conduit_webpush import webpush as wp
 ROOT = Path(__file__).resolve().parents[2]
 BUILD = ROOT / "server-plugins" / "openwebui" / "build.py"
 BUILT = ROOT / "server-plugins" / "openwebui" / "conduit_push.py"
-ASSET = ROOT / "assets" / "server_plugins" / "openwebui_conduit_push.py"
+ASSET = ROOT / "assets" / "server_plugins" / "openwebui_conduit_push.py.gz"
 LIBRARY = ROOT / "server-plugins" / "common" / "conduit_webpush"
 FID = "conduit_push"
 DAY = 86400
@@ -411,7 +412,7 @@ def test_frontmatter_becomes_the_manifest():
 
 def test_generated_copies_match_and_inline_the_library_verbatim():
     content = BUILT.read_text(encoding="utf-8")
-    assert ASSET.read_text(encoding="utf-8") == content
+    assert gzip.decompress(ASSET.read_bytes()).decode("utf-8") == content
     sources = None
     for node in ast.parse(content).body:
         if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "_CONDUIT_WEBPUSH_SOURCES":

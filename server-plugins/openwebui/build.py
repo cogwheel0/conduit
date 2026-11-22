@@ -11,8 +11,10 @@ verbatim, as source strings that the function loads into private modules.
 
 import argparse
 import ast
+import gzip
 import re
 import sys
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -20,11 +22,12 @@ ROOT = HERE.parents[1]
 TEMPLATE = HERE / "conduit_push.template.py"
 LIBRARY = ROOT / "server-plugins" / "common" / "conduit_webpush"
 MODULES = ("webpush", "payload")
-OUTPUTS = (
-    HERE / "conduit_push.py",
-    # Bundled by the app for one-tap install.
-    ROOT / "assets" / "server_plugins" / "openwebui_conduit_push.py",
-)
+FUNCTION = HERE / "conduit_push.py"
+# Bundled by the app for one-tap install, gzip-compressed: App Store upload
+# validation refuses any file in an iOS bundle that reads as a Python script
+# as unsigned code (ITMS-90035), whatever its name or file mode.
+BUNDLED = ROOT / "assets" / "server_plugins" / "openwebui_conduit_push.py.gz"
+OUTPUTS = (FUNCTION, BUNDLED)
 BEGIN = "# >>> conduit_webpush"
 END = "# <<< conduit_webpush"
 SOURCES_NAME = "_CONDUIT_WEBPUSH_SOURCES"
@@ -105,6 +108,21 @@ def render():
     return built
 
 
+def read_output(path):
+    """An output's text, or None when it is missing or unreadable.
+
+    The bundled copy is compared decompressed: zlib builds can compress the
+    same text to different bytes.
+    """
+    try:
+        data = path.read_bytes()
+        if path == BUNDLED:
+            data = gzip.decompress(data)
+        return data.decode("utf-8")
+    except (OSError, EOFError, UnicodeDecodeError, zlib.error):
+        return None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--check", action="store_true", help="fail if an output is out of date")
@@ -117,15 +135,16 @@ def main(argv=None):
 
     stale = []
     for output in OUTPUTS:
-        current = output.read_text(encoding="utf-8") if output.exists() else None
-        if current == built:
+        if read_output(output) == built:
             continue
         if args.check:
             stale.append(output)
         else:
             output.parent.mkdir(parents=True, exist_ok=True)
-            with output.open("w", encoding="utf-8", newline="\n") as handle:
-                handle.write(built)
+            data = built.encode("utf-8")
+            if output == BUNDLED:
+                data = gzip.compress(data, compresslevel=9, mtime=0)
+            output.write_bytes(data)
             print("wrote " + str(output.relative_to(ROOT)))
     if stale:
         for output in stale:

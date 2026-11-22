@@ -1,17 +1,25 @@
+import 'dart:convert' show utf8;
+import 'dart:io' show gzip;
+
 import 'package:conduit_core/features/push/services/openwebui_push_backend.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../../l10n/app_localizations.dart';
 
-/// Where the app bundles the Open WebUI Conduit Push function.
+/// Where the app bundles the Open WebUI Conduit Push function, gzipped.
+///
+/// Compressed because App Store upload validation refuses any bundled file
+/// that reads as a Python script as unsigned code (ITMS-90035), whatever its
+/// name or file mode.
 const String kConduitPushFunctionAsset =
-    'assets/server_plugins/openwebui_conduit_push.py';
+    'assets/server_plugins/openwebui_conduit_push.py.gz';
 
 /// Loads the bundled function for one-tap installs, or null when the asset
 /// is missing or has no version.
 Future<OpenWebUiFunctionSource?> loadBundledConduitPushFunction() async {
-  final content = await rootBundle.loadString(kConduitPushFunctionAsset);
-  return OpenWebUiFunctionSource.parse(content);
+  final data = await rootBundle.load(kConduitPushFunctionAsset);
+  final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+  return OpenWebUiFunctionSource.parse(utf8.decode(gzip.decode(bytes)));
 }
 
 /// The strings the platform shows pushes with when a push carries no title
