@@ -37,12 +37,19 @@ enum Menu {
     Rows,
     /// Answered, then a zoom row whose Actual Size acts once zoomed.
     Zoom,
+    /// Sixty rows, taller than the window.
+    Long,
+    /// Windows' ☰ in outline: File's rows, Edit ▸ (Find ▸ last), View ▸,
+    /// Chat ▸ (Move to ▸ thirty folders first, then thirty-seven rows), Exit.
+    Deep,
 }
 
 /// ☰ at the window's top left, a field, another field to take focus, and
 /// handlers for some of the menu's actions on the root (as the app's main
 /// window has its own).
 struct Host {
+    /// How far from the window's leading edge ☰ sits.
+    menu_at: f32,
     field: FocusHandle,
     other: FocusHandle,
     menu: Entity<MainMenu>,
@@ -69,7 +76,11 @@ impl Render for Host {
             }))
             .on_action(|_: &ZoomOut, _, _| {})
             .when(zoomed, |d| d.on_action(|_: &ActualSize, _, _| {}))
-            .child(MainMenuButton::new(self.menu.clone()))
+            .child(
+                div()
+                    .pl(px(self.menu_at))
+                    .child(MainMenuButton::new(self.menu.clone())),
+            )
             .child(div().track_focus(&self.field).size_full())
             .child(div().track_focus(&self.other).size(px(10.)))
     }
@@ -110,6 +121,38 @@ fn zoom_rows(zoomed: bool) -> Vec<ChromeMenuItem> {
     ]
 }
 
+fn answered(n: usize, label: &str) -> Vec<ChromeMenuItem> {
+    (0..n)
+        .map(|i| ChromeMenuItem::action(format!("{label} {i}"), Answered))
+        .collect()
+}
+
+fn long_rows() -> Vec<ChromeMenuItem> {
+    answered(60, "Row")
+}
+
+fn deep_rows() -> Vec<ChromeMenuItem> {
+    use ChromeMenuItem::Separator as Sep;
+    let mut edit = answered(7, "Edit");
+    edit.extend([Sep, ChromeMenuItem::submenu("Find", answered(5, "Find"))]);
+    let mut chat = vec![ChromeMenuItem::submenu("Move to", answered(30, "Folder"))];
+    chat.extend(answered(37, "Chat"));
+    let mut root = answered(4, "New");
+    root.extend([
+        Sep,
+        ChromeMenuItem::action("Close Window", Answered),
+        Sep,
+        ChromeMenuItem::submenu("Edit", edit),
+        ChromeMenuItem::submenu("View", answered(9, "View")),
+        ChromeMenuItem::submenu("Go", answered(8, "Go")),
+        ChromeMenuItem::submenu("Chat", chat),
+        Sep,
+    ]);
+    root.extend(answered(3, "App"));
+    root.extend([Sep, ChromeMenuItem::action("Exit", Answered)]);
+    root
+}
+
 /// Opens the host; `stops` counts Esc's app-wide Stop.
 fn open_host(
     style: ChromeStyle,
@@ -143,6 +186,8 @@ fn open_host(
         let zoomed = Rc::new(Cell::new(false));
         let build: super::MenuItems = match menu {
             Menu::Rows => Rc::new(|_, _| rows()),
+            Menu::Long => Rc::new(|_, _| long_rows()),
+            Menu::Deep => Rc::new(|_, _| deep_rows()),
             Menu::Zoom => {
                 let zoomed = zoomed.clone();
                 Rc::new(move |_, _| zoom_rows(zoomed.get()))
@@ -150,6 +195,7 @@ fn open_host(
         };
         let menu = cx.new(|cx| MainMenu::new(style, "Main Menu", build, window, cx));
         Host {
+            menu_at: 0.,
             field,
             other: cx.focus_handle(),
             menu,
@@ -199,6 +245,39 @@ fn centre(selector: &'static str, vcx: &mut VisualTestContext) -> Point<gpui_kit
     vcx.debug_bounds(selector)
         .unwrap_or_else(|| panic!("{selector} is not drawn"))
         .center()
+}
+
+fn bounds(selector: String, vcx: &mut VisualTestContext) -> gpui_kit::Bounds<gpui_kit::Pixels> {
+    let selector: &'static str = Box::leak(selector.into_boxed_str());
+    vcx.debug_bounds(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn"))
+}
+
+/// The highlighted row at `level` shows whole inside its panel, and every
+/// open panel inside the window.
+fn shows(
+    host: &Entity<Host>,
+    vcx: &mut VisualTestContext,
+    window: gpui_kit::Size<gpui_kit::Pixels>,
+) {
+    let path = vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone());
+    for level in 0..path.len() {
+        let panel = bounds(format!("chrome-menu-panel-{level}"), vcx);
+        assert!(
+            panel.left() >= px(0.)
+                && panel.top() >= px(0.)
+                && panel.right() <= window.width
+                && panel.bottom() <= window.height,
+            "panel {level} {panel:?} is inside the {window:?} window"
+        );
+    }
+    let level = path.len() - 1;
+    let row = bounds(format!("chrome-menu-{level}-{}", path[level]), vcx);
+    let panel = bounds(format!("chrome-menu-panel-{level}"), vcx);
+    assert!(
+        row.top() >= panel.top() && row.bottom() <= panel.bottom(),
+        "row {path:?} {row:?} shows inside its panel {panel:?}"
+    );
 }
 
 fn click(selector: &'static str, vcx: &mut VisualTestContext) {
@@ -386,6 +465,152 @@ fn a_keyboard_zoom_in_lets_actual_size_act(cx: &mut TestAppContext) {
             .unwrap()
     });
     assert!(!reset_off, "Actual Size acts once zoomed");
+}
+
+/// The smallest main window.
+fn smallest() -> gpui_kit::Size<gpui_kit::Pixels> {
+    gpui_kit::size(px(720.), px(480.))
+}
+
+#[gpui_kit::test]
+fn a_reopened_menu_shows_its_first_row(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Long, true, cx);
+    vcx.simulate_resize(smallest());
+    draw(vcx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    // End scrolls the menu to its last row.
+    vcx.simulate_keystrokes("end");
+    draw(vcx);
+    shows(&host, vcx, smallest());
+    vcx.simulate_keystrokes("escape");
+    draw(vcx);
+    // Opened again, its first row is highlighted and in view.
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    assert_eq!(
+        vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone()),
+        [0]
+    );
+    shows(&host, vcx, smallest());
+}
+
+#[gpui_kit::test]
+fn the_deepest_chains_fit_the_smallest_window(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Windows, Menu::Deep, true, cx);
+    vcx.simulate_resize(smallest());
+    draw(vcx);
+    let step = |keys: &str, vcx: &mut VisualTestContext| {
+        vcx.simulate_keystrokes(keys);
+        draw(vcx);
+    };
+    step("f10", vcx);
+    // Chat, taller than the window: its last row.
+    step("down down down down down down down down", vcx);
+    step("right end", vcx);
+    shows(&host, vcx, smallest());
+    // Chat › Move to: its last folder.
+    step("home right end", vcx);
+    shows(&host, vcx, smallest());
+    // Back to the menu, then Edit › Find: Edit opens at its top, not where
+    // Chat was scrolled.
+    step("escape escape up up up right", vcx);
+    shows(&host, vcx, smallest());
+    step("end right end", vcx);
+    shows(&host, vcx, smallest());
+}
+
+/// Opens GNOME's menu with ☰ `menu_at` in from the leading edge of a
+/// 1200-point window, then Also's submenu from the keyboard; the root
+/// panel's bounds before and after.
+fn root_before_and_after_a_submenu(
+    menu_at: f32,
+    cx: &mut TestAppContext,
+) -> (
+    gpui_kit::Bounds<gpui_kit::Pixels>,
+    gpui_kit::Bounds<gpui_kit::Pixels>,
+) {
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
+    vcx.simulate_resize(gpui_kit::size(px(1200.), px(800.)));
+    vcx.update(|_, cx| {
+        host.update(cx, |h, cx| {
+            h.menu_at = menu_at;
+            cx.notify();
+        })
+    });
+    draw(vcx);
+    vcx.simulate_keystrokes("f10");
+    draw(vcx);
+    let before = bounds("chrome-menu-panel-0".into(), vcx);
+    // Down to Also, Right into its submenu.
+    vcx.simulate_keystrokes("down right");
+    draw(vcx);
+    assert_eq!(
+        vcx.update(|_, cx| host.read(cx).menu.read(cx).cursor().path.clone()),
+        [3, 0]
+    );
+    let after = bounds("chrome-menu-panel-0".into(), vcx);
+    let sub = bounds("chrome-menu-panel-1".into(), vcx);
+    assert!(
+        sub.left() >= px(0.) && sub.right() <= px(1200.),
+        "the submenu {sub:?} is inside the window"
+    );
+    (before, after)
+}
+
+#[gpui_kit::test]
+fn a_submenu_opening_left_leaves_gnomes_menu_where_it_was(cx: &mut TestAppContext) {
+    let (before, after) = root_before_and_after_a_submenu(1150., cx);
+    assert_eq!(after, before);
+}
+
+#[gpui_kit::test]
+fn a_submenu_opening_right_leaves_gnomes_menu_where_it_was(cx: &mut TestAppContext) {
+    let (before, after) = root_before_and_after_a_submenu(400., cx);
+    assert_eq!(after, before);
+}
+
+#[gpui_kit::test]
+fn gnomes_menu_stays_inside_the_visible_frame_not_its_shadow(cx: &mut TestAppContext) {
+    let (host, _, vcx) = open_host(ChromeStyle::Gnome, Menu::Rows, true, cx);
+    vcx.simulate_resize(gpui_kit::size(px(1200.), px(800.)));
+    // Client-side decorated and floating: the frame sits a shadow's width
+    // inside the window's surface.
+    vcx.update(|_, cx| {
+        let menu = host.read(cx).menu.clone();
+        cx.set_global(super::ActiveChrome(Some(super::Chrome {
+            style: ChromeStyle::Gnome,
+            buttons: super::ButtonLayout::gnome(),
+            decorations: Decorations::Client {
+                tiling: Tiling::default(),
+            },
+            maximized: false,
+            menu,
+            labels: super::ControlLabels {
+                minimize: "Minimize".into(),
+                maximize: "Maximize".into(),
+                restore: "Restore".into(),
+                close: "Close".into(),
+            },
+            title: "Conduit".into(),
+            on_close: None,
+        })));
+        host.update(cx, |h, cx| {
+            h.menu_at = 1150.;
+            cx.notify();
+        });
+    });
+    draw(vcx);
+    vcx.simulate_keystrokes("f10 down right");
+    draw(vcx);
+    let frame_right = px(1200. - super::controls::SHADOW);
+    for panel in ["chrome-menu-panel-0", "chrome-menu-panel-1"] {
+        let b = bounds(panel.into(), vcx);
+        assert!(
+            b.right() <= frame_right,
+            "{panel} {b:?} ends inside the frame, at {frame_right:?} at most"
+        );
+    }
 }
 
 /// GNOME's frame alone, client-side decorated and floating.

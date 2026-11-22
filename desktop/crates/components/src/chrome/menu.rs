@@ -391,8 +391,15 @@ impl Cursor {
         part: usize,
     ) {
         self.hover(items, level, index);
-        if self.path.len() == level + 1 && self.path.last() == Some(&index) {
-            self.part = part.min(2);
+        if self.path.len() != level + 1 || self.path.last() != Some(&index) {
+            return;
+        }
+        let Some(ChromeMenuItem::Zoom(zoom)) = self.rows(items, level).and_then(|r| r.get(index))
+        else {
+            return;
+        };
+        if zoom.parts().get(part).is_some_and(|p| !p.disabled) {
+            self.part = part;
         }
     }
 
@@ -412,7 +419,7 @@ impl Cursor {
         }
         self.path.truncate(level);
         self.path.push(index);
-        self.part = 1;
+        self.part = landing_part(row);
         self.expanded = submenu;
     }
 
@@ -430,7 +437,7 @@ impl Cursor {
                 } else if let Some(last) = cursor.path.last_mut() {
                     *last = i;
                 }
-                cursor.part = 1;
+                cursor.part = landing_part(&rows[i]);
                 cursor.expanded = false;
                 Outcome::Moved
             }
@@ -442,10 +449,13 @@ impl Cursor {
             MenuKey::First => moved(self, first(rows)),
             MenuKey::Last => moved(self, last(rows)),
             MenuKey::Right => match row {
-                Some(ChromeMenuItem::Zoom(_)) => {
-                    self.part = (self.part + 1).min(2);
-                    Outcome::Moved
-                }
+                Some(ChromeMenuItem::Zoom(zoom)) => match step_part(zoom, self.part, true) {
+                    Some(part) => {
+                        self.part = part;
+                        Outcome::Moved
+                    }
+                    None => Outcome::None,
+                },
                 Some(ChromeMenuItem::Submenu {
                     items: sub,
                     disabled: false,
@@ -454,10 +464,13 @@ impl Cursor {
                 _ => Outcome::None,
             },
             MenuKey::Left => match row {
-                Some(ChromeMenuItem::Zoom(_)) => {
-                    self.part = self.part.saturating_sub(1);
-                    Outcome::Moved
-                }
+                Some(ChromeMenuItem::Zoom(zoom)) => match step_part(zoom, self.part, false) {
+                    Some(part) => {
+                        self.part = part;
+                        Outcome::Moved
+                    }
+                    None => Outcome::None,
+                },
                 _ if self.path.len() > 1 => {
                     self.path.pop();
                     self.expanded = false;
@@ -493,6 +506,11 @@ impl Cursor {
                 },
                 _ => Outcome::None,
             },
+            // A submenu the pointer opened collapses first.
+            MenuKey::Back if self.expanded => {
+                self.expanded = false;
+                Outcome::Moved
+            }
             MenuKey::Back if self.path.len() > 1 => {
                 self.path.pop();
                 self.expanded = false;
@@ -512,6 +530,28 @@ impl Cursor {
             }
             None => Outcome::None,
         }
+    }
+}
+
+/// The part the highlight takes on landing on a row: the zoom row's size
+/// (back to the actual size), or the nearest part that can act.
+fn landing_part(row: &ChromeMenuItem) -> usize {
+    match row {
+        ChromeMenuItem::Zoom(zoom) => [1, 0, 2]
+            .into_iter()
+            .find(|&k| !zoom.parts()[k].disabled)
+            .unwrap_or(1),
+        _ => 1,
+    }
+}
+
+/// The next part along the zoom row that can act, if any.
+fn step_part(zoom: &ZoomRow, from: usize, forward: bool) -> Option<usize> {
+    let parts = zoom.parts();
+    if forward {
+        (from + 1..parts.len()).find(|&k| !parts[k].disabled)
+    } else {
+        (0..from).rev().find(|&k| !parts[k].disabled)
     }
 }
 
@@ -804,6 +844,38 @@ mod tests {
         assert_eq!(c.open_levels(&items), 2);
         c.hover(&items, 0, 0);
         assert_eq!(c.open_levels(&items), 1);
+    }
+
+    #[test]
+    fn back_collapses_a_submenu_the_pointer_opened() {
+        let items = menu();
+        let mut c = Cursor::default();
+        c.hover(&items, 0, 3);
+        assert_eq!(c.open_levels(&items), 2);
+        assert!(matches!(c.key(&items, MenuKey::Back), Outcome::Moved));
+        assert_eq!(c.path, [3]);
+        assert_eq!(c.open_levels(&items), 1, "the submenu closes, not the menu");
+        assert!(matches!(c.key(&items, MenuKey::Back), Outcome::Close));
+    }
+
+    #[test]
+    fn the_keyboard_skips_a_zoom_part_that_cannot_act() {
+        // At the actual size: Actual Size, the middle part, can't act.
+        let items = vec![ChromeMenuItem::action("One", One), zoom(true)];
+        let mut c = Cursor::opened_by_keyboard(&items);
+        c.key(&items, MenuKey::Down);
+        assert_eq!(c.path, [1]);
+        assert_eq!(
+            c.part, 0,
+            "landing on the row skips Actual Size for Zoom Out"
+        );
+        c.key(&items, MenuKey::Left);
+        assert_eq!(c.part, 0, "nothing before Zoom Out");
+        c.key(&items, MenuKey::Right);
+        assert_eq!(c.part, 2, "Right steps over Actual Size to Zoom In");
+        // The pointer resting on it selects nothing new.
+        c.hover_part(&items, 0, 1, 1);
+        assert_ne!(c.part, 1);
     }
 
     #[test]

@@ -121,18 +121,16 @@ impl RenderOnce for WindowControls {
                             })
                             .text_color(r.text)
                             .hover(move |s| s.bg(hover).text_color(hover_fg))
-                            // Windows answers a pointer's press itself; a
-                            // screen reader's press comes here. GPUI has no
-                            // call to restore a maximized window.
-                            .when(!(button == WindowButton::Maximize && maximized), |d| {
-                                d.on_click(move |e, window, cx| match button {
-                                    WindowButton::Minimize => window.minimize_window(),
-                                    WindowButton::Maximize => window.zoom_window(),
-                                    WindowButton::Close => match &on_close {
-                                        Some(f) => f(e, window, cx),
-                                        None => window.remove_window(),
-                                    },
-                                })
+                            // Windows answers a pointer's press itself (the control
+                            // areas); a screen reader's press comes here.
+                            .on_click(move |e, window, cx| {
+                                act(
+                                    control_press(button, maximized),
+                                    on_close.as_ref(),
+                                    e,
+                                    window,
+                                    cx,
+                                )
                             })
                             .child(icon(glyph, 10., r.text))
                             .into_any_element()
@@ -151,14 +149,13 @@ impl RenderOnce for WindowControls {
                             })
                             .on_click(move |e, window, cx| {
                                 cx.stop_propagation();
-                                match button {
-                                    WindowButton::Minimize => window.minimize_window(),
-                                    WindowButton::Maximize => window.zoom_window(),
-                                    WindowButton::Close => match &on_close {
-                                        Some(f) => f(e, window, cx),
-                                        None => window.remove_window(),
-                                    },
-                                }
+                                act(
+                                    control_press(button, maximized),
+                                    on_close.as_ref(),
+                                    e,
+                                    window,
+                                    cx,
+                                )
                             })
                             .child(icon(glyph, 12., r.text))
                             .into_any_element()
@@ -166,6 +163,70 @@ impl RenderOnce for WindowControls {
                 }
             }))
     }
+}
+
+/// What a press on a window control does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlPress {
+    Minimize,
+    Maximize,
+    Restore,
+    Close,
+}
+
+/// The press on `button`, with the window `maximized` or not.
+pub fn control_press(button: WindowButton, maximized: bool) -> ControlPress {
+    match button {
+        WindowButton::Minimize => ControlPress::Minimize,
+        WindowButton::Maximize if maximized => ControlPress::Restore,
+        WindowButton::Maximize => ControlPress::Maximize,
+        WindowButton::Close => ControlPress::Close,
+    }
+}
+
+/// Does `press` to the window (`on_close` stands in for closing it).
+fn act(
+    press: ControlPress,
+    on_close: Option<&OnClose>,
+    e: &ClickEvent,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    match press {
+        ControlPress::Minimize => window.minimize_window(),
+        ControlPress::Maximize => window.zoom_window(),
+        ControlPress::Restore => restore(window),
+        ControlPress::Close => match on_close {
+            Some(f) => f(e, window, cx),
+            None => window.remove_window(),
+        },
+    }
+}
+
+/// Restores a maximized window. On Linux GPUI's zoom toggles; on Windows it
+/// only maximizes, so Windows restores it.
+fn restore(window: &mut Window) {
+    #[cfg(target_os = "windows")]
+    if restore_hwnd(window) {
+        return;
+    }
+    window.zoom_window();
+}
+
+#[cfg(target_os = "windows")]
+fn restore_hwnd(window: &Window) -> bool {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{SW_RESTORE, ShowWindowAsync};
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return false;
+    };
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return false;
+    };
+    // SAFETY: GPUI hands out its own live window's HWND.
+    let _ = unsafe { ShowWindowAsync(HWND(win32.hwnd.get() as *mut _), SW_RESTORE) };
+    true
 }
 
 /// How far a header press must travel before it moves the window, as GTK
@@ -454,6 +515,15 @@ mod tests {
             width: 1000.,
             height: 800.,
         }
+    }
+
+    #[test]
+    fn the_maximize_button_restores_a_maximized_window() {
+        use WindowButton::*;
+        assert_eq!(control_press(Maximize, false), ControlPress::Maximize);
+        assert_eq!(control_press(Maximize, true), ControlPress::Restore);
+        assert_eq!(control_press(Minimize, true), ControlPress::Minimize);
+        assert_eq!(control_press(Close, true), ControlPress::Close);
     }
 
     #[test]

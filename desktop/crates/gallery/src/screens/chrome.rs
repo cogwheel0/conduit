@@ -85,6 +85,9 @@ pub struct ChromeShot {
     pub sidebar: bool,
     /// GNOME's controls at the start (`close,minimize,maximize:`).
     pub start_controls: bool,
+    /// A component check, not the app's menu (GNOME's primary menu has no
+    /// submenus): Help as a submenu, open, with ☰ at the window's edge.
+    pub submenu: bool,
 }
 
 impl ChromeShot {
@@ -252,6 +255,26 @@ fn gnome_items() -> Vec<ChromeMenuItem> {
     ]
 }
 
+/// [`gnome_items`] with Help as a submenu.
+fn gnome_items_with_a_submenu() -> Vec<ChromeMenuItem> {
+    gnome_items()
+        .into_iter()
+        .map(|item| match &item {
+            ChromeMenuItem::Action { label, .. } if label.as_ref() == "Help" => {
+                ChromeMenuItem::submenu(
+                    "Help",
+                    vec![
+                        act("Conduit Help", Help, Some("F1")),
+                        act("Keyboard Shortcuts", Shortcuts, None),
+                        act("Check for Updates\u{2026}", CheckForUpdates, None),
+                    ],
+                )
+            }
+            _ => item,
+        })
+        .collect()
+}
+
 /// Answers the items a real main window answers here, so the rest grey.
 fn answer<E: InteractiveElement>(el: E) -> E {
     macro_rules! on {
@@ -320,6 +343,7 @@ impl ChromeScreen {
         });
         let items: MenuItems = match shot.style {
             ChromeStyle::Windows => Rc::new(|_, _| windows_items()),
+            ChromeStyle::Gnome if shot.submenu => Rc::new(|_, _| gnome_items_with_a_submenu()),
             ChromeStyle::Gnome => Rc::new(|_, _| gnome_items()),
         };
         let menu = cx.new(|cx| MainMenu::new(shot.style, "Main Menu", items, window, cx));
@@ -355,6 +379,10 @@ impl ChromeScreen {
                     ChromeStyle::Windows => {
                         m.hover(0, 8, cx);
                         m.hover(1, 2, cx);
+                    }
+                    ChromeStyle::Gnome if shot.submenu => {
+                        m.hover(0, 8, cx);
+                        m.hover(1, 0, cx);
                     }
                     ChromeStyle::Gnome => m.hover(0, 6, cx),
                 });

@@ -44,6 +44,7 @@ const fn shot(style: ChromeStyle, menu_open: bool, sidebar: bool, start: bool) -
         menu_open,
         sidebar,
         start_controls: start,
+        submenu: false,
     })
 }
 
@@ -90,6 +91,13 @@ impl Screen {
         shot(ChromeStyle::Gnome, true, true, false),
         shot(ChromeStyle::Gnome, false, false, false),
         shot(ChromeStyle::Gnome, false, true, true),
+        Screen::Chrome(ChromeShot {
+            style: ChromeStyle::Gnome,
+            menu_open: true,
+            sidebar: false,
+            start_controls: false,
+            submenu: true,
+        }),
     ];
 
     pub fn name(self) -> &'static str {
@@ -112,6 +120,7 @@ impl Screen {
             Screen::MenuBar => "menu-bar",
             Screen::ContextMenu => "context-menu",
             Screen::ModelPicker => "model-picker",
+            Screen::Chrome(s) if s.submenu => "chrome-gnome-menu-submenu",
             Screen::Chrome(s) => match (s.style, s.menu_open, s.sidebar, s.start_controls) {
                 (ChromeStyle::Windows, false, true, _) => "chrome-windows",
                 (ChromeStyle::Windows, true, _, _) => "chrome-windows-menu",

@@ -40,8 +40,10 @@ pub struct MainMenu {
     /// Where ☰ was last drawn: a press there is ☰'s own, not one outside
     /// the menu, and the menu fits itself to the window from there.
     trigger: Rc<Cell<Option<Bounds<Pixels>>>>,
-    /// Each open panel's scroll, for panels taller than the window.
-    scrolls: Vec<ScrollHandle>,
+    /// Each open panel's scroll, for panels taller than the window, and the
+    /// highlighted path above it that owns it: another submenu at that level
+    /// starts at its top.
+    scrolls: Vec<(Vec<usize>, ScrollHandle)>,
     _intercept: Subscription,
     _focus_out: Subscription,
 }
@@ -152,6 +154,7 @@ impl MainMenu {
             Cursor::default()
         };
         self.items = items;
+        self.scrolls.clear();
         self.open = true;
         window.focus(&self.focus, cx);
         cx.notify();
@@ -213,10 +216,14 @@ impl MainMenu {
     }
 
     fn scroll(&mut self, level: usize) -> ScrollHandle {
+        let owner = self.cursor.path[..level.min(self.cursor.path.len())].to_vec();
         while self.scrolls.len() <= level {
-            self.scrolls.push(ScrollHandle::new());
+            self.scrolls.push((owner.clone(), ScrollHandle::new()));
         }
-        self.scrolls[level].clone()
+        if self.scrolls[level].0 != owner {
+            self.scrolls[level] = (owner, ScrollHandle::new());
+        }
+        self.scrolls[level].1.clone()
     }
 
     /// Runs `action` where focus was before the menu opened. The zoom row's
@@ -308,10 +315,18 @@ impl MainMenu {
     }
 
     /// The window around where the menu hangs from ☰, as `place` fits panels
-    /// into it.
-    fn room(&self, window: &Window, look: &Look) -> Room {
+    /// into it: inside GNOME's frame, which a floating client-side decorated
+    /// window draws a shadow's width inside its surface.
+    fn room(&self, window: &Window, look: &Look, cx: &App) -> Room {
         let viewport = window.viewport_size();
         let (w, h) = (f32::from(viewport.width), f32::from(viewport.height));
+        let frame = match super::active(cx) {
+            Some(c) if c.style == ChromeStyle::Gnome && !c.maximized => match c.decorations {
+                gpui_kit::Decorations::Client { tiling } => super::controls::frame_insets(tiling),
+                gpui_kit::Decorations::Server => gpui_kit::Edges::default(),
+            },
+            _ => gpui_kit::Edges::default(),
+        };
         let (x, y) = match self.trigger.get() {
             Some(b) => {
                 let (left, top) = (f32::from(b.left()), f32::from(b.top()));
@@ -324,10 +339,10 @@ impl MainMenu {
             None => (MARGIN, MARGIN),
         };
         Room {
-            left: MARGIN - x,
-            top: MARGIN - y,
-            right: w - MARGIN - x,
-            bottom: h - MARGIN - y,
+            left: frame.left + MARGIN - x,
+            top: frame.top + MARGIN - y,
+            right: w - frame.right - MARGIN - x,
+            bottom: h - frame.bottom - MARGIN - y,
         }
     }
 }
@@ -420,7 +435,7 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
             None => 0.,
             Some(parent) => {
                 let parent_rows = menu.cursor.rows(&menu.items, parent).unwrap_or_default();
-                let scrolled = f32::from(menu.scrolls[parent].offset().y);
+                let scrolled = f32::from(menu.scrolls[parent].1.offset().y);
                 look.row_top(parent_rows, menu.cursor.path[parent]) - look.padding + scrolled
             }
         };
@@ -434,7 +449,7 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
             below_parent,
         });
     }
-    let placed = place(&sizes, menu.room(window, &look));
+    let placed = place(&sizes, menu.room(window, &look, cx));
     let min_x = placed.iter().fold(0f32, |m, p| m.min(p.x));
     let min_y = placed.iter().fold(0f32, |m, p| m.min(p.y));
     let max_x = placed
@@ -446,7 +461,13 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
     let gap = outside.clone();
     let mut out = div()
         .id("chrome-menu-outside")
-        .relative()
+        // Every panel is under the focused node, so a screen reader follows
+        // the highlight into a submenu. Only a node with a role is in the
+        // tree to be that ancestor.
+        .track_focus(&menu.focus)
+        .role(Role::Group)
+        .aria_label(menu.label.clone())
+        .absolute()
         .left(px(min_x))
         .top(px(min_y))
         .w(px(max_x - min_x))
@@ -477,7 +498,7 @@ fn panels(menu: &mut MainMenu, window: &mut Window, cx: &mut Context<MainMenu>) 
                 .and_then(|r| r.label().cloned())
                 .unwrap_or_default(),
         };
-        let scroll = menu.scrolls[level].clone();
+        let scroll = menu.scrolls[level].1.clone();
         let panel = panel(
             menu, level, rows, label, size.width, p.height, scroll, &look, &t, cx,
         );
@@ -508,6 +529,8 @@ fn panel(
 ) -> AnyElement {
     let r = t.roles;
     let highlighted = menu.cursor.path.get(level).copied();
+    // The highlight a screen reader is on: the deepest one.
+    let deepest = menu.cursor.path.len() == level + 1;
     let entity = cx.entity().downgrade();
     // A column for check marks only where a row has one.
     let checks = rows
@@ -515,9 +538,9 @@ fn panel(
         .any(|r| matches!(r, ChromeMenuItem::Action { checked: true, .. }));
     div()
         .id(ElementId::Name(format!("chrome-menu-{level}").into()))
+        .debug_selector(|| format!("chrome-menu-panel-{level}"))
         .role(Role::Menu)
         .aria_label(label)
-        .when(level == 0, |d| d.track_focus(&menu.focus))
         .w(px(width))
         .max_h(px(height))
         .overflow_y_scroll()
@@ -569,12 +592,16 @@ fn panel(
                         .aria_label(label.clone())
                         .when(*checked, |d| d.aria_toggled(gpui_kit::Toggled::True))
                         .when_some(shortcut.clone(), |d, s| d.aria_keyshortcuts(s))
-                        .when(on, |d| d.aria_active_descendant())
+                        .when(on && deepest, |d| d.aria_active_descendant())
                         .on_mouse_move(move |_, _, cx| {
                             let _ = entity_hover.update(cx, |m, cx| m.hover(level, i, cx));
                         })
-                        .on_click(move |_, window, cx| {
-                            let _ = entity.update(cx, |m, cx| m.click_row(level, i, window, cx));
+                        // A row that can't act offers no press.
+                        .when(!*disabled, |d| {
+                            d.on_click(move |_, window, cx| {
+                                let _ =
+                                    entity.update(cx, |m, cx| m.click_row(level, i, window, cx));
+                            })
                         })
                         .when(checks, |d| {
                             d.child(
@@ -604,13 +631,15 @@ fn panel(
                         .role(Role::MenuItem)
                         .aria_label(label.clone())
                         .aria_expanded(expanded)
-                        .when(on, |d| d.aria_active_descendant())
+                        .when(on && deepest, |d| d.aria_active_descendant())
                         .on_mouse_move(move |_, _, cx| {
                             let _ = entity_hover.update(cx, |m, cx| m.hover(level, i, cx));
                         })
                         // A click, or a screen reader's press, opens it.
-                        .on_click(move |_, _, cx| {
-                            let _ = entity.update(cx, |m, cx| m.hover(level, i, cx));
+                        .when(!*disabled, |d| {
+                            d.on_click(move |_, _, cx| {
+                                let _ = entity.update(cx, |m, cx| m.hover(level, i, cx));
+                            })
                         })
                         .when(checks, |d| d.child(div().w(px(18.)).flex_none()))
                         .child(div().flex_1().min_w_0().truncate().child(label.clone()))
@@ -659,6 +688,7 @@ fn zoom_row(
 ) -> impl IntoElement {
     let r = t.roles;
     let entity = cx.entity().downgrade();
+    let deepest = menu.cursor.path.len() == level + 1;
     let part_on = |k: usize| on && menu.cursor.part == k;
     let button = |k: usize, part: &ZoomPart, body: AnyElement| {
         let entity = entity.clone();
@@ -669,7 +699,9 @@ fn zoom_row(
             .id(ElementId::Name(format!("chrome-zoom-{k}").into()))
             .role(Role::Button)
             .aria_label(part.label.clone())
-            .when(part_on(k), |d| d.aria_active_descendant())
+            .when(part_on(k) && deepest && !disabled, |d| {
+                d.aria_active_descendant()
+            })
             .h(px(32.))
             .min_w(px(32.))
             .px(px(8.))
@@ -683,12 +715,12 @@ fn zoom_row(
             .on_mouse_move(move |_, _, cx| {
                 let _ = entity_hover.update(cx, |m, cx| m.hover_part(level, index, k, cx));
             })
-            .on_click(move |_, window, cx| {
-                if disabled {
-                    return;
-                }
-                let action = action.boxed_clone();
-                let _ = entity.update(cx, |m, cx| m.click_zoom(action, window, cx));
+            // A part that can't act offers no press.
+            .when(!disabled, |d| {
+                d.on_click(move |_, window, cx| {
+                    let action = action.boxed_clone();
+                    let _ = entity.update(cx, |m, cx| m.click_zoom(action, window, cx));
+                })
             })
             .child(body)
     };
@@ -753,24 +785,23 @@ impl RenderOnce for MainMenuButton {
         let click = self.menu.clone();
         let opened = open.then(|| {
             let look = Look::of(style, &t);
-            let anchor = match style {
-                ChromeStyle::Windows => Anchor::TopLeft,
-                ChromeStyle::Gnome => Anchor::TopRight,
-            };
             // Windows drops the menu from ☰'s leading edge; GNOME's popover
-            // hangs centred under it, kept inside the window.
+            // hangs centred under it. Either way it hangs from a point, the
+            // menu's own top-left corner, that `room` measures from: `place`
+            // keeps the panels inside the window, so snapping keeps only
+            // that point there, and an open submenu never moves the menu.
             let offset = match style {
                 ChromeStyle::Windows => point(px(0.), px(size + DROP)),
-                ChromeStyle::Gnome => point(px(look.width / 2. + size / 2.), px(size + HANG)),
+                ChromeStyle::Gnome => point(px(size / 2. - look.width / 2.), px(size + HANG)),
             };
             // Hung from ☰'s top-left corner, out of the flow.
             div().absolute().top_0().left_0().child(
                 deferred(
                     anchored()
-                        .anchor(anchor)
+                        .anchor(Anchor::TopLeft)
                         .offset(offset)
                         .snap_to_window_with_margin(px(MARGIN))
-                        .child(self.menu.clone()),
+                        .child(div().size_0().child(self.menu.clone())),
                 )
                 .with_priority(1),
             )
@@ -855,7 +886,7 @@ struct Placed {
 }
 
 /// Places each open panel inside `room`. The menu hangs from its origin,
-/// cut at the window's bottom; a submenu opens beside its row, on the right
+/// moved left if it would run past the window's edge and cut at its bottom; a submenu opens beside its row, on the right
 /// while it fits, else on the side with more room, kept inside; a panel
 /// taller than the window takes its height and scrolls; one that would run
 /// off the bottom moves up to end there.
@@ -865,7 +896,7 @@ fn place(panels: &[PanelSize], room: Room) -> Vec<Placed> {
     for (i, p) in panels.iter().enumerate() {
         let Some(parent) = out.last().copied() else {
             out.push(Placed {
-                x: 0.,
+                x: 0f32.min(room.right - p.width).max(room.left),
                 y: 0.,
                 height: p.height.min(room.bottom),
             });
@@ -928,6 +959,18 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn the_menu_itself_stays_inside_the_window() {
+        // Hung from a ☰ near the window's right edge: 120 points of room.
+        let tight = Room {
+            left: -1000.,
+            right: 120.,
+            ..ROOM
+        };
+        let placed = place(&[panel(280., 400., 0.)], tight);
+        assert_eq!(placed[0].x, 120. - 280.);
     }
 
     #[test]
