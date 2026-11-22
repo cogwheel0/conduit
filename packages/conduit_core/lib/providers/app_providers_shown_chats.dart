@@ -11,7 +11,8 @@ part of 'app_providers.dart';
 /// shown chat's own stored row is watched, so one the chat list does not
 /// hold (archived, or past its loaded page) is read too. A chat marked unread stays so until it
 /// is read again, as opening it does. Nothing is read in another account's
-/// database.
+/// database, and an account switch forgets the views of the account left,
+/// while an on-device chat on screen stays shown and read.
 final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
   ShownChats.new,
 );
@@ -34,7 +35,7 @@ class ShownChats extends Notifier<Map<String, String>> {
     // conduitd reads it: the database check before each read is what keeps
     // reads in their account.
     ref.listen<AppDatabase?>(appDatabaseProvider, (previous, next) {
-      if (!identical(previous, next)) _forgetAll();
+      if (!identical(previous, next)) _forgetAccount(previous);
     });
     ref.onDispose(() {
       _stored.clear();
@@ -63,10 +64,18 @@ class ShownChats extends Notifier<Map<String, String>> {
     _followStoredRows();
   }
 
-  void _forgetAll() {
-    _stored.clear();
+  /// Forgets the views whose chat is stored in [left], the database of the
+  /// account left, and those whose chat had no database to be read in, which
+  /// a report must show anew. Others, an on-device chat's, stay shown.
+  void _forgetAccount(AppDatabase? left) {
+    final gone = state.keys.where((view) {
+      final stored = _stored[view];
+      return stored == null || identical(stored.$1, left);
+    }).toSet();
+    if (gone.isEmpty) return;
+    _stored.removeWhere((view, _) => gone.contains(view));
     _followStoredRows();
-    if (state.isNotEmpty) state = const <String, String>{};
+    state = {...state}..removeWhere((view, _) => gone.contains(view));
   }
 
   /// Watches the stored row of each chat a view shows, and of no other.

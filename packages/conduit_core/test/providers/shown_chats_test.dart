@@ -450,6 +450,37 @@ void main() {
     expect(await storedRead(otherDb, 'chat-s'), 100);
     expect(socket.reads, isEmpty);
   });
+
+  test('an on-device chat on screen stays read across an account switch, '
+      'while the account left keeps its chat\'s mark', () async {
+    const id = 'direct-local:tide';
+    await directDb.chatsDao.upsertLocalOnlyChat(
+      rows: _rows(id, updatedAt: 100),
+    );
+    await directDb.chatsDao.setLastReadAt(id, 100);
+    await seedRead(serverDb, 'chat-s');
+    final otherDb = AppDatabase(NativeDatabase.memory());
+    addTearDown(otherDb.close);
+    final container = await signedIn();
+    container.read(shownChatsProvider.notifier)
+      ..show('main', id)
+      ..show('quick-ask', 'chat-s');
+
+    container.read(_activeDatabaseProvider.notifier).set(otherDb);
+    await container.read(conversationsProvider.future);
+    final seen = storedAt(directDb, id, 160);
+    await directDb.chatsDao.upsertLocalOnlyChat(
+      rows: _rows(id, updatedAt: 160),
+    );
+    await seen;
+    await settled(directDb);
+    expect(await storedRead(directDb, id), greaterThan(159));
+
+    await serverSaved(serverDb, 'chat-s', 170);
+    await settled(serverDb);
+    expect(await storedRead(serverDb, 'chat-s'), 100);
+    expect(socket.reads, isEmpty);
+  });
 }
 
 ChatRows _rows(String id, {required int updatedAt, bool archived = false}) {
