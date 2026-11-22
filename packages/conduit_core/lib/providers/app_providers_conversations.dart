@@ -497,11 +497,10 @@ class Conversations extends _$Conversations {
     );
   }
 
-  /// The write of each chat's newest read, by its database and raw id (two
-  /// accounts, or an account and this device, may hold the same id), until
-  /// it is stored.
-  final Map<(AppDatabase, String), Future<void>> _readsStoring =
-      <(AppDatabase, String), Future<void>>{};
+  /// Each chat's reads still being written, by its database and raw id (two
+  /// accounts, or an account and this device, may hold the same id).
+  final Map<(AppDatabase, String), _ReadWrites> _readWrites =
+      <(AppDatabase, String), _ReadWrites>{};
 
   /// Completes once the read is stored, with an error when it could not be
   /// (no database holds the chat, or the write failed, which takes the read
@@ -535,7 +534,7 @@ class Conversations extends _$Conversations {
     if (listed != null) {
       final existing = listed.lastReadAt;
       if (existing != null && !readAt.isAfter(existing)) {
-        return (db == null ? null : _readsStoring[(db, rawId)]) ??
+        return (db == null ? null : _readWrites[(db, rawId)])?.newest ??
             Future<void>.value();
       }
       final updated = <Conversation>[...current!]
@@ -548,16 +547,30 @@ class Conversations extends _$Conversations {
     // watermark logic.
     final write = db.chatsDao.setLastReadAt(rawId, _epochSecondsOf(readAt));
     final key = (db, rawId);
-    _readsStoring[key] = write;
-    void stored() {
-      if (identical(_readsStoring[key], write)) _readsStoring.remove(key);
+    final writes = _readWrites.putIfAbsent(key, _ReadWrites.new);
+    if (listed != null && !writes.seeded) {
+      // Nothing optimistic is shown yet: the list holds what is stored.
+      writes
+        ..seeded = true
+        ..stored = _latestDateTime(writes.stored, listed.lastReadAt);
+    }
+    final entry = (readAt, write);
+    writes.pending.add(entry);
+    void settled() {
+      writes.pending.remove(entry);
+      if (writes.pending.isEmpty && identical(_readWrites[key], writes)) {
+        _readWrites.remove(key);
+      }
     }
 
     write.then(
-      (_) => stored(),
+      (_) {
+        writes.stored = _latestDateTime(writes.stored, readAt);
+        settled();
+      },
       onError: (Object _) {
-        stored();
-        if (listed != null) _takeBackRead(id, readAt, listed.lastReadAt);
+        settled();
+        if (listed != null) _takeBackRead(id, readAt, writes.goingBackTo);
       },
     );
     return write;
@@ -924,6 +937,26 @@ class Conversations extends _$Conversations {
       ],
     ),
   ];
+}
+
+/// A chat's reads still being written, and the read last stored.
+final class _ReadWrites {
+  /// The newest read known stored: the one listed before these writes, or
+  /// one a write stored since.
+  DateTime? stored;
+
+  /// Whether [stored] holds what the list showed.
+  bool seeded = false;
+
+  /// Reads being written, with their writes, oldest first.
+  final List<(DateTime, Future<void>)> pending = <(DateTime, Future<void>)>[];
+
+  Future<void>? get newest => pending.lastOrNull?.$2;
+
+  /// What a read whose write failed goes back to: the newest still being
+  /// written, which goes back in turn if it fails, or else the one stored.
+  DateTime? get goingBackTo =>
+      pending.fold(stored, (newest, read) => _latestDateTime(newest, read.$1));
 }
 
 final _folderConversationRefreshTickProvider =

@@ -851,29 +851,31 @@ void main() {
     });
 
     test('a read whose write failed is written again when it is asked '
-        'again', () async {
-      final store = AppDatabase(
-        NativeDatabase.memory().interceptWith(_FailingReadMarks(fails: 1)),
-      );
+        'again, and the list goes back to the read last stored', () async {
+      final marks = _FailingReadMarks(fails: 0);
+      final store = AppDatabase(NativeDatabase.memory().interceptWith(marks));
       final container = await readingFrom(store);
-
+      final chat = _openWebUiScoped('chat-s');
+      DateTime at(int seconds) =>
+          DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
       expect(
-        await markConversationRead(
-          container,
-          _openWebUiScoped('chat-s'),
-          readAt: readAt,
-        ),
-        isFalse,
-      );
-      expect(
-        await markConversationRead(
-          container,
-          _openWebUiScoped('chat-s'),
-          readAt: readAt,
-        ),
+        await markConversationRead(container, chat, readAt: at(300)),
         isTrue,
       );
-      expect((await store.chatsDao.getChat('chat-s'))!.lastReadAt, 500);
+
+      // Two reads overlap, and neither is stored.
+      marks.fails = 2;
+      final first = markConversationRead(container, chat, readAt: at(400));
+      final second = markConversationRead(container, chat, readAt: at(500));
+      expect(await first, isFalse);
+      expect(await second, isFalse);
+      expect(listedFor(container, chat).lastReadAt, at(300));
+
+      expect(
+        await markConversationRead(container, chat, readAt: at(400)),
+        isTrue,
+      );
+      expect((await store.chatsDao.getChat('chat-s'))!.lastReadAt, 400);
     });
 
     test('a read with no database to store it in is not stored', () async {
