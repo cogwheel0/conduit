@@ -697,7 +697,7 @@ impl ConnectionStore {
         let Some(source) = self.key_file.clone().filter(|_| self.offers_key_file()) else {
             return;
         };
-        log::warn!("the master key goes to a key file (no Secret Service)");
+        log::warn!("the user chose a key file for the master key");
         self.resolve_master_key(source, cx);
         cx.notify();
     }
