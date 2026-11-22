@@ -254,19 +254,71 @@ fn fresh_holding_the_lock(
 }
 
 /// A key under the next account, recorded for the profile.
+/// The record's folders are made before the key is stored, so where the
+/// record can't go no key is left unused.
 fn new_profile_key(
     items: &dyn MasterKeyItems,
     user_data: &std::path::Path,
 ) -> Result<String, SecretError> {
+    let file = key_account_file(user_data);
+    let failed = |e: std::io::Error| SecretError::Store(format!("{}: {e}", file.display()));
+    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+    make_record_folders(dir).map_err(failed)?;
     let account = generation_account(generation_in_use(&items.accounts()?).saturating_add(1));
     let key = match create_without_asking(items.item(&account).as_ref())? {
         MasterKeyCheck::Ready(key) => key,
         MasterKeyCheck::WouldPrompt => return Err(SecretError::WouldPrompt),
     };
-    let file = key_account_file(user_data);
-    std::fs::write(&file, &account)
-        .map_err(|e| SecretError::Store(format!("{}: {e}", file.display())))?;
+    record_durably(&file, &account).map_err(failed)?;
     Ok(key)
+}
+
+/// Makes the folders missing on the way to `dir`, each one's entry on disk
+/// in its parent before the next is made.
+fn make_record_folders(dir: &std::path::Path) -> std::io::Result<()> {
+    let missing: Vec<&std::path::Path> = dir.ancestors().take_while(|d| !d.exists()).collect();
+    for folder in missing.into_iter().rev() {
+        match std::fs::create_dir(folder) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        sync_dir(folder.parent().unwrap_or(std::path::Path::new(".")))?;
+    }
+    Ok(())
+}
+
+/// Writes `account` to `file` through a file of its own, on disk before it
+/// is renamed into place, so a crash leaves the old record or the new one:
+/// the key it names is the profile's from the moment conduitd uses it.
+fn record_durably(file: &std::path::Path, account: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+    let name = file.file_name().unwrap_or_default().to_string_lossy();
+    let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .and_then(|mut f| {
+            f.write_all(account.as_bytes())?;
+            f.sync_all()
+        })
+        .and_then(|()| std::fs::rename(&staged, file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&staged);
+    }
+    written?;
+    sync_dir(dir)
+}
+
+/// Writes `dir`'s entries to disk. Windows opens no folder to sync it.
+fn sync_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    if cfg!(unix) {
+        std::fs::File::open(dir)?.sync_all()
+    } else {
+        Ok(())
+    }
 }
 
 /// The latest generation among `accounts`: [`MASTER_KEY_ACCOUNT`] is the
@@ -1399,6 +1451,51 @@ mod tests {
         );
         assert_eq!(moved_aside(root.path(), "Conduit").len(), 1);
         assert!(keychain.prompted().is_empty());
+    }
+
+    /// A new profile (`CONDUIT_USER_DATA` naming a folder whose parent isn't
+    /// there yet) reaches the card through another profile's key: Start
+    /// fresh makes the folders for its record, records its account, and
+    /// starts.
+    #[test]
+    fn start_fresh_for_a_new_profile_makes_the_folders_for_its_record() {
+        let root = tempfile::tempdir().unwrap();
+        let user_data = root.path().join("not/made/yet/Conduit");
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        let FreshStart::Started { key, moved_to } =
+            fresh(&keychain, &user_data, MASTER_KEY_ACCOUNT, root.path())
+        else {
+            panic!("a fresh start");
+        };
+        assert_eq!(moved_to, None, "nothing to move");
+        assert_eq!(keychain.key("masterKey.2"), Some(key.clone()));
+        assert_eq!(profile_key_account(&user_data), "masterKey.2");
+        assert_eq!(
+            check_master_key(&keychain, &profile_key_account(&user_data)),
+            Ok(MasterKeyCheck::Ready(key))
+        );
+    }
+
+    /// Folders that can't be made fail Start fresh before it stores a key,
+    /// so a retry never leaves an unused item behind.
+    #[cfg(unix)]
+    #[test]
+    fn start_fresh_stores_no_key_where_its_record_cannot_go() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let shut = root.path().join("shut");
+        std::fs::create_dir(&shut).unwrap();
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        let fresh = fresh(
+            &keychain,
+            &shut.join("new/Conduit"),
+            MASTER_KEY_ACCOUNT,
+            root.path(),
+        );
+        std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(matches!(fresh, FreshStart::KeyFailed { .. }), "{fresh:?}");
+        assert_eq!(keychain.accounts().unwrap(), [MASTER_KEY_ACCOUNT]);
     }
 
     /// Start fresh picks and stores the account holding the service's lock,
