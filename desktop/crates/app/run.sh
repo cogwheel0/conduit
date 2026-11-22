@@ -48,8 +48,21 @@ set -eu
 # File arguments are the caller's: made absolute before the cd below, there
 # or not, so `run.sh notes.md` still names that file, never one in the
 # checkout. Flags, links and the value after each of the app's flags that
-# takes one (`--e2e chat`) stay as they are.
+# takes one (`--e2e chat`) stay as they are. A link is what the app takes
+# for one (`deep_link::from_argv`): a `conduit:`, `file:`, `http:` or
+# `https:` URL, `conduit:chat/abc` too. Anything else with a colon
+# (`notes:meeting.md`) is a file, to the app as here.
 caller="$PWD"
+is_link() {
+  case "$1" in
+    *:*) ;;
+    *) return 1 ;;
+  esac
+  case "$(printf '%s' "${1%%:*}" | tr '[:upper:]' '[:lower:]')" in
+    conduit | file | http | https) ;;
+    *) return 1 ;;
+  esac
+}
 value_next=0
 for arg in "$@"; do
   shift
@@ -60,8 +73,8 @@ for arg in "$@"; do
       --cwd | --shots | --e2e | --e2e-env | --capture | --capture-env | --capture-only | --probe | \
         --fixture | --chat-fixture | --channel-fixture | --calendar-fixture | --tasks-fixture | --workspace-fixture | --preview-route)
         value_next=1 ;;
-      -* | /* | *://*) ;;
-      *) arg="$caller/$arg" ;;
+      -* | /*) ;;
+      *) if ! is_link "$arg"; then arg="$caller/$arg"; fi ;;
     esac
   fi
   set -- "$@" "$arg"

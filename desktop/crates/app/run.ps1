@@ -32,7 +32,9 @@ $ErrorActionPreference = 'Stop'
 # that file, never one in the checkout (IsPathRooted counts a drive-relative
 # `C:notes.md` as rooted, but it depends on the folder). Flags, links and the
 # value after each of the app's flags that takes one (`--e2e chat`) stay as
-# they are.
+# they are. A link is what the app takes for one: a `conduit:`, `file:`,
+# `http:` or `https:` URL, `conduit:chat/abc` too (no scheme of one letter,
+# which is a drive).
 $caller = (Get-Location).ProviderPath
 $valueFlags = @(
   '--cwd', '--shots', '--e2e', '--e2e-env', '--capture', '--capture-env',
@@ -47,7 +49,7 @@ $AppArgs = @(foreach ($arg in $args) {
   } elseif ($valueFlags -contains $arg) {
     $valueNext = $true
     $arg
-  } elseif ($arg -like '-*' -or $arg -like '*://*') {
+  } elseif ($arg -like '-*' -or $arg -match '^(conduit|file|https?):') {
     $arg
   } else {
     $full = try { [System.IO.Path]::GetFullPath($arg, $caller) } catch { $null }
