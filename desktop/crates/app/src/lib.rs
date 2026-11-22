@@ -378,7 +378,7 @@ fn claim_instance(paths: &AppPaths, urls: &[String]) -> Option<conduit_daemon::i
             std::process::exit(1);
         }
         Err(e) => {
-            log::warn!("single instance: {e}; this launch runs on its own");
+            eprintln!("conduit-desktop: single instance: {e}; this launch runs on its own");
             None
         }
     }
@@ -498,11 +498,11 @@ pub fn run() {
             app_paths.logs = scratch.join("logs");
         }
     }
-    shell::logger::install(&app_paths.logs);
     shell::crash::install(app_paths.logs.clone(), VERSION);
     // Off the Mac, links and files come as arguments, and a second launch of
     // a profile that runs hands them to that app and ends here (AppKit does
-    // both on the Mac).
+    // both on the Mac). The log file is the running app's until then: a
+    // launch that only hands over writes nothing there (nor rotates it).
     #[cfg(not(target_os = "macos"))]
     let (launch_urls, instance) =
         match launch_urls(&args_os, &std::env::current_dir().unwrap_or_default()) {
@@ -512,6 +512,7 @@ pub fn run() {
             }
             None => (vec![], None),
         };
+    shell::logger::install(&app_paths.logs);
     log::info!(
         "Conduit Desktop {VERSION} ({flavor:?}), userData {}",
         app_paths.user_data.display()
