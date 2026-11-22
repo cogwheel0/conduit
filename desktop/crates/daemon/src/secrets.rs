@@ -1356,8 +1356,8 @@ fn sync_folder(dir: &std::path::Path) -> std::io::Result<()> {
 #[cfg(unix)]
 fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
     use std::os::unix::fs::MetadataExt as _;
-    // SAFETY: geteuid has no preconditions and cannot fail.
-    let me = unsafe { libc::geteuid() };
+    // SAFETY: geteuid and getegid have no preconditions and cannot fail.
+    let (me, my_group) = unsafe { (libc::geteuid(), libc::getegid()) };
     for folder in path.ancestors().skip(1) {
         if folder.as_os_str().is_empty() {
             break;
@@ -1368,7 +1368,8 @@ fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
             Err(e) => return Err(SecretError::Store(format!("{}: {e}", folder.display()))),
         };
         let link = metadata.file_type().is_symlink();
-        if let Some(why) = untrusted(metadata.uid(), metadata.mode(), link, me) {
+        let (owner, group, mode) = (metadata.uid(), metadata.gid(), metadata.mode());
+        if let Some(why) = untrusted(owner, group, mode, link, me, my_group) {
             return Err(SecretError::Store(format!(
                 "{} {why}, so it can't hold the key file {}",
                 folder.display(),
@@ -1379,26 +1380,34 @@ fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
     Ok(())
 }
 
-/// Why a folder (owned by `owner`, with `mode`) is no place above the key
-/// file for user `me`, if it isn't. Another user's folder is refused
-/// whatever its mode, as its owner can rename what is in it. Root's are
-/// the system's, unless others can write to them without the sticky bit
-/// (which keeps each entry in `/tmp` its owner's). A link is refused
-/// unless it is root's, part of the system's layout (macOS's `/var`,
-/// Fedora Atomic's `/home`).
+/// Why a folder (owned by `owner` and `group`, with `mode`) is no place
+/// above the key file for user `me`, whose group is `my_group`, if it
+/// isn't. Another user's folder is refused whatever its mode, as its owner
+/// can rename what is in it. This user's and root's are refused when
+/// others can write to them, or a group other than `my_group` can, unless
+/// the sticky bit keeps each entry its owner's (`/tmp`). A folder only its
+/// owner's own group can write to is a private group's (umask 002), where
+/// `~/.local` is 0775. A link is refused unless it is root's, part of the
+/// system's layout (macOS's `/var`, Fedora Atomic's `/home`).
 #[cfg(unix)]
-fn untrusted(owner: u32, mode: u32, link: bool, me: u32) -> Option<&'static str> {
+fn untrusted(
+    owner: u32,
+    group: u32,
+    mode: u32,
+    link: bool,
+    me: u32,
+    my_group: u32,
+) -> Option<&'static str> {
     if link {
         return (owner != 0).then_some("is a link");
     }
-    if owner == me {
-        return None;
-    }
-    if owner != 0 {
+    if owner != me && owner != 0 {
         return Some("belongs to another user");
     }
-    let open_to_others = mode & 0o022 != 0 && mode & 0o1000 == 0;
-    open_to_others.then_some("can be changed by other users")
+    let others_write = mode & 0o002 != 0;
+    let another_groups_write = mode & 0o020 != 0 && group != my_group;
+    let sticky = mode & 0o1000 != 0;
+    ((others_write || another_groups_write) && !sticky).then_some("can be changed by other users")
 }
 
 #[cfg(unix)]
@@ -1796,35 +1805,45 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn only_folders_no_other_user_can_change_hold_the_key_file() {
-        let me = 501;
-        let other = 502;
+        let (me, mine) = (501, 1501);
+        let (other, shared) = (502, 20);
         let ok = [
-            (me, 0o40700, false),
-            (me, 0o40777, false),
-            (0, 0o40755, false),
-            (0, 0o41777, false),
-            (0, 0o120755, true),
+            (me, mine, 0o40700, false),
+            // A private group's folder (umask 002), as `~/.local` is.
+            (me, mine, 0o40775, false),
+            (me, mine, 0o41777, false),
+            (0, 0, 0o40755, false),
+            (0, 0, 0o41777, false),
+            (0, 0, 0o120777, true),
         ];
-        for (owner, mode, link) in ok {
-            assert_eq!(untrusted(owner, mode, link, me), None, "{owner} {mode:o}");
-        }
-        let refused = [
-            (other, 0o40755, false),
-            (other, 0o40700, false),
-            (other, 0o41777, false),
-            (0, 0o40777, false),
-            (0, 0o40775, false),
-            (me, 0o120755, true),
-            (other, 0o120755, true),
-        ];
-        for (owner, mode, link) in refused {
-            assert!(
-                untrusted(owner, mode, link, me).is_some(),
-                "{owner} {mode:o}"
+        for (owner, group, mode, link) in ok {
+            assert_eq!(
+                untrusted(owner, group, mode, link, me, mine),
+                None,
+                "{owner}:{group} {mode:o}"
             );
         }
-        // Root's own folders are root's.
-        assert_eq!(untrusted(0, 0o40777, false, 0), None);
+        let refused = [
+            // This user's, but open to everyone: anyone can rename the key.
+            (me, mine, 0o40777, false),
+            (me, shared, 0o40775, false),
+            (other, mine, 0o40755, false),
+            (other, mine, 0o40700, false),
+            (other, mine, 0o41777, false),
+            (0, 0, 0o40777, false),
+            (0, 0, 0o40775, false),
+            (me, mine, 0o120777, true),
+            (other, mine, 0o120777, true),
+        ];
+        for (owner, group, mode, link) in refused {
+            assert!(
+                untrusted(owner, group, mode, link, me, mine).is_some(),
+                "{owner}:{group} {mode:o}"
+            );
+        }
+        // As root too, a folder anyone can write to is refused.
+        assert_eq!(untrusted(0, 0, 0o40755, false, 0, 0), None);
+        assert!(untrusted(0, 0, 0o40777, false, 0, 0).is_some());
     }
 
     /// A key file under a link is neither made nor read: a link under
@@ -1832,6 +1851,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_key_file_under_a_link_is_refused() {
+        // Root's links are the system's, so as root (a container's tests)
+        // this one would be taken.
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         let dir = tempfile::Builder::new()
             .prefix("conduit-keyfile-")
             .tempdir()
