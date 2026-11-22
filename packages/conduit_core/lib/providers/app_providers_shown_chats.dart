@@ -12,7 +12,9 @@ part of 'app_providers.dart';
 /// hold (archived, or past its loaded page) is read too. A chat marked unread stays so until it
 /// is read again, as opening it does. Nothing is read in another account's
 /// database, and an account switch forgets the views of the account left,
-/// while an on-device chat on screen stays shown and read.
+/// while an on-device chat on screen stays shown and read. An account whose
+/// session ends and is signed in again, as a refused renewal ends one, keeps
+/// its views.
 final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
   ShownChats.new,
 );
@@ -20,9 +22,16 @@ final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
 /// A shown chat's stored row: the database its reads go to, and its id there.
 typedef _StoredChat = (AppDatabase, String);
 
+/// Where a shown chat is kept: its storage, and the account that owned the
+/// Chats tab when it was shown (none for an on-device chat).
+typedef _Home = (ChatStorageKind, PrimaryAccountRef?);
+
 class ShownChats extends Notifier<Map<String, String>> {
-  /// Where each view's chat is stored, as it was when it was shown.
+  /// Where each view's chat is stored now, while its database is open.
   final Map<String, _StoredChat> _stored = <String, _StoredChat>{};
+
+  /// Where each view's chat is kept, as it was when it was shown.
+  final Map<String, _Home> _homes = <String, _Home>{};
 
   /// One watch of each shown chat's stored row, shared by every view that
   /// shows it.
@@ -38,10 +47,11 @@ class ShownChats extends Notifier<Map<String, String>> {
     // reads in their account.
     ref.listen<ChatDatabaseRepository>(
       chatDatabaseRepositoryProvider,
-      (_, next) => _forgetLeft(next),
+      (_, next) => _followDatabases(next),
     );
     ref.onDispose(() {
       _stored.clear();
+      _homes.clear();
       _followStoredRows();
     });
     return const <String, String>{};
@@ -60,31 +70,59 @@ class ShownChats extends Notifier<Map<String, String>> {
         : null;
     if (db == null) {
       _stored.remove(view);
+      _homes.remove(view);
     } else {
       _stored[view] = (db, rawId);
+      _homes[view] = _homeOf(db);
     }
     state = shows ? {...state, view: id} : ({...state}..remove(view));
     _followStoredRows();
   }
 
-  /// Forgets the views whose chat is stored in a database [repository] no
-  /// longer holds, an account's that was left, and those whose chat had no
-  /// database to be read in, which a report must show anew. An on-device
-  /// chat's view stays shown.
-  void _forgetLeft(ChatDatabaseRepository repository) {
-    final held = [
-      ?repository.openWebUiLocation?.database,
-      ?repository.libreChatLocation?.database,
-      repository.directLocalLocation.database,
-    ];
-    final gone = state.keys.where((view) {
-      final stored = _stored[view];
-      return stored == null || !held.any((db) => identical(db, stored.$1));
-    }).toSet();
-    if (gone.isEmpty) return;
+  _Home _homeOf(AppDatabase db) {
+    final repository = ref.read(chatDatabaseRepositoryProvider);
+    if (identical(db, repository.directLocalLocation.database)) {
+      return (ChatStorageKind.directLocal, null);
+    }
+    return (
+      identical(db, repository.libreChatLocation?.database)
+          ? ChatStorageKind.libreChat
+          : ChatStorageKind.openWebUi,
+      ref.read(primaryAccountProvider),
+    );
+  }
+
+  /// Follows a change of the databases [repository] holds. A view is
+  /// forgotten once its account no longer owns the Chats tab, or when its
+  /// chat had no database to be read in, which a report must show anew.
+  /// Another keeps its chat, read in its database as it is now: none while
+  /// its account's session has ended, until it is signed in again.
+  void _followDatabases(ChatDatabaseRepository repository) {
+    final account = ref.read(primaryAccountProvider);
+    final gone = <String>{};
+    for (final MapEntry(key: view, value: id) in state.entries) {
+      final home = _homes[view];
+      if (home == null || (home.$2 != null && home.$2 != account)) {
+        gone.add(view);
+        continue;
+      }
+      final db = switch (home.$1) {
+        ChatStorageKind.directLocal => repository.directLocalLocation.database,
+        ChatStorageKind.openWebUi => repository.openWebUiLocation?.database,
+        ChatStorageKind.libreChat => repository.libreChatLocation?.database,
+      };
+      if (db == null) {
+        _stored.remove(view);
+      } else {
+        _stored[view] = (db, ChatStorageIdentity.parse(id).rawId);
+      }
+    }
     _stored.removeWhere((view, _) => gone.contains(view));
+    _homes.removeWhere((view, _) => gone.contains(view));
     _followStoredRows();
-    state = {...state}..removeWhere((view, _) => gone.contains(view));
+    if (gone.isNotEmpty) {
+      state = {...state}..removeWhere((view, _) => gone.contains(view));
+    }
   }
 
   /// Watches the stored row of each chat a view shows, and of no other.
