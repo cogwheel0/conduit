@@ -1,7 +1,7 @@
 /// Characterization tests for the conversation-mutation block of
 /// `lib/features/chat/providers/chat_providers.dart`:
 /// `renameDirectLocalConversation`, `deleteDirectLocalConversation`,
-/// `pinConversation`, `markConversationUnread`, `archiveConversation`,
+/// `deleteConversation`, `pinConversation`, `markConversationUnread`, `archiveConversation`,
 /// `shareConversation`, `deleteSharedConversation` and `cloneConversation`.
 ///
 /// These tests pin CURRENT OBSERVED behaviour so the block can be moved
@@ -186,6 +186,7 @@ final class _MutationApi extends ApiService {
   final List<String> shareCalls = <String>[];
   final List<String> deleteShareCalls = <String>[];
   final List<String> cloneCalls = <String>[];
+  final List<String> deleteCalls = <String>[];
 
   /// Thrown by the next call when set.
   Object? failure;
@@ -231,6 +232,12 @@ final class _MutationApi extends ApiService {
     shareCalls.add(id);
     await _admit();
     return shareIdResult;
+  }
+
+  @override
+  Future<void> deleteConversation(String id) async {
+    deleteCalls.add(id);
+    await _admit();
   }
 
   @override
@@ -621,6 +628,70 @@ void main() {
         expect(listed(container), isEmpty);
         expect(container.read(activeConversationProvider)!.id, 'chat-a');
         expect(container.read(chatMessagesProvider), isNotEmpty);
+      });
+    });
+  });
+
+  group('deleteConversation', () {
+    test('an unscoped on-device id is deleted here and never sent', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+
+      await runAsync(() async {
+        await seedDirect('direct-local:chat-d', title: 'Direct');
+        await container.read(conversationsProvider.future);
+
+        await deleteConversation(container, 'direct-local:chat-d');
+
+        expect(await directDb.chatsDao.getChat('direct-local:chat-d'), isNull);
+        expect(listed(container), isEmpty);
+        expect(api.deleteCalls, isEmpty);
+      });
+    });
+
+    test('an Open WebUI chat is deleted on the server by its raw id and '
+        'leaves the list', () async {
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+
+      await runAsync(() async {
+        await seedServer('chat-s', title: 'Server');
+        await container.read(conversationsProvider.future);
+
+        await deleteConversation(container, _openWebUiScoped('chat-s'));
+
+        expect(api.deleteCalls, ['chat-s']);
+        expect(listed(container), isEmpty);
+        await waitUntil(
+          () async => await serverDb.chatsDao.getChat('chat-s') == null,
+        );
+      });
+    });
+
+    test('a refused server delete keeps the chat listed', () async {
+      final api = _MutationApi()..failure = Exception('offline');
+      final container = containerWith(
+        pulls: <String>[],
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+
+      await runAsync(() async {
+        await seedServer('chat-s', title: 'Server');
+        await container.read(conversationsProvider.future);
+
+        await expectLater(
+          deleteConversation(container, 'chat-s'),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(listed(container), hasLength(1));
+        expect(await serverDb.chatsDao.getChat('chat-s'), isNotNull);
       });
     });
   });

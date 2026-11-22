@@ -7,7 +7,10 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -153,6 +156,24 @@ final class _ChainingHermesApi extends HermesApiService {
   }
 }
 
+/// Hands each chat deleted on the server to [onDelete].
+final class _DeletingApi extends ApiService {
+  _DeletingApi(this.onDelete)
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'server',
+          name: 'Server',
+          url: 'https://owui.example',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final void Function(String id) onDelete;
+
+  @override
+  Future<void> deleteConversation(String id) async => onDelete(id);
+}
+
 ChatMessage _assistant(
   String id, {
   String content = '',
@@ -183,7 +204,10 @@ Conversation _openWebUiConversation(
   ChatStorageKind.openWebUi,
 );
 
-ProviderContainer _container(_RecordingHermesApi service) => ProviderContainer(
+ProviderContainer _container(
+  _RecordingHermesApi service, {
+  ApiService? api,
+}) => ProviderContainer(
   overrides: [
     openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
     appDatabaseProvider.overrideWith((ref) {
@@ -191,7 +215,7 @@ ProviderContainer _container(_RecordingHermesApi service) => ProviderContainer(
       ref.onDispose(() => unawaited(database.close()));
       return database;
     }),
-    apiServiceProvider.overrideWithValue(null),
+    apiServiceProvider.overrideWithValue(api),
     socketServiceProvider.overrideWithValue(null),
     hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
     hermesApiServiceProvider.overrideWithValue(service),
@@ -589,6 +613,51 @@ void main() {
       reply('forged-assistant', 'forged-session'),
     ]);
     check(container.read(hermesTrustedMixedSessionProvider)).isNull();
+  });
+
+  test('deleting a mixed chat forgets its bound session before the server '
+      'delete', () async {
+    final deletes = <String>[];
+    late final ProviderContainer container;
+    String? trustedSession() {
+      container.invalidate(hermesTrustedMixedSessionProvider);
+      return container.read(hermesTrustedMixedSessionProvider);
+    }
+
+    container = _container(
+      _RecordingHermesApi(),
+      api: _DeletingApi(
+        (id) => deletes.add('$id, trusted ${trustedSession()}'),
+      ),
+    );
+    addTearDown(container.dispose);
+    final bound = _assistant(
+      'bound-assistant',
+      content: 'prior answer',
+      metadata: <String, dynamic>{
+        'hermesSessionId': 'bound-session',
+        kHermesConnectionIdentityMetadataKey: _connectionIdentity(container),
+        'hermesRunId': 'bound-run',
+      },
+    );
+    final conversation = _openWebUiConversation('bound-chat', <ChatMessage>[
+      bound,
+    ]);
+    await rememberMixedHermesMessageProvenanceForTest(
+      container,
+      conversation: conversation,
+      assistantMessage: bound,
+    );
+    container.read(activeConversationProvider.notifier).set(conversation);
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      bound,
+    ]);
+    check(trustedSession()).equals('bound-session');
+
+    // Named by id alone, as the Mac asks for it.
+    await deleteConversation(container, 'bound-chat');
+
+    check(deletes).deepEquals(<String>['bound-chat, trusted null']);
   });
 
   test('copied proven metadata is not reusable in another OWUI chat', () async {
