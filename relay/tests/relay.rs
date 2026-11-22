@@ -1793,20 +1793,33 @@ impl Relay {
     }
 }
 
-/// Asks for `/healthz` on a kept-alive connection and returns the answer.
+/// Asks for `/healthz` on a kept-alive connection and returns the answer:
+/// its head, then exactly the body its `content-length` gives, so any answer
+/// ends the read and nothing past it is read.
 async fn healthz_blocking(mut stream: std::net::TcpStream) -> (std::net::TcpStream, String) {
     use std::io::{Read, Write};
     tokio::task::spawn_blocking(move || {
         stream.write_all(HEALTHZ).unwrap();
-        // A byte at a time, so that nothing past this answer is read.
         let mut answer = Vec::new();
         let mut byte = [0u8];
-        while !answer.ends_with(b"\r\n\r\nok") {
+        while !answer.ends_with(b"\r\n\r\n") {
             match stream.read(&mut byte) {
                 Ok(1) => answer.push(byte[0]),
                 closed => panic!("{closed:?} after {:?}", String::from_utf8_lossy(&answer)),
             }
         }
+        let head = String::from_utf8(answer.clone()).unwrap();
+        let length: usize = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse().unwrap())
+            })
+            .unwrap_or_else(|| panic!("no content-length in {head:?}"));
+        let mut body = vec![0u8; length];
+        stream.read_exact(&mut body).unwrap();
+        answer.extend_from_slice(&body);
         (stream, String::from_utf8(answer).unwrap())
     })
     .await
@@ -1826,12 +1839,18 @@ async fn idle_connections_are_closed() {
     .await;
     let stream = relay.connect_blocking().await;
     let (stream, answer) = healthz_blocking(stream).await;
-    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(
+        answer.starts_with("HTTP/1.1 200") && answer.ends_with("\r\n\r\nok"),
+        "{answer}"
+    );
 
     // Used again just inside the bound: kept, and the bound starts over.
     tokio::time::advance(idle - Duration::from_millis(1)).await;
     let (stream, answer) = healthz_blocking(stream).await;
-    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    assert!(
+        answer.starts_with("HTTP/1.1 200") && answer.ends_with("\r\n\r\nok"),
+        "{answer}"
+    );
 
     // Left alone, the clock auto-advances to the relay's next timer. Closing
     // early, or not at all (then the header timeout closes it), shows as
