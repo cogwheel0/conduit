@@ -516,17 +516,7 @@ class Conversations extends _$Conversations {
         ? -1
         : _conversationIndexForSelection(current, id);
     final listed = index >= 0 ? current![index] : null;
-    final directLocal =
-        isDirectLocalConversation(listed) ||
-        (listed == null && identity.storage == ChatStorageKind.directLocal);
-    final libreChat =
-        isLibreChatConversation(listed) ||
-        (listed == null && identity.storage == ChatStorageKind.libreChat);
-    final db = directLocal
-        ? ref.read(directLocalDatabaseProvider)
-        : libreChat
-        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
-        : ref.read(appDatabaseProvider);
+    final db = _readDatabase(listed, identity);
     final temporary = isTemporaryChat(rawId);
     if (db == null && !temporary) {
       return Future<void>.error(StateError('no database holds chat $rawId'));
@@ -570,24 +560,68 @@ class Conversations extends _$Conversations {
       },
       onError: (Object _) {
         settled();
-        if (listed != null) _takeBackRead(id, readAt, writes.goingBackTo);
+        if (listed != null) {
+          _takeBackRead(id, readAt, writes.goingBackTo, db);
+        }
       },
     );
     return write;
   }
 
-  /// A read that could not be stored goes from the list too, unless a later
-  /// one replaced it, so asking again writes it.
-  void _takeBackRead(String id, DateTime readAt, DateTime? before) {
+  /// The database that stores chat [listed]'s reads, or, while it is not
+  /// listed, that of the storage [identity] names.
+  AppDatabase? _readDatabase(
+    Conversation? listed,
+    ChatStorageIdentity identity,
+  ) {
+    final directLocal =
+        isDirectLocalConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.directLocal);
+    final libreChat =
+        isLibreChatConversation(listed) ||
+        (listed == null && identity.storage == ChatStorageKind.libreChat);
+    return directLocal
+        ? ref.read(directLocalDatabaseProvider)
+        : libreChat
+        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
+        : ref.read(appDatabaseProvider);
+  }
+
+  /// A read that could not be stored in [db] goes from the list too, unless
+  /// a later one replaced it, so asking again writes it: back to [before],
+  /// or to the newer read [db] last published for the chat. Only while the
+  /// list still shows [db]'s chat: another account's may share the id, and
+  /// even the read time.
+  void _takeBackRead(
+    String id,
+    DateTime readAt,
+    DateTime? before,
+    AppDatabase db,
+  ) {
     if (!ref.mounted) return;
     final current = state.asData?.value;
     final index = current == null
         ? -1
         : _conversationIndexForSelection(current, id);
     if (index < 0 || current![index].lastReadAt != readAt) return;
+    var back = before;
+    try {
+      final identity = ChatStorageIdentity.parse(id);
+      if (!identical(_readDatabase(current[index], identity), db)) return;
+      final published = _lastSuccessfulDatabaseProjection;
+      final at = published == null
+          ? -1
+          : _conversationIndexForSelection(published, id);
+      if (at >= 0 && identical(_readDatabase(published![at], identity), db)) {
+        back = _latestDateTime(back, published[at].lastReadAt);
+      }
+    } catch (_) {
+      // Storage that cannot be read now cannot tell which chat is listed.
+      return;
+    }
     _replaceState(
       <Conversation>[...current]
-        ..[index] = current[index].copyWith(lastReadAt: before),
+        ..[index] = current[index].copyWith(lastReadAt: back),
     );
   }
 

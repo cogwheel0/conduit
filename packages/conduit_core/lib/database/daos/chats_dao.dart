@@ -2699,6 +2699,26 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     );
   }
 
+  /// A push of chat [chatId] from this device sent text it took from the
+  /// server's copy, which left that copy dated [serverUpdatedAt]: the chat
+  /// is dated so here at once, as a pull would date it, and shows unread
+  /// until it is read, whatever a later push of this device's own sends.
+  Future<void> dateThroughPushOfServerText(
+    String chatId,
+    int serverUpdatedAt,
+  ) {
+    return customUpdate(
+      'UPDATE chats SET updated_at = ? WHERE id = ? AND updated_at < ?',
+      variables: [
+        Variable.withInt(serverUpdatedAt),
+        Variable.withString(chatId),
+        Variable.withInt(serverUpdatedAt),
+      ],
+      updates: {chats},
+      updateKind: UpdateKind.update,
+    );
+  }
+
   /// Stores Open WebUI's explicit unread (`last_read_at = 0`) while its
   /// request is sent, and returns the value it replaced. Every call must be
   /// followed by [finishUnread]; until then no chat list overrides it.

@@ -77,10 +77,11 @@ final class _FailingReadMarks extends QueryInterceptor {
 }
 
 /// Holds the read marks' writes while [hold] is set; [reached] completes as
-/// the first gets to the database.
+/// the first gets to the database. With [fails], each held write then fails.
 final class _HeldReadMarks extends QueryInterceptor {
   Completer<void>? hold;
   final Completer<void> reached = Completer<void>();
+  bool fails = false;
 
   @override
   Future<int> runUpdate(
@@ -92,6 +93,7 @@ final class _HeldReadMarks extends QueryInterceptor {
     if (held != null && statement.contains('last_read_at = max')) {
       if (!reached.isCompleted) reached.complete();
       await held.future;
+      if (fails) throw StateError('database or disk is full');
     }
     return executor.runUpdate(statement, args);
   }
@@ -876,6 +878,82 @@ void main() {
         isTrue,
       );
       expect((await store.chatsDao.getChat('chat-s'))!.lastReadAt, 400);
+    });
+
+    test('a failed write goes back to the newest read the database holds, '
+        'one stored while it was being written included', () async {
+      final marks = _HeldReadMarks()..fails = true;
+      final store = AppDatabase(NativeDatabase.memory().interceptWith(marks));
+      final container = await readingFrom(store);
+      final chat = _openWebUiScoped('chat-s');
+      DateTime at(int seconds) =>
+          DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
+      expect(
+        await markConversationRead(container, chat, readAt: at(300)),
+        isTrue,
+      );
+      final held = marks.hold = Completer<void>();
+
+      final first = markConversationRead(container, chat, readAt: at(400));
+      await marks.reached.future;
+      // Meanwhile the database stores a newer read (an own push landing),
+      // and the list shows it.
+      final shown = Completer<void>();
+      final listening = container.listen(conversationsProvider, (_, next) {
+        final listed = next.asData?.value.where((c) => c.id == 'chat-s');
+        if (listed?.single.lastReadAt == at(600) && !shown.isCompleted) {
+          shown.complete();
+        }
+      });
+      addTearDown(listening.close);
+      await store.chatsDao.keepReadThroughOwnPush('chat-s', 600);
+      await shown.future;
+      final second = markConversationRead(container, chat, readAt: at(700));
+      held.complete();
+
+      expect(await first, isFalse);
+      expect(await second, isFalse);
+      expect(listedFor(container, chat).lastReadAt, at(600));
+    });
+
+    test('a failed write goes back only in its own account\'s list, never '
+        'in that of an account switched to that holds the same chat, read '
+        'at the same time', () async {
+      final marks = _HeldReadMarks()..fails = true;
+      final store = AppDatabase(NativeDatabase.memory().interceptWith(marks));
+      addTearDown(store.close);
+      await store.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Server', updatedAt: 100),
+      );
+      final otherDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(otherDb.close);
+      await otherDb.chatsDao.upsertServerChat(
+        rows: _rows('chat-s', title: 'Other account', updatedAt: 100),
+        listLastReadAt: 500,
+      );
+      final container = containerWith(
+        pulls: <String>[],
+        storageOverrides: [
+          openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+          _activeDatabaseProvider.overrideWith(() => _ActiveDatabase(store)),
+          appDatabaseProvider.overrideWith(
+            (ref) => ref.watch(_activeDatabaseProvider),
+          ),
+        ],
+      );
+      await container.read(conversationsProvider.future);
+      final chat = _openWebUiScoped('chat-s');
+      final held = marks.hold = Completer<void>();
+
+      final reading = markConversationRead(container, chat, readAt: readAt);
+      await marks.reached.future;
+      container.read(_activeDatabaseProvider.notifier).set(otherDb);
+      await container.read(conversationsProvider.future);
+      expect(listedFor(container, chat).title, 'Other account');
+      held.complete();
+
+      expect(await reading, isFalse);
+      expect(listedFor(container, chat).lastReadAt, readAt);
     });
 
     test('a read with no database to store it in is not stored', () async {

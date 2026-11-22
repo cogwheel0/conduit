@@ -94,6 +94,12 @@ pub struct ChatListStore {
     pub marked_unread_here: std::collections::HashSet<String>,
     /// [`Self::note_answered`].
     answered_here: std::collections::HashSet<String>,
+    /// Reads on leaving still on their way for chats answered here, by each
+    /// read's number: a failed one leaves its chat to read on the next
+    /// leave, unless a later read, a mark of unread or another account came
+    /// in between.
+    answered_reads: HashMap<String, u64>,
+    reads_sent: u64,
     rpc: Rpc,
     /// `None` until the daemon has answered once (for this account).
     pub list: Option<ChatList>,
@@ -134,6 +140,8 @@ impl ChatListStore {
         Self {
             marked_unread_here: Default::default(),
             answered_here: Default::default(),
+            answered_reads: Default::default(),
+            reads_sent: 0,
             rpc,
             list: None,
             load_error: None,
@@ -173,6 +181,7 @@ impl ChatListStore {
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.account += 1;
         self.answered_here.clear();
+        self.answered_reads.clear();
         self.marked_unread_here.clear();
         self._sync = None;
         self.generation += 1;
@@ -891,8 +900,10 @@ impl ChatListStore {
     /// Leaving a chat reads it (what arrived while it was open), when it
     /// may not be read already ([`Self::reads_on_leaving`]). Nobody asked
     /// for this read: the dot goes at once, and a failure shows nothing but
-    /// asks for the list again, which brings back what the daemon holds.
+    /// asks for the list again, which brings back what the daemon holds; a
+    /// chat answered here stays to read on the next leave.
     pub fn mark_left(&mut self, id: &str, cx: &mut Context<Self>) {
+        let answered = self.answered_here.contains(id);
         if !self.reads_on_leaving(id) {
             return;
         }
@@ -903,12 +914,31 @@ impl ChatListStore {
             chat.unread = false;
             self.changed(cx);
         }
+        self.reads_sent += 1;
+        let read = self.reads_sent;
+        if answered {
+            self.answered_reads.insert(id.into(), read);
+        } else {
+            self.answered_reads.remove(id);
+        }
         let call = self.read_call(id);
+        let id = id.to_string();
         cx.spawn(async move |this: WeakEntity<Self>, cx: &mut AsyncApp| {
-            if let Err(error) = call.await {
-                log::warn!("a chat left could not be read: {error}");
-                this.update(cx, |s, cx| s.refresh(cx)).ok();
-            }
+            let result = call.await;
+            this.update(cx, |s, cx| {
+                let ours = s.answered_reads.get(&id) == Some(&read);
+                if ours {
+                    s.answered_reads.remove(&id);
+                }
+                if let Err(error) = result {
+                    log::warn!("a chat left could not be read: {error}");
+                    if ours {
+                        s.answered_here.insert(id);
+                    }
+                    s.refresh(cx);
+                }
+            })
+            .ok();
         })
         .detach();
     }
@@ -974,6 +1004,7 @@ impl ChatListStore {
         unread: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), RpcError>> {
+        self.answered_reads.remove(id);
         // The dot follows at once; the list the daemon answers with confirms.
         if let Some(list) = &mut self.list
             && let Some(chat) = list.chats.iter_mut().find(|c| c.id == id)
@@ -997,6 +1028,7 @@ impl ChatListStore {
     /// is asked of the daemon for a chat that has no dot.
     pub fn mark_read(&mut self, id: &str, cx: &mut Context<Self>) {
         self.marked_unread_here.remove(id);
+        self.answered_reads.remove(id);
         if self.find(id).is_some_and(|c| c.unread) {
             self.mark_unread(id, false, cx).detach();
         }
@@ -1489,7 +1521,7 @@ mod tests {
 
     /// The read leaving a chat sends is nobody's request: a failure shows
     /// no notice, but brings the daemon's list back, and a list on its way
-    /// is still taken.
+    /// is still taken. A chat answered here stays to read on the next leave.
     #[gpui_kit::test]
     fn a_read_on_leaving_shows_no_failure_and_drops_no_list(cx: &mut TestAppContext) {
         let daemon = FakeDaemon::new();
@@ -1543,6 +1575,29 @@ mod tests {
                 "the list on its way was dropped"
             )
         });
+
+        // A chat with no dot while its answer runs here: a failed read
+        // leaves it to read on the next leave.
+        daemon.once::<methods::ChatsMarkUnread>(Err(conduit_daemon::protocol::error(
+            "rpc.internal",
+            "disk full",
+        )));
+        store.update(cx, |s, cx| {
+            s.note_answered("c");
+            s.mark_left("c", cx);
+        });
+        cx.run_until_parked();
+        store.update(cx, |s, cx| s.mark_left("c", cx));
+        cx.run_until_parked();
+        let reads_of_c = daemon
+            .calls::<methods::ChatsMarkUnread>()
+            .iter()
+            .filter(|call| call["chatId"] == "c")
+            .count();
+        assert_eq!(
+            reads_of_c, 2,
+            "the next leave did not read a chat whose read failed"
+        );
     }
 
     /// A mark of unread made here holds for every view that shows the

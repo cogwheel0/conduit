@@ -416,14 +416,19 @@ class PushSync {
       );
       // The push moved the server's date. It is this device's own save only
       // when it sent no text taken from the server's copy (marked, so a
-      // failed attempt's take still counts), and the server keeps nothing
-      // beside it: Open WebUI keeps the messages an update leaves out
-      // (`merge_history`), so one this push did not send came from
-      // elsewhere.
-      final pushed = {for (final message in rows.messages) message.id};
-      if (taken.isEmpty &&
-          resp['chat'] is Map &&
-          _serverMessages(chatId, resp['chat']).keys.every(pushed.contains)) {
+      // failed attempt's take still counts), and the server holds nothing
+      // else: Open WebUI keeps the messages an update leaves out
+      // (`merge_history`), and its own copy of an answer it holds as not
+      // done, which a running task may have written on.
+      final pushed = {for (final message in rows.messages) message.id: message};
+      if (taken.isNotEmpty) {
+        // The marks went with this push: the date holds the news instead.
+        await _db.chatsDao.dateThroughPushOfServerText(chatId, serverUpdatedAt);
+      } else if (resp['chat'] is Map &&
+          _serverMessages(chatId, resp['chat']).entries.every((stored) {
+            final sent = pushed[stored.key];
+            return sent != null && !_showsOther(stored.value, sent);
+          })) {
         await _db.chatsDao.keepReadThroughOwnPush(chatId, serverUpdatedAt);
       }
     });

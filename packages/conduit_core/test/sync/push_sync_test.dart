@@ -2326,6 +2326,46 @@ void main() {
       check(isConversationUnread(await pulled())).isTrue();
     });
 
+    test('the server\'s text a landed push took stays news through a later '
+        'save made here, pushed before any pull', () async {
+      await seed(stored: kept);
+      await settleCutOff('Gales veer');
+      await readHere();
+      await push.pushUpdateChat(chatId);
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        chatId,
+        title: const Value('Gale notes'),
+        enqueue: true,
+      );
+      serverNow = 7600;
+      await push.pushUpdateChat(chatId);
+
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
+    test('an unfinished answer the server goes on writing comes back fuller '
+        'from a save made here; that text was never shown here, so the chat '
+        'goes unread', () async {
+      await seed(stored: 'Gales veer');
+      // Its task writes on after this device last pulled the chat.
+      final blob = server.getChatById(chatId)!['chat'] as Map<String, dynamic>;
+      (((blob['history'] as Map)['messages'] as Map)['a1'] as Map)['content'] =
+          kept;
+      server.saveFromTask(chatId, blob);
+      await readHere();
+
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        chatId,
+        title: const Value('Gale notes'),
+        enqueue: true,
+      );
+      await push.pushUpdateChat(chatId);
+
+      check(onServer('a1')).has((it) => it['content'], 'content').equals(kept);
+      check(isConversationUnread(await pulled())).isTrue();
+    });
+
     test('with a task running in the chat (another device answering), no '
         'stop is asked, neither answer the server holds is touched, and the '
         'push stays owed until the task ends', () async {

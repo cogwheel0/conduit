@@ -4497,6 +4497,40 @@ mod tests {
             );
         }
 
+        /// A chat made offline and left for a note, whose id is remapped
+        /// meanwhile, is shown again once it is picked: read as an opened
+        /// chat is.
+        #[gpui_kit::test]
+        fn a_chat_remapped_behind_another_area_is_shown_again(cx: &mut TestAppContext) {
+            let (daemon, stores, _pane, vcx) = bench(cx);
+            daemon.returns::<methods::ChatsList>(listed_c1(true));
+            daemon.returns::<methods::ChatsMarkUnread>(listed_c1(false));
+            stores.chat_list.update(vcx, |c, cx| c.refresh(cx));
+            stores.navigation.update(vcx, |n, cx| n.open("local:x", cx));
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| {
+                n.open_item(crate::stores::navigation::AreaItem::Note("n1".into()), cx)
+            });
+            vcx.run_until_parked();
+
+            vcx.update(|_, cx| {
+                stores
+                    .navigation
+                    .update(cx, |n, cx| n.on_remap("local:x", "c1", cx));
+                stores
+                    .router
+                    .update(cx, |r, cx| r.on_remap("local:x".into(), "c1".into(), cx));
+            });
+            vcx.run_until_parked();
+            stores.navigation.update(vcx, |n, cx| n.open("c1", cx));
+            vcx.run_until_parked();
+            assert_eq!(
+                daemon.calls::<methods::ChatsMarkUnread>(),
+                vec![serde_json::json!({"chatId": "c1", "unread": false})],
+                "the chat picked again was not read"
+            );
+        }
+
         /// Another account: the chat shown goes with the account it belongs
         /// to, and nothing of it is read in the new one (the window resets
         /// to a new chat and its list, as `chat_list::wire` does).
