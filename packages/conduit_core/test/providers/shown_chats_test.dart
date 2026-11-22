@@ -7,6 +7,7 @@ import 'dart:async';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -60,9 +61,16 @@ void main() {
   /// at first. With [libreChat], the LibreChat account `lc-a`, whose chats
   /// are kept there, owns the tab instead, and Open WebUI is parked (no
   /// database).
-  Future<ProviderContainer> signedIn({AppDatabase? libreChat}) async {
+  /// [libreChatManager], when given, is the manager that opened LibreChat's
+  /// databases.
+  Future<ProviderContainer> signedIn({
+    AppDatabase? libreChat,
+    DatabaseManager? libreChatManager,
+  }) async {
     final container = ProviderContainer(
       overrides: [
+        if (libreChatManager != null)
+          libreChatDatabaseManagerProvider.overrideWithValue(libreChatManager),
         openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
         _activeDatabaseProvider.overrideWith(
           () => _Value<AppDatabase?>(libreChat == null ? serverDb : null),
@@ -483,21 +491,55 @@ void main() {
     expect(() => shown.show('chatPage/1', 'chat-s'), returnsNormally);
   });
 
-  test('no read goes to another account, even for the same chat id', () async {
-    await seedRead(serverDb, 'chat-s');
-    final otherDb = AppDatabase(NativeDatabase.memory());
-    addTearDown(otherDb.close);
-    await seedRead(otherDb, 'chat-s');
-    final container = await signedIn();
-    container.read(shownChatsProvider.notifier).show('main', 'chat-s');
+  // The account in charge and its database change together, or the database
+  // is handed over before the account in charge changes: directly, or once
+  // the account's own has closed, as an account switch closes it.
+  for (final (how, handOver)
+      in <(String, Future<void> Function(ProviderContainer, AppDatabase))>[
+        (
+          'as the account in charge changes',
+          (container, other) async =>
+              openWebUiTakesOver(container, 'other', other),
+        ),
+        (
+          'handed over before the account in charge changes',
+          (container, other) async =>
+              container.read(_activeDatabaseProvider.notifier).set(other),
+        ),
+        (
+          'handed over once the account\'s own has closed, before the account '
+              'in charge changes',
+          (container, other) async {
+            final database = container.read(_activeDatabaseProvider.notifier);
+            database.set(null);
+            await container.read(conversationsProvider.future);
+            database.set(other);
+          },
+        ),
+      ]) {
+    test('no read goes to another account, even for the same chat id, its '
+        'database $how', () async {
+      await seedRead(serverDb, 'chat-s');
+      final otherDb = AppDatabase(NativeDatabase.memory());
+      addTearDown(otherDb.close);
+      await seedRead(otherDb, 'chat-s');
+      final container = await signedIn();
+      container.read(shownChatsProvider.notifier).show('main', 'chat-s');
 
-    openWebUiTakesOver(container, 'other', otherDb);
-    await container.read(conversationsProvider.future);
-    await serverSaved(otherDb, 'chat-s', 160);
-    await settled(otherDb);
-    expect(await storedRead(otherDb, 'chat-s'), 100);
-    expect(socket.reads, isEmpty);
-  });
+      await handOver(container, otherDb);
+      await container.read(conversationsProvider.future);
+      await serverSaved(otherDb, 'chat-s', 160);
+      await settled(otherDb);
+      expect(await storedRead(otherDb, 'chat-s'), 100);
+
+      openWebUiTakesOver(container, 'other', otherDb);
+      await container.read(conversationsProvider.future);
+      await serverSaved(otherDb, 'chat-s', 170);
+      await settled(otherDb);
+      expect(await storedRead(otherDb, 'chat-s'), 100);
+      expect(socket.reads, isEmpty);
+    });
+  }
 
   test('an on-device chat on screen stays read across an account switch, '
       'while the account left keeps its chat\'s mark', () async {
@@ -612,6 +654,55 @@ void main() {
       expect(socket.reads, isEmpty);
     });
   }
+
+  // Its manager keeps the account each database was opened for, after it
+  // closes too.
+  test('a LibreChat chat on screen stays read when its account\'s database '
+      'reopens as another instance for the same account, and is forgotten when '
+      'another account\'s opens in its place, before the account in charge '
+      'changes', () async {
+    final manager = DatabaseManager(
+      openDatabase: (_) => AppDatabase(NativeDatabase.memory()),
+    );
+    addTearDown(manager.closeActive);
+    final id = const ChatStorageIdentity(
+      rawId: 'lc-tide',
+      storage: ChatStorageKind.libreChat,
+    ).scopedId;
+    final first = manager.openForServerId('lc-a');
+    await seedRead(first, 'lc-tide');
+    final container = await signedIn(
+      libreChat: first,
+      libreChatManager: manager,
+    );
+    container.read(shownChatsProvider.notifier).show('main', id);
+    final libreChat = container.read(_libreChatDatabaseProvider.notifier);
+
+    /// The session ends, its database closes, and [account]'s opens, holding
+    /// the chat read through [readAt].
+    Future<AppDatabase> reopen(String account, {required int readAt}) async {
+      libreChat.set(null);
+      await container.read(conversationsProvider.future);
+      await manager.closeActive();
+      final reopened = manager.openForServerId(account);
+      await seedRead(reopened, 'lc-tide', at: readAt);
+      libreChat.set(reopened);
+      await container.read(conversationsProvider.future);
+      return reopened;
+    }
+
+    final again = await reopen('lc-a', readAt: 4000000000);
+    expect(container.read(shownChatsProvider), {'main': id});
+    await serverSaved(again, 'lc-tide', 4000000100);
+    expect(await storedReadThrough(again, 'lc-tide', 4000000100), 4000000100);
+
+    final other = await reopen('lc-b', readAt: 100);
+    expect(container.read(shownChatsProvider), isEmpty);
+    await serverSaved(other, 'lc-tide', 160);
+    await settled(other);
+    expect(await storedRead(other, 'lc-tide'), 100);
+    expect(socket.reads, isEmpty);
+  });
 }
 
 ChatRows _rows(String id, {required int updatedAt, bool archived = false}) {

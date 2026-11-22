@@ -22,9 +22,10 @@ final shownChatsProvider = NotifierProvider<ShownChats, Map<String, String>>(
 /// A shown chat's stored row: the database its reads go to, and its id there.
 typedef _StoredChat = (AppDatabase, String);
 
-/// Where a shown chat is kept: its storage, and the account that owned the
-/// Chats tab when it was shown (none for an on-device chat).
-typedef _Home = (ChatStorageKind, PrimaryAccountRef?);
+/// Where a shown chat is kept: its storage, the account that owned the Chats
+/// tab when it was shown (none for an on-device chat), and the database it
+/// was last read in.
+typedef _Home = (ChatStorageKind, PrimaryAccountRef?, AppDatabase);
 
 class ShownChats extends Notifier<Map<String, String>> {
   /// Where each view's chat is stored now, while its database is open.
@@ -82,21 +83,23 @@ class ShownChats extends Notifier<Map<String, String>> {
   _Home _homeOf(AppDatabase db) {
     final repository = ref.read(chatDatabaseRepositoryProvider);
     if (identical(db, repository.directLocalLocation.database)) {
-      return (ChatStorageKind.directLocal, null);
+      return (ChatStorageKind.directLocal, null, db);
     }
     return (
       identical(db, repository.libreChatLocation?.database)
           ? ChatStorageKind.libreChat
           : ChatStorageKind.openWebUi,
       ref.read(primaryAccountProvider),
+      db,
     );
   }
 
-  /// Follows a change of the databases [repository] holds. A view is
-  /// forgotten once its account no longer owns the Chats tab, or when its
-  /// chat had no database to be read in, which a report must show anew.
-  /// Another keeps its chat, read in its database as it is now: none while
-  /// its account's session has ended, until it is signed in again.
+  /// Follows a change of the databases [repository] holds. A view whose
+  /// database closes, as a session's end closes it, keeps its chat and reads
+  /// it again once that database, or another opened for the same account, is
+  /// back. A view is forgotten once its account no longer owns the Chats tab,
+  /// when its chat had no database to be read in (a report must show it
+  /// anew), or when another database takes its own's place otherwise.
   void _followDatabases(ChatDatabaseRepository repository) {
     final account = ref.read(primaryAccountProvider);
     final gone = <String>{};
@@ -106,16 +109,26 @@ class ShownChats extends Notifier<Map<String, String>> {
         gone.add(view);
         continue;
       }
-      final db = switch (home.$1) {
+      final (storage, owner, readIn) = home;
+      final db = switch (storage) {
         ChatStorageKind.directLocal => repository.directLocalLocation.database,
         ChatStorageKind.openWebUi => repository.openWebUiLocation?.database,
         ChatStorageKind.libreChat => repository.libreChatLocation?.database,
       };
       if (db == null) {
         _stored.remove(view);
-      } else {
-        _stored[view] = (db, ChatStorageIdentity.parse(id).rawId);
+        continue;
       }
+      // Whatever the account in charge says at this moment, which can lag
+      // behind its database: never from one open database to another, and
+      // from a closed one only to one opened for the same account.
+      if (!identical(db, readIn) &&
+          (_stored.containsKey(view) || !_sameAccount(storage, readIn, db))) {
+        gone.add(view);
+        continue;
+      }
+      _homes[view] = (storage, owner, db);
+      _stored[view] = (db, ChatStorageIdentity.parse(id).rawId);
     }
     _stored.removeWhere((view, _) => gone.contains(view));
     _homes.removeWhere((view, _) => gone.contains(view));
@@ -123,6 +136,18 @@ class ShownChats extends Notifier<Map<String, String>> {
     if (gone.isNotEmpty) {
       state = {...state}..removeWhere((view, _) => gone.contains(view));
     }
+  }
+
+  /// Whether [a] and [b] were opened for the same account, as the manager of
+  /// [storage]'s databases keeps it, once they are closed too.
+  bool _sameAccount(ChatStorageKind storage, AppDatabase a, AppDatabase b) {
+    final manager = switch (storage) {
+      ChatStorageKind.openWebUi => ref.read(databaseManagerProvider),
+      ChatStorageKind.libreChat => ref.read(libreChatDatabaseManagerProvider),
+      ChatStorageKind.directLocal => null,
+    };
+    final account = manager?.serverIdForDatabase(a);
+    return account != null && account == manager!.serverIdForDatabase(b);
   }
 
   /// Watches the stored row of each chat a view shows, and of no other.
