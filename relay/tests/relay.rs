@@ -5,7 +5,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use aws_lc_rs::encoding::{AsDer, Pkcs8V1Der};
 use aws_lc_rs::rsa::{KeyPair as RsaKeyPair, KeySize};
@@ -21,8 +21,9 @@ use conduit_push_relay::config::Config;
 use conduit_push_relay::{AppState, ConnectionLimits, StartupError};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{json, Value};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::Instant;
 
 const TEAM_ID: &str = "TEAM123456";
 const KEY_ID: &str = "KEY7654321";
@@ -515,10 +516,7 @@ fn nothing_received(stream: &std::net::TcpStream) -> bool {
 /// how long that took from `since`. Left alone, the paused clock
 /// auto-advances to the relay's next timer, so the close comes at an exact
 /// time, as long as no other timer is running by then.
-async fn read_until_closed(
-    stream: std::net::TcpStream,
-    since: tokio::time::Instant,
-) -> (Duration, Vec<u8>) {
+async fn read_until_closed(stream: std::net::TcpStream, since: Instant) -> (Duration, Vec<u8>) {
     stream.set_nonblocking(true).unwrap();
     let mut stream = TcpStream::from_std(stream).unwrap();
     let mut received = Vec::new();
@@ -587,6 +585,20 @@ impl Relay {
     async fn push_reply_blocking(&self, path: &str) -> Answer {
         self.send_blocking(post(path, &standard_headers(), &first_case_body()))
             .await
+    }
+
+    /// `metrics`, with blocking I/O.
+    async fn metrics_blocking(&self) -> String {
+        let addr = self
+            .metrics
+            .strip_prefix("http://")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let request = b"GET /metrics HTTP/1.1\r\nHost: relay\r\nConnection: close\r\n\r\n";
+        let (_, answer) = exchange_blocking(connect_blocking(addr).await, request).await;
+        assert_eq!(answer.status(), 200, "{answer}");
+        answer.body().to_owned()
     }
 }
 
@@ -1539,32 +1551,15 @@ async fn push_validation_errors() {
     }
 }
 
-/// Reads the relay's answer on `stream` until it holds `until` or the relay
-/// closes the connection.
-async fn read_answer(stream: &mut TcpStream, until: &str) -> String {
-    let started = Instant::now();
-    let mut received = Vec::new();
-    let mut buf = [0u8; 1024];
-    while !String::from_utf8_lossy(&received).contains(until) {
-        let left = Duration::from_secs(5).saturating_sub(started.elapsed());
-        match tokio::time::timeout(left, stream.read(&mut buf)).await {
-            Err(_) => panic!("no {until:?} after 5 s"),
-            Ok(Ok(0) | Err(_)) => break,
-            Ok(Ok(n)) => received.extend_from_slice(&buf[..n]),
-        }
-    }
-    String::from_utf8_lossy(&received).into_owned()
-}
-
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn only_a_body_over_the_limit_is_413() {
+    let body_timeout = Duration::from_millis(300);
     let (mock_addr, mock) = start_mock().await;
     let relay = start_relay_with(base_env(mock_addr), mock, mock_addr, |config| {
-        config.body_timeout = Duration::from_millis(300);
+        config.body_timeout = body_timeout;
     })
     .await;
-    let endpoint = relay.endpoint("apns", "prod").await;
-    let path = endpoint.strip_prefix(&relay.base).unwrap();
+    let path = relay.endpoint_blocking("apns").await;
     let head = |framing: &str| {
         format!(
             "POST {path} HTTP/1.1\r\nHost: relay\r\nContent-Encoding: aes128gcm\r\n\
@@ -1572,32 +1567,42 @@ async fn only_a_body_over_the_limit_is_413() {
         )
     };
 
-    // Part of a 598-byte body, and then nothing.
-    let mut stalled = relay.connect().await;
-    stalled
-        .write_all(head("Content-Length: 598").as_bytes())
-        .await
-        .unwrap();
-    stalled.write_all(&first_case_body()[..100]).await.unwrap();
-    let answer = read_answer(&mut stalled, r#"{"error":"request_timeout"}"#).await;
+    // Part of a 598-byte body, and then nothing. The body's time starts when
+    // the relay asks for it, which "100 Continue" shows.
+    let mut stalled = relay.connect_blocking().await;
+    let request = head("Content-Length: 598\r\nExpect: 100-continue");
+    let (stalled, interim) = blocking(move || {
+        use std::io::Write;
+        stalled.write_all(request.as_bytes()).unwrap();
+        let interim = read_head(&mut stalled);
+        stalled.write_all(&first_case_body()[..100]).unwrap();
+        (stalled, interim)
+    })
+    .await;
+    assert_eq!(interim, "HTTP/1.1 100 Continue\r\n\r\n");
+    let asked = Instant::now();
+    let (closed_after, answer) = read_until_closed(stalled, asked).await;
+    let answer = String::from_utf8(answer).unwrap();
     assert!(answer.starts_with("HTTP/1.1 408"), "{answer}");
     assert!(
         answer.ends_with(r#"{"error":"request_timeout"}"#),
         "{answer}"
     );
+    assert_eq!(closed_after, body_timeout);
 
     // A chunked body that announces no length still stops at the limit.
-    let mut chunked = relay.connect().await;
     let mut request = head("Transfer-Encoding: chunked").into_bytes();
     request.extend_from_slice(b"1000\r\n");
     request.extend_from_slice(&[0; 4096]);
     request.extend_from_slice(b"\r\n0\r\n\r\n");
-    chunked.write_all(&request).await.unwrap();
-    let answer = read_answer(&mut chunked, r#"{"error":"too_large"}"#).await;
-    assert!(answer.starts_with("HTTP/1.1 413"), "{answer}");
-    assert!(answer.ends_with(r#"{"error":"too_large"}"#), "{answer}");
+    let (_, answer) = exchange_blocking(relay.connect_blocking().await, request).await;
+    assert_eq!(
+        (answer.status(), answer.body()),
+        (413, r#"{"error":"too_large"}"#),
+        "{answer}"
+    );
 
-    let metrics = relay.metrics().await;
+    let metrics = relay.metrics_blocking().await;
     for line in [
         "relay_push_total{provider=\"apns\",result=\"timeout\"} 1",
         "relay_push_total{provider=\"apns\",result=\"too_large\"} 1",
@@ -1883,14 +1888,6 @@ async fn start_with_connections(limits: ConnectionLimits) -> Relay {
     .await
 }
 
-impl Relay {
-    async fn connect(&self) -> TcpStream {
-        TcpStream::connect(self.base.strip_prefix("http://").unwrap())
-            .await
-            .unwrap()
-    }
-}
-
 #[tokio::test(start_paused = true)]
 async fn clients_that_send_headers_too_slowly_are_dropped() {
     let timeout = Duration::from_millis(500);
@@ -1903,7 +1900,7 @@ async fn clients_that_send_headers_too_slowly_are_dropped() {
     // request's headers. The idle bound, 30 s, is the only other timer that
     // could close the connection.
     let stream = healthz_blocking(relay.connect_blocking().await).await;
-    let served = tokio::time::Instant::now();
+    let served = Instant::now();
     let mut stream = write_blocking(
         stream,
         b"POST /v1/register HTTP/1.1\r\nHost: relay\r\nX-Slow: ",
@@ -1937,7 +1934,7 @@ async fn clients_that_send_nothing_are_dropped() {
     .await;
     // No timer runs until the relay takes the connection, so the clock stands
     // still until then.
-    let connected = tokio::time::Instant::now();
+    let connected = Instant::now();
     let silent = relay.connect_blocking().await;
     let (closed_after, _) = read_until_closed(silent, connected).await;
     assert_eq!(closed_after, timeout);
@@ -1963,7 +1960,7 @@ async fn idle_connections_are_closed() {
     // Left alone, the clock auto-advances to the relay's next timer. Closing
     // early, or not at all (then the header timeout closes it), shows as
     // another time.
-    let served = tokio::time::Instant::now();
+    let served = Instant::now();
     let (closed_after, _) = read_until_closed(stream, served).await;
     assert_eq!(closed_after, idle);
 }
@@ -2029,7 +2026,7 @@ async fn shutdown_drops_connections_that_do_not_finish() {
     .await;
     assert_eq!(interim, "HTTP/1.1 100 Continue\r\n\r\n");
 
-    let stopping = tokio::time::Instant::now();
+    let stopping = Instant::now();
     stop.send(()).unwrap();
     server.await.unwrap();
     assert_eq!(stopping.elapsed(), drain);
