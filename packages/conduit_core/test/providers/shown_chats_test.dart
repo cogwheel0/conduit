@@ -6,12 +6,15 @@ library;
 import 'dart:async';
 
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/socket_service.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -23,6 +26,8 @@ import 'package:test/test.dart';
 void main() {
   late AppDatabase serverDb;
   late AppDatabase directDb;
+  late AppDatabase libreChatDb;
+  late AppDatabase otherLibreChatDb;
   late _ReadsSocket socket;
   late bool previousDontWarn;
 
@@ -38,23 +43,47 @@ void main() {
   setUp(() {
     serverDb = AppDatabase(NativeDatabase.memory());
     directDb = AppDatabase(NativeDatabase.memory());
+    libreChatDb = AppDatabase(NativeDatabase.memory());
+    otherLibreChatDb = AppDatabase(NativeDatabase.memory());
     socket = _ReadsSocket();
   });
 
   tearDown(() async {
     await serverDb.close();
     await directDb.close();
+    await libreChatDb.close();
+    await otherLibreChatDb.close();
   });
 
   /// A container whose Open WebUI chats are kept in the database
-  /// [_activeDatabaseProvider] holds, [serverDb] at first.
-  Future<ProviderContainer> signedIn() async {
+  /// [_activeDatabaseProvider] holds, [serverDb] at first. With [libreChat],
+  /// a LibreChat account whose chats are kept there owns the Chats tab
+  /// instead, and Open WebUI is parked (no database).
+  Future<ProviderContainer> signedIn({AppDatabase? libreChat}) async {
     final container = ProviderContainer(
       overrides: [
         openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
-        _activeDatabaseProvider.overrideWith(() => _ActiveDatabase(serverDb)),
+        _activeDatabaseProvider.overrideWith(
+          () => _Value<AppDatabase?>(libreChat == null ? serverDb : null),
+        ),
         appDatabaseProvider.overrideWith(
           (ref) => ref.watch(_activeDatabaseProvider),
+        ),
+        _libreChatDatabaseProvider.overrideWith(
+          () => _Value<AppDatabase?>(libreChat),
+        ),
+        libreChatDatabaseProvider.overrideWith(
+          (ref) => ref.watch(_libreChatDatabaseProvider),
+        ),
+        _primaryProvider.overrideWith(
+          () => _Value(
+            libreChat == null
+                ? PrimaryAccountKind.openWebUi
+                : PrimaryAccountKind.libreChat,
+          ),
+        ),
+        primaryAccountKindProvider.overrideWith(
+          (ref) => ref.watch(_primaryProvider),
         ),
         directLocalDatabaseProvider.overrideWithValue(directDb),
         activeConversationProvider.overrideWith(_ActiveConversation.new),
@@ -481,6 +510,60 @@ void main() {
     expect(await storedRead(serverDb, 'chat-s'), 100);
     expect(socket.reads, isEmpty);
   });
+
+  // LibreChat keeps its chats in its own account's database, which stays open
+  // while that account is signed in, whichever account owns the Chats tab.
+  for (final (left, leave) in <(String, void Function(ProviderContainer))>[
+    (
+      'for another LibreChat account',
+      (container) => container
+          .read(_libreChatDatabaseProvider.notifier)
+          .set(otherLibreChatDb),
+    ),
+    (
+      'for an Open WebUI account',
+      (container) {
+        container
+            .read(_primaryProvider.notifier)
+            .set(PrimaryAccountKind.openWebUi);
+        container.read(_activeDatabaseProvider.notifier).set(serverDb);
+      },
+    ),
+  ]) {
+    test('a LibreChat chat on screen is forgotten once its account is left '
+        '$left, and nothing is read in the account that follows', () async {
+      final id = const ChatStorageIdentity(
+        rawId: 'lc-tide',
+        storage: ChatStorageKind.libreChat,
+      ).scopedId;
+      await seedRead(libreChatDb, 'lc-tide');
+      // The accounts that may follow hold a chat of the same id.
+      await seedRead(otherLibreChatDb, 'lc-tide');
+      await seedRead(serverDb, 'lc-tide');
+      final container = await signedIn(libreChat: libreChatDb);
+      container.read(shownChatsProvider.notifier).show('main', id);
+      // Read while it shows, up to a copy dated past this device's clock.
+      await serverSaved(libreChatDb, 'lc-tide', 4000000000);
+      expect(
+        await storedReadThrough(libreChatDb, 'lc-tide', 4000000000),
+        4000000000,
+      );
+
+      leave(container);
+      await container.read(conversationsProvider.future);
+
+      expect(container.read(shownChatsProvider), isEmpty);
+      await serverSaved(libreChatDb, 'lc-tide', 4000000100);
+      await settled(libreChatDb);
+      expect(await storedRead(libreChatDb, 'lc-tide'), 4000000000);
+      for (final next in [otherLibreChatDb, serverDb]) {
+        await serverSaved(next, 'lc-tide', 160);
+        await settled(next);
+        expect(await storedRead(next, 'lc-tide'), 100);
+      }
+      expect(socket.reads, isEmpty);
+    });
+  }
 }
 
 ChatRows _rows(String id, {required int updatedAt, bool archived = false}) {
@@ -552,18 +635,32 @@ final class _OpenDatabaseAccess extends OpenWebUiDatabaseAccessNotifier {
   OpenWebUiDatabaseAccessPhase build() => OpenWebUiDatabaseAccessPhase.open;
 }
 
-/// The Open WebUI database of the signed-in account, switchable mid-test.
-final class _ActiveDatabase extends Notifier<AppDatabase> {
-  _ActiveDatabase(this.initial);
+/// A value switchable mid-test.
+final class _Value<T> extends Notifier<T> {
+  _Value(this.initial);
 
-  final AppDatabase initial;
+  final T initial;
 
   @override
-  AppDatabase build() => initial;
+  T build() => initial;
 
-  void set(AppDatabase database) => state = database;
+  void set(T value) => state = value;
 }
 
-final _activeDatabaseProvider = NotifierProvider<_ActiveDatabase, AppDatabase>(
-  () => throw UnimplementedError('override per test'),
-);
+/// The Open WebUI database of the signed-in account, or none while parked.
+final _activeDatabaseProvider =
+    NotifierProvider<_Value<AppDatabase?>, AppDatabase?>(
+      () => throw UnimplementedError('override per test'),
+    );
+
+/// The signed-in LibreChat account's database, or none.
+final _libreChatDatabaseProvider =
+    NotifierProvider<_Value<AppDatabase?>, AppDatabase?>(
+      () => throw UnimplementedError('override per test'),
+    );
+
+/// Which kind of account owns the Chats tab.
+final _primaryProvider =
+    NotifierProvider<_Value<PrimaryAccountKind>, PrimaryAccountKind>(
+      () => throw UnimplementedError('override per test'),
+    );

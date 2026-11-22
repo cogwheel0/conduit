@@ -31,12 +31,15 @@ class ShownChats extends Notifier<Map<String, String>> {
 
   @override
   Map<String, String> build() {
-    // A Ref's listener can stall while this notifier is only read, as
+    // Open WebUI's and LibreChat's databases each come from their own
+    // account, and the repository holds the one whose account owns the Chats
+    // tab. A Ref's listener can stall while this notifier is only read, as
     // conduitd reads it: the database check before each read is what keeps
     // reads in their account.
-    ref.listen<AppDatabase?>(appDatabaseProvider, (previous, next) {
-      if (!identical(previous, next)) _forgetAccount(previous);
-    });
+    ref.listen<ChatDatabaseRepository>(
+      chatDatabaseRepositoryProvider,
+      (_, next) => _forgetLeft(next),
+    );
     ref.onDispose(() {
       _stored.clear();
       _followStoredRows();
@@ -64,13 +67,19 @@ class ShownChats extends Notifier<Map<String, String>> {
     _followStoredRows();
   }
 
-  /// Forgets the views whose chat is stored in [left], the database of the
-  /// account left, and those whose chat had no database to be read in, which
-  /// a report must show anew. Others, an on-device chat's, stay shown.
-  void _forgetAccount(AppDatabase? left) {
+  /// Forgets the views whose chat is stored in a database [repository] no
+  /// longer holds, an account's that was left, and those whose chat had no
+  /// database to be read in, which a report must show anew. An on-device
+  /// chat's view stays shown.
+  void _forgetLeft(ChatDatabaseRepository repository) {
+    final held = [
+      ?repository.openWebUiLocation?.database,
+      ?repository.libreChatLocation?.database,
+      repository.directLocalLocation.database,
+    ];
     final gone = state.keys.where((view) {
       final stored = _stored[view];
-      return stored == null || identical(stored.$1, left);
+      return stored == null || !held.any((db) => identical(db, stored.$1));
     }).toSet();
     if (gone.isEmpty) return;
     _stored.removeWhere((view, _) => gone.contains(view));
