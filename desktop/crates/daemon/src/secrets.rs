@@ -816,7 +816,11 @@ impl MasterKeyStore for KeyFile {
             .and_then(|()| std::fs::hard_link(&staged, &self.path));
         let _ = std::fs::remove_file(&staged);
         match written {
-            Ok(()) => sync_folder(dir).map(|()| true).map_err(failed),
+            // The key's name and every folder above it, not only the ones
+            // made now: a crashed earlier try may have made one unsynced.
+            Ok(()) => sync_folders_above(&self.path)
+                .map(|()| true)
+                .map_err(failed),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
             Err(e) => Err(failed(e)),
         }
@@ -1221,6 +1225,12 @@ mod tests {
         assert_eq!(store.chosen(), Ok(false));
         load_or_create_master_key(&store).unwrap();
         assert_eq!(store.chosen(), Ok(true));
+        // Root reads a folder whatever its permissions (a container's
+        // tests): there is no denial to see.
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o000)).unwrap();
         let unreadable = store.chosen();
         std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o700)).unwrap();
