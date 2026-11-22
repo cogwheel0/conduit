@@ -112,6 +112,12 @@ pub async fn take_launch<S: AsyncRead + AsyncWrite + Unpin>(
             ));
         }
         let message: Message = serde_json::from_slice(&line)?;
+        // A frame read once the budget is gone is dropped, never queued:
+        // the launch that sent it has said by now that it wasn't handed
+        // over. (A ready read finishes before `timeout_at` looks.)
+        if Instant::now() >= deadline {
+            return Err(timed_out());
+        }
         if !on_launch(message.args) {
             return Err(io::Error::other("the app could not take the launch"));
         }
@@ -328,11 +334,12 @@ impl Listener {
             let Ok((stream, _)) = listener.accept().await else {
                 continue;
             };
+            let deadline = Instant::now() + HANDOFF_TIMEOUT;
             if !matches!(peer_uid(&stream), Ok(uid) if uid == this_uid()) {
                 log::warn!("single instance: refused a launch from another user");
                 continue;
             }
-            spawn_worker(stream, &workers, &on_launch);
+            spawn_worker(stream, deadline, &workers, &on_launch);
         }
     }
 
@@ -342,6 +349,9 @@ impl Listener {
         let mut waiting = self.first;
         loop {
             let connected = waiting.connect().await;
+            // The launch's budget runs from its connection, not from when the
+            // next end exists (that may take retries).
+            let deadline = Instant::now() + HANDOFF_TIMEOUT;
             // The next end is made before this one is let go: there is never
             // a moment with no pipe, when a launch could take the name. Until
             // it can be made, this end is held, and making it is tried again.
@@ -355,7 +365,7 @@ impl Listener {
                 log::warn!("single instance: refused a launch: {e}");
                 continue;
             }
-            spawn_worker(pipe, &workers, &on_launch);
+            spawn_worker(pipe, deadline, &workers, &on_launch);
         }
     }
 }
@@ -382,11 +392,13 @@ async fn retry_until_made<T>(mut make: impl FnMut() -> io::Result<T>) -> T {
     }
 }
 
-/// Takes one launch on its own task, by its deadline; with every worker
-/// busy, the launch is dropped (it hears nothing, and says the app is busy).
+/// Takes one launch on its own task, by `deadline` (its connection's); with
+/// every worker busy, the launch is dropped (it hears nothing, and says the
+/// app is busy).
 #[cfg(any(target_os = "linux", windows))]
 fn spawn_worker<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     mut stream: S,
+    deadline: Instant,
     workers: &std::sync::Arc<tokio::sync::Semaphore>,
     on_launch: &OnLaunch,
 ) {
@@ -397,7 +409,6 @@ fn spawn_worker<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     let on_launch = on_launch.clone();
     tokio::spawn(async move {
         let _permit = permit;
-        let deadline = Instant::now() + HANDOFF_TIMEOUT;
         if let Err(e) = take_launch(&mut stream, deadline, &*on_launch).await {
             log::warn!("single instance: {e}");
         }
@@ -596,6 +607,32 @@ mod pipe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A launch whose frame is read once its budget is gone (the app was
+    /// slow to get to it) is dropped: it hears no `ok`, and its arguments
+    /// are never queued, since it has given up and said so.
+    #[tokio::test(start_paused = true)]
+    async fn a_launch_read_after_its_deadline_is_dropped_never_queued() {
+        let (mut app, mut launch) = tokio::io::duplex(1024);
+        launch
+            .write_all(b"{\"args\":[\"conduit://chat/c1\"]}\n")
+            .await
+            .unwrap();
+        let deadline = Instant::now();
+        tokio::time::advance(Duration::from_millis(1)).await;
+        let queued = std::sync::atomic::AtomicBool::new(false);
+        let taken = take_launch(&mut app, deadline, &|_| {
+            queued.store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        })
+        .await;
+        assert_eq!(taken.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(!queued.load(std::sync::atomic::Ordering::SeqCst));
+        drop(app);
+        let mut answer = Vec::new();
+        launch.read_to_end(&mut answer).await.unwrap();
+        assert!(answer.is_empty(), "no ok");
+    }
 
     #[test]
     fn the_instance_is_one_per_service_profile_and_user() {
