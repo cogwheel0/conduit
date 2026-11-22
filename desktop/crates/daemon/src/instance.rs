@@ -886,20 +886,23 @@ mod tests {
         drop(stalled);
     }
 
-    /// The handoff has one deadline: an app that drains the message slowly
-    /// and then never answers costs the launch that one wait, not one wait
-    /// for the message and another for the answer.
+    /// The handoff has one deadline: an app that takes the whole message
+    /// 2 s in (the pipe holds less than a message) and then never answers
+    /// costs the launch that one 5 s wait, not 5 s for the message and
+    /// another 5 s for the answer from 2 s on.
     #[tokio::test(start_paused = true)]
     async fn the_handoff_has_one_deadline() {
         let (mut launch, mut first) = tokio::io::duplex(8);
         let slow_app = async move {
-            let mut buf = [0u8; 8];
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                if matches!(first.read(&mut buf).await, Ok(0) | Err(_)) {
-                    return;
-                }
-            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let mut line = Vec::new();
+            tokio::io::BufReader::new(&mut first)
+                .read_until(b'\n', &mut line)
+                .await
+                .unwrap();
+            assert_eq!(line.last(), Some(&b'\n'), "the whole message came");
+            // No answer, ever.
+            std::future::pending::<()>().await;
         };
         let args = ["conduit://settings".to_string()];
         let started = Instant::now();
