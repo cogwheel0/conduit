@@ -574,6 +574,15 @@ fn fonts_come_from_what_is_installed() {
         fonts_for(&odd, &installed(&["Noto Sans", "Iosevka"])).1,
         "Iosevka"
     );
+    // A name's whole words only: Monotype Corsiva is a script face.
+    assert_eq!(
+        fonts_for(
+            &odd,
+            &installed(&["Noto Sans", "Monotype Corsiva", "Fira Code"])
+        )
+        .1,
+        "Fira Code"
+    );
     assert_eq!(
         fonts_for(&odd, &installed(&["Noto Sans"])),
         ("Noto Sans".to_string(), "Noto Sans".to_string())

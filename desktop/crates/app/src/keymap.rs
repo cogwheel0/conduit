@@ -1192,7 +1192,8 @@ pub fn app_chords(keymap: &Keymap, quick_ask: Option<&KeyStroke>, os: KeyOs) -> 
         .filter(|s| s.action.is_live() && s.while_typing)
         .map(|s| s.stroke)
         .chain([new_chat_alias()])
-        .chain(quick_ask.cloned())
+        // A Mac profile's ⌃⇧J is the Ctrl+Shift+J the menus bind here.
+        .chain(quick_ask.cloned().map(|s| for_os(s, os)))
         .chain(fixed_shortcuts_on(os).into_iter().map(|(_, s)| s))
         .collect()
 }
@@ -2075,6 +2076,11 @@ mod tests {
                 assert!(!keeps(chord), "{os:?}: the shell keeps {chord}");
             }
         }
+        // A Mac profile's Quick Ask (⌃⇧J) is Ctrl+Shift+J here, the app's,
+        // not a line feed for the shell.
+        let mac_quick_ask = decode("ctrl+shift+j").unwrap();
+        let app = console_app_chords(&Keymap::default(), Some(&mac_quick_ask), KeyOs::Linux);
+        assert!(app.contains(&KeyStroke::new("j").primary().shift()));
         // A rebound chord moves with the user's keymap.
         let k = Keymap::new(BTreeMap::from([("newChat".into(), "mod+shift+j".into())]));
         let app = console_app_chords(&k, None, KeyOs::Linux);

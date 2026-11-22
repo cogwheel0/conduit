@@ -21,11 +21,12 @@
 //!
 //! Off the Mac, [`install_live_regions`] makes announcements AccessKit live
 //! regions, which Narrator and NVDA (UIA) and Orca (AT-SPI) speak: each
-//! window's root draws the latest announcement made while it was in front
-//! as a new live node ([`LiveRegion`]), so the same words twice are heard
-//! twice. Several made before a frame each get their node, spoken in order
-//! (the last [`LIVE_KEPT`] are kept). [`live_text`] speaks through
-//! [`announce`], so it follows.
+//! window's root draws the announcements made while it was in front as new
+//! live nodes ([`LiveRegion`]), so the same words twice are heard twice.
+//! They wait in a queue and go out one per frame: AccessKit hands the nodes
+//! one tree update adds to the screen reader in no set order, so a burst
+//! (a form's errors) would otherwise be heard out of order. [`live_text`]
+//! speaks through [`announce`], so it follows.
 
 use gpui_kit::base::{Root, RootPlugin};
 use gpui_kit::prelude::*;
@@ -109,26 +110,50 @@ pub fn announce(text: impl Into<SharedString>, priority: Priority, cx: &mut App)
             text,
             priority,
         };
-        if live.kept.len() == LIVE_KEPT {
-            live.kept.pop_front();
+        let pending = live.pending.get_mut();
+        if pending.len() == LIVE_PENDING_CAP {
+            pending.pop_front();
         }
-        live.kept.push_back(announcement);
+        pending.push_back(announcement);
     }
 }
 
-/// How many announcements the live regions keep, newest last: enough for a
-/// burst made before the next frame (each node is spoken as it first
-/// appears; older ones then leave the tree).
-pub const LIVE_KEPT: usize = 8;
+/// A safety cap on announcements waiting for their frame (one goes out per
+/// frame, so only a runaway loop comes near it).
+pub const LIVE_PENDING_CAP: usize = 256;
 
-/// The last announcements, for the windows' live regions (off the Mac).
+/// The announcements waiting for their window's live region (off the Mac).
 #[derive(Default)]
 pub struct LiveAnnouncements {
     serial: u64,
-    kept: std::collections::VecDeque<LiveAnnouncement>,
+    // Taken through `cx.global`: `global_mut` would notify every window's
+    // region on each take, redrawing them all and, in tests, draining the
+    // queue in one update.
+    pending: std::cell::RefCell<std::collections::VecDeque<LiveAnnouncement>>,
 }
 
 impl Global for LiveAnnouncements {}
+
+impl LiveAnnouncements {
+    fn waiting(&self, window: AnyWindowHandle) -> bool {
+        self.pending
+            .borrow()
+            .iter()
+            .any(|a| a.window == Some(window))
+    }
+
+    /// The oldest announcement waiting for `window`, taken off the queue.
+    fn take_next(&self, window: AnyWindowHandle) -> Option<LiveAnnouncement> {
+        let mut pending = self.pending.borrow_mut();
+        let at = pending.iter().position(|a| a.window == Some(window))?;
+        pending.remove(at)
+    }
+
+    /// How many are waiting, for every window.
+    pub fn waiting_count(&self) -> usize {
+        self.pending.borrow().len()
+    }
+}
 
 /// One announcement as a live region speaks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,31 +176,26 @@ pub fn install_live_regions(cx: &mut App) {
     Root::register_plugin::<LiveRegion>(cx, LiveRegion::new);
 }
 
-/// The announcements `window`'s live region shows, oldest first: those
-/// made with `window` in front, of the last [`LIVE_KEPT`].
-pub fn live_announcements(window: AnyWindowHandle, cx: &App) -> Vec<LiveAnnouncement> {
-    cx.try_global::<LiveAnnouncements>()
-        .map(|live| {
-            live.kept
-                .iter()
-                .filter(|a| a.window == Some(window))
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 /// A window's live region: a zero-size node over the content, drawn again
-/// whenever an announcement is made.
+/// whenever an announcement is made. Each frame it takes at most one
+/// waiting announcement and shows it as a new node, asking for another
+/// frame while more wait.
 pub struct LiveRegion {
     _announced: Subscription,
+    shown: Option<LiveAnnouncement>,
 }
 
 impl LiveRegion {
     fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
         Self {
             _announced: cx.observe_global::<LiveAnnouncements>(|_, cx| cx.notify()),
+            shown: None,
         }
+    }
+
+    /// The announcement the last frame drew, if any.
+    pub fn shown(&self) -> Option<&LiveAnnouncement> {
+        self.shown.as_ref()
     }
 }
 
@@ -183,11 +203,19 @@ impl RootPlugin for LiveRegion {}
 
 impl gpui_kit::Render for LiveRegion {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let shown = live_announcements(window.window_handle(), cx);
+        let me = window.window_handle();
+        if let Some(live) = cx.try_global::<LiveAnnouncements>()
+            && let Some(next) = live.take_next(me)
+        {
+            self.shown = Some(next);
+            if live.waiting(me) {
+                window.request_animation_frame();
+            }
+        }
         div()
             .absolute()
             .size_0()
-            .children(shown.into_iter().map(|a| {
+            .children(self.shown.iter().cloned().map(|a| {
                 let (role, live) = match a.priority {
                     Priority::High => (Role::Alert, Live::Assertive),
                     Priority::Low | Priority::Medium => (Role::Status, Live::Polite),
@@ -448,52 +476,79 @@ mod tests {
                 .unwrap()
         });
         cx.run_until_parked();
+        // The node a window's live region drew last. A test window draws
+        // as soon as an update leaves it dirty, as the platform would on
+        // its next frame.
+        let shown = |cx: &mut TestAppContext, window: AnyWindowHandle| {
+            cx.update(|cx| {
+                window
+                    .update(cx, |_, window, cx| {
+                        Root::read(window, cx)
+                            .plugin::<LiveRegion>()
+                            .and_then(|r| r.read(cx).shown().cloned())
+                    })
+                    .unwrap()
+            })
+        };
+        // The platform's next frame: whether the window asked for one.
+        let next_frame = |cx: &mut TestAppContext, window: AnyWindowHandle| {
+            cx.update(|cx| {
+                window
+                    .update(cx, |_, window, cx| window.simulate_next_frame(cx) > 0)
+                    .unwrap()
+            })
+        };
+        let waiting = |cx: &mut TestAppContext| {
+            cx.update(|cx| cx.global::<LiveAnnouncements>().waiting_count())
+        };
         cx.update(|cx| announce("Copied", Priority::Medium, cx));
-        let shown = cx.update(|cx| live_announcements(front, cx));
-        assert_eq!(shown.len(), 1);
-        assert_eq!(shown[0].text, SharedString::from("Copied"));
-        assert_eq!(shown[0].priority, Priority::Medium);
-        assert!(cx.update(|cx| live_announcements(back, cx)).is_empty());
+        let first = shown(cx, front).unwrap();
+        assert_eq!(first.text, SharedString::from("Copied"));
+        assert_eq!(first.priority, Priority::Medium);
+        assert_eq!(shown(cx, back), None);
         cx.update(|cx| announce("Copied", Priority::Medium, cx));
-        let again = cx.update(|cx| live_announcements(front, cx));
-        assert_ne!(
-            again[1].serial, again[0].serial,
-            "the same words, a new node"
-        );
+        let again = shown(cx, front).unwrap();
+        assert_ne!(again.serial, first.serial, "the same words, a new node");
+        assert!(!next_frame(cx, front), "nothing waits, no frame asked for");
 
-        // A burst before the next frame: each is kept, in order, so none is
-        // lost; only the last LIVE_KEPT stay.
+        // A burst in one update goes out one per frame, in order: AccessKit
+        // speaks the nodes one update adds in no set order.
         cx.update(|cx| {
             announce("Name is required.", Priority::High, cx);
             announce("Server address is not valid.", Priority::High, cx);
         });
-        let texts = |cx: &mut TestAppContext| -> Vec<SharedString> {
-            cx.update(|cx| live_announcements(front, cx))
-                .into_iter()
-                .map(|a| a.text)
-                .collect()
-        };
+        let text = |a: Option<LiveAnnouncement>| a.map(|a| a.text);
+        assert_eq!(text(shown(cx, front)), Some("Name is required.".into()));
+        assert_eq!(waiting(cx), 1);
+        assert!(next_frame(cx, front));
         assert_eq!(
-            texts(cx),
-            [
-                "Copied",
-                "Copied",
-                "Name is required.",
-                "Server address is not valid."
-            ]
-            .map(SharedString::from)
+            text(shown(cx, front)),
+            Some("Server address is not valid.".into())
         );
+        // Nothing new: the last stays, and no frame is asked for.
+        assert!(!next_frame(cx, front));
+        assert_eq!(
+            text(shown(cx, front)),
+            Some("Server address is not valid.".into())
+        );
+        // A long burst loses none before its frame.
         cx.update(|cx| {
-            for n in 0..LIVE_KEPT + 3 {
+            for n in 0..20 {
                 announce(format!("Step {n}"), Priority::Low, cx);
             }
         });
-        let kept = texts(cx);
-        assert_eq!(kept.len(), LIVE_KEPT);
-        assert_eq!(
-            kept.last(),
-            Some(&SharedString::from(format!("Step {}", LIVE_KEPT + 2)))
-        );
+        for n in 0..20 {
+            if n > 0 {
+                assert!(next_frame(cx, front), "frame {n} asked for");
+            }
+            assert_eq!(
+                text(shown(cx, front)),
+                Some(format!("Step {n}").into()),
+                "frame {n}"
+            );
+        }
+        assert_eq!(waiting(cx), 0);
+        assert!(!next_frame(cx, front));
         // Each window's root carries a live region.
         for window in [front, back] {
             let has_region = cx

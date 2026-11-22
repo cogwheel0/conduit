@@ -72,30 +72,42 @@ pub fn bindings() -> Vec<KeyBinding> {
 /// chat): each of `chords` but the prompt's own keys is bound to nothing in
 /// its context. Bound after the app's, which rank as deep as the focus.
 pub fn guard_bindings(chords: &[crate::keymap::KeyStroke], os: KeyOs, cx: &App) -> Vec<KeyBinding> {
+    // The prompt's own keys, and its accessory's (the date picker), keep
+    // their meaning in there.
     let own: Vec<String> = bindings()
         .iter()
+        .chain(crate::shell::date_picker::bindings().iter())
         .map(|b| {
             b.keystrokes()[0]
                 .inner()
                 .unparse(gpui_kit::OperatingSystem::Linux)
         })
         .collect();
-    chords
+    // In each context focus can be in while a prompt is up: a binding with
+    // no context ranks as deep as the focus, so a guard in the prompt's
+    // context alone is outranked inside the picker's.
+    let contexts = [CONTEXT, crate::shell::date_picker::PICKER_CONTEXT];
+    let chords: Vec<String> = chords
         .iter()
         .map(|s| crate::keymap::to_gpui_on(s, os))
         .filter(|chord| !own.contains(chord))
-        .filter_map(|chord| {
-            KeyBinding::load(
-                &chord,
-                Box::new(gpui_kit::NoAction),
-                Some(std::rc::Rc::new(
-                    gpui_kit::KeyBindingContextPredicate::parse(CONTEXT).ok()?,
-                )),
-                false,
-                None,
-                cx,
-            )
-            .ok()
+        .collect();
+    contexts
+        .iter()
+        .flat_map(|context| {
+            chords.iter().filter_map(move |chord| {
+                KeyBinding::load(
+                    chord,
+                    Box::new(gpui_kit::NoAction),
+                    Some(std::rc::Rc::new(
+                        gpui_kit::KeyBindingContextPredicate::parse(context).ok()?,
+                    )),
+                    false,
+                    None,
+                    cx,
+                )
+                .ok()
+            })
         })
         .collect()
 }

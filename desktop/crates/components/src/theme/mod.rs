@@ -111,20 +111,25 @@ pub fn fonts_for(system: &FontSystem, installed: &[String]) -> (String, String) 
                 installed
                     .iter()
                     .find(|f| {
+                        // Whole words of the name: "Monotype Corsiva" is no
+                        // monospaced face.
                         let f = f.to_ascii_lowercase();
-                        [
+                        let words: &[&str] = &[
                             "mono",
+                            "monospace",
+                            "monospaced",
                             "code",
                             "courier",
                             "console",
+                            "consolas",
                             "terminal",
                             "fixed",
                             "iosevka",
                             "hack",
                             "inconsolata",
-                        ]
-                        .iter()
-                        .any(|word| f.contains(word))
+                        ];
+                        f.split(|c: char| !c.is_ascii_alphanumeric())
+                            .any(|part| words.contains(&part))
                     })
                     .cloned()
             };

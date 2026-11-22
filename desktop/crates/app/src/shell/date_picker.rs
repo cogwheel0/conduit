@@ -550,6 +550,7 @@ impl PickerField {
                 SharedString::from(l.desktop_picker_minute()),
             )
         };
+        let view = cx.entity().downgrade();
         let mut segment_for = |segment: Segment, n: u32, name: &'static str| {
             let active = self.state.segment == segment;
             let stepper = |id: &'static str, by: i32, icon: IconName, cx: &mut Context<Self>| {
@@ -610,6 +611,17 @@ impl PickerField {
                 .aria_min_numeric_value(0.)
                 .aria_max_numeric_value(if segment == Segment::Hour { 23. } else { 59. })
                 .when(active, |d| d.aria_active_descendant())
+                // A screen reader's own increment and decrement, so the
+                // arrows above and below (no role, so not in the tree) are
+                // the pointer's alone.
+                .on_a11y_action(gpui_kit::AccessibleAction::Increment, {
+                    let view = view.clone();
+                    move |_, _, cx| step_part(&view, segment, 1, cx)
+                })
+                .on_a11y_action(gpui_kit::AccessibleAction::Decrement, {
+                    let view = view.clone();
+                    move |_, _, cx| step_part(&view, segment, -1, cx)
+                })
                 .w(px(40.))
                 .h(px(t.metrics.control_height))
                 .flex()
@@ -667,6 +679,16 @@ impl PickerField {
             )
             .into_any_element()
     }
+}
+
+/// Steps a part of the picker's time (a screen reader's increment or
+/// decrement on it).
+fn step_part(view: &gpui_kit::WeakEntity<PickerField>, segment: Segment, by: i32, cx: &mut App) {
+    let _ = view.update(cx, |this, cx| {
+        this.state.step(segment, by);
+        this.chosen.set(this.state.value);
+        cx.notify();
+    });
 }
 
 impl Render for PickerField {
@@ -901,6 +923,38 @@ mod tests {
         });
         vcx.run_until_parked();
         answer
+    }
+
+    /// While the picker is up, the app's chords act on nothing behind it:
+    /// Ctrl+Shift+Enter allows no tool request the picker covers, with the
+    /// picker's own field focused (off the Mac).
+    #[gpui_kit::test]
+    fn a_picker_keeps_the_apps_chords_from_what_it_covers(cx: &mut gpui_kit::TestAppContext) {
+        app_pickers(cx);
+        let allowed = Rc::new(Cell::new(0));
+        let seen = allowed.clone();
+        cx.update(|cx| {
+            use crate::keymap::{KeyOs, Keymap, app_chords};
+            // As `menus::bind_keys` binds them off the Mac.
+            cx.bind_keys([gpui_kit::KeyBinding::new(
+                "ctrl-shift-enter",
+                crate::actions::AllowRequest,
+                None,
+            )]);
+            cx.on_action(move |_: &crate::actions::AllowRequest, _| seen.set(seen.get() + 1));
+            let chords = app_chords(&Keymap::default(), None, KeyOs::Linux);
+            let guard = crate::shell::app_prompt::guard_bindings(&chords, KeyOs::Linux, cx);
+            cx.bind_keys(guard);
+        });
+        let (_, vcx) = cx.add_window_view(|_, _| Blank);
+        let answer = ask(vcx, PickerMode::Date, wall(2026, 1, 31, 9, 30));
+        vcx.simulate_keystrokes("ctrl-shift-enter");
+        vcx.run_until_parked();
+        assert_eq!(allowed.get(), 0, "allowed the request behind the picker");
+        // The picker still answers.
+        vcx.simulate_keystrokes("right enter");
+        vcx.run_until_parked();
+        assert_eq!(answer.get(), Some(Some(wall(2026, 2, 1, 9, 30))));
     }
 
     /// Without the app's prompt (the Mac, in a window with no NSWindow)
