@@ -98,6 +98,11 @@ pub trait MasterKeyStore {
     fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
         self.load()
     }
+    /// Asks the user to unlock the store, nothing more. A store that never
+    /// locks has nothing to do.
+    fn unlock(&self) -> Result<(), SecretError> {
+        Ok(())
+    }
 }
 
 /// A service's master-key items, one per account (the macOS Keychain).
@@ -220,12 +225,19 @@ pub fn read_master_key(
     }
 }
 
-/// `store`'s key, read without asking, unless the login keychain is locked:
-/// then it is read as usual, and macOS asks to unlock it, which users
-/// expect (this build may well have stored the key).
+/// `store`'s key, read without asking. A locked login keychain is only
+/// unlocked (macOS asks for its password, which users expect), then read
+/// again without asking: an item another build stored still shows the
+/// card, never its own prompt. A cancelled unlock leaves it locked.
 fn read_without_asking(store: &dyn MasterKeyStore) -> Result<Option<String>, SecretError> {
     match store.load_without_asking() {
-        Err(SecretError::Locked) => store.load(),
+        Err(SecretError::Locked) => {
+            if let Err(e) = store.unlock() {
+                log::warn!("master key: the keychain stayed locked ({e})");
+                return Err(SecretError::Locked);
+            }
+            store.load_without_asking()
+        }
         read => read,
     }
 }
@@ -361,7 +373,7 @@ fn new_profile_key(
 ) -> Result<String, SecretError> {
     let file = key_account_file(user_data);
     let failed = |e: std::io::Error| SecretError::Store(format!("{}: {e}", file.display()));
-    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+    let dir = parent_dir(&file);
     let pending = file.with_file_name(format!(
         "{}.pending",
         file.file_name().unwrap_or_default().to_string_lossy()
@@ -394,14 +406,13 @@ fn new_profile_key(
 /// Makes the folders missing on the way to `dir`, each one's entry on disk
 /// in its parent before the next is made.
 fn make_record_folders(dir: &std::path::Path) -> std::io::Result<()> {
-    let missing: Vec<&std::path::Path> = dir.ancestors().take_while(|d| !d.exists()).collect();
-    for folder in missing.into_iter().rev() {
+    for folder in missing_folders(dir).into_iter().rev() {
         match std::fs::create_dir(folder) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),
         }
-        sync_dir(folder.parent().unwrap_or(std::path::Path::new(".")))?;
+        sync_dir(parent_dir(folder))?;
     }
     Ok(())
 }
@@ -410,7 +421,7 @@ fn make_record_folders(dir: &std::path::Path) -> std::io::Result<()> {
 /// is renamed into place, so a crash leaves the old record or the new one.
 fn record_durably(file: &std::path::Path, account: &str) -> std::io::Result<()> {
     use std::io::Write as _;
-    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+    let dir = parent_dir(file);
     let name = file.file_name().unwrap_or_default().to_string_lossy();
     let staged = dir.join(format!(".{name}.{:016x}", rand::random::<u64>()));
     let written = std::fs::OpenOptions::new()
@@ -427,6 +438,23 @@ fn record_durably(file: &std::path::Path, account: &str) -> std::io::Result<()> 
     }
     written?;
     sync_dir(dir)
+}
+
+/// The folders missing on the way to `dir`, nearest first. A relative
+/// path's ancestors end with the empty path, which is the working folder,
+/// never one to make.
+fn missing_folders(dir: &std::path::Path) -> Vec<&std::path::Path> {
+    dir.ancestors()
+        .take_while(|d| !d.as_os_str().is_empty() && !d.exists())
+        .collect()
+}
+
+/// `path`'s folder: `.` for a relative path of one part, whose parent is
+/// the empty path (`CONDUIT_USER_DATA=Conduit`).
+fn parent_dir(path: &std::path::Path) -> &std::path::Path {
+    path.parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."))
 }
 
 /// Writes `dir`'s entries to disk. Windows opens no folder to sync it.
@@ -514,9 +542,7 @@ fn exclusively<T>(
     f: impl FnOnce() -> Result<T, SecretError>,
 ) -> Result<T, SecretError> {
     let locked = |e: std::io::Error| SecretError::Store(format!("{}: {e}", path.display()));
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(locked)?;
-    }
+    std::fs::create_dir_all(parent_dir(path)).map_err(locked)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)
@@ -615,6 +641,14 @@ mod keychain {
     impl MasterKeyStore for Keychain {
         fn load(&self) -> Result<Option<String>, SecretError> {
             text(self.read().map_err(store_error)?)
+        }
+
+        /// The login keychain's own unlock prompt, outside the read's
+        /// switch: asking is the point.
+        fn unlock(&self) -> Result<(), SecretError> {
+            SecKeychain::default()
+                .and_then(|mut keychain| keychain.unlock(None))
+                .map_err(store_error)
         }
 
         fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
@@ -1190,8 +1224,6 @@ mod tests {
         /// Another build stored it: macOS asks for the login keychain
         /// password.
         WithPrompt,
-        /// The login keychain is locked: macOS asks to unlock it.
-        Locked,
         /// A read that may not ask fails with a status the check doesn't
         /// know, and the usual read asks.
         FailsWithoutUi,
@@ -1210,6 +1242,11 @@ mod tests {
         lock_held_while_adding: std::sync::Mutex<Vec<bool>>,
         /// Runs once, right after the next add (the disk failing then).
         after_add: std::sync::Mutex<Option<Box<dyn FnOnce()>>>,
+        /// The login keychain is locked; `unlocks`: whether the user
+        /// unlocks it when asked; `unlock_asked`: how often they were.
+        locked: std::sync::Mutex<bool>,
+        unlocks: bool,
+        unlock_asked: std::sync::Mutex<u32>,
     }
 
     impl FakeKeychain {
@@ -1264,15 +1301,26 @@ mod tests {
         }
 
         fn load_without_asking(&self) -> Result<Option<String>, SecretError> {
+            if *self.keychain.locked.lock().unwrap() {
+                return Err(SecretError::Locked);
+            }
             match self.keychain.items.lock().unwrap().get(&self.account) {
                 None => Ok(None),
                 Some((key, Reads::Freely)) => Ok(Some(key.clone())),
                 Some((_, Reads::WithPrompt)) => Err(SecretError::WouldPrompt),
-                Some((_, Reads::Locked)) => Err(SecretError::Locked),
                 Some((_, Reads::FailsWithoutUi)) => {
                     Err(SecretError::Store("an unknown status (-1)".into()))
                 }
             }
+        }
+
+        fn unlock(&self) -> Result<(), SecretError> {
+            *self.keychain.unlock_asked.lock().unwrap() += 1;
+            if !self.keychain.unlocks {
+                return Err(SecretError::Store("the user cancelled (-128)".into()));
+            }
+            *self.keychain.locked.lock().unwrap() = false;
+            Ok(())
         }
 
         fn add(&self, key: &str) -> Result<bool, SecretError> {
@@ -1433,18 +1481,79 @@ mod tests {
         assert_eq!(keychain.key(MASTER_KEY_ACCOUNT), Some(old));
     }
 
-    /// A locked login keychain is no case for the card (this build may well
-    /// have stored the key): the usual read runs, and macOS asks to unlock
-    /// it, as users expect.
+    /// A locked login keychain over another build's key: macOS asks only to
+    /// unlock it, then the read without a prompt finds the key would
+    /// prompt, and the card shows. The item's own prompt never comes.
     #[test]
-    fn a_locked_keychain_gets_macos_own_unlock_prompt() {
+    fn a_locked_keychain_is_only_unlocked_then_another_builds_key_shows_the_card() {
+        let mut keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        keychain.unlocks = true;
+        *keychain.locked.lock().unwrap() = true;
+        assert_eq!(
+            check_master_key(&keychain, &default_profile()),
+            Ok(MasterKeyCheck::WouldPrompt)
+        );
+        assert_eq!(*keychain.unlock_asked.lock().unwrap(), 1);
+        assert!(keychain.prompted().is_empty(), "the item never asked");
+    }
+
+    /// A locked login keychain over this build's key: unlocked, then read.
+    #[test]
+    fn a_locked_keychain_over_this_builds_key_starts_once_unlocked() {
         let key = a_key();
-        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &key, Reads::Locked)]);
+        let mut keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &key, Reads::Freely)]);
+        keychain.unlocks = true;
+        *keychain.locked.lock().unwrap() = true;
         assert_eq!(
             check_master_key(&keychain, &default_profile()),
             Ok(MasterKeyCheck::Ready(key))
         );
-        assert_eq!(keychain.prompted(), [MASTER_KEY_ACCOUNT]);
+        assert_eq!(*keychain.unlock_asked.lock().unwrap(), 1);
+    }
+
+    /// The user cancels the unlock: the keychain stays locked, and that is
+    /// the error. Nothing reads the item with its own prompt.
+    #[test]
+    fn a_cancelled_unlock_is_reported_as_locked() {
+        let keychain = FakeKeychain::with(&[(MASTER_KEY_ACCOUNT, &a_key(), Reads::WithPrompt)]);
+        *keychain.locked.lock().unwrap() = true;
+        assert_eq!(
+            check_master_key(&keychain, &default_profile()),
+            Err(SecretError::Locked)
+        );
+        assert!(keychain.prompted().is_empty(), "the item never asked");
+    }
+
+    /// A relative profile path of one part (`CONDUIT_USER_DATA=Conduit`):
+    /// its record's folder is the working folder, never the empty path.
+    #[test]
+    fn a_one_part_relative_profile_keeps_its_record_in_the_working_folder() {
+        let dot = std::path::Path::new(".");
+        assert_eq!(parent_dir(std::path::Path::new("Conduit")), dot);
+        assert_eq!(
+            parent_dir(&key_account_file(std::path::Path::new("Conduit"))),
+            dot
+        );
+        assert_eq!(
+            parent_dir(std::path::Path::new("Profiles/Conduit")),
+            std::path::Path::new("Profiles")
+        );
+        assert_eq!(
+            parent_dir(std::path::Path::new("/Profiles/Conduit")),
+            std::path::Path::new("/Profiles")
+        );
+    }
+
+    /// The folders a relative path is missing stop at the working folder,
+    /// never the empty path, which can't be made.
+    #[test]
+    fn the_missing_folders_of_a_relative_path_stop_at_the_working_folder() {
+        let first = format!("conduit-test-missing-{:016x}", rand::random::<u64>());
+        let path = std::path::Path::new(&first).join("Profiles");
+        assert_eq!(
+            missing_folders(&path),
+            [path.as_path(), std::path::Path::new(&first)]
+        );
     }
 
     /// Two first launches: this one's add finds the other's key, which
