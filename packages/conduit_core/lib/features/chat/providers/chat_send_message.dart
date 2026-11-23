@@ -12,6 +12,7 @@ Future<void> _sendMessageInternal(
   ChatSendVoiceContext? voice,
   void Function()? onTurnStarted,
   List<FileUploadState>? attachmentStates,
+  bool backendPrepared = false,
 ]) async {
   final libreChatSelected = ref.read(selectedModelProvider) as Model?;
   final libreChatActive = ref.read(activeConversationProvider) as Conversation?;
@@ -35,45 +36,15 @@ Future<void> _sendMessageInternal(
   if (isLibreChatConversation(libreChatActive)) {
     throw StateError('A LibreChat chat continues only with a LibreChat model.');
   }
-  final hermesSelectedAtStart = ref.read(selectedModelProvider) as Model?;
-  if (hermesSelectedAtStart != null && isHermesModel(hermesSelectedAtStart)) {
-    // Before anything below is captured: switching connections replaces the
-    // Hermes runtime and the selected model.
-    final ownerBeforeOffer = captureChatMutationOwner(
-      ref,
-      ref.read(activeConversationProvider) as Conversation?,
-    );
-    final offer = _offerHermesConnectionSwitchForMixedChat(ref);
-    if (offer is Future<void>) {
-      await offer;
-      // The user may have opened another chat while the prompt or the switch
-      // ran; this text belongs to the chat it was typed in. Thrown so the
-      // composer keeps the text instead of treating it as sent.
-      if (!chatMutationTokenStillActive(ref, ownerBeforeOffer)) {
-        throw StateError(
-          'The conversation changed while preparing the message.',
-        );
-      }
-      // The send's own preflight left the connection to the offer: the one
-      // it ended on, switched to or kept, is asked now, before anything is
-      // written.
-      final answering = ref.read(selectedModelProvider) as Model?;
-      final ownerAfterOffer = captureChatSendOwner(ref);
-      final ready = requireChatBackendReady(
+  // Before anything below is captured: switching connections replaces the
+  // Hermes runtime and the selected model. Thrown refusals keep the
+  // composer's text, as for any send that did not go.
+  if (!backendPrepared &&
+      _hermesConnectionSwitchOffered(
         ref,
-        answering,
-        conversation: ref.read(activeConversationProvider) as Conversation?,
-      );
-      if (ready != null) {
-        await ready;
-        if (!chatSendOwnerIsCurrent(ref, ownerAfterOffer) ||
-            !identical(ref.read(selectedModelProvider), answering)) {
-          throw StateError(
-            'The conversation changed while preparing the message.',
-          );
-        }
-      }
-    }
+        ref.read(selectedModelProvider) as Model?,
+      )) {
+    await prepareChatTurnBackend(ref);
   }
   final conversationAtSendStart =
       ref.read(activeConversationProvider) as Conversation?;

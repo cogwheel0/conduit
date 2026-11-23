@@ -51,7 +51,9 @@ final class ChatBackendNotReadyException implements Exception {
 /// Why [model]'s backend cannot take a turn now, or null when it can.
 ///
 /// The open [conversation] also names the backend: a Hermes or LibreChat
-/// chat answers through its own backend whichever model is selected.
+/// chat answers through its own backend whichever model is selected. With
+/// [openChatDecides] (a regenerate), an open chat alone names it, as the
+/// regenerate routes: its binding wins over the composer's model.
 ///
 /// Offline is not "not ready": a signed-in Open WebUI account stays
 /// signed in without a connection, and its sends queue.
@@ -59,8 +61,10 @@ ChatBackendNotReady? chatBackendNotReady(
   dynamic ref,
   Model model, {
   Conversation? conversation,
+  bool openChatDecides = false,
 }) {
-  if (isHermesModel(model) || isNativeHermesConversation(conversation)) {
+  final byChat = openChatDecides && conversation != null;
+  if (_answersOnHermes(model, conversation, byChat: byChat)) {
     final config = ref.read(hermesConfigProvider) as HermesConfig;
     if (ref.read(hermesApiServiceProvider) == null) {
       return !config.enabled &&
@@ -73,7 +77,8 @@ ChatBackendNotReady? chatBackendNotReady(
     }
     return null;
   }
-  if (isLibreChatModel(model) || isLibreChatConversation(conversation)) {
+  if (isLibreChatConversation(conversation) ||
+      (!byChat && isLibreChatModel(model))) {
     return ref.read(libreChatSessionHandleProvider) == null
         ? ChatBackendNotReady.libreChatSignedOut
         : null;
@@ -95,6 +100,14 @@ ChatBackendNotReady? chatBackendNotReady(
 /// Both: a configured server whose session ended still has a client, and a
 /// signed-in account has none while its server list is read again (an
 /// account added, switched to, or its servers saved).
+bool _answersOnHermes(
+  Model model,
+  Conversation? conversation, {
+  required bool byChat,
+}) =>
+    isNativeHermesConversation(conversation) ||
+    (!byChat && isHermesModel(model));
+
 bool openWebUiSignedIn(dynamic ref) =>
     ref.read(apiServiceProvider) != null &&
     ref.read(isAuthenticatedProvider2) == true;
@@ -111,14 +124,24 @@ Future<void>? requireChatBackendReady(
   dynamic ref,
   Model? model, {
   Conversation? conversation,
+  bool openChatDecides = false,
 }) {
   if (model == null) return null;
   void check() {
-    final reason = chatBackendNotReady(ref, model, conversation: conversation);
+    final reason = chatBackendNotReady(
+      ref,
+      model,
+      conversation: conversation,
+      openChatDecides: openChatDecides,
+    );
     if (reason != null) throw ChatBackendNotReadyException(reason);
   }
 
-  if (isHermesModel(model) || isNativeHermesConversation(conversation)) {
+  if (_answersOnHermes(
+    model,
+    conversation,
+    byChat: openChatDecides && conversation != null,
+  )) {
     final config =
         ref.read(hermesConfigProvider.notifier) as HermesConfigController;
     return Future<void>.sync(() async {

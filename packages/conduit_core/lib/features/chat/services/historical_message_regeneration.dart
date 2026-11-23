@@ -232,6 +232,7 @@ Future<void> regenerateHistoricalMessageById(
         answerId: columnAnswerId,
       ),
       conversation: openChat,
+      openChatDecides: true,
     );
     if (backendReady != null) {
       await backendReady;

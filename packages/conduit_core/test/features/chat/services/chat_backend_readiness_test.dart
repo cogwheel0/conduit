@@ -643,7 +643,7 @@ void main() {
       openOther(container);
       hydration.complete();
 
-      check(await editing).isFalse();
+      await check(editing).throws<StateError>();
       check(container.read(chatMessagesProvider)).deepEquals(other);
     });
   });

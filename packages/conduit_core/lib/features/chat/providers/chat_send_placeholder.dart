@@ -293,6 +293,9 @@ Future<void> durableSend(
   /// them. The send reads them here, not in the tray, which may have changed
   /// since. Null reads the tray.
   List<FileUploadState>? attachmentStates,
+
+  /// The caller has run [prepareChatTurnBackend] for this turn already.
+  bool backendPrepared = false,
 }) async {
   Future<void> inlineSend() {
     if (onAdmissionCommitted != null) {
@@ -309,6 +312,7 @@ Future<void> durableSend(
       voice,
       onTurnStarted,
       attachmentStates,
+      true,
     );
   }
 
@@ -340,24 +344,11 @@ Future<void> durableSend(
   final storageFolderId = pendingFolderIdOverride ?? draftFolderId;
 
   // Before anything is written: a backend that cannot take the turn refuses
-  // it here rather than as an error answer in the chat. A mixed chat whose
-  // Hermes session belongs to another saved connection is offered that
-  // connection first, by the send itself.
-  final modelAtSendStart = ref.read(selectedModelProvider) as Model?;
-  final sendOwner = captureChatSendOwner(ref);
-  final backendReady = _hermesConnectionSwitchOffered(ref, modelAtSendStart)
-      ? null
-      : requireChatBackendReady(
-          ref,
-          modelAtSendStart,
-          conversation: activeAtSendStart as Conversation?,
-        );
-  if (backendReady != null) {
-    await backendReady;
-    if (!chatSendOwnerIsCurrent(ref, sendOwner) ||
-        !identical(ref.read(selectedModelProvider), modelAtSendStart)) {
-      throw StateError('The conversation changed while preparing the message.');
-    }
+  // it here rather than as an error answer in the chat
+  // ([prepareChatTurnBackend]). An edit has asked already, before its cut.
+  if (!backendPrepared) {
+    final prepared = prepareChatTurnBackend(ref);
+    if (prepared != null) await prepared;
   }
 
   if (isTemporaryChat(activeAtSendStart?.id)) {

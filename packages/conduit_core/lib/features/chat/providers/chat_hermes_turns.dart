@@ -715,6 +715,56 @@ bool _hermesConnectionSwitchOffered(dynamic ref, Model? model) {
   }
 }
 
+/// What a send or an edit keeps to before it writes or cuts anything. Where
+/// the mixed chat's switch offer applies
+/// ([_offerHermesConnectionSwitchForMixedChat]) it runs first; then the model
+/// that will answer, on the connection the offer ended on, is asked
+/// ([requireChatBackendReady]). Throws [ChatBackendNotReadyException] for a
+/// backend that cannot take the turn, and [StateError] when the chat, an
+/// account or the model changed while it waited.
+///
+/// Null when nothing had to be waited for, so the caller goes on in the same
+/// turn of the event loop.
+Future<void>? prepareChatTurnBackend(dynamic ref) {
+  if (!_hermesConnectionSwitchOffered(
+    ref,
+    ref.read(selectedModelProvider) as Model?,
+  )) {
+    return _requireAnsweringBackendReady(ref);
+  }
+  return () async {
+    final chat = captureChatMutationOwner(
+      ref,
+      ref.read(activeConversationProvider) as Conversation?,
+    );
+    await _offerHermesConnectionSwitchForMixedChat(ref);
+    // The user may have opened another chat while the prompt or the switch
+    // ran; this turn belongs to the chat it was asked for.
+    if (!chatMutationTokenStillActive(ref, chat)) {
+      throw StateError('The conversation changed while preparing the message.');
+    }
+    final ready = _requireAnsweringBackendReady(ref);
+    if (ready != null) await ready;
+  }();
+}
+
+Future<void>? _requireAnsweringBackendReady(dynamic ref) {
+  final answering = ref.read(selectedModelProvider) as Model?;
+  final owner = captureChatSendOwner(ref);
+  final ready = requireChatBackendReady(
+    ref,
+    answering,
+    conversation: ref.read(activeConversationProvider) as Conversation?,
+  );
+  if (ready == null) return null;
+  return ready.then((_) {
+    if (!chatSendOwnerIsCurrent(ref, owner) ||
+        !identical(ref.read(selectedModelProvider), answering)) {
+      throw StateError('The conversation changed while preparing the message.');
+    }
+  });
+}
+
 /// Before a Hermes send, offers to switch to the saved connection that owns
 /// the mixed chat's session. Declining, an unknown connection, or a failed
 /// switch leave the send to start a new session on the active connection.
