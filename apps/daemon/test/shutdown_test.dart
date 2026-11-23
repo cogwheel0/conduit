@@ -148,7 +148,6 @@ void main() {
   test('a core that arrives after the stop began is stopped, not '
       'served', () async {
     final dir = Directory.systemTemp.createTempSync('conduitd_late_core');
-    addTearDown(() => dir.deleteSync(recursive: true));
     final config = BootstrapConfig(
       sessionToken: _token,
       masterKey: _masterKey,
@@ -170,7 +169,11 @@ void main() {
     await stopping.stop();
 
     stopping.attachCore(runtime);
-    await stopping.stop();
+    // What the bin waits on before it exits: by then the core has closed
+    // its stores, so its folder can go at once.
+    await stopping.onStopped;
+    dir.deleteSync(recursive: true);
+    await pumpEventQueue();
 
     expect(stopping.uiRequests, isNull, reason: 'no services were built');
     expect(

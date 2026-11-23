@@ -147,7 +147,12 @@ class DaemonServer {
   Future<void>? _stopping;
 
   /// Resolves when the daemon has finished shutting down.
-  Future<void> get onStopped => _stopped.future;
+  Future<void> get onStopped async {
+    await _stopped.future;
+    // Also a core that arrived after the stop began ([attachCore]): its
+    // disposal is chained onto the stop.
+    await _stopping;
+  }
 
   int get port => _server?.port ?? 0;
 
