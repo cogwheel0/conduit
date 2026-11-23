@@ -15,6 +15,8 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show ChatModelPick, ChatModelPickNotifier, chatModelPickProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show
@@ -2846,6 +2848,8 @@ void main() {
       ChatMessage? message,
       List<Model>? listed,
       ValueChanged<String>? onRegenerateColumn,
+      List<ChatMessage>? transcript,
+      ChatModelPick? pick,
     }) async {
       final shown = message ?? failed;
       final container = ProviderContainer(
@@ -2874,6 +2878,10 @@ void main() {
               .overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
           if (listed != null)
             modelsProvider.overrideWith(() => _FixedModels(listed)),
+          if (transcript != null)
+            chatMessagesProvider.overrideWith(() => _Transcript(transcript)),
+          if (pick != null)
+            chatModelPickProvider.overrideWith(() => _PickedModel(pick)),
           localReasoningEffortsProvider.overrideWith(
             () => _PickedEfforts({
               for (final MapEntry(:key, :value) in picks.entries)
@@ -2987,34 +2995,35 @@ void main() {
       expect(localReasoningEffortForModel(container.read, plain), 'automatic');
     });
 
+    const a = Model(id: 'model-a', name: 'Model A');
+    const b = Model(id: 'model-b', name: 'Model B');
+    // Column A is the message; column B's answer, rejected, is kept among
+    // its alternatives.
+    final comparison = ChatMessage(
+      id: 'answer-a',
+      role: 'assistant',
+      content: 'A answered.',
+      timestamp: DateTime(2024, 1, 1),
+      model: a.id,
+      metadata: const {'parentId': 'question', 'modelIdx': 0},
+      versions: [
+        ChatMessageVersion(
+          id: 'answer-b',
+          content: '',
+          timestamp: DateTime(2024, 1, 1),
+          model: b.id,
+          modelName: b.name,
+          modelIdx: 1,
+          error: const ChatMessageError(
+            content:
+                'Unrecognized request argument supplied: reasoning_effort',
+          ),
+        ),
+      ],
+    );
+
     testWidgets("under another column's tab, is decided for that column's "
         'model, clears its pick and regenerates that column', (tester) async {
-      const a = Model(id: 'model-a', name: 'Model A');
-      const b = Model(id: 'model-b', name: 'Model B');
-      // Column A is the message; column B's answer, rejected, is kept among
-      // its alternatives.
-      final comparison = ChatMessage(
-        id: 'answer-a',
-        role: 'assistant',
-        content: 'A answered.',
-        timestamp: DateTime(2024, 1, 1),
-        model: a.id,
-        metadata: const {'parentId': 'question', 'modelIdx': 0},
-        versions: [
-          ChatMessageVersion(
-            id: 'answer-b',
-            content: '',
-            timestamp: DateTime(2024, 1, 1),
-            model: b.id,
-            modelName: b.name,
-            modelIdx: 1,
-            error: const ChatMessageError(
-              content:
-                  'Unrecognized request argument supplied: reasoning_effort',
-            ),
-          ),
-        ],
-      );
       var regenerations = 0;
       final columns = <String>[];
       final container = await pumpFailed(
@@ -3035,6 +3044,46 @@ void main() {
       expect(columns, ['answer-b']);
       expect(regenerations, 0);
       expect(localReasoningEffortForModel(container.read, b), 'automatic');
+      expect(localReasoningEffortForModel(container.read, a), 'high');
+    });
+
+    testWidgets("under another column's tab, after a model was picked in the "
+        'chat since the turn, is decided for the picked model, which the '
+        'column regenerates on', (tester) async {
+      const c = Model(id: 'model-c', name: 'Model C');
+      final columns = <String>[];
+      final container = await pumpFailed(
+        tester,
+        selected: plain,
+        message: comparison,
+        listed: const [a, b, c],
+        picks: {a.id: 'high', b.id: 'high', c.id: 'high'},
+        chatParams: const <String, dynamic>{},
+        transcript: [
+          ChatMessage(
+            id: 'question',
+            role: 'user',
+            content: 'Compare',
+            timestamp: DateTime(2024, 1, 1),
+            metadata: const {
+              'models': ['model-a', 'model-b'],
+            },
+          ),
+          comparison,
+        ],
+        // Picked once the chat held this turn's prompt.
+        pick: (chatId: 'chat-1', modelId: c.id, promptIds: {'question'}),
+        onRegenerateColumn: columns.add,
+      );
+      await tester.tap(find.bySemanticsLabel(RegExp('Model B')).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(retryWithoutEffort);
+      await tester.pumpAndSettle();
+
+      expect(columns, ['answer-b']);
+      expect(localReasoningEffortForModel(container.read, c), 'automatic');
+      expect(localReasoningEffortForModel(container.read, b), 'high');
       expect(localReasoningEffortForModel(container.read, a), 'high');
     });
 
@@ -3073,6 +3122,24 @@ final class _RefusingSelectedModel extends SelectedModel {
 final class _AdvertisingSelectedModel extends SelectedModel {
   @override
   Model? build() => const Model(id: 'gpt-5', name: 'GPT-5');
+}
+
+final class _Transcript extends ChatMessagesNotifier {
+  _Transcript(this.messages);
+
+  final List<ChatMessage> messages;
+
+  @override
+  List<ChatMessage> build() => messages;
+}
+
+final class _PickedModel extends ChatModelPickNotifier {
+  _PickedModel(this.pick);
+
+  final ChatModelPick pick;
+
+  @override
+  ChatModelPick? build() => pick;
 }
 
 final class _SelectedAs extends SelectedModel {

@@ -63,9 +63,12 @@ import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show chatModelPickProvider;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatForkAvailability,
+        comparisonColumnModelId,
         errorMentionsReasoningEffort,
         isReasoningEffortRejection,
         isUnconfirmedLibreChatMessage,
@@ -2708,7 +2711,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (group == null || !group.isComparison) {
       return ref.read(selectedModelProvider);
     }
-    return _modelByIdOrSelected(_otherColumnAnswer?.model ?? _answerModelId);
+    // As the core regenerates it: the column's own model, or one picked in
+    // the chat since its turn was sent.
+    final answer = widget.message as ChatMessage;
+    final question = ref
+        .read(chatMessagesProvider)
+        .where((message) => message.id == group.parentId)
+        .firstOrNull;
+    final pick = ref.read(chatModelPickProvider);
+    final chatId = ref.read(activeConversationProvider)?.id;
+    final modelId = question == null
+        ? null
+        : comparisonColumnModelId(
+            question: question,
+            answer: answer,
+            picked: pick != null && pick.chatId == chatId ? pick : null,
+            answerId: _otherColumnAnswer?.messageId,
+          );
+    return _modelByIdOrSelected(
+      modelId ?? _otherColumnAnswer?.model ?? _answerModelId,
+    );
   }
 
   /// The model the queued completion replays under: always the one the
