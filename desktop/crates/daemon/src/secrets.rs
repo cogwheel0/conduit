@@ -1391,79 +1391,129 @@ fn sync_folder(dir: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Refuses a key file under a folder another user could change, where they
-/// could put their own key in its place or move this one: every folder
-/// above it that is there must be this user's, or root's and closed to
-/// others. Looked at as named (`symlink_metadata`), up to `/`, and then
-/// where any link on the way leads ([`check_where_links_lead`]).
+/// could put their own key in its place or move this one: every entry on
+/// the way to it ([`walk`]) must pass [`check_entry`].
 #[cfg(unix)]
 fn check_folders_above(path: &std::path::Path) -> Result<(), SecretError> {
-    check_folders(path.ancestors().skip(1), path)?;
-    check_where_links_lead(path)
-}
-
-/// The folders the key file's are, links resolved: the deepest one above
-/// it that is there, canonicalized, and every folder above that. A link
-/// that passed as named (root's) leads there, and another user who can
-/// change a folder on that side could move the key too. Without a link the
-/// two chains are one. A folder that can't be resolved is an error.
-#[cfg(unix)]
-fn check_where_links_lead(path: &std::path::Path) -> Result<(), SecretError> {
-    for folder in path.ancestors().skip(1) {
-        if folder.as_os_str().is_empty() {
-            break;
-        }
-        match std::fs::canonicalize(folder) {
-            Ok(resolved) => return check_folders(resolved.ancestors(), path),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(SecretError::Store(format!("{}: {e}", folder.display()))),
-        }
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let me = unsafe { libc::geteuid() };
+    let own_group = user_private_group();
+    for (entry, metadata) in walk(path)? {
+        check_entry(&entry, &metadata, me, own_group, path)?;
     }
     Ok(())
 }
 
-/// Each of `folders` that is there must pass [`untrusted`]'s rule, for the
-/// key file at `path`.
+/// The most links the walk follows on the way (Linux's own limit).
 #[cfg(unix)]
-fn check_folders<'a>(
-    folders: impl Iterator<Item = &'a std::path::Path>,
+const MAX_LINKS: usize = 40;
+
+/// Every entry on the way to the key file's folder, as the kernel resolves
+/// it (`realpath`): from `/`, one name at a time, each looked at as named
+/// (`symlink_metadata`). A link is followed from the folder that holds it,
+/// links in its target too (up to [`MAX_LINKS`]), so every folder that holds
+/// a link on the way, the link itself, and every folder on the way to
+/// where it leads are on the list. A folder not made yet ends it.
+#[cfg(unix)]
+fn walk(
     path: &std::path::Path,
-) -> Result<(), SecretError> {
-    use std::os::unix::fs::MetadataExt as _;
-    // SAFETY: geteuid has no preconditions and cannot fail.
-    let me = unsafe { libc::geteuid() };
-    let own_group = user_private_group();
-    for folder in folders {
-        if folder.as_os_str().is_empty() {
-            break;
+) -> Result<Vec<(std::path::PathBuf, std::fs::Metadata)>, SecretError> {
+    let failed = |at: &std::path::Path, e: std::io::Error| {
+        SecretError::Store(format!("{}: {e}", at.display()))
+    };
+    let folder = parent_or_here(path);
+    let mut ahead = std::collections::VecDeque::new();
+    if !folder.has_root() {
+        let here = std::env::current_dir().map_err(|e| failed(folder, e))?;
+        ahead.extend(names(&here));
+    }
+    ahead.extend(names(folder));
+    let mut here = std::path::PathBuf::from("/");
+    let root = std::fs::symlink_metadata(&here).map_err(|e| failed(&here, e))?;
+    let mut walked = vec![(here.clone(), root)];
+    let mut links = 0;
+    while let Some(name) = ahead.pop_front() {
+        if name == ".." {
+            here.pop();
+            continue;
         }
-        let metadata = match std::fs::symlink_metadata(folder) {
+        let next = here.join(&name);
+        let metadata = match std::fs::symlink_metadata(&next) {
             Ok(metadata) => metadata,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(SecretError::Store(format!("{}: {e}", folder.display()))),
+            // Not made yet: nothing further on is there either.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => return Err(failed(&next, e)),
         };
         let link = metadata.file_type().is_symlink();
-        let (owner, group, mode) = (metadata.uid(), metadata.gid(), metadata.mode());
-        if let Some(why) = untrusted(owner, group, mode, link, me, own_group) {
+        walked.push((next.clone(), metadata));
+        if !link {
+            here = next;
+            continue;
+        }
+        links += 1;
+        if links > MAX_LINKS {
             return Err(SecretError::Store(format!(
-                "{} {why}, so it can't hold the key file {}",
-                folder.display(),
+                "{}: more than {MAX_LINKS} links on the way",
                 path.display()
             )));
         }
-        // With a POSIX ACL the group bits are its mask, so a group-writable
-        // folder may let a named user or group write too. Linux only: the
-        // Mac (and other systems) keep the mode rule above.
-        #[cfg(target_os = "linux")]
-        if mode & 0o020 != 0 && mode & 0o1000 == 0 {
-            let acl = access_acl(folder)
-                .map_err(|e| SecretError::Store(format!("{}: {e}", folder.display())))?;
-            if acl.is_some_and(|acl| acl_lets_others_write(&acl, me, own_group)) {
-                return Err(SecretError::Store(format!(
-                    "{}'s access list lets other users change it, so it can't hold the key file {}",
-                    folder.display(),
-                    path.display()
-                )));
-            }
+        let target = std::fs::read_link(&next).map_err(|e| failed(&next, e))?;
+        if target.has_root() {
+            here = std::path::PathBuf::from("/");
+        }
+        for name in names(&target).into_iter().rev() {
+            ahead.push_front(name);
+        }
+    }
+    Ok(walked)
+}
+
+/// `path`'s names, `..` as `..`, without its root.
+#[cfg(unix)]
+fn names(path: &std::path::Path) -> Vec<std::ffi::OsString> {
+    use std::path::Component;
+    path.components()
+        .filter_map(|c| match c {
+            Component::Normal(name) => Some(name.to_os_string()),
+            Component::ParentDir => Some("..".into()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One entry on the way to the key file at `path`: [`untrusted`]'s rule
+/// and, on Linux, a folder's access list.
+#[cfg(unix)]
+fn check_entry(
+    entry: &std::path::Path,
+    metadata: &std::fs::Metadata,
+    me: u32,
+    own_group: Option<u32>,
+    path: &std::path::Path,
+) -> Result<(), SecretError> {
+    use std::os::unix::fs::MetadataExt as _;
+    let link = metadata.file_type().is_symlink();
+    let (owner, group, mode) = (metadata.uid(), metadata.gid(), metadata.mode());
+    if let Some(why) = untrusted(owner, group, mode, link, me, own_group) {
+        return Err(SecretError::Store(format!(
+            "{} {why}, so it can't hold the key file {}",
+            entry.display(),
+            path.display()
+        )));
+    }
+    // With a POSIX ACL the group bits are its mask, so a group-writable
+    // folder may let a named user or group write too. Linux only: the Mac
+    // (and other systems) keep the mode rule above.
+    #[cfg(target_os = "linux")]
+    if !link && mode & 0o020 != 0 && mode & 0o1000 == 0 {
+        let acl = access_acl(entry)
+            .map_err(|e| SecretError::Store(format!("{}: {e}", entry.display())))?;
+        if acl.is_some_and(|acl| acl_lets_others_write(&acl, me, own_group)) {
+            return Err(SecretError::Store(format!(
+                "{}'s access list lets other users change it, so it can't hold the key file {}",
+                entry.display(),
+                path.display()
+            )));
         }
     }
     Ok(())
@@ -2237,6 +2287,61 @@ mod tests {
         assert_eq!(private_group(1501, b"avery", 1, b"avery"), None);
     }
 
+    /// Whether every folder walked on the way to `key` passes, the links
+    /// themselves set aside: the tests' links are this user's (no test can
+    /// make root's), and stand for root's, which pass.
+    #[cfg(unix)]
+    fn folders_pass(key: &std::path::Path) -> Result<(), SecretError> {
+        // SAFETY: geteuid has no preconditions and cannot fail.
+        let me = unsafe { libc::geteuid() };
+        let own_group = user_private_group();
+        for (entry, metadata) in walk(key)? {
+            if !metadata.file_type().is_symlink() {
+                check_entry(&entry, &metadata, me, own_group, key)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A link on the way may lead through another link: the folder that
+    /// holds that one is walked too, as `realpath` resolves, so a 0777 folder
+    /// holding the middle link of `trusted/alias -> open/hop -> data` refuses
+    /// the key, though neither the named path nor where it ends passes
+    /// through it. A chain of links that loops is an error.
+    #[cfg(unix)]
+    #[test]
+    fn links_in_links_are_walked_too() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new()
+            .prefix("conduit-keyfile-")
+            .tempdir()
+            .expect("a temporary folder");
+        let base = dir.path().canonicalize().unwrap();
+        for folder in ["trusted", "data", "open"] {
+            std::fs::create_dir(base.join(folder)).unwrap();
+        }
+        let open = base.join("open");
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        std::os::unix::fs::symlink(base.join("data"), open.join("hop")).unwrap();
+        std::os::unix::fs::symlink(open.join("hop"), base.join("trusted").join("alias")).unwrap();
+        let name = "app.example.conduit.master-key";
+        let key = base.join("trusted").join("alias").join(name);
+        let walked: Vec<_> = walk(&key)
+            .unwrap()
+            .into_iter()
+            .map(|(entry, _)| entry)
+            .collect();
+        assert!(walked.contains(&open), "{walked:?}");
+        assert!(walked.contains(&base.join("data")), "{walked:?}");
+        assert!(matches!(folders_pass(&key), Err(SecretError::Store(_))));
+        std::os::unix::fs::symlink(base.join("loop-b"), base.join("loop-a")).unwrap();
+        std::os::unix::fs::symlink(base.join("loop-a"), base.join("loop-b")).unwrap();
+        assert!(matches!(
+            walk(&base.join("loop-a").join(name)),
+            Err(SecretError::Store(_))
+        ));
+    }
+
     /// Where a link leads is checked too: a link (root's, say, which passes
     /// as named) into a folder others can write to is refused, and one into
     /// this user's own folder is fine. The test's links are this user's,
@@ -2246,6 +2351,7 @@ mod tests {
     #[test]
     fn where_a_link_leads_must_pass_too() {
         use std::os::unix::fs::PermissionsExt as _;
+        let check_where_links_lead = |key: &std::path::Path| folders_pass(key);
         let dir = tempfile::Builder::new()
             .prefix("conduit-keyfile-")
             .tempdir()
