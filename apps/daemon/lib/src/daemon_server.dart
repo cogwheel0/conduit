@@ -178,6 +178,12 @@ class DaemonServer {
   /// handshake and ping -- they simply cannot reach state that does not
   /// exist yet.
   void attachCore(CoreRuntime core) {
+    // A stop that began while the core was starting did not stop it: it is
+    // disposed instead of served, and [stop] waits for that too.
+    if (_stopping case final stopping?) {
+      _stopping = stopping.whenComplete(core.dispose);
+      return;
+    }
     _core = core;
     final coming = _coreComing;
     if (coming != null && !coming.isCompleted) coming.complete(core);

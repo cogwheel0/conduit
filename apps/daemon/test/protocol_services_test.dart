@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit_core/ports/ui_request_port.dart' show UiNoticeLevel;
 import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:json_rpc_2/json_rpc_2.dart' as json_rpc;
@@ -132,6 +133,48 @@ void main() {
 
     expect(reused.capabilities, Capabilities.none);
   });
+
+  test('a capabilities watcher whose first answer the host refuses is '
+      'still stopped', () async {
+    final apple = runtime.container.read(appleOnDeviceAnswersProvider.notifier)
+      ..set(true);
+    final refusing = _RefusingSystem();
+    final built = services(reused: refusing);
+
+    expect(() => built.attach(runtime.container), throwsStateError);
+    expect(refusing.offered.single.appleOnDeviceModels, isTrue);
+    await built.closeTransports();
+    await built.dispose();
+
+    apple.set(false);
+    await pumpEventQueue();
+    expect(refusing.offered, hasLength(1));
+  });
+
+  test('once disposed, no session opens', () async {
+    final built = services()..attach(runtime.container);
+    await built.closeTransports();
+    await built.dispose();
+
+    final pipe = StreamChannelController<String>(sync: true);
+    expect(
+      () => built.openSession(pipe.local, sessionId: 'late'),
+      throwsStateError,
+    );
+  });
+
+  test('once disposed, the core\'s questions no longer reach its '
+      'windows', () async {
+    final built = services()..attach(runtime.container);
+    final seen = <String>[];
+    built.events.tap((event, _, _) => seen.add(event));
+    await built.closeTransports();
+    await built.dispose();
+    seen.clear();
+
+    runtime.uiRequests.notify(UiNoticeLevel.info, 'the tide turned');
+    expect(seen, isEmpty);
+  });
 }
 
 final class _RefusingSystem extends SystemService {
@@ -143,6 +186,12 @@ final class _RefusingSystem extends SystemService {
         requestStop: (_) {},
       );
 
+  /// What the services offered it, refused each time.
+  final List<Capabilities> offered = <Capabilities>[];
+
   @override
-  set capabilities(Capabilities value) => throw StateError('refused');
+  set capabilities(Capabilities value) {
+    offered.add(value);
+    throw StateError('refused');
+  }
 }

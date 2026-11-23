@@ -280,7 +280,11 @@ final class ProtocolServices {
     _capabilities = CapabilitiesService(
       container,
       events: events,
-      onChange: (capabilities) => system.capabilities = capabilities,
+      // Not from inside the constructor: a host that refuses the first
+      // answer must find the watcher already held, so [dispose] stops it.
+      onChange: (capabilities) {
+        if (_capabilities != null) system.capabilities = capabilities;
+      },
     );
     // A host reusing a system service starts from what this account can
     // use, not what the last one could.
@@ -390,6 +394,7 @@ final class ProtocolServices {
   TerminalsService? _terminals;
   ComputerRpcService? _computer;
   bool _transportsClosed = false;
+  bool _disposed = false;
 
   /// Null once [closeTransports] has closed them.
   TerminalsService? get terminals => _transportsClosed ? null : _terminals;
@@ -453,18 +458,22 @@ final class ProtocolServices {
 
   /// A window's session over [channel]. The caller runs
   /// [RpcSession.listen], which closes the session when the channel ends.
+  /// None opens once [dispose] has begun.
   RpcSession openSession(
     StreamChannel<String> channel, {
     required String sessionId,
     void Function(bool online)? reportNetwork,
-  }) => RpcSession(
-    sessionId: sessionId,
-    channel: channel,
-    system: system,
-    events: events,
-    services: () => core,
-    reportNetwork: reportNetwork,
-  );
+  }) {
+    if (_disposed) throw StateError('the protocol services are disposed');
+    return RpcSession(
+      sessionId: sessionId,
+      channel: channel,
+      system: system,
+      events: events,
+      services: () => core,
+      reportNetwork: reportNetwork,
+    );
+  }
 
   /// Closes what holds sockets, streams or audio: calls, read-aloud,
   /// terminals, the computer view and data exports. First, before the
@@ -485,6 +494,7 @@ final class ProtocolServices {
   /// lingers after its answer, both read its container. The host disposes
   /// the core after this.
   Future<void> dispose() async {
+    _disposed = true;
     _accounts?.dispose();
     _servers?.dispose();
     _auth?.dispose();
@@ -496,6 +506,7 @@ final class ProtocolServices {
     _hermesRooms?.dispose();
     _hermesAdmin?.dispose();
     _ports.uiRequests.hermesChatOf = null;
+    if (_uiRequests != null) _ports.uiRequests.detach();
     _chats?.dispose();
     _ports.handoff.detach();
     _calendar?.dispose();
