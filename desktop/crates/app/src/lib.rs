@@ -312,6 +312,19 @@ pub fn unsupported_flag(os: paths::Os, args: &[String]) -> Option<&'static str> 
     })
 }
 
+/// The file `--smoke` writes its report to, when the launch asks for the
+/// pass. Without one (or with a flag in its place) the launch would open the
+/// app as usual, and whatever waits for the verdict would wait for good.
+pub fn smoke_file(args: &[String]) -> Result<Option<String>, &'static str> {
+    if !scripted::has(args, "--smoke") {
+        return Ok(None);
+    }
+    match arg(args, "--smoke") {
+        Some(file) if !file.starts_with('-') => Ok(Some(file)),
+        _ => Err("--smoke needs the file to write its report to: --smoke <file>"),
+    }
+}
+
 /// Whether to leave Wayland for XWayland: the session has both (`DISPLAY`
 /// and `WAYLAND_DISPLAY` set), and `CONDUIT_WAYLAND` isn't `1`.
 #[cfg_attr(not(target_os = "linux"), cfg(test))]
@@ -546,6 +559,9 @@ pub fn run() {
     if let Some(why) = unsupported_flag(paths::Os::CURRENT, &args) {
         end_launch(64, why);
     }
+    // So does `--smoke` without its file.
+    #[cfg(not(target_os = "macos"))]
+    let smoke_path = smoke_file(&args).unwrap_or_else(|why| end_launch(64, why));
     // The smoke wrapper launches through `open`, which starts apps in `/`.
     if let Some((i, _)) = scripted::option_positions(&args).find(|(_, a)| *a == "--cwd")
         && let Some(dir) = args_os.get(i + 1)
@@ -667,11 +683,10 @@ pub fn run() {
     // `--smoke <file>`: the pass's report, made before anything opens (a
     // launch that can't write it ends here), and its verdict after the quit.
     #[cfg(not(target_os = "macos"))]
-    let smoke = arg(&args, "--smoke").map(|path| {
-        match smoke_pass::SmokeReport::create(std::path::Path::new(&path)) {
-            Ok(report) => std::rc::Rc::new(std::cell::RefCell::new(report)),
-            Err(e) => end_launch(64, &format!("--smoke {path}: {e}")),
-        }
+    let smoke = smoke_path.map(|path| {
+        let report = smoke_pass::SmokeReport::create(std::path::Path::new(&path))
+            .unwrap_or_else(|e| end_launch(64, &format!("--smoke {path}: {e}")));
+        std::rc::Rc::new(std::cell::RefCell::new(report))
     });
     #[cfg(not(target_os = "macos"))]
     let scripted = shots.is_some() || smoke.is_some();
@@ -1540,6 +1555,27 @@ mod harness_profile_tests {
             )
             .as_deref(),
             Some("--probe")
+        );
+    }
+
+    /// `--smoke` without its file is refused before anything opens, as is
+    /// another flag where the file goes: either would open the app as usual,
+    /// and whatever waits for the pass's verdict would wait for good.
+    #[test]
+    fn the_smoke_pass_needs_its_file() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(smoke_file(&args(&["app", "--smoke"])).is_err());
+        assert!(smoke_file(&args(&["app", "--smoke", "--hidden"])).is_err());
+        assert!(smoke_file(&args(&["app", "--hidden", "--smoke", "-"])).is_err());
+        assert_eq!(
+            smoke_file(&args(&["app", "--smoke", "/tmp/smoke.txt"])),
+            Ok(Some("/tmp/smoke.txt".into()))
+        );
+        assert_eq!(smoke_file(&args(&["app", "--hidden"])), Ok(None));
+        // A folder named `--smoke`, given to `--cwd`, asks for no pass.
+        assert_eq!(
+            smoke_file(&args(&["app", "--cwd", "--smoke", "notes.md"])),
+            Ok(None)
         );
     }
 
