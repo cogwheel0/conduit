@@ -634,6 +634,7 @@ impl ConnectionStore {
         if matches!(self.rpc, ConnectionState::Connected(_)) {
             self.push_network(online, cx);
         }
+        cx.notify();
     }
 
     fn push_network(&self, online: bool, cx: &mut Context<Self>) {
@@ -1265,6 +1266,28 @@ mod tests {
         Status::Failed {
             detail: e.to_string(),
         }
+    }
+
+    /// The window's view of the network changes: those watching the
+    /// connection (the composer's offline state, the window's pill) hear
+    /// of it then, so Send comes back with the network, not at the next
+    /// connection event.
+    #[gpui_kit::test]
+    fn a_network_change_reaches_those_watching(cx: &mut gpui_kit::TestAppContext) {
+        let locked = SecretError::Store("the keyring is locked".into());
+        let (connection, _asked, _scratch) = over_store(vec![Err(locked)], None, cx);
+        cx.run_until_parked();
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let _watch = cx.update(|cx| {
+            let seen = seen.clone();
+            cx.observe(&connection, move |c, cx| {
+                seen.borrow_mut().push(c.read(cx).online())
+            })
+        });
+        connection.update(cx, |c, cx| c.set_online(false, cx));
+        connection.update(cx, |c, cx| c.set_online(true, cx));
+        cx.run_until_parked();
+        assert_eq!(*seen.borrow(), vec![Some(false), Some(true)]);
     }
 
     /// Linux: the Secret Service is locked or not running at launch, so
