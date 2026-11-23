@@ -101,15 +101,18 @@ final class _OnDevices extends Models {
   ];
 }
 
-/// [first] listed before [rest].
-final class _Plus extends Models {
-  _Plus(this.first, this.rest);
+/// [first], then LibreChat's models once its catalog arrives: listed
+/// meanwhile without waiting for it, as the core's list is.
+final class _BesideLibreChat extends Models {
+  _BesideLibreChat(this.first);
 
   final List<core.Model> first;
-  final List<core.Model> rest;
 
   @override
-  Future<List<core.Model>> build() async => [...first, ...rest];
+  Future<List<core.Model>> build() async => [
+    ...first,
+    ...?ref.watch(libreChatModelCatalogProvider).value,
+  ];
 }
 
 /// Two Hermes models that both offer the Fast tier.
@@ -1530,7 +1533,7 @@ void main() {
   });
 
   test('with LibreChat in charge and nothing chosen, a turn takes '
-      "LibreChat's first model", () async {
+      "LibreChat's first model, once its catalog arrives", () async {
     final libreChatModels = libreChatCatalog(
       startupConfig: const <String, dynamic>{},
       endpoints: const <String, dynamic>{
@@ -1540,18 +1543,15 @@ void main() {
         'Sample': <String>['sample-model'],
       },
     );
+    final catalog = Completer<List<core.Model>>();
     final container = ProviderContainer(
       overrides: [
         primaryAccountKindProvider.overrideWithValue(
           PrimaryAccountKind.libreChat,
         ),
-        libreChatModelCatalogProvider.overrideWith(
-          (ref) async => libreChatModels,
-        ),
-        // Listed first: usable meanwhile, but not LibreChat's.
-        modelsProvider.overrideWith(
-          () => _Plus(const [_cached], libreChatModels),
-        ),
+        libreChatModelCatalogProvider.overrideWith((ref) => catalog.future),
+        // Listed meanwhile: usable, but not LibreChat's.
+        modelsProvider.overrideWith(() => _BesideLibreChat(const [_cached])),
         defaultModelProvider.overrideWith(
           (ref) async => throw StateError('settings unavailable'),
         ),
@@ -1559,10 +1559,15 @@ void main() {
       retry: (_, _) => null,
     );
     addTearDown(container.dispose);
+    container.listen(modelsProvider, (_, _) {});
+    await container.read(modelsProvider.future);
 
-    check(
-      await ModelsService(container).modelFor(null),
-    ).equals(libreChatModels.single.id);
+    // Asked while the catalog is still on its way, as mobile's send waits
+    // for it.
+    final picking = ModelsService(container).modelFor(null);
+    await pumpEventQueue();
+    catalog.complete(libreChatModels);
+    check(await picking).equals(libreChatModels.single.id);
   });
 
   test(
