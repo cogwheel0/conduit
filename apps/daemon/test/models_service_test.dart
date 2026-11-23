@@ -1522,6 +1522,18 @@ void main() {
       ).equals('retired-model');
     });
 
+    test("a pick made while a turn's saved model is looked up is the one "
+        'the turn takes', () async {
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api);
+      final models = ModelsService(container);
+      final turn = models.modelFor('hidden-chat');
+      await api.hiddenAskedOnce.future;
+      await models.select('preferred-model', chatId: 'hidden-chat');
+      api.hiddenHeld!.complete();
+      check(await turn).equals('preferred-model');
+    });
+
     test('a selection made while the saved model is looked up is the one '
         'answered', () async {
       final api = _AgentsApi()..hiddenHeld = Completer<void>();

@@ -955,25 +955,30 @@ final class ModelsService {
   Future<String> modelFor(String? chatId, {bool temporary = false}) async {
     final account = AccountScope.capture(_container);
     if (chatId == null) await _checkNewChat(account, temporary: temporary);
-    final pick = _picksOf(
-      account,
-    )[_slotOf(chatId, temporary: temporary)]?.model;
-    if (pick != null) return pick.id;
+    // The chat's own pick, read again after every wait below: one made
+    // meanwhile wins over whatever the wait found.
+    String? picked() =>
+        _picksOf(account)[_slotOf(chatId, temporary: temporary)]?.model?.id;
+    if (picked() case final pick?) return pick;
     if (chatId != null) {
       final conversation = await _conversation(chatId, account);
+      if (picked() case final pick?) return pick;
       final saved = conversation?.model;
       if (saved != null && isTerminalAgentModelId(saved)) return saved;
       final model = await _savedModel(conversation, account);
       account.require('the model in use is read');
+      if (picked() case final pick?) return pick;
       if (model != null) return model.id;
     }
     final current = await currentModel(_container);
     account.require('the model in use is read');
+    if (picked() case final pick?) return pick;
     if (current != null && !isTerminalAgentModel(current)) return current.id;
     final models = await _models();
     account.require('the model in use is read');
     final regular = await _regularDefault(models);
     account.require('the model in use is read');
+    if (picked() case final pick?) return pick;
     if (regular == null) {
       throw const RpcError(
         code: ConduitErrorCodes.unsupported,
@@ -1245,7 +1250,9 @@ final class ModelsService {
       if (pick != null && pick.model?.id == id && !pick.idOnly) {
         return pick.model;
       }
-      if (chatId == null && selected?.id == id) return selected;
+      // Read again: the selection may have moved during the check above.
+      final now = _container.read(selectedModelProvider);
+      if (chatId == null && now?.id == id) return now;
       final conversation = chatId == null
           ? null
           : await _conversation(chatId, account);
