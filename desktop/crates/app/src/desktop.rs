@@ -488,76 +488,56 @@ fn open_new_chat(
     fresh: bool,
     cx: &mut App,
 ) {
-    show_main(cx);
-    if compose.files.is_empty() {
-        open_planned(
-            compose,
-            open_files::OpenFilesPlan::default(),
-            carried,
-            fresh,
-            cx,
-        );
-        return;
-    }
-    // Looking at the files can wait on a network share (`\\server\share`):
-    // off the UI thread, then the new chat on it.
-    let files = compose.files.clone();
-    let planned = cx
-        .background_executor()
-        .spawn(async move { open_files::plan(&files, open_files::file_size) });
-    cx.spawn(async move |cx| {
-        let plan = planned.await;
-        cx.update(|cx| open_planned(compose, plan, carried, fresh, cx));
-    })
-    .detach();
-}
-
-/// [`open_new_chat`] once its files are sorted ([`open_files::plan`]).
-fn open_planned(
-    compose: Compose,
-    plan: open_files::OpenFilesPlan,
-    carried: Vec<crate::stores::composer::Attachment>,
-    fresh: bool,
-    cx: &mut App,
-) {
     let Compose {
         text,
-        files: _,
+        files,
         images,
         context,
         owner,
     } = compose;
-    for path in &plan.skipped {
-        log::info!("open with: skipped a folder or missing file");
-        let _ = path;
-    }
-    let (too_many, too_large) = (plan.too_many, plan.too_large.clone());
+    show_main(cx);
     crate::with_main_view(cx, move |view, window, cx| {
         view.new_chat(false, window, cx);
-        // The new chat this request opened: what follows in the same batch
-        // (another link) may select something else before the write below.
+        // The new chat this request opened, taken now: what follows (another
+        // link, the user choosing a chat) may select something else while
+        // the files are looked at, and the content then never lands.
         let ticket = view.stores.navigation.read(cx).selection().clone();
         let pane = view.chat_pane.clone();
-        let content = NewChatContent {
-            text,
-            fresh,
-            paths: plan.accepted,
-            images,
-            context,
-            carried,
-            owner,
-        };
+        // Looking at the files can wait on a network share (`\\server\share`):
+        // off the UI thread.
+        let planned = (!files.is_empty()).then(|| {
+            cx.background_executor()
+                .spawn(async move { open_files::plan(&files, open_files::file_size) })
+        });
         // After this update: the pane follows the new selection as it ends,
         // and its draft switch empties the message box (a chat was open
         // before), so the text goes in after that.
         cx.spawn_in(window, async move |_, cx| {
+            let plan = match planned {
+                Some(planned) => planned.await,
+                None => open_files::OpenFilesPlan::default(),
+            };
+            for path in &plan.skipped {
+                log::info!("open with: skipped a folder or missing file");
+                let _ = path;
+            }
+            let (too_many, too_large) = (plan.too_many, plan.too_large);
+            let content = NewChatContent {
+                text,
+                fresh,
+                paths: plan.accepted,
+                images,
+                context,
+                carried,
+                owner,
+            };
             let _ = pane.update_in(cx, |p, window, cx| {
                 p.compose_new_chat(&ticket, content, window, cx)
             });
+            let _ = cx.update(|_, cx| refused_files(too_many, &too_large, cx));
         })
         .detach();
     });
-    refused_files(too_many, &too_large, cx);
 }
 
 /// `conduit://clipboard` (the widget's Clipboard): a new chat with the
