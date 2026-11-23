@@ -1365,15 +1365,18 @@ mod harness_profile_tests {
         assert!(!scripted::requested(&folder));
         assert_eq!(arg(&folder, "--shots"), None);
         assert_eq!(arg(&folder, "--cwd").as_deref(), Some("--shots"));
+        // A launch folder absolute on every OS (Windows needs its drive).
+        let launch = tempfile::tempdir().unwrap();
+        let notes = url::Url::from_file_path(launch.path().join("notes.md")).unwrap();
         assert_eq!(
             launch_urls(
                 &folder
                     .iter()
                     .map(std::ffi::OsString::from)
                     .collect::<Vec<_>>(),
-                std::path::Path::new("/tmp/launch")
+                launch.path()
             ),
-            Some(vec!["file:///tmp/launch/notes.md".to_string()])
+            Some(vec![notes.to_string()])
         );
 
         let ordinary =
