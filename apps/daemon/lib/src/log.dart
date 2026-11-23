@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:conduit_core/ports/log_sink.dart';
+import 'package:conduit_services/conduit_services.dart';
 
 import 'daemon_zone.dart';
 import 'log_file.dart';
-import 'redact.dart';
 
 /// Everything the daemon prints goes to stderr, and, once [attachFile] has
 /// run, to its own rotating log as well.

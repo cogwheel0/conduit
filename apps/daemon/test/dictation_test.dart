@@ -14,7 +14,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/local_whisper.dart';
 import 'package:test/test.dart';
 
-import 'support/fake_openai.dart';
+import '../../../packages/conduit_services/test/support/fake_openai.dart';
 import 'support/runtime.dart';
 
 /// Dictation's daemon side over a Direct connection kept on this computer:

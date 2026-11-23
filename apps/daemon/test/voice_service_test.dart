@@ -8,7 +8,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:conduitd/src/local_whisper.dart';
 import 'package:test/test.dart';
 
-import 'support/fake_owui_auth_server.dart';
+import '../../../packages/conduit_services/test/support/fake_owui_auth_server.dart';
 import 'support/runtime.dart';
 
 /// Speech jobs against a fake Open WebUI with two synthetic users: a job's

@@ -5,11 +5,11 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:conduit_services/conduit_services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
-import 'local_transcriber.dart';
 
 /// Speech recognition on this computer: whisper.cpp through
 /// `libconduit_whisper`, with models downloaded when the user asks.

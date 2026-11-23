@@ -1,0 +1,86 @@
+@TestOn('vm')
+library;
+
+import 'dart:io';
+
+import 'package:conduit_protocol/conduit_protocol.dart';
+import 'package:conduit_services/conduit_services.dart';
+import 'package:test/test.dart';
+
+import 'support/core.dart';
+
+/// `webSearch.*` over the real core's settings.
+void main() {
+  late Directory temporary;
+  late CoreRuntime runtime;
+  late WebSearchService search;
+
+  setUpAll(() async {
+    temporary = Directory.systemTemp.createTempSync('web-search-test');
+    runtime = await startTestCore(temporary);
+    search = WebSearchService(runtime.container);
+  });
+
+  tearDownAll(() async {
+    await runtime.dispose();
+    temporary.deleteSync(recursive: true);
+  });
+
+  test('starts on Auto, moderate, following this Mac', () {
+    final settings = search.get();
+    expect(settings.engine, 'auto');
+    expect(settings.safeSearch, 'moderate');
+    expect(settings.region, isNull);
+    expect(settings.engines.first.id, 'auto');
+    expect(settings.engines.first.name, isEmpty);
+    expect(
+      settings.engines.map((e) => e.name),
+      containsAll(<String>['DuckDuckGo', 'Brave', 'Bing', 'Mojeek']),
+    );
+    expect(settings.regions.first.code, 'wt-wt');
+    expect(
+      settings.regions.where((r) => r.code == 'de-de').single.name,
+      'Deutschland',
+    );
+  });
+
+  test('changes what it is given, and only that', () async {
+    final changed = await search.set(
+      const WebSearchSettingsPatch(engine: 'brave', region: 'fr-fr'),
+    );
+    expect(changed.engine, 'brave');
+    expect(changed.region, 'fr-fr');
+    expect(changed.effectiveRegion, 'fr-fr');
+    expect(changed.safeSearch, 'moderate');
+
+    final strict = await search.set(
+      const WebSearchSettingsPatch(safeSearch: 'strict'),
+    );
+    expect(strict.safeSearch, 'strict');
+    expect(strict.engine, 'brave');
+
+    final followed = await search.set(
+      const WebSearchSettingsPatch(region: 'auto'),
+    );
+    expect(followed.region, isNull);
+  });
+
+  test('refuses what it does not know', () {
+    for (final patch in const <WebSearchSettingsPatch>[
+      WebSearchSettingsPatch(engine: 'altavista'),
+      WebSearchSettingsPatch(safeSearch: 'loose'),
+      WebSearchSettingsPatch(region: 'xx-yy'),
+    ]) {
+      expect(
+        search.set(patch),
+        throwsA(
+          isA<RpcError>().having(
+            (e) => e.code,
+            'code',
+            ConduitErrorCodes.invalidParams,
+          ),
+        ),
+      );
+    }
+  });
+}

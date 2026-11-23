@@ -19,6 +19,7 @@ workspace:
   - packages/conduit_ddgs
   - packages/conduit_markdown
   - packages/conduit_protocol
+  - packages/conduit_services
   - packages/conduit_theme
   - apps/daemon
 

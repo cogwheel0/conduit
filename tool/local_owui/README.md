@@ -115,5 +115,5 @@ pass uses it to change the server while the app is closed.
 ## The fake Hermes server
 
 `fake_hermes.dart` serves the daemon tests' fake Hermes Agent API server
-(`apps/daemon/test/support/fake_hermes_server.dart`) for the desktop app's
+(`packages/conduit_services/test/support/fake_hermes_server.dart`) for the desktop app's
 Hermes pass. `owui.sh start` runs it when `dart` is on `PATH`.
