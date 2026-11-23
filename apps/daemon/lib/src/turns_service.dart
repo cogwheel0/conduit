@@ -173,11 +173,12 @@ final class TurnsService implements ChatTurns, AddressReplies {
         previous,
         next,
       ) {
-        _closeAll(reason: 'account-changed');
-        this.temporary.clear();
+        _closeAllAfterRead(reason: 'account-changed');
       }),
       _container.listen<Object?>(apiServiceProvider, (previous, next) {
-        if (!identical(previous, next)) _closeAll(reason: 'session-changed');
+        if (!identical(previous, next)) {
+          _closeAllAfterRead(reason: 'session-changed', keepTemporary: true);
+        }
       }),
       // The account in charge of the chats: one LibreChat account after
       // another changes neither Open WebUI's session nor its client.
@@ -186,8 +187,7 @@ final class TurnsService implements ChatTurns, AddressReplies {
         next,
       ) {
         if (previous == null || previous == next) return;
-        _closeAll(reason: 'account-changed');
-        this.temporary.clear();
+        _closeAllAfterRead(reason: 'account-changed');
       }),
       // The terminal the account selects (`terminal.select`) is every open
       // chat's from then on: whichever way its next turn goes out (typed,
@@ -3907,6 +3907,20 @@ final class TurnsService implements ChatTurns, AddressReplies {
     }
     session.scope.dispose();
     _sessions.remove(session);
+  }
+
+  /// [_closeAll] once the read that rebuilt the account's providers is
+  /// done. These listeners run inside that read, and it may be a read of a
+  /// chat's own scope (a frame's): disposing the scope underneath it would
+  /// break the read.
+  void _closeAllAfterRead({
+    required String reason,
+    bool keepTemporary = false,
+  }) {
+    scheduleMicrotask(() {
+      _closeAll(reason: reason);
+      if (!keepTemporary) temporary.clear();
+    });
   }
 
   void _closeAll({required String reason}) {
