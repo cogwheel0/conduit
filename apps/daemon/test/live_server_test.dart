@@ -23,7 +23,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'support/fake_terminal_server.dart';
 import 'support/local_owui.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 import 'support/window.dart';
 
 /// Drives the daemon against a local Open WebUI with synthetic data.
@@ -59,11 +59,7 @@ void main() {
           masterKey: base64.encode(List<int>.generate(32, (i) => i)),
           userDataDir: temporary.path,
         );
-        runtime = await CoreRuntime.start(
-          config: config,
-          directories: DaemonDirectories.create(temporary.path),
-          log: DaemonLog(level: 'error', sink: NullSink()),
-        );
+        runtime = await startTestRuntime(temporary, config: config);
         servers = ServersService(runtime.container);
         accounts = AccountsService(runtime.container, events: EventBus());
         auth = AuthService(runtime.container);

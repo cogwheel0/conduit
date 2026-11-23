@@ -14,7 +14,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// Dictation's daemon side over a Direct connection kept on this computer:
 /// which engine and backend dictation uses, a recording transcribed by the
@@ -43,15 +43,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('dictation-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     provider = await FakeOpenAi.start();
     final direct = DirectService(runtime.container);
     await direct.setPreferred(preferred: true);

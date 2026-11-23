@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_protocol/conduit_protocol.dart';
@@ -9,7 +8,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_owui.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 import 'support/totp.dart';
 
 /// Signs in to a local Open WebUI with two-step verification on, through
@@ -40,15 +39,7 @@ void main() {
 
       setUpAll(() async {
         temporary = Directory.systemTemp.createTempSync('conduitd-two-step');
-        runtime = await CoreRuntime.start(
-          config: BootstrapConfig(
-            sessionToken: 'a' * 43,
-            masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-            userDataDir: temporary.path,
-          ),
-          directories: DaemonDirectories.create(temporary.path),
-          log: DaemonLog(level: 'error', sink: NullSink()),
-        );
+        runtime = await startTestRuntime(temporary);
         accounts = AccountsService(runtime.container, events: EventBus());
         auth = AuthService(runtime.container);
         await auth.status();

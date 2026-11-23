@@ -1,7 +1,6 @@
 @TestOn('vm')
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/providers/app_providers.dart';
@@ -10,7 +9,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/local_owui.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `intents.*` against a local Open WebUI with synthetic data (start and
 /// seed it with `tool/local_owui/owui.sh up`; without its env file this is
@@ -38,15 +37,7 @@ void main() {
 
       setUpAll(() async {
         temporary = Directory.systemTemp.createTempSync('conduitd-intents');
-        runtime = await CoreRuntime.start(
-          config: BootstrapConfig(
-            sessionToken: 'a' * 43,
-            masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-            userDataDir: temporary.path,
-          ),
-          directories: DaemonDirectories.create(temporary.path),
-          log: DaemonLog(level: 'error', sink: NullSink()),
-        );
+        runtime = await startTestRuntime(temporary);
         final auth = AuthService(runtime.container);
         final accounts = AccountsService(runtime.container, events: EventBus());
         await auth.status();

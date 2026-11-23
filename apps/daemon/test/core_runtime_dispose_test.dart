@@ -2,7 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
@@ -14,7 +13,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_librechat_chat.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// Disposing the runtime while a LibreChat list refresh nobody waits on is
 /// still out. The process exits, or a test deletes the directory, once
@@ -100,15 +99,7 @@ final class _Bench {
     addTearDown(PreferencesStore.debugReset);
     final temporary = Directory.systemTemp.createTempSync('runtime-dispose');
     addTearDown(() => temporary.deleteSync(recursive: true));
-    final runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    final runtime = await startTestRuntime(temporary);
     final libreChat = await FakeLibreChatChat.start();
     addTearDown(libreChat.close);
     libreChat.fake.addUser(email: 'avery@example.com', password: 'pw-avery');

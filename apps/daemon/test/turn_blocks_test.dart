@@ -2,7 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
@@ -11,7 +10,7 @@ import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
 import 'support/mcp_fixture.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 import 'support/thinking_openai.dart';
 import 'support/window.dart';
 
@@ -78,15 +77,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('turn-blocks-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     mcpServer = await McpFixture.start(requiredToken: 'mcp-token');
     provider = await ThinkingOpenAi.start();
     final direct = DirectService(runtime.container);

@@ -8,7 +8,7 @@ import 'package:conduit_protocol/conduit_protocol.dart';
 import 'package:conduitd/conduitd.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `direct.ollama*` against a fake Ollama server: which models are
 /// loaded, loading and unloading them, and the per-model settings.
@@ -21,15 +21,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('ollama-actions-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     direct = DirectService(runtime.container);
     ollama = await _FakeOllama.start();
     final list = await direct.save(

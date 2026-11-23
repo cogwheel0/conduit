@@ -2,7 +2,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:conduit_core/ports/secure_key_value_store.dart';
@@ -23,7 +22,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
 import 'support/fake_openai.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// What the composer holds and draws on, past the protocol: its draft kept
 /// per chat, a message's mentions in Open WebUI's wire format, an upload's
@@ -259,15 +258,7 @@ void main() {
 
     setUpAll(() async {
       temporary = Directory.systemTemp.createTempSync('composer-test');
-      runtime = await CoreRuntime.start(
-        config: BootstrapConfig(
-          sessionToken: 'a' * 43,
-          masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-          userDataDir: temporary.path,
-        ),
-        directories: DaemonDirectories.create(temporary.path),
-        log: DaemonLog(level: 'error', sink: NullSink()),
-      );
+      runtime = await startTestRuntime(temporary);
       provider = await FakeOpenAi.start();
       final direct = DirectService(runtime.container);
       await direct.setPreferred(preferred: true);

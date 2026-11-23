@@ -17,7 +17,7 @@ import 'package:riverpod/riverpod.dart' show AsyncValue;
 import 'package:test/test.dart';
 
 import 'support/fake_owui_auth_server.dart';
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `auth.renewProxy` writes for the account whose sign-in window it was:
 /// two accounts on one server, and a capture for the first is never saved
@@ -37,15 +37,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('proxy-renewal-account');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     owui = await FakeOwuiAuthServer.start(
       users: const {
         'robin@example.com': (

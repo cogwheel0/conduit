@@ -17,7 +17,7 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
-import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 /// `mcpApps.*` without an Open WebUI account: what is refused, and what
 /// answers that nothing was there. Running an app against a server is
@@ -29,15 +29,7 @@ void main() {
 
   setUpAll(() async {
     temporary = Directory.systemTemp.createTempSync('mcp-apps-test');
-    runtime = await CoreRuntime.start(
-      config: BootstrapConfig(
-        sessionToken: 'a' * 43,
-        masterKey: base64.encode(List<int>.generate(32, (i) => i)),
-        userDataDir: temporary.path,
-      ),
-      directories: DaemonDirectories.create(temporary.path),
-      log: DaemonLog(level: 'error', sink: NullSink()),
-    );
+    runtime = await startTestRuntime(temporary);
     apps = McpAppsService(runtime.container, EventBus());
   });
 

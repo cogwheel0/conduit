@@ -21,6 +21,7 @@ import 'package:web_socket_channel/io.dart';
 
 import 'support/fake_owui_auth_server.dart';
 import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 const _chatId = 'chat-shelf';
 
@@ -173,7 +174,8 @@ final class _Bench {
     );
     final directories = DaemonDirectories.create(temporary.path);
     final log = DaemonLog(level: 'error', sink: NullSink());
-    final runtime = await CoreRuntime.start(
+    final runtime = await startTestRuntime(
+      temporary,
       config: config,
       directories: directories,
       log: log,

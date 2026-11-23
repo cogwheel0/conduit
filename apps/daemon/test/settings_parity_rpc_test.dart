@@ -45,6 +45,7 @@ import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
 
 import 'support/null_sink.dart';
+import 'support/runtime.dart';
 
 const String _token = 'Qm7vR2xKp9LwZt4NbHs6YdFe3GjCa8UoTi1XkPq5VrS';
 final String _masterKey = base64.encode(List<int>.filled(32, 11));
@@ -83,7 +84,8 @@ void main() {
     );
     final port = await server.start();
     server.attachCore(
-      await CoreRuntime.start(
+      await startTestRuntime(
+        tempDir,
         config: config,
         directories: directories,
         log: log,
