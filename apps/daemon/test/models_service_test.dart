@@ -82,6 +82,18 @@ final class _Listed extends Models {
   ];
 }
 
+/// [_Listed]'s models and [extra], read again on each build.
+final class _Growing extends Models {
+  static List<core.Model> extra = const <core.Model>[];
+
+  @override
+  Future<List<core.Model>> build() async => [
+    const core.Model(id: 'first-model', name: 'First model'),
+    const core.Model(id: 'preferred-model', name: 'Preferred'),
+    ...extra,
+  ];
+}
+
 /// A model one of the user's devices offers, as Open WebUI 0.13.4 lists it,
 /// beside one of the server's own.
 final class _OnDevices extends Models {
@@ -1430,33 +1442,24 @@ void main() {
         () async {
       final container = _agentContainer(_AgentsApi());
       final models = ModelsService(container);
-      for (final (chatId, model) in const [
-        ('preferred-chat', 'preferred-model'),
+      // Each chat's model, and whether the picker offers it: always listed,
+      // so the window can show and send it.
+      for (final (chatId, model, offered) in const [
+        ('preferred-chat', 'preferred-model', true),
         // Hidden from the picker since, but still the server's.
-        ('hidden-chat', 'hidden-model'),
+        ('hidden-chat', 'hidden-model', false),
         // Offered nowhere now: the account's selection.
-        ('retired-chat', 'first-model'),
+        ('retired-chat', 'first-model', true),
       ]) {
-        check(
-          (await models.list(ModelListQuery(chatId: chatId))).selectedId,
-        ).equals(model);
+        final list = await models.list(ModelListQuery(chatId: chatId));
+        check(list.selectedId).equals(model);
+        check(list.models.map((m) => m.id)).contains(model);
+        check(<String>[
+          ...list.featuredIds,
+          for (final section in list.moreSections) ...section.ids,
+        ].contains(model)).equals(offered);
         check(await models.modelFor(chatId)).equals(model);
       }
-    });
-
-    test('a hidden saved model is listed for its chat, to show and send, but '
-        'not offered in the picker', () async {
-      final container = _agentContainer(_AgentsApi());
-      final list = await ModelsService(
-        container,
-      ).list(const ModelListQuery(chatId: 'hidden-chat'));
-      check(list.selectedId).equals('hidden-model');
-      check(list.models.map((m) => m.id)).contains('hidden-model');
-      final offered = <String>[
-        ...list.featuredIds,
-        for (final section in list.moreSections) ...section.ids,
-      ];
-      check(offered).not((it) => it.contains('hidden-model'));
     });
 
     test("a chat's own pick wins without asking the server for hidden "
@@ -1474,6 +1477,49 @@ void main() {
       check(picked.selectedId).equals('preferred-model');
       check(await models.modelFor('retired-chat')).equals('preferred-model');
       check(api.hiddenAsked).equals(1);
+    });
+
+    test("a hidden saved model's options and reasoning pick are its own",
+        () async {
+      final container = _agentContainer(_AgentsApi());
+      final models = ModelsService(container);
+      check(
+        (await models.options(
+          const ModelOptionsQuery(
+            modelId: 'hidden-model',
+            chatId: 'hidden-chat',
+          ),
+        )).modelId,
+      ).equals('hidden-model');
+      check(
+        (await models.setReasoningEffort(
+          const SetReasoningEffort(modelId: 'hidden-model', effort: 'high'),
+        )).modelId,
+      ).equals('hidden-model');
+    });
+
+    test('a lookup past the list that a refresh overtakes is not kept',
+        () async {
+      _Growing.extra = const <core.Model>[];
+      addTearDown(() => _Growing.extra = const <core.Model>[]);
+      final api = _AgentsApi()..hiddenHeld = Completer<void>();
+      final container = _agentContainer(api, models: _Growing.new);
+      final models = ModelsService(container);
+      final first = models.list(const ModelListQuery(chatId: 'retired-chat'));
+      await api.hiddenAskedOnce.future;
+      // The server lists the chat's model again while the lookup is out.
+      _Growing.extra = const <core.Model>[
+        core.Model(id: 'retired-model', name: 'Retired'),
+      ];
+      container.invalidate(modelsProvider);
+      await container.read(modelsProvider.future);
+      api.hiddenHeld!.complete();
+      await first;
+      check(
+        (await models.list(
+          const ModelListQuery(chatId: 'retired-chat'),
+        )).selectedId,
+      ).equals('retired-model');
     });
 
     test('a selection made while the saved model is looked up is the one '

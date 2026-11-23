@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
-    show modelSavedWithChat;
+    show modelForId, modelSavedWithChat;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         agentTerminalGone,
@@ -118,10 +118,6 @@ Future<core.Model?> currentModel(ProviderContainer container) async {
   }
   return container.read(selectedModelProvider) ?? resolved;
 }
-
-/// A saved model looked up ([ModelsService._savedModel]): what it found, and
-/// the model list it was looked up against.
-typedef _SavedLookup = ({List<core.Model> listed, core.Model? model});
 
 /// Implements `models.*` over the core's model providers.
 final class ModelsService {
@@ -803,10 +799,15 @@ final class ModelsService {
     );
   }
 
+  /// The model [id] names (the selection for null), by the core's one rule
+  /// ([modelForId]): a hidden model a chat was saved with included.
   Future<core.Model?> _model(String? id) async {
     if (id == null) return currentModel(_container);
-    final models = await _models();
-    return models.where((candidate) => candidate.id == id).firstOrNull;
+    try {
+      return await modelForId(_container.read, id);
+    } on Object {
+      return null;
+    }
   }
 
   /// The chat [chatId], read for [account] only (checked before the read
@@ -991,19 +992,8 @@ final class ModelsService {
   ) async {
     final id = conversation?.model?.trim();
     if (id == null || id.isEmpty || isTerminalAgentModelId(id)) return null;
-    final key = (account.identity, id);
-    final known = _savedLookups[key];
-    final listed = _container.read(modelsProvider).value;
-    if (known != null && listed != null && identical(known.listed, listed)) {
-      return known.model;
-    }
     try {
-      final model = await modelSavedWithChat(_container.read, id);
-      final against = _container.read(modelsProvider).value;
-      if (against != null) {
-        _savedLookups[key] = (listed: against, model: model);
-      }
-      return model;
+      return await modelSavedWithChat(_container.read, id);
     } on Object catch (error) {
       DebugLogger.warning(
         'saved-model-unresolved',
@@ -1013,12 +1003,6 @@ final class ModelsService {
       return null;
     }
   }
-
-  /// Saved models looked up per account and id, with the model list each
-  /// was looked up against: one past the list (hidden, or offered nowhere)
-  /// asks the server, so it is asked again only once that list changes.
-  final Map<(Object, String), _SavedLookup> _savedLookups =
-      <(Object, String), _SavedLookup>{};
 
   /// The account's default model among [models]' regular ones, else the
   /// one the core takes with none picked: for a chat with no pick while the

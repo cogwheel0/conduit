@@ -49,9 +49,41 @@ Future<Model?> modelSavedWithChat(
   // A locally minted direct model lives only in the list and is never
   // replaced by an untrusted server object with the same id.
   if (listed != null || api == null) return listed;
+  final lookups = read(_hiddenModelLookupsProvider);
+  final known = lookups[modelId];
+  if (known != null && identical(known.listed, visible)) return known.model;
   final all = await api.getModels(includeHidden: true);
   if (!current()) return null;
-  return all.where((model) => model.id == modelId).firstOrNull;
+  final model = all.where((model) => model.id == modelId).firstOrNull;
+  // Kept against the list it was looked past, and only while that list
+  // stands: one published meanwhile may list the model now.
+  if (identical(read(modelsProvider).value, visible)) {
+    lookups[modelId] = (listed: visible, model: model);
+  }
+  return model;
+}
+
+/// What [modelSavedWithChat] found past the list, per model id, with the
+/// list it was looked past: the server is asked again once that list
+/// changes. Another server or account starts over.
+final _hiddenModelLookupsProvider =
+    Provider<Map<String, ({List<Model> listed, Model? model})>>((ref) {
+      ref.watch(apiServiceProvider);
+      return <String, ({List<Model> listed, Model? model})>{};
+    });
+
+/// The model [id] names for a turn, a control or a setting: the one
+/// selected now, a listed one, or one the server hides from the picker but
+/// still offers ([modelSavedWithChat]): a chat saved on it runs on it, as
+/// mobile's selection keeps it. Null for any other. A coding agent is
+/// named by its terminal, not here.
+Future<Model?> modelForId(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String id,
+) async {
+  final selected = read(selectedModelProvider);
+  if (selected?.id == id) return selected;
+  return modelSavedWithChat(read, id);
 }
 
 /// The model the user last picked in an open chat, with the ids of the

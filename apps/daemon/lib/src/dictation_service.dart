@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart'
+    show modelForId;
 import 'package:conduit_core/features/chat/server_speech/server_speech.dart';
 import 'package:conduit_core/features/chat/server_speech/server_speech_providers.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -206,7 +208,15 @@ final class DictationService {
       }
     }
     if (wanted.startsWith(kHermesModelIdPrefix)) return null;
-    // An Open WebUI model the list has not loaded yet.
+    // One the server hides from the picker but still offers (a chat saved
+    // on it), by the core's one rule; else an Open WebUI model the list
+    // has not loaded yet.
+    try {
+      final usable = await modelForId(_container.read, wanted);
+      if (usable != null) return usable;
+    } on Object {
+      // The list or the server could not be read: as not loaded yet.
+    }
     return Model(id: wanted, name: wanted);
   }
 
